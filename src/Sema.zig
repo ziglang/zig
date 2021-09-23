@@ -2447,7 +2447,7 @@ fn zirExport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErro
     }
     const decl = try sema.lookupIdentifier(block, operand_src, decl_name);
     const options = try sema.resolveExportOptions(block, options_src, extra.options);
-    try sema.mod.analyzeExport(&block.base, src, options, decl);
+    try sema.mod.analyzeExport(block, src, options, decl);
 }
 
 fn zirExportValue(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
@@ -2465,7 +2465,7 @@ fn zirExportValue(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Compil
         .function => operand.val.castTag(.function).?.data.owner_decl,
         else => return sema.mod.fail(&block.base, operand_src, "TODO implement exporting arbitrary Value objects", .{}), // TODO put this Value into an anonymous Decl and then export it.
     };
-    try sema.mod.analyzeExport(&block.base, src, options, decl);
+    try sema.mod.analyzeExport(block, src, options, decl);
 }
 
 fn zirSetAlignStack(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {

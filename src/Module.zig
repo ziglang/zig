@@ -248,6 +248,9 @@ pub const Export = struct {
     link: link.File.Export,
     /// The Decl that performs the export. Note that this is *not* the Decl being exported.
     owner_decl: *Decl,
+    /// The Decl containing the export statement.  Inline function calls
+    /// may cause this to be different from the owner_decl.
+    src_decl: *Decl,
     /// The Decl being exported. Note this is *not* the Decl performing the export.
     exported_decl: *Decl,
     status: enum {
@@ -261,8 +264,8 @@ pub const Export = struct {
 
     pub fn getSrcLoc(exp: Export) SrcLoc {
         return .{
-            .file_scope = exp.owner_decl.namespace.file_scope,
-            .parent_decl_node = exp.owner_decl.src_node,
+            .file_scope = exp.src_decl.namespace.file_scope,
+            .parent_decl_node = exp.src_decl.src_node,
             .lazy = exp.src,
         };
     }
@@ -1012,15 +1015,6 @@ pub const Scope = struct {
             return null;
 
         return @fieldParentPtr(T, "base", base);
-    }
-
-    /// Get the decl that is currently being analyzed
-    pub fn ownerDecl(scope: *Scope) ?*Decl {
-        return switch (scope.tag) {
-            .block => scope.cast(Block).?.sema.owner_decl,
-            .file => null,
-            .namespace => null,
-        };
     }
 
     /// Get the decl which contains this decl, for the purposes of source reporting
@@ -3402,7 +3396,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
                 }
                 // The scope needs to have the decl in it.
                 const options: std.builtin.ExportOptions = .{ .name = mem.spanZ(decl.name) };
-                try mod.analyzeExport(&block_scope.base, export_src, options, decl);
+                try mod.analyzeExport(&block_scope, export_src, options, decl);
             }
             return type_changed or is_inline != prev_is_inline;
         }
@@ -3462,7 +3456,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         const export_src = src; // TODO point to the export token
         // The scope needs to have the decl in it.
         const options: std.builtin.ExportOptions = .{ .name = mem.spanZ(decl.name) };
-        try mod.analyzeExport(&block_scope.base, export_src, options, decl);
+        try mod.analyzeExport(&block_scope, export_src, options, decl);
     }
 
     return type_changed;
@@ -3931,7 +3925,7 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
 
 pub fn deleteAnonDecl(mod: *Module, scope: *Scope, decl: *Decl) void {
     log.debug("deleteAnonDecl {*} ({s})", .{ decl, decl.name });
-    const scope_decl = scope.ownerDecl().?;
+    const scope_decl = scope.srcDecl().?;
     assert(scope_decl.namespace.anon_decls.swapRemove(decl));
     decl.destroy(mod);
 }
@@ -4209,7 +4203,7 @@ pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged
 
 pub fn analyzeExport(
     mod: *Module,
-    scope: *Scope,
+    block: *Scope.Block,
     src: LazySrcLoc,
     borrowed_options: std.builtin.ExportOptions,
     exported_decl: *Decl,
@@ -4217,7 +4211,7 @@ pub fn analyzeExport(
     try mod.ensureDeclAnalyzed(exported_decl);
     switch (exported_decl.ty.zigTypeTag()) {
         .Fn => {},
-        else => return mod.fail(scope, src, "unable to export type '{}'", .{exported_decl.ty}),
+        else => return mod.fail(&block.base, src, "unable to export type '{}'", .{exported_decl.ty}),
     }
 
     const gpa = mod.gpa;
@@ -4234,7 +4228,8 @@ pub fn analyzeExport(
     const section: ?[]const u8 = if (borrowed_options.section) |s| try gpa.dupe(u8, s) else null;
     errdefer if (section) |s| gpa.free(s);
 
-    const owner_decl = scope.ownerDecl().?;
+    const src_decl = block.src_decl;
+    const owner_decl = block.sema.owner_decl;
 
     log.debug("exporting Decl '{s}' as symbol '{s}' from Decl '{s}'", .{
         exported_decl.name, symbol_name, owner_decl.name,
@@ -4257,6 +4252,7 @@ pub fn analyzeExport(
             .spirv => .{ .spirv = {} },
         },
         .owner_decl = owner_decl,
+        .src_decl = src_decl,
         .exported_decl = exported_decl,
         .status = .in_progress,
     };
@@ -4287,38 +4283,38 @@ pub fn createAnonymousDeclNamed(
     typed_value: TypedValue,
     name: [:0]u8,
 ) !*Decl {
-    return mod.createAnonymousDeclFromDeclNamed(scope.ownerDecl().?, scope.srcScope(), typed_value, name);
+    return mod.createAnonymousDeclFromDeclNamed(scope.srcDecl().?, scope.srcScope(), typed_value, name);
 }
 
 pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
-    return mod.createAnonymousDeclFromDecl(scope.ownerDecl().?, scope.srcScope(), typed_value);
+    return mod.createAnonymousDeclFromDecl(scope.srcDecl().?, scope.srcScope(), typed_value);
 }
 
-pub fn createAnonymousDeclFromDecl(mod: *Module, owner_decl: *Decl, src_scope: ?*CaptureScope, tv: TypedValue) !*Decl {
+pub fn createAnonymousDeclFromDecl(mod: *Module, src_decl: *Decl, src_scope: ?*CaptureScope, tv: TypedValue) !*Decl {
     const name_index = mod.getNextAnonNameIndex();
     const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
-        owner_decl.name, name_index,
+        src_decl.name, name_index,
     });
-    return mod.createAnonymousDeclFromDeclNamed(owner_decl, src_scope, tv, name);
+    return mod.createAnonymousDeclFromDeclNamed(src_decl, src_scope, tv, name);
 }
 
 /// Takes ownership of `name` even if it returns an error.
 pub fn createAnonymousDeclFromDeclNamed(
     mod: *Module,
-    owner_decl: *Decl,
+    src_decl: *Decl,
     src_scope: ?*CaptureScope,
     typed_value: TypedValue,
     name: [:0]u8,
 ) !*Decl {
     errdefer mod.gpa.free(name);
 
-    const namespace = owner_decl.namespace;
+    const namespace = src_decl.namespace;
     try namespace.anon_decls.ensureUnusedCapacity(mod.gpa, 1);
 
-    const new_decl = try mod.allocateNewDecl(namespace, owner_decl.src_node, src_scope);
+    const new_decl = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope);
 
     new_decl.name = name;
-    new_decl.src_line = owner_decl.src_line;
+    new_decl.src_line = src_decl.src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
     new_decl.align_val = Value.initTag(.null_value);
