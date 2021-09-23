@@ -124,7 +124,7 @@ pub fn generate(gpa: *Allocator, tree: Ast) Allocator.Error!Zir {
         container_decl,
         .Auto,
     )) |struct_decl_ref| {
-        astgen.extra.items[@enumToInt(Zir.ExtraIndex.main_struct)] = @enumToInt(struct_decl_ref);
+        assert(refToIndex(struct_decl_ref).? == 0);
     } else |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.AnalysisFail => {}, // Handled via compile_errors below.
@@ -2078,9 +2078,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .union_init_ptr,
             .field_type,
             .field_type_ref,
-            .opaque_decl,
-            .opaque_decl_anon,
-            .opaque_decl_func,
             .error_set_decl,
             .error_set_decl_anon,
             .error_set_decl_func,
@@ -2162,6 +2159,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .await_nosuspend,
             .ret_err_value_code,
             .extended,
+            .closure_get,
             => break :b false,
 
             // ZIR instructions that are always `noreturn`.
@@ -2205,6 +2203,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .set_cold,
             .set_float_mode,
             .set_runtime_safety,
+            .closure_capture,
             => break :b true,
         }
     } else switch (maybe_unused_result) {
@@ -3534,8 +3533,9 @@ fn structDeclInner(
     container_decl: Ast.full.ContainerDecl,
     layout: std.builtin.TypeInfo.ContainerLayout,
 ) InnerError!Zir.Inst.Ref {
+    const decl_inst = try gz.reserveInstructionIndex();
+
     if (container_decl.ast.members.len == 0) {
-        const decl_inst = try gz.reserveInstructionIndex();
         try gz.setStruct(decl_inst, .{
             .src_node = node,
             .layout = layout,
@@ -3553,11 +3553,19 @@ fn structDeclInner(
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
 
+    var namespace: Scope.Namespace = .{
+        .parent = scope,
+        .node = node,
+        .inst = decl_inst,
+        .declaring_gz = gz,
+    };
+    defer namespace.deinit(gpa);
+
     // The struct_decl instruction introduces a scope in which the decls of the struct
     // are in scope, so that field types, alignments, and default value expressions
     // can refer to decls within the struct itself.
     var block_scope: GenZir = .{
-        .parent = scope,
+        .parent = &namespace.base,
         .decl_node_index = node,
         .decl_line = gz.calcLine(node),
         .astgen = astgen,
@@ -3565,9 +3573,6 @@ fn structDeclInner(
         .in_defer = false,
     };
     defer block_scope.instructions.deinit(gpa);
-
-    var namespace: Scope.Namespace = .{ .parent = scope, .node = node };
-    defer namespace.decls.deinit(gpa);
 
     try astgen.scanDecls(&namespace, container_decl.ast.members);
 
@@ -3773,7 +3778,6 @@ fn structDeclInner(
         }
     }
 
-    const decl_inst = try gz.reserveInstructionIndex();
     if (block_scope.instructions.items.len != 0) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
     }
@@ -3787,11 +3791,18 @@ fn structDeclInner(
         .known_has_bits = known_has_bits,
     });
 
-    try astgen.extra.ensureUnusedCapacity(gpa, bit_bag.items.len +
-        @boolToInt(field_index != 0) + fields_data.items.len +
+    // zig fmt: off
+    try astgen.extra.ensureUnusedCapacity(gpa,
+        bit_bag.items.len +
+        @boolToInt(wip_decls.decl_index != 0) +
+        wip_decls.payload.items.len +
         block_scope.instructions.items.len +
-        wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
-        wip_decls.payload.items.len);
+        wip_decls.bit_bag.items.len +
+        @boolToInt(field_index != 0) +
+        fields_data.items.len
+    );
+    // zig fmt: on
+
     astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
     if (wip_decls.decl_index != 0) {
         astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
@@ -3818,17 +3829,27 @@ fn unionDeclInner(
     arg_node: Ast.Node.Index,
     have_auto_enum: bool,
 ) InnerError!Zir.Inst.Ref {
+    const decl_inst = try gz.reserveInstructionIndex();
+
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
 
+    var namespace: Scope.Namespace = .{
+        .parent = scope,
+        .node = node,
+        .inst = decl_inst,
+        .declaring_gz = gz,
+    };
+    defer namespace.deinit(gpa);
+
     // The union_decl instruction introduces a scope in which the decls of the union
     // are in scope, so that field types, alignments, and default value expressions
     // can refer to decls within the union itself.
     var block_scope: GenZir = .{
-        .parent = scope,
+        .parent = &namespace.base,
         .decl_node_index = node,
         .decl_line = gz.calcLine(node),
         .astgen = astgen,
@@ -3837,13 +3858,10 @@ fn unionDeclInner(
     };
     defer block_scope.instructions.deinit(gpa);
 
-    var namespace: Scope.Namespace = .{ .parent = scope, .node = node };
-    defer namespace.decls.deinit(gpa);
-
     try astgen.scanDecls(&namespace, members);
 
     const arg_inst: Zir.Inst.Ref = if (arg_node != 0)
-        try typeExpr(gz, &namespace.base, arg_node)
+        try typeExpr(&block_scope, &namespace.base, arg_node)
     else
         .none;
 
@@ -4056,7 +4074,6 @@ fn unionDeclInner(
         }
     }
 
-    const decl_inst = try gz.reserveInstructionIndex();
     if (block_scope.instructions.items.len != 0) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
     }
@@ -4071,11 +4088,18 @@ fn unionDeclInner(
         .auto_enum_tag = have_auto_enum,
     });
 
-    try astgen.extra.ensureUnusedCapacity(gpa, bit_bag.items.len +
-        1 + fields_data.items.len +
+    // zig fmt: off
+    try astgen.extra.ensureUnusedCapacity(gpa,
+        bit_bag.items.len +
+        @boolToInt(wip_decls.decl_index != 0) +
+        wip_decls.payload.items.len +
         block_scope.instructions.items.len +
-        wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
-        wip_decls.payload.items.len);
+        wip_decls.bit_bag.items.len +
+        1 + // cur_bit_bag
+        fields_data.items.len
+    );
+    // zig fmt: on
+
     astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
     if (wip_decls.decl_index != 0) {
         astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
@@ -4238,10 +4262,20 @@ fn containerDecl(
             // how structs are handled above.
             const nonexhaustive = counts.nonexhaustive_node != 0;
 
+            const decl_inst = try gz.reserveInstructionIndex();
+
+            var namespace: Scope.Namespace = .{
+                .parent = scope,
+                .node = node,
+                .inst = decl_inst,
+                .declaring_gz = gz,
+            };
+            defer namespace.deinit(gpa);
+
             // The enum_decl instruction introduces a scope in which the decls of the enum
             // are in scope, so that tag values can refer to decls within the enum itself.
             var block_scope: GenZir = .{
-                .parent = scope,
+                .parent = &namespace.base,
                 .decl_node_index = node,
                 .decl_line = gz.calcLine(node),
                 .astgen = astgen,
@@ -4250,13 +4284,10 @@ fn containerDecl(
             };
             defer block_scope.instructions.deinit(gpa);
 
-            var namespace: Scope.Namespace = .{ .parent = scope, .node = node };
-            defer namespace.decls.deinit(gpa);
-
             try astgen.scanDecls(&namespace, container_decl.ast.members);
 
             const arg_inst: Zir.Inst.Ref = if (container_decl.ast.arg != 0)
-                try comptimeExpr(gz, &namespace.base, .{ .ty = .type_type }, container_decl.ast.arg)
+                try comptimeExpr(&block_scope, &namespace.base, .{ .ty = .type_type }, container_decl.ast.arg)
             else
                 .none;
 
@@ -4451,7 +4482,6 @@ fn containerDecl(
                 }
             }
 
-            const decl_inst = try gz.reserveInstructionIndex();
             if (block_scope.instructions.items.len != 0) {
                 _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
             }
@@ -4465,11 +4495,18 @@ fn containerDecl(
                 .decls_len = @intCast(u32, wip_decls.decl_index),
             });
 
-            try astgen.extra.ensureUnusedCapacity(gpa, bit_bag.items.len +
-                1 + fields_data.items.len +
+            // zig fmt: off
+            try astgen.extra.ensureUnusedCapacity(gpa,
+                bit_bag.items.len +
+                @boolToInt(wip_decls.decl_index != 0) +
+                wip_decls.payload.items.len +
                 block_scope.instructions.items.len +
-                wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
-                wip_decls.payload.items.len);
+                wip_decls.bit_bag.items.len +
+                1 + // cur_bit_bag
+                fields_data.items.len
+            );
+            // zig fmt: on
+
             astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
             if (wip_decls.decl_index != 0) {
                 astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
@@ -4486,8 +4523,15 @@ fn containerDecl(
         .keyword_opaque => {
             assert(container_decl.ast.arg == 0);
 
-            var namespace: Scope.Namespace = .{ .parent = scope, .node = node };
-            defer namespace.decls.deinit(gpa);
+            const decl_inst = try gz.reserveInstructionIndex();
+
+            var namespace: Scope.Namespace = .{
+                .parent = scope,
+                .node = node,
+                .inst = decl_inst,
+                .declaring_gz = gz,
+            };
+            defer namespace.deinit(gpa);
 
             try astgen.scanDecls(&namespace, container_decl.ast.members);
 
@@ -4625,21 +4669,20 @@ fn containerDecl(
                     wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * WipDecls.bits_per_field);
                 }
             }
-            const tag: Zir.Inst.Tag = switch (gz.anon_name_strategy) {
-                .parent => .opaque_decl,
-                .anon => .opaque_decl_anon,
-                .func => .opaque_decl_func,
-            };
-            const decl_inst = try gz.addBlock(tag, node);
-            try gz.instructions.append(gpa, decl_inst);
 
-            try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.OpaqueDecl).Struct.fields.len +
-                wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
-                wip_decls.payload.items.len);
-            const zir_datas = astgen.instructions.items(.data);
-            zir_datas[decl_inst].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.OpaqueDecl{
+            try gz.setOpaque(decl_inst, .{
+                .src_node = node,
                 .decls_len = @intCast(u32, wip_decls.decl_index),
             });
+
+            // zig fmt: off
+            try astgen.extra.ensureUnusedCapacity(gpa,
+                wip_decls.bit_bag.items.len +
+                @boolToInt(wip_decls.decl_index != 0) +
+                wip_decls.payload.items.len
+            );
+            // zig fmt: on
+
             astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
             if (wip_decls.decl_index != 0) {
                 astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
@@ -6380,6 +6423,7 @@ fn identifier(
 
     const astgen = gz.astgen;
     const tree = astgen.tree;
+    const gpa = astgen.gpa;
     const main_tokens = tree.nodes.items(.main_token);
 
     const ident_token = main_tokens[ident];
@@ -6426,16 +6470,28 @@ fn identifier(
     const name_str_index = try astgen.identAsString(ident_token);
     var s = scope;
     var found_already: ?Ast.Node.Index = null; // we have found a decl with the same name already
-    var hit_namespace: Ast.Node.Index = 0;
+    var num_namespaces_out: u32 = 0;
+    var capturing_namespace: ?*Scope.Namespace = null;
     while (true) switch (s.tag) {
         .local_val => {
             const local_val = s.cast(Scope.LocalVal).?;
 
             if (local_val.name == name_str_index) {
-                local_val.used = true;
                 // Locals cannot shadow anything, so we do not need to look for ambiguous
                 // references in this case.
-                return rvalue(gz, rl, local_val.inst, ident);
+                local_val.used = true;
+
+                const value_inst = try tunnelThroughClosure(
+                    gz,
+                    ident,
+                    num_namespaces_out,
+                    capturing_namespace,
+                    local_val.inst,
+                    local_val.token_src,
+                    gpa,
+                );
+
+                return rvalue(gz, rl, value_inst, ident);
             }
             s = local_val.parent;
         },
@@ -6443,16 +6499,29 @@ fn identifier(
             const local_ptr = s.cast(Scope.LocalPtr).?;
             if (local_ptr.name == name_str_index) {
                 local_ptr.used = true;
-                if (hit_namespace != 0 and !local_ptr.maybe_comptime) {
+
+                // Can't close over a runtime variable
+                if (num_namespaces_out != 0 and !local_ptr.maybe_comptime) {
                     return astgen.failNodeNotes(ident, "mutable '{s}' not accessible from here", .{ident_name}, &.{
                         try astgen.errNoteTok(local_ptr.token_src, "declared mutable here", .{}),
-                        try astgen.errNoteNode(hit_namespace, "crosses namespace boundary here", .{}),
+                        try astgen.errNoteNode(capturing_namespace.?.node, "crosses namespace boundary here", .{}),
                     });
                 }
+
+                const ptr_inst = try tunnelThroughClosure(
+                    gz,
+                    ident,
+                    num_namespaces_out,
+                    capturing_namespace,
+                    local_ptr.ptr,
+                    local_ptr.token_src,
+                    gpa,
+                );
+
                 switch (rl) {
-                    .ref, .none_or_ref => return local_ptr.ptr,
+                    .ref, .none_or_ref => return ptr_inst,
                     else => {
-                        const loaded = try gz.addUnNode(.load, local_ptr.ptr, ident);
+                        const loaded = try gz.addUnNode(.load, ptr_inst, ident);
                         return rvalue(gz, rl, loaded, ident);
                     },
                 }
@@ -6473,7 +6542,8 @@ fn identifier(
                 // We found a match but must continue looking for ambiguous references to decls.
                 found_already = i;
             }
-            hit_namespace = ns.node;
+            num_namespaces_out += 1;
+            capturing_namespace = ns;
             s = ns.parent;
         },
         .top => break,
@@ -6491,6 +6561,37 @@ fn identifier(
             return rvalue(gz, rl, result, ident);
         },
     }
+}
+
+/// Adds a capture to a namespace, if needed.
+/// Returns the index of the closure_capture instruction.
+fn tunnelThroughClosure(
+    gz: *GenZir,
+    inner_ref_node: Ast.Node.Index,
+    num_tunnels: u32,
+    ns: ?*Scope.Namespace,
+    value: Zir.Inst.Ref,
+    token: Ast.TokenIndex,
+    gpa: *Allocator,
+) !Zir.Inst.Ref {
+    // For trivial values, we don't need a tunnel.
+    // Just return the ref.
+    if (num_tunnels == 0 or refToIndex(value) == null) {
+        return value;
+    }
+
+    // Otherwise we need a tunnel.  Check if this namespace
+    // already has one for this value.
+    const gop = try ns.?.captures.getOrPut(gpa, refToIndex(value).?);
+    if (!gop.found_existing) {
+        // Make a new capture for this value
+        const capture_ref = try ns.?.declaring_gz.?.addUnTok(.closure_capture, value, token);
+        gop.value_ptr.* = refToIndex(capture_ref).?;
+    }
+
+    // Add an instruction to get the value from the closure into
+    // our current context
+    return try gz.addInstNode(.closure_get, gop.value_ptr.*, inner_ref_node);
 }
 
 fn stringLiteral(
@@ -8961,6 +9062,17 @@ const Scope = struct {
         return @fieldParentPtr(T, "base", base);
     }
 
+    fn parent(base: *Scope) ?*Scope {
+        return switch (base.tag) {
+            .gen_zir => base.cast(GenZir).?.parent,
+            .local_val => base.cast(LocalVal).?.parent,
+            .local_ptr => base.cast(LocalPtr).?.parent,
+            .defer_normal, .defer_error => base.cast(Defer).?.parent,
+            .namespace => base.cast(Namespace).?.parent,
+            .top => null,
+        };
+    }
+
     const Tag = enum {
         gen_zir,
         local_val,
@@ -8986,7 +9098,7 @@ const Scope = struct {
     const LocalVal = struct {
         const base_tag: Tag = .local_val;
         base: Scope = Scope{ .tag = base_tag },
-        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`.
+        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`, `Namespace`.
         parent: *Scope,
         gen_zir: *GenZir,
         inst: Zir.Inst.Ref,
@@ -9005,7 +9117,7 @@ const Scope = struct {
     const LocalPtr = struct {
         const base_tag: Tag = .local_ptr;
         base: Scope = Scope{ .tag = base_tag },
-        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`.
+        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`, `Namespace`.
         parent: *Scope,
         gen_zir: *GenZir,
         ptr: Zir.Inst.Ref,
@@ -9023,7 +9135,7 @@ const Scope = struct {
 
     const Defer = struct {
         base: Scope,
-        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`.
+        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`, `Namespace`.
         parent: *Scope,
         defer_node: Ast.Node.Index,
     };
@@ -9034,11 +9146,27 @@ const Scope = struct {
         const base_tag: Tag = .namespace;
         base: Scope = Scope{ .tag = base_tag },
 
+        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`, `Namespace`.
         parent: *Scope,
         /// Maps string table index to the source location of declaration,
         /// for the purposes of reporting name shadowing compile errors.
         decls: std.AutoHashMapUnmanaged(u32, Ast.Node.Index) = .{},
         node: Ast.Node.Index,
+        inst: Zir.Inst.Index,
+
+        /// The astgen scope containing this namespace.
+        /// Only valid during astgen.
+        declaring_gz: ?*GenZir,
+
+        /// Map from the raw captured value to the instruction
+        /// ref of the capture for decls in this namespace
+        captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
+
+        pub fn deinit(self: *Namespace, gpa: *Allocator) void {
+            self.decls.deinit(gpa);
+            self.captures.deinit(gpa);
+            self.* = undefined;
+        }
     };
 
     const Top = struct {
@@ -9061,6 +9189,7 @@ const GenZir = struct {
     decl_node_index: Ast.Node.Index,
     /// The containing decl line index, absolute.
     decl_line: u32,
+    /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`, `Namespace`.
     parent: *Scope,
     /// All `GenZir` scopes for the same ZIR share this.
     astgen: *AstGen,
@@ -9095,6 +9224,12 @@ const GenZir = struct {
 
     suspend_node: Ast.Node.Index = 0,
     nosuspend_node: Ast.Node.Index = 0,
+
+    /// Namespace members are lazy.  When executing a decl within a namespace,
+    /// any references to external instructions need to be treated specially.
+    /// This list tracks those references.  See also .closure_capture and .closure_get.
+    /// Keys are the raw instruction index, values are the closure_capture instruction.
+    captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
 
     fn makeSubBlock(gz: *GenZir, scope: *Scope) GenZir {
         return .{
@@ -9810,6 +9945,22 @@ const GenZir = struct {
         });
     }
 
+    fn addInstNode(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        inst: Zir.Inst.Index,
+        /// Absolute node index. This function does the conversion to offset from Decl.
+        src_node: Ast.Node.Index,
+    ) !Zir.Inst.Ref {
+        return gz.add(.{
+            .tag = tag,
+            .data = .{ .inst_node = .{
+                .inst = inst,
+                .src_node = gz.nodeIndexToRelative(src_node),
+            } },
+        });
+    }
+
     fn addNodeExtended(
         gz: *GenZir,
         opcode: Zir.Inst.Extended,
@@ -10105,6 +10256,37 @@ const GenZir = struct {
                     .has_decls_len = args.decls_len != 0,
                     .name_strategy = gz.anon_name_strategy,
                     .nonexhaustive = args.nonexhaustive,
+                }),
+                .operand = payload_index,
+            } },
+        });
+    }
+
+    fn setOpaque(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
+        src_node: Ast.Node.Index,
+        decls_len: u32,
+    }) !void {
+        const astgen = gz.astgen;
+        const gpa = astgen.gpa;
+
+        try astgen.extra.ensureUnusedCapacity(gpa, 2);
+        const payload_index = @intCast(u32, astgen.extra.items.len);
+
+        if (args.src_node != 0) {
+            const node_offset = gz.nodeIndexToRelative(args.src_node);
+            astgen.extra.appendAssumeCapacity(@bitCast(u32, node_offset));
+        }
+        if (args.decls_len != 0) {
+            astgen.extra.appendAssumeCapacity(args.decls_len);
+        }
+        astgen.instructions.set(inst, .{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = .opaque_decl,
+                .small = @bitCast(u16, Zir.Inst.OpaqueDecl.Small{
+                    .has_src_node = args.src_node != 0,
+                    .has_decls_len = args.decls_len != 0,
+                    .name_strategy = gz.anon_name_strategy,
                 }),
                 .operand = payload_index,
             } },

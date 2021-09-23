@@ -275,6 +275,56 @@ pub const DeclPlusEmitH = struct {
     emit_h: EmitH,
 };
 
+pub const CaptureScope = struct {
+    parent: ?*CaptureScope,
+
+    /// Values from this decl's evaluation that will be closed over in
+    /// child decls. Values stored in the value_arena of the linked decl.
+    /// During sema, this map is backed by the gpa.  Once sema completes,
+    /// it is reallocated using the value_arena.
+    captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, TypedValue) = .{},
+};
+
+pub const WipCaptureScope = struct {
+    scope: *CaptureScope,
+    finalized: bool,
+    gpa: *Allocator,
+    perm_arena: *Allocator,
+
+    pub fn init(gpa: *Allocator, perm_arena: *Allocator, parent: ?*CaptureScope) !@This() {
+        const scope = try perm_arena.create(CaptureScope);
+        scope.* = .{ .parent = parent };
+        return @This(){
+            .scope = scope,
+            .finalized = false,
+            .gpa = gpa,
+            .perm_arena = perm_arena,
+        };
+    }
+
+    pub fn finalize(noalias self: *@This()) !void {
+        assert(!self.finalized);
+        // use a temp to avoid unintentional aliasing due to RLS
+        const tmp = try self.scope.captures.clone(self.perm_arena);
+        self.scope.captures = tmp;
+        self.finalized = true;
+    }
+
+    pub fn reset(noalias self: *@This(), parent: ?*CaptureScope) !void {
+        if (!self.finalized) try self.finalize();
+        self.scope = try self.perm_arena.create(CaptureScope);
+        self.scope.* = .{ .parent = parent };
+        self.finalized = false;
+    }
+
+    pub fn deinit(noalias self: *@This()) void {
+        if (!self.finalized) {
+            self.scope.captures.deinit(self.gpa);
+        }
+        self.* = undefined;
+    }
+};
+
 pub const Decl = struct {
     /// Allocated with Module's allocator; outlives the ZIR code.
     name: [*:0]const u8,
@@ -290,7 +340,7 @@ pub const Decl = struct {
     linksection_val: Value,
     /// Populated when `has_tv`.
     @"addrspace": std.builtin.AddressSpace,
-    /// The memory for ty, val, align_val, linksection_val.
+    /// The memory for ty, val, align_val, linksection_val, and captures.
     /// If this is `null` then there is no memory management needed.
     value_arena: ?*std.heap.ArenaAllocator.State = null,
     /// The direct parent namespace of the Decl.
@@ -298,6 +348,11 @@ pub const Decl = struct {
     /// In the case of the Decl corresponding to a file, this is
     /// the namespace of the struct, since there is no parent.
     namespace: *Scope.Namespace,
+
+    /// The scope which lexically contains this decl.  A decl must depend
+    /// on its lexical parent, in order to ensure that this pointer is valid.
+    /// This scope is allocated out of the arena of the parent decl.
+    src_scope: ?*CaptureScope,
 
     /// An integer that can be checked against the corresponding incrementing
     /// generation field of Module. This is used to determine whether `complete` status
@@ -959,6 +1014,7 @@ pub const Scope = struct {
         return @fieldParentPtr(T, "base", base);
     }
 
+    /// Get the decl that is currently being analyzed
     pub fn ownerDecl(scope: *Scope) ?*Decl {
         return switch (scope.tag) {
             .block => scope.cast(Block).?.sema.owner_decl,
@@ -967,11 +1023,21 @@ pub const Scope = struct {
         };
     }
 
+    /// Get the decl which contains this decl, for the purposes of source reporting
     pub fn srcDecl(scope: *Scope) ?*Decl {
         return switch (scope.tag) {
             .block => scope.cast(Block).?.src_decl,
             .file => null,
             .namespace => scope.cast(Namespace).?.getDecl(),
+        };
+    }
+
+    /// Get the scope which contains this decl, for resolving closure_get instructions.
+    pub fn srcScope(scope: *Scope) ?*CaptureScope {
+        return switch (scope.tag) {
+            .block => scope.cast(Block).?.wip_capture_scope,
+            .file => null,
+            .namespace => scope.cast(Namespace).?.getDecl().src_scope,
         };
     }
 
@@ -1311,6 +1377,9 @@ pub const Scope = struct {
         instructions: ArrayListUnmanaged(Air.Inst.Index),
         // `param` instructions are collected here to be used by the `func` instruction.
         params: std.ArrayListUnmanaged(Param) = .{},
+
+        wip_capture_scope: *CaptureScope,
+
         label: ?*Label = null,
         inlining: ?*Inlining,
         /// If runtime_index is not 0 then one of these is guaranteed to be non null.
@@ -1372,6 +1441,7 @@ pub const Scope = struct {
                 .sema = parent.sema,
                 .src_decl = parent.src_decl,
                 .instructions = .{},
+                .wip_capture_scope = parent.wip_capture_scope,
                 .label = null,
                 .inlining = parent.inlining,
                 .is_comptime = parent.is_comptime,
@@ -2901,12 +2971,10 @@ pub fn mapOldZirToNew(
     var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .{};
     defer match_stack.deinit(gpa);
 
-    const old_main_struct_inst = old_zir.getMainStruct();
-    const new_main_struct_inst = new_zir.getMainStruct();
-
+    // Main struct inst is always the same
     try match_stack.append(gpa, .{
-        .old_inst = old_main_struct_inst,
-        .new_inst = new_main_struct_inst,
+        .old_inst = Zir.main_struct_inst,
+        .new_inst = Zir.main_struct_inst,
     });
 
     var old_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
@@ -3064,6 +3132,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
     const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
     const struct_val = try Value.Tag.ty.create(&new_decl_arena.allocator, struct_ty);
+    const ty_ty = comptime Type.initTag(.type);
     struct_obj.* = .{
         .owner_decl = undefined, // set below
         .fields = .{},
@@ -3078,7 +3147,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .file_scope = file,
         },
     };
-    const new_decl = try mod.allocateNewDecl(&struct_obj.namespace, 0);
+    const new_decl = try mod.allocateNewDecl(&struct_obj.namespace, 0, null);
     file.root_decl = new_decl;
     struct_obj.owner_decl = new_decl;
     new_decl.src_line = 0;
@@ -3087,7 +3156,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
     new_decl.is_exported = false;
     new_decl.has_align = false;
     new_decl.has_linksection_or_addrspace = false;
-    new_decl.ty = struct_ty;
+    new_decl.ty = ty_ty;
     new_decl.val = struct_val;
     new_decl.has_tv = true;
     new_decl.owns_tv = true;
@@ -3097,7 +3166,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
 
     if (file.status == .success_zir) {
         assert(file.zir_loaded);
-        const main_struct_inst = file.zir.getMainStruct();
+        const main_struct_inst = Zir.main_struct_inst;
         struct_obj.zir_index = main_struct_inst;
 
         var sema_arena = std.heap.ArenaAllocator.init(gpa);
@@ -3107,6 +3176,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .mod = mod,
             .gpa = gpa,
             .arena = &sema_arena.allocator,
+            .perm_arena = &new_decl_arena.allocator,
             .code = file.zir,
             .owner_decl = new_decl,
             .namespace = &struct_obj.namespace,
@@ -3115,10 +3185,15 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .owner_func = null,
         };
         defer sema.deinit();
+
+        var wip_captures = try WipCaptureScope.init(gpa, &new_decl_arena.allocator, null);
+        defer wip_captures.deinit();
+
         var block_scope: Scope.Block = .{
             .parent = null,
             .sema = &sema,
             .src_decl = new_decl,
+            .wip_capture_scope = wip_captures.scope,
             .instructions = .{},
             .inlining = null,
             .is_comptime = true,
@@ -3126,6 +3201,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
         defer block_scope.instructions.deinit(gpa);
 
         if (sema.analyzeStructDecl(new_decl, main_struct_inst, struct_obj)) |_| {
+            try wip_captures.finalize();
             new_decl.analysis = .complete;
         } else |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
@@ -3155,6 +3231,10 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     decl.analysis = .in_progress;
 
+    // We need the memory for the Type to go into the arena for the Decl
+    var decl_arena = std.heap.ArenaAllocator.init(gpa);
+    errdefer decl_arena.deinit();
+
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
@@ -3162,6 +3242,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .mod = mod,
         .gpa = gpa,
         .arena = &analysis_arena.allocator,
+        .perm_arena = &decl_arena.allocator,
         .code = zir,
         .owner_decl = decl,
         .namespace = decl.namespace,
@@ -3173,7 +3254,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     if (decl.isRoot()) {
         log.debug("semaDecl root {*} ({s})", .{ decl, decl.name });
-        const main_struct_inst = zir.getMainStruct();
+        const main_struct_inst = Zir.main_struct_inst;
         const struct_obj = decl.getStruct().?;
         // This might not have gotten set in `semaFile` if the first time had
         // a ZIR failure, so we set it here in case.
@@ -3185,10 +3266,14 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     }
     log.debug("semaDecl {*} ({s})", .{ decl, decl.name });
 
+    var wip_captures = try WipCaptureScope.init(gpa, &decl_arena.allocator, decl.src_scope);
+    defer wip_captures.deinit();
+
     var block_scope: Scope.Block = .{
         .parent = null,
         .sema = &sema,
         .src_decl = decl,
+        .wip_capture_scope = wip_captures.scope,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -3203,6 +3288,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
     const body = zir.extra[extra.end..][0..extra.data.body_len];
     const break_index = try sema.analyzeBody(&block_scope, body);
+    try wip_captures.finalize();
     const result_ref = zir_datas[break_index].@"break".operand;
     const src: LazySrcLoc = .{ .node_offset = 0 };
     const decl_tv = try sema.resolveInstValue(&block_scope, src, result_ref);
@@ -3239,9 +3325,6 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     // not the struct itself.
     try sema.resolveTypeLayout(&block_scope, src, decl_tv.ty);
 
-    // We need the memory for the Type to go into the arena for the Decl
-    var decl_arena = std.heap.ArenaAllocator.init(gpa);
-    errdefer decl_arena.deinit();
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
     if (decl.is_usingnamespace) {
@@ -3638,7 +3721,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
     // We create a Decl for it regardless of analysis status.
     const gop = try namespace.decls.getOrPut(gpa, decl_name);
     if (!gop.found_existing) {
-        const new_decl = try mod.allocateNewDecl(namespace, decl_node);
+        const new_decl = try mod.allocateNewDecl(namespace, decl_node, iter.parent_decl.src_scope);
         if (is_usingnamespace) {
             namespace.usingnamespace_set.putAssumeCapacity(new_decl, is_pub);
         }
@@ -3898,10 +3981,15 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: *Allocator) Se
 
     const gpa = mod.gpa;
 
+    // Use the Decl's arena for captured values.
+    var decl_arena = decl.value_arena.?.promote(gpa);
+    defer decl.value_arena.?.* = decl_arena.state;
+
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
         .arena = arena,
+        .perm_arena = &decl_arena.allocator,
         .code = decl.namespace.file_scope.zir,
         .owner_decl = decl,
         .namespace = decl.namespace,
@@ -3916,10 +4004,14 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: *Allocator) Se
     try sema.air_extra.ensureTotalCapacity(gpa, reserved_count);
     sema.air_extra.items.len += reserved_count;
 
+    var wip_captures = try WipCaptureScope.init(gpa, &decl_arena.allocator, decl.src_scope);
+    defer wip_captures.deinit();
+
     var inner_block: Scope.Block = .{
         .parent = null,
         .sema = &sema,
         .src_decl = decl,
+        .wip_capture_scope = wip_captures.scope,
         .instructions = .{},
         .inlining = null,
         .is_comptime = false,
@@ -3995,6 +4087,8 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: *Allocator) Se
         else => |e| return e,
     };
 
+    try wip_captures.finalize();
+
     // Copy the block into place and mark that as the main block.
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
         inner_block.instructions.items.len);
@@ -4035,7 +4129,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     decl.analysis = .outdated;
 }
 
-pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.Node.Index) !*Decl {
+pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.Node.Index, src_scope: ?*CaptureScope) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
     const new_decl: *Decl = if (mod.emit_h != null) blk: {
         const parent_struct = try mod.gpa.create(DeclPlusEmitH);
@@ -4061,6 +4155,7 @@ pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.
         .analysis = .unreferenced,
         .deletion_flag = false,
         .zir_decl_index = 0,
+        .src_scope = src_scope,
         .link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = link.File.Coff.TextBlock.empty },
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
@@ -4087,6 +4182,7 @@ pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.
         .alive = false,
         .is_usingnamespace = false,
     };
+
     return new_decl;
 }
 
@@ -4191,25 +4287,26 @@ pub fn createAnonymousDeclNamed(
     typed_value: TypedValue,
     name: [:0]u8,
 ) !*Decl {
-    return mod.createAnonymousDeclFromDeclNamed(scope.ownerDecl().?, typed_value, name);
+    return mod.createAnonymousDeclFromDeclNamed(scope.ownerDecl().?, scope.srcScope(), typed_value, name);
 }
 
 pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
-    return mod.createAnonymousDeclFromDecl(scope.ownerDecl().?, typed_value);
+    return mod.createAnonymousDeclFromDecl(scope.ownerDecl().?, scope.srcScope(), typed_value);
 }
 
-pub fn createAnonymousDeclFromDecl(mod: *Module, owner_decl: *Decl, tv: TypedValue) !*Decl {
+pub fn createAnonymousDeclFromDecl(mod: *Module, owner_decl: *Decl, src_scope: ?*CaptureScope, tv: TypedValue) !*Decl {
     const name_index = mod.getNextAnonNameIndex();
     const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
         owner_decl.name, name_index,
     });
-    return mod.createAnonymousDeclFromDeclNamed(owner_decl, tv, name);
+    return mod.createAnonymousDeclFromDeclNamed(owner_decl, src_scope, tv, name);
 }
 
 /// Takes ownership of `name` even if it returns an error.
 pub fn createAnonymousDeclFromDeclNamed(
     mod: *Module,
     owner_decl: *Decl,
+    src_scope: ?*CaptureScope,
     typed_value: TypedValue,
     name: [:0]u8,
 ) !*Decl {
@@ -4218,7 +4315,7 @@ pub fn createAnonymousDeclFromDeclNamed(
     const namespace = owner_decl.namespace;
     try namespace.anon_decls.ensureUnusedCapacity(mod.gpa, 1);
 
-    const new_decl = try mod.allocateNewDecl(namespace, owner_decl.src_node);
+    const new_decl = try mod.allocateNewDecl(namespace, owner_decl.src_node, src_scope);
 
     new_decl.name = name;
     new_decl.src_line = owner_decl.src_line;
@@ -4783,7 +4880,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
         const arena = &new_decl_arena.allocator;
 
         const test_fn_vals = try arena.alloc(Value, mod.test_functions.count());
-        const array_decl = try mod.createAnonymousDeclFromDecl(decl, .{
+        const array_decl = try mod.createAnonymousDeclFromDecl(decl, null, .{
             .ty = try Type.Tag.array.create(arena, .{
                 .len = test_fn_vals.len,
                 .elem_type = try tmp_test_fn_ty.copy(arena),
@@ -4796,7 +4893,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
                 var name_decl_arena = std.heap.ArenaAllocator.init(gpa);
                 errdefer name_decl_arena.deinit();
                 const bytes = try name_decl_arena.allocator.dupe(u8, test_name_slice);
-                const test_name_decl = try mod.createAnonymousDeclFromDecl(array_decl, .{
+                const test_name_decl = try mod.createAnonymousDeclFromDecl(array_decl, null, .{
                     .ty = try Type.Tag.array_u8.create(&name_decl_arena.allocator, bytes.len),
                     .val = try Value.Tag.bytes.create(&name_decl_arena.allocator, bytes),
                 });
