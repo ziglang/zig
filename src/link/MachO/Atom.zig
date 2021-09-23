@@ -2,7 +2,7 @@ const Atom = @This();
 
 const std = @import("std");
 const build_options = @import("build_options");
-const aarch64 = @import("../../codegen/aarch64.zig");
+const aarch64 = @import("../../arch/aarch64/bits.zig");
 const assert = std.debug.assert;
 const commands = @import("commands.zig");
 const log = std.log.scoped(.text_block);
