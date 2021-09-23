@@ -2495,6 +2495,8 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
 // r may alias.
 // a and b must not be -0.
 // Returns `true` when the result is positive.
+// If the sign of a and b is equal, then r requires at least `max(a.len, b.len)` limbs are required.
+// Otherwise, r requires at least `max(a.len, b.len) + 1` limbs.
 fn llsignedxor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_positive: bool) bool {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
@@ -2538,7 +2540,12 @@ fn llsignedxor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
         r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
     }
 
-    r[i] = r_carry;
+    // If both inputs don't share the same sign, an extra limb is required.
+    if (a_positive != b_positive) {
+        r[i] = r_carry;
+    } else {
+        assert(r_carry == 0);
+    }
 
     assert(a_borrow == 0);
     assert(b_borrow == 0);
