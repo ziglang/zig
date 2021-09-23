@@ -1336,6 +1336,8 @@ pub const Type = extern union {
         }
     }
 
+    /// For structs and unions, if the type does not have their fields resolved
+    /// this will return `false`.
     pub fn hasCodeGenBits(self: Type) bool {
         return switch (self.tag()) {
             .u1,
@@ -1400,14 +1402,10 @@ pub const Type = extern union {
             => true,
 
             .@"struct" => {
-                // TODO introduce lazy value mechanism
                 const struct_obj = self.castTag(.@"struct").?.data;
                 if (struct_obj.known_has_bits) {
                     return true;
                 }
-                assert(struct_obj.status == .have_field_types or
-                    struct_obj.status == .layout_wip or
-                    struct_obj.status == .have_layout);
                 for (struct_obj.fields.values()) |value| {
                     if (value.ty.hasCodeGenBits())
                         return true;
