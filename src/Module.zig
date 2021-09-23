@@ -3758,13 +3758,6 @@ pub fn clearDecl(
         dep.removeDependency(decl);
         if (outdated_decls) |map| {
             map.putAssumeCapacity(dep, {});
-        } else if (std.debug.runtime_safety) {
-            // If `outdated_decls` is `null`, it means we're being called from
-            // `Compilation` after `performAllTheWork` and we cannot queue up any
-            // more work. `dep` must necessarily be another Decl that is no longer
-            // being referenced, and will be in the `deletion_set`. Otherwise,
-            // something has gone wrong.
-            assert(mod.deletion_set.contains(dep));
         }
     }
     decl.dependants.clearRetainingCapacity();
