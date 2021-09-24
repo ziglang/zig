@@ -352,7 +352,7 @@ extern "C" {
 	/// <summary>
 	/// Gets product-specific properties.
 	/// </summary>
-	/// <param name="ppPropeties">A pointer to an instance of <see cref="ISetupPropertyStore"/>. This may be NULL if no properties are defined.</param>
+	/// <param name="ppProperties">A pointer to an instance of <see cref="ISetupPropertyStore"/>. This may be NULL if no properties are defined.</param>
 	/// <returns>Standard HRESULT indicating success or failure, including E_FILENOTFOUND if the instance state does not exist.</returns>
 	STDMETHOD(GetProperties)(
 		_Outptr_result_maybenull_ ISetupPropertyStore** ppProperties
