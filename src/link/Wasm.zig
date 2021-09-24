@@ -752,7 +752,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 
         if (self.base.options.output_mode == .Exe) {
             // Increase the default stack size to a more reasonable value of 1MB instead of
-            // the default of 1 Wasm page being 64KB, unless overriden by the user.
+            // the default of 1 Wasm page being 64KB, unless overridden by the user.
             try argv.append("-z");
             const stack_size = self.base.options.stack_size_override orelse 1048576;
             const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
