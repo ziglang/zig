@@ -197,7 +197,7 @@ pub const ResultLoc = union(enum) {
     none_or_ref,
     /// The expression will be coerced into this type, but it will be evaluated as an rvalue.
     ty: Zir.Inst.Ref,
-    /// Same as `ty` but it is guaranteed that Sema will additionall perform the coercion,
+    /// Same as `ty` but it is guaranteed that Sema will additionally perform the coercion,
     /// so no `as` instruction needs to be emitted.
     coerced_ty: Zir.Inst.Ref,
     /// The expression must store its result into this typed pointer. The result instruction
