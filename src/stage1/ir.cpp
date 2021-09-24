@@ -15248,7 +15248,7 @@ static Stage1AirInst *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                 if (type_is_invalid(union_val->type))
                     return ira->codegen->invalid_inst_gen;
 
-                // Reject undefined values unless we're intializing the union:
+                // Reject undefined values unless we're initializing the union:
                 // a undefined union means also the tag is undefined, accessing
                 // its payload slot is UB.
                 const UndefAllowed allow_undef = initializing ? UndefOk : UndefBad;
