@@ -388,14 +388,6 @@ pub const Inst = struct {
         /// Twos complement wrapping integer multiplication.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         mulwrap,
-        /// Given a reference to a function and a parameter index, returns the
-        /// type of the parameter. The only usage of this instruction is for the
-        /// result location of parameters of function calls. In the case of a function's
-        /// parameter type being `anytype`, it is the type coercion's job to detect this
-        /// scenario and skip the coercion, so that semantic analysis of this instruction
-        /// is not in a position where it must create an invalid type.
-        /// Uses the `param_type` union field.
-        param_type,
         /// Turns an R-Value into a const L-Value. In other words, it takes a value,
         /// stores it in a memory location, and returns a const pointer to it. If the value
         /// is `comptime`, the memory location is global static constant data. Otherwise,
@@ -1023,7 +1015,6 @@ pub const Inst = struct {
                 .mod_rem,
                 .mul,
                 .mulwrap,
-                .param_type,
                 .ref,
                 .shl,
                 .shr,
@@ -1286,7 +1277,6 @@ pub const Inst = struct {
                 .mod_rem = .pl_node,
                 .mul = .pl_node,
                 .mulwrap = .pl_node,
-                .param_type = .param_type,
                 .ref = .un_tok,
                 .ret_node = .un_node,
                 .ret_load = .un_node,
@@ -2155,10 +2145,6 @@ pub const Inst = struct {
             /// Points to a `Block`.
             payload_index: u32,
         },
-        param_type: struct {
-            callee: Ref,
-            param_index: u32,
-        },
         @"unreachable": struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
@@ -2229,7 +2215,6 @@ pub const Inst = struct {
             ptr_type,
             int_type,
             bool_br,
-            param_type,
             @"unreachable",
             @"break",
             switch_capture,

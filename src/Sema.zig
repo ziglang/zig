@@ -240,7 +240,6 @@ pub fn analyzeBody(
             .optional_payload_unsafe      => try sema.zirOptionalPayload(block, inst, false),
             .optional_payload_unsafe_ptr  => try sema.zirOptionalPayloadPtr(block, inst, false),
             .optional_type                => try sema.zirOptionalType(block, inst),
-            .param_type                   => try sema.zirParamType(block, inst),
             .ptr_type                     => try sema.zirPtrType(block, inst),
             .ptr_type_simple              => try sema.zirPtrTypeSimple(block, inst),
             .ref                          => try sema.zirRef(block, inst),
@@ -2019,45 +2018,6 @@ fn zirStoreNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileE
     const ptr = sema.resolveInst(extra.lhs);
     const value = sema.resolveInst(extra.rhs);
     return sema.storePtr(block, src, ptr, value);
-}
-
-fn zirParamType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const src = sema.src;
-    const fn_inst_src = sema.src;
-
-    const inst_data = sema.code.instructions.items(.data)[inst].param_type;
-    const fn_inst = sema.resolveInst(inst_data.callee);
-    const fn_inst_ty = sema.typeOf(fn_inst);
-    const param_index = inst_data.param_index;
-
-    const fn_ty: Type = switch (fn_inst_ty.zigTypeTag()) {
-        .Fn => fn_inst_ty,
-        .BoundFn => {
-            return sema.mod.fail(&block.base, fn_inst_src, "TODO implement zirParamType for method call syntax", .{});
-        },
-        else => {
-            return sema.mod.fail(&block.base, fn_inst_src, "expected function, found '{}'", .{fn_inst_ty});
-        },
-    };
-
-    const param_count = fn_ty.fnParamLen();
-    if (param_index >= param_count) {
-        if (fn_ty.fnIsVarArgs()) {
-            return sema.addType(Type.initTag(.var_args_param));
-        }
-        return sema.mod.fail(&block.base, src, "arg index {d} out of bounds; '{}' has {d} argument(s)", .{
-            param_index,
-            fn_ty,
-            param_count,
-        });
-    }
-
-    // TODO support generic functions
-    const param_type = fn_ty.fnParamType(param_index);
-    return sema.addType(param_type);
 }
 
 fn zirStr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

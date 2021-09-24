@@ -2011,7 +2011,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .mod_rem,
             .mul,
             .mulwrap,
-            .param_type,
             .ref,
             .shl,
             .shr,
@@ -7902,14 +7901,9 @@ fn callExpr(
     defer astgen.gpa.free(args);
 
     for (call.ast.params) |param_node, i| {
-        const param_type = try gz.add(.{
-            .tag = .param_type,
-            .data = .{ .param_type = .{
-                .callee = lhs,
-                .param_index = @intCast(u32, i),
-            } },
-        });
-        args[i] = try expr(gz, scope, .{ .coerced_ty = param_type }, param_node);
+        // Parameters are always temporary values, they have no
+        // meaningful result location.  Sema will coerce them.
+        args[i] = try expr(gz, scope, .none, param_node);
     }
 
     const modifier: std.builtin.CallOptions.Modifier = blk: {

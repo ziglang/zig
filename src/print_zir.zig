@@ -179,7 +179,6 @@ const Writer = struct {
             => try self.writeBoolBr(stream, inst),
 
             .array_type_sentinel => try self.writeArrayTypeSentinel(stream, inst),
-            .param_type => try self.writeParamType(stream, inst),
             .ptr_type_simple => try self.writePtrTypeSimple(stream, inst),
             .ptr_type => try self.writePtrType(stream, inst),
             .int => try self.writeInt(stream, inst),
@@ -474,16 +473,6 @@ const Writer = struct {
         const inst_data = self.code.instructions.items(.data)[inst].array_type_sentinel;
         _ = inst_data;
         try stream.writeAll("TODO)");
-    }
-
-    fn writeParamType(
-        self: *Writer,
-        stream: anytype,
-        inst: Zir.Inst.Index,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].param_type;
-        try self.writeInstRef(stream, inst_data.callee);
-        try stream.print(", {d})", .{inst_data.param_index});
     }
 
     fn writePtrTypeSimple(
