@@ -2133,10 +2133,10 @@ fn llnormalize(a: []const Limb) usize {
 }
 
 /// Knuth 4.3.1, Algorithm S.
-fn llsub(r: []Limb, a: []const Limb, b: []const Limb) void {
+fn llsubcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
-    assert(a.len > b.len or (a.len == b.len and a[a.len - 1] >= b[b.len - 1]));
+    assert(a.len >= b.len);
     assert(r.len >= a.len);
 
     var i: usize = 0;
@@ -2153,15 +2153,21 @@ fn llsub(r: []Limb, a: []const Limb, b: []const Limb) void {
         borrow = @boolToInt(@subWithOverflow(Limb, a[i], borrow, &r[i]));
     }
 
-    assert(borrow == 0);
+    return borrow;
+}
+
+fn llsub(r: []Limb, a: []const Limb, b: []const Limb) void {
+    @setRuntimeSafety(debug_safety);
+    assert(a.len > b.len or (a.len == b.len and a[a.len - 1] >= b[b.len - 1]));
+    assert(llsubcarry(r, a, b) == 0);
 }
 
 /// Knuth 4.3.1, Algorithm A.
-fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
+fn lladdcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= b.len);
-    assert(r.len >= a.len + 1);
+    assert(r.len >= a.len);
 
     var i: usize = 0;
     var carry: Limb = 0;
@@ -2177,7 +2183,13 @@ fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
         carry = @boolToInt(@addWithOverflow(Limb, a[i], carry, &r[i]));
     }
 
-    r[i] = carry;
+    return carry;
+}
+
+fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
+    @setRuntimeSafety(debug_safety);
+    assert(r.len >= a.len + 1);
+    r[a.len] = lladdcarry(r, a, b);
 }
 
 /// Knuth 4.3.1, Exercise 16.
