@@ -2125,7 +2125,7 @@ fn dump(args: anytype) !void {
 
       {#header_open|Multidimensional Arrays#}
       <p>
-      Mutlidimensional arrays can be created by nesting arrays:
+      Multidimensional arrays can be created by nesting arrays:
       </p>
       {#code_begin|test|multidimensional#}
 const std = @import("std");
