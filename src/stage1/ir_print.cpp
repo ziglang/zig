@@ -558,7 +558,7 @@ const char* ir_inst_gen_type_str(Stage1AirInstId id) {
         case Stage1AirInstIdWasmMemoryGrow:
             return "GenWasmMemoryGrow";
         case Stage1AirInstIdExtern:
-            return "GenExtrern";
+            return "GenExtern";
     }
     zig_unreachable();
 }
