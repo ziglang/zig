@@ -40,7 +40,7 @@ const a = struct {
     }
 };
 
-test "intialization" {
+test "initialization" {
     var t = a.init();
     try std.testing.expect(t.foo.len == 0);
 }
