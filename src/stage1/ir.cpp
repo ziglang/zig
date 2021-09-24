@@ -6374,7 +6374,7 @@ static Stage1AirInst *ir_analyze_enum_to_union(IrAnalyze *ira, Scope *scope, Ast
 
     if (target->value->type->data.enumeration.non_exhaustive) {
         ir_add_error_node(ira, source_node,
-                buf_sprintf("runtime cast to union '%s' from non-exhustive enum",
+                buf_sprintf("runtime cast to union '%s' from non-exhaustive enum",
                     buf_ptr(&wanted_type->name)));
         return ira->codegen->invalid_inst_gen;
     }
