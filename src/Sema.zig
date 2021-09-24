@@ -3325,14 +3325,16 @@ fn analyzeCall(
                 }
                 const arg_src = call_src; // TODO: better source location
                 const arg = uncasted_args[arg_i];
-                if (try sema.resolveMaybeUndefVal(block, arg_src, arg)) |arg_val| {
-                    const child_arg = try child_sema.addConstant(sema.typeOf(arg), arg_val);
-                    child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
-                } else if (is_comptime) {
-                    return sema.failWithNeededComptime(block, arg_src);
+                if (is_comptime) {
+                    if (try sema.resolveMaybeUndefVal(block, arg_src, arg)) |arg_val| {
+                        const child_arg = try child_sema.addConstant(sema.typeOf(arg), arg_val);
+                        child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
+                    } else {
+                        return sema.failWithNeededComptime(block, arg_src);
+                    }
                 } else if (is_anytype) {
                     // We insert into the map an instruction which is runtime-known
-                    // but has the type of the comptime argument.
+                    // but has the type of the argument.
                     const child_arg = try child_block.addArg(sema.typeOf(arg), 0);
                     child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
                 }
