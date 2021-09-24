@@ -24,7 +24,7 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\}
     , "DEG2RAD is: 0.017453" ++ nl);
 
-    cases.add("use global scope for record/enum/typedef type transalation if needed",
+    cases.add("use global scope for record/enum/typedef type translation if needed",
         \\void bar(void);
         \\void baz(void);
         \\struct foo { int x; };
