@@ -213,7 +213,7 @@ decls: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
 
 /// Currently active Module.Decl.
 /// TODO this might not be necessary if we figure out how to pass Module.Decl instance
-/// to codegen.genSetReg() or alterntively move PIE displacement for MCValue{ .memory = x }
+/// to codegen.genSetReg() or alternatively move PIE displacement for MCValue{ .memory = x }
 /// somewhere else in the codegen.
 active_decl: ?*Module.Decl = null,
 
