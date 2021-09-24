@@ -10977,7 +10977,7 @@ fn getBuiltinType(
 }
 
 /// There is another implementation of this in `Type.onePossibleValue`. This one
-/// in `Sema` is for calling during semantic analysis, and peforms field resolution
+/// in `Sema` is for calling during semantic analysis, and performs field resolution
 /// to get the answer. The one in `Type` is for calling during codegen and asserts
 /// that the types are already resolved.
 fn typeHasOnePossibleValue(
