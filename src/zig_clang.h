@@ -934,10 +934,10 @@ enum ZigClangPreprocessedEntity_EntityKind {
 };
 
 enum ZigClangExpr_ConstantExprKind {
-    ZigClangExpr_ContantExprKind_Normal,
-    ZigClangExpr_ContantExprKind_NonClassTemplateArgument,
-    ZigClangExpr_ContantExprKind_ClassTemplateArgument,
-    ZigClangExpr_ContantExprKind_ImmediateInvocation,
+    ZigClangExpr_ConstantExprKind_Normal,
+    ZigClangExpr_ConstantExprKind_NonClassTemplateArgument,
+    ZigClangExpr_ConstantExprKind_ClassTemplateArgument,
+    ZigClangExpr_ConstantExprKind_ImmediateInvocation,
 };
 
 enum ZigClangUnaryExprOrTypeTrait_Kind {
