@@ -3663,7 +3663,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 return self.fail("TODO: enable larger branch offset", .{});
                             }
                         },
-                        else => unreachable, // attempting to perfrom an ARM relocation on a non-ARM target arch
+                        else => unreachable, // attempting to perform an ARM relocation on a non-ARM target arch
                     }
                 },
             }
