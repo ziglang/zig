@@ -7786,7 +7786,7 @@ test "main" {
       the tag value is used as the enumeration value.
       </p>
       <p>
-      If there is only one possible enum value, the resut is a {#syntax#}comptime_int{#endsyntax#}
+      If there is only one possible enum value, the result is a {#syntax#}comptime_int{#endsyntax#}
       known at {#link|comptime#}.
       </p>
       {#see_also|@intToEnum#}
