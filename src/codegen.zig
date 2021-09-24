@@ -984,7 +984,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // increasing the pc
                     const d_pc_p9 = @intCast(i64, delta_pc) - quant;
                     if (d_pc_p9 > 0) {
-                        // minus one becaue if its the last one, we want to leave space to change the line which is one quanta
+                        // minus one because if its the last one, we want to leave space to change the line which is one quanta
                         try dbg_out.dbg_line.append(@intCast(u8, @divExact(d_pc_p9, quant) + 128) - quant);
                         if (dbg_out.pcop_change_index.*) |pci|
                             dbg_out.dbg_line.items[pci] += 1;

@@ -2898,7 +2898,7 @@ fn bar(x: *const u3) u3 {
 }
       {#code_end#}
       <p>
-      In this case, the function {#syntax#}bar{#endsyntax#} cannot be called becuse the pointer
+      In this case, the function {#syntax#}bar{#endsyntax#} cannot be called because the pointer
       to the non-ABI-aligned field mentions the bit offset, but the function expects an ABI-aligned pointer.
       </p>
       <p>
