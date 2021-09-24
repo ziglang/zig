@@ -619,11 +619,11 @@ pub const Decl = struct {
         return decl.namespace.renderFullyQualifiedName(unqualified_name, writer);
     }
 
-    pub fn getFullyQualifiedName(decl: Decl, gpa: *Allocator) ![]u8 {
+    pub fn getFullyQualifiedName(decl: Decl, gpa: *Allocator) ![:0]u8 {
         var buffer = std.ArrayList(u8).init(gpa);
         defer buffer.deinit();
         try decl.renderFullyQualifiedName(buffer.writer());
-        return buffer.toOwnedSlice();
+        return buffer.toOwnedSliceSentinel(0);
     }
 
     pub fn typedValue(decl: Decl) error{AnalysisFail}!TypedValue {

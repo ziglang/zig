@@ -155,6 +155,15 @@ pub const Object = struct {
     llvm_module: *const llvm.Module,
     context: *const llvm.Context,
     target_machine: *const llvm.TargetMachine,
+    /// Ideally we would use `llvm_module.getNamedFunction` to go from *Decl to LLVM function,
+    /// but that has some downsides:
+    /// * we have to compute the fully qualified name every time we want to do the lookup
+    /// * for externally linked functions, the name is not fully qualified, but when
+    ///   a Decl goes from exported to not exported and vice-versa, we would use the wrong
+    ///   version of the name and incorrectly get function not found in the llvm module.
+    /// * it works for functions not all globals.
+    /// Therefore, this table keeps track of the mapping.
+    decl_map: std.AutoHashMapUnmanaged(*const Module.Decl, *const llvm.Value),
 
     pub fn create(gpa: *Allocator, options: link.Options) !*Object {
         const obj = try gpa.create(Object);
@@ -241,18 +250,20 @@ pub const Object = struct {
             .llvm_module = llvm_module,
             .context = context,
             .target_machine = target_machine,
+            .decl_map = .{},
         };
     }
 
-    pub fn deinit(self: *Object) void {
+    pub fn deinit(self: *Object, gpa: *Allocator) void {
         self.target_machine.dispose();
         self.llvm_module.dispose();
         self.context.dispose();
+        self.decl_map.deinit(gpa);
         self.* = undefined;
     }
 
     pub fn destroy(self: *Object, gpa: *Allocator) void {
-        self.deinit();
+        self.deinit(gpa);
         gpa.destroy(self);
     }
 
@@ -450,41 +461,62 @@ pub const Object = struct {
     ) !void {
         // If the module does not already have the function, we ignore this function call
         // because we call `updateDeclExports` at the end of `updateFunc` and `updateDecl`.
-        const llvm_fn = self.llvm_module.getNamedFunction(decl.name) orelse return;
+        const llvm_fn = self.decl_map.get(decl) orelse return;
         const is_extern = decl.val.tag() == .extern_fn;
-        if (is_extern or exports.len != 0) {
-            llvm_fn.setLinkage(.External);
+        if (is_extern) {
+            llvm_fn.setValueName(decl.name);
             llvm_fn.setUnnamedAddr(.False);
+            llvm_fn.setLinkage(.External);
+        } else if (exports.len != 0) {
+            const exp_name = exports[0].options.name;
+            llvm_fn.setValueName2(exp_name.ptr, exp_name.len);
+            llvm_fn.setUnnamedAddr(.False);
+            switch (exports[0].options.linkage) {
+                .Internal => unreachable,
+                .Strong => llvm_fn.setLinkage(.External),
+                .Weak => llvm_fn.setLinkage(.WeakODR),
+                .LinkOnce => llvm_fn.setLinkage(.LinkOnceODR),
+            }
+            // If a Decl is exported more than one time (which is rare),
+            // we add aliases for all but the first export.
+            // TODO LLVM C API does not support deleting aliases. We need to
+            // patch it to support this or figure out how to wrap the C++ API ourselves.
+            // Until then we iterate over existing aliases and make them point
+            // to the correct decl, or otherwise add a new alias. Old aliases are leaked.
+            for (exports[1..]) |exp| {
+                const exp_name_z = try module.gpa.dupeZ(u8, exp.options.name);
+                defer module.gpa.free(exp_name_z);
+
+                if (self.llvm_module.getNamedGlobalAlias(exp_name_z.ptr, exp_name_z.len)) |alias| {
+                    alias.setAliasee(llvm_fn);
+                } else {
+                    const alias = self.llvm_module.addAlias(llvm_fn.typeOf(), llvm_fn, exp_name_z);
+                    switch (exp.options.linkage) {
+                        .Internal => alias.setLinkage(.Internal),
+                        .Strong => alias.setLinkage(.External),
+                        .Weak => {
+                            if (is_extern) {
+                                alias.setLinkage(.ExternalWeak);
+                            } else {
+                                alias.setLinkage(.WeakODR);
+                            }
+                        },
+                        .LinkOnce => alias.setLinkage(.LinkOnceODR),
+                    }
+                }
+            }
         } else {
+            const fqn = try decl.getFullyQualifiedName(module.gpa);
+            defer module.gpa.free(fqn);
+            llvm_fn.setValueName2(fqn.ptr, fqn.len);
             llvm_fn.setLinkage(.Internal);
             llvm_fn.setUnnamedAddr(.True);
         }
-        // TODO LLVM C API does not support deleting aliases. We need to
-        // patch it to support this or figure out how to wrap the C++ API ourselves.
-        // Until then we iterate over existing aliases and make them point
-        // to the correct decl, or otherwise add a new alias. Old aliases are leaked.
-        for (exports) |exp| {
-            const exp_name_z = try module.gpa.dupeZ(u8, exp.options.name);
-            defer module.gpa.free(exp_name_z);
+    }
 
-            if (self.llvm_module.getNamedGlobalAlias(exp_name_z.ptr, exp_name_z.len)) |alias| {
-                alias.setAliasee(llvm_fn);
-            } else {
-                const alias = self.llvm_module.addAlias(llvm_fn.typeOf(), llvm_fn, exp_name_z);
-                switch (exp.options.linkage) {
-                    .Internal => alias.setLinkage(.Internal),
-                    .Strong => alias.setLinkage(.External),
-                    .Weak => {
-                        if (is_extern) {
-                            alias.setLinkage(.ExternalWeak);
-                        } else {
-                            alias.setLinkage(.WeakODR);
-                        }
-                    },
-                    .LinkOnce => alias.setLinkage(.LinkOnceODR),
-                }
-            }
-        }
+    pub fn freeDecl(self: *Object, decl: *Module.Decl) void {
+        const llvm_value = self.decl_map.get(decl) orelse return;
+        llvm_value.deleteGlobal();
     }
 };
 
@@ -493,9 +525,8 @@ pub const DeclGen = struct {
     object: *Object,
     module: *Module,
     decl: *Module.Decl,
-    err_msg: ?*Module.ErrorMsg,
-
     gpa: *Allocator,
+    err_msg: ?*Module.ErrorMsg,
 
     fn todo(self: *DeclGen, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
         @setCold(true);
@@ -540,7 +571,8 @@ pub const DeclGen = struct {
     /// Note that this can be called before the function's semantic analysis has
     /// completed, so if any attributes rely on that, they must be done in updateFunc, not here.
     fn resolveLlvmFunction(self: *DeclGen, decl: *Module.Decl) !*const llvm.Value {
-        if (self.llvmModule().getNamedFunction(decl.name)) |llvm_fn| return llvm_fn;
+        const gop = try self.object.decl_map.getOrPut(self.gpa, decl);
+        if (gop.found_existing) return gop.value_ptr.*;
 
         assert(decl.has_tv);
         const zig_fn_type = decl.ty;
@@ -570,7 +602,12 @@ pub const DeclGen = struct {
             .False,
         );
         const llvm_addrspace = self.llvmAddressSpace(decl.@"addrspace");
-        const llvm_fn = self.llvmModule().addFunctionInAddressSpace(decl.name, fn_type, llvm_addrspace);
+
+        const fqn = try decl.getFullyQualifiedName(self.gpa);
+        defer self.gpa.free(fqn);
+
+        const llvm_fn = self.llvmModule().addFunctionInAddressSpace(fqn, fn_type, llvm_addrspace);
+        gop.value_ptr.* = llvm_fn;
 
         const is_extern = decl.val.tag() == .extern_fn;
         if (!is_extern) {

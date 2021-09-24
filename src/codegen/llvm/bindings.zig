@@ -151,6 +151,15 @@ pub const Value = opaque {
 
     pub const setFunctionCallConv = LLVMSetFunctionCallConv;
     extern fn LLVMSetFunctionCallConv(Fn: *const Value, CC: CallConv) void;
+
+    pub const setValueName = LLVMSetValueName;
+    extern fn LLVMSetValueName(Val: *const Value, Name: [*:0]const u8) void;
+
+    pub const setValueName2 = LLVMSetValueName2;
+    extern fn LLVMSetValueName2(Val: *const Value, Name: [*]const u8, NameLen: usize) void;
+
+    pub const deleteFunction = LLVMDeleteFunction;
+    extern fn LLVMDeleteFunction(Fn: *const Value) void;
 };
 
 pub const Type = opaque {

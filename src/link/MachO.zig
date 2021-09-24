@@ -3501,6 +3501,9 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
 }
 
 pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
+    }
     log.debug("freeDecl {*}", .{decl});
     _ = self.decls.swapRemove(decl);
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.

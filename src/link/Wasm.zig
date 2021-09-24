@@ -339,6 +339,10 @@ pub fn updateDeclExports(
 }
 
 pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
+    }
+
     if (self.getFuncidx(decl)) |func_idx| {
         switch (decl.val.tag()) {
             .function => _ = self.funcs.swapRemove(func_idx),

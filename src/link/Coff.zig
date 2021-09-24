@@ -770,7 +770,9 @@ fn finishUpdateDecl(self: *Coff, module: *Module, decl: *Module.Decl, code: []co
 }
 
 pub fn freeDecl(self: *Coff, decl: *Module.Decl) void {
-    if (self.llvm_object) |_| return;
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
+    }
 
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     self.freeTextBlock(&decl.link.coff);
