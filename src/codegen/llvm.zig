@@ -1038,7 +1038,7 @@ pub const FuncGen = struct {
     /// in other instructions. This table is cleared before every function is generated.
     func_inst_table: std.AutoHashMapUnmanaged(Air.Inst.Index, *const llvm.Value),
 
-    /// These fields are used to refer to the LLVM value of the function paramaters
+    /// These fields are used to refer to the LLVM value of the function parameters
     /// in an Arg instruction.
     args: []*const llvm.Value,
     arg_index: usize,
