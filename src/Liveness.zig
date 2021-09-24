@@ -30,7 +30,7 @@ tomb_bits: []usize,
 ///    The main tomb bits are still used and the extra ones are starting with the lsb of the
 ///    value here.
 special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
-/// Auxilliary data. The way this data is interpreted is determined contextually.
+/// Auxiliary data. The way this data is interpreted is determined contextually.
 extra: []const u32,
 
 /// Trailing is the set of instructions whose lifetimes end at the start of the then branch,
