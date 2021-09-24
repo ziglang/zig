@@ -3421,7 +3421,7 @@ pub const Type = extern union {
         anyerror_void_error_union,
         generic_poison,
         /// This is a special type for variadic parameters of a function call.
-        /// Casts to it will validate that the type can be passed to a c calling convetion function.
+        /// Casts to it will validate that the type can be passed to a c calling convention function.
         var_args_param,
         /// Same as `empty_struct` except it has an empty namespace.
         empty_struct_literal,
