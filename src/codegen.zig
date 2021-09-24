@@ -3609,7 +3609,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             try self.blocks.putNoClobber(self.gpa, inst, .{
                 // A block is a setup to be able to jump to the end.
                 .relocs = .{},
-                // It also acts as a receptical for break operands.
+                // It also acts as a receptacle for break operands.
                 // Here we use `MCValue.none` to represent a null value so that the first
                 // break instruction will choose a MCValue for the block result and overwrite
                 // this field. Following break instructions will use that MCValue to put their
