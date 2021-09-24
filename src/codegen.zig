@@ -1910,15 +1910,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .shl => {
                     assert(!swap_lhs_and_rhs);
-                    const shift_amout = switch (operand) {
+                    const shift_amount = switch (operand) {
                         .Register => |reg_op| Instruction.ShiftAmount.reg(@intToEnum(Register, reg_op.rm)),
                         .Immediate => |imm_op| Instruction.ShiftAmount.imm(@intCast(u5, imm_op.imm)),
                     };
-                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.lsl(.al, dst_reg, op1, shift_amout).toU32());
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.lsl(.al, dst_reg, op1, shift_amount).toU32());
                 },
                 .shr => {
                     assert(!swap_lhs_and_rhs);
-                    const shift_amout = switch (operand) {
+                    const shift_amount = switch (operand) {
                         .Register => |reg_op| Instruction.ShiftAmount.reg(@intToEnum(Register, reg_op.rm)),
                         .Immediate => |imm_op| Instruction.ShiftAmount.imm(@intCast(u5, imm_op.imm)),
                     };
@@ -1927,7 +1927,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .signed => Instruction.asr,
                         .unsigned => Instruction.lsr,
                     };
-                    writeInt(u32, try self.code.addManyAsArray(4), shr(.al, dst_reg, op1, shift_amout).toU32());
+                    writeInt(u32, try self.code.addManyAsArray(4), shr(.al, dst_reg, op1, shift_amount).toU32());
                 },
                 else => unreachable, // not a binary instruction
             }
