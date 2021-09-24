@@ -7669,7 +7669,7 @@ test "main" {
 }
       {#code_end#}
       <p>
-      will ouput:
+      will output:
       </p>
       <p>
       If all {#syntax#}@compileLog{#endsyntax#} calls are removed or
