@@ -394,7 +394,7 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\}
     , "");
 
-    cases.add("ensure array casts outisde +=",
+    cases.add("ensure array casts outside +=",
         \\#include <stdlib.h>
         \\static int hash_binary(int k)
         \\{
