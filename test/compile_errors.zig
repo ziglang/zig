@@ -6145,9 +6145,9 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.objErrStage1("endless loop in function evaluation",
-        \\const seventh_fib_number = fibbonaci(7);
-        \\fn fibbonaci(x: i32) i32 {
-        \\    return fibbonaci(x - 1) + fibbonaci(x - 2);
+        \\const seventh_fib_number = fibonacci(7);
+        \\fn fibonacci(x: i32) i32 {
+        \\    return fibonacci(x - 1) + fibonacci(x - 2);
         \\}
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(seventh_fib_number)); }
