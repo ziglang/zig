@@ -5549,7 +5549,7 @@ test "coerce to optionals" {
 }
       {#code_end#}
       <p>It works nested inside the {#link|Error Union Type#}, too:</p>
-      {#code_begin|test|test_corerce_optional_wrapped_error_union#}
+      {#code_begin|test|test_coerce_optional_wrapped_error_union#}
 const std = @import("std");
 const expect = std.testing.expect;
 
