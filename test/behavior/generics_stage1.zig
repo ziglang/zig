@@ -26,22 +26,6 @@ fn GenNode(comptime T: type) type {
     };
 }
 
-test "const decls in struct" {
-    try expect(GenericDataThing(3).count_plus_one == 4);
-}
-fn GenericDataThing(comptime count: isize) type {
-    return struct {
-        const count_plus_one = count + 1;
-    };
-}
-
-test "use generic param in generic param" {
-    try expect(aGenericFn(i32, 3, 4) == 7);
-}
-fn aGenericFn(comptime T: type, comptime a: T, b: T) T {
-    return a + b;
-}
-
 test "generic fn with implicit cast" {
     try expect(getFirstByte(u8, &[_]u8{13}) == 13);
     try expect(getFirstByte(u16, &[_]u16{
