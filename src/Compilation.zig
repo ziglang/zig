@@ -812,7 +812,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
     const needs_c_symbols = !options.skip_linker_dependencies and is_exe_or_dyn_lib;
 
-    // WASI-only. Resolve the optinal exec-model option, defaults to command.
+    // WASI-only. Resolve the optional exec-model option, defaults to command.
     const wasi_exec_model = if (options.target.os.tag != .wasi) undefined else options.wasi_exec_model orelse .command;
 
     const comp: *Compilation = comp: {

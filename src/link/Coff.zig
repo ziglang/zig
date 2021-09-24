@@ -50,7 +50,7 @@ last_text_block: ?*TextBlock = null,
 section_table_offset: u32 = 0,
 /// Section data file pointer.
 section_data_offset: u32 = 0,
-/// Optiona header file pointer.
+/// Optional header file pointer.
 optional_header_offset: u32 = 0,
 
 /// Absolute virtual address of the offset table when the executable is loaded in memory.
