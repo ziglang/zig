@@ -121,7 +121,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
-        self.llvm_object = try LlvmObject.create(allocator, options);
+        self.llvm_object = try LlvmObject.create(allocator, sub_path, options);
         return self;
     }
 

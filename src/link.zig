@@ -245,6 +245,9 @@ pub const File = struct {
         };
 
         if (use_lld) {
+            // TODO this intermediary_basename isn't enough; in the case of `zig build-exe`,
+            // we also want to put the intermediary object file in the cache while the
+            // main emit directory is the cwd.
             file.intermediary_basename = sub_path;
         }
 

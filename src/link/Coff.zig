@@ -132,7 +132,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
-        self.llvm_object = try LlvmObject.create(allocator, options);
+        self.llvm_object = try LlvmObject.create(allocator, sub_path, options);
         return self;
     }
 
@@ -884,11 +884,8 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        // Both stage1 and stage2 LLVM backend put the object file in the cache directory.
-        if (self.base.options.use_llvm) {
-            // Stage2 has to call flushModule since that outputs the LLVM object file.
-            if (!build_options.is_stage1 or !self.base.options.use_stage1) try self.flushModule(comp);
-
+        const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
+        if (use_stage1) {
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
                 .target = self.base.options.target,
@@ -1269,22 +1266,23 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             try argv.append(comp.libunwind_static_lib.?.full_object_path);
         }
 
-        // TODO: remove when stage2 can build compiler_rt.zig, c.zig and ssp.zig
-        // compiler-rt, libc and libssp
-        if (is_exe_or_dyn_lib and
-            !self.base.options.skip_linker_dependencies and
-            build_options.is_stage1 and self.base.options.use_stage1)
-        {
+        if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies) {
             if (!self.base.options.link_libc) {
-                try argv.append(comp.libc_static_lib.?.full_object_path);
+                if (comp.libc_static_lib) |lib| {
+                    try argv.append(lib.full_object_path);
+                }
             }
             // MinGW doesn't provide libssp symbols
             if (target.abi.isGnu()) {
-                try argv.append(comp.libssp_static_lib.?.full_object_path);
+                if (comp.libssp_static_lib) |lib| {
+                    try argv.append(lib.full_object_path);
+                }
             }
             // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
             // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
-            try argv.append(comp.compiler_rt_static_lib.?.full_object_path);
+            if (comp.compiler_rt_static_lib) |lib| {
+                try argv.append(lib.full_object_path);
+            }
         }
 
         try argv.ensureUnusedCapacity(self.base.options.system_libs.count());

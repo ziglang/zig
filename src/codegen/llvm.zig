@@ -164,15 +164,17 @@ pub const Object = struct {
     /// * it works for functions not all globals.
     /// Therefore, this table keeps track of the mapping.
     decl_map: std.AutoHashMapUnmanaged(*const Module.Decl, *const llvm.Value),
+    /// Where to put the output object file, relative to bin_file.options.emit directory.
+    sub_path: []const u8,
 
-    pub fn create(gpa: *Allocator, options: link.Options) !*Object {
+    pub fn create(gpa: *Allocator, sub_path: []const u8, options: link.Options) !*Object {
         const obj = try gpa.create(Object);
         errdefer gpa.destroy(obj);
-        obj.* = try Object.init(gpa, options);
+        obj.* = try Object.init(gpa, sub_path, options);
         return obj;
     }
 
-    pub fn init(gpa: *Allocator, options: link.Options) !Object {
+    pub fn init(gpa: *Allocator, sub_path: []const u8, options: link.Options) !Object {
         const context = llvm.Context.create();
         errdefer context.dispose();
 
@@ -251,6 +253,7 @@ pub const Object = struct {
             .context = context,
             .target_machine = target_machine,
             .decl_map = .{},
+            .sub_path = sub_path,
         };
     }
 
@@ -301,22 +304,17 @@ pub const Object = struct {
         const mod = comp.bin_file.options.module.?;
         const cache_dir = mod.zig_cache_artifact_directory;
 
-        const emit_bin_path: ?[*:0]const u8 = if (comp.bin_file.options.emit != null) blk: {
-            const obj_basename = try std.zig.binNameAlloc(arena, .{
-                .root_name = comp.bin_file.options.root_name,
-                .target = comp.bin_file.options.target,
-                .output_mode = .Obj,
-            });
-            if (cache_dir.joinZ(arena, &[_][]const u8{obj_basename})) |p| {
-                break :blk p.ptr;
-            } else |err| {
-                return err;
-            }
-        } else null;
+        const emit_bin_path: ?[*:0]const u8 = if (comp.bin_file.options.emit) |emit|
+            try emit.directory.joinZ(arena, &[_][]const u8{self.sub_path})
+        else
+            null;
 
         const emit_asm_path = try locPath(arena, comp.emit_asm, cache_dir);
         const emit_llvm_ir_path = try locPath(arena, comp.emit_llvm_ir, cache_dir);
         const emit_llvm_bc_path = try locPath(arena, comp.emit_llvm_bc, cache_dir);
+
+        const debug_emit_path = emit_bin_path orelse "(none)";
+        log.debug("emit LLVM object to {s}", .{debug_emit_path});
 
         var error_message: [*:0]const u8 = undefined;
         if (self.target_machine.emitToFile(

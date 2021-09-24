@@ -1574,25 +1574,29 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         // also test the use case of `build-obj -fcompiler-rt` with the self-hosted compiler
         // and make sure the compiler-rt symbols are emitted. Currently this is hooked up for
         // stage1 but not stage2.
-        if (comp.bin_file.options.use_stage1) {
-            if (comp.bin_file.options.include_compiler_rt) {
-                if (is_exe_or_dyn_lib) {
-                    try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
-                } else if (options.output_mode != .Obj) {
-                    // If build-obj with -fcompiler-rt is requested, that is handled specially
-                    // elsewhere. In this case we are making a static library, so we ask
-                    // for a compiler-rt object to put in it.
-                    try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
-                }
+        const capable_of_building_compiler_rt = comp.bin_file.options.use_stage1;
+        const capable_of_building_ssp = comp.bin_file.options.use_stage1;
+        const capable_of_building_zig_libc = comp.bin_file.options.use_stage1 or
+            comp.bin_file.options.use_llvm;
+
+        if (comp.bin_file.options.include_compiler_rt and capable_of_building_compiler_rt) {
+            if (is_exe_or_dyn_lib) {
+                try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
+            } else if (options.output_mode != .Obj) {
+                // If build-obj with -fcompiler-rt is requested, that is handled specially
+                // elsewhere. In this case we are making a static library, so we ask
+                // for a compiler-rt object to put in it.
+                try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
             }
-            if (needs_c_symbols) {
-                // MinGW provides no libssp, use our own implementation.
-                if (comp.getTarget().isMinGW()) {
-                    try comp.work_queue.writeItem(.{ .libssp = {} });
-                }
-                if (!comp.bin_file.options.link_libc) {
-                    try comp.work_queue.writeItem(.{ .zig_libc = {} });
-                }
+        }
+        if (needs_c_symbols) {
+            // MinGW provides no libssp, use our own implementation.
+            if (comp.getTarget().isMinGW() and capable_of_building_ssp) {
+                try comp.work_queue.writeItem(.{ .libssp = {} });
+            }
+
+            if (!comp.bin_file.options.link_libc and capable_of_building_zig_libc) {
+                try comp.work_queue.writeItem(.{ .zig_libc = {} });
             }
         }
     }
