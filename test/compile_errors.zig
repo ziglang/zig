@@ -6775,7 +6775,7 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:5: error: expression value is ignored",
     });
 
-    ctx.objErrStage1("ignored defered statement value",
+    ctx.objErrStage1("ignored deferred statement value",
         \\export fn foo() void {
         \\    defer {1;}
         \\}
@@ -6783,7 +6783,7 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:12: error: expression value is ignored",
     });
 
-    ctx.objErrStage1("ignored defered function call",
+    ctx.objErrStage1("ignored deferred function call",
         \\export fn foo() void {
         \\    defer bar();
         \\}
