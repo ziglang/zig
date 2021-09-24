@@ -565,7 +565,7 @@ pub const DeclGen = struct {
                 }
             },
             // When recursively generating a type, we cannot infer the pointer's storage class. See genPointerType.
-            .Pointer => return self.fail("Cannot create pointer with unkown storage class", .{}),
+            .Pointer => return self.fail("Cannot create pointer with unknown storage class", .{}),
             .Vector => {
                 // Although not 100% the same, Zig vectors map quite neatly to SPIR-V vectors (including many integer and float operations
                 // which work on them), so simply use those.
