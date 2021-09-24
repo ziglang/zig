@@ -140,7 +140,7 @@ fn testArrayByValAtComptime(b: [2]u8) u8 {
     return b[0];
 }
 
-test "comptime evalutating function that takes array by value" {
+test "comptime evaluating function that takes array by value" {
     const arr = [_]u8{ 0, 1 };
     _ = comptime testArrayByValAtComptime(arr);
     _ = comptime testArrayByValAtComptime(arr);
