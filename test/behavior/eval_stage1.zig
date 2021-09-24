@@ -88,7 +88,7 @@ var st_init_str_foo = StInitStrFoo{
     .y = true,
 };
 
-test "statically initalized array literal" {
+test "statically initialized array literal" {
     const y: [4]u8 = st_init_arr_lit_x;
     try expect(y[3] == 4);
 }
