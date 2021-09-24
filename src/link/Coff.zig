@@ -602,7 +602,7 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
         const current_virtual_size = mem.alignForwardGeneric(u32, self.offset_table_size, section_alignment);
         const new_virtual_size = mem.alignForwardGeneric(u32, new_raw_size, section_alignment);
         // If we had to move in the virtual address space, we need to fix the VAs in the offset table, as well as the virtual address of the `.text` section
-        // and the virutal size of the `.got` section
+        // and the virtual size of the `.got` section
 
         if (new_virtual_size != current_virtual_size) {
             log.debug("growing offset table from virtual size {} to {}\n", .{ current_virtual_size, new_virtual_size });
