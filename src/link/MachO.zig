@@ -4606,7 +4606,7 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
 
     // Because we insert lazy binding opcodes in reverse order (from last to the first atom),
     // we need reverse the order of atom traversal here as well.
-    // TODO figure out a less error prone mechanims for this!
+    // TODO figure out a less error prone mechanisms for this!
     var atom = last_atom;
     while (atom.prev) |prev| {
         atom = prev;
