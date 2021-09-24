@@ -3443,7 +3443,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         });
     }
 
-    cases.add("unnamed fields have predictabile names",
+    cases.add("unnamed fields have predictable names",
         \\struct a {
         \\    struct {};
         \\};
