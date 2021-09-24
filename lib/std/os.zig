@@ -4492,8 +4492,12 @@ pub const FlockError = error{
 
     /// The kernel ran out of memory for allocating file locks
     SystemResources,
+
+    /// The underlying filesystem does not support file locks
+    FileLocksNotSupported,
 } || UnexpectedError;
 
+/// Depending on the operating system `flock` may or may not interact with `fcntl` locks made by other processes.
 pub fn flock(fd: fd_t, operation: i32) FlockError!void {
     while (true) {
         const rc = system.flock(fd, operation);
@@ -4504,6 +4508,7 @@ pub fn flock(fd: fd_t, operation: i32) FlockError!void {
             .INVAL => unreachable, // invalid parameters
             .NOLCK => return error.SystemResources,
             .AGAIN => return error.WouldBlock, // TODO: integrate with async instead of just returning an error
+            .OPNOTSUPP => return error.FileLocksNotSupported,
             else => |err| return unexpectedErrno(err),
         }
     }
