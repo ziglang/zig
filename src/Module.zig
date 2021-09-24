@@ -2118,39 +2118,39 @@ pub const LazySrcLoc = union(enum) {
     node_offset_bin_op: i32,
     /// The source location points to the LHS of a binary expression, found
     /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a binary expression AST node. Next, nagivate to the LHS.
+    /// which points to a binary expression AST node. Next, navigate to the LHS.
     /// The Decl is determined contextually.
     node_offset_bin_lhs: i32,
     /// The source location points to the RHS of a binary expression, found
     /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a binary expression AST node. Next, nagivate to the RHS.
+    /// which points to a binary expression AST node. Next, navigate to the RHS.
     /// The Decl is determined contextually.
     node_offset_bin_rhs: i32,
     /// The source location points to the operand of a switch expression, found
     /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, nagivate to the operand.
+    /// which points to a switch expression AST node. Next, navigate to the operand.
     /// The Decl is determined contextually.
     node_offset_switch_operand: i32,
     /// The source location points to the else/`_` prong of a switch expression, found
     /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, nagivate to the else/`_` prong.
+    /// which points to a switch expression AST node. Next, navigate to the else/`_` prong.
     /// The Decl is determined contextually.
     node_offset_switch_special_prong: i32,
     /// The source location points to all the ranges of a switch expression, found
     /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, nagivate to any of the
+    /// which points to a switch expression AST node. Next, navigate to any of the
     /// range nodes. The error applies to all of them.
     /// The Decl is determined contextually.
     node_offset_switch_range: i32,
     /// The source location points to the calling convention of a function type
     /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, nagivate to
+    /// Decl AST node, which points to a function type AST node. Next, navigate to
     /// the calling convention node.
     /// The Decl is determined contextually.
     node_offset_fn_type_cc: i32,
     /// The source location points to the return type of a function type
     /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, nagivate to
+    /// Decl AST node, which points to a function type AST node. Next, navigate to
     /// the return type node.
     /// The Decl is determined contextually.
     node_offset_fn_type_ret_ty: i32,
