@@ -866,6 +866,7 @@ pub const File = struct {
 
     pub const LockError = error{
         SystemResources,
+        FileLocksNotSupported,
     } || os.UnexpectedError;
 
     /// Blocks when an incompatible lock is held by another process.
@@ -928,6 +929,7 @@ pub const File = struct {
             return os.flock(file.handle, os.LOCK.UN) catch |err| switch (err) {
                 error.WouldBlock => unreachable, // unlocking can't block
                 error.SystemResources => unreachable, // We are deallocating resources.
+                error.FileLocksNotSupported => unreachable, // We already got the lock.
                 error.Unexpected => unreachable, // Resource deallocation must succeed.
             };
         }
