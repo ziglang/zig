@@ -11354,7 +11354,7 @@ fn analyzeComptimeAlloc(
 
 /// The places where a user can specify an address space attribute
 pub const AddressSpaceContext = enum {
-    /// A function is specificed to be placed in a certain address space.
+    /// A function is specified to be placed in a certain address space.
     function,
 
     /// A (global) variable is specified to be placed in a certain address space.
