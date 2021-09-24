@@ -260,7 +260,7 @@ pub const DeclGen = struct {
         };
     }
 
-    /// Generate the code for `decl`. If a reportable error occured during code generation,
+    /// Generate the code for `decl`. If a reportable error occurred during code generation,
     /// a message is returned by this function. Callee owns the memory. If this function
     /// returns such a reportable error, it is valid to be called again for a different decl.
     pub fn gen(self: *DeclGen, decl: *Decl, air: Air, liveness: Liveness) !?*Module.ErrorMsg {
