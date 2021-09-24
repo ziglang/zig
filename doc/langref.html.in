@@ -10325,7 +10325,7 @@ pub fn main() void {
       <p>
         Some C constructs cannot be translated to Zig - for example, <em>goto</em>,
         structs with bitfields, and token-pasting macros. Zig employs <em>demotion</em> to allow translation
-        to continue in the face of non-translateable entities.
+        to continue in the face of non-translatable entities.
       </p>
       <p>
         Demotion comes in three varieties - {#link|opaque#}, <em>extern</em>, and
@@ -10335,13 +10335,13 @@ pub fn main() void {
         Functions that contain opaque types or code constructs that cannot be translated will be demoted
         to {#syntax#}extern{#endsyntax#} declarations.
 
-        Thus, non-translateable types can still be used as pointers, and non-translateable functions
+        Thus, non-translatable types can still be used as pointers, and non-translatable functions
         can be called so long as the linker is aware of the compiled function.
       </p>
       <p>
         {#syntax#}@compileError{#endsyntax#} is used when top-level definitions (global variables,
         function prototypes, macros) cannot be translated or demoted. Since Zig uses lazy analysis for
-        top-level declarations, untranslateable entities will not cause a compile error in your code unless
+        top-level declarations, untranslatable entities will not cause a compile error in your code unless
         you actually use them.
       </p>
       {#see_also|opaque|extern|@compileError#}
@@ -10353,7 +10353,7 @@ pub fn main() void {
         can be translated to Zig. Macros that cannot be translated will be be demoted to
         {#syntax#}@compileError{#endsyntax#}. Note that C code which <em>uses</em> macros will be
         translated without any additional issues (since Zig operates on the pre-processed source
-        with macros expanded). It is merely the macros themselves which may not be translateable to
+        with macros expanded). It is merely the macros themselves which may not be translatable to
         Zig.
       </p>
       <p>Consider the following example:</p>
@@ -10373,7 +10373,7 @@ pub export fn foo() c_int {
 }
 pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected token .Equal"); // macro.c:1:9
       {#code_end#}
-      <p>Note that {#syntax#}foo{#endsyntax#} was translated correctly despite using a non-translateable
+      <p>Note that {#syntax#}foo{#endsyntax#} was translated correctly despite using a non-translatable
         macro. {#syntax#}MAKELOCAL{#endsyntax#} was demoted to {#syntax#}@compileError{#endsyntax#} since
         it cannot be expressed as a Zig function; this simply means that you cannot directly use
         {#syntax#}MAKELOCAL{#endsyntax#} from Zig.
