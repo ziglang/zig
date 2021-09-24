@@ -70,6 +70,14 @@ pub const GlobalLinkage = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const GlobalVisibility = enum {
+    default,
+    hidden,
+    protected,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const AtomicOrder = enum {
     Unordered,
     Monotonic,
@@ -655,6 +663,7 @@ pub const ExportOptions = struct {
     name: []const u8,
     linkage: GlobalLinkage = .Strong,
     section: ?[]const u8 = null,
+    visibility: GlobalVisibility = .default,
 };
 
 /// This data structure is used by the Zig language code generation and

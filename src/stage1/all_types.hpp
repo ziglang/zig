@@ -571,6 +571,12 @@ enum GlobalLinkageId {
     GlobalLinkageIdLinkOnce,
 };
 
+enum GlobalVisibilityId {
+    GlobalVisibilityIdDefault,
+    GlobalVisibilityIdHidden,
+    GlobalVisibilityIdProtected,
+};
+
 enum TldId {
     TldIdVar,
     TldIdFn,
@@ -1654,6 +1660,7 @@ enum FnAnalState {
 struct GlobalExport {
     Buf name;
     GlobalLinkageId linkage;
+    GlobalVisibilityId visibility;
 };
 
 struct ZigFn {

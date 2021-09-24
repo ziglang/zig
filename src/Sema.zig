@@ -4348,6 +4348,7 @@ pub fn analyzeExport(
             .name = symbol_name,
             .linkage = borrowed_options.linkage,
             .section = section,
+            .visibility = borrowed_options.visibility,
         },
         .src = src,
         .link = switch (mod.comp.bin_file.tag) {
@@ -15007,6 +15008,9 @@ fn resolveExportOptions(
     const section = try sema.fieldVal(block, src, options, "section", src);
     const section_val = try sema.resolveConstValue(block, src, section);
 
+    const visibility = try sema.fieldVal(block, src, options, "visibility", src);
+    const visibility_val = try sema.resolveConstValue(block, src, visibility);
+
     if (!section_val.isNull()) {
         return sema.fail(block, src, "TODO: implement exporting with linksection", .{});
     }
@@ -15015,6 +15019,7 @@ fn resolveExportOptions(
         .name = try name_val.toAllocatedBytes(name_ty, sema.arena, sema.mod),
         .linkage = linkage_val.toEnum(std.builtin.GlobalLinkage),
         .section = null, // TODO
+        .visibility = visibility_val.toEnum(std.builtin.GlobalVisibility),
     };
 }
 
