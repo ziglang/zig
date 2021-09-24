@@ -12,7 +12,7 @@
 //! - OpName and OpMemberName instructions.
 //! - OpModuleProcessed instructions.
 //! All annotation (decoration) instructions.
-//! All type declaration instructions, constant instructions, global variable declarations, (preferrably) OpUndef instructions.
+//! All type declaration instructions, constant instructions, global variable declarations, (preferably) OpUndef instructions.
 //! All function declarations without a body (extern functions presumably).
 //! All regular functions.
 
