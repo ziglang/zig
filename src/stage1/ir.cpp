@@ -15189,7 +15189,7 @@ static Stage1AirInst *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
         return ir_analyze_inferred_field_ptr(ira, field_name, scope, source_node, container_ptr, bare_type);
     }
 
-    // Tracks wether we should return an undefined value of the correct type.
+    // Tracks whether we should return an undefined value of the correct type.
     // We do this if the container pointer is undefined and we are in a TypeOf call.
     bool return_undef = container_ptr->value->special == ConstValSpecialUndef && \
                          get_scope_typeof(scope) != nullptr;
