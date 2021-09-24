@@ -370,17 +370,16 @@ pub const Object = struct {
         }
 
         // This gets the LLVM values from the function and stores them in `dg.args`.
-        const fn_param_len = decl.ty.fnParamLen();
-        var args = try dg.gpa.alloc(*const llvm.Value, fn_param_len);
+        const fn_info = decl.ty.fnInfo();
+        var args = try dg.gpa.alloc(*const llvm.Value, fn_info.param_types.len);
 
         for (args) |*arg, i| {
             arg.* = llvm.getParam(llvm_func, @intCast(c_uint, i));
         }
 
-        // We remove all the basic blocks of a function to support incremental
-        // compilation!
-        // TODO: remove all basic blocks if functions can have more than one
-        if (llvm_func.getFirstBasicBlock()) |bb| {
+        // Remove all the basic blocks of a function in order to start over, generating
+        // LLVM IR from an empty function body.
+        while (llvm_func.getFirstBasicBlock()) |bb| {
             bb.deleteBasicBlock();
         }
 
@@ -545,20 +544,16 @@ pub const DeclGen = struct {
 
         assert(decl.has_tv);
         const zig_fn_type = decl.ty;
-        const return_type = zig_fn_type.fnReturnType();
-        const fn_param_len = zig_fn_type.fnParamLen();
+        const fn_info = zig_fn_type.fnInfo();
+        const return_type = fn_info.return_type;
 
-        const fn_param_types = try self.gpa.alloc(Type, fn_param_len);
-        defer self.gpa.free(fn_param_types);
-        zig_fn_type.fnParamTypes(fn_param_types);
-
-        const llvm_param_buffer = try self.gpa.alloc(*const llvm.Type, fn_param_len);
+        const llvm_param_buffer = try self.gpa.alloc(*const llvm.Type, fn_info.param_types.len);
         defer self.gpa.free(llvm_param_buffer);
 
         var llvm_params_len: c_uint = 0;
-        for (fn_param_types) |fn_param| {
-            if (fn_param.hasCodeGenBits()) {
-                llvm_param_buffer[llvm_params_len] = try self.llvmType(fn_param);
+        for (fn_info.param_types) |param_ty| {
+            if (param_ty.hasCodeGenBits()) {
+                llvm_param_buffer[llvm_params_len] = try self.llvmType(param_ty);
                 llvm_params_len += 1;
             }
         }
@@ -583,8 +578,85 @@ pub const DeclGen = struct {
             llvm_fn.setUnnamedAddr(.True);
         }
 
-        // TODO: calling convention, linkage, tsan, etc. see codegen.cpp `make_fn_llvm_value`.
+        // TODO: more attributes. see codegen.cpp `make_fn_llvm_value`.
+        const target = self.module.getTarget();
+        switch (fn_info.cc) {
+            .Unspecified, .Inline, .Async => {
+                llvm_fn.setFunctionCallConv(.Fast);
+            },
+            .C => {
+                llvm_fn.setFunctionCallConv(.C);
+            },
+            .Naked => {
+                self.addFnAttr(llvm_fn, "naked");
+            },
+            .Stdcall => {
+                llvm_fn.setFunctionCallConv(.X86_StdCall);
+            },
+            .Fastcall => {
+                llvm_fn.setFunctionCallConv(.X86_FastCall);
+            },
+            .Vectorcall => {
+                switch (target.cpu.arch) {
+                    .i386, .x86_64 => {
+                        llvm_fn.setFunctionCallConv(.X86_VectorCall);
+                    },
+                    .aarch64, .aarch64_be, .aarch64_32 => {
+                        llvm_fn.setFunctionCallConv(.AArch64_VectorCall);
+                    },
+                    else => unreachable,
+                }
+            },
+            .Thiscall => {
+                llvm_fn.setFunctionCallConv(.X86_ThisCall);
+            },
+            .APCS => {
+                llvm_fn.setFunctionCallConv(.ARM_APCS);
+            },
+            .AAPCS => {
+                llvm_fn.setFunctionCallConv(.ARM_AAPCS);
+            },
+            .AAPCSVFP => {
+                llvm_fn.setFunctionCallConv(.ARM_AAPCS_VFP);
+            },
+            .Interrupt => {
+                switch (target.cpu.arch) {
+                    .i386, .x86_64 => {
+                        llvm_fn.setFunctionCallConv(.X86_INTR);
+                    },
+                    .avr => {
+                        llvm_fn.setFunctionCallConv(.AVR_INTR);
+                    },
+                    .msp430 => {
+                        llvm_fn.setFunctionCallConv(.MSP430_INTR);
+                    },
+                    else => unreachable,
+                }
+            },
+            .Signal => {
+                llvm_fn.setFunctionCallConv(.AVR_SIGNAL);
+            },
+            .SysV => {
+                llvm_fn.setFunctionCallConv(.X86_64_SysV);
+            },
+        }
 
+        // Function attributes that are independent of analysis results of the function body.
+        if (!self.module.comp.bin_file.options.red_zone) {
+            self.addFnAttr(llvm_fn, "noredzone");
+        }
+        self.addFnAttr(llvm_fn, "nounwind");
+        if (self.module.comp.unwind_tables) {
+            self.addFnAttr(llvm_fn, "uwtable");
+        }
+        if (self.module.comp.bin_file.options.optimize_mode == .ReleaseSmall) {
+            self.addFnAttr(llvm_fn, "minsize");
+            self.addFnAttr(llvm_fn, "optsize");
+        }
+        if (self.module.comp.bin_file.options.tsan) {
+            self.addFnAttr(llvm_fn, "sanitize_thread");
+        }
+        // TODO add target-cpu and target-features fn attributes
         if (return_type.isNoReturn()) {
             self.addFnAttr(llvm_fn, "noreturn");
         }
