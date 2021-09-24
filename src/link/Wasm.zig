@@ -35,7 +35,7 @@ llvm_object: ?*LlvmObject = null,
 /// TODO: can/should we access some data structure in Module directly?
 funcs: std.ArrayListUnmanaged(*Module.Decl) = .{},
 /// List of all extern function Decls to be written to the `import` section of the
-/// wasm binary. The positin in the list defines the function index
+/// wasm binary. The position in the list defines the function index
 ext_funcs: std.ArrayListUnmanaged(*Module.Decl) = .{},
 /// When importing objects from the host environment, a name must be supplied.
 /// LLVM uses "env" by default when none is given. This would be a good default for Zig
