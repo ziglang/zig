@@ -829,7 +829,7 @@ static const char *cast_op_str(CastOp op) {
         case CastOpIntToFloat: return "IntToFloat";
         case CastOpFloatToInt: return "FloatToInt";
         case CastOpBoolToInt: return "BoolToInt";
-        case CastOpNumLitToConcrete: return "NumLitToConcrate";
+        case CastOpNumLitToConcrete: return "NumLitToConcrete";
         case CastOpErrSet: return "ErrSet";
         case CastOpBitCast: return "BitCast";
     }
