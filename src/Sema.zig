@@ -11366,7 +11366,7 @@ pub const AddressSpaceContext = enum {
     /// In contrast to .variable, values placed in this address space are not required to be mutable.
     constant,
 
-    /// A pointer is ascripted to point into a certian address space.
+    /// A pointer is ascripted to point into a certain address space.
     pointer,
 };
 
