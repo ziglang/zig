@@ -41,7 +41,7 @@ code: std.ArrayListUnmanaged(u8) = .{},
 size: u64,
 
 /// Alignment of this atom as a power of 2.
-/// For instance, aligmment of 0 should be read as 2^0 = 1 byte aligned.
+/// For instance, alignment of 0 should be read as 2^0 = 1 byte aligned.
 alignment: u32,
 
 /// List of relocations belonging to this atom.

@@ -6804,7 +6804,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     // Since this frame is async, an await might represent a suspend point, and
     // therefore need to spill. It also needs to mark expr scopes as having to spill.
     // For example: foo() + await z
-    // The funtion call result of foo() must be spilled.
+    // The function call result of foo() must be spilled.
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         Stage1AirInstAwait *await = fn->await_list.at(i);
         if (await->is_nosuspend) {

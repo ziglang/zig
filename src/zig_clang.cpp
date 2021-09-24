@@ -1537,10 +1537,10 @@ void ZigClang_detect_enum_ConstantExprKind(clang::Expr::ConstantExprKind x) {
             break;
     }
 }
-static_assert((clang::Expr::ConstantExprKind)ZigClangExpr_ContantExprKind_Normal == clang::Expr::ConstantExprKind::Normal, "");
-static_assert((clang::Expr::ConstantExprKind)ZigClangExpr_ContantExprKind_NonClassTemplateArgument == clang::Expr::ConstantExprKind::NonClassTemplateArgument, "");
-static_assert((clang::Expr::ConstantExprKind)ZigClangExpr_ContantExprKind_ClassTemplateArgument == clang::Expr::ConstantExprKind::ClassTemplateArgument, "");
-static_assert((clang::Expr::ConstantExprKind)ZigClangExpr_ContantExprKind_ImmediateInvocation == clang::Expr::ConstantExprKind::ImmediateInvocation, "");
+static_assert((clang::Expr::ConstantExprKind)ZigClangExpr_ConstantExprKind_Normal == clang::Expr::ConstantExprKind::Normal, "");
+static_assert((clang::Expr::ConstantExprKind)ZigClangExpr_ConstantExprKind_NonClassTemplateArgument == clang::Expr::ConstantExprKind::NonClassTemplateArgument, "");
+static_assert((clang::Expr::ConstantExprKind)ZigClangExpr_ConstantExprKind_ClassTemplateArgument == clang::Expr::ConstantExprKind::ClassTemplateArgument, "");
+static_assert((clang::Expr::ConstantExprKind)ZigClangExpr_ConstantExprKind_ImmediateInvocation == clang::Expr::ConstantExprKind::ImmediateInvocation, "");
 
 
 static_assert(sizeof(ZigClangAPValue) == sizeof(clang::APValue), "");

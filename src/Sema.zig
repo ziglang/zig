@@ -11164,7 +11164,7 @@ fn getBuiltinType(
 }
 
 /// There is another implementation of this in `Type.onePossibleValue`. This one
-/// in `Sema` is for calling during semantic analysis, and peforms field resolution
+/// in `Sema` is for calling during semantic analysis, and performs field resolution
 /// to get the answer. The one in `Type` is for calling during codegen and asserts
 /// that the types are already resolved.
 fn typeHasOnePossibleValue(
@@ -11541,7 +11541,7 @@ fn analyzeComptimeAlloc(
 
 /// The places where a user can specify an address space attribute
 pub const AddressSpaceContext = enum {
-    /// A function is specificed to be placed in a certain address space.
+    /// A function is specified to be placed in a certain address space.
     function,
 
     /// A (global) variable is specified to be placed in a certain address space.
@@ -11553,7 +11553,7 @@ pub const AddressSpaceContext = enum {
     /// In contrast to .variable, values placed in this address space are not required to be mutable.
     constant,
 
-    /// A pointer is ascripted to point into a certian address space.
+    /// A pointer is ascripted to point into a certain address space.
     pointer,
 };
 

@@ -6374,7 +6374,7 @@ static Stage1AirInst *ir_analyze_enum_to_union(IrAnalyze *ira, Scope *scope, Ast
 
     if (target->value->type->data.enumeration.non_exhaustive) {
         ir_add_error_node(ira, source_node,
-                buf_sprintf("runtime cast to union '%s' from non-exhustive enum",
+                buf_sprintf("runtime cast to union '%s' from non-exhaustive enum",
                     buf_ptr(&wanted_type->name)));
         return ira->codegen->invalid_inst_gen;
     }
@@ -15189,7 +15189,7 @@ static Stage1AirInst *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
         return ir_analyze_inferred_field_ptr(ira, field_name, scope, source_node, container_ptr, bare_type);
     }
 
-    // Tracks wether we should return an undefined value of the correct type.
+    // Tracks whether we should return an undefined value of the correct type.
     // We do this if the container pointer is undefined and we are in a TypeOf call.
     bool return_undef = container_ptr->value->special == ConstValSpecialUndef && \
                          get_scope_typeof(scope) != nullptr;
@@ -15248,7 +15248,7 @@ static Stage1AirInst *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                 if (type_is_invalid(union_val->type))
                     return ira->codegen->invalid_inst_gen;
 
-                // Reject undefined values unless we're intializing the union:
+                // Reject undefined values unless we're initializing the union:
                 // a undefined union means also the tag is undefined, accessing
                 // its payload slot is UB.
                 const UndefAllowed allow_undef = initializing ? UndefOk : UndefBad;

@@ -118,7 +118,7 @@ pub fn addCases(ctx: *TestContext) !void {
         {
             var case = ctx.exe("corner case - update existing, singular TextBlock", target);
 
-            // This test case also covers an infrequent scenarion where the string table *may* be relocated
+            // This test case also covers an infrequent scenario where the string table *may* be relocated
             // into the position preceeding the symbol table which results in a dyld error.
             case.addCompareOutput(
                 \\extern fn exit(usize) noreturn;

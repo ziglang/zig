@@ -2073,7 +2073,7 @@ static AstNode *ast_parse_field_init(ParseContext *pc) {
         return nullptr;
     }
     if (eat_token_if(pc, TokenIdEq) == 0) {
-        // Because ".Name" can also be intepreted as an enum literal, we should put back
+        // Because ".Name" can also be interpreted as an enum literal, we should put back
         // those two tokens again so that the parser can try to parse them as the enum
         // literal later.
         put_back_token(pc);

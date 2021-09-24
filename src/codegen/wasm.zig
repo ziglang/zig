@@ -1005,7 +1005,7 @@ pub const Context = struct {
         const rhs = self.resolveInst(bin_op.rhs);
 
         // it's possible for both lhs and/or rhs to return an offset as well,
-        // in which case we return the first offset occurance we find.
+        // in which case we return the first offset occurrence we find.
         const offset = blk: {
             if (lhs == .code_offset) break :blk lhs.code_offset;
             if (rhs == .code_offset) break :blk rhs.code_offset;
@@ -1031,7 +1031,7 @@ pub const Context = struct {
         const rhs = self.resolveInst(bin_op.rhs);
 
         // it's possible for both lhs and/or rhs to return an offset as well,
-        // in which case we return the first offset occurance we find.
+        // in which case we return the first offset occurrence we find.
         const offset = blk: {
             if (lhs == .code_offset) break :blk lhs.code_offset;
             if (rhs == .code_offset) break :blk rhs.code_offset;
@@ -1395,7 +1395,7 @@ pub const Context = struct {
         }
 
         // We map every block to its block index.
-        // We then determine how far we have to jump to it by substracting it from current block depth
+        // We then determine how far we have to jump to it by subtracting it from current block depth
         const idx: u32 = self.block_depth - self.blocks.get(br.block_inst).?;
         const writer = self.code.writer();
         try writer.writeByte(wasm.opcode(.br));

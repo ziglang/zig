@@ -50,7 +50,7 @@ last_text_block: ?*TextBlock = null,
 section_table_offset: u32 = 0,
 /// Section data file pointer.
 section_data_offset: u32 = 0,
-/// Optiona header file pointer.
+/// Optional header file pointer.
 optional_header_offset: u32 = 0,
 
 /// Absolute virtual address of the offset table when the executable is loaded in memory.
@@ -602,7 +602,7 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
         const current_virtual_size = mem.alignForwardGeneric(u32, self.offset_table_size, section_alignment);
         const new_virtual_size = mem.alignForwardGeneric(u32, new_raw_size, section_alignment);
         // If we had to move in the virtual address space, we need to fix the VAs in the offset table, as well as the virtual address of the `.text` section
-        // and the virutal size of the `.got` section
+        // and the virtual size of the `.got` section
 
         if (new_virtual_size != current_virtual_size) {
             log.debug("growing offset table from virtual size {} to {}\n", .{ current_virtual_size, new_virtual_size });
@@ -980,7 +980,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     if (self.base.options.output_mode == .Obj) {
-        // LLD's COFF driver does not support the equvialent of `-r` so we do a simple file copy
+        // LLD's COFF driver does not support the equivalent of `-r` so we do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {

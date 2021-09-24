@@ -197,7 +197,7 @@ pub const ResultLoc = union(enum) {
     none_or_ref,
     /// The expression will be coerced into this type, but it will be evaluated as an rvalue.
     ty: Zir.Inst.Ref,
-    /// Same as `ty` but it is guaranteed that Sema will additionall perform the coercion,
+    /// Same as `ty` but it is guaranteed that Sema will additionally perform the coercion,
     /// so no `as` instruction needs to be emitted.
     coerced_ty: Zir.Inst.Ref,
     /// The expression must store its result into this typed pointer. The result instruction
@@ -479,7 +479,7 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
     return expr(gz, scope, .ref, node);
 }
 
-/// Turn Zig AST into untyped ZIR istructions.
+/// Turn Zig AST into untyped ZIR instructions.
 /// When `rl` is discard, ptr, inferred_ptr, or inferred_ptr, the
 /// result instruction can be used to inspect whether it is isNoReturn() but that is it,
 /// it must otherwise not be used.

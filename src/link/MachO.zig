@@ -213,7 +213,7 @@ decls: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
 
 /// Currently active Module.Decl.
 /// TODO this might not be necessary if we figure out how to pass Module.Decl instance
-/// to codegen.genSetReg() or alterntively move PIE displacement for MCValue{ .memory = x }
+/// to codegen.genSetReg() or alternatively move PIE displacement for MCValue{ .memory = x }
 /// somewhere else in the codegen.
 active_decl: ?*Module.Decl = null,
 
@@ -512,7 +512,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     if (self.base.options.output_mode == .Obj) {
-        // LLD's MachO driver does not support the equvialent of `-r` so we do a simple file copy
+        // LLD's MachO driver does not support the equivalent of `-r` so we do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
@@ -2245,7 +2245,7 @@ pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*Atom {
 fn createTentativeDefAtoms(self: *MachO) !void {
     if (self.tentatives.count() == 0) return;
     // Convert any tentative definition into a regular symbol and allocate
-    // text blocks for each tentative defintion.
+    // text blocks for each tentative definition.
     while (self.tentatives.popOrNull()) |entry| {
         const match = MatchingSection{
             .seg = self.data_segment_cmd_index.?,
@@ -4609,7 +4609,7 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
 
     // Because we insert lazy binding opcodes in reverse order (from last to the first atom),
     // we need reverse the order of atom traversal here as well.
-    // TODO figure out a less error prone mechanims for this!
+    // TODO figure out a less error prone mechanisms for this!
     var atom = last_atom;
     while (atom.prev) |prev| {
         atom = prev;

@@ -985,7 +985,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // increasing the pc
                     const d_pc_p9 = @intCast(i64, delta_pc) - quant;
                     if (d_pc_p9 > 0) {
-                        // minus one becaue if its the last one, we want to leave space to change the line which is one quanta
+                        // minus one because if its the last one, we want to leave space to change the line which is one quanta
                         try dbg_out.dbg_line.append(@intCast(u8, @divExact(d_pc_p9, quant) + 128) - quant);
                         if (dbg_out.pcop_change_index.*) |pci|
                             dbg_out.dbg_line.items[pci] += 1;
@@ -1919,15 +1919,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .shl => {
                     assert(!swap_lhs_and_rhs);
-                    const shift_amout = switch (operand) {
+                    const shift_amount = switch (operand) {
                         .Register => |reg_op| Instruction.ShiftAmount.reg(@intToEnum(Register, reg_op.rm)),
                         .Immediate => |imm_op| Instruction.ShiftAmount.imm(@intCast(u5, imm_op.imm)),
                     };
-                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.lsl(.al, dst_reg, op1, shift_amout).toU32());
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.lsl(.al, dst_reg, op1, shift_amount).toU32());
                 },
                 .shr => {
                     assert(!swap_lhs_and_rhs);
-                    const shift_amout = switch (operand) {
+                    const shift_amount = switch (operand) {
                         .Register => |reg_op| Instruction.ShiftAmount.reg(@intToEnum(Register, reg_op.rm)),
                         .Immediate => |imm_op| Instruction.ShiftAmount.imm(@intCast(u5, imm_op.imm)),
                     };
@@ -1936,7 +1936,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .signed => Instruction.asr,
                         .unsigned => Instruction.lsr,
                     };
-                    writeInt(u32, try self.code.addManyAsArray(4), shr(.al, dst_reg, op1, shift_amout).toU32());
+                    writeInt(u32, try self.code.addManyAsArray(4), shr(.al, dst_reg, op1, shift_amount).toU32());
                 },
                 else => unreachable, // not a binary instruction
             }
@@ -3618,7 +3618,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             try self.blocks.putNoClobber(self.gpa, inst, .{
                 // A block is a setup to be able to jump to the end.
                 .relocs = .{},
-                // It also acts as a receptical for break operands.
+                // It also acts as a receptacle for break operands.
                 // Here we use `MCValue.none` to represent a null value so that the first
                 // break instruction will choose a MCValue for the block result and overwrite
                 // this field. Following break instructions will use that MCValue to put their
@@ -3672,7 +3672,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 return self.fail("TODO: enable larger branch offset", .{});
                             }
                         },
-                        else => unreachable, // attempting to perfrom an ARM relocation on a non-ARM target arch
+                        else => unreachable, // attempting to perform an ARM relocation on a non-ARM target arch
                     }
                 },
             }

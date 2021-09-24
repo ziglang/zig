@@ -506,7 +506,7 @@ test "write Trie to a byte stream" {
     });
 
     try trie.finalize(gpa);
-    try trie.finalize(gpa); // Finalizing mulitple times is a nop subsequently unless we add new nodes.
+    try trie.finalize(gpa); // Finalizing multiple times is a nop subsequently unless we add new nodes.
 
     const exp_buffer = [_]u8{
         0x0, 0x1, // node root
