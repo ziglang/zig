@@ -126,6 +126,7 @@
 #define int128_t __int128
 #define uint128_t unsigned __int128
 ZIG_EXTERN_C void *memcpy (void *ZIG_RESTRICT, const void *ZIG_RESTRICT, size_t);
+ZIG_EXTERN_C void *memset (void *, int, size_t);
 
 static inline uint8_t zig_addw_u8(uint8_t lhs, uint8_t rhs, uint8_t max) {
     uint8_t thresh = max - rhs;

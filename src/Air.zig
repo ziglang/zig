@@ -321,6 +321,19 @@ pub const Inst = struct {
         /// Uses the `ty_op` field.
         int_to_float,
 
+        /// Given dest ptr, value, and len, set all elements at dest to value.
+        /// Result type is always void.
+        /// Uses the `pl_op` field. Operand is the dest ptr. Payload is `Bin`. `lhs` is the
+        /// value, `rhs` is the length.
+        /// The element type may be any type, not just u8.
+        memset,
+        /// Given dest ptr, src ptr, and len, copy len elements from src to dest.
+        /// Result type is always void.
+        /// Uses the `pl_op` field. Operand is the dest ptr. Payload is `Bin`. `lhs` is the
+        /// src ptr, `rhs` is the length.
+        /// The element type may be any type, not just u8.
+        memcpy,
+
         /// Uses the `ty_pl` field with payload `Cmpxchg`.
         cmpxchg_weak,
         /// Uses the `ty_pl` field with payload `Cmpxchg`.
@@ -628,6 +641,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .atomic_store_monotonic,
         .atomic_store_release,
         .atomic_store_seq_cst,
+        .memset,
+        .memcpy,
         => return Type.initTag(.void),
 
         .ptrtoint,

@@ -2391,12 +2391,11 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the type is a pointer or array type.
-    pub fn elemType(self: Type) Type {
-        return switch (self.tag()) {
-            .vector => self.castTag(.vector).?.data.elem_type,
-            .array => self.castTag(.array).?.data.elem_type,
-            .array_sentinel => self.castTag(.array_sentinel).?.data.elem_type,
+    pub fn childType(ty: Type) Type {
+        return switch (ty.tag()) {
+            .vector => ty.castTag(.vector).?.data.elem_type,
+            .array => ty.castTag(.array).?.data.elem_type,
+            .array_sentinel => ty.castTag(.array_sentinel).?.data.elem_type,
             .single_const_pointer,
             .single_mut_pointer,
             .many_const_pointer,
@@ -2405,7 +2404,7 @@ pub const Type = extern union {
             .c_mut_pointer,
             .const_slice,
             .mut_slice,
-            => self.castPointer().?.data,
+            => ty.castPointer().?.data,
 
             .array_u8,
             .array_u8_sentinel_0,
@@ -2415,9 +2414,67 @@ pub const Type = extern union {
             => Type.initTag(.u8),
 
             .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
-            .pointer => self.castTag(.pointer).?.data.pointee_type,
+            .pointer => ty.castTag(.pointer).?.data.pointee_type,
 
             else => unreachable,
+        };
+    }
+
+    /// Asserts the type is a pointer or array type.
+    /// TODO this is deprecated in favor of `childType`.
+    pub const elemType = childType;
+
+    /// For *[N]T,  returns T.
+    /// For ?*T,    returns T.
+    /// For ?*[N]T, returns T.
+    /// For ?[*]T,  returns T.
+    /// For *T,     returns T.
+    /// For [*]T,   returns T.
+    pub fn elemType2(ty: Type) Type {
+        return switch (ty.tag()) {
+            .vector => ty.castTag(.vector).?.data.elem_type,
+            .array => ty.castTag(.array).?.data.elem_type,
+            .array_sentinel => ty.castTag(.array_sentinel).?.data.elem_type,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            => ty.castPointer().?.data,
+
+            .single_const_pointer,
+            .single_mut_pointer,
+            => ty.castPointer().?.data.shallowElemType(),
+
+            .array_u8,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            => Type.initTag(.u8),
+
+            .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
+            .pointer => {
+                const info = ty.castTag(.pointer).?.data;
+                const child_ty = info.pointee_type;
+                if (info.size == .One) {
+                    return child_ty.shallowElemType();
+                } else {
+                    return child_ty;
+                }
+            },
+
+            // TODO handle optionals
+
+            else => unreachable,
+        };
+    }
+
+    fn shallowElemType(child_ty: Type) Type {
+        return switch (child_ty.zigTypeTag()) {
+            .Array, .Vector => child_ty.childType(),
+            else => child_ty,
         };
     }
 

@@ -2149,8 +2149,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .field_ptr_type,
             .field_parent_ptr,
             .maximum,
-            .memcpy,
-            .memset,
             .minimum,
             .builtin_async_call,
             .c_import,
@@ -2204,6 +2202,8 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .set_float_mode,
             .set_runtime_safety,
             .closure_capture,
+            .memcpy,
+            .memset,
             => break :b true,
         }
     } else switch (maybe_unused_result) {
@@ -7576,17 +7576,17 @@ fn builtinCall(
         },
         .memcpy => {
             const result = try gz.addPlNode(.memcpy, node, Zir.Inst.Memcpy{
-                .dest = try expr(gz, scope, .{ .ty = .manyptr_u8_type }, params[0]),
-                .source = try expr(gz, scope, .{ .ty = .manyptr_const_u8_type }, params[1]),
-                .byte_count = try expr(gz, scope, .{ .ty = .usize_type }, params[2]),
+                .dest = try expr(gz, scope, .{ .coerced_ty = .manyptr_u8_type }, params[0]),
+                .source = try expr(gz, scope, .{ .coerced_ty = .manyptr_const_u8_type }, params[1]),
+                .byte_count = try expr(gz, scope, .{ .coerced_ty = .usize_type }, params[2]),
             });
             return rvalue(gz, rl, result, node);
         },
         .memset => {
             const result = try gz.addPlNode(.memset, node, Zir.Inst.Memset{
-                .dest = try expr(gz, scope, .{ .ty = .manyptr_u8_type }, params[0]),
-                .byte = try expr(gz, scope, .{ .ty = .u8_type }, params[1]),
-                .byte_count = try expr(gz, scope, .{ .ty = .usize_type }, params[2]),
+                .dest = try expr(gz, scope, .{ .coerced_ty = .manyptr_u8_type }, params[0]),
+                .byte = try expr(gz, scope, .{ .coerced_ty = .u8_type }, params[1]),
+                .byte_count = try expr(gz, scope, .{ .coerced_ty = .usize_type }, params[2]),
             });
             return rvalue(gz, rl, result, node);
         },

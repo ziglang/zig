@@ -632,6 +632,25 @@ pub const Builder = opaque {
         DestTy: *const Type,
         Name: [*:0]const u8,
     ) *const Value;
+
+    pub const buildMemSet = LLVMBuildMemSet;
+    extern fn LLVMBuildMemSet(
+        B: *const Builder,
+        Ptr: *const Value,
+        Val: *const Value,
+        Len: *const Value,
+        Align: c_uint,
+    ) *const Value;
+
+    pub const buildMemCpy = LLVMBuildMemCpy;
+    extern fn LLVMBuildMemCpy(
+        B: *const Builder,
+        Dst: *const Value,
+        DstAlign: c_uint,
+        Src: *const Value,
+        SrcAlign: c_uint,
+        Size: *const Value,
+    ) *const Value;
 };
 
 pub const IntPredicate = enum(c_uint) {

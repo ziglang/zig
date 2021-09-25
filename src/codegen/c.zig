@@ -953,6 +953,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .cmpxchg_strong   => try airCmpxchg(f, inst, "strong"),
             .atomic_rmw       => try airAtomicRmw(f, inst),
             .atomic_load      => try airAtomicLoad(f, inst),
+            .memset           => try airMemset(f, inst),
+            .memcpy           => try airMemcpy(f, inst),
 
             .int_to_float,
             .float_to_int,
@@ -2005,8 +2007,12 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airAtomicLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const atomic_load = f.air.instructions.items(.data)[inst].atomic_load;
-    const inst_ty = f.air.typeOfIndex(inst);
     const ptr = try f.resolveInst(atomic_load.ptr);
+    const ptr_ty = f.air.typeOf(atomic_load.ptr);
+    if (!ptr_ty.isVolatilePtr() and f.liveness.isUnused(inst))
+        return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
     const writer = f.object.writer();
 
@@ -2034,6 +2040,44 @@ fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CVa
     try writer.print(", {s});\n", .{order});
 
     return local;
+}
+
+fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
+    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const extra = f.air.extraData(Air.Bin, pl_op.payload).data;
+    const dest_ptr = try f.resolveInst(pl_op.operand);
+    const value = try f.resolveInst(extra.lhs);
+    const len = try f.resolveInst(extra.rhs);
+    const writer = f.object.writer();
+
+    try writer.writeAll("memset(");
+    try f.writeCValue(writer, dest_ptr);
+    try writer.writeAll(", ");
+    try f.writeCValue(writer, value);
+    try writer.writeAll(", ");
+    try f.writeCValue(writer, len);
+    try writer.writeAll(");\n");
+
+    return CValue.none;
+}
+
+fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
+    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const extra = f.air.extraData(Air.Bin, pl_op.payload).data;
+    const dest_ptr = try f.resolveInst(pl_op.operand);
+    const src_ptr = try f.resolveInst(extra.lhs);
+    const len = try f.resolveInst(extra.rhs);
+    const writer = f.object.writer();
+
+    try writer.writeAll("memcpy(");
+    try f.writeCValue(writer, dest_ptr);
+    try writer.writeAll(", ");
+    try f.writeCValue(writer, src_ptr);
+    try writer.writeAll(", ");
+    try f.writeCValue(writer, len);
+    try writer.writeAll(");\n");
+
+    return CValue.none;
 }
 
 fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {

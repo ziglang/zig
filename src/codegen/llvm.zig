@@ -1279,6 +1279,8 @@ pub const FuncGen = struct {
                 .fence          => try self.airFence(inst),
                 .atomic_rmw     => try self.airAtomicRmw(inst),
                 .atomic_load    => try self.airAtomicLoad(inst),
+                .memset         => try self.airMemset(inst),
+                .memcpy         => try self.airMemcpy(inst),
 
                 .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
                 .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -2426,6 +2428,8 @@ pub const FuncGen = struct {
         const atomic_load = self.air.instructions.items(.data)[inst].atomic_load;
         const ptr = try self.resolveInst(atomic_load.ptr);
         const ptr_ty = self.air.typeOf(atomic_load.ptr);
+        if (!ptr_ty.isVolatilePtr() and self.liveness.isUnused(inst))
+            return null;
         const ordering = toLlvmAtomicOrdering(atomic_load.order);
         const operand_ty = ptr_ty.elemType();
         const opt_abi_ty = self.dg.getAtomicAbiType(operand_ty, false);
@@ -2465,6 +2469,55 @@ pub const FuncGen = struct {
         }
         const store_inst = self.store(ptr, ptr_ty, element);
         store_inst.setOrdering(ordering);
+        return null;
+    }
+
+    fn airMemset(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+        const dest_ptr = try self.resolveInst(pl_op.operand);
+        const ptr_ty = self.air.typeOf(pl_op.operand);
+        const value = try self.resolveInst(extra.lhs);
+        const val_is_undef = if (self.air.value(extra.lhs)) |val| val.isUndef() else false;
+        const len = try self.resolveInst(extra.rhs);
+        const u8_llvm_ty = self.context.intType(8);
+        const ptr_u8_llvm_ty = u8_llvm_ty.pointerType(0);
+        const dest_ptr_u8 = self.builder.buildBitCast(dest_ptr, ptr_u8_llvm_ty, "");
+        const fill_char = if (val_is_undef) u8_llvm_ty.constInt(0xaa, .False) else value;
+        const target = self.dg.module.getTarget();
+        const dest_ptr_align = ptr_ty.ptrAlignment(target);
+        const memset = self.builder.buildMemSet(dest_ptr_u8, fill_char, len, dest_ptr_align);
+        memset.setVolatile(llvm.Bool.fromBool(ptr_ty.isVolatilePtr()));
+
+        if (val_is_undef and self.dg.module.comp.bin_file.options.valgrind) {
+            // TODO generate valgrind client request to mark byte range as undefined
+            // see gen_valgrind_undef() in codegen.cpp
+        }
+        return null;
+    }
+
+    fn airMemcpy(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+        const dest_ptr = try self.resolveInst(pl_op.operand);
+        const dest_ptr_ty = self.air.typeOf(pl_op.operand);
+        const src_ptr = try self.resolveInst(extra.lhs);
+        const src_ptr_ty = self.air.typeOf(extra.lhs);
+        const len = try self.resolveInst(extra.rhs);
+        const u8_llvm_ty = self.context.intType(8);
+        const ptr_u8_llvm_ty = u8_llvm_ty.pointerType(0);
+        const dest_ptr_u8 = self.builder.buildBitCast(dest_ptr, ptr_u8_llvm_ty, "");
+        const src_ptr_u8 = self.builder.buildBitCast(src_ptr, ptr_u8_llvm_ty, "");
+        const is_volatile = src_ptr_ty.isVolatilePtr() or dest_ptr_ty.isVolatilePtr();
+        const target = self.dg.module.getTarget();
+        const memcpy = self.builder.buildMemCpy(
+            dest_ptr_u8,
+            dest_ptr_ty.ptrAlignment(target),
+            src_ptr_u8,
+            src_ptr_ty.ptrAlignment(target),
+            len,
+        );
+        memcpy.setVolatile(llvm.Bool.fromBool(is_volatile));
         return null;
     }
 

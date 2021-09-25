@@ -887,6 +887,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .cmpxchg_weak    => try self.airCmpxchg(inst),
                     .atomic_rmw      => try self.airAtomicRmw(inst),
                     .atomic_load     => try self.airAtomicLoad(inst),
+                    .memcpy          => try self.airMemcpy(inst),
+                    .memset          => try self.airMemset(inst),
 
                     .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
                     .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -4881,6 +4883,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             _ = inst;
             _ = order;
             return self.fail("TODO implement airAtomicStore for {}", .{self.target.cpu.arch});
+        }
+
+        fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
+            _ = inst;
+            return self.fail("TODO implement airMemset for {}", .{self.target.cpu.arch});
+        }
+
+        fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
+            _ = inst;
+            return self.fail("TODO implement airMemcpy for {}", .{self.target.cpu.arch});
         }
 
         fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {

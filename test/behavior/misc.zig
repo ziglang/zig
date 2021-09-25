@@ -5,16 +5,6 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 const mem = std.mem;
 const builtin = @import("builtin");
 
-test "memcpy and memset intrinsics" {
-    var foo: [20]u8 = undefined;
-    var bar: [20]u8 = undefined;
-
-    @memset(&foo, 'A', foo.len);
-    @memcpy(&bar, &foo, bar.len);
-
-    if (bar[11] != 'A') unreachable;
-}
-
 test "slicing" {
     var array: [20]i32 = undefined;
 

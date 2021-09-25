@@ -341,8 +341,6 @@ pub fn analyzeBody(
             .field_ptr_type               => try sema.zirFieldPtrType(block, inst),
             .field_parent_ptr             => try sema.zirFieldParentPtr(block, inst),
             .maximum                      => try sema.zirMaximum(block, inst),
-            .memcpy                       => try sema.zirMemcpy(block, inst),
-            .memset                       => try sema.zirMemset(block, inst),
             .minimum                      => try sema.zirMinimum(block, inst),
             .builtin_async_call           => try sema.zirBuiltinAsyncCall(block, inst),
             .@"resume"                    => try sema.zirResume(block, inst),
@@ -523,6 +521,16 @@ pub fn analyzeBody(
             },
             .closure_capture => {
                 try sema.zirClosureCapture(block, inst);
+                i += 1;
+                continue;
+            },
+            .memcpy => {
+                try sema.zirMemcpy(block, inst);
+                i += 1;
+                continue;
+            },
+            .memset => {
+                try sema.zirMemset(block, inst);
                 i += 1;
                 continue;
             },
@@ -8422,16 +8430,119 @@ fn zirMaximum(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirMaximum", .{});
 }
 
-fn zirMemcpy(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirMemcpy(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Memcpy, inst_data.payload_index).data;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirMemcpy", .{});
+    const dest_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const src_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const len_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
+    const dest_ptr = sema.resolveInst(extra.dest);
+    const dest_ptr_ty = sema.typeOf(dest_ptr);
+
+    if (dest_ptr_ty.zigTypeTag() != .Pointer) {
+        return sema.mod.fail(&block.base, dest_src, "expected pointer, found '{}'", .{dest_ptr_ty});
+    }
+    if (dest_ptr_ty.isConstPtr()) {
+        return sema.mod.fail(&block.base, dest_src, "cannot store through const pointer '{}'", .{dest_ptr_ty});
+    }
+
+    const uncasted_src_ptr = sema.resolveInst(extra.source);
+    const uncasted_src_ptr_ty = sema.typeOf(uncasted_src_ptr);
+    if (uncasted_src_ptr_ty.zigTypeTag() != .Pointer) {
+        return sema.mod.fail(&block.base, src_src, "expected pointer, found '{}'", .{
+            uncasted_src_ptr_ty,
+        });
+    }
+    const src_ptr_info = uncasted_src_ptr_ty.ptrInfo().data;
+    const wanted_src_ptr_ty = try Module.ptrType(
+        sema.arena,
+        dest_ptr_ty.elemType2(),
+        null,
+        src_ptr_info.@"align",
+        src_ptr_info.@"addrspace",
+        0,
+        0,
+        false,
+        src_ptr_info.@"allowzero",
+        src_ptr_info.@"volatile",
+        .Many,
+    );
+    const src_ptr = try sema.coerce(block, wanted_src_ptr_ty, uncasted_src_ptr, src_src);
+    const len = try sema.coerce(block, Type.initTag(.usize), sema.resolveInst(extra.byte_count), len_src);
+
+    const maybe_dest_ptr_val = try sema.resolveDefinedValue(block, dest_src, dest_ptr);
+    const maybe_src_ptr_val = try sema.resolveDefinedValue(block, src_src, src_ptr);
+    const maybe_len_val = try sema.resolveDefinedValue(block, len_src, len);
+
+    const runtime_src = if (maybe_dest_ptr_val) |dest_ptr_val| rs: {
+        if (maybe_src_ptr_val) |src_ptr_val| {
+            if (maybe_len_val) |len_val| {
+                _ = dest_ptr_val;
+                _ = src_ptr_val;
+                _ = len_val;
+                return sema.mod.fail(&block.base, src, "TODO: Sema.zirMemcpy at comptime", .{});
+            } else break :rs len_src;
+        } else break :rs src_src;
+    } else dest_src;
+
+    try sema.requireRuntimeBlock(block, runtime_src);
+    _ = try block.addInst(.{
+        .tag = .memcpy,
+        .data = .{ .pl_op = .{
+            .operand = dest_ptr,
+            .payload = try sema.addExtra(Air.Bin{
+                .lhs = src_ptr,
+                .rhs = len,
+            }),
+        } },
+    });
 }
 
-fn zirMemset(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirMemset(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Memset, inst_data.payload_index).data;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirMemset", .{});
+    const dest_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const value_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const len_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
+    const dest_ptr = sema.resolveInst(extra.dest);
+    const dest_ptr_ty = sema.typeOf(dest_ptr);
+    if (dest_ptr_ty.zigTypeTag() != .Pointer) {
+        return sema.mod.fail(&block.base, dest_src, "expected pointer, found '{}'", .{dest_ptr_ty});
+    }
+    if (dest_ptr_ty.isConstPtr()) {
+        return sema.mod.fail(&block.base, dest_src, "cannot store through const pointer '{}'", .{dest_ptr_ty});
+    }
+    const elem_ty = dest_ptr_ty.elemType2();
+    const value = try sema.coerce(block, elem_ty, sema.resolveInst(extra.byte), value_src);
+    const len = try sema.coerce(block, Type.initTag(.usize), sema.resolveInst(extra.byte_count), len_src);
+
+    const maybe_dest_ptr_val = try sema.resolveDefinedValue(block, dest_src, dest_ptr);
+    const maybe_len_val = try sema.resolveDefinedValue(block, len_src, len);
+
+    const runtime_src = if (maybe_dest_ptr_val) |ptr_val| rs: {
+        if (maybe_len_val) |len_val| {
+            if (try sema.resolveMaybeUndefVal(block, value_src, value)) |val| {
+                _ = ptr_val;
+                _ = len_val;
+                _ = val;
+                return sema.mod.fail(&block.base, src, "TODO: Sema.zirMemset at comptime", .{});
+            } else break :rs value_src;
+        } else break :rs len_src;
+    } else dest_src;
+
+    try sema.requireRuntimeBlock(block, runtime_src);
+    _ = try block.addInst(.{
+        .tag = .memset,
+        .data = .{ .pl_op = .{
+            .operand = dest_ptr,
+            .payload = try sema.addExtra(Air.Bin{
+                .lhs = value,
+                .rhs = len,
+            }),
+        } },
+    });
 }
 
 fn zirMinimum(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -10090,7 +10201,8 @@ fn coerceArrayPtrToMany(
         // The comptime Value representation is compatible with both types.
         return sema.addConstant(dest_type, val);
     }
-    return sema.mod.fail(&block.base, inst_src, "TODO implement coerceArrayPtrToMany runtime instruction", .{});
+    try sema.requireRuntimeBlock(block, inst_src);
+    return sema.bitcast(block, dest_type, inst, inst_src);
 }
 
 fn analyzeDeclVal(

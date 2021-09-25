@@ -210,8 +210,6 @@ const Writer = struct {
             .mul_add,
             .builtin_call,
             .field_parent_ptr,
-            .memcpy,
-            .memset,
             .builtin_async_call,
             => try self.writePlNode(stream, inst),
 
@@ -222,6 +220,8 @@ const Writer = struct {
             .cmpxchg_strong, .cmpxchg_weak => try self.writeCmpxchg(stream, inst),
             .atomic_store => try self.writeAtomicStore(stream, inst),
             .atomic_rmw => try self.writeAtomicRmw(stream, inst),
+            .memcpy => try self.writeMemcpy(stream, inst),
+            .memset => try self.writeMemset(stream, inst),
 
             .struct_init_anon,
             .struct_init_anon_ref,
@@ -688,6 +688,32 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.operand);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.ordering);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeMemcpy(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.Memcpy, inst_data.payload_index).data;
+
+        try self.writeInstRef(stream, extra.dest);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.source);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.byte_count);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeMemset(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.Memset, inst_data.payload_index).data;
+
+        try self.writeInstRef(stream, extra.dest);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.byte);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.byte_count);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }

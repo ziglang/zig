@@ -361,6 +361,11 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.AtomicRmw, pl_op.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, extra.operand, .none });
         },
+        .memset, .memcpy => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, extra.lhs, extra.rhs });
+        },
         .br => {
             const br = inst_datas[inst].br;
             return trackOperands(a, new_set, inst, main_tomb, .{ br.operand, .none, .none });
