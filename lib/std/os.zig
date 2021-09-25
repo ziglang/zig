@@ -4509,6 +4509,8 @@ pub const FcntlError = error{
     FileBusy,
     ProcessFdQuotaExceeded,
     Locked,
+    DeadLock,
+    LockedRegionLimitExceeded,
 } || UnexpectedError;
 
 pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) FcntlError!usize {
@@ -4517,13 +4519,15 @@ pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) FcntlError!usize {
         switch (errno(rc)) {
             .SUCCESS => return @intCast(usize, rc),
             .INTR => continue,
-            .ACCES => return error.Locked,
+            .AGAIN, .ACCES => return error.Locked,
             .BADF => unreachable,
             .BUSY => return error.FileBusy,
             .INVAL => unreachable, // invalid parameters
             .PERM => return error.PermissionDenied,
             .MFILE => return error.ProcessFdQuotaExceeded,
             .NOTDIR => unreachable, // invalid parameter
+            .DEADLK => return error.DeadLock,
+            .NOLCK => return error.LockedRegionLimitExceeded,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -4538,6 +4542,8 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
+                error.DeadLock => unreachable,
+                error.LockedRegionLimitExceeded => unreachable,
                 else => |e| return e,
             };
             fd_flags |= FD_CLOEXEC;
@@ -4545,6 +4551,8 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
+                error.DeadLock => unreachable,
+                error.LockedRegionLimitExceeded => unreachable,
                 else => |e| return e,
             };
         }
@@ -4566,6 +4574,8 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
+                error.DeadLock => unreachable,
+                error.LockedRegionLimitExceeded => unreachable,
                 else => |e| return e,
             };
             fl_flags |= O.NONBLOCK;
@@ -4573,6 +4583,8 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
+                error.DeadLock => unreachable,
+                error.LockedRegionLimitExceeded => unreachable,
                 else => |e| return e,
             };
         }

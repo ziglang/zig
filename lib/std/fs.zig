@@ -1045,6 +1045,8 @@ pub const Dir = struct {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
+                error.DeadLock => unreachable,
+                error.LockedRegionLimitExceeded => unreachable,
                 else => |e| return e,
             };
             fl_flags &= ~@as(usize, os.O.NONBLOCK);
@@ -1052,6 +1054,8 @@ pub const Dir = struct {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
+                error.DeadLock => unreachable,
+                error.LockedRegionLimitExceeded => unreachable,
                 else => |e| return e,
             };
         }
@@ -1197,6 +1201,8 @@ pub const Dir = struct {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
+                error.DeadLock => unreachable,
+                error.LockedRegionLimitExceeded => unreachable,
                 else => |e| return e,
             };
             fl_flags &= ~@as(usize, os.O.NONBLOCK);
@@ -1204,6 +1210,8 @@ pub const Dir = struct {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
+                error.DeadLock => unreachable,
+                error.LockedRegionLimitExceeded => unreachable,
                 else => |e| return e,
             };
         }

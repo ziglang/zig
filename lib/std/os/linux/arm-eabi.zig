@@ -638,12 +638,12 @@ pub const HWCAP = struct {
 };
 
 pub const Flock = extern struct {
-    l_type: i16,
-    l_whence: i16,
+    type: i16,
+    whence: i16,
     __pad0: [4]u8,
-    l_start: off_t,
-    l_len: off_t,
-    l_pid: pid_t,
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
     __unused: [4]u8,
 };
 
