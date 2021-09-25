@@ -116,13 +116,13 @@ pub const RTLD = struct {
 };
 
 pub const Flock = extern struct {
-    l_type: c_short,
-    l_whence: c_short,
-    l_start: off_t,
+    type: c_short,
+    whence: c_short,
+    start: off_t,
     // len == 0 means until end of file.
-    l_len: off_t,
-    l_sysid: c_int,
-    l_pid: pid_t,
+    len: off_t,
+    sysid: c_int,
+    pid: pid_t,
     __pad: [4]c_long,
 };
 

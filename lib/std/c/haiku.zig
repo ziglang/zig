@@ -159,11 +159,11 @@ pub const dl_phdr_info = extern struct {
 };
 
 pub const Flock = extern struct {
-    l_type: c_short,
-    l_whence: c_short,
-    l_start: off_t,
-    l_len: off_t,
-    l_pid: pid_t,
+    type: c_short,
+    whence: c_short,
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
 };
 
 pub const msghdr = extern struct {

@@ -193,12 +193,12 @@ pub const dl_phdr_info = extern struct {
 };
 
 pub const Flock = extern struct {
-    l_start: off_t,
-    l_len: off_t,
-    l_pid: pid_t,
-    l_type: i16,
-    l_whence: i16,
-    l_sysid: i32,
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
+    type: i16,
+    whence: i16,
+    sysid: i32,
     __unused: [4]u8,
 };
 
