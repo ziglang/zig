@@ -2,7 +2,7 @@ const expect = @import("std").testing.expect;
 
 const HasFuncs = struct {
     state: u32,
-    func_field: fn(u32)u32,
+    func_field: fn (u32) u32,
 
     fn inc(self: *HasFuncs) void {
         self.state += 1;
@@ -16,8 +16,12 @@ const HasFuncs = struct {
         return &self.state;
     }
 
-    fn one(_: u32) u32 { return 1; }
-    fn two(_: u32) u32 { return 2; }
+    fn one(_: u32) u32 {
+        return 1;
+    }
+    fn two(_: u32) u32 {
+        return 2;
+    }
 };
 
 test "field_call_bind" {

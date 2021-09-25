@@ -2763,7 +2763,7 @@ fn zirCall(
         resolved_args = try sema.arena.alloc(Air.Inst.Ref, args.len + 1);
         resolved_args[0] = bound_data.arg0_inst;
         for (args) |zir_arg, i| {
-            resolved_args[i+1] = sema.resolveInst(zir_arg);
+            resolved_args[i + 1] = sema.resolveInst(zir_arg);
         }
     } else {
         resolved_args = try sema.arena.alloc(Air.Inst.Ref, args.len);
@@ -9536,15 +9536,18 @@ fn fieldCallBind(
                     const decl_val = try sema.analyzeLoad(block, src, inst, src);
                     const decl_type = sema.typeOf(decl_val);
                     if (decl_type.zigTypeTag() == .Fn and
-                        decl_type.fnParamLen() >= 1) {
+                        decl_type.fnParamLen() >= 1)
+                    {
                         const first_param_type = decl_type.fnParamType(0);
                         const first_param_tag = first_param_type.tag();
+                        // zig fmt: off
                         if (first_param_tag == .var_args_param or
                             first_param_tag == .generic_poison or (
                                 first_param_type.zigTypeTag() == .Pointer and
                                 first_param_type.ptrSize() == .One and
-                                first_param_type.elemType().eql(concrete_ty))
-                        ) {
+                                first_param_type.elemType().eql(concrete_ty)))
+                        {
+                            // zig fmt: on
                             // TODO: bound fn calls on rvalues should probably
                             // generate a by-value argument somehow.
                             const ty = Type.Tag.bound_fn.init();
@@ -9569,7 +9572,7 @@ fn fieldCallBind(
         else => {},
     }
 
-    return mod.fail(&block.base, src, "type '{}' has no field or member function named '{s}'", .{concrete_ty, field_name});
+    return mod.fail(&block.base, src, "type '{}' has no field or member function named '{s}'", .{ concrete_ty, field_name });
 }
 
 fn namespaceLookup(
@@ -10163,7 +10166,8 @@ fn coerceInMemoryAllowed(dest_type: Type, src_type: Type, dest_is_mut: bool) InM
 
         // TODO NO_COMMIT understand this assert.
         if (dest_info.@"align" == 0 and
-            src_info.@"align" == 0) {
+            src_info.@"align" == 0)
+        {
             return .ok;
         }
 

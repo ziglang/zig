@@ -724,8 +724,8 @@ pub const Value = extern union {
             },
             .bound_fn => {
                 const bound_func = val.castTag(.bound_fn).?.data;
-                return out_stream.print("(bound_fn %{}(%{})", .{bound_func.func_inst, bound_func.arg0_inst});
-            }
+                return out_stream.print("(bound_fn %{}(%{})", .{ bound_func.func_inst, bound_func.arg0_inst });
+            },
         };
     }
 
