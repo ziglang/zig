@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const Target = std.Target;
 const Module = @import("Module.zig");
 const log = std.log.scoped(.Type);
+const Air = @import("Air.zig");
 
 const file_struct = @This();
 
@@ -138,6 +139,7 @@ pub const Type = extern union {
             .type_info,
             => return .Union,
 
+            .bound_fn => unreachable,
             .var_args_param => unreachable, // can be any type
         }
     }
@@ -771,6 +773,7 @@ pub const Type = extern union {
             .type_info,
             .@"anyframe",
             .generic_poison,
+            .bound_fn,
             => unreachable,
 
             .array_u8,
@@ -936,6 +939,7 @@ pub const Type = extern union {
                 .comptime_float,
                 .noreturn,
                 .var_args_param,
+                .bound_fn,
                 => return writer.writeAll(@tagName(t)),
 
                 .enum_literal => return writer.writeAll("@Type(.EnumLiteral)"),
@@ -1248,6 +1252,7 @@ pub const Type = extern union {
             .var_args_param => unreachable,
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
+            .bound_fn => unreachable,
 
             .array_u8,
             .array_u8_sentinel_0,
@@ -1479,6 +1484,7 @@ pub const Type = extern union {
             .empty_struct_literal,
             .@"opaque",
             .type_info,
+            .bound_fn,
             => false,
 
             .inferred_alloc_const => unreachable,
@@ -1489,7 +1495,9 @@ pub const Type = extern union {
     }
 
     pub fn isNoReturn(self: Type) bool {
-        const definitely_correct_result = self.zigTypeTag() == .NoReturn;
+        const definitely_correct_result =
+            self.tag_if_small_enough != .bound_fn and
+            self.zigTypeTag() == .NoReturn;
         const fast_result = self.tag_if_small_enough == Tag.noreturn;
         assert(fast_result == definitely_correct_result);
         return fast_result;
@@ -1736,6 +1744,7 @@ pub const Type = extern union {
             .@"opaque",
             .var_args_param,
             .type_info,
+            .bound_fn,
             => unreachable,
 
             .generic_poison => unreachable,
@@ -1768,6 +1777,7 @@ pub const Type = extern union {
             .var_args_param => unreachable,
             .generic_poison => unreachable,
             .type_info => unreachable,
+            .bound_fn => unreachable,
 
             .@"struct" => {
                 const s = self.castTag(.@"struct").?.data;
@@ -1951,6 +1961,7 @@ pub const Type = extern union {
             .@"opaque" => unreachable,
             .var_args_param => unreachable,
             .generic_poison => unreachable,
+            .bound_fn => unreachable,
 
             .@"struct" => {
                 @panic("TODO bitSize struct");
@@ -2928,6 +2939,7 @@ pub const Type = extern union {
             .single_const_pointer,
             .single_mut_pointer,
             .pointer,
+            .bound_fn,
             => return null,
 
             .@"struct" => {
@@ -3474,6 +3486,7 @@ pub const Type = extern union {
         inferred_alloc_mut,
         /// Same as `inferred_alloc_mut` but the local is `var` not `const`.
         inferred_alloc_const, // See last_no_payload_tag below.
+        bound_fn,
         // After this, the tag requires a payload.
 
         array_u8,
@@ -3512,7 +3525,7 @@ pub const Type = extern union {
         enum_full,
         enum_nonexhaustive,
 
-        pub const last_no_payload_tag = Tag.inferred_alloc_const;
+        pub const last_no_payload_tag = Tag.bound_fn;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
@@ -3579,6 +3592,7 @@ pub const Type = extern union {
                 .extern_options,
                 .type_info,
                 .@"anyframe",
+                .bound_fn,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .array_u8,

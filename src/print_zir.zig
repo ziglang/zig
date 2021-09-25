@@ -322,6 +322,7 @@ const Writer = struct {
 
             .field_ptr,
             .field_val,
+            .field_call_bind,
             => try self.writePlNodeField(stream, inst),
 
             .as_node => try self.writeAs(stream, inst),

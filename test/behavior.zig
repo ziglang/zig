@@ -10,6 +10,7 @@ test {
     _ = @import("behavior/eval.zig");
     _ = @import("behavior/generics.zig");
     _ = @import("behavior/if.zig");
+    _ = @import("behavior/member_func.zig");
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/struct.zig");

@@ -328,6 +328,15 @@ pub const Inst = struct {
         /// The field name is a comptime instruction. Used by @field.
         /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
         field_val_named,
+        /// Given a pointer to a struct or object that contains virtual fields, returns the
+        /// named field.  If there is no named field, searches in the type for a decl that
+        /// matches the field name.  The decl is resolved and we ensure that it's a function
+        /// which can accept the object as the first parameter, with one pointer fixup.  If
+        /// all of that works, this instruction produces a special "bound function" value
+        /// which contains both the function and the saved first parameter value.
+        /// Bound functions may only be used as the function parameter to a `call` or
+        /// `builtin_call` instruction.  Any other use is invalid zir and may crash the compiler.
+        field_call_bind,
         /// Returns a function type, or a function instance, depending on whether
         /// the body_len is 0. Calling convention is auto.
         /// Uses the `pl_node` union field. `payload_index` points to a `Func`.
@@ -1000,6 +1009,7 @@ pub const Inst = struct {
                 .field_val,
                 .field_ptr_named,
                 .field_val_named,
+                .field_call_bind,
                 .func,
                 .func_inferred,
                 .has_decl,
@@ -1258,6 +1268,7 @@ pub const Inst = struct {
                 .field_val = .pl_node,
                 .field_ptr_named = .pl_node,
                 .field_val_named = .pl_node,
+                .field_call_bind = .pl_node,
                 .func = .pl_node,
                 .func_inferred = .pl_node,
                 .import = .str_tok,
@@ -2342,8 +2353,10 @@ pub const Inst = struct {
     /// Stored inside extra, with trailing arguments according to `args_len`.
     /// Each argument is a `Ref`.
     pub const Call = struct {
-        callee: Ref,
+        // Note: Flags *must* come first so that unusedResultExpr
+        // can find it when it goes to modify them.
         flags: Flags,
+        callee: Ref,
 
         pub const Flags = packed struct {
             /// std.builtin.CallOptions.Modifier in packed form

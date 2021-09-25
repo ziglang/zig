@@ -1939,8 +1939,10 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             // so we can avoid a separate ensure_result_used instruction.
             .call => {
                 const extra_index = gz.astgen.instructions.items(.data)[inst].pl_node.payload_index;
-                const extra = @ptrCast(*Zir.Inst.Call, &gz.astgen.extra.items[extra_index]);
-                extra.flags.ensure_result_used = true;
+                const slot = &gz.astgen.extra.items[extra_index];
+                var flags = @bitCast(Zir.Inst.Call.Flags, slot.*);
+                flags.ensure_result_used = true;
+                slot.* = @bitCast(u32, flags);
                 break :b true;
             },
 
@@ -1997,6 +1999,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .field_val,
             .field_ptr_named,
             .field_val_named,
+            .field_call_bind,
             .func,
             .func_inferred,
             .int,
@@ -4967,6 +4970,21 @@ fn fieldAccess(
     rl: ResultLoc,
     node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
+    if (rl == .ref) {
+        return addFieldAccess(.field_ptr, gz, scope, .ref, node);
+    } else {
+        const access = try addFieldAccess(.field_val, gz, scope, .none_or_ref, node);
+        return rvalue(gz, rl, access, node);
+    }
+}
+
+fn addFieldAccess(
+    tag: Zir.Inst.Tag,
+    gz: *GenZir,
+    scope: *Scope,
+    lhs_rl: ResultLoc,
+    node: Ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
@@ -4976,16 +4994,11 @@ fn fieldAccess(
     const dot_token = main_tokens[node];
     const field_ident = dot_token + 1;
     const str_index = try astgen.identAsString(field_ident);
-    switch (rl) {
-        .ref => return gz.addPlNode(.field_ptr, node, Zir.Inst.Field{
-            .lhs = try expr(gz, scope, .ref, object_node),
-            .field_name_start = str_index,
-        }),
-        else => return rvalue(gz, rl, try gz.addPlNode(.field_val, node, Zir.Inst.Field{
-            .lhs = try expr(gz, scope, .none_or_ref, object_node),
-            .field_name_start = str_index,
-        }), node),
-    }
+
+    return gz.addPlNode(tag, node, Zir.Inst.Field{
+        .lhs = try expr(gz, scope, lhs_rl, object_node),
+        .field_name_start = str_index,
+    });
 }
 
 fn arrayAccess(
@@ -7895,7 +7908,16 @@ fn callExpr(
     call: Ast.full.Call,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const lhs = try expr(gz, scope, .none, call.ast.fn_expr);
+    const tree = astgen.tree;
+
+    // If the lhs is a field access, we need to generate a special field_call_bind
+    // instruction first.  If this is a inst.func() call, this instruction will capture
+    // the value of the first parameter before evaluating the other parameters.
+    // TODO NO_COMMIT make sure .ref is correct here
+    const lhs = if (tree.nodes.items(.tag)[call.ast.fn_expr] == .field_access)
+        try addFieldAccess(.field_call_bind, gz, scope, .ref, call.ast.fn_expr)
+    else
+        try expr(gz, scope, .none, call.ast.fn_expr);
 
     const args = try astgen.gpa.alloc(Zir.Inst.Ref, call.ast.params.len);
     defer astgen.gpa.free(args);
