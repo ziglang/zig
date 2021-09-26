@@ -2136,12 +2136,24 @@ pub const Value = extern union {
         }
     }
 
-    pub fn intTrunc(val: Value, arena: *Allocator, bits: u16) !Value {
-        const x = val.toUnsignedInt(); // TODO: implement comptime truncate on big ints
-        if (bits == 64) return val;
-        const mask = (@as(u64, 1) << @intCast(u6, bits)) - 1;
-        const truncated = x & mask;
-        return Tag.int_u64.create(arena, truncated);
+    pub fn intTrunc(val: Value, allocator: *Allocator, signedness: std.builtin.Signedness, bits: u16) !Value {
+        var val_space: Value.BigIntSpace = undefined;
+        const val_bigint = val.toBigInt(&val_space);
+
+        const limbs = try allocator.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcTwosCompLimbCount(bits),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+
+        result_bigint.truncate(val_bigint, signedness, bits);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
     }
 
     pub fn shl(lhs: Value, rhs: Value, allocator: *Allocator) !Value {

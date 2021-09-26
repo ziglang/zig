@@ -9017,7 +9017,7 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
         if (val.isUndef()) return sema.addConstUndef(dest_ty);
-        return sema.addConstant(dest_ty, try val.intTrunc(sema.arena, dest_info.bits));
+        return sema.addConstant(dest_ty, try val.intTrunc(sema.arena, dest_info.signedness, dest_info.bits));
     }
 
     try sema.requireRuntimeBlock(block, src);
