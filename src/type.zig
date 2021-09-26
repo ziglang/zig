@@ -3652,12 +3652,12 @@ pub const Type = extern union {
         }
 
         pub fn create(comptime t: Tag, ally: *Allocator, data: Data(t)) error{OutOfMemory}!file_struct.Type {
-            const ptr = try ally.create(t.Type());
-            ptr.* = .{
+            const p = try ally.create(t.Type());
+            p.* = .{
                 .base = .{ .tag = t },
                 .data = data,
             };
-            return file_struct.Type{ .ptr_otherwise = &ptr.base };
+            return file_struct.Type{ .ptr_otherwise = &p.base };
         }
 
         pub fn Data(comptime t: Tag) type {
@@ -3747,19 +3747,23 @@ pub const Type = extern union {
             pub const base_tag = Tag.pointer;
 
             base: Payload = Payload{ .tag = base_tag },
-            data: struct {
+            data: Data,
+
+            pub const Data = struct {
                 pointee_type: Type,
-                sentinel: ?Value,
+                sentinel: ?Value = null,
                 /// If zero use pointee_type.AbiAlign()
-                @"align": u32,
+                @"align": u32 = 0,
+                /// See src/target.zig defaultAddressSpace function for how to obtain
+                /// an appropriate value for this field.
                 @"addrspace": std.builtin.AddressSpace,
-                bit_offset: u16,
-                host_size: u16,
-                @"allowzero": bool,
-                mutable: bool,
-                @"volatile": bool,
-                size: std.builtin.TypeInfo.Pointer.Size,
-            },
+                bit_offset: u16 = 0,
+                host_size: u16 = 0,
+                @"allowzero": bool = false,
+                mutable: bool = true, // TODO change this to const, not mutable
+                @"volatile": bool = false,
+                size: std.builtin.TypeInfo.Pointer.Size = .One,
+            };
         };
 
         pub const ErrorUnion = struct {
@@ -3815,6 +3819,37 @@ pub const Type = extern union {
             data: *Module.EnumSimple,
         };
     };
+
+    pub fn ptr(arena: *Allocator, d: Payload.Pointer.Data) !Type {
+        assert(d.host_size == 0 or d.bit_offset < d.host_size * 8);
+
+        if (d.sentinel != null or d.@"align" != 0 or d.@"addrspace" != .generic or
+            d.bit_offset != 0 or d.host_size != 0 or d.@"allowzero" or d.@"volatile")
+        {
+            return Type.Tag.pointer.create(arena, d);
+        }
+
+        if (!d.mutable and d.size == .Slice and d.pointee_type.eql(Type.initTag(.u8))) {
+            return Type.initTag(.const_slice_u8);
+        }
+
+        // TODO stage1 type inference bug
+        const T = Type.Tag;
+
+        const type_payload = try arena.create(Type.Payload.ElemType);
+        type_payload.* = .{
+            .base = .{
+                .tag = switch (d.size) {
+                    .One => if (d.mutable) T.single_mut_pointer else T.single_const_pointer,
+                    .Many => if (d.mutable) T.many_mut_pointer else T.many_const_pointer,
+                    .C => if (d.mutable) T.c_mut_pointer else T.c_const_pointer,
+                    .Slice => if (d.mutable) T.mut_slice else T.const_slice,
+                },
+            },
+            .data = d.pointee_type,
+        };
+        return Type.initPayload(&type_payload.base);
+    }
 };
 
 pub const CType = enum {

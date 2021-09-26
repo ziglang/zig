@@ -52,3 +52,41 @@ fn testFoo(foo: StructFoo) !void {
 fn testMutation(foo: *StructFoo) void {
     foo.c = 100;
 }
+
+test "struct byval assign" {
+    var foo1: StructFoo = undefined;
+    var foo2: StructFoo = undefined;
+
+    foo1.a = 1234;
+    foo2.a = 0;
+    try expect(foo2.a == 0);
+    foo2 = foo1;
+    try expect(foo2.a == 1234);
+}
+
+const Node = struct {
+    val: Val,
+    next: *Node,
+};
+
+const Val = struct {
+    x: i32,
+};
+
+test "struct initializer" {
+    const val = Val{ .x = 42 };
+    try expect(val.x == 42);
+}
+
+const MemberFnTestFoo = struct {
+    x: i32,
+    fn member(foo: MemberFnTestFoo) i32 {
+        return foo.x;
+    }
+};
+
+test "call member function directly" {
+    const instance = MemberFnTestFoo{ .x = 1234 };
+    const result = MemberFnTestFoo.member(instance);
+    try expect(result == 1234);
+}

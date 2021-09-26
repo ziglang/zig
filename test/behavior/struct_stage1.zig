@@ -5,6 +5,7 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
+
 top_level_field: i32,
 
 test "top level fields" {
@@ -58,22 +59,6 @@ test "struct point to self" {
     try expect(node.next.next.next.val.x == 1);
 }
 
-test "struct byval assign" {
-    var foo1: StructFoo = undefined;
-    var foo2: StructFoo = undefined;
-
-    foo1.a = 1234;
-    foo2.a = 0;
-    try expect(foo2.a == 0);
-    foo2 = foo1;
-    try expect(foo2.a == 1234);
-}
-
-test "struct initializer" {
-    const val = Val{ .x = 42 };
-    try expect(val.x == 42);
-}
-
 test "fn call of struct field" {
     const Foo = struct {
         ptr: fn () i32,
@@ -91,22 +76,16 @@ test "fn call of struct field" {
     try expect(S.callStructField(Foo{ .ptr = S.aFunc }) == 13);
 }
 
-test "store member function in variable" {
-    const instance = MemberFnTestFoo{ .x = 1234 };
-    const memberFn = MemberFnTestFoo.member;
-    const result = memberFn(instance);
-    try expect(result == 1234);
-}
 const MemberFnTestFoo = struct {
     x: i32,
     fn member(foo: MemberFnTestFoo) i32 {
         return foo.x;
     }
 };
-
-test "call member function directly" {
+test "store member function in variable" {
     const instance = MemberFnTestFoo{ .x = 1234 };
-    const result = MemberFnTestFoo.member(instance);
+    const memberFn = MemberFnTestFoo.member;
+    const result = memberFn(instance);
     try expect(result == 1234);
 }
 
