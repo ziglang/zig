@@ -191,15 +191,16 @@ const Writer = struct {
             .@"break",
             .break_inline,
             => try self.writeBreak(stream, inst),
+            .array_init,
+            .array_init_ref,
+            => try self.writeArrayInit(stream, inst),
 
             .elem_ptr_node,
             .elem_val_node,
             .slice_start,
             .slice_end,
             .slice_sentinel,
-            .array_init,
             .array_init_anon,
-            .array_init_ref,
             .array_init_anon_ref,
             .union_init_ptr,
             .shuffle,
@@ -1821,6 +1822,20 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, inst_data.operand);
         try stream.writeAll(")");
+    }
+
+    fn writeArrayInit(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+
+        const extra = self.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
+        const args = self.code.refSlice(extra.end, extra.data.operands_len);
+
+        try stream.writeAll(".{");
+        for (args) |arg, i| {
+            if (i != 0) try stream.writeAll(", ");
+            try self.writeInstRef(stream, arg);
+        }
+        try stream.writeAll("})");
     }
 
     fn writeUnreachable(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
