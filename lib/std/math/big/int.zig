@@ -58,6 +58,11 @@ pub fn calcPowLimbsBufferLen(a_bit_count: usize, y: usize) usize {
     return 2 + (a_bit_count * y + (limb_bits - 1)) / limb_bits;
 }
 
+// Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
+pub fn calcTwosCompLimbCount(bit_count: usize) usize {
+    return std.math.divCeil(usize, bit_count, @bitSizeOf(Limb)) catch unreachable;
+}
+
 /// a + b * c + *carry, sets carry to the overflow bits
 pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
     @setRuntimeSafety(debug_safety);
@@ -978,6 +983,91 @@ pub const Mutable = struct {
 
         r.shiftRight(x.toConst(), norm_shift);
         r.normalize(r.len);
+    }
+
+    /// Truncate an integer to a number of bits, following 2s-complement semantics.
+    /// r may alias a.
+    ///
+    /// Asserts `r` has enough storage to store the result.
+    /// The upper bound is `calcTwosCompLimbCount(a.len)`.
+    pub fn truncate(r: *Mutable, a: Const, signedness: std.builtin.Signedness, bit_count: usize) void {
+        const req_limbs = (bit_count + @bitSizeOf(Limb) - 1) / @bitSizeOf(Limb);
+
+        // Handle 0-bit integers.
+        if (req_limbs == 0 or a.eqZero()) {
+            r.set(0);
+            return;
+        }
+
+        const bit = @truncate(Log2Limb, bit_count - 1);
+        const signmask = @as(Limb, 1) << bit;
+        const mask = (signmask << 1) -% 1;
+
+        if (!a.positive) {
+            // Convert the integer from sign-magnitude into twos-complement.
+            // -x = ~(x - 1)
+            // Note, we simply take req_limbs * @bitSizeOf(Limb) as the
+            // target bit count.
+
+            r.addScalar(a.abs(), -1);
+
+            // Zero-extend the result
+            if (req_limbs > r.len) {
+                mem.set(Limb, r.limbs[r.len .. req_limbs], 0);
+            }
+
+            // Truncate to required number of limbs.
+            assert(r.limbs.len >= req_limbs);
+            r.len = req_limbs;
+
+            // Without truncating, we can already peek at the sign bit of the result here.
+            // Note that it will be 0 if the result is negative, as we did not apply the flip here.
+            // If the result is negative, we have
+            // -(-x & mask)
+            // = ~(~(x - 1) & mask) + 1
+            // = ~(~((x - 1) | ~mask)) + 1
+            // = ((x - 1) | ~mask)) + 1
+            // Note, this is only valid for the target bits and not the upper bits
+            // of the most significant limb. Those still need to be cleared.
+            // Also note that `mask` is zero for all other bits, reducing to the identity.
+            // This means that we still need to use & mask to clear off the upper bits.
+
+            if (signedness == .signed and r.limbs[r.len - 1] & signmask == 0) {
+                // Re-add the one and negate to get the result.
+                r.limbs[r.len - 1] &= mask;
+                // Note, addition cannot require extra limbs here as we did a subtraction before.
+                r.addScalar(r.toConst(), 1);
+                r.normalize(r.len);
+                r.positive = false;
+            } else {
+                llnot(r.limbs[0..r.len]);
+                r.limbs[r.len - 1] &= mask;
+                r.normalize(r.len);
+            }
+        } else {
+            r.copy(a);
+            if (r.len < req_limbs) {
+                // Integer fits within target bits, no wrapping required.
+                return;
+            }
+
+            r.len = req_limbs;
+            r.limbs[r.len - 1] &= mask;
+            r.normalize(r.len);
+
+            if (signedness == .signed and r.limbs[r.len - 1] & signmask != 0) {
+                // Convert 2s-complement back to sign-magnitude.
+                // Sign-extend the upper bits so that they are inverted correctly.
+                r.limbs[r.len - 1] |= ~mask;
+                llnot(r.limbs[0..r.len]);
+
+                // Note, can only overflow if r holds 0xFFF...F which can only happen if
+                // a holds 0.
+                r.addScalar(r.toConst(), 1);
+
+                r.positive = false;
+            }
+        }
     }
 
     /// Normalize a possible sequence of leading zeros.
@@ -1941,6 +2031,14 @@ pub const Managed = struct {
             rma.setMetadata(rma_mut.positive, rma_mut.len);
         }
     }
+
+    // r = truncate(Int(signedness, bit_count), a)
+    pub fn truncate(r: *Managed, a: Const, signedness: std.builtin.Signedness, bit_count: usize) !void {
+        try r.ensureCapacity(calcTwosCompLimbCount(a.limbs.len));
+        var m = r.toMutable();
+        m.truncate(a, signedness, bit_count);
+        r.setMetadata(m.positive, m.len);
+    }
 };
 
 /// Knuth 4.3.1, Algorithm M.
@@ -2267,6 +2365,15 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
             src_digit,
             limb_bits - @intCast(Limb, interior_limb_shift),
         });
+    }
+}
+
+// r = ~r
+fn llnot(r: []Limb) void {
+    @setRuntimeSafety(debug_safety);
+
+    for (r) |*elem| {
+        elem.* = ~elem.*;
     }
 }
 
