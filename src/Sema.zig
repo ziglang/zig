@@ -8223,8 +8223,49 @@ fn zirArrayInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
 
-    _ = is_ref;
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirArrayInit", .{});
+    const extra = sema.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
+    const args = sema.code.refSlice(extra.end, extra.data.operands_len);
+
+    var resolved_args = try sema.mod.gpa.alloc(Air.Inst.Ref, args.len);
+    for (args) |arg, i| resolved_args[i] = sema.resolveInst(arg);
+
+    var all_args_comptime = for (resolved_args) |arg| {
+        if ((try sema.resolveMaybeUndefVal(block, src, arg)) == null) break false;
+    } else true;
+
+    if (all_args_comptime) {
+        var anon_decl = try block.startAnonDecl();
+        defer anon_decl.deinit();
+        assert(!(resolved_args.len == 0));
+        const final_ty = try Type.Tag.array.create(anon_decl.arena(), .{ .len = resolved_args.len, .elem_type = sema.typeOf(resolved_args[0]) });
+        const buf = try anon_decl.arena().alloc(Value, resolved_args.len);
+        for (resolved_args) |arg, i| {
+            buf[i] = (try sema.resolveMaybeUndefVal(block, src, arg)).?;
+        }
+
+        const val = try Value.Tag.array.create(anon_decl.arena(), buf);
+        if (is_ref)
+            return sema.analyzeDeclRef(try anon_decl.finish(final_ty, val))
+        else
+            return sema.analyzeDeclVal(block, .unneeded, try anon_decl.finish(final_ty, val));
+    }
+
+    assert(!(resolved_args.len == 0));
+    const array_ty = try Type.Tag.array.create(sema.arena, .{ .len = resolved_args.len, .elem_type = sema.typeOf(resolved_args[0]) });
+    const final_ty = try Type.ptr(sema.arena, .{
+        .pointee_type = array_ty,
+        .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+    });
+    const alloc = try block.addTy(.alloc, final_ty);
+
+    for (resolved_args) |arg, i| {
+        const pointer_to_array_at_index = try block.addBinOp(.ptr_elem_ptr, alloc, try sema.addIntUnsigned(Type.initTag(.u64), i));
+        _ = try block.addBinOp(.store, pointer_to_array_at_index, arg);
+    }
+    return if (is_ref)
+        alloc
+    else
+        try sema.analyzeLoad(block, .unneeded, alloc, .unneeded);
 }
 
 fn zirArrayInitAnon(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) CompileError!Air.Inst.Ref {
