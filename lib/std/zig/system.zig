@@ -58,6 +58,34 @@ pub const NativePaths = struct {
             error.EnvironmentVariableNotFound => {},
             error.OutOfMemory => |e| return e,
         }
+
+        if (process.getEnvVarOwned(allocator, "C_INCLUDE_PATH")) |c_include_path| {
+            defer allocator.free(c_include_path);
+
+            var it = mem.tokenize(u8, c_include_path, ":");
+            while (true) {
+                const dir = it.next() orelse break;
+                try self.addIncludeDir(dir);
+            }
+        } else |err| switch (err) {
+            error.InvalidUtf8 => {},
+            error.EnvironmentVariableNotFound => {},
+            error.OutOfMemory => |e| return e,
+        }
+        if (process.getEnvVarOwned(allocator, "CPLUS_INCLUDE_PATH")) |cplus_include_path| {
+            defer allocator.free(cplus_include_path);
+
+            var it = mem.tokenize(u8, cplus_include_path, ":");
+            while (true) {
+                const dir = it.next() orelse break;
+                try self.addIncludeDir(dir);
+            }
+        } else |err| switch (err) {
+            error.InvalidUtf8 => {},
+            error.EnvironmentVariableNotFound => {},
+            error.OutOfMemory => |e| return e,
+        }
+
         if (process.getEnvVarOwned(allocator, "NIX_LDFLAGS")) |nix_ldflags| {
             defer allocator.free(nix_ldflags);
 
@@ -84,6 +112,35 @@ pub const NativePaths = struct {
             error.EnvironmentVariableNotFound => {},
             error.OutOfMemory => |e| return e,
         }
+
+        if (process.getEnvVarOwned(allocator, "LIBRARY_PATH")) |library_path| {
+            defer allocator.free(library_path);
+
+            var it = mem.tokenize(u8, library_path, ":");
+            while (true) {
+                const dir = it.next() orelse break;
+                try self.addLibDir(dir);
+            }
+        } else |err| switch (err) {
+            error.InvalidUtf8 => {},
+            error.EnvironmentVariableNotFound => {},
+            error.OutOfMemory => |e| return e,
+        }
+
+        if (process.getEnvVarOwned(allocator, "DYLD_FRAMEWORK_PATH")) |dyld_framework_path| {
+            defer allocator.free(dyld_framework_path);
+
+            var it = mem.tokenize(u8, dyld_framework_path, ":");
+            while (true) {
+                const dir = it.next() orelse break;
+                try self.addFrameworkDir(dir);
+            }
+        } else |err| switch (err) {
+            error.InvalidUtf8 => {},
+            error.EnvironmentVariableNotFound => {},
+            error.OutOfMemory => |e| return e,
+        }
+
         if (is_nix) {
             return self;
         }
