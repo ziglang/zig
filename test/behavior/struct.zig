@@ -31,3 +31,24 @@ test "return empty struct instance" {
 fn returnEmptyStructInstance() StructWithNoFields {
     return empty_global_instance;
 }
+
+const StructFoo = struct {
+    a: i32,
+    b: bool,
+    c: f32,
+};
+test "structs" {
+    var foo: StructFoo = undefined;
+    @memset(@ptrCast([*]u8, &foo), 0, @sizeOf(StructFoo));
+    foo.a += 1;
+    foo.b = foo.a == 1;
+    try testFoo(foo);
+    testMutation(&foo);
+    try expect(foo.c == 100);
+}
+fn testFoo(foo: StructFoo) !void {
+    try expect(foo.b);
+}
+fn testMutation(foo: *StructFoo) void {
+    foo.c = 100;
+}

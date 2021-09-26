@@ -6575,6 +6575,7 @@ fn zirSizeOf(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErro
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_ty = try sema.resolveType(block, operand_src, inst_data.operand);
+    try sema.resolveTypeLayout(block, src, operand_ty);
     const target = sema.mod.getTarget();
     const abi_size = switch (operand_ty.zigTypeTag()) {
         .Fn => unreachable,
@@ -10846,9 +10847,6 @@ pub fn resolveTypeLayout(
     ty: Type,
 ) CompileError!void {
     switch (ty.zigTypeTag()) {
-        .Pointer => {
-            return sema.resolveTypeLayout(block, src, ty.elemType());
-        },
         .Struct => {
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const struct_obj = resolved_ty.castTag(.@"struct").?.data;

@@ -30,26 +30,11 @@ const VoidStructFieldsFoo = struct {
     c: void,
 };
 
-test "structs" {
-    var foo: StructFoo = undefined;
-    @memset(@ptrCast([*]u8, &foo), 0, @sizeOf(StructFoo));
-    foo.a += 1;
-    foo.b = foo.a == 1;
-    try testFoo(foo);
-    testMutation(&foo);
-    try expect(foo.c == 100);
-}
 const StructFoo = struct {
     a: i32,
     b: bool,
     c: f32,
 };
-fn testFoo(foo: StructFoo) !void {
-    try expect(foo.b);
-}
-fn testMutation(foo: *StructFoo) void {
-    foo.c = 100;
-}
 
 const Node = struct {
     val: Val,
@@ -84,7 +69,7 @@ test "struct byval assign" {
     try expect(foo2.a == 1234);
 }
 
-fn structInitializer() void {
+test "struct initializer" {
     const val = Val{ .x = 42 };
     try expect(val.x == 42);
 }

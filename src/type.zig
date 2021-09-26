@@ -1765,7 +1765,21 @@ pub const Type = extern union {
             .@"struct" => {
                 const s = self.castTag(.@"struct").?.data;
                 assert(s.status == .have_layout);
-                @panic("TODO abiSize struct");
+                const is_packed = s.layout == .Packed;
+                if (is_packed) @panic("TODO packed structs");
+                var size: u64 = 0;
+                for (s.fields.values()) |field| {
+                    const field_align = a: {
+                        if (field.abi_align.tag() == .abi_align_default) {
+                            break :a field.ty.abiAlignment(target);
+                        } else {
+                            break :a field.abi_align.toUnsignedInt();
+                        }
+                    };
+                    size = std.mem.alignForwardGeneric(u64, size, field_align);
+                    size += field.ty.abiSize(target);
+                }
+                return size;
             },
             .enum_simple, .enum_full, .enum_nonexhaustive => {
                 var buffer: Payload.Bits = undefined;
