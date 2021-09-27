@@ -813,12 +813,11 @@ const LinuxThreadImpl = struct {
                     \\ # force-deactivate it by running `restore` until
                     \\ # all frames are cleared.
                     \\  1:
-                    \\  cmp %%sp, 0
+                    \\  cmp %%fp, 0
                     \\  beq 2f
                     \\  nop
+                    \\  ba 1b
                     \\  restore
-                    \\  ba 1f
-                    \\  nop
                     \\  2:
                     \\  mov 73, %%g1
                     \\  mov %[ptr], %%o0
