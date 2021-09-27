@@ -10543,8 +10543,8 @@ const typedArray = new Uint8Array(source);
 
 WebAssembly.instantiate(typedArray, {
   env: {
-    print: (result) =&gt; { console.log(`The result is ${result}`); }
-  }}).then(result =&gt; {
+    print: (result) => { console.log(`The result is ${result}`); }
+  }}).then(result => {
   const add = result.instance.exports.add;
   add(1, 2);
 });{#end_syntax_block#}
