@@ -346,6 +346,47 @@ pub const Mutable = struct {
         }
     }
 
+    /// r = a + b with 2s-complement wrapping semantics.
+    ///
+    /// r, a and b may be aliases
+    /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
+    /// r is `calcTwosCompLimbCount(bit_count)`.
+    pub fn addWrap(r: *Mutable, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) void {
+        const req_limbs = calcTwosCompLimbCount(bit_count);
+
+        // We can ignore the upper bits here, those results will be discarded anyway.
+        const a_limbs = a.limbs[0..math.min(req_limbs, a.limbs.len)];
+        const b_limbs = b.limbs[0..math.min(req_limbs, b.limbs.len)];
+
+        if (a.eqZero()) {
+            r.copy(b);
+        } else if (b.eqZero()) {
+            r.copy(a);
+        } else if (a.positive != b.positive) {
+            if (a.positive) {
+                // (a) + (-b) => a - b
+                r.subWrap(a, b.abs(), signedness, bit_count);
+            } else {
+                // (-a) + (b) => b - a
+                r.subWrap(b, a.abs(), signedness, bit_count);
+            }
+            // Don't need to truncate, subWrap does that for us.
+            return;
+        } else {
+            if (a_limbs.len >= b_limbs.len) {
+                _ = lladdcarry(r.limbs, a_limbs, b_limbs);
+                r.normalize(a_limbs.len);
+            } else {
+                _ = lladdcarry(r.limbs, b_limbs, b_limbs);
+                r.normalize(b_limbs.len);
+            }
+
+            r.positive = a.positive;
+        }
+
+        r.truncate(r.toConst(), signedness, bit_count);
+    }
+
     /// r = a - b
     ///
     /// r, a and b may be aliases.
@@ -387,6 +428,59 @@ pub const Mutable = struct {
                 }
             }
         }
+    }
+
+    /// r = a - b with 2s-complement wrapping semantics.
+    ///
+    /// r, a and b may be aliases
+    /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
+    /// r is `calcTwosCompLimbCount(bit_count)`.
+    pub fn subWrap(r: *Mutable, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) void {
+        const req_limbs = calcTwosCompLimbCount(bit_count);
+
+        // We can ignore the upper bits here, those results will be discarded anyway.
+        // We also don't need to mind order here. Again, overflow is ignored here.
+        const a_limbs = a.limbs[0..math.min(req_limbs, a.limbs.len)];
+        const b_limbs = b.limbs[0..math.min(req_limbs, b.limbs.len)];
+
+        if (a.positive != b.positive) {
+              if (a.positive) {
+                // (a) - (-b) => a + b
+                r.addWrap(a, b.abs(), signedness, bit_count);
+            } else {
+                // (-a) - (b) => -a + -b
+                // Note, we don't do -(a + b) here to avoid a second truncate.
+                r.addWrap(a, b.negate(), signedness, bit_count);
+            }
+            // Don't need to truncate, addWrap does that for us.
+            return;
+        } else if (a.positive) {
+            if (a_limbs.len >= b_limbs.len) {
+                // (a) - (b) => a - b
+                _ = llsubcarry(r.limbs, a_limbs, b_limbs);
+                r.normalize(a_limbs.len);
+                r.positive = true;
+            } else {
+                // (a) - (b) => -b + a => -(b - a)
+                _ = llsubcarry(r.limbs, b_limbs, a_limbs);
+                r.normalize(b_limbs.len);
+                r.positive = false;
+            }
+        } else {
+            if (a_limbs.len >= b_limbs.len) {
+                // (-a) - (-b) => -(a - b)
+                _ = llsubcarry(r.limbs, a_limbs, b_limbs);
+                r.normalize(a_limbs.len);
+                r.positive = false;
+            } else {
+                // (-a) - (-b) => --b + -a => b - a
+                _ = llsubcarry(r.limbs, b_limbs, a_limbs);
+                r.normalize(b_limbs.len);
+                r.positive = true;
+            }
+        }
+
+        r.truncate(r.toConst(), signedness, bit_count);
     }
 
     /// rma = a * b
@@ -1130,6 +1224,13 @@ pub const Const = struct {
         };
     }
 
+    pub fn negate(self: Const) Const {
+        return .{
+            .limbs = self.limbs,
+            .positive = !self.positive,
+        };
+    }
+
     pub fn isOdd(self: Const) bool {
         return self.limbs[0] & 1 != 0;
     }
@@ -1831,6 +1932,13 @@ pub const Managed = struct {
         r.setMetadata(m.positive, m.len);
     }
 
+    pub fn addWrap(r: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) Allocator.Error!void {
+        try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
+        var m = r.toMutable();
+        m.addWrap(a, b, signedness, bit_count);
+        r.setMetadata(m.positive, m.len);
+    }
+
     /// r = a - b
     ///
     /// r, a and b may be aliases.
@@ -1840,6 +1948,13 @@ pub const Managed = struct {
         try r.ensureCapacity(math.max(a.limbs.len, b.limbs.len) + 1);
         var m = r.toMutable();
         m.sub(a, b);
+        r.setMetadata(m.positive, m.len);
+    }
+
+    pub fn subWrap(r: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) Allocator.Error!void {
+        try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
+        var m = r.toMutable();
+        m.subWrap(a, b, signedness, bit_count);
         r.setMetadata(m.positive, m.len);
     }
 
@@ -2034,7 +2149,7 @@ pub const Managed = struct {
 
     // r = truncate(Int(signedness, bit_count), a)
     pub fn truncate(r: *Managed, a: Const, signedness: std.builtin.Signedness, bit_count: usize) !void {
-        try r.ensureCapacity(calcTwosCompLimbCount(a.limbs.len));
+        try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
         var m = r.toMutable();
         m.truncate(a, signedness, bit_count);
         r.setMetadata(m.positive, m.len);
