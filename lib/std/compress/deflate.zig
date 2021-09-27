@@ -46,6 +46,10 @@ const Huffman = struct {
     min_code_len: u16,
 
     fn construct(self: *Huffman, code_length: []const u16) !void {
+        self.prefix_lut = mem.zeroes(@TypeOf(self.prefix_lut));
+        self.last_code = 0;
+        self.last_index = 0;
+
         for (self.count) |*val| {
             val.* = 0;
         }
@@ -87,8 +91,6 @@ const Huffman = struct {
                 codes[len + 1] = (codes[len] + self.count[len]) << 1;
             }
         }
-
-        self.prefix_lut = mem.zeroes(@TypeOf(self.prefix_lut));
 
         for (code_length) |len, symbol| {
             if (len != 0) {
