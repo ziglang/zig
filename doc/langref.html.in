@@ -456,337 +456,21 @@ pub fn main() void {
       </p>
       {#see_also|Values|@import|Errors|Root Source File|Source Encoding#}
       {#header_close#}
-      {#header_open|Zig Test#}
-      <p>
-        In addition to writing Zig code to create programs or libraries, Zig code can also be written to verify that the
-        code used for making programs or libraries are functioning correctly. Test code is written within one or more
-        {#syntax#}test{#endsyntax#} declarations as demonstrated in the <code class="file">introducing_zig_test.zig</code>
-        code sample below.
-      </p>
-      {#code_begin|syntax|introducing_zig_test#}
-const std = @import("std");
-
-test "expect addOne adds one to 41 correctly" {
-    try std.testing.expect(addOne(41) == 42);
-}
-
-fn addOne(number: i32) i32 {
-    return number + 1;
-}
-      {#code_end#}
-      <p>
-        In the code sample below, the <code class="file">introducing_zig_test.zig</code> is shown again with comments
-        to explain parts of the code. The lines starting with {#syntax#}//{#endsyntax#} and {#syntax#}///{#endsyntax#} are
-        {#link|Comments#} that are useful for sharing information with other people.
-      </p>
-      {#code_begin|test|introducing_zig_test#}
-// Using @import("std") causes the Standard Library to be represented as a structure (struct).
-// The constant identifier `std` provides access to the structure's data and methods.
-const std = @import("std");
-
-// Tests can only be declared at the top level of a container type (see Containers).
-// Tests can be given an optional name or description written between double-quotes.
-// Test code is written between the required open-curly brace and close-curly brace.
-// Any valid Zig code can be written inside of a test.
-test "expect addOne adds one to 41 correctly" {
-
-    // The Standard Library contains useful functions to help create tests.
-    // `expect` is a function that verifies its argument is true.
-    // It will return an error if its argument is false to indicate a failure.
-    // `try` is used to return an error to the test runner to notify it that the test failed.
-    // Errors and `try` are explained in another section of this documentation.
-    // The code below demonstrates a common way to verify something is true.
-
-    try std.testing.expect(addOne(41) == 42);
-}
-
-/// The function `addOne` adds one to the number given as its argument.
-fn addOne(number: i32) i32 {
-    return number + 1;
-}
-      {#code_end#}
-      <p>
-        <kbd>zig test</kbd> is a tool that runs test code. It packages the given Zig source file into the default test runner,
-        builds a test runner executable program, and then runs the test runner's executable program. The default test
-        runner is part of the {#link|Zig Standard Library#}. When the test runner is being built, it is provided with
-        all of the tests that the Zig compiler found while {#link|resolving|Root Source File#} the given Zig source file.
-      </p>
-      <aside>This documentation discusses the features of the default test runner as provided by the Zig Standard Library.</aside>
-      <p>
-        The shell output shown above displays the line <samp>Test [1/1] test "expect addOne adds one to 41 correctly"...</samp>.
-        This line was printed to standard error (stderr) by the test runner program. (When the test runner program's
-        standard error is redirected to the terminal, these lines are cleared when a test succeeds.)
-        Lines like this indicate which test, out of the total number of tests, is being run. In this case, <samp>[1/1]</samp>
-        indicates that the first test, out of a total of one test, is being run. The next line, <samp>All 1 tests passed.</samp>,
-        is also printed to standard error. It indicates the total number of tests that have passed.
-      </p>
-      <p>
-        The code sample in <code class="file">introducing_zig_test.zig</code> tests the {#link|function|Functions#}
-        {#syntax#}addOne{#endsyntax#} to verify that it correctly adds one to {#syntax#}41{#endsyntax#} to
-        demonstrate the use of a Zig {#syntax#}test{#endsyntax#} declaration. From this test's perspective, the
-        {#syntax#}addOne{#endsyntax#} function is said to be the program/library's "code under test".
-        More comprehensive tests ought to be written to verify that the {#syntax#}addOne{#endsyntax#} function behaves as expected.
-      </p>
-      {#header_open|Test Declarations#}
-      <p>
-        Test declarations contain the {#link|keyword|Keyword Reference#} {#syntax#}test{#endsyntax#} followed by an
-        optional description written between double-quotation marks followed by a {#link|block|blocks#} containing test code.
-        Test declarations can be written in the same files where code under test is written or in a separate Zig source file.
-        If the test declarations are in the same file as the code under test, then the location of the test declarations can
-        go before or after the code under test. Concretely, test declarations can only be declared at the top-level of a
-        {#link|Container|Containers#}; hence, they are called <em>top-level test declarations</em>.
-      </p>
-      <p>
-        Tests are similar to {#link|Functions#}, they have a return type and a block of code. The implicit
-        return type of {#syntax#}test{#endsyntax#} is the {#link|Error Union Type#} {#syntax#}anyerror!void{#endsyntax#}.
-        (See {#link|The Global Error Set#} to learn more about {#syntax#}anyerror{#endsyntax#}.) When a
-        Zig source file is not built using the <kbd>zig test</kbd> tool, the tests are omitted from the program/library.
-      </p>
-      <p>
-        <kbd>zig test</kbd> will only pass the given source file's top-level test declarations to the test runner.
-        To run {#link|nested container|Nesting Containers#} tests, the nested containers need to
-        be referenced from any of the given file's top-level test declarations. The code sample below uses
-        {#syntax#}std.testing.refAllDecls(@This()){#endsyntax#} function call that will reference all of the
-        {#link|Containers#} that are in the file. This includes the test declarations located in imported,
-        local Zig source files. The code sample also shows an alternative way to reference containers
-        using the {#syntax#}_ = T;{#endsyntax#} syntax. This syntax tells the compiler to ignore the result of
-        the expression on the right side of the assignment operator.
-      </p>
-      {#code_begin|test|testdecl_container_top_level#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-// Locally imported source files will be tested when referenced
-// (see comments further below)
-const local_import = @import("introducing_zig_test.zig");
-
-// The test's name is optional
-// Non-named tests should be used when referencing other tests.
-// Non-named tests are run regardless of the `--test-filter` parameter.
-test {
-    // `zig test` will only resolve a file's top-level test declarations (like this one).
-    // To run nested-containers' tests, either, call `refAllDecls` which will
-    // reference all declarations located in the given argument.
-
-    // `@This()` is a builtin function that returns the innermost container it is called from.
-    // In this example, the innermost container is this file (implicitly a struct).
-    std.testing.refAllDecls(@This());
-
-    // or, reference each container individually from a top-level test declaration.
-    // The `_ = T;` syntax is a no-op reference to the identifier `T`.
-    _ = S;
-    _ = E;
-    _ = U;
-    _ = O;
-
-    // Alternative to `refAllDecls`, other local source files containing tests can
-    // also be referenced like this
-    _ = @import("introducing_zig_test.zig");
-}
-
-const S = struct {
-    test "S demo test" {
-        try expect(true);
-    }
-};
-
-const E = enum {
-    V,
-
-    test "E demo test" {
-        try expect(true);
-    }
-};
-
-const U = union {
-    s: US,
-
-    const US = struct {
-        test "U.US demo test" {
-            // This test is a top-level test declaration for the struct.
-            // The struct is nested (declared) inside of a union.
-            try expect(true);
-        }
-    };
-
-    test "U demo test" {
-        try expect(true);
-    }
-};
-
-const O = opaque {
-    test "O demo test" {
-        try expect(true);
-    }
-};
-      {#code_end#}
-      {#header_close#}
-      {#header_open|Test Failure#}
-      <p>
-        When the default test runner runs a test, it checks to see if the test returns an {#link|error|Errors#}.
-        When a test returns an error, the test is considered a failure and the failure will be reported after all
-        test have been run. When a test fails, the default test runner will output the test that failed along with the
-        {#link|Error Return Traces#}.
-      </p>
-      {#code_begin|test_err#}
-const std = @import("std");
-
-test "expect this to fail" {
-    try std.testing.expect(false);
-}
-
-test "expect this to succeed" {
-    try std.testing.expect(true);
-}
-      {#code_end#}
-      {#header_close#}
-      {#header_open|Skip Tests#}
-      <p>
-        If a {#syntax#}test{#endsyntax#} returns the error {#syntax#}error.SkipZigTest{#endsyntax#}, the
-        default test runner will consider the test as being skipped. After all of the tests are complete,
-        the number of skipped tests is reported.
-      </p>
-      {#code_begin|test#}
-test "this will be skipped" {
-    return error.SkipZigTest;
-}
-      {#code_end#}
-      <p>
-        The default test runner also skips tests containing a {#link|suspend point|Async Functions#} and the
-        test is running using the default, blocking IO mode.
-        (The evented IO mode is enabled using the <kbd>--test-evented-io</kbd> command line parameter.)
-        In the code sample below, the test would not be skipped in blocking IO mode if the {#syntax#}nosuspend{#endsyntax#}
-        keyword was used (see {#link|Async and Await#}).
-      </p>
-      {#code_begin|test|async_skip#}
-const std = @import("std");
-
-// This test is skipped because a suspend point exists
-// and the `io_mode`` is set to blocking (the default).
-test "async skip test" {
-    var frame = async func();
-    const result = await frame;
-    try std.testing.expect(result == 1);
-}
-
-fn func() i32 {
-    suspend {
-        resume @frame();
-    }
-    return 1;
-}
-      {#code_end#}
-      <p>
-        Another way to skip tests is to filter them out by using the <kbd>zig test</kbd> command line parameter
-        <kbd>--test-filter [text]</kbd>. This makes the test build only include tests whose name contains the
-        supplied filter text. Note, non-named tests are run even when using the <kbd>--test-filter [text]</kbd>
-        command line parameter.
-      </p>
-      {#header_close#}
-      {#header_open|Test Memory Leaks#}
-      <p>
-        When you use code that allocates {#link|Memory#}, use the {#link|Zig Standard Library#} testing allocator
-        {#syntax#}std.testing.allocator{#endsyntax#} to help find memory leaks. When using {#syntax#}std.testing.allocator{#endsyntax#},
-        the default test runner will report any leaks that are found from using this allocator.
-      </p>
-      {#code_begin|test_err#}
-const std = @import("std");
-
-test "detect leak" {
-    var list = std.ArrayList(u8).init(std.testing.allocator);
-    // missing `defer list.deinit();` (see `defer` in another part of this documentation)
-    try list.append('Z');
-    try list.append('i');
-    try list.append('g');
-
-    try std.testing.expect(list.items.len == 3);
-}
-      {#code_end#}
-      {#see_also|defer|Memory#}
-      {#header_close#}
-      {#header_open|Detecting Test Build#}
-      <p>
-        When you need to write code that is aware it is being run by the <kbd>zig test</kbd> tool, use the
-        {#link|compile variable|Compile Variables#}, {#syntax#}@import("builtin").is_test{#endsyntax#}.
-      </p>
-      {#code_begin|test|detect_test#}
-const std = @import("std");
-const builtin = @import("builtin");
-const expect = std.testing.expect;
-
-test "builtin.is_test" {
-    try expect(builtin.is_test);
-    try expect(isATest());
-}
-
-fn isATest() bool {
-    return builtin.is_test;
-}
-      {#code_end#}
-      {#header_close#}
-      {#header_open|Test Output and Logging#}
-      <p>
-        The default test runner and the Zig Standard Library's testing {#link|namespace|Container Namespace#}
-        output messages to standard error.
-      </p>
-      {#header_close#}
-      {#header_open|The Testing Namespace#}
-      <p>
-        The Zig Standard Library's <code>testing</code> {#link|namespace|Container Namespace#} contains useful functions to help
-        you build tests. A few are listed in the following code sample.
-      </p>
-      {#code_begin|test|testing_functions#}
-const std = @import("std");
-
-test "expect demo" {
-    try std.testing.expect(true);
-}
-
-test "expectEqual demo" {
-    const expected: i32 = 42;
-    const actual = 42;
-
-    // The first argument to `expectEqual` is the known, expected, result.
-    // The second argument is the result of some expression.
-    // The actual's type is casted to the type of expected.
-    try std.testing.expectEqual(expected, actual);
-}
-
-test "expectError demo" {
-    const expected_error = error.DemoError;
-    const actual_error_union: anyerror!void = error.DemoError;
-
-    // See the Errors section in this documentation to learn about errors.
-    // `expectError` will fail when the actual error is different than
-    // the expected error.
-    try std.testing.expectError(expected_error, actual_error_union);
-}
-      {#code_end#}
-      <p>The Zig Standard Library also contains functions to compare {#link|Slices#}, strings, and more. See the rest of the
-        {#syntax#}std.testing{#endsyntax#} namespace in the {#link|Zig Standard Library#} for more available functions.</p>
-      {#header_close#}
-      {#header_open|Test Tool Documentation#}
-      <p>
-        <kbd>zig test</kbd> has a few command line parameters which affect the compilation. See <kbd>zig --help</kbd> for a full list.
-      </p>
-      {#header_close#}
-      {#header_close#}
       {#header_open|Comments#}
-      {#code_begin|test|comments#}
-const expect = @import("std").testing.expect;
+      {#code_begin|exe|comments#}
+const print = @import("std").debug.print;
 
-test "comments" {
+pub fn main() void {
     // Comments in Zig start with "//" and end at the next LF byte (end of line).
-    // The below line is a comment, and won't be executed.
+    // The line below is a comment and won't be executed.
 
-    //expect(false);
+    //print("Hello?", .{});
 
-    const x = true;  // another comment
-    try expect(x);
+    print("Hello, world!\n", .{}); // another comment
 }
       {#code_end#}
       <p>
-      There are no multiline comments in Zig (e.g. like <code class="c">/* */</code>
+      There are no multiline comments in Zig (e.g. like <code>/* */</code>
       comments in C).  This helps allow Zig to have the property that each line
       of code can be tokenized out of context.
       </p>
@@ -825,10 +509,10 @@ const Timestamp = struct {
       {#header_open|Container Doc Comments#}
       <p>User documentation that doesn't belong to whatever
       immediately follows it, like package-level documentation, goes
-      in {#link|top-level|Top-Level#} doc comments. A top-level doc comment is one that
+      in {#link|top-level|Top-Level#} doc comments. A container doc comment is one that
       begins with two slashes and an exclamation point:
       {#syntax#}//!{#endsyntax#}.</p>
-      {#code_begin|syntax|tldoc_comments#}
+      {#code_begin|syntax|container_doc_comments#}
 //! This module provides functions for retrieving the current date and
 //! time with varying degrees of precision and accuracy. It does not
 //! depend on libc, but will use functions from it if available.
@@ -1136,24 +820,25 @@ pub fn main() void {
       in recent versions of the Unicode specification (as of Unicode 13.0).
       In Zig, a Unicode code point literal corresponds to the Unicode definition of a code point.
       </p>
-      {#code_begin|test|string_literals_test#}
-const expect = @import("std").testing.expect;
-const mem = @import("std").mem;
+      {#code_begin|exe|string_literals#}
+const print = @import("std").debug.print;
+const mem = @import("std").mem; // will be used to compare bytes
 
-test "string literals" {
+pub fn main() void {
     const bytes = "hello";
-    try expect(@TypeOf(bytes) == *const [5:0]u8);
-    try expect(bytes.len == 5);
-    try expect(bytes[1] == 'e');
-    try expect(bytes[5] == 0);
-    try expect('e' == '\x65');
-    try expect('\u{1f4a9}' == 128169);
-    try expect('💯' == 128175);
-    try expect(mem.eql(u8, "hello", "h\x65llo"));
-    try expect("\xff"[0] == 0xff); // non-UTF-8 strings are possible with \xNN notation.
+    print("{s}\n", .{@typeName(@TypeOf(bytes))});       // *const [5:0]u8
+    print("{d}\n", .{bytes.len});                       // 5
+    print("{c}\n", .{bytes[1]});                        // 'e'
+    print("{d}\n", .{bytes[5]});                        // 0
+    print("{}\n", .{'e' == '\x65'});                    // true
+    print("{d}\n", .{'\u{1f4a9}'});                     // 128169
+    print("{d}\n", .{'💯'});                            // 128175
+    print("{}\n", .{mem.eql(u8, "hello", "h\x65llo")}); // true
+    print("0x{x}\n", .{"\xff"[0]}); // non-UTF-8 strings are possible with \xNN notation.
+    print("{u}\n", .{'⚡'});
 }
       {#code_end#}
-      {#see_also|Arrays|Zig Test|Source Encoding#}
+      {#see_also|Arrays|Source Encoding#}
       {#header_open|Escape Sequences#}
       <div class="table-wrapper">
       <table>
@@ -1226,7 +911,7 @@ const hello_world_in_c =
       {#header_close#}
       {#header_open|Assignment#}
       <p>Use the {#syntax#}const{#endsyntax#} keyword to assign a value to an identifier:</p>
-      {#code_begin|test_err|cannot assign to constant#}
+      {#code_begin|exe_build_err|constant_identifier_cannot_change#}
 const x = 1234;
 
 fn foo() void {
@@ -1237,26 +922,26 @@ fn foo() void {
     y += 1;
 }
 
-test "assignment" {
+pub fn main() void {
     foo();
 }
       {#code_end#}
       <p>{#syntax#}const{#endsyntax#} applies to all of the bytes that the identifier immediately addresses. {#link|Pointers#} have their own const-ness.</p>
       <p>If you need a variable that you can modify, use the {#syntax#}var{#endsyntax#} keyword:</p>
-      {#code_begin|test|var_test#}
-const expect = @import("std").testing.expect;
+      {#code_begin|exe|mutable_var#}
+const print = @import("std").debug.print;
 
-test "var" {
+pub fn main() void {
     var y: i32 = 5678;
 
     y += 1;
 
-    try expect(y == 5679);
+    print("{d}", .{y});
 }
       {#code_end#}
       <p>Variables must be initialized:</p>
-      {#code_begin|test_err#}
-test "initialization" {
+      {#code_begin|exe_build_err|var_must_be_initialized#}
+pub fn main() void {
     var x: i32;
 
     x = 1;
@@ -1264,13 +949,13 @@ test "initialization" {
       {#code_end#}
       {#header_open|undefined#}
       <p>Use {#syntax#}undefined{#endsyntax#} to leave variables uninitialized:</p>
-      {#code_begin|test|undefined_test#}
-const expect = @import("std").testing.expect;
+      {#code_begin|exe|undefined_test#}
+const print = @import("std").debug.print;
 
-test "init with undefined" {
+pub fn main() void {
     var x: i32 = undefined;
     x = 1;
-    try expect(x == 1);
+    print("{d}", .{x});
 }
       {#code_end#}
       <p>
@@ -1287,166 +972,6 @@ test "init with undefined" {
       {#header_close#}
       {#header_close#}
       {#header_close#}
-
-      {#header_open|Variables#}
-      <p>
-      A variable is a unit of {#link|Memory#} storage.
-      </p>
-      <p>
-      Variables are never allowed to shadow identifiers from an outer scope.
-      </p>
-      <p>
-      It is generally preferable to use {#syntax#}const{#endsyntax#} rather than
-      {#syntax#}var{#endsyntax#} when declaring a variable. This causes less work for both
-      humans and computers to do when reading code, and creates more optimization opportunities.
-      </p>
-      {#header_open|Container Level Variables#}
-      <p>
-      {#link|Container level|Top-Level#} variables have static lifetime and are order-independent and lazily analyzed.
-      The initialization value of container level variables is implicitly
-      {#link|comptime#}. If a container level variable is {#syntax#}const{#endsyntax#} then its value is
-      {#syntax#}comptime{#endsyntax#}-known, otherwise it is runtime-known.
-      </p>
-      {#code_begin|test|container_level_variables#}
-var y: i32 = add(10, x);
-const x: i32 = add(12, 34);
-
-test "container level variables" {
-    try expect(x == 46);
-    try expect(y == 56);
-}
-
-fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-
-const std = @import("std");
-const expect = std.testing.expect;
-      {#code_end#}
-      <p>
-      {#link|Container level|Top-Level#} variables may be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
-      </p>
-      {#code_begin|test|namespaced_container_level_variable#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "namespaced container level variable" {
-    try expect(foo() == 1235);
-    try expect(foo() == 1236);
-}
-
-const S = struct {
-    var x: i32 = 1234;
-};
-
-fn foo() i32 {
-    S.x += 1;
-    return S.x;
-}
-      {#code_end#}
-      {#header_close#}
-
-      {#header_open|Static Local Variables#}
-      <p>
-        It is also possible to have local variables with static lifetime by using {#link|Containers#} inside functions.
-      </p>
-      {#code_begin|test|static_local_variable#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "static local variable" {
-    try expect(foo() == 1235);
-    try expect(foo() == 1236);
-}
-
-fn foo() i32 {
-    const S = struct {
-        var x: i32 = 1234;
-    };
-    S.x += 1;
-    return S.x;
-}
-      {#code_end#}
-      <p>
-      The {#syntax#}extern{#endsyntax#} keyword or {#link|@extern#} builtin function can be used to link against a variable that is exported
-      from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
-      can be used to make a variable available to other objects at link time. In both cases,
-      the type of the variable must be C ABI compatible.
-      </p>
-      {#see_also|Exporting a C Library#}
-      {#header_close#}
-
-      {#header_open|Thread Local Variables#}
-      <p>A variable may be specified to be a thread-local variable using the
-      {#syntax#}threadlocal{#endsyntax#} keyword:</p>
-      {#code_begin|test|tls#}
-const std = @import("std");
-const assert = std.debug.assert;
-
-threadlocal var x: i32 = 1234;
-
-test "thread local storage" {
-    const thread1 = try std.Thread.spawn(.{}, testTls, .{});
-    const thread2 = try std.Thread.spawn(.{}, testTls, .{});
-    testTls();
-    thread1.join();
-    thread2.join();
-}
-
-fn testTls() void {
-    assert(x == 1234);
-    x += 1;
-    assert(x == 1235);
-}
-      {#code_end#}
-      <p>
-      For {#link|Single Threaded Builds#}, all thread local variables are treated as regular {#link|Container Level Variables#}.
-      </p>
-      <p>
-      Thread local variables may not be {#syntax#}const{#endsyntax#}.
-      </p>
-      {#header_close#}
-
-      {#header_open|Local Variables#}
-      <p>
-      Local variables occur inside {#link|Functions#}, {#link|comptime#} blocks, and {#link|@cImport#} blocks.
-      </p>
-      <p>
-      When a local variable is {#syntax#}const{#endsyntax#}, it means that after initialization, the variable's
-      value will not change. If the initialization value of a {#syntax#}const{#endsyntax#} variable is
-      {#link|comptime#}-known, then the variable is also {#syntax#}comptime{#endsyntax#}-known.
-      </p>
-      <p>
-      A local variable may be qualified with the {#syntax#}comptime{#endsyntax#} keyword. This causes
-      the variable's value to be {#syntax#}comptime{#endsyntax#}-known, and all loads and stores of the
-      variable to happen during semantic analysis of the program, rather than at runtime.
-      All variables declared in a {#syntax#}comptime{#endsyntax#} expression are implicitly
-      {#syntax#}comptime{#endsyntax#} variables.
-      </p>
-      {#code_begin|test|comptime_vars#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "comptime vars" {
-    var x: i32 = 1;
-    comptime var y: i32 = 1;
-
-    x += 1;
-    y += 1;
-
-    try expect(x == 2);
-    try expect(y == 2);
-
-    if (y != 2) {
-        // This compile error never triggers because y is a comptime variable,
-        // and so `y != 2` is a comptime value, and this if is statically evaluated.
-        @compileError("wrong y value");
-    }
-}
-      {#code_end#}
-      {#header_close#}
-      {#header_close#}
-
       {#header_open|Integers#}
       {#header_open|Integer Literals#}
       {#code_begin|syntax|integer_literals#}
@@ -2218,6 +1743,991 @@ or
 = *= /= %= += -= <<= >>= &= ^= |={#endsyntax#}</pre>
       {#header_close#}
       {#header_close#}
+      {#header_open|Containers#}
+      <p>
+        In the context of the Zig programming language, a <dfn>container</dfn> is a generic term used for
+        describing a language feature that groups related data and functionality.
+      </p>
+      <p>Containers are used for creating user-defined types.</p>
+      {#header_open|Types of Containers#}
+      <ul>
+        <li>A Zig source <strong>file</strong> is a type of container. Implicitly, a it is a {#link|structure (struct)|struct#}.</li>
+        <li><strong>{#link|struct#}</strong></li>
+        <li><strong>{#link|enum#}</strong></li>
+        <li><strong>{#link|union#}</strong></li>
+        <li><strong>{#link|opaque#}</strong></li>
+      </ul>
+      {#header_close#}
+      {#header_open|Container Memory Layout#}
+      <p>
+        Containers have a default, extern, or packed memory layout. See specific container documentation
+        for more information.
+      </p>
+      {#see_also|extern struct|packed struct|extern enum|extern union|packed union#}
+      {#header_close#}
+      {#header_open|Nesting Containers#}
+      <p>
+        Containers can be declared inside one another.
+      </p>
+      {#code_begin|exe|nested_containers#}
+const print = @import("std").debug.print;
+
+const zig = struct {
+    const community = struct {
+        const Ziguana = union(enum) {
+            yes: HowMuchEnum, // Can reference identifiers in the same container
+            no: WhyNoEnum,
+
+            const HowMuchEnum = enum {
+                beginner,
+                intermediate,
+                professional,
+                wizard,
+            };
+
+            const WhyNoEnum = enum {
+                not_yet,
+                soon,
+                later,
+            };
+        };
+
+        const Contribute = union(enum) {
+            start_project,
+            spread_word,
+            translate,
+            help_learn,
+            work_on_issues,
+            give: foundation.Sponsor, // Can reference identifiers in other containers
+        };
+    };
+
+    const foundation = struct {
+        const Board = struct {
+            president: community.Ziguana,
+            secretary: community.Ziguana,
+            treasurer: community.Ziguana,
+        };
+
+        const Sponsor = enum {
+            monetary,
+            infrastructure,
+        };
+    };
+};
+
+pub fn main() void {
+    const friendo = zig.community.Ziguana{ .yes = .wizard };
+    const soon_friendo = zig.community.Ziguana{ .no = .soon };
+    const help_out = zig.community.Contribute.spread_word;
+
+    print("Andrew is a {}\n", .{friendo});
+    print("Gopher is a {}\n", .{soon_friendo});
+    print("Ziggy helps out by spreading the word, right? {}", .{help_out == .spread_word});
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Container Namespace#}
+      <p>
+        When a container is given a name, it provides a namespace for the identifiers it contains. Identifiers
+        that are namespaced are unique.
+      </p>
+      <p>
+        There are three ways to name a container:
+      </p>
+      <ol>
+        <li>The file name (without extension) of a Zig source file is the name of the implicit struct it represents. See {#link|@import#}.</li>
+        <li>When a container is assigned to an identifier, the container's name is the identifier.</li>
+        <li>When a container is in the {#syntax#}return{#endsyntax#} expression of a function, the
+          container's name is the function's name.</li>
+      </ol>
+      <p>
+        Otherwise, the container is considered to be <em>anonymous</em>.
+      </p>
+      {#code_begin|exe|container_namespace#}
+const std = @import("std");
+
+// The following three functions return a `type` of container.
+// The containers are given the name of the function.
+fn StructFun(comptime T: type) type {
+    return struct { f: T };
+}
+
+fn EnumFun(comptime T: type) type {
+    return enum(T) { f };
+}
+
+fn UnionFun(comptime T: type) type {
+    return union { f: T };
+}
+
+pub fn main() void {
+    // The name of an import
+    std.debug.print("As import: {s}\n\n", .{@typeName(@import("hello.zig"))});
+
+    // In this example, containers are declared in three ways:
+    // 1. Declared and stored in a constant local identifier
+    // 2. By using a function to declare the container at compile-time
+    // 3. By declaring the container anonymously
+    //
+    // The name of the containers are printed using the code below.
+
+    const S = struct { f: i32 };
+    const sFun = StructFun(i32);
+    std.debug.print("As identifier: {s}\n", .{@typeName(S)});
+    std.debug.print("As function:   {s}\n", .{@typeName(sFun)});
+    std.debug.print("As anonymous:  {s}\n\n", .{@typeName(struct { f: i32 })});
+
+    const E = enum { f };
+    const eFun = EnumFun(u8);
+    std.debug.print("As identifier: {s}\n", .{@typeName(E)});
+    std.debug.print("As function:   {s}\n", .{@typeName(eFun)});
+    std.debug.print("As anonymous:  {s}\n\n", .{@typeName(enum { f })});
+
+    const U = union { f: bool };
+    const uFun = UnionFun(bool);
+    std.debug.print("As identifier: {s}\n", .{@typeName(U)});
+    std.debug.print("As function:   {s}\n", .{@typeName(uFun)});
+    std.debug.print("As anonymous:  {s}\n\n", .{@typeName(union { f: bool })});
+}
+      {#code_end#}
+      {#header_open|usingnamespace#}
+      <p>
+      {#syntax#}usingnamespace{#endsyntax#} is a declaration that mixes all the public
+      declarations of the operand, which must be a {#link|struct#}, {#link|union#}, {#link|enum#},
+      or {#link|opaque#}, into the immediate container's namespace:
+      </p>
+      {#code_begin|exe|usingnamespace#}
+pub fn main() void {
+    const S = struct {
+        usingnamespace @import("std");
+    };
+    S.debug.print("S contains std's declarations", .{});
+}
+      {#code_end#}
+      <p>
+      {#syntax#}usingnamespace{#endsyntax#} has an important use case when organizing the public
+      API of a file or package. For example, one might have <code class="file">c.zig</code> with all of the
+      {#link|C imports|Import from C Header File#}:
+      </p>
+      {#syntax_block|zig|c.zig#}
+pub usingnamespace @cImport({
+    @cInclude("epoxy/gl.h");
+    @cInclude("GLFW/glfw3.h");
+    @cDefine("STBI_ONLY_PNG", "");
+    @cDefine("STBI_NO_STDIO", "");
+    @cInclude("stb_image.h");
+});
+      {#end_syntax_block#}
+      <p>
+      The above example demonstrates using {#syntax#}pub{#endsyntax#} to qualify the
+      {#syntax#}usingnamespace{#endsyntax#} additionally makes the imported declarations
+      {#syntax#}pub{#endsyntax#}. This can be used to forward declarations, giving precise control
+      over what declarations a given file exposes.
+      </p>
+      {#header_close#}
+      {#header_close#}
+      {#header_open|Top-Level#}
+      <p>
+        The term <dfn>top-level</dfn> (also spelled "top level") refers to direct child of a container.
+      </p>
+      <p>
+        Direct children of a container are called <dfn>container level members</dfn>, <dfn>container level</dfn>,
+        <dfn>container members</dfn>, <dfn>top-level members</dfn>, <dfn>top-level</dfn> or just <dfn>members</dfn>.
+      </p>
+      <p>
+        Let's revisit the source code for the <samp>Hello, world!</samp> program again, as shown below. The
+        <code class="file">hello_again_again.zig</code> source file is a container. Its first whole line of code
+        is its {#link|top-level variable declaration|Container Level Variables#}. The code starting at the third line until the end
+        of the file is the <code>hello_again_again</code> container's top-level {#link|function|Functions#} declaration.
+        In summary, the <code>hello_again_again</code> container has <em>two</em> top-level members.
+      </p>
+      {#code_begin|syntax|hello_again_again#}
+const print = @import("std").debug.print;
+
+pub fn main() void {
+    print("Hello, world!\n", .{});
+}
+      {#code_end#}
+      <p>
+        Now, let's look at nesting containers and point out top-level language constructs. In the following code sample,
+        <code class="file">nested_containers_top_levels.zig</code> is a container. The rest will be explained after the
+        code sample. Focus on the form of the code and ignore the meaning of the code.
+      </p>
+      {#code_begin|syntax|nested_containers_top_levels#}
+const print = @import("std").debug.print;
+
+const S = struct {
+    pub fn sTopLevelFn() void {
+        print("Hello, world!\n", .{});
+    }
+
+    sTopLevelField: i32,
+
+    const sTopLevelEnum = enum {
+        enumTopLevelField1,
+        enumTopLevelField2,
+    };
+};
+      {#code_end#}
+      <ul>
+        <li>{#syntax#}nested_containers_top_levels{#endsyntax#} is this example's root container and has two top-level declarations.
+          <ul>
+            <li>{#syntax#}const print = {#endsyntax#} is the root's top-level variable declaration</li>
+            <li>{#syntax#}const S = struct {#endsyntax#} is the root's top-level variable declaration,
+              is a container, and has three top-level declarations.
+              <ul>
+                <li>{#syntax#}pub fn sTopLevelFn() void{#endsyntax#} is the struct's top-level function declaration</li>
+                <li>{#syntax#}sTopLevelField: i32{#endsyntax#} is the struct's top-level container field</li>
+                <li>{#syntax#}sTopLevelEnum: enum{#endsyntax#} is the struct's top-level variable declaration,
+                  is a container, and has two top-level declarations.
+                  <ul>
+                    <li>{#syntax#}enumTopLevelField1{#endsyntax#} is the enum's top-level container variant</li>
+                    <li>{#syntax#}enumTopLevelField2{#endsyntax#} is the enum's top-level container variant</li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+      </ul>
+      {#header_open|Types of Top-Level#}
+      <p>
+        There are <em>three</em> main types of top-level members.
+      </p>
+      <dl>
+        <dt>{#link|Container Documention Comments|Container Doc Comments#}</dt>
+        <dd>When Container Documentation Comments are used, they are always the first member of a container.
+        That is, they are put inside of the container before any of the other top-level members.</dd>
+        <dt>{#link|Top-Level Declarations#}</dt>
+        <dd>Top-Level Declarations introduce identifiers and functionality.</dd>
+        <dt>{#link|Container Fields#}</dt>
+        <dd>Container Fields are properties or variants of a container.</dd>
+      </dl>
+      {#header_open|Top-Level Declarations#}
+      <p>The following are <em>top-level declarations</em>:</p>
+      <ul>
+        <li>{#link|Test Declarations#}</li>
+        <li>{#link|Compile-Time Expressions#}</li>
+        <li>{#link|Function Declarations and Prototypes|Functions#}</li>
+        <li>{#link|Variable Declarations|Variables#} </li>
+        <li>{#link|usingnamespace#} Declarations</li>
+      </ul>
+      <p>
+        Note, {#link|Compile-Time Expressions#} and {#link|Variable Declarations|Variables#} can be located in places other than
+        the top-level position as well.
+      </p>
+      <aside>
+        The terms "<em>container declarations</em>" and "<em>top-level declarations</em>" are sometimes used synonymously.
+        For an example, see the Zig {#link|Grammar#}. However, this documentation will use the phrase
+        "<strong>top-level declarations</strong>" to make it clear that the declarations are inside of a container
+        rather than the declaration of containers.
+      </aside>
+      {#header_close#}
+      {#header_open|Container Fields#}
+      <p>
+        Container fields are also called <em>variants</em> or <em>tags</em> depending on the
+        {#link|type of container|Types of Containers#} being used. The number of fields a container can have
+        also depends on the type of container.
+      </p>
+      <p>
+        When fields are declared in a container, they must be grouped together. No other type of top-level member
+        is allowed to be placed between container fields. Here are the three valid ways to arrange top-level
+        declarations and fields:
+      </p>
+      {#code_begin|syntax|fields_first#}
+field1: u8,
+field2: u8,
+const subcontainer1 = struct {
+    a: i32,
+};
+const subcontainer2 = struct {
+    a: i32,
+};
+      {#code_end#}
+      {#code_begin|syntax|fields_between#}
+const subcontainer1 = struct {
+    a: i32,
+};
+field1: u8,
+field2: u8,
+const subcontainer2 = struct {
+    a: i32,
+};
+      {#code_end#}
+      {#code_begin|syntax|fields_last#}
+const subcontainer1 = struct {
+    a: i32,
+};
+const subcontainer2 = struct {
+    a: i32,
+};
+field1: u8,
+field2: u8 // comma is optional when field is the last top-level member
+      {#code_end#}
+      {#see_also|struct|enum|union#}
+      {#header_close#}
+      {#header_close#}
+      {#header_open|Top-Level Order Independent Declarations#}
+      <p>
+        Top-level declarations are order independent. They can be arranged in any order without changing
+        the functionality of the program/library.
+      </p>
+      {#code_begin|exe|hello_top_level_independence#}
+pub fn main() void {
+    print("Hello, world!\n", .{});
+}
+
+const print = @import("std").debug.print;
+      {#code_end#}
+      <p>
+        The code sample above reordered the original <code class="file">hello_again.zig</code>'s top-level declarations.
+        The code compiles and runs the same.
+      </p>
+      {#header_close#}
+      {#header_open|Top-Level Compile-Time Resolution#}
+      <p>
+        Top-level declarations are resolved at compile-time. When a top-level member uses an identifier, the compiler verifies
+        that the identifier has been declared.
+      </p>
+      <p>Use of undeclared identifiers is a compile error caused by a top-level member being compile-time resolved.</p>
+      {#code_begin|exe_build_err#}
+fn deepThought() i32 {
+    // Compile error because `ultimateQuestion` is undeclared
+    const question = ultimateQuestion();
+}
+      {#code_end#}
+      <p>Not using a declared identifier is a compile error caused by a top-level member being compile-time resolved.</p>
+      {#code_begin|exe_build_err#}
+fn ohDear() i32 {
+    // Compile error because `answer` is unused
+    const answer: i32 = 4 * 13;
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Lazy Top-Level Declaration Analysis#}
+      <p>
+        Zig does lazy, top-level declaration analysis, which means that if a top-level member is not called,
+        or otherwise used, it is not analyzed with exception to the {#link|Top-Level Compile-Time Resolution#} rules.
+      </p>
+      {#code_begin|test|unused_fn#}
+// Although this function returns the wrong type, no compile error
+// because this function is never called.
+fn unused() i32 {
+    return "wrong return type";
+}
+test "unused function" { }
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Self-Referential Containers#}
+      <p>
+        When a container is given a name, it can refer to itself directly or indirectly unless
+        it causes an infinite recursion. To avoid infinite recursion, use a {#link|pointer|Pointers#}, or
+        pointer-like type.
+      </p>
+      {#code_begin|exe|self_referencing_containers#}
+const print = @import("std").debug.print;
+
+fn LinkedList(comptime T: type) type {
+    return struct {
+        pub const Node = struct { // Node is declared at the top-level of a container
+            prev: ?*Node, // So, it can self-reference
+            next: ?*Node, // Node indirectly self-references using a pointer
+            data: T,
+        };
+
+        first: ?*Node,
+        last: ?*Node,
+        len: usize,
+    };
+}
+
+const Choices = enum {
+    B,
+    C,
+    Zig,
+    const default = Choices.Zig; // direct self-reference
+};
+
+const JsonType = union(enum) {
+    object: ?struct { k: u32 },
+    array: []const JsonType, // indirect self-reference using a slice
+    string: []const u8,
+    number: u32,
+    boolean: bool,
+};
+
+pub fn main() void {
+    // A doubly linked list with nodes storing i32 typed data
+    const ListOfInts = LinkedList(i32);
+    var node = ListOfInts.Node{
+        .prev = null,
+        .next = null,
+        .data = 42,
+    };
+    var list = ListOfInts{
+        .first = &node,
+        .last = &node,
+        .len = 1,
+    };
+    print("{d}\n", .{list.first.?.data});
+
+    // Choices
+    const choice = Choices.default;
+    print("You chose Zig: {}\n", .{choice == .Zig});
+
+    // Simulate a JSON array
+    const jsonArray = &[_]JsonType{
+        JsonType{ .number = 42 },
+        JsonType{ .array = &[_]JsonType{
+            JsonType{ .boolean = false },
+            JsonType{ .boolean = true },
+        } },
+    };
+    print("Gotta go fast: {}", .{jsonArray[1].array[1].boolean});
+}
+      {#code_end#}
+      <p>
+        Containers can only self-reference if they are named by a top-level declaration.
+        The compiler will give an error when trying to self-reference containers from
+        non-top-level declarations:
+      </p>
+      {#code_begin|exe_build_err|self_reference_error#}
+const print = @import("std").debug.print;
+
+fn deepThought() i32 {
+    const Node = struct { // Node is not named by a top-level declaration
+        child: ?*Node, // This container cannot self-reference
+        data: i32,
+    };
+    var leaf = Node{
+        .child = null,
+        .data = 42,
+    };
+    const root = Node{
+        .child = &leaf,
+        .data = 0,
+    };
+    return root.child.?.data;
+}
+
+fn ultimateChoice() bool {
+    const Choices = enum { // This is not named by a top-level declaration
+        B,
+        C,
+        Zig,
+        const default = Choices.Zig; // This container cannot self-reference
+    };
+
+    return .Zig == Choices.default;
+}
+
+pub fn main() void {
+    print("The ultimate answer: {any}", .{deepThought()});
+    print("You chose Zig: {}", .{ultimateChoice()});
+}
+      {#code_end#}
+      <p>
+        To have the same result as self-referencing, the code sample above can use the {#syntax#}@This(){#endsyntax#}
+        {#link|built-in function|@This#}:
+      </p>
+      {#code_begin|exe|simulated_self_reference#}
+const print = @import("std").debug.print;
+
+fn deepThought() i32 {
+    const Node = struct { // Node is not declared in a container
+        const Self = @This(); // Assign this container the name `Self`
+        child: ?*Self,
+        data: i32,
+    };
+    var leaf = Node{
+        .child = null,
+        .data = 42,
+    };
+    const root = Node{
+        .child = &leaf,
+        .data = 0,
+    };
+    return root.child.?.data;
+}
+
+fn ultimateChoice() bool {
+    const Choices = enum {
+        B,
+        C,
+        Zig,
+        const default = @This().Zig; // simulated self-reference
+    };
+
+    return .Zig == Choices.default;
+}
+
+pub fn main() void {
+    print("The ultimate answer: {any}", .{deepThought()});
+    print("You chose Zig: {}", .{ultimateChoice()});
+}
+      {#code_end#}
+      {#see_also|Arrays|Pointers|Slices|Optionals#}
+      {#header_close#}
+      {#header_close#}
+      {#header_close#}
+
+      {#header_open|Zig Test#}
+      <p>
+        Code written within one or more {#syntax#}test{#endsyntax#} declarations can help to
+        ensure behavior meets expectations:
+      </p>
+      {#code_begin|test|introducing_zig_test#}
+const std = @import("std");
+
+test "expect addOne adds one to 41 correctly" {
+
+    // The Standard Library contains useful functions to help create tests.
+    // `expect` is a function that verifies its argument is true.
+    // It will return an error if its argument is false to indicate a failure.
+    // `try` is used to return an error to the test runner to notify it that the test failed.
+    try std.testing.expect(addOne(41) == 42);
+}
+
+/// The function `addOne` adds one to the number given as its argument.
+fn addOne(number: i32) i32 {
+    return number + 1;
+}
+      {#code_end#}
+      <p>
+        <kbd>zig test</kbd> is a tool that creates and runs a test build. By default, it builds and runs an
+        executable program using the <em>default test runner</em> provided by the {#link|Zig Standard Library#}
+        as its main entry point. During the build, {#syntax#}test{#endsyntax#} declarations found while
+        {#link|resolving|Root Source File#} the given Zig source file are included for the default test runner
+        to run and report on.
+      </p>
+      <aside>
+        This documentation discusses the features of the default test runner as provided by the Zig Standard Library.
+        Its source code is located in <code class="file">lib/std/special/test_runner.zig</code>.
+      </aside>
+      <p>
+        The shell output shown above displays the line <samp>Test [1/1] test "expect addOne adds one to 41 correctly"...</samp>.
+        This line was printed to standard error (stderr) by the test runner program. (When the test runner program's
+        standard error is redirected to the terminal, these lines are cleared when a test succeeds.)
+        Lines like this indicate which test, out of the total number of tests, is being run. In this case, <samp>[1/1]</samp>
+        indicates that the first test, out of a total of one test, is being run. The next line, <samp>All 1 tests passed.</samp>,
+        is also printed to standard error. It indicates the total number of tests that have passed.
+      </p>
+      <p>
+        The code sample in <code class="file">introducing_zig_test.zig</code> tests the {#link|function|Functions#}
+        {#syntax#}addOne{#endsyntax#} to ensure that it correctly adds one to {#syntax#}41{#endsyntax#}.
+        From this test's perspective, the {#syntax#}addOne{#endsyntax#} function is said to be
+        <em>code under test</em>.
+      </p>
+      {#header_open|Test Declarations#}
+      <p>
+        Test declarations contain the {#link|keyword|Keyword Reference#} {#syntax#}test{#endsyntax#} followed by an
+        optional name written between double-quotation marks followed by a {#link|block|blocks#} containing test code.
+      </p>
+      <p>
+        By convention, non-named tests should be used when referencing other tests. Non-named tests are run regardless
+        of the <kbd>{#link|--test-filter|Skip Tests#}</kbd> command-line parameter.
+      </p>
+      <p>
+        Tests are similar to {#link|Functions#}: they have a return type and a block of code. The implicit
+        return type of {#syntax#}test{#endsyntax#} is the {#link|Error Union Type#} {#syntax#}anyerror!void{#endsyntax#}.
+        When a Zig source file is not built using the <kbd>zig test</kbd> tool, the tests are omitted from the build.
+      </p>
+      <p>
+        Test declarations can be written in the same file where code under test is written or in a separate Zig source file.
+        Since test declarations are {#link|top-level|Top Level#} declarations, they are order-independent and can
+        be written before or after the code under test.
+      </p>
+      {#see_also|The Global Error Set#}
+      {#header_close#}
+      {#header_open|Nested Test Declarations#}
+      <p>
+        Top-level test declarations are {#link|lazily analyzed|Lazy Top-Level Declaration Analysis#}.
+        When the <kbd>zig test</kbd> tool is building a test runner, only resolved {#syntax#}test{#endsyntax#}
+        declarations are included in the build. Initially, the given Zig source file's top-level declarations are
+        resolved. Unless nested containers are referenced, the nested containers' tests will not be resolved.
+      </p>
+      <p>
+        The code sample below uses the {#syntax#}std.testing.refAllDecls(@This()){#endsyntax#} function call to
+        reference all of the {#link|Containers#} that are in the file. This includes the test declarations
+        located in imported, local Zig source files. The code sample also shows an alternative way to reference
+        containers using the {#syntax#}_ = C;{#endsyntax#} syntax. This syntax tells the compiler to ignore the
+        result of the expression on the right side of the assignment operator.
+      </p>
+      {#code_begin|test|testdecl_container_top_level#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+// Locally imported source files will be tested when referenced
+const local_import = @import("introducing_zig_test.zig");
+
+test {
+    // To run nested-containers' tests, either, call `refAllDecls` which will
+    // reference all declarations located in the given argument.
+    // `@This()` is a builtin function that returns the innermost container it is called from.
+    // In this example, the innermost container is this file (implicitly a struct).
+    std.testing.refAllDecls(@This());
+
+    // or, reference each container individually from a top-level test declaration.
+    // The `_ = C;` syntax is a no-op reference to the identifier `C`.
+    _ = S;
+    _ = E;
+    _ = U;
+    _ = O;
+
+    // Alternative to `refAllDecls`, other local source files containing tests can
+    // also be referenced like this
+    _ = @import("introducing_zig_test.zig");
+}
+
+const S = struct {
+    test "S demo test" {
+        try expect(true);
+    }
+};
+
+const E = enum {
+    V,
+
+    test "E demo test" {
+        try expect(true);
+    }
+};
+
+const U = union {
+    s: US, // US is referenced here; therefore, its test will run
+
+    const US = struct {
+        test "U.US demo test" {
+            // This test is a top-level test declaration for the struct.
+            // The struct is nested (declared) inside of a union.
+            try expect(true);
+        }
+    };
+
+    test "U demo test" {
+        try expect(true);
+    }
+};
+
+const O = opaque {
+    test "O demo test" {
+        try expect(true);
+    }
+};
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Test Failure#}
+      <p>
+        The default test runner checks for an {#link|error|Errors#} returned from a test.
+        When a test returns an error, the test is considered a failure and the failure will be reported after all
+        test have been run. When a test fails, the default test runner will output the test that failed along with the
+        {#link|Error Return Traces#}.
+      </p>
+      {#code_begin|test_err#}
+const std = @import("std");
+
+test "expect this to fail" {
+    try std.testing.expect(false);
+}
+
+test "expect this to succeed" {
+    try std.testing.expect(true);
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Skip Tests#}
+      <p>
+        If a {#syntax#}test{#endsyntax#} returns the error {#syntax#}error.SkipZigTest{#endsyntax#}, the
+        default test runner will consider the test as being skipped. After all of the tests are complete,
+        the number of skipped tests is reported.
+      </p>
+      {#code_begin|test#}
+test "this will be skipped" {
+    return error.SkipZigTest;
+}
+      {#code_end#}
+      <p>
+        The default test runner also skips tests containing a {#link|suspend point|Async Functions#} and the
+        test is running using the default, blocking IO mode.
+        (The evented IO mode is enabled using the <kbd>--test-evented-io</kbd> command line parameter.)
+      </p>
+      {#code_begin|test|async_skip#}
+const std = @import("std");
+
+// This test is skipped because a suspend point exists
+// and the `io_mode`` is set to blocking (the default).
+test "async skip test" {
+    var frame = async func();
+    const result = await frame;
+    try std.testing.expect(result == 1);
+}
+
+fn func() i32 {
+    suspend {
+        resume @frame();
+    }
+    return 1;
+}
+      {#code_end#}
+      <p>
+        In the code sample above, the test would not be skipped in blocking IO mode if the {#syntax#}nosuspend{#endsyntax#}
+        keyword was used (see {#link|Async and Await#}).
+      </p>
+      <p>
+        Another way to skip tests is to filter them out by using the <kbd>zig test</kbd> command line parameter
+        <kbd>--test-filter [text]</kbd>. This makes the test build only include tests whose name contains the
+        supplied filter text. Note, non-named tests are run even when using the <kbd>--test-filter [text]</kbd>
+        command line parameter.
+      </p>
+      {#header_close#}
+      {#header_open|Report Memory Leaks#}
+      <p>
+        When code allocates {#link|Memory#} using the {#link|Zig Standard Library#}'s testing allocator,
+        {#syntax#}std.testing.allocator{#endsyntax#}, the default test runner will report any leaks that are
+        found from using this allocator:
+      </p>
+      {#code_begin|test_err#}
+const std = @import("std");
+
+test "detect leak" {
+    var list = std.ArrayList(u8).init(std.testing.allocator);
+    // missing `defer list.deinit();`
+    try list.append('Z');
+    try list.append('i');
+    try list.append('g');
+
+    try std.testing.expect(list.items.len == 3);
+}
+      {#code_end#}
+      {#see_also|defer|Memory#}
+      {#header_close#}
+      {#header_open|Detecting Test Build#}
+      <p>
+        To detect that code is being run by the <kbd>zig test</kbd> tool, use the
+        {#link|compile variable|Compile Variables#} {#syntax#}@import("builtin").is_test{#endsyntax#}.
+      </p>
+      {#code_begin|test|detect_test#}
+const std = @import("std");
+const builtin = @import("builtin");
+const expect = std.testing.expect;
+
+test "builtin.is_test" {
+    try expect(builtin.is_test);
+    try expect(isATest());
+}
+
+fn isATest() bool {
+    return builtin.is_test;
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Test Output and Logging#}
+      <p>
+        The default test runner and the Zig Standard Library's testing {#link|namespace|Container Namespace#}
+        output messages to standard error.
+      </p>
+      {#header_close#}
+      {#header_open|The Testing Namespace#}
+      <p>
+        The Zig Standard Library's <code>testing</code> {#link|namespace|Container Namespace#} contains useful functions to help
+        you build tests. A few are listed here:
+      </p>
+      {#code_begin|test|testing_functions#}
+const std = @import("std");
+
+test "expect demo" {
+    try std.testing.expect(true);
+}
+
+test "expectEqual demo" {
+    const expected: i32 = 42;
+    const actual = 42;
+
+    // The first argument to `expectEqual` is the known, expected, result.
+    // The second argument is the result of some expression.
+    // The actual's type is casted to the type of expected.
+    try std.testing.expectEqual(expected, actual);
+}
+
+test "expectError demo" {
+    const expected_error = error.DemoError;
+    const actual_error_union: anyerror!void = error.DemoError;
+
+    // `expectError` will fail when the actual error is different than
+    // the expected error.
+    try std.testing.expectError(expected_error, actual_error_union);
+}
+      {#code_end#}
+      <p>The Zig Standard Library also contains functions to compare {#link|Slices#}, strings, and more. See the rest of the
+        {#syntax#}std.testing{#endsyntax#} namespace in the {#link|Zig Standard Library#} for more available functions.</p>
+      {#header_close#}
+      {#header_open|Test Tool Documentation#}
+      <p>
+        <kbd>zig test</kbd> has a few command line parameters which affect the compilation.
+        See <kbd>zig test --help</kbd> for a full list.
+      </p>
+      {#header_close#}
+      {#header_close#}
+      {#header_open|Variables#}
+      <p>
+      A variable is a unit of {#link|Memory#} storage.
+      </p>
+      <p>
+      Variables are never allowed to shadow identifiers from an outer scope.
+      </p>
+      <p>
+      It is generally preferable to use {#syntax#}const{#endsyntax#} rather than
+      {#syntax#}var{#endsyntax#} when declaring a variable. This causes less work for both
+      humans and computers to do when reading code, and creates more optimization opportunities.
+      </p>
+      {#header_open|Container Level Variables#}
+      <p>
+      {#link|Container level|Top-Level#} variables have static lifetime and are order-independent and lazily analyzed.
+      The initialization value of container level variables is implicitly
+      {#link|comptime#}. If a container level variable is {#syntax#}const{#endsyntax#} then its value is
+      {#syntax#}comptime{#endsyntax#}-known, otherwise it is runtime-known.
+      </p>
+      {#code_begin|test|container_level_variables#}
+var y: i32 = add(10, x);
+const x: i32 = add(12, 34);
+
+test "container level variables" {
+    try expect(x == 46);
+    try expect(y == 56);
+}
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+const std = @import("std");
+const expect = std.testing.expect;
+      {#code_end#}
+      <p>
+      {#link|Container level|Top-Level#} variables may be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
+      </p>
+      {#code_begin|test|namespaced_container_level_variable#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+test "namespaced container level variable" {
+    try expect(foo() == 1235);
+    try expect(foo() == 1236);
+}
+
+const S = struct {
+    var x: i32 = 1234;
+};
+
+fn foo() i32 {
+    S.x += 1;
+    return S.x;
+}
+      {#code_end#}
+      {#header_close#}
+
+      {#header_open|Static Local Variables#}
+      <p>
+        It is also possible to have local variables with static lifetime by using {#link|Containers#} inside functions.
+      </p>
+      {#code_begin|test|static_local_variable#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+test "static local variable" {
+    try expect(foo() == 1235);
+    try expect(foo() == 1236);
+}
+
+fn foo() i32 {
+    const S = struct {
+        var x: i32 = 1234;
+    };
+    S.x += 1;
+    return S.x;
+}
+      {#code_end#}
+      <p>
+      The {#syntax#}extern{#endsyntax#} keyword or {#link|@extern#} builtin function can be used to link against a variable that is exported
+      from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
+      can be used to make a variable available to other objects at link time. In both cases,
+      the type of the variable must be C ABI compatible.
+      </p>
+      {#see_also|Exporting a C Library#}
+      {#header_close#}
+
+      {#header_open|Thread Local Variables#}
+      <p>A variable may be specified to be a thread-local variable using the
+      {#syntax#}threadlocal{#endsyntax#} keyword:</p>
+      {#code_begin|test|tls#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+threadlocal var x: i32 = 1234;
+
+test "thread local storage" {
+    const thread1 = try std.Thread.spawn(.{}, testTls, .{});
+    const thread2 = try std.Thread.spawn(.{}, testTls, .{});
+    testTls();
+    thread1.join();
+    thread2.join();
+}
+
+fn testTls() void {
+    assert(x == 1234);
+    x += 1;
+    assert(x == 1235);
+}
+      {#code_end#}
+      <p>
+      For {#link|Single Threaded Builds#}, all thread local variables are treated as regular {#link|Container Level Variables#}.
+      </p>
+      <p>
+      Thread local variables may not be {#syntax#}const{#endsyntax#}.
+      </p>
+      {#header_close#}
+
+      {#header_open|Local Variables#}
+      <p>
+      Local variables occur inside {#link|Functions#}, {#link|comptime#} blocks, and {#link|@cImport#} blocks.
+      </p>
+      <p>
+      When a local variable is {#syntax#}const{#endsyntax#}, it means that after initialization, the variable's
+      value will not change. If the initialization value of a {#syntax#}const{#endsyntax#} variable is
+      {#link|comptime#}-known, then the variable is also {#syntax#}comptime{#endsyntax#}-known.
+      </p>
+      <p>
+      A local variable may be qualified with the {#syntax#}comptime{#endsyntax#} keyword. This causes
+      the variable's value to be {#syntax#}comptime{#endsyntax#}-known, and all loads and stores of the
+      variable to happen during semantic analysis of the program, rather than at runtime.
+      All variables declared in a {#syntax#}comptime{#endsyntax#} expression are implicitly
+      {#syntax#}comptime{#endsyntax#} variables.
+      </p>
+      {#code_begin|test|comptime_vars#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+test "comptime vars" {
+    var x: i32 = 1;
+    comptime var y: i32 = 1;
+
+    x += 1;
+    y += 1;
+
+    try expect(x == 2);
+    try expect(y == 2);
+
+    if (y != 2) {
+        // This compile error never triggers because y is a comptime variable,
+        // and so `y != 2` is a comptime value, and this if is statically evaluated.
+        @compileError("wrong y value");
+    }
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_close#}
+
       {#header_open|Arrays#}
       {#code_begin|test|arrays#}
 const expect = @import("std").testing.expect;
@@ -2852,539 +3362,6 @@ test "null terminated slice" {
       {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Arrays#}
       {#header_close#}
       {#header_close#}
-      {#header_open|Containers#}
-      <p>
-        In the context of the Zig programming language, a <dfn>container</dfn> is a generic term used for
-        describing a language feature that groups related data and functionality.
-      </p>
-      <p>Containers are used for creating user-defined types.</p>
-      {#header_open|Types of Containers#}
-      <ul>
-        <li>A <strong>file</strong> containing Zig code is a type of container. Implicitly, a Zig source file is a {#link|structure (struct)|struct#}.</li>
-        <li>A <strong>{#link|struct#}</strong> is a type of container.</li>
-        <li>An <strong>{#link|enum#}</strong> is a type of container.</li>
-        <li>A <strong>{#link|union#}</strong> is a type of container.</li>
-        <li>An <strong>{#link|opaque#}</strong> is a type of container.</li>
-      </ul>
-      {#header_close#}
-      {#header_open|Container Memory Layout#}
-      <p>
-        Containers have a default, extern, or packed memory layout. See specific container documentation
-        for more information.
-      </p>
-      {#see_also|extern struct|packed struct|extern enum|extern union|packed union#}
-      {#header_close#}
-      {#header_open|Nesting Containers#}
-      <p>
-        Containers can be declared inside one another.
-      </p>
-      {#code_begin|test|nested_containers#}
-const std = @import("std");
-
-const zig = struct {
-    const community = struct {
-        const Ziguana = union(enum) {
-            yes: HowMuchEnum,
-            no: WhyNoEnum,
-
-            const HowMuchEnum = enum {
-                beginner,
-                intermediate,
-                professional,
-                wizard,
-            };
-
-            const WhyNoEnum = enum {
-                not_yet,
-                soon,
-                later,
-            };
-        };
-
-        const Contribute = union(enum) {
-            start_project,
-            spread_word,
-            translate,
-            help_learn,
-            work_on_issues,
-            give: foundation.Sponsor,
-        };
-    };
-
-    const foundation = struct {
-        const Board = struct {
-            president: community.Ziguana,
-            secretary: community.Ziguana,
-            treasurer: community.Ziguana,
-        };
-
-        const Sponsor = enum {
-            monetary,
-            infrastructure,
-        };
-    };
-};
-
-test "nested containers" {
-    const friendo = zig.community.Ziguana{ .yes = .wizard };
-    const soon_friendo = zig.community.Ziguana{ .no = .soon };
-    const help_out = zig.community.Contribute.spread_word;
-    const donate = zig.foundation.Sponsor.monetary;
-
-    try std.testing.expect(friendo.yes == .wizard);
-    try std.testing.expect(soon_friendo.no == .soon);
-    try std.testing.expect(help_out == .spread_word);
-    try std.testing.expect(donate == .monetary);
-}
-      {#code_end#}
-      {#header_close#}
-      {#header_open|Container Namespace#}
-      <p>
-        When a container is given a name, it provides a namespace for the identifiers it contains. Identifiers
-        that are namespaced are unique.
-      </p>
-      <p>
-        There are three ways to name a container:
-      </p>
-      <ol>
-        <li>The file name (without extension) of a Zig source file is the name of the implicit struct it represents. See {#link|@import#}.</li>
-        <li>When a container is assigned to an identifier, the container's name is the identifier.</li>
-        <li>When a container is in the {#syntax#}return{#endsyntax#} expression of a function, the
-          container's name is the function's name.</li>
-      </ol>
-      <p>
-        Otherwise, the container is considered to be <em>anonymous</em>.
-      </p>
-      {#code_begin|exe|container_namespace#}
-const std = @import("std");
-
-// The following three functions return a `type` of a container.
-// The containers are given the name of the function.
-fn StructFun(comptime T: type) type {
-    return struct { f: T };
-}
-
-fn EnumFun(comptime T: type) type {
-    return enum(T) { f };
-}
-
-fn UnionFun(comptime T: type) type {
-    return union { f: T };
-}
-
-pub fn main() void {
-    // The name of an import
-    std.debug.print("As import: {s}\n\n", .{@typeName(@import("hello.zig"))});
-
-    // In this example, containers are declared in three ways:
-    // 1. Declared and stored in a constant local identifier
-    // 2. By using a function to declare the container at compile-time
-    // 3. By declaring the container anonymously
-    //
-    // The name of the containers are printed using the code below.
-
-    const S = struct { f: i32 };
-    const sFun = StructFun(i32);
-    std.debug.print("As identifier: {s}\n", .{@typeName(S)});
-    std.debug.print("As function:   {s}\n", .{@typeName(sFun)});
-    std.debug.print("As anonymous:  {s}\n\n", .{@typeName(struct { f: i32 })});
-
-    const E = enum { f };
-    const eFun = EnumFun(u8);
-    std.debug.print("As identifier: {s}\n", .{@typeName(E)});
-    std.debug.print("As function:   {s}\n", .{@typeName(eFun)});
-    std.debug.print("As anonymous:  {s}\n\n", .{@typeName(enum { f })});
-
-    const U = union { f: bool };
-    const uFun = UnionFun(bool);
-    std.debug.print("As identifier: {s}\n", .{@typeName(U)});
-    std.debug.print("As function:   {s}\n", .{@typeName(uFun)});
-    std.debug.print("As anonymous:  {s}\n\n", .{@typeName(union { f: bool })});
-}
-      {#code_end#}
-      {#header_open|usingnamespace#}
-      <p>
-      {#syntax#}usingnamespace{#endsyntax#} is a declaration that mixes all the public
-      declarations of the operand, which must be a {#link|struct#}, {#link|union#}, {#link|enum#},
-      or {#link|opaque#}, into the immediate container's namespace:
-      </p>
-      {#code_begin|test|usingnamespace#}
-test "using std namespace" {
-    const S = struct {
-        usingnamespace @import("std");
-    };
-    try S.testing.expect(true);
-}
-      {#code_end#}
-      <p>
-      {#syntax#}usingnamespace{#endsyntax#} has an important use case when organizing the public
-      API of a file or package. For example, one might have <code class="file">c.zig</code> with all of the
-      {#link|C imports|Import from C Header File#}:
-      </p>
-      {#syntax_block|zig|c.zig#}
-pub usingnamespace @cImport({
-    @cInclude("epoxy/gl.h");
-    @cInclude("GLFW/glfw3.h");
-    @cDefine("STBI_ONLY_PNG", "");
-    @cDefine("STBI_NO_STDIO", "");
-    @cInclude("stb_image.h");
-});
-      {#end_syntax_block#}
-      <p>
-      The above example demonstrates using {#syntax#}pub{#endsyntax#} to qualify the
-      {#syntax#}usingnamespace{#endsyntax#} additionally makes the imported declarations
-      {#syntax#}pub{#endsyntax#}. This can be used to forward declarations, giving precise control
-      over what declarations a given file exposes.
-      </p>
-      {#header_close#}
-      {#header_close#}
-      {#header_open|Top-Level#}
-      <p>
-        The term <dfn>top-level</dfn> (also spelled "top level") refers to direct child of a container.
-      </p>
-      <p>
-        Direct children of a container are called <dfn>container level members</dfn>, <dfn>container level</dfn>,
-        <dfn>container members</dfn>, <dfn>top-level members</dfn>, <dfn>top-level</dfn> or just <dfn>members</dfn>.
-      </p>
-      <p>
-        Let's revisit the source code for the <samp>Hello, world!</samp> program again, as shown below. The
-        <code class="file">hello_again_again.zig</code> source file is a container. Its first whole line of code
-        is its {#link|top-level variable declaration|Container Level Variables#}. The code starting at the third line until the end
-        of the file is the <code>hello_again_again</code> container's top-level {#link|function|Functions#} declaration.
-        In summary, the <code>hello_again_again</code> container has <em>two</em> top-level members.
-      </p>
-      {#code_begin|syntax|hello_again_again#}
-const print = @import("std").debug.print;
-
-pub fn main() void {
-    print("Hello, world!\n", .{});
-}
-      {#code_end#}
-      <p>
-        Now, let's look at nesting containers and point out top-level language constructs. In the following code sample,
-        <code class="file">nested_containers_top_levels.zig</code> is a container. The rest will be explained after the
-        code sample. Focus on the form of the code and ignore the meaning of the code.
-      </p>
-      {#code_begin|syntax|nested_containers_top_levels#}
-const print = @import("std").debug.print;
-
-const S = struct {
-    pub fn sTopLevelFn() void {
-        print("Hello, world!\n", .{});
-    }
-
-    sTopLevelField: i32,
-
-    const sTopLevelEnum = enum {
-        enumTopLevelField1,
-        enumTopLevelField2,
-    };
-};
-      {#code_end#}
-      <ul>
-        <li>{#syntax#}nested_containers_top_levels{#endsyntax#} is this example's root container and has two top-level declarations.
-          <ul>
-            <li>{#syntax#}const print = {#endsyntax#} is the root's top-level variable declaration</li>
-            <li>{#syntax#}const S = struct {#endsyntax#} is the root's top-level variable declaration,
-              is a container, and has three top-level declarations.
-              <ul>
-                <li>{#syntax#}pub fn sTopLevelFn() void{#endsyntax#} is the struct's top-level function declaration</li>
-                <li>{#syntax#}sTopLevelField: i32{#endsyntax#} is the struct's top-level container field</li>
-                <li>{#syntax#}sTopLevelEnum: enum{#endsyntax#} is the struct's top-level variable declaration,
-                  is a container, and has two top-level declarations.
-                  <ul>
-                    <li>{#syntax#}enumTopLevelField1{#endsyntax#} is the enum's top-level container variant</li>
-                    <li>{#syntax#}enumTopLevelField2{#endsyntax#} is the enum's top-level container variant</li>
-                  </ul>
-                </li>
-              </ul>
-            </li>
-          </ul>
-        </li>
-      </ul>
-      {#header_open|Types of Top-Level#}
-      <p>
-        There are <em>three</em> main types of top-level members.
-      </p>
-      <dl>
-        <dt>{#link|Container Documention Comments|Container Doc Comments#}</dt>
-        <dd>When Container Documentation Comments are used, they are always the first member of a container.
-        That is, they are put inside of the container before any of the other top-level members.</dd>
-        <dt>{#link|Top-Level Declarations#}</dt>
-        <dd>Top-Level Declarations introduce identifiers and functionality.</dd>
-        <dt>{#link|Container Fields#}</dt>
-        <dd>Container Fields are properties or variants of a container.</dd>
-      </dl>
-      {#header_open|Top-Level Declarations#}
-      <p>The following are <em>top-level declarations</em>:</p>
-      <ul>
-        <li>{#link|Test Declarations#}</li>
-        <li>{#link|Compile-Time Expressions#}</li>
-        <li>{#link|Function Declarations and Prototypes|Functions#}</li>
-        <li>{#link|Variable Declarations|Variables#} </li>
-        <li>{#link|usingnamespace#} Declarations</li>
-      </ul>
-      <p>
-        Note, {#link|Compile-Time Expressions#} and {#link|Variable Declarations|Variables#} can be located in places other than
-        the top-level position as well. See their documentation to learn more.
-      </p>
-      <aside>
-        The terms "<em>container declarations</em>" and "<em>top-level declarations</em>" are sometimes used synonymously.
-        For an example, see the Zig {#link|Grammar#}. However, this documentation will use the phrase
-        "<strong>top-level declarations</strong>" to make it clear that the declarations are inside of a container
-        rather than the declaration of containers.
-      </aside>
-      {#header_close#}
-      {#header_open|Container Fields#}
-      <p>
-        Container fields are also called <em>variants</em> or <em>tags</em> depending on the
-        {#link|type of container|Types of Containers#} being used. The number of fields a container can have
-        also depends on the type of container being used.
-      </p>
-      <p>
-        When fields are declared in a container, they must be grouped together. No other type of top-level member
-        is allowed to be placed between container fields. The following code samples demonstrate the three valid
-        ways to arrange top-level declarations and fields.
-      </p>
-      {#code_begin|syntax|fields_first#}
-field1: u8,
-field2: u8,
-const subcontainer1 = struct {
-    a: i32,
-};
-const subcontainer2 = struct {
-    a: i32,
-};
-      {#code_end#}
-      {#code_begin|syntax|fields_between#}
-const subcontainer1 = struct {
-    a: i32,
-};
-field1: u8,
-field2: u8,
-const subcontainer2 = struct {
-    a: i32,
-};
-      {#code_end#}
-      {#code_begin|syntax|fields_last#}
-const subcontainer1 = struct {
-    a: i32,
-};
-const subcontainer2 = struct {
-    a: i32,
-};
-field1: u8,
-field2: u8 // comma is optional when field is the last top-level member
-      {#code_end#}
-      {#see_also|struct|enum|union#}
-      {#header_close#}
-      {#header_close#}
-      {#header_open|Top-Level Order Independent Declarations#}
-      <p>
-        Top-level declarations are order independent. They can be arranged in any order without changing
-        the functionality of the program/library.
-      </p>
-      {#code_begin|exe|hello_top_level_independence#}
-pub fn main() void {
-    print("Hello, world!\n", .{});
-}
-
-const print = @import("std").debug.print;
-      {#code_end#}
-      <p>
-        The code sample above reordered the original <code class="file">hello_again.zig</code>'s top-level declarations.
-        The code compiles and runs the same.
-      </p>
-      {#header_close#}
-      {#header_open|Top-Level Compile-Time Resolution#}
-      <p>
-        Top-level declarations are resolved at compile-time. When a top-level member uses an identifier, the compiler verifies
-        that the identifier has been declared.
-      </p>
-      <p>Use of undeclared identifiers is a compile error caused by a top-level member being compile-time resolved.</p>
-      {#code_begin|exe_build_err#}
-fn deepThought() i32 {
-    // Compile error because `ultimateQuestion` is undeclared
-    const question = ultimateQuestion();
-}
-      {#code_end#}
-      <p>Not using a declared identifier is a compile error caused by a top-level member being compile-time resolved.</p>
-      {#code_begin|exe_build_err#}
-fn ohDear() i32 {
-    // Compile error because `answer` is unused
-    const answer: i32 = 4 * 13;
-}
-      {#code_end#}
-      {#header_close#}
-      {#header_open|Lazy Top-Level Declaration Analysis#}
-      <p>
-        Zig does lazy, top-level declaration analysis, which means that if a top-level member is not called,
-        or otherwise used, it is not analyzed with exception to the {#link|Top-Level Compile-Time Resolution#} rules.
-      </p>
-      {#code_begin|test|unused_fn#}
-// Although this function returns the wrong type, no compile error
-// because this function is never called.
-fn unused() i32 {
-    return "wrong return type";
-}
-test "unused function" { }
-      {#code_end#}
-      {#header_close#}
-      {#header_open|Self-Referential Containers#}
-      <p>
-        When a container is given a name, the body of a container can contain references to itself
-        as long as it doesn't directly depend on itself. To get around self-dependency, use a
-        {#link|pointer|Pointers#}, or pointer-like, type as shown in the {#syntax#}Node{#endsyntax#} and
-        {#syntax#}JsonType{#endsyntax#} examples below.
-      </p>
-      {#code_begin|test|self_reference_containers#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-fn LinkedList(comptime T: type) type {
-    return struct {
-        pub const Node = struct { // This is declared at the top-level of a container
-            prev: ?*Node, // So, it can self-reference
-            next: ?*Node, // Node self-references using a pointer
-            data: T,
-        };
-
-        first: ?*Node,
-        last: ?*Node,
-        len: usize,
-    };
-}
-
-const Choices = enum {
-    B,
-    C,
-    Zig,
-    const default = Choices.Zig; // self-reference
-};
-
-const JsonType = union(enum) {
-    object: ?struct { k: u32 },
-    array: []const JsonType, // self-reference using a slice
-    string: []const u8,
-    number: u32,
-    boolean: bool,
-};
-
-test "self referencing containers" {
-    // Test LinkedList
-    const ListOfInts = LinkedList(i32);
-    var node = ListOfInts.Node{
-        .prev = null,
-        .next = null,
-        .data = 42,
-    };
-    var list = ListOfInts{
-        .first = &node,
-        .last = &node,
-        .len = 1,
-    };
-    try expect(list.first.?.data == 42);
-
-    // Test Choices
-    const choice = Choices.default;
-    try std.testing.expect(choice == .Zig);
-
-    // Test JsonType
-    const jsonArray = &[_]JsonType{
-        JsonType{ .number = 42 },
-        JsonType{ .array = &[_]JsonType{
-            JsonType{ .boolean = false },
-            JsonType{ .boolean = true },
-        } },
-    };
-    try std.testing.expect(jsonArray[1].array[1].boolean);
-}
-      {#code_end#}
-      <p>
-        Containers can only self-reference if they are named by a top-level declaration.
-        The following sample demonstrates a compile error when trying to self-reference
-        containers from non-top-level declarations.
-      </p>
-      {#code_begin|test_err#}
-const std = @import("std");
-
-fn deepThought() i32 {
-    const Node = struct { // This is not named by a top-level declaration
-        child: ?*Node, // This container cannot self-reference
-        data: i32,
-    };
-    var leaf = Node{
-        .child = null,
-        .data = 42,
-    };
-    const root = Node{
-        .child = &leaf,
-        .data = 0,
-    };
-    return root.child.?.data;
-}
-
-fn ultimateChoice() bool {
-    const Choices = enum { // This is not named by a top-level declaration
-        B,
-        C,
-        Zig,
-        const default = Choices.Zig; // This container cannot self-reference
-    };
-
-    return .Zig == Choices.default;
-}
-
-test "cannot self-reference" {
-    std.testing.expect(deepThought() == 42);
-    std.testing.expect(ultimateChoice());
-}
-      {#code_end#}
-      <p>
-        To have the same affect as self-referencing, the code sample above can use the {#syntax#}@This(){#endsyntax#}
-        {#link|built-in function|@This#} as shown in the code sample below.
-      </p>
-      {#code_begin|test|simulated_self_reference#}
-const std = @import("std");
-
-fn deepThought() i32 {
-    const Node = struct { // Node is not declared in a container
-        const Self = @This(); // Assign this container the name `Self`
-        child: ?*Self,
-        data: i32,
-    };
-    var leaf = Node{
-        .child = null,
-        .data = 42,
-    };
-    const root = Node{
-        .child = &leaf,
-        .data = 0,
-    };
-    return root.child.?.data;
-}
-
-fn ultimateChoice() bool {
-    const Choices = enum {
-        B,
-        C,
-        Zig,
-        const default = @This().Zig; // simulated self-reference
-    };
-
-    return .Zig == Choices.default;
-}
-
-test "simulated self-reference" {
-    try std.testing.expect(deepThought() == 42);
-    try std.testing.expect(ultimateChoice());
-}
-      {#code_end#}
-      {#see_also|Arrays|Pointers|Slices|Optionals#}
-      {#header_close#}
-      {#header_close#}
-      {#header_close#}
-
       {#header_open|struct#}
       {#code_begin|test|structs#}
 // Declare a struct.
