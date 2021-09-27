@@ -444,7 +444,7 @@ pub const Mutable = struct {
         const b_limbs = b.limbs[0..math.min(req_limbs, b.limbs.len)];
 
         if (a.positive != b.positive) {
-              if (a.positive) {
+            if (a.positive) {
                 // (a) - (-b) => a + b
                 r.addWrap(a, b.abs(), signedness, bit_count);
             } else {
@@ -1107,7 +1107,7 @@ pub const Mutable = struct {
 
             // Zero-extend the result
             if (req_limbs > r.len) {
-                mem.set(Limb, r.limbs[r.len .. req_limbs], 0);
+                mem.set(Limb, r.limbs[r.len..req_limbs], 0);
             }
 
             // Truncate to required number of limbs.
