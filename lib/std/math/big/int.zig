@@ -542,6 +542,36 @@ pub const Mutable = struct {
         rma.positive = (a.positive == b.positive);
     }
 
+    pub fn mulNoAliasWrap(
+        rma: *Mutable,
+        a: Const,
+        b: Const,
+        signedness: std.builtin.Signedness,
+        bit_count: usize,
+    ) void {
+        assert(rma.limbs.ptr != a.limbs.ptr); // illegal aliasing
+        assert(rma.limbs.ptr != b.limbs.ptr); // illegal aliasing
+
+        const req_limbs = calcTwosCompLimbCount(bit_count);
+
+        // We can ignore the upper bits here, those results will be discarded anyway.
+        const a_limbs = a.limbs[0..math.min(req_limbs, a.limbs.len)];
+        const b_limbs = b.limbs[0..math.min(req_limbs, b.limbs.len)];
+
+        mem.set(Limb, rma.limbs[0..req_limbs], 0);
+
+        if (a_limbs.len >= b_limbs.len) {
+            llmulacc_lo(rma.limbs, a_limbs, b_limbs);
+        } else {
+            llmulacc_lo(rma.limbs, b_limbs, a_limbs);
+        }
+
+        rma.normalize(math.min(req_limbs, a.limbs.len + b.limbs.len));
+        rma.positive = (a.positive == b.positive);
+
+        rma.truncate(rma.toConst(), signedness, bit_count);
+    }
+
     /// rma = a * a
     ///
     /// `rma` may not alias with `a`.
@@ -2155,6 +2185,19 @@ pub const Managed = struct {
         r.setMetadata(m.positive, m.len);
     }
 };
+
+/// r = a * b, ignoring overflow
+fn llmulacc_lo(r: []Limb, a: []const Limb, b: []const Limb) void {
+    assert(r.len >= a.len);
+    assert(a.len >= b.len);
+
+    // TODO: Improve performance.
+
+    var i: usize = 0;
+    while (i < b.len) : (i += 1) {
+        llmulDigit(r[i..], a, b[i]);
+    }
+}
 
 /// Knuth 4.3.1, Algorithm M.
 ///
