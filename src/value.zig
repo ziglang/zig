@@ -1617,6 +1617,34 @@ pub const Value = extern union {
     }
 
     /// Supports both floats and ints; handles undefined.
+    pub fn numberMulWrap(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: *Allocator,
+        target: Target,
+    ) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        if (ty.isAnyFloat()) {
+            return floatMul(lhs, rhs, ty, arena);
+        }
+        const result = try intMul(lhs, rhs, arena);
+
+        const max = try ty.maxInt(arena, target);
+        if (compare(result, .gt, max, ty)) {
+            @panic("TODO comptime wrapping integer multiplication");
+        }
+
+        const min = try ty.minInt(arena, target);
+        if (compare(result, .lt, min, ty)) {
+            @panic("TODO comptime wrapping integer multiplication");
+        }
+
+        return result;
+    }
+
+    /// Supports both floats and ints; handles undefined.
     pub fn numberMax(lhs: Value, rhs: Value, arena: *Allocator) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
@@ -1840,6 +1868,82 @@ pub const Value = extern union {
         }
     }
 
+    pub fn intRem(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs_q = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+        );
+        const limbs_r = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len,
+        );
+        const limbs_buffer = try allocator.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
+        var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
+        result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
+        const result_limbs = result_r.limbs[0..result_r.len];
+
+        if (result_r.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
+    }
+
+    pub fn intMod(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs_q = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+        );
+        const limbs_r = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len,
+        );
+        const limbs_buffer = try allocator.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
+        var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
+        result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
+        const result_limbs = result_r.limbs[0..result_r.len];
+
+        if (result_r.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
+    }
+
+    pub fn floatRem(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        _ = lhs;
+        _ = rhs;
+        _ = allocator;
+        @panic("TODO implement Value.floatRem");
+    }
+
+    pub fn floatMod(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        _ = lhs;
+        _ = rhs;
+        _ = allocator;
+        @panic("TODO implement Value.floatMod");
+    }
+
     pub fn intMul(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -1873,6 +1977,31 @@ pub const Value = extern union {
         const mask = (@as(u64, 1) << @intCast(u6, bits)) - 1;
         const truncated = x & mask;
         return Tag.int_u64.create(arena, truncated);
+    }
+
+    pub fn shl(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const shift = rhs.toUnsignedInt();
+        const limbs = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len + (shift / (@sizeOf(std.math.big.Limb) * 8)) + 1,
+        );
+        var result_bigint = BigIntMutable{
+            .limbs = limbs,
+            .positive = undefined,
+            .len = undefined,
+        };
+        result_bigint.shiftLeft(lhs_bigint, shift);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
     }
 
     pub fn shr(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
@@ -2227,4 +2356,13 @@ pub const Value = extern union {
         /// are possible without using an allocator.
         limbs: [(@sizeOf(u64) / @sizeOf(std.math.big.Limb)) + 1]std.math.big.Limb,
     };
+
+    pub const zero = initTag(.zero);
+    pub const one = initTag(.one);
+    pub const negative_one: Value = .{ .ptr_otherwise = &negative_one_payload.base };
+};
+
+var negative_one_payload: Value.Payload.I64 = .{
+    .base = .{ .tag = .int_i64 },
+    .data = -1,
 };

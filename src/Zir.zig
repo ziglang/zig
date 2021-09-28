@@ -395,17 +395,6 @@ pub const Inst = struct {
         /// Merge two error sets into one, `E1 || E2`.
         /// Uses the `pl_node` field with payload `Bin`.
         merge_error_sets,
-        /// Ambiguously remainder division or modulus. If the computation would possibly have
-        /// a different value depending on whether the operation is remainder division or modulus,
-        /// a compile error is emitted. Otherwise the computation is performed.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        mod_rem,
-        /// Arithmetic multiplication. Asserts no integer overflow.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        mul,
-        /// Twos complement wrapping integer multiplication.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        mulwrap,
         /// Turns an R-Value into a const L-Value. In other words, it takes a value,
         /// stores it in a memory location, and returns a const pointer to it. If the value
         /// is `comptime`, the memory location is global static constant data. Otherwise,
@@ -828,6 +817,17 @@ pub const Inst = struct {
         /// Implements the `@rem` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         rem,
+        /// Ambiguously remainder division or modulus. If the computation would possibly have
+        /// a different value depending on whether the operation is remainder division or modulus,
+        /// a compile error is emitted. Otherwise the computation is performed.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        mod_rem,
+        /// Arithmetic multiplication. Asserts no integer overflow.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        mul,
+        /// Twos complement wrapping integer multiplication.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        mulwrap,
 
         /// Integer shift-left. Zeroes are shifted in from the right hand side.
         /// Uses the `pl_node` union field. Payload is `Bin`.

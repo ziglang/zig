@@ -832,6 +832,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .mulwrap       => try self.airMulWrap(inst),
                     .div           => try self.airDiv(inst),
                     .rem           => try self.airRem(inst),
+                    .mod           => try self.airMod(inst),
 
                     .cmp_lt  => try self.airCmp(inst, .lt),
                     .cmp_lte => try self.airCmp(inst, .lte),
@@ -1349,6 +1350,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement rem for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airMod(self: *Self, inst: Air.Inst.Index) !void {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement mod for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }

@@ -232,6 +232,7 @@ fn analyzeInst(
         .mulwrap,
         .div,
         .rem,
+        .mod,
         .ptr_add,
         .ptr_sub,
         .bit_and,

@@ -897,6 +897,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             // that wrapping is UB.
             .div           => try airBinOp( f, inst, " / "),
             .rem           => try airBinOp( f, inst, " % "),
+            // TODO implement modulus division
+            .mod           => try airBinOp( f, inst, " mod "),
 
             .cmp_eq  => try airBinOp(f, inst, " == "),
             .cmp_gt  => try airBinOp(f, inst, " > "),

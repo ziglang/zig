@@ -1244,6 +1244,7 @@ pub const FuncGen = struct {
                 .mulwrap => try self.airMul(inst, true),
                 .div     => try self.airDiv(inst),
                 .rem     => try self.airRem(inst),
+                .mod     => try self.airMod(inst),
                 .ptr_add => try self.airPtrAdd(inst),
                 .ptr_sub => try self.airPtrSub(inst),
 
@@ -2092,6 +2093,34 @@ pub const FuncGen = struct {
 
         if (inst_ty.isRuntimeFloat()) return self.builder.buildFRem(lhs, rhs, "");
         if (inst_ty.isSignedInt()) return self.builder.buildSRem(lhs, rhs, "");
+        return self.builder.buildURem(lhs, rhs, "");
+    }
+
+    fn airMod(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.air.typeOfIndex(inst);
+        const inst_llvm_ty = try self.dg.llvmType(inst_ty);
+
+        if (inst_ty.isRuntimeFloat()) {
+            const a = self.builder.buildFRem(lhs, rhs, "");
+            const b = self.builder.buildFAdd(a, rhs, "");
+            const c = self.builder.buildFRem(b, rhs, "");
+            const zero = inst_llvm_ty.constNull();
+            const ltz = self.builder.buildFCmp(.OLT, lhs, zero, "");
+            return self.builder.buildSelect(ltz, c, a, "");
+        }
+        if (inst_ty.isSignedInt()) {
+            const a = self.builder.buildSRem(lhs, rhs, "");
+            const b = self.builder.buildNSWAdd(a, rhs, "");
+            const c = self.builder.buildSRem(b, rhs, "");
+            const zero = inst_llvm_ty.constNull();
+            const ltz = self.builder.buildICmp(.SLT, lhs, zero, "");
+            return self.builder.buildSelect(ltz, c, a, "");
+        }
         return self.builder.buildURem(lhs, rhs, "");
     }
 
