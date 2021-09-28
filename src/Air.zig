@@ -270,19 +270,26 @@ pub const Inst = struct {
         /// wrap from E to E!T
         /// Uses the `ty_op` field.
         wrap_errunion_err,
-        /// Given a pointer to a struct and a field index, returns a pointer to the field.
+        /// Given a pointer to a struct or union and a field index, returns a pointer to the field.
         /// Uses the `ty_pl` field, payload is `StructField`.
+        /// TODO rename to `agg_field_ptr`.
         struct_field_ptr,
-        /// Given a pointer to a struct, returns a pointer to the field.
+        /// Given a pointer to a struct or union, returns a pointer to the field.
         /// The field index is the number at the end of the name.
         /// Uses `ty_op` field.
+        /// TODO rename to `agg_field_ptr_index_X`
         struct_field_ptr_index_0,
         struct_field_ptr_index_1,
         struct_field_ptr_index_2,
         struct_field_ptr_index_3,
-        /// Given a byval struct and a field index, returns the field byval.
+        /// Given a byval struct or union and a field index, returns the field byval.
         /// Uses the `ty_pl` field, payload is `StructField`.
+        /// TODO rename to `agg_field_val`
         struct_field_val,
+        /// Given a pointer to a tagged union, set its tag to the provided value.
+        /// Result type is always void.
+        /// Uses the `bin_op` field. LHS is union pointer, RHS is new tag value.
+        set_union_tag,
         /// Given a slice value, return the length.
         /// Result type is always usize.
         /// Uses the `ty_op` field.
@@ -643,6 +650,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .atomic_store_seq_cst,
         .memset,
         .memcpy,
+        .set_union_tag,
         => return Type.initTag(.void),
 
         .ptrtoint,

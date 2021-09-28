@@ -955,6 +955,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .atomic_load      => try airAtomicLoad(f, inst),
             .memset           => try airMemset(f, inst),
             .memcpy           => try airMemcpy(f, inst),
+            .set_union_tag    => try airSetUnionTag(f, inst),
 
             .int_to_float,
             .float_to_int,
@@ -2076,6 +2077,21 @@ fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(", ");
     try f.writeCValue(writer, len);
     try writer.writeAll(");\n");
+
+    return CValue.none;
+}
+
+fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const union_ptr = try f.resolveInst(bin_op.lhs);
+    const new_tag = try f.resolveInst(bin_op.rhs);
+    const writer = f.object.writer();
+
+    try writer.writeAll("*");
+    try f.writeCValue(writer, union_ptr);
+    try writer.writeAll(" = ");
+    try f.writeCValue(writer, new_tag);
+    try writer.writeAll(";\n");
 
     return CValue.none;
 }

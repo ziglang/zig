@@ -859,6 +859,36 @@ pub const EnumSimple = struct {
     }
 };
 
+/// Represents the data that an enum declaration provides, when there are no
+/// declarations. However an integer tag type is provided, and the enum tag values
+/// are explicitly provided.
+pub const EnumNumbered = struct {
+    /// The Decl that corresponds to the enum itself.
+    owner_decl: *Decl,
+    /// An integer type which is used for the numerical value of the enum.
+    /// Whether zig chooses this type or the user specifies it, it is stored here.
+    tag_ty: Type,
+    /// Set of field names in declaration order.
+    fields: NameMap,
+    /// Maps integer tag value to field index.
+    /// Entries are in declaration order, same as `fields`.
+    /// If this hash map is empty, it means the enum tags are auto-numbered.
+    values: ValueMap,
+    /// Offset from `owner_decl`, points to the enum decl AST node.
+    node_offset: i32,
+
+    pub const NameMap = EnumFull.NameMap;
+    pub const ValueMap = EnumFull.ValueMap;
+
+    pub fn srcLoc(self: EnumNumbered) SrcLoc {
+        return .{
+            .file_scope = self.owner_decl.getFileScope(),
+            .parent_decl_node = self.owner_decl.src_node,
+            .lazy = .{ .node_offset = self.node_offset },
+        };
+    }
+};
+
 /// Represents the data that an enum declaration provides, when there is
 /// at least one tag value explicitly specified, or at least one declaration.
 pub const EnumFull = struct {
@@ -868,16 +898,17 @@ pub const EnumFull = struct {
     /// Whether zig chooses this type or the user specifies it, it is stored here.
     tag_ty: Type,
     /// Set of field names in declaration order.
-    fields: std.StringArrayHashMapUnmanaged(void),
+    fields: NameMap,
     /// Maps integer tag value to field index.
     /// Entries are in declaration order, same as `fields`.
     /// If this hash map is empty, it means the enum tags are auto-numbered.
     values: ValueMap,
-    /// Represents the declarations inside this struct.
+    /// Represents the declarations inside this enum.
     namespace: Scope.Namespace,
     /// Offset from `owner_decl`, points to the enum decl AST node.
     node_offset: i32,
 
+    pub const NameMap = std.StringArrayHashMapUnmanaged(void);
     pub const ValueMap = std.ArrayHashMapUnmanaged(Value, void, Value.ArrayHashContext, false);
 
     pub fn srcLoc(self: EnumFull) SrcLoc {
@@ -932,6 +963,44 @@ pub const Union = struct {
             .parent_decl_node = self.owner_decl.src_node,
             .lazy = .{ .node_offset = self.node_offset },
         };
+    }
+
+    pub fn haveFieldTypes(u: Union) bool {
+        return switch (u.status) {
+            .none,
+            .field_types_wip,
+            => false,
+            .have_field_types,
+            .layout_wip,
+            .have_layout,
+            => true,
+        };
+    }
+
+    pub fn onlyTagHasCodegenBits(u: Union) bool {
+        assert(u.haveFieldTypes());
+        for (u.fields.values()) |field| {
+            if (field.ty.hasCodeGenBits()) return false;
+        }
+        return true;
+    }
+
+    pub fn mostAlignedField(u: Union, target: Target) u32 {
+        assert(u.haveFieldTypes());
+        var most_alignment: u64 = 0;
+        var most_index: usize = undefined;
+        for (u.fields.values()) |field, i| {
+            if (!field.ty.hasCodeGenBits()) continue;
+            const field_align = if (field.abi_align.tag() == .abi_align_default)
+                field.ty.abiAlignment(target)
+            else
+                field.abi_align.toUnsignedInt();
+            if (field_align > most_alignment) {
+                most_alignment = field_align;
+                most_index = i;
+            }
+        }
+        return @intCast(u32, most_index);
     }
 };
 
@@ -1539,6 +1608,40 @@ pub const Scope = struct {
                 .data = .{ .ty_str = .{
                     .ty = try block.sema.addType(ty),
                     .str = name,
+                } },
+            });
+        }
+
+        pub fn addStructFieldPtr(
+            block: *Block,
+            struct_ptr: Air.Inst.Ref,
+            field_index: u32,
+            ptr_field_ty: Type,
+        ) !Air.Inst.Ref {
+            const ty = try block.sema.addType(ptr_field_ty);
+            const tag: Air.Inst.Tag = switch (field_index) {
+                0 => .struct_field_ptr_index_0,
+                1 => .struct_field_ptr_index_1,
+                2 => .struct_field_ptr_index_2,
+                3 => .struct_field_ptr_index_3,
+                else => {
+                    return block.addInst(.{
+                        .tag = .struct_field_ptr,
+                        .data = .{ .ty_pl = .{
+                            .ty = ty,
+                            .payload = try block.sema.addExtra(Air.StructField{
+                                .struct_operand = struct_ptr,
+                                .field_index = @intCast(u32, field_index),
+                            }),
+                        } },
+                    });
+                },
+            };
+            return block.addInst(.{
+                .tag = tag,
+                .data = .{ .ty_op = .{
+                    .ty = ty,
+                    .operand = struct_ptr,
                 } },
             });
         }

@@ -889,6 +889,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .atomic_load     => try self.airAtomicLoad(inst),
                     .memcpy          => try self.airMemcpy(inst),
                     .memset          => try self.airMemset(inst),
+                    .set_union_tag   => try self.airSetUnionTag(inst),
 
                     .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
                     .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -1539,6 +1540,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
             const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement ptr_ptr_elem_val for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = switch (arch) {
+                else => return self.fail("TODO implement airSetUnionTag for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }

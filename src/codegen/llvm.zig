@@ -735,7 +735,7 @@ pub const DeclGen = struct {
             },
             .Enum => {
                 var buffer: Type.Payload.Bits = undefined;
-                const int_ty = t.enumTagType(&buffer);
+                const int_ty = t.intTagType(&buffer);
                 const bit_count = int_ty.intInfo(self.module.getTarget()).bits;
                 return self.context.intType(bit_count);
             },
@@ -812,6 +812,29 @@ pub const DeclGen = struct {
                     .False,
                 );
             },
+            .Union => {
+                const union_obj = t.castTag(.@"union").?.data;
+                assert(union_obj.haveFieldTypes());
+
+                const enum_tag_ty = union_obj.tag_ty;
+                const enum_tag_llvm_ty = try self.llvmType(enum_tag_ty);
+
+                if (union_obj.onlyTagHasCodegenBits()) {
+                    return enum_tag_llvm_ty;
+                }
+
+                const target = self.module.getTarget();
+                const most_aligned_field_index = union_obj.mostAlignedField(target);
+                const most_aligned_field = union_obj.fields.values()[most_aligned_field_index];
+                // TODO handle when the most aligned field is different than the
+                // biggest sized field.
+
+                const llvm_fields = [_]*const llvm.Type{
+                    try self.llvmType(most_aligned_field.ty),
+                    enum_tag_llvm_ty,
+                };
+                return self.context.structType(&llvm_fields, llvm_fields.len, .False);
+            },
             .Fn => {
                 const ret_ty = try self.llvmType(t.fnReturnType());
                 const params_len = t.fnParamLen();
@@ -840,7 +863,6 @@ pub const DeclGen = struct {
 
             .BoundFn => @panic("TODO remove BoundFn from the language"),
 
-            .Union,
             .Opaque,
             .Frame,
             .AnyFrame,
@@ -1131,7 +1153,7 @@ pub const DeclGen = struct {
         var buffer: Type.Payload.Bits = undefined;
         const int_ty = switch (ty.zigTypeTag()) {
             .Int => ty,
-            .Enum => ty.enumTagType(&buffer),
+            .Enum => ty.intTagType(&buffer),
             .Float => {
                 if (!is_rmw_xchg) return null;
                 return dg.context.intType(@intCast(c_uint, ty.abiSize(target) * 8));
@@ -1281,6 +1303,7 @@ pub const FuncGen = struct {
                 .atomic_load    => try self.airAtomicLoad(inst),
                 .memset         => try self.airMemset(inst),
                 .memcpy         => try self.airMemcpy(inst),
+                .set_union_tag  => try self.airSetUnionTag(inst),
 
                 .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
                 .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -1381,7 +1404,7 @@ pub const FuncGen = struct {
         const int_ty = switch (operand_ty.zigTypeTag()) {
             .Enum => blk: {
                 var buffer: Type.Payload.Bits = undefined;
-                const int_ty = operand_ty.enumTagType(&buffer);
+                const int_ty = operand_ty.intTagType(&buffer);
                 break :blk int_ty;
             },
             .Int, .Bool, .Pointer, .ErrorSet => operand_ty,
@@ -1660,8 +1683,9 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
         const struct_ptr = try self.resolveInst(struct_field.struct_operand);
+        const struct_ptr_ty = self.air.typeOf(struct_field.struct_operand);
         const field_index = @intCast(c_uint, struct_field.field_index);
-        return self.builder.buildStructGEP(struct_ptr, field_index, "");
+        return self.fieldPtr(inst, struct_ptr, struct_ptr_ty, field_index);
     }
 
     fn airStructFieldPtrIndex(self: *FuncGen, inst: Air.Inst.Index, field_index: c_uint) !?*const llvm.Value {
@@ -1670,7 +1694,8 @@ pub const FuncGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const struct_ptr = try self.resolveInst(ty_op.operand);
-        return self.builder.buildStructGEP(struct_ptr, field_index, "");
+        const struct_ptr_ty = self.air.typeOf(ty_op.operand);
+        return self.fieldPtr(inst, struct_ptr, struct_ptr_ty, field_index);
     }
 
     fn airStructFieldVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -2519,6 +2544,49 @@ pub const FuncGen = struct {
         );
         memcpy.setVolatile(llvm.Bool.fromBool(is_volatile));
         return null;
+    }
+
+    fn airSetUnionTag(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const union_ptr = try self.resolveInst(bin_op.lhs);
+        // TODO handle when onlyTagHasCodegenBits() == true
+        const new_tag = try self.resolveInst(bin_op.rhs);
+        const tag_field_ptr = self.builder.buildStructGEP(union_ptr, 1, "");
+
+        _ = self.builder.buildStore(new_tag, tag_field_ptr);
+        return null;
+    }
+
+    fn fieldPtr(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        struct_ptr: *const llvm.Value,
+        struct_ptr_ty: Type,
+        field_index: c_uint,
+    ) !?*const llvm.Value {
+        const struct_ty = struct_ptr_ty.childType();
+        switch (struct_ty.zigTypeTag()) {
+            .Struct => return self.builder.buildStructGEP(struct_ptr, field_index, ""),
+            .Union => return self.unionFieldPtr(inst, struct_ptr, struct_ty, field_index),
+            else => unreachable,
+        }
+    }
+
+    fn unionFieldPtr(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        union_ptr: *const llvm.Value,
+        union_ty: Type,
+        field_index: c_uint,
+    ) !?*const llvm.Value {
+        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        const field = &union_obj.fields.values()[field_index];
+        const result_llvm_ty = try self.dg.llvmType(self.air.typeOfIndex(inst));
+        if (!field.ty.hasCodeGenBits()) {
+            return null;
+        }
+        const union_field_ptr = self.builder.buildStructGEP(union_ptr, 0, "");
+        return self.builder.buildBitCast(union_field_ptr, result_llvm_ty, "");
     }
 
     fn getIntrinsic(self: *FuncGen, name: []const u8) *const llvm.Value {

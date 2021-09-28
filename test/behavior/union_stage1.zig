@@ -39,13 +39,6 @@ const Foo = union {
     int: i32,
 };
 
-test "basic unions" {
-    var foo = Foo{ .int = 1 };
-    try expect(foo.int == 1);
-    foo = Foo{ .float = 12.34 };
-    try expect(foo.float == 12.34);
-}
-
 test "comptime union field access" {
     comptime {
         var foo = Foo{ .int = 0 };

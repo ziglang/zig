@@ -130,6 +130,7 @@ const Writer = struct {
             .ptr_ptr_elem_val,
             .shl,
             .shr,
+            .set_union_tag,
             => try w.writeBinOp(s, inst),
 
             .is_null,
