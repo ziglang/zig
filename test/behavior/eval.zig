@@ -155,3 +155,31 @@ fn MakeType(comptime T: type) type {
         field: T,
     };
 }
+
+test "try to trick eval with runtime if" {
+    try expect(testTryToTrickEvalWithRuntimeIf(true) == 10);
+}
+
+fn testTryToTrickEvalWithRuntimeIf(b: bool) usize {
+    comptime var i: usize = 0;
+    inline while (i < 10) : (i += 1) {
+        const result = if (b) false else true;
+        _ = result;
+    }
+    comptime {
+        return i;
+    }
+}
+
+test "@setEvalBranchQuota" {
+    comptime {
+        // 1001 for the loop and then 1 more for the expect fn call
+        @setEvalBranchQuota(1002);
+        var i = 0;
+        var sum = 0;
+        while (i < 1001) : (i += 1) {
+            sum += i;
+        }
+        try expect(sum == 500500);
+    }
+}

@@ -118,3 +118,19 @@ pub fn SmallList(comptime T: type, comptime STATIC_SIZE: usize) type {
         prealloc_items: [STATIC_SIZE]T,
     };
 }
+
+test "const decls in struct" {
+    try expect(GenericDataThing(3).count_plus_one == 4);
+}
+fn GenericDataThing(comptime count: isize) type {
+    return struct {
+        const count_plus_one = count + 1;
+    };
+}
+
+test "use generic param in generic param" {
+    try expect(aGenericFn(i32, 3, 4) == 7);
+}
+fn aGenericFn(comptime T: type, comptime a: T, b: T) T {
+    return a + b;
+}

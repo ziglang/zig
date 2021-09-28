@@ -56,6 +56,7 @@ fn addExtraAssumeCapacity(astgen: *AstGen, extra: anytype) u32 {
             u32 => @field(extra, field.name),
             Zir.Inst.Ref => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
+            Zir.Inst.Call.Flags => @bitCast(u32, @field(extra, field.name)),
             else => @compileError("bad field type"),
         });
     }
@@ -1934,11 +1935,14 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
         // in the above while loop.
         const zir_tags = gz.astgen.instructions.items(.tag);
         switch (zir_tags[inst]) {
-            // For some instructions, swap in a slightly different ZIR tag
+            // For some instructions, modify the zir data
             // so we can avoid a separate ensure_result_used instruction.
-            .call_chkused => unreachable,
             .call => {
-                zir_tags[inst] = .call_chkused;
+                const extra_index = gz.astgen.instructions.items(.data)[inst].pl_node.payload_index;
+                const slot = &gz.astgen.extra.items[extra_index];
+                var flags = @bitCast(Zir.Inst.Call.Flags, slot.*);
+                flags.ensure_result_used = true;
+                slot.* = @bitCast(u32, flags);
                 break :b true;
             },
 
@@ -1976,9 +1980,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .bool_br_and,
             .bool_br_or,
             .bool_not,
-            .call_compile_time,
-            .call_nosuspend,
-            .call_async,
             .cmp_lt,
             .cmp_lte,
             .cmp_eq,
@@ -1996,8 +1997,10 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .elem_val_node,
             .field_ptr,
             .field_val,
+            .field_call_bind,
             .field_ptr_named,
             .field_val_named,
+            .field_call_bind_named,
             .func,
             .func_inferred,
             .int,
@@ -2012,7 +2015,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .mod_rem,
             .mul,
             .mulwrap,
-            .param_type,
             .ref,
             .shl,
             .shr,
@@ -4969,6 +4971,21 @@ fn fieldAccess(
     rl: ResultLoc,
     node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
+    if (rl == .ref) {
+        return addFieldAccess(.field_ptr, gz, scope, .ref, node);
+    } else {
+        const access = try addFieldAccess(.field_val, gz, scope, .none_or_ref, node);
+        return rvalue(gz, rl, access, node);
+    }
+}
+
+fn addFieldAccess(
+    tag: Zir.Inst.Tag,
+    gz: *GenZir,
+    scope: *Scope,
+    lhs_rl: ResultLoc,
+    node: Ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
@@ -4978,16 +4995,11 @@ fn fieldAccess(
     const dot_token = main_tokens[node];
     const field_ident = dot_token + 1;
     const str_index = try astgen.identAsString(field_ident);
-    switch (rl) {
-        .ref => return gz.addPlNode(.field_ptr, node, Zir.Inst.Field{
-            .lhs = try expr(gz, scope, .ref, object_node),
-            .field_name_start = str_index,
-        }),
-        else => return rvalue(gz, rl, try gz.addPlNode(.field_val, node, Zir.Inst.Field{
-            .lhs = try expr(gz, scope, .none_or_ref, object_node),
-            .field_name_start = str_index,
-        }), node),
-    }
+
+    return gz.addPlNode(tag, node, Zir.Inst.Field{
+        .lhs = try expr(gz, scope, lhs_rl, object_node),
+        .field_name_start = str_index,
+    });
 }
 
 fn arrayAccess(
@@ -7169,16 +7181,15 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
         .field => {
-            const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
             if (rl == .ref) {
                 return gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
                     .lhs = try expr(gz, scope, .ref, params[0]),
-                    .field_name = field_name,
+                    .field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]),
                 });
             }
             const result = try gz.addPlNode(.field_val_named, node, Zir.Inst.FieldNamed{
                 .lhs = try expr(gz, scope, .none, params[0]),
-                .field_name = field_name,
+                .field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]),
             });
             return rvalue(gz, rl, result, node);
         },
@@ -7554,7 +7565,7 @@ fn builtinCall(
         },
         .call => {
             const options = try comptimeExpr(gz, scope, .{ .ty = .call_options_type }, params[0]);
-            const callee = try expr(gz, scope, .none, params[1]);
+            const callee = try calleeExpr(gz, scope, params[1]);
             const args = try expr(gz, scope, .none, params[2]);
             const result = try gz.addPlNode(.builtin_call, node, Zir.Inst.BuiltinCall{
                 .options = options,
@@ -7897,20 +7908,16 @@ fn callExpr(
     call: Ast.full.Call,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const lhs = try expr(gz, scope, .none, call.ast.fn_expr);
+
+    const callee = try calleeExpr(gz, scope, call.ast.fn_expr);
 
     const args = try astgen.gpa.alloc(Zir.Inst.Ref, call.ast.params.len);
     defer astgen.gpa.free(args);
 
     for (call.ast.params) |param_node, i| {
-        const param_type = try gz.add(.{
-            .tag = .param_type,
-            .data = .{ .param_type = .{
-                .callee = lhs,
-                .param_index = @intCast(u32, i),
-            } },
-        });
-        args[i] = try expr(gz, scope, .{ .coerced_ty = param_type }, param_node);
+        // Parameters are always temporary values, they have no
+        // meaningful result location.  Sema will coerce them.
+        args[i] = try expr(gz, scope, .none, param_node);
     }
 
     const modifier: std.builtin.CallOptions.Modifier = blk: {
@@ -7925,20 +7932,72 @@ fn callExpr(
         }
         break :blk .auto;
     };
-    const result: Zir.Inst.Ref = res: {
-        const tag: Zir.Inst.Tag = switch (modifier) {
-            .auto => .call,
-            .async_kw => .call_async,
-            .never_tail => unreachable,
-            .never_inline => unreachable,
-            .no_async => .call_nosuspend,
-            .always_tail => unreachable,
-            .always_inline => unreachable,
-            .compile_time => .call_compile_time,
-        };
-        break :res try gz.addCall(tag, lhs, args, node);
-    };
-    return rvalue(gz, rl, result, node); // TODO function call with result location
+    const call_inst = try gz.addCall(modifier, callee, args, node);
+    return rvalue(gz, rl, call_inst, node); // TODO function call with result location
+}
+
+/// calleeExpr generates the function part of a call expression (f in f(x)), or the
+/// callee argument to the @call() builtin. If the lhs is a field access or the
+/// @field() builtin, we need to generate a special field_call_bind instruction
+/// instead of the normal field_val or field_ptr.  If this is a inst.func() call,
+/// this instruction will capture the value of the first argument before evaluating
+/// the other arguments. We need to use .ref here to guarantee we will be able to
+/// promote an lvalue to an address if the first parameter requires it.  This
+/// unfortunately also means we need to take a reference to any types on the lhs.
+fn calleeExpr(
+    gz: *GenZir,
+    scope: *Scope,
+    node: Ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+
+    const tag = tree.nodes.items(.tag)[node];
+    switch (tag) {
+        .field_access => return addFieldAccess(.field_call_bind, gz, scope, .ref, node),
+
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        .builtin_call,
+        .builtin_call_comma,
+        => {
+            const node_datas = tree.nodes.items(.data);
+            const main_tokens = tree.nodes.items(.main_token);
+            const builtin_token = main_tokens[node];
+            const builtin_name = tree.tokenSlice(builtin_token);
+
+            var inline_params: [2]Ast.Node.Index = undefined;
+            var params: []Ast.Node.Index = switch (tag) {
+                .builtin_call,
+                .builtin_call_comma,
+                => tree.extra_data[node_datas[node].lhs..node_datas[node].rhs],
+
+                .builtin_call_two,
+                .builtin_call_two_comma,
+                => blk: {
+                    inline_params = .{ node_datas[node].lhs, node_datas[node].rhs };
+                    const len: usize = if (inline_params[0] == 0) @as(usize, 0) else if (inline_params[1] == 0) @as(usize, 1) else @as(usize, 2);
+                    break :blk inline_params[0..len];
+                },
+
+                else => unreachable,
+            };
+
+            // If anything is wrong, fall back to builtinCall.
+            // It will emit any necessary compile errors and notes.
+            if (std.mem.eql(u8, builtin_name, "@field") and params.len == 2) {
+                const lhs = try expr(gz, scope, .ref, params[0]);
+                const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
+                return gz.addPlNode(.field_call_bind_named, node, Zir.Inst.FieldNamed{
+                    .lhs = lhs,
+                    .field_name = field_name,
+                });
+            }
+
+            return builtinCall(gz, scope, .none, node, params);
+        },
+        else => return expr(gz, scope, .none, node),
+    }
 }
 
 pub const simple_types = std.ComptimeStringMap(Zir.Inst.Ref, .{
@@ -9607,7 +9666,7 @@ const GenZir = struct {
 
     fn addCall(
         gz: *GenZir,
-        tag: Zir.Inst.Tag,
+        modifier: std.builtin.CallOptions.Modifier,
         callee: Zir.Inst.Ref,
         args: []const Zir.Inst.Ref,
         /// Absolute node index. This function does the conversion to offset from Decl.
@@ -9616,20 +9675,24 @@ const GenZir = struct {
         assert(callee != .none);
         assert(src_node != 0);
         const gpa = gz.astgen.gpa;
+        const Call = Zir.Inst.Call;
         try gz.instructions.ensureUnusedCapacity(gpa, 1);
         try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Call).Struct.fields.len +
+        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Call).Struct.fields.len +
             args.len);
 
-        const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Call{
+        const payload_index = gz.astgen.addExtraAssumeCapacity(Call{
             .callee = callee,
-            .args_len = @intCast(u32, args.len),
+            .flags = .{
+                .packed_modifier = @intCast(Call.Flags.PackedModifier, @enumToInt(modifier)),
+                .args_len = @intCast(Call.Flags.PackedArgsLen, args.len),
+            },
         });
         gz.astgen.appendRefsAssumeCapacity(args);
 
         const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
         gz.astgen.instructions.appendAssumeCapacity(.{
-            .tag = tag,
+            .tag = .call,
             .data = .{ .pl_node = .{
                 .src_node = gz.nodeIndexToRelative(src_node),
                 .payload_index = payload_index,
