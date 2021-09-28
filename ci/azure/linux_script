@@ -71,9 +71,22 @@ make $JOBS install
 
 release/bin/zig test ../test/behavior.zig -fno-stage1 -fLLVM -I ../test
 
-release/bin/zig build test-toolchain -Denable-qemu -Denable-wasmtime
-release/bin/zig build test-std       -Denable-qemu -Denable-wasmtime
-release/bin/zig build docs           -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-behavior            -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-compiler-rt         -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-std                 -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-minilibc            -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-test-compare-output -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-standalone          -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-stack-traces        -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-cli                 -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-asm-link            -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-runtime-safety      -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-translate-c         -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-run-translated-c    -Denable-qemu -Denable-wasmtime
+release/bin/zig build docs                     -Denable-qemu -Denable-wasmtime
+release/bin/zig build # test building self-hosted without LLVM
+release/bin/zig build test-fmt                 -Denable-qemu -Denable-wasmtime
+release/bin/zig build test-stage2              -Denable-qemu -Denable-wasmtime
 
 # Look for HTML errors.
 tidy -qe ../zig-cache/langref.html
