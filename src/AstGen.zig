@@ -1997,9 +1997,10 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .elem_val_node,
             .field_ptr,
             .field_val,
+            .field_call_bind,
             .field_ptr_named,
             .field_val_named,
-            .field_call_bind,
+            .field_call_bind_named,
             .func,
             .func_inferred,
             .int,
@@ -7180,16 +7181,15 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
         .field => {
-            const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
             if (rl == .ref) {
                 return gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
                     .lhs = try expr(gz, scope, .ref, params[0]),
-                    .field_name = field_name,
+                    .field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]),
                 });
             }
             const result = try gz.addPlNode(.field_val_named, node, Zir.Inst.FieldNamed{
                 .lhs = try expr(gz, scope, .none, params[0]),
-                .field_name = field_name,
+                .field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]),
             });
             return rvalue(gz, rl, result, node);
         },
@@ -7565,7 +7565,7 @@ fn builtinCall(
         },
         .call => {
             const options = try comptimeExpr(gz, scope, .{ .ty = .call_options_type }, params[0]);
-            const callee = try expr(gz, scope, .none, params[1]);
+            const callee = try calleeExpr(gz, scope, params[1]);
             const args = try expr(gz, scope, .none, params[2]);
             const result = try gz.addPlNode(.builtin_call, node, Zir.Inst.BuiltinCall{
                 .options = options,
@@ -7908,18 +7908,8 @@ fn callExpr(
     call: Ast.full.Call,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
 
-    // If the lhs is a field access, we need to generate a special field_call_bind
-    // instruction first.  If this is a inst.func() call, this instruction will capture
-    // the value of the first parameter before evaluating the other parameters.
-    // We need to use .ref here to guarantee we will be able to promote an lvalue
-    // to an address if the first parameter requires it.  This unfortunately also
-    // means we need to take a reference to any types on the lhs.
-    const lhs = if (tree.nodes.items(.tag)[call.ast.fn_expr] == .field_access)
-        try addFieldAccess(.field_call_bind, gz, scope, .ref, call.ast.fn_expr)
-    else
-        try expr(gz, scope, .none, call.ast.fn_expr);
+    const callee = try calleeExpr(gz, scope, call.ast.fn_expr);
 
     const args = try astgen.gpa.alloc(Zir.Inst.Ref, call.ast.params.len);
     defer astgen.gpa.free(args);
@@ -7942,8 +7932,72 @@ fn callExpr(
         }
         break :blk .auto;
     };
-    const call_inst = try gz.addCall(modifier, lhs, args, node);
+    const call_inst = try gz.addCall(modifier, callee, args, node);
     return rvalue(gz, rl, call_inst, node); // TODO function call with result location
+}
+
+/// calleeExpr generates the function part of a call expression (f in f(x)), or the
+/// callee argument to the @call() builtin. If the lhs is a field access or the
+/// @field() builtin, we need to generate a special field_call_bind instruction
+/// instead of the normal field_val or field_ptr.  If this is a inst.func() call,
+/// this instruction will capture the value of the first argument before evaluating
+/// the other arguments. We need to use .ref here to guarantee we will be able to
+/// promote an lvalue to an address if the first parameter requires it.  This
+/// unfortunately also means we need to take a reference to any types on the lhs.
+fn calleeExpr(
+    gz: *GenZir,
+    scope: *Scope,
+    node: Ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+
+    const tag = tree.nodes.items(.tag)[node];
+    switch (tag) {
+        .field_access => return addFieldAccess(.field_call_bind, gz, scope, .ref, node),
+
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        .builtin_call,
+        .builtin_call_comma,
+        => {
+            const node_datas = tree.nodes.items(.data);
+            const main_tokens = tree.nodes.items(.main_token);
+            const builtin_token = main_tokens[node];
+            const builtin_name = tree.tokenSlice(builtin_token);
+
+            var inline_params: [2]Ast.Node.Index = undefined;
+            var params: []Ast.Node.Index = switch (tag) {
+                .builtin_call,
+                .builtin_call_comma,
+                => tree.extra_data[node_datas[node].lhs..node_datas[node].rhs],
+
+                .builtin_call_two,
+                .builtin_call_two_comma,
+                => blk: {
+                    inline_params = .{ node_datas[node].lhs, node_datas[node].rhs };
+                    const len: usize = if (inline_params[0] == 0) @as(usize, 0) else if (inline_params[1] == 0) @as(usize, 1) else @as(usize, 2);
+                    break :blk inline_params[0..len];
+                },
+
+                else => unreachable,
+            };
+
+            // If anything is wrong, fall back to builtinCall.
+            // It will emit any necessary compile errors and notes.
+            if (std.mem.eql(u8, builtin_name, "@field") and params.len == 2) {
+                const lhs = try expr(gz, scope, .ref, params[0]);
+                const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
+                return gz.addPlNode(.field_call_bind_named, node, Zir.Inst.FieldNamed{
+                    .lhs = lhs,
+                    .field_name = field_name,
+                });
+            }
+
+            return builtinCall(gz, scope, .none, node, params);
+        },
+        else => return expr(gz, scope, .none, node),
+    }
 }
 
 pub const simple_types = std.ComptimeStringMap(Zir.Inst.Ref, .{

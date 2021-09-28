@@ -24,7 +24,7 @@ const HasFuncs = struct {
     }
 };
 
-test "field_call_bind" {
+test "standard field calls" {
     try expect(HasFuncs.one(0) == 1);
     try expect(HasFuncs.two(0) == 2);
 
@@ -61,4 +61,43 @@ test "field_call_bind" {
     try expect(v.func_field(0) == 2);
     try expect(pv.func_field(0) == 2);
     try expect(pcv.func_field(0) == 2);
+}
+
+test "@field field calls" {
+    try expect(@field(HasFuncs, "one")(0) == 1);
+    try expect(@field(HasFuncs, "two")(0) == 2);
+
+    var v: HasFuncs = undefined;
+    v.state = 0;
+    v.func_field = HasFuncs.one;
+
+    const pv = &v;
+    const pcv: *const HasFuncs = pv;
+
+    try expect(@field(v, "get")() == 0);
+    @field(v, "inc")();
+    try expect(v.state == 1);
+    try expect(@field(v, "get")() == 1);
+
+    @field(pv, "inc")();
+    try expect(v.state == 2);
+    try expect(@field(pv, "get")() == 2);
+    try expect(@field(v, "getPtr")().* == 2);
+    try expect(@field(pcv, "get")() == 2);
+    try expect(@field(pcv, "getPtr")().* == 2);
+
+    v.func_field = HasFuncs.one;
+    try expect(@field(v, "func_field")(0) == 1);
+    try expect(@field(pv, "func_field")(0) == 1);
+    try expect(@field(pcv, "func_field")(0) == 1);
+
+    try expect(@field(pcv, "func_field")(blk: {
+        pv.func_field = HasFuncs.two;
+        break :blk 0;
+    }) == 1);
+
+    v.func_field = HasFuncs.two;
+    try expect(@field(v, "func_field")(0) == 2);
+    try expect(@field(pv, "func_field")(0) == 2);
+    try expect(@field(pcv, "func_field")(0) == 2);
 }

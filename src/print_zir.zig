@@ -194,8 +194,6 @@ const Writer = struct {
 
             .elem_ptr_node,
             .elem_val_node,
-            .field_ptr_named,
-            .field_val_named,
             .slice_start,
             .slice_end,
             .slice_sentinel,
@@ -324,6 +322,11 @@ const Writer = struct {
             .field_val,
             .field_call_bind,
             => try self.writePlNodeField(stream, inst),
+
+            .field_ptr_named,
+            .field_val_named,
+            .field_call_bind_named,
+            => try self.writePlNodeFieldNamed(stream, inst),
 
             .as_node => try self.writeAs(stream, inst),
 
@@ -1623,6 +1626,16 @@ const Writer = struct {
         const name = self.code.nullTerminatedString(extra.field_name_start);
         try self.writeInstRef(stream, extra.lhs);
         try stream.print(", \"{}\") ", .{std.zig.fmtEscapes(name)});
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeFieldNamed(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.FieldNamed, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.field_name);
+        try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
 

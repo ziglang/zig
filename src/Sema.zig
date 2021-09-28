@@ -220,6 +220,7 @@ pub fn analyzeBody(
             .field_val                    => try sema.zirFieldVal(block, inst),
             .field_val_named              => try sema.zirFieldValNamed(block, inst),
             .field_call_bind              => try sema.zirFieldCallBind(block, inst),
+            .field_call_bind_named        => try sema.zirFieldCallBindNamed(block, inst),
             .func                         => try sema.zirFunc(block, inst, false),
             .func_inferred                => try sema.zirFunc(block, inst, true),
             .import                       => try sema.zirImport(block, inst),
@@ -4526,6 +4527,19 @@ fn zirFieldPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     return sema.fieldPtr(block, src, object_ptr, field_name, field_name_src);
 }
 
+fn zirFieldCallBind(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Field, inst_data.payload_index).data;
+    const field_name = sema.code.nullTerminatedString(extra.field_name_start);
+    const object_ptr = sema.resolveInst(extra.lhs);
+    return sema.fieldCallBind(block, src, object_ptr, field_name, field_name_src);
+}
+
 fn zirFieldValNamed(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -4552,16 +4566,16 @@ fn zirFieldPtrNamed(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Comp
     return sema.fieldPtr(block, src, object_ptr, field_name, field_name_src);
 }
 
-fn zirFieldCallBind(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirFieldCallBindNamed(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
-    const extra = sema.code.extraData(Zir.Inst.Field, inst_data.payload_index).data;
-    const field_name = sema.code.nullTerminatedString(extra.field_name_start);
+    const field_name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.FieldNamed, inst_data.payload_index).data;
     const object_ptr = sema.resolveInst(extra.lhs);
+    const field_name = try sema.resolveConstString(block, field_name_src, extra.field_name);
     return sema.fieldCallBind(block, src, object_ptr, field_name, field_name_src);
 }
 
