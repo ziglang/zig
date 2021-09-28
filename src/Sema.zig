@@ -1349,7 +1349,13 @@ fn zirUnionDecl(
     errdefer new_decl_arena.deinit();
 
     const union_obj = try new_decl_arena.allocator.create(Module.Union);
-    const union_ty = try Type.Tag.@"union".create(&new_decl_arena.allocator, union_obj);
+    const type_tag: Type.Tag = if (small.has_tag_type or small.auto_enum_tag) .union_tagged else .@"union";
+    const union_payload = try new_decl_arena.allocator.create(Type.Payload.Union);
+    union_payload.* = .{
+        .base = .{ .tag = type_tag },
+        .data = union_obj,
+    };
+    const union_ty = Type.initPayload(&union_payload.base);
     const union_val = try Value.Tag.ty.create(&new_decl_arena.allocator, union_ty);
     const type_name = try sema.createTypeName(block, small.name_strategy);
     const new_decl = try sema.mod.createAnonymousDeclNamed(&block.base, .{
@@ -6477,10 +6483,11 @@ fn zirCmpEq(
         const non_null_type = if (lhs_ty_tag == .Null) rhs_ty else lhs_ty;
         return mod.fail(&block.base, src, "comparison of '{}' with null", .{non_null_type});
     }
-    if (((lhs_ty_tag == .EnumLiteral and rhs_ty_tag == .Union) or
-        (rhs_ty_tag == .EnumLiteral and lhs_ty_tag == .Union)))
-    {
-        return mod.fail(&block.base, src, "TODO implement equality comparison between a union's tag value and an enum literal", .{});
+    if (lhs_ty_tag == .EnumLiteral and rhs_ty_tag == .Union) {
+        return sema.analyzeCmpUnionTag(block, rhs, rhs_src, lhs, lhs_src, op);
+    }
+    if (rhs_ty_tag == .EnumLiteral and lhs_ty_tag == .Union) {
+        return sema.analyzeCmpUnionTag(block, lhs, lhs_src, rhs, rhs_src, op);
     }
     if (lhs_ty_tag == .ErrorSet and rhs_ty_tag == .ErrorSet) {
         const runtime_src: LazySrcLoc = src: {
@@ -6519,6 +6526,28 @@ fn zirCmpEq(
         }
     }
     return sema.analyzeCmp(block, src, lhs, rhs, op, lhs_src, rhs_src, true);
+}
+
+fn analyzeCmpUnionTag(
+    sema: *Sema,
+    block: *Scope.Block,
+    un: Air.Inst.Ref,
+    un_src: LazySrcLoc,
+    tag: Air.Inst.Ref,
+    tag_src: LazySrcLoc,
+    op: std.math.CompareOperator,
+) CompileError!Air.Inst.Ref {
+    const union_ty = sema.typeOf(un);
+    const union_tag_ty = union_ty.unionTagType() orelse {
+        // TODO note at declaration site that says "union foo is not tagged"
+        return sema.mod.fail(&block.base, un_src, "comparison of union and enum literal is only valid for tagged union types", .{});
+    };
+    // Coerce both the union and the tag to the union's tag type, and then execute the
+    // enum comparison codepath.
+    const coerced_tag = try sema.coerce(block, union_tag_ty, tag, tag_src);
+    const coerced_union = try sema.coerce(block, union_tag_ty, un, un_src);
+
+    return sema.cmpSelf(block, coerced_union, coerced_tag, op, un_src, tag_src);
 }
 
 /// Only called for non-equality operators. See also `zirCmpEq`.
@@ -6567,10 +6596,21 @@ fn analyzeCmp(
             @tagName(op), resolved_type,
         });
     }
-
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
+    return sema.cmpSelf(block, casted_lhs, casted_rhs, op, lhs_src, rhs_src);
+}
 
+fn cmpSelf(
+    sema: *Sema,
+    block: *Scope.Block,
+    casted_lhs: Air.Inst.Ref,
+    casted_rhs: Air.Inst.Ref,
+    op: std.math.CompareOperator,
+    lhs_src: LazySrcLoc,
+    rhs_src: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
+    const resolved_type = sema.typeOf(casted_lhs);
     const runtime_src: LazySrcLoc = src: {
         if (try sema.resolveMaybeUndefVal(block, lhs_src, casted_lhs)) |lhs_val| {
             if (lhs_val.isUndef()) return sema.addConstUndef(resolved_type);
@@ -9919,9 +9959,9 @@ fn coerce(
                 }
             }
         },
-        .Enum => {
-            // enum literal to enum
-            if (inst_ty.zigTypeTag() == .EnumLiteral) {
+        .Enum => switch (inst_ty.zigTypeTag()) {
+            .EnumLiteral => {
+                // enum literal to enum
                 const val = try sema.resolveConstValue(block, inst_src, inst);
                 const bytes = val.castTag(.enum_literal).?.data;
                 const resolved_dest_type = try sema.resolveTypeFields(block, inst_src, dest_type);
@@ -9948,7 +9988,15 @@ fn coerce(
                     resolved_dest_type,
                     try Value.Tag.enum_field_index.create(arena, @intCast(u32, field_index)),
                 );
-            }
+            },
+            .Union => blk: {
+                // union to its own tag type
+                const union_tag_ty = inst_ty.unionTagType() orelse break :blk;
+                if (union_tag_ty.eql(dest_type)) {
+                    return sema.unionToTag(block, dest_type, inst, inst_src);
+                }
+            },
+            else => {},
         },
         .ErrorUnion => {
             // T to E!T or E to E!T
@@ -10800,6 +10848,20 @@ fn wrapErrorUnion(
         var coerced = try sema.coerce(block, dest_payload_ty, inst, inst_src);
         return block.addTyOp(.wrap_errunion_payload, dest_type, coerced);
     }
+}
+
+fn unionToTag(
+    sema: *Sema,
+    block: *Scope.Block,
+    dest_type: Type,
+    un: Air.Inst.Ref,
+    un_src: LazySrcLoc,
+) !Air.Inst.Ref {
+    if (try sema.resolveMaybeUndefVal(block, un_src, un)) |un_val| {
+        return sema.addConstant(dest_type, un_val.unionTag());
+    }
+    try sema.requireRuntimeBlock(block, un_src);
+    return block.addTyOp(.get_union_tag, dest_type, un);
 }
 
 fn resolvePeerTypes(

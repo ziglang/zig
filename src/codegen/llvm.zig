@@ -1304,6 +1304,7 @@ pub const FuncGen = struct {
                 .memset         => try self.airMemset(inst),
                 .memcpy         => try self.airMemcpy(inst),
                 .set_union_tag  => try self.airSetUnionTag(inst),
+                .get_union_tag  => try self.airGetUnionTag(inst),
 
                 .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
                 .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -2555,6 +2556,18 @@ pub const FuncGen = struct {
 
         _ = self.builder.buildStore(new_tag, tag_field_ptr);
         return null;
+    }
+
+    fn airGetUnionTag(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const un_ty = self.air.typeOf(ty_op.operand);
+        const un = try self.resolveInst(ty_op.operand);
+
+        _ = un_ty; // TODO handle when onlyTagHasCodegenBits() == true and other union forms
+        return self.builder.buildExtractValue(un, 1, "");
     }
 
     fn fieldPtr(

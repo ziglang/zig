@@ -179,6 +179,7 @@ const Writer = struct {
             .array_to_slice,
             .int_to_float,
             .float_to_int,
+            .get_union_tag,
             => try w.writeTyOp(s, inst),
 
             .block,

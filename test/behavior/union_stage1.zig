@@ -49,24 +49,6 @@ test "comptime union field access" {
     }
 }
 
-test "init union with runtime value" {
-    var foo: Foo = undefined;
-
-    setFloat(&foo, 12.34);
-    try expect(foo.float == 12.34);
-
-    setInt(&foo, 42);
-    try expect(foo.int == 42);
-}
-
-fn setFloat(foo: *Foo, x: f64) void {
-    foo.* = Foo{ .float = x };
-}
-
-fn setInt(foo: *Foo, x: i32) void {
-    foo.* = Foo{ .int = x };
-}
-
 const FooExtern = extern union {
     float: f64,
     int: i32,
@@ -185,12 +167,13 @@ test "union field access gives the enum values" {
 }
 
 test "cast union to tag type of union" {
-    try testCastUnionToTag(TheUnion{ .B = 1234 });
-    comptime try testCastUnionToTag(TheUnion{ .B = 1234 });
+    try testCastUnionToTag();
+    comptime try testCastUnionToTag();
 }
 
-fn testCastUnionToTag(x: TheUnion) !void {
-    try expect(@as(TheTag, x) == TheTag.B);
+fn testCastUnionToTag() !void {
+    var u = TheUnion{ .B = 1234 };
+    try expect(@as(TheTag, u) == TheTag.B);
 }
 
 test "cast tag type of union to union" {

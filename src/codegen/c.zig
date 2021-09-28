@@ -956,6 +956,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .memset           => try airMemset(f, inst),
             .memcpy           => try airMemcpy(f, inst),
             .set_union_tag    => try airSetUnionTag(f, inst),
+            .get_union_tag    => try airGetUnionTag(f, inst),
 
             .int_to_float,
             .float_to_int,
@@ -2094,6 +2095,22 @@ fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(";\n");
 
     return CValue.none;
+}
+
+fn airGetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const writer = f.object.writer();
+    const operand = try f.resolveInst(ty_op.operand);
+
+    try writer.writeAll("get_union_tag(");
+    try f.writeCValue(writer, operand);
+    try writer.writeAll(");\n");
+    return local;
 }
 
 fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {

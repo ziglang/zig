@@ -1275,7 +1275,12 @@ pub const Value = extern union {
                 }
             },
             .Union => {
-                @panic("TODO implement hashing union values");
+                const union_obj = val.castTag(.@"union").?.data;
+                if (ty.unionTagType()) |tag_ty| {
+                    union_obj.tag.hash(tag_ty, hasher);
+                }
+                const active_field_ty = ty.unionFieldType(union_obj.tag);
+                union_obj.val.hash(active_field_ty, hasher);
             },
             .Fn => {
                 @panic("TODO implement hashing function values");
@@ -1427,6 +1432,14 @@ pub const Value = extern union {
                 return payload.val;
             },
 
+            else => unreachable,
+        }
+    }
+
+    pub fn unionTag(val: Value) Value {
+        switch (val.tag()) {
+            .undef => return val,
+            .@"union" => return val.castTag(.@"union").?.data.tag,
             else => unreachable,
         }
     }

@@ -297,6 +297,7 @@ fn analyzeInst(
         .array_to_slice,
         .float_to_int,
         .int_to_float,
+        .get_union_tag,
         => {
             const o = inst_datas[inst].ty_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.operand, .none, .none });

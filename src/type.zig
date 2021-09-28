@@ -2487,6 +2487,12 @@ pub const Type = extern union {
         };
     }
 
+    pub fn unionFieldType(ty: Type, enum_tag: Value) Type {
+        const union_obj = ty.cast(Payload.Union).?.data;
+        const index = union_obj.tag_ty.enumTagFieldIndex(enum_tag).?;
+        return union_obj.fields.values()[index].ty;
+    }
+
     /// Asserts that the type is an error union.
     pub fn errorUnionPayload(self: Type) Type {
         return switch (self.tag()) {
@@ -3800,6 +3806,8 @@ pub const Type = extern union {
             data: *Module.EnumNumbered,
         };
     };
+
+    pub const @"bool" = initTag(.bool);
 
     pub fn ptr(arena: *Allocator, d: Payload.Pointer.Data) !Type {
         assert(d.host_size == 0 or d.bit_offset < d.host_size * 8);

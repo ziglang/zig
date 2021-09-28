@@ -14,3 +14,21 @@ test "basic unions" {
     foo = Foo{ .float = 12.34 };
     try expect(foo.float == 12.34);
 }
+
+test "init union with runtime value" {
+    var foo: Foo = undefined;
+
+    setFloat(&foo, 12.34);
+    try expect(foo.float == 12.34);
+
+    setInt(&foo, 42);
+    try expect(foo.int == 42);
+}
+
+fn setFloat(foo: *Foo, x: f64) void {
+    foo.* = Foo{ .float = x };
+}
+
+fn setInt(foo: *Foo, x: i32) void {
+    foo.* = Foo{ .int = x };
+}

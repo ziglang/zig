@@ -290,6 +290,9 @@ pub const Inst = struct {
         /// Result type is always void.
         /// Uses the `bin_op` field. LHS is union pointer, RHS is new tag value.
         set_union_tag,
+        /// Given a tagged union value, get its tag value.
+        /// Uses the `ty_op` field.
+        get_union_tag,
         /// Given a slice value, return the length.
         /// Result type is always usize.
         /// Uses the `ty_op` field.
@@ -630,6 +633,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .array_to_slice,
         .float_to_int,
         .int_to_float,
+        .get_union_tag,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,
