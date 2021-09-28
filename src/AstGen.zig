@@ -2781,29 +2781,6 @@ fn assignShift(
     _ = try gz.addBin(.store, lhs_ptr, result);
 }
 
-fn assignShiftSat(
-    gz: *GenZir,
-    scope: *Scope,
-    infix_node: Ast.Node.Index,
-    op_inst_tag: Zir.Inst.Tag,
-) InnerError!void {
-    try emitDbgNode(gz, infix_node);
-    const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const node_datas = tree.nodes.items(.data);
-
-    const lhs_ptr = try lvalExpr(gz, scope, node_datas[infix_node].lhs);
-    const lhs = try gz.addUnNode(.load, lhs_ptr, infix_node);
-    const rhs_type = try gz.addUnNode(.typeof, lhs, infix_node);
-    const rhs = try expr(gz, scope, .{ .ty = rhs_type }, node_datas[infix_node].rhs);
-
-    const result = try gz.addPlNode(op_inst_tag, infix_node, Zir.Inst.Bin{
-        .lhs = lhs,
-        .rhs = rhs,
-    });
-    _ = try gz.addBin(.store, lhs_ptr, result);
-}
-
 fn boolNot(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
