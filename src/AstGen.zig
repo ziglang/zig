@@ -7913,7 +7913,9 @@ fn callExpr(
     // If the lhs is a field access, we need to generate a special field_call_bind
     // instruction first.  If this is a inst.func() call, this instruction will capture
     // the value of the first parameter before evaluating the other parameters.
-    // TODO NO_COMMIT make sure .ref is correct here
+    // We need to use .ref here to guarantee we will be able to promote an lvalue
+    // to an address if the first parameter requires it.  This unfortunately also
+    // means we need to take a reference to any types on the lhs.
     const lhs = if (tree.nodes.items(.tag)[call.ast.fn_expr] == .field_access)
         try addFieldAccess(.field_call_bind, gz, scope, .ref, call.ast.fn_expr)
     else

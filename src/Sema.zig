@@ -9446,13 +9446,13 @@ fn fieldCallBind(
     const raw_ptr_src = src; // TODO better source location
     const raw_ptr_ty = sema.typeOf(raw_ptr);
     const inner_ty = if (raw_ptr_ty.zigTypeTag() == .Pointer and raw_ptr_ty.ptrSize() == .One)
-        raw_ptr_ty.elemType()
+        raw_ptr_ty.childType()
     else
         return mod.fail(&block.base, raw_ptr_src, "expected single pointer, found '{}'", .{raw_ptr_ty});
 
     // Optionally dereference a second pointer to get the concrete type.
     const is_double_ptr = inner_ty.zigTypeTag() == .Pointer and inner_ty.ptrSize() == .One;
-    const concrete_ty = if (is_double_ptr) inner_ty.elemType() else inner_ty;
+    const concrete_ty = if (is_double_ptr) inner_ty.childType() else inner_ty;
     const ptr_ty = if (is_double_ptr) inner_ty else raw_ptr_ty;
     const object_ptr = if (is_double_ptr)
         try sema.analyzeLoad(block, src, raw_ptr, src)
@@ -9470,13 +9470,11 @@ fn fieldCallBind(
                     break :find_field;
                 const field = struct_obj.fields.values()[field_index];
 
-                const ptr_field_ty = try Module.simplePtrType(
-                    arena,
-                    field.ty,
-                    ptr_ty.ptrIsMutable(),
-                    .One,
-                    ptr_ty.ptrAddressSpace(),
-                );
+                const ptr_field_ty = try Type.ptr(arena, .{
+                    .pointee_type = field.ty,
+                    .mutable = ptr_ty.ptrIsMutable(),
+                    .@"addrspace" = ptr_ty.ptrAddressSpace(),
+                });
 
                 if (try sema.resolveDefinedValue(block, src, object_ptr)) |struct_ptr_val| {
                     const pointer = try sema.addConstant(
@@ -9519,10 +9517,10 @@ fn fieldCallBind(
                 };
                 return sema.analyzeLoad(block, src, ptr_inst, src);
             },
-            // TODO a.b() for unions when b is a field
+            .Union => return sema.mod.fail(&block.base, src, "TODO implement field calls on unions", .{}),
             .Type => {
-                const object_value = try sema.analyzeLoad(block, src, object_ptr, src);
-                return sema.fieldVal(block, src, object_value, field_name, field_name_src);
+                const namespace = try sema.analyzeLoad(block, src, object_ptr, src);
+                return sema.fieldVal(block, src, namespace, field_name, field_name_src);
             },
             else => {},
         }
@@ -9545,7 +9543,7 @@ fn fieldCallBind(
                             first_param_tag == .generic_poison or (
                                 first_param_type.zigTypeTag() == .Pointer and
                                 first_param_type.ptrSize() == .One and
-                                first_param_type.elemType().eql(concrete_ty)))
+                                first_param_type.childType().eql(concrete_ty)))
                         {
                             // zig fmt: on
                             // TODO: bound fn calls on rvalues should probably
@@ -9941,13 +9939,13 @@ fn coerce(
     if (dest_type.eql(inst_ty))
         return inst;
 
-    const in_memory_result = coerceInMemoryAllowed(dest_type, inst_ty, false);
+    const mod = sema.mod;
+    const arena = sema.arena;
+
+    const in_memory_result = coerceInMemoryAllowed(dest_type, inst_ty, false, mod.getTarget());
     if (in_memory_result == .ok) {
         return sema.bitcast(block, dest_type, inst, inst_src);
     }
-
-    const mod = sema.mod;
-    const arena = sema.arena;
 
     // undefined to anything
     if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
@@ -9989,7 +9987,7 @@ fn coerce(
                 if (inst_ty.ptrAddressSpace() != dest_type.ptrAddressSpace()) break :src_array_ptr;
 
                 const dst_elem_type = dest_type.elemType();
-                switch (coerceInMemoryAllowed(dst_elem_type, array_elem_type, dest_is_mut)) {
+                switch (coerceInMemoryAllowed(dst_elem_type, array_elem_type, dest_is_mut, mod.getTarget())) {
                     .ok => {},
                     .no_match => break :src_array_ptr,
                 }
@@ -10107,7 +10105,7 @@ const InMemoryCoercionResult = enum {
 /// * sentinel-terminated pointers can coerce into `[*]`
 /// TODO improve this function to report recursive compile errors like it does in stage1.
 /// look at the function types_match_const_cast_only
-fn coerceInMemoryAllowed(dest_type: Type, src_type: Type, dest_is_mut: bool) InMemoryCoercionResult {
+fn coerceInMemoryAllowed(dest_type: Type, src_type: Type, dest_is_mut: bool, target: std.Target) InMemoryCoercionResult {
     if (dest_type.eql(src_type))
         return .ok;
 
@@ -10117,7 +10115,7 @@ fn coerceInMemoryAllowed(dest_type: Type, src_type: Type, dest_is_mut: bool) InM
         const dest_info = dest_type.ptrInfo().data;
         const src_info = src_type.ptrInfo().data;
 
-        const child = coerceInMemoryAllowed(dest_info.pointee_type, src_info.pointee_type, dest_info.mutable);
+        const child = coerceInMemoryAllowed(dest_info.pointee_type, src_info.pointee_type, dest_info.mutable, target);
         if (child == .no_match) {
             return child;
         }
@@ -10164,18 +10162,19 @@ fn coerceInMemoryAllowed(dest_type: Type, src_type: Type, dest_is_mut: bool) InM
             return .no_match;
         }
 
-        // TODO NO_COMMIT understand this assert.
-        if (dest_info.@"align" == 0 and
-            src_info.@"align" == 0)
+        // If both pointers have alignment 0, it means they both want ABI alignment.
+        // In this case, if they share the same child type, no need to resolve
+        // pointee type alignment. Otherwise both pointee types must have their alignment
+        // resolved and we compare the alignment numerically.
+        if (src_info.@"align" != 0 or dest_info.@"align" != 0 or
+            !dest_info.pointee_type.eql(src_info.pointee_type))
         {
-            return .ok;
-        }
+            const src_align = src_type.ptrAlignment(target);
+            const dest_align = dest_type.ptrAlignment(target);
 
-        assert(src_info.@"align" != 0);
-        assert(dest_info.@"align" != 0);
-
-        if (dest_info.@"align" > src_info.@"align") {
-            return .no_match;
+            if (dest_align > src_align) {
+                return .no_match;
+            }
         }
 
         return .ok;

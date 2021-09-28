@@ -5,7 +5,6 @@ const Allocator = std.mem.Allocator;
 const Target = std.Target;
 const Module = @import("Module.zig");
 const log = std.log.scoped(.Type);
-const Air = @import("Air.zig");
 
 const file_struct = @This();
 
@@ -2364,6 +2363,51 @@ pub const Type = extern union {
         }
     }
 
+    /// Returns if type can be used for a runtime variable
+    pub fn isValidVarType(self: Type, is_extern: bool) bool {
+        var ty = self;
+        while (true) switch (ty.zigTypeTag()) {
+            .Bool,
+            .Int,
+            .Float,
+            .ErrorSet,
+            .Enum,
+            .Frame,
+            .AnyFrame,
+            => return true,
+
+            .Opaque => return is_extern,
+            .BoundFn,
+            .ComptimeFloat,
+            .ComptimeInt,
+            .EnumLiteral,
+            .NoReturn,
+            .Type,
+            .Void,
+            .Undefined,
+            .Null,
+            => return false,
+
+            .Optional => {
+                var buf: Payload.ElemType = undefined;
+                return ty.optionalChild(&buf).isValidVarType(is_extern);
+            },
+            .Pointer, .Array, .Vector => ty = ty.elemType(),
+            .ErrorUnion => ty = ty.errorUnionPayload(),
+
+            .Fn => @panic("TODO fn isValidVarType"),
+            .Struct => {
+                // TODO this is not always correct; introduce lazy value mechanism
+                // and here we need to force a resolve of "type requires comptime".
+                return true;
+            },
+            .Union => @panic("TODO union isValidVarType"),
+        };
+    }
+
+    /// For *[N]T,  returns [N]T.
+    /// For *T,     returns T.
+    /// For [*]T,   returns T.
     pub fn childType(ty: Type) Type {
         return switch (ty.tag()) {
             .vector => ty.castTag(.vector).?.data.elem_type,
