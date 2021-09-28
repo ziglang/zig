@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const maxInt = std.math.maxInt;
+const testing = @import("std").testing;
 
 const FLT_MANT_DIG = 24;
 
@@ -70,6 +71,14 @@ fn __floatXisf(comptime T: type, arg: T) f32 {
     return @bitCast(f32, r);
 }
 
+pub fn __floathisf(arg: i16) callconv(.C) f32 {
+    @setRuntimeSafety(builtin.is_test);
+    // i16 isn't big enough to hold an f32's 24-bit mantissa, so we
+    // convert it to an i32 first.
+    const val: i32 = arg;
+    return @call(.{ .modifier = .always_inline }, __floatXisf, .{ i32, val });
+}
+
 pub fn __floatdisf(arg: i64) callconv(.C) f32 {
     @setRuntimeSafety(builtin.is_test);
     return @call(.{ .modifier = .always_inline }, __floatXisf, .{ i64, arg });
@@ -90,4 +99,12 @@ test {
 }
 test {
     _ = @import("floattisf_test.zig");
+}
+
+test "floathisf" {
+    try testing.expect(__floathisf(@as(i16, 32767)) == @as(f32, 32767.0));
+    try testing.expect(__floathisf(@as(i16, 0)) == @as(f32, 0));
+    try testing.expect(__floathisf(@as(i16, -32768)) == @as(f32, -32768.0));
+    try testing.expect(__floathisf(@as(i16, 10)) == @as(f32, 10.0));
+    try testing.expect(__floathisf(@as(i16, -10)) == @as(f32, -10.0));
 }

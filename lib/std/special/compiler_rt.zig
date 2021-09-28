@@ -540,6 +540,85 @@ comptime {
             @export(__unordtf2, .{ .name = "__unordkf2", .linkage = linkage });
         }
 
+        if ((arch == .msp430) and !is_test) {
+            const msp430 = @import("compiler_rt/msp430.zig");
+
+            @export(
+                msp430.__mspabi_fixdi,
+                .{ .name = "__mspabi_fixdi", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fixdli,
+                .{ .name = "__mspabi_fixdli", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fixdlli,
+                .{ .name = "__mspabi_fixdlli", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fixdu,
+                .{ .name = "__mspabi_fixdu", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fixdul,
+                .{ .name = "__mspabi_fixdul", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fixdull,
+                .{ .name = "__mspabi_fixdull", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fixfi,
+                .{ .name = "__mspabi_fixfi", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fixfli,
+                .{ .name = "__mspabi_fixfli", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fixflli,
+                .{ .name = "__mspabi_fixflli", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fixfu,
+                .{ .name = "__mspabi_fixfu", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fixful,
+                .{ .name = "__mspabi_fixful", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fixfull,
+                .{ .name = "__mspabi_fixfull", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fltif,
+                .{ .name = "__mspabi_fltif", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fltlid,
+                .{ .name = "__mspabi_fltlid", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fltlif,
+                .{ .name = "__mspabi_fltlif", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fltuld,
+                .{ .name = "__mspabi_fltuld", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_fltulf,
+                .{ .name = "__mspabi_fltulf", .linkage = linkage },
+            );
+            @export(
+                msp430.__mspabi_remi,
+                .{ .name = "__mspabi_remi", .linkage = linkage },
+            );
+            // __mspabi_cvtdf not included because the compiler tries
+            // to link it in even if it's unused.
+        }
+
         if (builtin.os.tag == .windows) {
             // Default stack-probe functions emitted by LLVM
             if (is_mingw) {
