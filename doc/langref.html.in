@@ -456,93 +456,17 @@ pub fn main() void {
       </p>
       {#see_also|Values|@import|Errors|Root Source File|Source Encoding#}
       {#header_close#}
-      {#header_open|Zig Test#}
-      <p>
-      <kbd>zig test</kbd> is a tool that can be used to quickly build and run Zig code
-      to make sure behavior meets expectations. {#syntax#}@import("builtin").is_test{#endsyntax#}
-      is available for code to detect whether the current build is a test build.
-      </p>
-      {#code_begin|test|detect_test#}
-const std = @import("std");
-const builtin = @import("builtin");
-const expect = std.testing.expect;
-
-test "builtin.is_test" {
-    try expect(builtin.is_test);
-}
-      {#code_end#}
-      <p>
-      Zig has lazy top level declaration analysis, which means that if a function is not called,
-      or otherwise used, it is not analyzed. This means that there may be an undiscovered
-      compile error in a function because it is never called.
-      </p>
-      {#code_begin|test|unused_fn#}
-fn unused() i32 {
-    return "wrong return type";
-}
-test "unused function" { }
-      {#code_end#}
-      <p>
-      Note that, while in {#link|Debug#} and {#link|ReleaseSafe#} modes, {#link|unreachable#} emits a
-      call to {#link|@panic#}, in {#link|ReleaseFast#} and {#link|ReleaseSmall#} modes, it is really
-      undefined behavior. The implementation of {#syntax#}std.debug.assert{#endsyntax#} is as
-      simple as:
-      </p>
-      {#code_begin|syntax|assert#}
-pub fn assert(ok: bool) void {
-    if (!ok) unreachable;
-}
-      {#code_end#}
-      <p>
-      This means that when testing in ReleaseFast or ReleaseSmall mode, {#syntax#}assert{#endsyntax#}
-      is not sufficient to check the result of a computation:
-      </p>
-      {#code_begin|syntax|assert_release_fast_mode#}
-const std = @import("std");
-const assert = std.debug.assert;
-
-test "assert in release fast mode" {
-    assert(false);
-}
-      {#code_end#}
-      <p>
-      When compiling this test in {#link|ReleaseFast#} mode, it invokes unchecked
-      {#link|Undefined Behavior#}. Since that could do anything, this documentation
-      cannot show you the output.
-      </p>
-      <p>
-      Better practice for checking the output when testing is to use {#syntax#}std.testing.expect{#endsyntax#}:
-      </p>
-      {#code_begin|test_err|test "expect in release fast mode"... FAIL (TestUnexpectedResult)#}
-      {#code_release_fast#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "expect in release fast mode" {
-    try expect(false);
-}
-      {#code_end#}
-      <p>See the rest of the {#syntax#}std.testing{#endsyntax#} namespace for more available functions.</p>
-      <p>
-      <kbd>zig test</kbd> has a few command line parameters which affect the compilation. See
-      <kbd>zig --help</kbd> for a full list. The most interesting one is <kbd>--test-filter [text]</kbd>.
-      This makes the test build only include tests whose name contains the supplied filter text.
-      Again, thanks to lazy analysis, this can allow you to narrow a build to only a few functions in
-      isolation.
-      </p>
-      {#header_close#}
       {#header_open|Comments#}
-      {#code_begin|test|comments#}
-const expect = @import("std").testing.expect;
+      {#code_begin|exe|comments#}
+const print = @import("std").debug.print;
 
-test "comments" {
+pub fn main() void {
     // Comments in Zig start with "//" and end at the next LF byte (end of line).
-    // The below line is a comment, and won't be executed.
+    // The line below is a comment and won't be executed.
 
-    //expect(false);
+    //print("Hello?", .{});
 
-    const x = true;  // another comment
-    try expect(x);
+    print("Hello, world!\n", .{}); // another comment
 }
       {#code_end#}
       <p>
@@ -896,24 +820,25 @@ pub fn main() void {
       in recent versions of the Unicode specification (as of Unicode 13.0).
       In Zig, a Unicode code point literal corresponds to the Unicode definition of a code point.
       </p>
-      {#code_begin|test|string_literals_test#}
-const expect = @import("std").testing.expect;
-const mem = @import("std").mem;
+      {#code_begin|exe|string_literals#}
+const print = @import("std").debug.print;
+const mem = @import("std").mem; // will be used to compare bytes
 
-test "string literals" {
+pub fn main() void {
     const bytes = "hello";
-    try expect(@TypeOf(bytes) == *const [5:0]u8);
-    try expect(bytes.len == 5);
-    try expect(bytes[1] == 'e');
-    try expect(bytes[5] == 0);
-    try expect('e' == '\x65');
-    try expect('\u{1f4a9}' == 128169);
-    try expect('💯' == 128175);
-    try expect(mem.eql(u8, "hello", "h\x65llo"));
-    try expect("\xff"[0] == 0xff); // non-UTF-8 strings are possible with \xNN notation.
+    print("{s}\n", .{@typeName(@TypeOf(bytes))});       // *const [5:0]u8
+    print("{d}\n", .{bytes.len});                       // 5
+    print("{c}\n", .{bytes[1]});                        // 'e'
+    print("{d}\n", .{bytes[5]});                        // 0
+    print("{}\n", .{'e' == '\x65'});                    // true
+    print("{d}\n", .{'\u{1f4a9}'});                     // 128169
+    print("{d}\n", .{'💯'});                            // 128175
+    print("{}\n", .{mem.eql(u8, "hello", "h\x65llo")}); // true
+    print("0x{x}\n", .{"\xff"[0]}); // non-UTF-8 strings are possible with \xNN notation.
+    print("{u}\n", .{'⚡'});
 }
       {#code_end#}
-      {#see_also|Arrays|Zig Test|Source Encoding#}
+      {#see_also|Arrays|Source Encoding#}
       {#header_open|Escape Sequences#}
       <div class="table-wrapper">
       <table>
@@ -986,7 +911,7 @@ const hello_world_in_c =
       {#header_close#}
       {#header_open|Assignment#}
       <p>Use the {#syntax#}const{#endsyntax#} keyword to assign a value to an identifier:</p>
-      {#code_begin|test_err|cannot assign to constant#}
+      {#code_begin|exe_build_err|constant_identifier_cannot_change#}
 const x = 1234;
 
 fn foo() void {
@@ -997,26 +922,26 @@ fn foo() void {
     y += 1;
 }
 
-test "assignment" {
+pub fn main() void {
     foo();
 }
       {#code_end#}
       <p>{#syntax#}const{#endsyntax#} applies to all of the bytes that the identifier immediately addresses. {#link|Pointers#} have their own const-ness.</p>
       <p>If you need a variable that you can modify, use the {#syntax#}var{#endsyntax#} keyword:</p>
-      {#code_begin|test|var_test#}
-const expect = @import("std").testing.expect;
+      {#code_begin|exe|mutable_var#}
+const print = @import("std").debug.print;
 
-test "var" {
+pub fn main() void {
     var y: i32 = 5678;
 
     y += 1;
 
-    try expect(y == 5679);
+    print("{d}", .{y});
 }
       {#code_end#}
       <p>Variables must be initialized:</p>
-      {#code_begin|test_err#}
-test "initialization" {
+      {#code_begin|exe_build_err|var_must_be_initialized#}
+pub fn main() void {
     var x: i32;
 
     x = 1;
@@ -1024,13 +949,13 @@ test "initialization" {
       {#code_end#}
       {#header_open|undefined#}
       <p>Use {#syntax#}undefined{#endsyntax#} to leave variables uninitialized:</p>
-      {#code_begin|test|undefined_test#}
-const expect = @import("std").testing.expect;
+      {#code_begin|exe|assign_undefined#}
+const print = @import("std").debug.print;
 
-test "init with undefined" {
+pub fn main() void {
     var x: i32 = undefined;
     x = 1;
-    try expect(x == 1);
+    print("{d}", .{x});
 }
       {#code_end#}
       <p>
@@ -1045,6 +970,291 @@ test "init with undefined" {
       bugs early, and to help detect use of undefined memory in a debugger.
       </p>
       {#header_close#}
+      {#header_close#}
+      {#header_close#}
+      {#header_open|Zig Test#}
+      <p>
+        Code written within one or more {#syntax#}test{#endsyntax#} declarations can be used to ensure behavior meets expectations:
+      </p>
+      {#code_begin|test|introducing_zig_test#}
+const std = @import("std");
+
+test "expect addOne adds one to 41" {
+
+    // The Standard Library contains useful functions to help create tests.
+    // `expect` is a function that verifies its argument is true.
+    // It will return an error if its argument is false to indicate a failure.
+    // `try` is used to return an error to the test runner to notify it that the test failed.
+    try std.testing.expect(addOne(41) == 42);
+}
+
+/// The function `addOne` adds one to the number given as its argument.
+fn addOne(number: i32) i32 {
+    return number + 1;
+}
+      {#code_end#}
+      <p>
+        The <code class="file">introducing_zig_test.zig</code> code sample tests the {#link|function|Functions#}
+        {#syntax#}addOne{#endsyntax#} to ensure that it returns {#syntax#}42{#endsyntax#} given the input
+        {#syntax#}41{#endsyntax#}. From this test's perspective, the {#syntax#}addOne{#endsyntax#} function is
+        said to be <em>code under test</em>.
+      </p>
+      <p>
+        <kbd>zig test</kbd> is a tool that creates and runs a test build. By default, it builds and runs an
+        executable program using the <em>default test runner</em> provided by the {#link|Zig Standard Library#}
+        as its main entry point. During the build, {#syntax#}test{#endsyntax#} declarations found while
+        {#link|resolving|Root Source File#} the given Zig source file are included for the default test runner
+        to run and report on.
+      </p>
+      <aside>
+        This documentation discusses the features of the default test runner as provided by the Zig Standard Library.
+        Its source code is located in <code class="file">lib/std/special/test_runner.zig</code>.
+      </aside>
+      <p>
+        The shell output shown above displays two lines after the <kbd>zig test</kbd> command. These lines are
+        printed to standard error by the default test runner:
+      </p>
+      <dl>
+        <dt><samp>Test [1/1] test "expect addOne adds one to 41"...</samp></dt>
+        <dd>Lines like this indicate which test, out of the total number of tests, is being run.
+          In this case, <samp>[1/1]</samp> indicates that the first test, out of a total of
+          one test, is being run. Note that, when the test runner program's standard error is output
+          to the terminal, these lines are cleared when a test succeeds.
+        </dd>
+        <dt><samp>All 1 tests passed.</samp></dt>
+        <dd>This line indicates the total number of tests that have passed.</dd>
+      </dl>
+      {#header_open|Test Declarations#}
+      <p>
+        Test declarations contain the {#link|keyword|Keyword Reference#} {#syntax#}test{#endsyntax#}, followed by an
+        optional name written as a {#link|string literal|String Literals and Unicode Code Point Literals#}, followed
+        by a {#link|block|blocks#} containing any valid Zig code that is allowed in a {#link|function|Functions#}.
+      </p>
+      <aside>
+        By convention, non-named tests should only be used to {#link|make other tests run|Nested Container Tests#}.
+        Non-named tests cannot be {#link|filtered|Skip Tests#}.
+      </aside>
+      <p>
+        Test declarations are similar to {#link|Functions#}: they have a return type and a block of code. The implicit
+        return type of {#syntax#}test{#endsyntax#} is the {#link|Error Union Type#} {#syntax#}anyerror!void{#endsyntax#},
+        and it cannot be changed. When a Zig source file is not built using the <kbd>zig test</kbd> tool, the test
+        declarations are omitted from the build.
+      </p>
+      <p>
+        Test declarations can be written in the same file, where code under test is written, or in a separate Zig source file.
+        Since test declarations are top-level declarations, they are order-independent and can
+        be written before or after the code under test.
+      </p>
+      {#see_also|The Global Error Set|Grammar#}
+      {#header_close#}
+      {#header_open|Nested Container Tests#}
+      <p>
+        When the <kbd>zig test</kbd> tool is building a test runner, only resolved {#syntax#}test{#endsyntax#}
+        declarations are included in the build. Initially, only the given Zig source file's top-level
+        declarations are resolved. Unless nested containers are referenced from a top-level test declaration,
+        nested container tests will not be resolved.
+      </p>
+      <p>
+        The code sample below uses the {#syntax#}std.testing.refAllDecls(@This()){#endsyntax#} function call to
+        reference all of the containers that are in the file including the imported Zig source file. The code
+        sample also shows an alternative way to reference containers using the {#syntax#}_ = C;{#endsyntax#}
+        syntax. This syntax tells the compiler to ignore the result of the expression on the right side of the
+        assignment operator.
+      </p>
+      {#code_begin|test|testdecl_container_top_level#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+// Imported source file tests will run when referenced from a top-level test declaration.
+// The next line alone does not cause "introducing_zig_test.zig" tests to run.
+const imported_file = @import("introducing_zig_test.zig");
+
+test {
+    // To run nested container tests, either, call `refAllDecls` which will
+    // reference all declarations located in the given argument.
+    // `@This()` is a builtin function that returns the innermost container it is called from.
+    // In this example, the innermost container is this file (implicitly a struct).
+    std.testing.refAllDecls(@This());
+
+    // or, reference each container individually from a top-level test declaration.
+    // The `_ = C;` syntax is a no-op reference to the identifier `C`.
+    _ = S;
+    _ = U;
+    _ = @import("introducing_zig_test.zig");
+}
+
+const S = struct {
+    test "S demo test" {
+        try expect(true);
+    }
+
+    const SE = enum {
+        V,
+
+        // This test won't run because its container (SE) is not referenced.
+        test "This Test Won't Run" {
+            try expect(false);
+        }
+    };
+};
+
+const U = union { // U is referenced by the file's top-level test declaration
+    s: US,        // and US is referenced here; therefore, "U.Us demo test" will run
+
+    const US = struct {
+        test "U.US demo test" {
+            // This test is a top-level test declaration for the struct.
+            // The struct is nested (declared) inside of a union.
+            try expect(true);
+        }
+    };
+
+    test "U demo test" {
+        try expect(true);
+    }
+};
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Test Failure#}
+      <p>
+        The default test runner checks for an {#link|error|Errors#} returned from a test.
+        When a test returns an error, the test is considered a failure and its {#link|error return trace|Error Return Traces#}
+        is output to standard error. The total number of failures will be reported after all tests have run.
+      </p>
+      {#code_begin|test_err#}
+const std = @import("std");
+
+test "expect this to fail" {
+    try std.testing.expect(false);
+}
+
+test "expect this to succeed" {
+    try std.testing.expect(true);
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Skip Tests#}
+      <p>
+        One way to skip tests is to filter them out by using the <kbd>zig test</kbd> command line parameter
+        <kbd>--test-filter [text]</kbd>. This makes the test build only include tests whose name contains the
+        supplied filter text. Note that non-named tests are run even when using the <kbd>--test-filter [text]</kbd>
+        command line parameter.
+      </p>
+      <p>
+        To programmatically skip a test, make a {#syntax#}test{#endsyntax#} return the error
+        {#syntax#}error.SkipZigTest{#endsyntax#} and the default test runner will consider the test as being skipped.
+        The total number of skipped tests will be reported after all tests have run.
+      </p>
+      {#code_begin|test#}
+test "this will be skipped" {
+    return error.SkipZigTest;
+}
+      {#code_end#}
+      <p>
+        The default test runner skips tests containing a {#link|suspend point|Async Functions#} while the
+        test is running using the default, blocking IO mode.
+        (The evented IO mode is enabled using the <kbd>--test-evented-io</kbd> command line parameter.)
+      </p>
+      {#code_begin|test|async_skip#}
+const std = @import("std");
+
+test "async skip test" {
+    var frame = async func();
+    const result = await frame;
+    try std.testing.expect(result == 1);
+}
+
+fn func() i32 {
+    suspend {
+        resume @frame();
+    }
+    return 1;
+}
+      {#code_end#}
+      <p>
+        In the code sample above, the test would not be skipped in blocking IO mode if the {#syntax#}nosuspend{#endsyntax#}
+        keyword was used (see {#link|Async and Await#}).
+      </p>
+      {#header_close#}
+      {#header_open|Report Memory Leaks#}
+      <p>
+        When code allocates {#link|Memory#} using the {#link|Zig Standard Library#}'s testing allocator,
+        {#syntax#}std.testing.allocator{#endsyntax#}, the default test runner will report any leaks that are
+        found from using the testing allocator:
+      </p>
+      {#code_begin|test_err|1 tests leaked memory#}
+const std = @import("std");
+
+test "detect leak" {
+    var list = std.ArrayList(u21).init(std.testing.allocator);
+    // missing `defer list.deinit();`
+    try list.append('☔');
+
+    try std.testing.expect(list.items.len == 1);
+}
+      {#code_end#}
+      {#see_also|defer|Memory#}
+      {#header_close#}
+      {#header_open|Detecting Test Build#}
+      <p>
+        Use the {#link|compile variable|Compile Variables#} {#syntax#}@import("builtin").is_test{#endsyntax#}
+        to detect a test build:
+      </p>
+      {#code_begin|test|detect_test#}
+const std = @import("std");
+const builtin = @import("builtin");
+const expect = std.testing.expect;
+
+test "builtin.is_test" {
+    try expect(isATest());
+}
+
+fn isATest() bool {
+    return builtin.is_test;
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Test Output and Logging#}
+      <p>
+        The default test runner and the Zig Standard Library's testing namespace output messages to standard error.
+      </p>
+      {#header_close#}
+      {#header_open|The Testing Namespace#}
+      <p>
+        The Zig Standard Library's <code>testing</code> namespace contains useful functions to help
+        you create tests. In addition to the <code>expect</code> function, this document uses a couple of more functions
+        as exemplified here:
+      </p>
+      {#code_begin|test|testing_functions#}
+const std = @import("std");
+
+test "expectEqual demo" {
+    const expected: i32 = 42;
+    const actual = 42;
+
+    // The first argument to `expectEqual` is the known, expected, result.
+    // The second argument is the result of some expression.
+    // The actual's type is casted to the type of expected.
+    try std.testing.expectEqual(expected, actual);
+}
+
+test "expectError demo" {
+    const expected_error = error.DemoError;
+    const actual_error_union: anyerror!void = error.DemoError;
+
+    // `expectError` will fail when the actual error is different than
+    // the expected error.
+    try std.testing.expectError(expected_error, actual_error_union);
+}
+      {#code_end#}
+      <p>The Zig Standard Library also contains functions to compare {#link|Slices#}, strings, and more. See the rest of the
+        {#syntax#}std.testing{#endsyntax#} namespace in the {#link|Zig Standard Library#} for more available functions.</p>
+      {#header_close#}
+      {#header_open|Test Tool Documentation#}
+      <p>
+        <kbd>zig test</kbd> has a few command line parameters which affect the compilation.
+        See <kbd>zig test --help</kbd> for a full list.
+      </p>
       {#header_close#}
       {#header_close#}
 
