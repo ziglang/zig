@@ -16,21 +16,6 @@ test "top level fields" {
     try expectEqual(@as(i32, 1235), instance.top_level_field);
 }
 
-test "void struct fields" {
-    const foo = VoidStructFieldsFoo{
-        .a = void{},
-        .b = 1,
-        .c = void{},
-    };
-    try expect(foo.b == 1);
-    try expect(@sizeOf(VoidStructFieldsFoo) == 4);
-}
-const VoidStructFieldsFoo = struct {
-    a: void,
-    b: i32,
-    c: void,
-};
-
 const StructFoo = struct {
     a: i32,
     b: bool,
@@ -45,19 +30,6 @@ const Node = struct {
 const Val = struct {
     x: i32,
 };
-
-test "struct point to self" {
-    var root: Node = undefined;
-    root.val.x = 1;
-
-    var node: Node = undefined;
-    node.next = &root;
-    node.val.x = 2;
-
-    root.next = &node;
-
-    try expect(node.next.next.next.val.x == 1);
-}
 
 test "fn call of struct field" {
     const Foo = struct {
@@ -88,17 +60,6 @@ test "store member function in variable" {
     const result = memberFn(instance);
     try expect(result == 1234);
 }
-
-test "member functions" {
-    const r = MemberFnRand{ .seed = 1234 };
-    try expect(r.getSeed() == 1234);
-}
-const MemberFnRand = struct {
-    seed: u32,
-    pub fn getSeed(r: *const MemberFnRand) u32 {
-        return r.seed;
-    }
-};
 
 test "return struct byval from function" {
     const bar = makeBar2(1234, 5678);

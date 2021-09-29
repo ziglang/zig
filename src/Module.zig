@@ -813,7 +813,7 @@ pub const Struct = struct {
         is_comptime: bool,
     };
 
-    pub fn getFullyQualifiedName(s: *Struct, gpa: *Allocator) ![]u8 {
+    pub fn getFullyQualifiedName(s: *Struct, gpa: *Allocator) ![:0]u8 {
         return s.owner_decl.getFullyQualifiedName(gpa);
     }
 

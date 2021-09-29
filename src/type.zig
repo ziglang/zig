@@ -1785,6 +1785,8 @@ pub const Type = extern union {
                 if (is_packed) @panic("TODO packed structs");
                 var size: u64 = 0;
                 for (s.fields.values()) |field| {
+                    if (!field.ty.hasCodeGenBits()) continue;
+
                     const field_align = a: {
                         if (field.abi_align.tag() == .abi_align_default) {
                             break :a field.ty.abiAlignment(target);

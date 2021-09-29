@@ -181,6 +181,13 @@ pub const Type = opaque {
     pub const constArray = LLVMConstArray;
     extern fn LLVMConstArray(ElementTy: *const Type, ConstantVals: [*]*const Value, Length: c_uint) *const Value;
 
+    pub const constNamedStruct = LLVMConstNamedStruct;
+    extern fn LLVMConstNamedStruct(
+        StructTy: *const Type,
+        ConstantVals: [*]const *const Value,
+        Count: c_uint,
+    ) *const Value;
+
     pub const getUndef = LLVMGetUndef;
     extern fn LLVMGetUndef(Ty: *const Type) *const Value;
 
@@ -666,23 +673,25 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
-    pub const buildMemSet = LLVMBuildMemSet;
-    extern fn LLVMBuildMemSet(
+    pub const buildMemSet = ZigLLVMBuildMemSet;
+    extern fn ZigLLVMBuildMemSet(
         B: *const Builder,
         Ptr: *const Value,
         Val: *const Value,
         Len: *const Value,
         Align: c_uint,
+        is_volatile: bool,
     ) *const Value;
 
-    pub const buildMemCpy = LLVMBuildMemCpy;
-    extern fn LLVMBuildMemCpy(
+    pub const buildMemCpy = ZigLLVMBuildMemCpy;
+    extern fn ZigLLVMBuildMemCpy(
         B: *const Builder,
         Dst: *const Value,
         DstAlign: c_uint,
         Src: *const Value,
         SrcAlign: c_uint,
         Size: *const Value,
+        is_volatile: bool,
     ) *const Value;
 };
 
