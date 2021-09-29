@@ -1177,6 +1177,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             }
             hash.add(valgrind);
             hash.add(single_threaded);
+            hash.add(use_stage1);
+            hash.add(use_llvm);
             hash.add(dll_export_fns);
             hash.add(options.is_test);
             hash.add(options.skip_linker_dependencies);
