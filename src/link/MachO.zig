@@ -301,10 +301,6 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
     self.base.file = file;
 
-    if (options.output_mode == .Lib and options.link_mode == .Static) {
-        return self;
-    }
-
     // TODO Migrate DebugSymbols to the merged linker codepaths
     // if (!options.strip and options.module != null) {
     //     // Create dSYM bundle.
@@ -377,22 +373,8 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
 
 pub fn flush(self: *MachO, comp: *Compilation) !void {
     if (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Static) {
-        if (build_options.have_llvm) {
-            // TODO investigate this together with Andrew
-            const opts = &self.base.options;
-            self.base.intermediary_basename = try std.fmt.allocPrint(
-                self.base.allocator,
-                "{s}{s}",
-                .{
-                    opts.emit.?.sub_path,
-                    opts.object_format.fileExt(opts.target.cpu.arch),
-                },
-            );
-            return self.base.linkAsArchive(comp);
-        } else {
-            log.err("TODO: non-LLVM archiver for MachO object files", .{});
-            return error.TODOImplementWritingStaticLibFiles;
-        }
+        log.err("TODO: non-LLVM archiver for MachO object files", .{});
+        return error.TODOImplementWritingStaticLibFiles;
     }
 
     const tracy = trace(@src());
