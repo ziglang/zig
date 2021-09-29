@@ -378,6 +378,16 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
 pub fn flush(self: *MachO, comp: *Compilation) !void {
     if (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Static) {
         if (build_options.have_llvm) {
+            // TODO investigate this together with Andrew
+            const opts = &self.base.options;
+            self.base.intermediary_basename = try std.fmt.allocPrint(
+                self.base.allocator,
+                "{s}{s}",
+                .{
+                    opts.emit.?.sub_path,
+                    opts.object_format.fileExt(opts.target.cpu.arch),
+                },
+            );
             return self.base.linkAsArchive(comp);
         } else {
             log.err("TODO: non-LLVM archiver for MachO object files", .{});
@@ -914,6 +924,13 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
     const tracy = trace(@src());
     defer tracy.end();
+
+    if (build_options.have_llvm)
+        if (self.llvm_object) |llvm_object| return try llvm_object.flushModule(comp);
+
+    if (self.base.options.output_mode == .Obj) {
+        return error.TODOGenerateRelocatableObjectFile;
+    }
 
     try self.setEntryPoint();
     try self.updateSectionOrdinals();
@@ -3035,6 +3052,7 @@ fn growAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64, match
 }
 
 pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
+    if (self.llvm_object) |_| return;
     if (decl.link.macho.local_sym_index != 0) return;
 
     try self.locals.ensureUnusedCapacity(self.base.allocator, 1);
@@ -3458,6 +3476,8 @@ pub fn updateDeclExports(
 }
 
 pub fn deleteExport(self: *MachO, exp: Export) void {
+    if (self.llvm_object) |_| return;
+
     const sym_index = exp.sym_index orelse return;
     self.globals_free_list.append(self.base.allocator, sym_index) catch {};
     const global = &self.globals.items[sym_index];
