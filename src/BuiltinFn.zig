@@ -110,10 +110,19 @@ pub const Tag = enum {
     Vector,
 };
 
+pub const MemLocRequirement = enum {
+    /// The builtin never needs a memory location.
+    never,
+    /// The builtin always needs a memory location.
+    always,
+    /// The builtin forwards the question to argument at index 1.
+    forward1,
+};
+
 tag: Tag,
 
-/// `true` if the builtin call can take advantage of a result location pointer.
-needs_mem_loc: bool = false,
+/// Info about the builtin call's ability to take advantage of a result location pointer.
+needs_mem_loc: MemLocRequirement = .never,
 /// `true` if the builtin call can be the left-hand side of an expression (assigned to).
 allows_lvalue: bool = false,
 /// The number of parameters to this builtin function. `null` means variable number
@@ -148,7 +157,7 @@ pub const list = list: {
             "@as",
             .{
                 .tag = .as,
-                .needs_mem_loc = true,
+                .needs_mem_loc = .forward1,
                 .param_count = 2,
             },
         },
@@ -184,7 +193,7 @@ pub const list = list: {
             "@bitCast",
             .{
                 .tag = .bit_cast,
-                .needs_mem_loc = true,
+                .needs_mem_loc = .forward1,
                 .param_count = 2,
             },
         },
@@ -248,7 +257,7 @@ pub const list = list: {
             "@call",
             .{
                 .tag = .call,
-                .needs_mem_loc = true,
+                .needs_mem_loc = .always,
                 .param_count = 3,
             },
         },
@@ -410,7 +419,7 @@ pub const list = list: {
             "@field",
             .{
                 .tag = .field,
-                .needs_mem_loc = true,
+                .needs_mem_loc = .always,
                 .param_count = 2,
                 .allows_lvalue = true,
             },
@@ -699,7 +708,6 @@ pub const list = list: {
             "@splat",
             .{
                 .tag = .splat,
-                .needs_mem_loc = true,
                 .param_count = 2,
             },
         },
@@ -714,7 +722,7 @@ pub const list = list: {
             "@src",
             .{
                 .tag = .src,
-                .needs_mem_loc = true,
+                .needs_mem_loc = .always,
                 .param_count = 0,
             },
         },
@@ -869,7 +877,7 @@ pub const list = list: {
             "@unionInit",
             .{
                 .tag = .union_init,
-                .needs_mem_loc = true,
+                .needs_mem_loc = .always,
                 .param_count = 3,
             },
         },

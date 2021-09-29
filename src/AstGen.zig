@@ -8271,17 +8271,31 @@ fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index) bool 
                 }
             },
 
-            .builtin_call,
-            .builtin_call_comma,
-            .builtin_call_two,
-            .builtin_call_two_comma,
-            => {
+            .builtin_call_two, .builtin_call_two_comma => {
                 const builtin_token = main_tokens[node];
                 const builtin_name = tree.tokenSlice(builtin_token);
                 // If the builtin is an invalid name, we don't cause an error here; instead
                 // let it pass, and the error will be "invalid builtin function" later.
                 const builtin_info = BuiltinFn.list.get(builtin_name) orelse return false;
-                return builtin_info.needs_mem_loc;
+                switch (builtin_info.needs_mem_loc) {
+                    .never => return false,
+                    .always => return true,
+                    .forward1 => node = node_datas[node].rhs,
+                }
+            },
+
+            .builtin_call, .builtin_call_comma => {
+                const params = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
+                const builtin_token = main_tokens[node];
+                const builtin_name = tree.tokenSlice(builtin_token);
+                // If the builtin is an invalid name, we don't cause an error here; instead
+                // let it pass, and the error will be "invalid builtin function" later.
+                const builtin_info = BuiltinFn.list.get(builtin_name) orelse return false;
+                switch (builtin_info.needs_mem_loc) {
+                    .never => return false,
+                    .always => return true,
+                    .forward1 => node = params[1],
+                }
             },
         }
     }
