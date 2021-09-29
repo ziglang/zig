@@ -186,6 +186,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
             wi: usize = 0, // Write index
             ri: usize = 0, // Read index
             el: usize = 0, // Number of readable elements
+            total_written: usize = 0,
 
             fn readable(self: *WSelf) usize {
                 return self.el;
@@ -210,6 +211,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
                 self.buf[self.wi] = value;
                 self.wi = (self.wi + 1) & (self.buf.len - 1);
                 self.el += 1;
+                self.total_written += 1;
             }
 
             // Fill dest[] with data from the window, starting from the read
@@ -462,7 +464,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
                         const distance = DISTS[distance_symbol] +
                             @intCast(u16, try self.readBits(DEXT[distance_symbol]));
 
-                        if (distance > self.window.buf.len)
+                        if (distance > self.window.buf.len or distance > self.window.total_written)
                             return error.InvalidDistance;
 
                         const written = self.window.copyFrom(distance, length);
@@ -666,11 +668,18 @@ test "lengths overflow" {
 }
 
 test "empty distance alphabet" {
-    // dynamic block with empty distance alphabet is valid if end of data symbol is used immediately
+    // dynamic block with empty distance alphabet is valid if only literals and end of data symbol are used
     // f dy  hlit hdist hclen 16  17  18   0   8   7   9   6  10   5  11   4  12   3  13   2  14   1  15 (18)    x128 (18)    x128 (1)  ( 0) (256)
     // 1 10 00000 00000 1111 000 000 010 010 000 000 000 000 000 000 000 000 000 000 000 000 000 001 000 (11) 1110101 (11) 1110101 (0)  (10)  (0)
     const stream = [_]u8{ 0b00000101, 0b11100000, 0b00000001, 0b00001001, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00010000, 0b01011100, 0b10111111, 0b00101110 };
     try testInflate(stream[0..]);
+}
+
+test "distance past beginning of output stream" {
+    // f fx ('A')      ('B')      ('C')      <len=4,   dist=4> (end)
+    // 1 01 (01110001) (01110010) (01110011) (0000010) (00011) (0000000)
+    const stream = [_]u8{ 0b01110011, 0b01110100, 0b01110010, 0b00000110, 0b01100001, 0b00000000 };
+    try std.testing.expectError(error.InvalidDistance, testInflate(stream[0..]));
 }
 
 test "inflateStream fuzzing" {
