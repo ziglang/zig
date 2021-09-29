@@ -1282,20 +1282,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const gc_sections = self.base.options.gc_sections orelse !is_obj;
     const stack_size = self.base.options.stack_size_override orelse 16777216;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
-    const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt) blk: {
-        // TODO: remove when stage2 can build compiler_rt.zig
-        if (!self.base.options.use_llvm) break :blk null;
-
-        // In the case of build-obj we include the compiler-rt symbols directly alongside
-        // the symbols of the root source file, in the same compilation unit.
-        if (is_obj) break :blk null;
-
-        if (is_exe_or_dyn_lib) {
-            break :blk comp.compiler_rt_static_lib.?.full_object_path;
-        } else {
-            break :blk comp.compiler_rt_obj.?.full_object_path;
-        }
-    } else null;
+    const compiler_rt_path: ?[]const u8 = blk: {
+        if (comp.compiler_rt_static_lib) |x| break :blk x.full_object_path;
+        if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
+        break :blk null;
+    };
 
     // Here we want to determine whether we can save time by not invoking LLD when the
     // output is unchanged. None of the linker options or the object files that are being
