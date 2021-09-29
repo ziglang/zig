@@ -246,7 +246,6 @@ pub fn analyzeBody(
             .ptr_type_simple              => try sema.zirPtrTypeSimple(block, inst),
             .ref                          => try sema.zirRef(block, inst),
             .ret_err_value_code           => try sema.zirRetErrValueCode(block, inst),
-            .shl                          => try sema.zirShl(block, inst),
             .shr                          => try sema.zirShr(block, inst),
             .slice_end                    => try sema.zirSliceEnd(block, inst),
             .slice_sentinel               => try sema.zirSliceSentinel(block, inst),
@@ -319,7 +318,6 @@ pub fn analyzeBody(
             .div_exact                    => try sema.zirDivExact(block, inst),
             .div_floor                    => try sema.zirDivFloor(block, inst),
             .div_trunc                    => try sema.zirDivTrunc(block, inst),
-            .shl_exact                    => try sema.zirShlExact(block, inst),
             .shr_exact                    => try sema.zirShrExact(block, inst),
             .bit_offset_of                => try sema.zirBitOffsetOf(block, inst),
             .offset_of                    => try sema.zirOffsetOf(block, inst),
@@ -363,14 +361,21 @@ pub fn analyzeBody(
 
             .add     => try sema.zirArithmetic(block, inst, .add),
             .addwrap => try sema.zirArithmetic(block, inst, .addwrap),
+            .add_sat => try sema.zirArithmetic(block, inst, .add_sat),
             .div     => try sema.zirArithmetic(block, inst, .div),
             .mod_rem => try sema.zirArithmetic(block, inst, .mod_rem),
             .mod     => try sema.zirArithmetic(block, inst, .mod),
             .rem     => try sema.zirArithmetic(block, inst, .rem),
             .mul     => try sema.zirArithmetic(block, inst, .mul),
             .mulwrap => try sema.zirArithmetic(block, inst, .mulwrap),
+            .mul_sat => try sema.zirArithmetic(block, inst, .mul_sat),
             .sub     => try sema.zirArithmetic(block, inst, .sub),
             .subwrap => try sema.zirArithmetic(block, inst, .subwrap),
+            .sub_sat => try sema.zirArithmetic(block, inst, .sub_sat),
+
+            .shl       => try sema.zirShl(block, inst, .shl),
+            .shl_exact => try sema.zirShl(block, inst, .shl_exact),
+            .shl_sat   => try sema.zirShl(block, inst, .shl_sat),
 
             // Instructions that we know to *always* be noreturn based solely on their tag.
             // These functions match the return type of analyzeBody so that we can
@@ -694,10 +699,6 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
         .c_define           => return sema.zirCDefine(           block, extended),
         .wasm_memory_size   => return sema.zirWasmMemorySize(    block, extended),
         .wasm_memory_grow   => return sema.zirWasmMemoryGrow(    block, extended),
-        .add_with_saturation=> return sema.zirSatArithmetic(     block, extended),
-        .sub_with_saturation=> return sema.zirSatArithmetic(     block, extended),
-        .mul_with_saturation=> return sema.zirSatArithmetic(     block, extended),
-        .shl_with_saturation=> return sema.zirSatArithmetic(     block, extended),
         // zig fmt: on
     }
 }
@@ -5874,7 +5875,12 @@ fn zirRetErrValueCode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Co
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirRetErrValueCode", .{});
 }
 
-fn zirShl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirShl(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: Zir.Inst.Index,
+    air_tag: Air.Inst.Tag,
+) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -5884,6 +5890,8 @@ fn zirShl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!A
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const lhs = sema.resolveInst(extra.lhs);
     const rhs = sema.resolveInst(extra.rhs);
+
+    // TODO coerce rhs if air_tag is not shl_sat
 
     const maybe_lhs_val = try sema.resolveMaybeUndefVal(block, lhs_src, lhs);
     const maybe_rhs_val = try sema.resolveMaybeUndefVal(block, rhs_src, rhs);
@@ -5900,6 +5908,12 @@ fn zirShl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!A
             return sema.addConstant(lhs_ty, lhs_val);
         }
         const val = try lhs_val.shl(rhs_val, sema.arena);
+        switch (air_tag) {
+            .shl_exact => return sema.mod.fail(&block.base, lhs_src, "TODO implement Sema for comptime shl_exact", .{}),
+            .shl_sat => return sema.mod.fail(&block.base, lhs_src, "TODO implement Sema for comptime shl_sat", .{}),
+            .shl => {},
+            else => unreachable,
+        }
         return sema.addConstant(lhs_ty, val);
     } else rs: {
         if (maybe_rhs_val) |rhs_val| {
@@ -5908,8 +5922,10 @@ fn zirShl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!A
         break :rs lhs_src;
     };
 
+    // TODO: insert runtime safety check for shl_exact
+
     try sema.requireRuntimeBlock(block, runtime_src);
-    return block.addBinOp(.shl, lhs, rhs);
+    return block.addBinOp(air_tag, lhs, rhs);
 }
 
 fn zirShr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -6200,19 +6216,6 @@ fn zirOverflowArithmetic(
     return sema.mod.fail(&block.base, src, "TODO implement Sema.zirOverflowArithmetic", .{});
 }
 
-fn zirSatArithmetic(
-    sema: *Sema,
-    block: *Scope.Block,
-    extended: Zir.Inst.Extended.InstData,
-) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const extra = sema.code.extraData(Zir.Inst.SaturatingArithmetic, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
-    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirSatArithmetic", .{});
-}
-
 fn analyzeArithmetic(
     sema: *Sema,
     block: *Scope.Block,
@@ -6354,8 +6357,7 @@ fn analyzeArithmetic(
             },
             .addwrap => {
                 // Integers only; floats are checked above.
-                // If either of the operands are zero, then the other operand is
-                // returned, even if it is undefined.
+                // If either of the operands are zero, the other operand is returned.
                 // If either of the operands are undefined, the result is undefined.
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef() and lhs_val.compareWithZero(.eq)) {
@@ -6376,6 +6378,30 @@ fn analyzeArithmetic(
                         );
                     } else break :rs .{ .src = lhs_src, .air_tag = .addwrap };
                 } else break :rs .{ .src = rhs_src, .air_tag = .addwrap };
+            },
+            .add_sat => {
+                // For both integers and floats:
+                // If either of the operands are zero, then the other operand is returned.
+                // If either of the operands are undefined, the result is undefined.
+                if (maybe_lhs_val) |lhs_val| {
+                    if (!lhs_val.isUndef() and lhs_val.compareWithZero(.eq)) {
+                        return casted_rhs;
+                    }
+                }
+                if (maybe_rhs_val) |rhs_val| {
+                    if (rhs_val.isUndef()) {
+                        return sema.addConstUndef(scalar_type);
+                    }
+                    if (rhs_val.compareWithZero(.eq)) {
+                        return casted_lhs;
+                    }
+                    if (maybe_lhs_val) |lhs_val| {
+                        return sema.addConstant(
+                            scalar_type,
+                            try lhs_val.numberAddSat(rhs_val, scalar_type, sema.arena, target),
+                        );
+                    } else break :rs .{ .src = lhs_src, .air_tag = .add_sat };
+                } else break :rs .{ .src = rhs_src, .air_tag = .add_sat };
             },
             .sub => {
                 // For integers:
@@ -6443,6 +6469,30 @@ fn analyzeArithmetic(
                         );
                     } else break :rs .{ .src = rhs_src, .air_tag = .subwrap };
                 } else break :rs .{ .src = lhs_src, .air_tag = .subwrap };
+            },
+            .sub_sat => {
+                // For both integers and floats:
+                // If the RHS is zero, result is LHS.
+                // If either of the operands are undefined, result is undefined.
+                if (maybe_rhs_val) |rhs_val| {
+                    if (rhs_val.isUndef()) {
+                        return sema.addConstUndef(scalar_type);
+                    }
+                    if (rhs_val.compareWithZero(.eq)) {
+                        return casted_lhs;
+                    }
+                }
+                if (maybe_lhs_val) |lhs_val| {
+                    if (lhs_val.isUndef()) {
+                        return sema.addConstUndef(scalar_type);
+                    }
+                    if (maybe_rhs_val) |rhs_val| {
+                        return sema.addConstant(
+                            scalar_type,
+                            try lhs_val.numberSubSat(rhs_val, scalar_type, sema.arena, target),
+                        );
+                    } else break :rs .{ .src = rhs_src, .air_tag = .sub_sat };
+                } else break :rs .{ .src = lhs_src, .air_tag = .sub_sat };
             },
             .div => {
                 // For integers:
@@ -6562,10 +6612,9 @@ fn analyzeArithmetic(
             },
             .mulwrap => {
                 // Integers only; floats are handled above.
-                // If either of the operands are zero, the result is zero.
-                // If either of the operands are one, the result is the other
-                // operand, even if it is undefined.
-                // If either of the operands are undefined, the result is undefined.
+                // If either of the operands are zero, result is zero.
+                // If either of the operands are one, result is the other operand.
+                // If either of the operands are undefined, result is undefined.
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
                         if (lhs_val.compareWithZero(.eq)) {
@@ -6596,6 +6645,42 @@ fn analyzeArithmetic(
                         );
                     } else break :rs .{ .src = lhs_src, .air_tag = .mulwrap };
                 } else break :rs .{ .src = rhs_src, .air_tag = .mulwrap };
+            },
+            .mul_sat => {
+                // For both integers and floats:
+                // If either of the operands are zero, result is zero.
+                // If either of the operands are one, result is the other operand.
+                // If either of the operands are undefined, result is undefined.
+                if (maybe_lhs_val) |lhs_val| {
+                    if (!lhs_val.isUndef()) {
+                        if (lhs_val.compareWithZero(.eq)) {
+                            return sema.addConstant(scalar_type, Value.zero);
+                        }
+                        if (lhs_val.compare(.eq, Value.one, scalar_type)) {
+                            return casted_rhs;
+                        }
+                    }
+                }
+                if (maybe_rhs_val) |rhs_val| {
+                    if (rhs_val.isUndef()) {
+                        return sema.addConstUndef(scalar_type);
+                    }
+                    if (rhs_val.compareWithZero(.eq)) {
+                        return sema.addConstant(scalar_type, Value.zero);
+                    }
+                    if (rhs_val.compare(.eq, Value.one, scalar_type)) {
+                        return casted_lhs;
+                    }
+                    if (maybe_lhs_val) |lhs_val| {
+                        if (lhs_val.isUndef()) {
+                            return sema.addConstUndef(scalar_type);
+                        }
+                        return sema.addConstant(
+                            scalar_type,
+                            try lhs_val.numberMulSat(rhs_val, scalar_type, sema.arena, target),
+                        );
+                    } else break :rs .{ .src = lhs_src, .air_tag = .mul_sat };
+                } else break :rs .{ .src = rhs_src, .air_tag = .mul_sat };
             },
             .mod_rem => {
                 // For integers:
@@ -7846,7 +7931,7 @@ fn analyzeRet(
 fn floatOpAllowed(tag: Zir.Inst.Tag) bool {
     // extend this swich as additional operators are implemented
     return switch (tag) {
-        .add, .sub, .mul, .div, .mod, .rem, .mod_rem => true,
+        .add, .add_sat, .sub, .sub_sat, .mul, .mul_sat, .div, .mod, .rem, .mod_rem => true,
         else => false,
     };
 }
@@ -8511,12 +8596,6 @@ fn zirDivTrunc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirDivTrunc", .{});
-}
-
-fn zirShlExact(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirShlExact", .{});
 }
 
 fn zirShrExact(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

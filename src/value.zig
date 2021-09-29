@@ -1589,6 +1589,35 @@ pub const Value = extern union {
     }
 
     /// Supports both floats and ints; handles undefined.
+    pub fn numberAddSat(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: *Allocator,
+        target: Target,
+    ) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        if (ty.isAnyFloat()) {
+            // TODO: handle outside float range
+            return floatAdd(lhs, rhs, ty, arena);
+        }
+        const result = try intAdd(lhs, rhs, arena);
+
+        const max = try ty.maxInt(arena, target);
+        if (compare(result, .gt, max, ty)) {
+            return max;
+        }
+
+        const min = try ty.minInt(arena, target);
+        if (compare(result, .lt, min, ty)) {
+            return min;
+        }
+
+        return result;
+    }
+
+    /// Supports both floats and ints; handles undefined.
     pub fn numberSubWrap(
         lhs: Value,
         rhs: Value,
@@ -1617,6 +1646,35 @@ pub const Value = extern union {
     }
 
     /// Supports both floats and ints; handles undefined.
+    pub fn numberSubSat(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: *Allocator,
+        target: Target,
+    ) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        if (ty.isAnyFloat()) {
+            // TODO: handle outside float range
+            return floatSub(lhs, rhs, ty, arena);
+        }
+        const result = try intSub(lhs, rhs, arena);
+
+        const max = try ty.maxInt(arena, target);
+        if (compare(result, .gt, max, ty)) {
+            return max;
+        }
+
+        const min = try ty.minInt(arena, target);
+        if (compare(result, .lt, min, ty)) {
+            return min;
+        }
+
+        return result;
+    }
+
+    /// Supports both floats and ints; handles undefined.
     pub fn numberMulWrap(
         lhs: Value,
         rhs: Value,
@@ -1639,6 +1697,35 @@ pub const Value = extern union {
         const min = try ty.minInt(arena, target);
         if (compare(result, .lt, min, ty)) {
             @panic("TODO comptime wrapping integer multiplication");
+        }
+
+        return result;
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberMulSat(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: *Allocator,
+        target: Target,
+    ) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        if (ty.isAnyFloat()) {
+            // TODO: handle outside float range
+            return floatMul(lhs, rhs, ty, arena);
+        }
+        const result = try intMul(lhs, rhs, arena);
+
+        const max = try ty.maxInt(arena, target);
+        if (compare(result, .gt, max, ty)) {
+            return max;
+        }
+
+        const min = try ty.minInt(arena, target);
+        if (compare(result, .lt, min, ty)) {
+            return min;
         }
 
         return result;

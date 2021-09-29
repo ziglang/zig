@@ -226,8 +226,10 @@ enum TokenizeState {
     TokenizeState_pipe,
     TokenizeState_minus,
     TokenizeState_minus_percent,
+    TokenizeState_minus_pipe,
     TokenizeState_asterisk,
     TokenizeState_asterisk_percent,
+    TokenizeState_asterisk_pipe,
     TokenizeState_slash,
     TokenizeState_line_comment_start,
     TokenizeState_line_comment,
@@ -257,8 +259,10 @@ enum TokenizeState {
     TokenizeState_percent,
     TokenizeState_plus,
     TokenizeState_plus_percent,
+    TokenizeState_plus_pipe,
     TokenizeState_angle_bracket_left,
     TokenizeState_angle_bracket_angle_bracket_left,
+    TokenizeState_angle_bracket_angle_bracket_left_pipe,
     TokenizeState_angle_bracket_right,
     TokenizeState_angle_bracket_angle_bracket_right,
     TokenizeState_period,
@@ -548,6 +552,9 @@ void tokenize(const char *source, Tokenization *out) {
                     case '%':
                         t.state = TokenizeState_asterisk_percent;
                         break;
+                    case '|':
+                        t.state = TokenizeState_asterisk_pipe;
+                        break;
                     default:
                         t.state = TokenizeState_start;
                         continue;
@@ -564,6 +571,21 @@ void tokenize(const char *source, Tokenization *out) {
                         break;
                     default:
                         t.out->ids.last() = TokenIdTimesPercent;
+                        t.state = TokenizeState_start;
+                        continue;
+                }
+                break;
+            case TokenizeState_asterisk_pipe:
+                switch (c) {
+                    case 0:
+                        t.out->ids.last() = TokenIdTimesPipe;
+                        goto eof;
+                    case '=':
+                        t.out->ids.last() = TokenIdTimesPipeEq;
+                        t.state = TokenizeState_start;
+                        break;
+                    default:
+                        t.out->ids.last() = TokenIdTimesPipe;
                         t.state = TokenizeState_start;
                         continue;
                 }
@@ -596,6 +618,9 @@ void tokenize(const char *source, Tokenization *out) {
                     case '%':
                         t.state = TokenizeState_plus_percent;
                         break;
+                    case '|':
+                        t.state = TokenizeState_plus_pipe;
+                        break;
                     default:
                         t.state = TokenizeState_start;
                         continue;
@@ -612,6 +637,21 @@ void tokenize(const char *source, Tokenization *out) {
                         break;
                     default:
                         t.out->ids.last() = TokenIdPlusPercent;
+                        t.state = TokenizeState_start;
+                        continue;
+                }
+                break;
+            case TokenizeState_plus_pipe:
+                switch (c) {
+                    case 0:
+                        t.out->ids.last() = TokenIdPlusPipe;
+                        goto eof;
+                    case '=':
+                        t.out->ids.last() = TokenIdPlusPipeEq;
+                        t.state = TokenizeState_start;
+                        break;
+                    default:
+                        t.out->ids.last() = TokenIdPlusPipe;
                         t.state = TokenizeState_start;
                         continue;
                 }
@@ -891,6 +931,9 @@ void tokenize(const char *source, Tokenization *out) {
                     case '%':
                         t.state = TokenizeState_minus_percent;
                         break;
+                    case '|':
+                        t.state = TokenizeState_minus_pipe;
+                        break;
                     default:
                         t.state = TokenizeState_start;
                         continue;
@@ -907,6 +950,21 @@ void tokenize(const char *source, Tokenization *out) {
                         break;
                     default:
                         t.out->ids.last() = TokenIdMinusPercent;
+                        t.state = TokenizeState_start;
+                        continue;
+                }
+                break;
+            case TokenizeState_minus_pipe:
+                switch (c) {
+                    case 0:
+                        t.out->ids.last() = TokenIdMinusPipe;
+                        goto eof;
+                    case '=':
+                        t.out->ids.last() = TokenIdMinusPipeEq;
+                        t.state = TokenizeState_start;
+                        break;
+                    default:
+                        t.out->ids.last() = TokenIdMinusPipe;
                         t.state = TokenizeState_start;
                         continue;
                 }
@@ -936,8 +994,26 @@ void tokenize(const char *source, Tokenization *out) {
                         t.out->ids.last() = TokenIdBitShiftLeftEq;
                         t.state = TokenizeState_start;
                         break;
+                    case '|':
+                        t.state = TokenizeState_angle_bracket_angle_bracket_left_pipe;
+                        break;
                     default:
                         t.out->ids.last() = TokenIdBitShiftLeft;
+                        t.state = TokenizeState_start;
+                        continue;
+                }
+                break;
+            case TokenizeState_angle_bracket_angle_bracket_left_pipe:
+                switch (c) {
+                    case 0:
+                        t.out->ids.last() = TokenIdBitShiftLeftPipe;
+                        goto eof;
+                    case '=':
+                        t.out->ids.last() = TokenIdBitShiftLeftPipeEq;
+                        t.state = TokenizeState_start;
+                        break;
+                    default:
+                        t.out->ids.last() = TokenIdBitShiftLeftPipe;
                         t.state = TokenizeState_start;
                         continue;
                 }
@@ -1437,6 +1513,8 @@ const char * token_name(TokenId id) {
         case TokenIdBitOrEq: return "|=";
         case TokenIdBitShiftLeft: return "<<";
         case TokenIdBitShiftLeftEq: return "<<=";
+        case TokenIdBitShiftLeftPipe: return "<<|";
+        case TokenIdBitShiftLeftPipeEq: return "<<|=";
         case TokenIdBitShiftRight: return ">>";
         case TokenIdBitShiftRightEq: return ">>=";
         case TokenIdBitXorEq: return "^=";
@@ -1521,12 +1599,16 @@ const char * token_name(TokenId id) {
         case TokenIdMinusEq: return "-=";
         case TokenIdMinusPercent: return "-%";
         case TokenIdMinusPercentEq: return "-%=";
+        case TokenIdMinusPipe: return "-|";
+        case TokenIdMinusPipeEq: return "-|=";
         case TokenIdModEq: return "%=";
         case TokenIdPercent: return "%";
         case TokenIdPlus: return "+";
         case TokenIdPlusEq: return "+=";
         case TokenIdPlusPercent: return "+%";
         case TokenIdPlusPercentEq: return "+%=";
+        case TokenIdPlusPipe: return "+|";
+        case TokenIdPlusPipeEq: return "+|=";
         case TokenIdPlusPlus: return "++";
         case TokenIdRBrace: return "}";
         case TokenIdRBracket: return "]";
@@ -1542,6 +1624,8 @@ const char * token_name(TokenId id) {
         case TokenIdTimesEq: return "*=";
         case TokenIdTimesPercent: return "*%";
         case TokenIdTimesPercentEq: return "*%=";
+        case TokenIdTimesPipe: return "*|";
+        case TokenIdTimesPipeEq: return "*|=";
         case TokenIdBuiltin: return "Builtin";
         case TokenIdCount:
             zig_unreachable();

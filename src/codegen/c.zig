@@ -883,22 +883,27 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
 
             // TODO use a different strategy for add that communicates to the optimizer
             // that wrapping is UB.
-            .add, .ptr_add => try airBinOp( f, inst, " + "),
-            .addwrap       => try airWrapOp(f, inst, " + ", "addw_"),
+            .add, .ptr_add => try airBinOp (f, inst, " + "),
             // TODO use a different strategy for sub that communicates to the optimizer
             // that wrapping is UB.
-            .sub, .ptr_sub => try airBinOp( f, inst, " - "),
-            .subwrap       => try airWrapOp(f, inst, " - ", "subw_"),
+            .sub, .ptr_sub => try airBinOp (f, inst, " - "),
             // TODO use a different strategy for mul that communicates to the optimizer
             // that wrapping is UB.
-            .mul           => try airBinOp( f, inst, " * "),
-            .mulwrap       => try airWrapOp(f, inst, " * ", "mulw_"),
+            .mul           => try airBinOp (f, inst, " * "),
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
             .div           => try airBinOp( f, inst, " / "),
             .rem           => try airBinOp( f, inst, " % "),
-            // TODO implement modulus division
-            .mod           => try airBinOp( f, inst, " mod "),
+            .mod           => try airBinOp( f, inst, " mod "), // TODO implement modulus division
+
+            .addwrap => try airWrapOp(f, inst, " + ", "addw_"),
+            .subwrap => try airWrapOp(f, inst, " - ", "subw_"),
+            .mulwrap => try airWrapOp(f, inst, " * ", "mulw_"),
+
+            .add_sat => try airSatOp(f, inst, "adds_"),
+            .sub_sat => try airSatOp(f, inst, "subs_"),
+            .mul_sat => try airSatOp(f, inst, "muls_"),
+            .shl_sat => try airSatOp(f, inst, "shls_"),
 
             .cmp_eq  => try airBinOp(f, inst, " == "),
             .cmp_gt  => try airBinOp(f, inst, " > "),
@@ -908,16 +913,14 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .cmp_neq => try airBinOp(f, inst, " != "),
 
             // bool_and and bool_or are non-short-circuit operations
-            .bool_and   => try airBinOp(f, inst, " & "),
-            .bool_or    => try airBinOp(f, inst, " | "),
-            .bit_and    => try airBinOp(f, inst, " & "),
-            .bit_or     => try airBinOp(f, inst, " | "),
-            .xor        => try airBinOp(f, inst, " ^ "),
-
-            .shr        => try airBinOp(f, inst, " >> "),
-            .shl        => try airBinOp(f, inst, " << "),
-
-            .not        => try airNot(  f, inst),
+            .bool_and        => try airBinOp(f, inst, " & "),
+            .bool_or         => try airBinOp(f, inst, " | "),
+            .bit_and         => try airBinOp(f, inst, " & "),
+            .bit_or          => try airBinOp(f, inst, " | "),
+            .xor             => try airBinOp(f, inst, " ^ "),
+            .shr             => try airBinOp(f, inst, " >> "),
+            .shl, .shl_exact => try airBinOp(f, inst, " << "),
+            .not             => try airNot  (f, inst),
 
             .optional_payload     => try airOptionalPayload(f, inst),
             .optional_payload_ptr => try airOptionalPayload(f, inst),
@@ -1258,6 +1261,114 @@ fn airWrapOp(
                 .unsigned => bits,
             };
             const val = std.math.pow(u64, 2, pow_bits) - 1;
+            break :blk std.fmt.bufPrint(&max_buf, "{}", .{val}) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable,
+                else => |e| return e,
+            };
+        },
+    };
+
+    const lhs = try f.resolveInst(bin_op.lhs);
+    const rhs = try f.resolveInst(bin_op.rhs);
+    const w = f.object.writer();
+
+    const ret = try f.allocLocal(inst_ty, .Mut);
+    try w.print(" = zig_{s}", .{fn_op});
+
+    switch (inst_ty.tag()) {
+        .isize => try w.writeAll("isize"),
+        .c_short => try w.writeAll("short"),
+        .c_int => try w.writeAll("int"),
+        .c_long => try w.writeAll("long"),
+        .c_longlong => try w.writeAll("longlong"),
+        else => {
+            const prefix_byte: u8 = switch (int_info.signedness) {
+                .signed => 'i',
+                .unsigned => 'u',
+            };
+            for ([_]u8{ 8, 16, 32, 64 }) |nbits| {
+                if (bits <= nbits) {
+                    try w.print("{c}{d}", .{ prefix_byte, nbits });
+                    break;
+                }
+            } else {
+                unreachable;
+            }
+        },
+    }
+
+    try w.writeByte('(');
+    try f.writeCValue(w, lhs);
+    try w.writeAll(", ");
+    try f.writeCValue(w, rhs);
+
+    if (int_info.signedness == .signed) {
+        try w.print(", {s}", .{min});
+    }
+
+    try w.print(", {s});", .{max});
+    try f.object.indent_writer.insertNewline();
+
+    return ret;
+}
+
+fn airSatOp(f: *Function, inst: Air.Inst.Index, fn_op: [*:0]const u8) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const inst_ty = f.air.typeOfIndex(inst);
+    const int_info = inst_ty.intInfo(f.object.dg.module.getTarget());
+    const bits = int_info.bits;
+
+    switch (bits) {
+        8, 16, 32, 64, 128 => {},
+        else => return f.object.dg.fail("TODO: C backend: airSatOp for non power of 2 integers", .{}),
+    }
+
+    // if it's an unsigned int with non-arbitrary bit size then we can just add
+    if (bits > 64) {
+        return f.object.dg.fail("TODO: C backend: airSatOp for large integers", .{});
+    }
+
+    var min_buf: [80]u8 = undefined;
+    const min = switch (int_info.signedness) {
+        .unsigned => "0",
+        else => switch (inst_ty.tag()) {
+            .c_short => "SHRT_MIN",
+            .c_int => "INT_MIN",
+            .c_long => "LONG_MIN",
+            .c_longlong => "LLONG_MIN",
+            .isize => "INTPTR_MIN",
+            else => blk: {
+                // compute the type minimum based on the bitcount (bits)
+                const val = -1 * std.math.pow(i65, 2, @intCast(i65, bits - 1));
+                break :blk std.fmt.bufPrint(&min_buf, "{d}", .{val}) catch |err| switch (err) {
+                    error.NoSpaceLeft => unreachable,
+                    else => |e| return e,
+                };
+            },
+        },
+    };
+
+    var max_buf: [80]u8 = undefined;
+    const max = switch (inst_ty.tag()) {
+        .c_short => "SHRT_MAX",
+        .c_ushort => "USHRT_MAX",
+        .c_int => "INT_MAX",
+        .c_uint => "UINT_MAX",
+        .c_long => "LONG_MAX",
+        .c_ulong => "ULONG_MAX",
+        .c_longlong => "LLONG_MAX",
+        .c_ulonglong => "ULLONG_MAX",
+        .isize => "INTPTR_MAX",
+        .usize => "UINTPTR_MAX",
+        else => blk: {
+            const pow_bits = switch (int_info.signedness) {
+                .signed => bits - 1,
+                .unsigned => bits,
+            };
+            const val = std.math.pow(u65, 2, pow_bits) - 1;
             break :blk std.fmt.bufPrint(&max_buf, "{}", .{val}) catch |err| switch (err) {
                 error.NoSpaceLeft => unreachable,
                 else => |e| return e,

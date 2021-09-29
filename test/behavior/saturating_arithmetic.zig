@@ -11,16 +11,28 @@ fn testSaturatingOp(comptime op: Op, comptime T: type, test_data: [3]T) !void {
     const a = test_data[0];
     const b = test_data[1];
     const expected = test_data[2];
-    const actual = switch (op) {
-        .add => @addWithSaturation(a, b),
-        .sub => @subWithSaturation(a, b),
-        .mul => @mulWithSaturation(a, b),
-        .shl => @shlWithSaturation(a, b),
-    };
-    try expectEqual(expected, actual);
+    {
+        const actual = switch (op) {
+            .add => a +| b,
+            .sub => a -| b,
+            .mul => a *| b,
+            .shl => a <<| b,
+        };
+        try expectEqual(expected, actual);
+    }
+    {
+        var actual = a;
+        switch (op) {
+            .add => actual +|= b,
+            .sub => actual -|= b,
+            .mul => actual *|= b,
+            .shl => actual <<|= b,
+        }
+        try expectEqual(expected, actual);
+    }
 }
 
-test "@addWithSaturation" {
+test "saturating add" {
     const S = struct {
         fn doTheTest() !void {
             //                             .{a, b, expected a+b}
@@ -38,22 +50,16 @@ test "@addWithSaturation" {
             try testSaturatingOp(.add, u128, .{ maxInt(u128), 1, maxInt(u128) });
 
             const u8x3 = std.meta.Vector(3, u8);
-            try expectEqual(u8x3{ 255, 255, 255 }, @addWithSaturation(
-                u8x3{ 255, 254, 1 },
-                u8x3{ 1, 2, 255 },
-            ));
+            try expectEqual(u8x3{ 255, 255, 255 }, (u8x3{ 255, 254, 1 } +| u8x3{ 1, 2, 255 }));
             const i8x3 = std.meta.Vector(3, i8);
-            try expectEqual(i8x3{ 127, 127, 127 }, @addWithSaturation(
-                i8x3{ 127, 126, 1 },
-                i8x3{ 1, 2, 127 },
-            ));
+            try expectEqual(i8x3{ 127, 127, 127 }, (i8x3{ 127, 126, 1 } +| i8x3{ 1, 2, 127 }));
         }
     };
     try S.doTheTest();
     comptime try S.doTheTest();
 }
 
-test "@subWithSaturation" {
+test "saturating subtraction" {
     const S = struct {
         fn doTheTest() !void {
             //                             .{a, b, expected a-b}
@@ -69,17 +75,14 @@ test "@subWithSaturation" {
             try testSaturatingOp(.sub, u128, .{ 0, maxInt(u128), 0 });
 
             const u8x3 = std.meta.Vector(3, u8);
-            try expectEqual(u8x3{ 0, 0, 0 }, @subWithSaturation(
-                u8x3{ 0, 0, 0 },
-                u8x3{ 255, 255, 255 },
-            ));
+            try expectEqual(u8x3{ 0, 0, 0 }, (u8x3{ 0, 0, 0 } -| u8x3{ 255, 255, 255 }));
         }
     };
     try S.doTheTest();
     comptime try S.doTheTest();
 }
 
-test "@mulWithSaturation" {
+test "saturating multiplication" {
     // TODO: once #9660 has been solved, remove this line
     if (std.builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
 
@@ -100,10 +103,7 @@ test "@mulWithSaturation" {
             try testSaturatingOp(.mul, u128, .{ maxInt(u128), maxInt(u128), maxInt(u128) });
 
             const u8x3 = std.meta.Vector(3, u8);
-            try expectEqual(u8x3{ 255, 255, 255 }, @mulWithSaturation(
-                u8x3{ 2, 2, 2 },
-                u8x3{ 255, 255, 255 },
-            ));
+            try expectEqual(u8x3{ 255, 255, 255 }, (u8x3{ 2, 2, 2 } *| u8x3{ 255, 255, 255 }));
         }
     };
 
@@ -111,7 +111,7 @@ test "@mulWithSaturation" {
     comptime try S.doTheTest();
 }
 
-test "@shlWithSaturation" {
+test "saturating shift-left" {
     const S = struct {
         fn doTheTest() !void {
             //                             .{a, b, expected a<<b}
@@ -128,10 +128,7 @@ test "@shlWithSaturation" {
             try testSaturatingOp(.shl, u8, .{ 255, 1, 255 });
 
             const u8x3 = std.meta.Vector(3, u8);
-            try expectEqual(u8x3{ 255, 255, 255 }, @shlWithSaturation(
-                u8x3{ 255, 255, 255 },
-                u8x3{ 1, 1, 1 },
-            ));
+            try expectEqual(u8x3{ 255, 255, 255 }, (u8x3{ 255, 255, 255 } <<| u8x3{ 1, 1, 1 }));
         }
     };
     try S.doTheTest();

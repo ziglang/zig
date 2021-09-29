@@ -229,12 +229,15 @@ const Writer = struct {
 
             .add,
             .addwrap,
+            .add_sat,
             .array_cat,
             .array_mul,
             .mul,
             .mulwrap,
+            .mul_sat,
             .sub,
             .subwrap,
+            .sub_sat,
             .cmp_lt,
             .cmp_lte,
             .cmp_eq,
@@ -247,6 +250,7 @@ const Writer = struct {
             .mod_rem,
             .shl,
             .shl_exact,
+            .shl_sat,
             .shr,
             .shr_exact,
             .xor,
@@ -399,12 +403,6 @@ const Writer = struct {
             .mul_with_overflow,
             .shl_with_overflow,
             => try self.writeOverflowArithmetic(stream, extended),
-
-            .add_with_saturation,
-            .sub_with_saturation,
-            .mul_with_saturation,
-            .shl_with_saturation,
-            => try self.writeSaturatingArithmetic(stream, extended),
 
             .struct_decl => try self.writeStructDecl(stream, extended),
             .union_decl => try self.writeUnionDecl(stream, extended),
@@ -851,18 +849,6 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.ptr);
         try stream.writeAll(")) ");
-        try self.writeSrc(stream, src);
-    }
-
-    fn writeSaturatingArithmetic(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const extra = self.code.extraData(Zir.Inst.SaturatingArithmetic, extended.operand).data;
-        const src: LazySrcLoc = .{ .node_offset = extra.node };
-
-        try self.writeInstRef(stream, extra.lhs);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.rhs);
-        try stream.writeAll(", ");
-        try stream.writeAll(") ");
         try self.writeSrc(stream, src);
     }
 

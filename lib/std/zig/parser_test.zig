@@ -4739,6 +4739,26 @@ test "zig fmt: assignment with inline for and inline while" {
     );
 }
 
+test "zig fmt: saturating arithmetic" {
+    try testCanonical(
+        \\test {
+        \\    const actual = switch (op) {
+        \\        .add => a +| b,
+        \\        .sub => a -| b,
+        \\        .mul => a *| b,
+        \\        .shl => a <<| b,
+        \\    };
+        \\    switch (op) {
+        \\        .add => actual +|= b,
+        \\        .sub => actual -|= b,
+        \\        .mul => actual *|= b,
+        \\        .shl => actual <<|= b,
+        \\    }
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: insert trailing comma if there are comments between switch values" {
     try testTransform(
         \\const a = switch (b) {
