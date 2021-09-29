@@ -160,6 +160,14 @@ pub const Inst = struct {
         /// Result type is the return type of the function being called.
         /// Uses the `pl_op` field with the `Call` payload. operand is the callee.
         call,
+        /// Count leading zeroes of an integer according to its representation in twos complement.
+        /// Result type will always be an unsigned integer big enough to fit the answer.
+        /// Uses the `ty_op` field.
+        clz,
+        /// Count trailing zeroes of an integer according to its representation in twos complement.
+        /// Result type will always be an unsigned integer big enough to fit the answer.
+        /// Uses the `ty_op` field.
+        ctz,
 
         /// `<`. Result type is always bool.
         /// Uses the `bin_op` field.
@@ -669,6 +677,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .float_to_int,
         .int_to_float,
         .get_union_tag,
+        .clz,
+        .ctz,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,

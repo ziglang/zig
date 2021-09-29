@@ -3902,16 +3902,16 @@ pub const Type = extern union {
         const bits = bits: {
             if (max == 0) break :bits 0;
             const base = std.math.log2(max);
-            const upper = (@as(u64, 1) << base) - 1;
+            const upper = (@as(u64, 1) << @intCast(u6, base)) - 1;
             break :bits base + @boolToInt(upper < max);
         };
-        return switch (bits) {
+        return switch (@intCast(u16, bits)) {
             1 => initTag(.u1),
             8 => initTag(.u8),
             16 => initTag(.u16),
             32 => initTag(.u32),
             64 => initTag(.u64),
-            else => return Tag.int_unsigned.create(arena, bits),
+            else => |b| return Tag.int_unsigned.create(arena, b),
         };
     }
 };

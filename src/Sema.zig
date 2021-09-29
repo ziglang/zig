@@ -4611,8 +4611,8 @@ fn zirIntCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
     const dest_type = try sema.resolveType(block, dest_ty_src, extra.lhs);
     const operand = sema.resolveInst(extra.rhs);
 
-    const dest_is_comptime_int = try sema.requireIntegerType(block, dest_ty_src, dest_type);
-    _ = try sema.requireIntegerType(block, operand_src, sema.typeOf(operand));
+    const dest_is_comptime_int = try sema.checkIntType(block, dest_ty_src, dest_type);
+    _ = try sema.checkIntType(block, operand_src, sema.typeOf(operand));
 
     if (try sema.isComptimeKnown(block, operand_src, operand)) {
         return sema.coerce(block, dest_type, operand, operand_src);
@@ -8384,7 +8384,7 @@ fn zirIntToFloat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Compile
     const operand = sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
 
-    try sema.checkIntType(block, ty_src, dest_ty);
+    _ = try sema.checkIntType(block, ty_src, dest_ty);
     try sema.checkFloatType(block, operand_src, operand_ty);
 
     if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
@@ -8493,8 +8493,8 @@ fn zirTruncate(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     const operand = sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
     const mod = sema.mod;
-    const dest_is_comptime_int = try sema.requireIntegerType(block, dest_ty_src, dest_ty);
-    const src_is_comptime_int = try sema.requireIntegerType(block, operand_src, operand_ty);
+    const dest_is_comptime_int = try sema.checkIntType(block, dest_ty_src, dest_ty);
+    const src_is_comptime_int = try sema.checkIntType(block, operand_src, operand_ty);
 
     if (dest_is_comptime_int) {
         return sema.coerce(block, dest_ty, operand, operand_src);
@@ -8552,14 +8552,56 @@ fn zirAlignCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileE
 
 fn zirClz(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirClz", .{});
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand = sema.resolveInst(inst_data.operand);
+    const operand_ty = sema.typeOf(operand);
+    // TODO implement support for vectors
+    if (operand_ty.zigTypeTag() != .Int) {
+        return sema.mod.fail(&block.base, ty_src, "expected integer type, found '{}'", .{
+            operand_ty,
+        });
+    }
+    const target = sema.mod.getTarget();
+    const bits = operand_ty.intInfo(target).bits;
+    if (bits == 0) return Air.Inst.Ref.zero;
+
+    const result_ty = try Type.smallestUnsignedInt(sema.arena, bits);
+
+    const runtime_src = if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        if (val.isUndef()) return sema.addConstUndef(result_ty);
+        return sema.addIntUnsigned(result_ty, val.clz(operand_ty, target));
+    } else operand_src;
+
+    try sema.requireRuntimeBlock(block, runtime_src);
+    return block.addTyOp(.clz, result_ty, operand);
 }
 
 fn zirCtz(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirCtz", .{});
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand = sema.resolveInst(inst_data.operand);
+    const operand_ty = sema.typeOf(operand);
+    // TODO implement support for vectors
+    if (operand_ty.zigTypeTag() != .Int) {
+        return sema.mod.fail(&block.base, ty_src, "expected integer type, found '{}'", .{
+            operand_ty,
+        });
+    }
+    const target = sema.mod.getTarget();
+    const bits = operand_ty.intInfo(target).bits;
+    if (bits == 0) return Air.Inst.Ref.zero;
+
+    const result_ty = try Type.smallestUnsignedInt(sema.arena, bits);
+
+    const runtime_src = if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        if (val.isUndef()) return sema.addConstUndef(result_ty);
+        return sema.mod.fail(&block.base, operand_src, "TODO: implement comptime @ctz", .{});
+    } else operand_src;
+
+    try sema.requireRuntimeBlock(block, runtime_src);
+    return block.addTyOp(.ctz, result_ty, operand);
 }
 
 fn zirPopCount(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8616,17 +8658,12 @@ fn zirOffsetOf(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirOffsetOf", .{});
 }
 
-fn checkIntType(
-    sema: *Sema,
-    block: *Scope.Block,
-    ty_src: LazySrcLoc,
-    ty: Type,
-) CompileError!void {
+/// Returns `true` if the type was a comptime_int.
+fn checkIntType(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type) CompileError!bool {
     switch (ty.zigTypeTag()) {
-        .ComptimeInt, .Int => {},
-        else => return sema.mod.fail(&block.base, ty_src, "expected integer type, found '{}'", .{
-            ty,
-        }),
+        .ComptimeInt => return true,
+        .Int => return false,
+        else => return sema.mod.fail(&block.base, src, "expected integer type, found '{}'", .{ty}),
     }
 }
 
@@ -9414,14 +9451,6 @@ fn requireRuntimeBlock(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void 
         return sema.failWithNeededComptime(block, src);
     }
     try sema.requireFunctionBlock(block, src);
-}
-
-fn requireIntegerType(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type) !bool {
-    switch (ty.zigTypeTag()) {
-        .ComptimeInt => return true,
-        .Int => return false,
-        else => return sema.mod.fail(&block.base, src, "expected integer type, found '{}'", .{ty}),
-    }
 }
 
 /// Emit a compile error if type cannot be used for a runtime variable.

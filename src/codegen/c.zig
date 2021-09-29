@@ -962,6 +962,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .memcpy           => try airMemcpy(f, inst),
             .set_union_tag    => try airSetUnionTag(f, inst),
             .get_union_tag    => try airGetUnionTag(f, inst),
+            .clz              => try airBuiltinCall(f, inst, "clz"),
+            .ctz              => try airBuiltinCall(f, inst, "ctz"),
 
             .int_to_float,
             .float_to_int,
@@ -2072,6 +2074,23 @@ fn airSimpleCast(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" = ");
     try f.writeCValue(writer, operand);
     try writer.writeAll(";\n");
+    return local;
+}
+
+fn airBuiltinCall(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const writer = f.object.writer();
+    const operand = try f.resolveInst(ty_op.operand);
+
+    // TODO implement the function in zig.h and call it here
+
+    try writer.print(" = {s}(", .{fn_name});
+    try f.writeCValue(writer, operand);
+    try writer.writeAll(");\n");
     return local;
 }
 

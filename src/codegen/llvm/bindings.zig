@@ -172,6 +172,9 @@ pub const Type = opaque {
     pub const constInt = LLVMConstInt;
     extern fn LLVMConstInt(IntTy: *const Type, N: c_ulonglong, SignExtend: Bool) *const Value;
 
+    pub const constIntOfArbitraryPrecision = LLVMConstIntOfArbitraryPrecision;
+    extern fn LLVMConstIntOfArbitraryPrecision(IntTy: *const Type, NumWords: c_uint, Words: [*]const u64) *const Value;
+
     pub const constReal = LLVMConstReal;
     extern fn LLVMConstReal(RealTy: *const Type, N: f64) *const Value;
 
@@ -300,7 +303,7 @@ extern fn LLVMGetInlineAsm(
 pub const functionType = LLVMFunctionType;
 extern fn LLVMFunctionType(
     ReturnType: *const Type,
-    ParamTypes: [*]*const Type,
+    ParamTypes: [*]const *const Type,
     ParamCount: c_uint,
     IsVarArg: Bool,
 ) *const Type;
@@ -346,7 +349,7 @@ pub const Builder = opaque {
     extern fn LLVMBuildCall(
         *const Builder,
         Fn: *const Value,
-        Args: [*]*const Value,
+        Args: [*]const *const Value,
         NumArgs: c_uint,
         Name: [*:0]const u8,
     ) *const Value;

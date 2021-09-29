@@ -186,6 +186,8 @@ const Writer = struct {
             .int_to_float,
             .float_to_int,
             .get_union_tag,
+            .clz,
+            .ctz,
             => try w.writeTyOp(s, inst),
 
             .block,

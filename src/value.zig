@@ -962,6 +962,45 @@ pub const Value = extern union {
         };
     }
 
+    pub fn clz(val: Value, ty: Type, target: Target) u64 {
+        const ty_bits = ty.intInfo(target).bits;
+        switch (val.tag()) {
+            .zero, .bool_false => return ty_bits,
+            .one, .bool_true => return ty_bits - 1,
+
+            .int_u64 => {
+                const big = @clz(u64, val.castTag(.int_u64).?.data);
+                return big + ty_bits - 64;
+            },
+            .int_i64 => {
+                @panic("TODO implement i64 Value clz");
+            },
+            .int_big_positive => {
+                // TODO: move this code into std lib big ints
+                const bigint = val.castTag(.int_big_positive).?.asBigInt();
+                // Limbs are stored in little-endian order but we need
+                // to iterate big-endian.
+                var total_limb_lz: u64 = 0;
+                var i: usize = bigint.limbs.len;
+                const bits_per_limb = @sizeOf(std.math.big.Limb) * 8;
+                while (i != 0) {
+                    i -= 1;
+                    const limb = bigint.limbs[i];
+                    const this_limb_lz = @clz(std.math.big.Limb, limb);
+                    total_limb_lz += this_limb_lz;
+                    if (this_limb_lz != bits_per_limb) break;
+                }
+                const total_limb_bits = bigint.limbs.len * bits_per_limb;
+                return total_limb_lz + ty_bits - total_limb_bits;
+            },
+            .int_big_negative => {
+                @panic("TODO implement int_big_negative Value clz");
+            },
+
+            else => unreachable,
+        }
+    }
+
     /// Asserts the value is an integer and not undefined.
     /// Returns the number of bits the value requires to represent stored in twos complement form.
     pub fn intBitCountTwosComp(self: Value) usize {
