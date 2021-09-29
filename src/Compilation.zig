@@ -1574,10 +1574,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         // also test the use case of `build-obj -fcompiler-rt` with the self-hosted compiler
         // and make sure the compiler-rt symbols are emitted. Currently this is hooked up for
         // stage1 but not stage2.
-        const capable_of_building_compiler_rt = comp.bin_file.options.use_stage1;
-        const capable_of_building_ssp = comp.bin_file.options.use_stage1;
+        const capable_of_building_compiler_rt = comp.bin_file.options.use_stage1 or
+            comp.bin_file.options.use_llvm;
         const capable_of_building_zig_libc = comp.bin_file.options.use_stage1 or
             comp.bin_file.options.use_llvm;
+        const capable_of_building_ssp = comp.bin_file.options.use_stage1;
 
         if (comp.bin_file.options.include_compiler_rt and capable_of_building_compiler_rt) {
             if (is_exe_or_dyn_lib) {
@@ -1646,6 +1647,9 @@ pub fn destroy(self: *Compilation) void {
         crt_file.deinit(gpa);
     }
     if (self.compiler_rt_static_lib) |*crt_file| {
+        crt_file.deinit(gpa);
+    }
+    if (self.compiler_rt_obj) |*crt_file| {
         crt_file.deinit(gpa);
     }
     if (self.libssp_static_lib) |*crt_file| {
@@ -3977,6 +3981,7 @@ fn buildOutputFromZig(
         },
         .root_src_path = src_basename,
     };
+    defer main_pkg.deinitTable(comp.gpa);
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();
     const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{

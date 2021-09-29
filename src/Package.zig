@@ -99,15 +99,18 @@ pub fn destroy(pkg: *Package, gpa: *Allocator) void {
         }
     }
 
-    {
-        var it = pkg.table.keyIterator();
-        while (it.next()) |key| {
-            gpa.free(key.*);
-        }
+    pkg.deinitTable(gpa);
+    gpa.destroy(pkg);
+}
+
+/// Only frees memory associated with the table.
+pub fn deinitTable(pkg: *Package, gpa: *Allocator) void {
+    var it = pkg.table.keyIterator();
+    while (it.next()) |key| {
+        gpa.free(key.*);
     }
 
     pkg.table.deinit(gpa);
-    gpa.destroy(pkg);
 }
 
 pub fn add(pkg: *Package, gpa: *Allocator, name: []const u8, package: *Package) !void {

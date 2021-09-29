@@ -2878,6 +2878,14 @@ pub const Inst = struct {
     /// 1. align_inst: Ref, // if small 0b00X0 is set
     pub const AllocExtended = struct {
         src_node: i32,
+
+        pub const Small = packed struct {
+            has_type: bool,
+            has_align: bool,
+            is_const: bool,
+            is_comptime: bool,
+            _: u12 = undefined,
+        };
     };
 
     pub const Export = struct {

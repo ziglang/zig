@@ -1284,7 +1284,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
     const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt) blk: {
         // TODO: remove when stage2 can build compiler_rt.zig
-        if (!build_options.is_stage1 or !self.base.options.use_stage1) break :blk null;
+        if (!self.base.options.use_llvm) break :blk null;
 
         // In the case of build-obj we include the compiler-rt symbols directly alongside
         // the symbols of the root source file, in the same compilation unit.

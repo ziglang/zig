@@ -1587,7 +1587,42 @@ fn zirAllocExtended(
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.AllocExtended, extended.operand);
     const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
-    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirAllocExtended", .{});
+    const ty_src = src; // TODO better source location
+    const align_src = src; // TODO better source location
+    const small = @bitCast(Zir.Inst.AllocExtended.Small, extended.small);
+
+    var extra_index: usize = extra.end;
+
+    const var_ty: Type = if (small.has_type) blk: {
+        const type_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        break :blk try sema.resolveType(block, ty_src, type_ref);
+    } else {
+        return sema.mod.fail(&block.base, src, "TODO implement Sema.zirAllocExtended inferred", .{});
+    };
+
+    const alignment: u16 = if (small.has_align) blk: {
+        const align_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        const alignment = try sema.resolveAlign(block, align_src, align_ref);
+        break :blk alignment;
+    } else 0;
+
+    if (small.is_comptime) {
+        return sema.mod.fail(&block.base, src, "TODO implement Sema.zirAllocExtended comptime", .{});
+    }
+
+    if (!small.is_const) {
+        return sema.mod.fail(&block.base, src, "TODO implement Sema.zirAllocExtended var", .{});
+    }
+
+    const ptr_type = try Type.ptr(sema.arena, .{
+        .pointee_type = var_ty,
+        .@"align" = alignment,
+        .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+    });
+    try sema.requireRuntimeBlock(block, src);
+    return block.addTy(.alloc, ptr_type);
 }
 
 fn zirAllocComptime(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -4620,7 +4655,8 @@ fn zirIntCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
         return sema.mod.fail(&block.base, src, "unable to cast runtime value to 'comptime_int'", .{});
     }
 
-    return sema.mod.fail(&block.base, src, "TODO implement analyze widen or shorten int", .{});
+    try sema.requireRuntimeBlock(block, operand_src);
+    return block.addTyOp(.intcast, dest_type, operand);
 }
 
 fn zirBitcast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8257,8 +8293,11 @@ fn zirFrameAddress(
 
 fn zirAlignOf(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirAlignOf", .{});
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const ty = try sema.resolveType(block, operand_src, inst_data.operand);
+    const target = sema.mod.getTarget();
+    const abi_align = ty.abiAlignment(target);
+    return sema.addIntUnsigned(Type.comptime_int, abi_align);
 }
 
 fn zirBoolToInt(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

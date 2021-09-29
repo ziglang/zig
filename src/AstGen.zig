@@ -2567,7 +2567,11 @@ fn varDecl(
             for (init_scope.instructions.items) |src_inst| {
                 if (zir_tags[src_inst] == .store_to_block_ptr) {
                     if (zir_datas[src_inst].bin.lhs == init_scope.rl_ptr) {
-                        zir_tags[src_inst] = .store_to_inferred_ptr;
+                        if (var_decl.ast.type_node != 0) {
+                            zir_tags[src_inst] = .store;
+                        } else {
+                            zir_tags[src_inst] = .store_to_inferred_ptr;
+                        }
                     }
                 }
                 parent_zir.appendAssumeCapacity(src_inst);

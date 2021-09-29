@@ -393,6 +393,7 @@ const Writer = struct {
             .@"asm" => try self.writeAsm(stream, extended),
             .func => try self.writeFuncExtended(stream, extended),
             .variable => try self.writeVarExtended(stream, extended),
+            .alloc => try self.writeAllocExtended(stream, extended),
 
             .compile_log,
             .typeof_peer,
@@ -423,7 +424,6 @@ const Writer = struct {
                 try stream.writeByte(')');
             },
 
-            .alloc,
             .builtin_extern,
             .wasm_memory_size,
             .wasm_memory_grow,
@@ -1765,6 +1765,30 @@ const Writer = struct {
         try self.writeOptionalInstRef(stream, ", align=", align_inst);
         try self.writeOptionalInstRef(stream, ", init=", init_inst);
         try stream.writeAll("))");
+    }
+
+    fn writeAllocExtended(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.AllocExtended, extended.operand);
+        const small = @bitCast(Zir.Inst.AllocExtended.Small, extended.small);
+        const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+
+        var extra_index: usize = extra.end;
+        const type_inst: Zir.Inst.Ref = if (!small.has_type) .none else blk: {
+            const type_inst = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+            extra_index += 1;
+            break :blk type_inst;
+        };
+        const align_inst: Zir.Inst.Ref = if (!small.has_align) .none else blk: {
+            const align_inst = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+            extra_index += 1;
+            break :blk align_inst;
+        };
+        try self.writeFlag(stream, ",is_const", small.is_const);
+        try self.writeFlag(stream, ",is_comptime", small.is_comptime);
+        try self.writeOptionalInstRef(stream, ",ty=", type_inst);
+        try self.writeOptionalInstRef(stream, ",align=", align_inst);
+        try stream.writeAll(")) ");
+        try self.writeSrc(stream, src);
     }
 
     fn writeBoolBr(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
