@@ -6380,7 +6380,7 @@ fn analyzeArithmetic(
                 } else break :rs .{ .src = rhs_src, .air_tag = .addwrap };
             },
             .add_sat => {
-                // For both integers and floats:
+                // Integers only; floats are checked above.
                 // If either of the operands are zero, then the other operand is returned.
                 // If either of the operands are undefined, the result is undefined.
                 if (maybe_lhs_val) |lhs_val| {
@@ -6398,7 +6398,7 @@ fn analyzeArithmetic(
                     if (maybe_lhs_val) |lhs_val| {
                         return sema.addConstant(
                             scalar_type,
-                            try lhs_val.numberAddSat(rhs_val, scalar_type, sema.arena, target),
+                            try lhs_val.intAddSat(rhs_val, scalar_type, sema.arena, target),
                         );
                     } else break :rs .{ .src = lhs_src, .air_tag = .add_sat };
                 } else break :rs .{ .src = rhs_src, .air_tag = .add_sat };
@@ -6471,7 +6471,7 @@ fn analyzeArithmetic(
                 } else break :rs .{ .src = lhs_src, .air_tag = .subwrap };
             },
             .sub_sat => {
-                // For both integers and floats:
+                // Integers only; floats are checked above.
                 // If the RHS is zero, result is LHS.
                 // If either of the operands are undefined, result is undefined.
                 if (maybe_rhs_val) |rhs_val| {
@@ -6489,7 +6489,7 @@ fn analyzeArithmetic(
                     if (maybe_rhs_val) |rhs_val| {
                         return sema.addConstant(
                             scalar_type,
-                            try lhs_val.numberSubSat(rhs_val, scalar_type, sema.arena, target),
+                            try lhs_val.intSubSat(rhs_val, scalar_type, sema.arena, target),
                         );
                     } else break :rs .{ .src = rhs_src, .air_tag = .sub_sat };
                 } else break :rs .{ .src = lhs_src, .air_tag = .sub_sat };
@@ -6647,7 +6647,7 @@ fn analyzeArithmetic(
                 } else break :rs .{ .src = rhs_src, .air_tag = .mulwrap };
             },
             .mul_sat => {
-                // For both integers and floats:
+                // Integers only; floats are checked above.
                 // If either of the operands are zero, result is zero.
                 // If either of the operands are one, result is the other operand.
                 // If either of the operands are undefined, result is undefined.
@@ -6677,7 +6677,7 @@ fn analyzeArithmetic(
                         }
                         return sema.addConstant(
                             scalar_type,
-                            try lhs_val.numberMulSat(rhs_val, scalar_type, sema.arena, target),
+                            try lhs_val.intMulSat(rhs_val, scalar_type, sema.arena, target),
                         );
                     } else break :rs .{ .src = lhs_src, .air_tag = .mul_sat };
                 } else break :rs .{ .src = rhs_src, .air_tag = .mul_sat };
@@ -7931,7 +7931,7 @@ fn analyzeRet(
 fn floatOpAllowed(tag: Zir.Inst.Tag) bool {
     // extend this swich as additional operators are implemented
     return switch (tag) {
-        .add, .add_sat, .sub, .sub_sat, .mul, .mul_sat, .div, .mod, .rem, .mod_rem => true,
+        .add, .sub, .mul, .div, .mod, .rem, .mod_rem => true,
         else => false,
     };
 }

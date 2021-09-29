@@ -130,7 +130,7 @@ pub const Inst = struct {
         /// it shifts out any bits that disagree with the resultant sign bit.
         /// Uses the `bin_op` field.
         shl_exact,
-        /// Shift left saturating. `<<|`
+        /// Saturating integer shift left. `<<|`
         /// Uses the `bin_op` field.
         shl_sat,
         /// Bitwise XOR. `^`

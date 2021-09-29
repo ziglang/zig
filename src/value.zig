@@ -1588,20 +1588,17 @@ pub const Value = extern union {
         return result;
     }
 
-    /// Supports both floats and ints; handles undefined.
-    pub fn numberAddSat(
+    /// Supports integers only; asserts neither operand is undefined.
+    pub fn intAddSat(
         lhs: Value,
         rhs: Value,
         ty: Type,
         arena: *Allocator,
         target: Target,
     ) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+        assert(!lhs.isUndef());
+        assert(!rhs.isUndef());
 
-        if (ty.isAnyFloat()) {
-            // TODO: handle outside float range
-            return floatAdd(lhs, rhs, ty, arena);
-        }
         const result = try intAdd(lhs, rhs, arena);
 
         const max = try ty.maxInt(arena, target);
@@ -1645,20 +1642,17 @@ pub const Value = extern union {
         return result;
     }
 
-    /// Supports both floats and ints; handles undefined.
-    pub fn numberSubSat(
+    /// Supports integers only; asserts neither operand is undefined.
+    pub fn intSubSat(
         lhs: Value,
         rhs: Value,
         ty: Type,
         arena: *Allocator,
         target: Target,
     ) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+        assert(!lhs.isUndef());
+        assert(!rhs.isUndef());
 
-        if (ty.isAnyFloat()) {
-            // TODO: handle outside float range
-            return floatSub(lhs, rhs, ty, arena);
-        }
         const result = try intSub(lhs, rhs, arena);
 
         const max = try ty.maxInt(arena, target);
@@ -1702,20 +1696,17 @@ pub const Value = extern union {
         return result;
     }
 
-    /// Supports both floats and ints; handles undefined.
-    pub fn numberMulSat(
+    /// Supports integers only; asserts neither operand is undefined.
+    pub fn intMulSat(
         lhs: Value,
         rhs: Value,
         ty: Type,
         arena: *Allocator,
         target: Target,
     ) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+        assert(!lhs.isUndef());
+        assert(!rhs.isUndef());
 
-        if (ty.isAnyFloat()) {
-            // TODO: handle outside float range
-            return floatMul(lhs, rhs, ty, arena);
-        }
         const result = try intMul(lhs, rhs, arena);
 
         const max = try ty.maxInt(arena, target);

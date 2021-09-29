@@ -8859,9 +8859,9 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:3:12: note: crosses namespace boundary here",
     });
 
-    ctx.objErrStage1("Issue #9619: saturating arithmetic builtins should fail to compile when given floats",
+    ctx.objErrStage1("saturating arithmetic does not allow floats",
         \\pub fn main() !void {
-        \\    _ = @addWithSaturation(@as(f32, 1.0), @as(f32, 1.0));
+        \\    _ = @as(f32, 1.0) +| @as(f32, 1.0);
         \\}
     , &[_][]const u8{
         "error: invalid operands to binary expression: 'f32' and 'f32'",
