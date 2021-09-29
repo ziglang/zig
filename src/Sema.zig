@@ -90,6 +90,7 @@ const LazySrcLoc = Module.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
 const target_util = @import("target.zig");
 const Package = @import("Package.zig");
+const crash_report = @import("crash_report.zig");
 
 pub const InstMap = std.AutoHashMapUnmanaged(Zir.Inst.Index, Air.Inst.Ref);
 
@@ -153,11 +154,16 @@ pub fn analyzeBody(
 
     var orig_captures: usize = parent_capture_scope.captures.count();
 
+    var crash_info = crash_report.prepAnalyzeBody(sema, block, body);
+    crash_info.push();
+    defer crash_info.pop();
+
     // We use a while(true) loop here to avoid a redundant way of breaking out of
     // the loop. The only way to break out of the loop is with a `noreturn`
     // instruction.
     var i: usize = 0;
     const result = while (true) {
+        crash_info.setBodyIndex(i);
         const inst = body[i];
         const air_inst: Air.Inst.Ref = switch (tags[inst]) {
             // zig fmt: off
