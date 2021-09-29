@@ -244,7 +244,8 @@ pub const File = struct {
             .raw => return error.RawObjectFormatUnimplemented,
         };
 
-        if (use_lld) {
+        const use_llvm = build_options.have_llvm and options.use_llvm;
+        if (use_lld or use_llvm) {
             // TODO this intermediary_basename isn't enough; in the case of `zig build-exe`,
             // we also want to put the intermediary object file in the cache while the
             // main emit directory is the cwd.
