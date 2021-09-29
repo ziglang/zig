@@ -3281,6 +3281,7 @@ fn analyzeCall(
             new_decl.is_exported = module_fn.owner_decl.is_exported;
             new_decl.has_align = module_fn.owner_decl.has_align;
             new_decl.has_linksection_or_addrspace = module_fn.owner_decl.has_linksection_or_addrspace;
+            new_decl.@"addrspace" = module_fn.owner_decl.@"addrspace";
             new_decl.zir_decl_index = module_fn.owner_decl.zir_decl_index;
             new_decl.alive = true; // This Decl is called at runtime.
             new_decl.has_tv = true;
