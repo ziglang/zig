@@ -50,6 +50,7 @@ base: File,
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
 llvm_object: ?*LlvmObject = null,
+llvm_object_flushed: bool = false,
 
 /// Debug symbols bundle (or dSym).
 d_sym: ?DebugSymbols = null,
@@ -519,7 +520,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
             try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
     } else {
-        if (use_stage1) {
+        if (use_stage1 or (is_exe_or_dyn_lib and self.llvm_object != null)) {
             const sub_path = self.base.options.emit.?.sub_path;
             self.base.file = try directory.handle.createFile(sub_path, .{
                 .truncate = true,
@@ -907,8 +908,15 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (build_options.have_llvm)
-        if (self.llvm_object) |llvm_object| return try llvm_object.flushModule(comp);
+    if (build_options.have_llvm) {
+        log.debug("WAT {s}", .{self.base.options.output_mode});
+        log.debug("flushed? {}", .{self.llvm_object_flushed});
+        if (!self.llvm_object_flushed and self.llvm_object != null) {
+            try self.llvm_object.?.flushModule(comp);
+            self.llvm_object_flushed = true;
+            return;
+        }
+    }
 
     if (self.base.options.output_mode == .Obj) {
         return error.TODOGenerateRelocatableObjectFile;
@@ -2850,8 +2858,15 @@ fn setEntryPoint(self: *MachO) !void {
     const seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "_main"), StringIndexAdapter{
         .bytes = &self.strtab,
-    }) orelse {
-        log.err("'_main' export not found", .{});
+    }) orelse blk: {
+        // Try 'main' instead.
+        // TODO investigate!
+        if (self.strtab_dir.getKeyAdapted(@as([]const u8, "main"), StringIndexAdapter{
+            .bytes = &self.strtab,
+        })) |n_strx| {
+            break :blk n_strx;
+        }
+        log.err("neither '_main' nor 'main' export not found", .{});
         return error.MissingMainEntrypoint;
     };
     const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;

@@ -207,8 +207,9 @@ pub const File = struct {
             };
         }
         const emit = options.emit.?;
+        const use_llvm = build_options.have_llvm and options.use_llvm;
         const use_lld = build_options.have_llvm and options.use_lld; // comptime known false when !have_llvm
-        const sub_path = if (use_lld) blk: {
+        const sub_path = if (use_lld or use_llvm) blk: {
             if (options.module == null) {
                 // No point in opening a file, we would not write anything to it.
                 // Initialize with empty.
@@ -244,7 +245,6 @@ pub const File = struct {
             .raw => return error.RawObjectFormatUnimplemented,
         };
 
-        const use_llvm = build_options.have_llvm and options.use_llvm;
         if (use_lld or use_llvm) {
             // TODO this intermediary_basename isn't enough; in the case of `zig build-exe`,
             // we also want to put the intermediary object file in the cache while the
