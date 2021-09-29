@@ -48,7 +48,7 @@ pub const Inst = struct {
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
-        addsat,
+        add_sat,
         /// Float or integer subtraction. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -63,7 +63,7 @@ pub const Inst = struct {
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
-        subsat,
+        sub_sat,
         /// Float or integer multiplication. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -78,7 +78,7 @@ pub const Inst = struct {
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
-        mulsat,
+        mul_sat,
         /// Integer or float division. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -125,6 +125,11 @@ pub const Inst = struct {
         /// Shift left. `<<`
         /// Uses the `bin_op` field.
         shl,
+        /// Shift left; For unsigned integers, the shift produces a poison value if it shifts
+        /// out any non-zero bits. For signed integers, the shift produces a poison value if
+        /// it shifts out any bits that disagree with the resultant sign bit.
+        /// Uses the `bin_op` field.
+        shl_exact,
         /// Shift left saturating. `<<|`
         /// Uses the `bin_op` field.
         shl_sat,
@@ -586,13 +591,13 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .add,
         .addwrap,
-        .addsat,
+        .add_sat,
         .sub,
         .subwrap,
-        .subsat,
+        .sub_sat,
         .mul,
         .mulwrap,
-        .mulsat,
+        .mul_sat,
         .div,
         .rem,
         .mod,
@@ -603,6 +608,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ptr_sub,
         .shr,
         .shl,
+        .shl_exact,
         .shl_sat,
         => return air.typeOf(datas[inst].bin_op.lhs),
 

@@ -126,6 +126,64 @@ pub const Inst = struct {
         /// Twos complement wrapping integer addition.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         addwrap,
+        /// Saturating addition.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        add_sat,
+        /// Arithmetic subtraction. Asserts no integer overflow.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        sub,
+        /// Twos complement wrapping integer subtraction.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        subwrap,
+        /// Saturating subtraction.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        sub_sat,
+        /// Arithmetic multiplication. Asserts no integer overflow.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        mul,
+        /// Twos complement wrapping integer multiplication.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        mulwrap,
+        /// Saturating multiplication.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        mul_sat,
+        /// Implements the `@divExact` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        div_exact,
+        /// Implements the `@divFloor` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        div_floor,
+        /// Implements the `@divTrunc` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        div_trunc,
+        /// Implements the `@mod` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        mod,
+        /// Implements the `@rem` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        rem,
+        /// Ambiguously remainder division or modulus. If the computation would possibly have
+        /// a different value depending on whether the operation is remainder division or modulus,
+        /// a compile error is emitted. Otherwise the computation is performed.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        mod_rem,
+        /// Integer shift-left. Zeroes are shifted in from the right hand side.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        shl,
+        /// Implements the `@shlExact` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        shl_exact,
+        /// Saturating shift-left.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        shl_sat,
+        /// Integer shift-right. Arithmetic or logical depending on the signedness of
+        /// the integer type.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        shr,
+        /// Implements the `@shrExact` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        shr_exact,
+
         /// Declares a parameter of the current function. Used for:
         /// * debug info
         /// * checking shadowing against declarations in the current namespace
@@ -471,12 +529,6 @@ pub const Inst = struct {
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
         /// Uses the `str` union field.
         str,
-        /// Arithmetic subtraction. Asserts no integer overflow.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        sub,
-        /// Twos complement wrapping integer subtraction.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        subwrap,
         /// Arithmetic negation. Asserts no integer overflow.
         /// Same as sub with a lhs of 0, split into a separate instruction to save memory.
         /// Uses `un_node`.
@@ -802,46 +854,6 @@ pub const Inst = struct {
         /// Implements the `@bitReverse` builtin. Uses the `un_node` union field.
         bit_reverse,
 
-        /// Implements the `@divExact` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`.
-        div_exact,
-        /// Implements the `@divFloor` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`.
-        div_floor,
-        /// Implements the `@divTrunc` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`.
-        div_trunc,
-        /// Implements the `@mod` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`.
-        mod,
-        /// Implements the `@rem` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`.
-        rem,
-        /// Ambiguously remainder division or modulus. If the computation would possibly have
-        /// a different value depending on whether the operation is remainder division or modulus,
-        /// a compile error is emitted. Otherwise the computation is performed.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        mod_rem,
-        /// Arithmetic multiplication. Asserts no integer overflow.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        mul,
-        /// Twos complement wrapping integer multiplication.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        mulwrap,
-
-        /// Integer shift-left. Zeroes are shifted in from the right hand side.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        shl,
-        /// Implements the `@shlExact` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`.
-        shl_exact,
-        /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        shr,
-        /// Implements the `@shrExact` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`.
-        shr_exact,
-
         /// Implements the `@bitOffsetOf` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         bit_offset_of,
@@ -961,6 +973,7 @@ pub const Inst = struct {
                 .param_anytype_comptime,
                 .add,
                 .addwrap,
+                .add_sat,
                 .alloc,
                 .alloc_mut,
                 .alloc_comptime,
@@ -1035,8 +1048,10 @@ pub const Inst = struct {
                 .mod_rem,
                 .mul,
                 .mulwrap,
+                .mul_sat,
                 .ref,
                 .shl,
+                .shl_sat,
                 .shr,
                 .store,
                 .store_node,
@@ -1045,6 +1060,7 @@ pub const Inst = struct {
                 .str,
                 .sub,
                 .subwrap,
+                .sub_sat,
                 .negate,
                 .negate_wrap,
                 .typeof,
@@ -1218,6 +1234,14 @@ pub const Inst = struct {
             break :list std.enums.directEnumArray(Tag, Data.FieldEnum, 0, .{
                 .add = .pl_node,
                 .addwrap = .pl_node,
+                .add_sat = .pl_node,
+                .sub = .pl_node,
+                .subwrap = .pl_node,
+                .sub_sat = .pl_node,
+                .mul = .pl_node,
+                .mulwrap = .pl_node,
+                .mul_sat = .pl_node,
+
                 .param = .pl_tok,
                 .param_comptime = .pl_tok,
                 .param_anytype = .str_tok,
@@ -1297,8 +1321,6 @@ pub const Inst = struct {
                 .repeat_inline = .node,
                 .merge_error_sets = .pl_node,
                 .mod_rem = .pl_node,
-                .mul = .pl_node,
-                .mulwrap = .pl_node,
                 .ref = .un_tok,
                 .ret_node = .un_node,
                 .ret_load = .un_node,
@@ -1315,8 +1337,6 @@ pub const Inst = struct {
                 .store_to_block_ptr = .bin,
                 .store_to_inferred_ptr = .bin,
                 .str = .str,
-                .sub = .pl_node,
-                .subwrap = .pl_node,
                 .negate = .un_node,
                 .negate_wrap = .un_node,
                 .typeof = .un_node,
@@ -1437,6 +1457,7 @@ pub const Inst = struct {
 
                 .shl = .pl_node,
                 .shl_exact = .pl_node,
+                .shl_sat = .pl_node,
                 .shr = .pl_node,
                 .shr_exact = .pl_node,
 
@@ -1593,22 +1614,6 @@ pub const Inst = struct {
         wasm_memory_size,
         /// `operand` is payload index to `BinNode`.
         wasm_memory_grow,
-        /// Implements the `@addWithSaturation` builtin.
-        /// `operand` is payload index to `SaturatingArithmetic`.
-        /// `small` is unused.
-        add_with_saturation,
-        /// Implements the `@subWithSaturation` builtin.
-        /// `operand` is payload index to `SaturatingArithmetic`.
-        /// `small` is unused.
-        sub_with_saturation,
-        /// Implements the `@mulWithSaturation` builtin.
-        /// `operand` is payload index to `SaturatingArithmetic`.
-        /// `small` is unused.
-        mul_with_saturation,
-        /// Implements the `@shlWithSaturation` builtin.
-        /// `operand` is payload index to `SaturatingArithmetic`.
-        /// `small` is unused.
-        shl_with_saturation,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2786,12 +2791,6 @@ pub const Inst = struct {
         lhs: Ref,
         rhs: Ref,
         ptr: Ref,
-    };
-
-    pub const SaturatingArithmetic = struct {
-        node: i32,
-        lhs: Ref,
-        rhs: Ref,
     };
 
     pub const Cmpxchg = struct {

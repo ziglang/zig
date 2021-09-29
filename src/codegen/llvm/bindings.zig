@@ -469,6 +469,12 @@ pub const Builder = opaque {
     pub const buildShl = LLVMBuildShl;
     extern fn LLVMBuildShl(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
+    pub const buildNUWShl = ZigLLVMBuildNUWShl;
+    extern fn ZigLLVMBuildNUWShl(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildNSWShl = ZigLLVMBuildNSWShl;
+    extern fn ZigLLVMBuildNSWShl(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
     pub const buildSShlSat = ZigLLVMBuildSShlSat;
     extern fn ZigLLVMBuildSShlSat(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 

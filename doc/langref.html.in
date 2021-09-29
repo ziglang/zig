@@ -1407,7 +1407,6 @@ a +|= b{#endsyntax#}</pre></th>
           <td>Saturating Addition.
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
-              <li>See also {#link|@addWithSaturation#}.</li>
             </ul>
           </td>
           <td>
@@ -1464,7 +1463,6 @@ a -|= b{#endsyntax#}</pre></th>
           <td>Saturating Subtraction.
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
-              <li>See also {#link|@subWithSaturation#}.</li>
             </ul>
           </td>
           <td>
@@ -1556,7 +1554,6 @@ a *|= b{#endsyntax#}</pre></th>
           <td>Saturating Multiplication.
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
-              <li>See also {#link|@mulWithSaturation#}.</li>
             </ul>
           </td>
           <td>
@@ -7235,15 +7232,6 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
                   If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       {#header_close#}
-      {#header_open|@addWithSaturation#}
-      <pre>{#syntax#}@addWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
-      <p>
-      Returns {#syntax#}a + b{#endsyntax#}. The result will be clamped between the type maximum and minimum.
-      </p>
-      <p>
-      The syntax {#syntax#}a +| b{#endsyntax#} is equivalent to calling {#syntax#}@addWithSaturation(a, b){#endsyntax#}.
-      </p>
-      {#header_close#}
       {#header_open|@alignCast#}
       <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: anytype) anytype{#endsyntax#}</pre>
       <p>
@@ -8365,21 +8353,6 @@ test "@wasmMemoryGrow" {
       </p>
       {#header_close#}
       
-      {#header_open|@mulWithSaturation#}
-      <pre>{#syntax#}@mulWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
-      <p>
-      Returns {#syntax#}a * b{#endsyntax#}. The result will be clamped between the type maximum and minimum.
-      </p>
-      <p>
-      The syntax {#syntax#}a *| b{#endsyntax#} is equivalent to calling {#syntax#}@mulWithSaturation(a, b){#endsyntax#}.
-      </p>
-      <p>
-      NOTE: Currently there is a bug in the llvm.smul.fix.sat intrinsic which affects {#syntax#}@mulWithSaturation{#endsyntax#} of signed integers.  
-      This may result in an incorrect sign bit when there is overflow.  This will be fixed in zig's 0.9.0 release.  
-      Check <a href="https://github.com/ziglang/zig/issues/9643">this issue</a> for more information.
-      </p>
-      {#header_close#}
-
       {#header_open|@panic#}
       <pre>{#syntax#}@panic(message: []const u8) noreturn{#endsyntax#}</pre>
       <p>
@@ -8597,14 +8570,16 @@ test "@setRuntimeSafety" {
       {#header_open|@shlExact#}
       <pre>{#syntax#}@shlExact(value: T, shift_amt: Log2T) T{#endsyntax#}</pre>
       <p>
-      Performs the left shift operation ({#syntax#}<<{#endsyntax#}). Caller guarantees
-      that the shift will not shift any 1 bits out.
+      Performs the left shift operation ({#syntax#}<<{#endsyntax#}).
+      For unsigned integers, the result is {#link|undefined#} if any 1 bits
+      are shifted out. For signed integers, the result is {#link|undefined#} if
+      any bits that disagree with the resultant sign bit are shifted out.
       </p>
       <p>
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
               This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
       </p>
-      {#see_also|@shrExact|@shlWithOverflow|@shlWithSaturation#}
+      {#see_also|@shrExact|@shlWithOverflow#}
       {#header_close#}
 
       {#header_open|@shlWithOverflow#}
@@ -8618,23 +8593,9 @@ test "@setRuntimeSafety" {
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
               This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
       </p>
-      {#see_also|@shlExact|@shrExact|@shlWithSaturation#}
+      {#see_also|@shlExact|@shrExact#}
       {#header_close#}
       
-      {#header_open|@shlWithSaturation#}
-      <pre>{#syntax#}@shlWithSaturation(a: T, shift_amt: T) T{#endsyntax#}</pre>
-      <p>
-      Returns {#syntax#}a << b{#endsyntax#}. The result will be clamped between type minimum and maximum.  
-      </p>
-      <p>
-      The syntax {#syntax#}a <<| b{#endsyntax#} is equivalent to calling {#syntax#}@shlWithSaturation(a, b){#endsyntax#}.
-      </p>
-      <p>
-      Unlike other @shl builtins, shift_amt doesn't need to be a Log2T as saturated overshifting is well defined.  
-      </p>
-      {#see_also|@shlExact|@shrExact|@shlWithOverflow#}
-      {#header_close#}
-
       {#header_open|@shrExact#}
       <pre>{#syntax#}@shrExact(value: T, shift_amt: Log2T) T{#endsyntax#}</pre>
       <p>
@@ -8645,7 +8606,7 @@ test "@setRuntimeSafety" {
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
               This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
       </p>
-      {#see_also|@shlExact|@shlWithOverflow|@shlWithSaturation#}
+      {#see_also|@shlExact|@shlWithOverflow#}
       {#header_close#}
 
       {#header_open|@shuffle#}
@@ -8945,16 +8906,6 @@ fn doTheTest() !void {
       </p>
       {#header_close#}
       
-      {#header_open|@subWithSaturation#}
-      <pre>{#syntax#}@subWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
-      <p>
-      Returns {#syntax#}a - b{#endsyntax#}. The result will be clamped between the type maximum and minimum.  
-      </p>
-      <p>
-      The syntax {#syntax#}a -| b{#endsyntax#} is equivalent to calling {#syntax#}@subWithSaturation(a, b){#endsyntax#}.
-      </p>
-      {#header_close#}
-
       {#header_open|@tagName#}
       <pre>{#syntax#}@tagName(value: anytype) [:0]const u8{#endsyntax#}</pre>
       <p>

@@ -356,9 +356,6 @@ static inline long long zig_subw_longlong(long long lhs, long long rhs, long lon
     return (long long)(((unsigned long long)lhs) - ((unsigned long long)rhs));
 }
 
-/*
- * Saturating aritmetic operations: add, sub, mul, shl
- */
 #define zig_add_sat_u(ZT, T) static inline T zig_adds_##ZT(T x, T y, T max) { \
     return (x > max - y) ? max : x + y; \
 }
@@ -449,7 +446,7 @@ zig_shl_sat_u(u32,   uint32_t, 32)
 zig_shl_sat_s(i32,    int32_t, 31)
 zig_shl_sat_u(u64,   uint64_t, 64)
 zig_shl_sat_s(i64,    int64_t, 63)
-zig_shl_sat_s(isize, intptr_t, 63)
-zig_shl_sat_s(short,    short, 15)
-zig_shl_sat_s(int,        int, 31)
-zig_shl_sat_s(long,      long, 63)
+zig_shl_sat_s(isize, intptr_t, ((sizeof(intptr_t)) * CHAR_BIT - 1))
+zig_shl_sat_s(short,    short, ((sizeof(short   )) * CHAR_BIT - 1))
+zig_shl_sat_s(int,        int, ((sizeof(int     )) * CHAR_BIT - 1))
+zig_shl_sat_s(long,      long, ((sizeof(long    )) * CHAR_BIT - 1))

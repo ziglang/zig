@@ -824,18 +824,20 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                 switch (air_tags[inst]) {
                     // zig fmt: off
-                    .add, .ptr_add => try self.airAdd(inst),
-                    .addwrap       => try self.airAddWrap(inst),
-                    .addsat        => try self.airArithmeticOpSat(inst, "addsat"),
-                    .sub, .ptr_sub => try self.airSub(inst),
-                    .subwrap       => try self.airSubWrap(inst),
-                    .subsat        => try self.airArithmeticOpSat(inst, "subsat"),
-                    .mul           => try self.airMul(inst),
-                    .mulwrap       => try self.airMulWrap(inst),
-                    .mulsat        => try self.airArithmeticOpSat(inst, "mulsat"),
-                    .div           => try self.airDiv(inst),
-                    .rem           => try self.airRem(inst),
-                    .mod           => try self.airMod(inst),
+                    .add, .ptr_add   => try self.airAdd(inst),
+                    .addwrap         => try self.airAddWrap(inst),
+                    .add_sat         => try self.airAddSat(inst),
+                    .sub, .ptr_sub   => try self.airSub(inst),
+                    .subwrap         => try self.airSubWrap(inst),
+                    .sub_sat         => try self.airSubSat(inst),
+                    .mul             => try self.airMul(inst),
+                    .mulwrap         => try self.airMulWrap(inst),
+                    .mul_sat         => try self.airMulSat(inst),
+                    .div             => try self.airDiv(inst),
+                    .rem             => try self.airRem(inst),
+                    .mod             => try self.airMod(inst),
+                    .shl, .shl_exact => try self.airShl(inst),
+                    .shl_sat         => try self.airShlSat(inst),
 
                     .cmp_lt  => try self.airCmp(inst, .lt),
                     .cmp_lte => try self.airCmp(inst, .lte),
@@ -850,8 +852,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .bit_or   => try self.airBitOr(inst),
                     .xor      => try self.airXor(inst),
                     .shr      => try self.airShr(inst),
-                    .shl      => try self.airShl(inst),
-                    .shl_sat  => try self.airArithmeticOpSat(inst, "shl_sat"),
 
                     .alloc           => try self.airAlloc(inst),
                     .arg             => try self.airArg(inst),
@@ -1306,6 +1306,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
 
+        fn airAddSat(self: *Self, inst: Air.Inst.Index) !void {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement add_sat for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
         fn airSub(self: *Self, inst: Air.Inst.Index) !void {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
@@ -1324,10 +1332,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
 
-        fn airArithmeticOpSat(self: *Self, inst: Air.Inst.Index, comptime name: []const u8) !void {
+        fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
-                else => return self.fail("TODO implement " ++ name ++ " for {}", .{self.target.cpu.arch}),
+                else => return self.fail("TODO implement sub_sat for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
@@ -1346,6 +1354,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement mulwrap for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement mul_sat for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
@@ -1408,6 +1424,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
                 .arm, .armeb => try self.genArmBinOp(inst, bin_op.lhs, bin_op.rhs, .shl),
                 else => return self.fail("TODO implement shl for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }

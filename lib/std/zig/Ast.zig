@@ -395,9 +395,9 @@ pub fn firstToken(tree: Tree, node: Node.Index) TokenIndex {
         .assign_mod,
         .assign_add,
         .assign_sub,
-        .assign_bit_shift_left,
-        .assign_bit_shift_left_sat,
-        .assign_bit_shift_right,
+        .assign_shl,
+        .assign_shl_sat,
+        .assign_shr,
         .assign_bit_and,
         .assign_bit_xor,
         .assign_bit_or,
@@ -422,9 +422,9 @@ pub fn firstToken(tree: Tree, node: Node.Index) TokenIndex {
         .sub_wrap,
         .add_sat,
         .sub_sat,
-        .bit_shift_left,
-        .bit_shift_left_sat,
-        .bit_shift_right,
+        .shl,
+        .shl_sat,
+        .shr,
         .bit_and,
         .bit_xor,
         .bit_or,
@@ -659,9 +659,9 @@ pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
         .assign_mod,
         .assign_add,
         .assign_sub,
-        .assign_bit_shift_left,
-        .assign_bit_shift_left_sat,
-        .assign_bit_shift_right,
+        .assign_shl,
+        .assign_shl_sat,
+        .assign_shr,
         .assign_bit_and,
         .assign_bit_xor,
         .assign_bit_or,
@@ -686,9 +686,9 @@ pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
         .sub_wrap,
         .add_sat,
         .sub_sat,
-        .bit_shift_left,
-        .bit_shift_left_sat,
-        .bit_shift_right,
+        .shl,
+        .shl_sat,
+        .shr,
         .bit_and,
         .bit_xor,
         .bit_or,
@@ -2540,11 +2540,11 @@ pub const Node = struct {
         /// `lhs -= rhs`. main_token is op.
         assign_sub,
         /// `lhs <<= rhs`. main_token is op.
-        assign_bit_shift_left,
+        assign_shl,
         /// `lhs <<|= rhs`. main_token is op.
-        assign_bit_shift_left_sat,
+        assign_shl_sat,
         /// `lhs >>= rhs`. main_token is op.
-        assign_bit_shift_right,
+        assign_shr,
         /// `lhs &= rhs`. main_token is op.
         assign_bit_and,
         /// `lhs ^= rhs`. main_token is op.
@@ -2594,11 +2594,11 @@ pub const Node = struct {
         /// `lhs -| rhs`. main_token is the `-|`.
         sub_sat,
         /// `lhs << rhs`. main_token is the `<<`.
-        bit_shift_left,
+        shl,
         /// `lhs <<| rhs`. main_token is the `<<|`.
-        bit_shift_left_sat,
+        shl_sat,
         /// `lhs >> rhs`. main_token is the `>>`.
-        bit_shift_right,
+        shr,
         /// `lhs & rhs`. main_token is the `&`.
         bit_and,
         /// `lhs ^ rhs`. main_token is the `^`.

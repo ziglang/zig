@@ -9134,10 +9134,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdReduce, "reduce", 2);
     create_builtin_fn(g, BuiltinFnIdMaximum, "maximum", 2);
     create_builtin_fn(g, BuiltinFnIdMinimum, "minimum", 2);
-    create_builtin_fn(g, BuiltinFnIdSatAdd, "addWithSaturation", 2);
-    create_builtin_fn(g, BuiltinFnIdSatSub, "subWithSaturation", 2);
-    create_builtin_fn(g, BuiltinFnIdSatMul, "mulWithSaturation", 2);
-    create_builtin_fn(g, BuiltinFnIdSatShl, "shlWithSaturation", 2);
 }
 
 static const char *bool_to_str(bool b) {

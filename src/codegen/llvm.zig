@@ -1236,27 +1236,27 @@ pub const FuncGen = struct {
         for (body) |inst| {
             const opt_value: ?*const llvm.Value = switch (air_tags[inst]) {
                 // zig fmt: off
-                .add     => try self.airAdd(inst, .standard),
-                .addwrap => try self.airAdd(inst, .wrapping),
-                .addsat  => try self.airAdd(inst, .saturated),
-                .sub     => try self.airSub(inst, .standard),
-                .subwrap => try self.airSub(inst, .wrapping),
-                .subsat  => try self.airSub(inst, .saturated),
-                .mul     => try self.airMul(inst, .standard),
-                .mulwrap => try self.airMul(inst, .wrapping),
-                .mulsat  => try self.airMul(inst, .saturated),
-                .div     => try self.airDiv(inst),
-                .rem     => try self.airRem(inst),
-                .mod     => try self.airMod(inst),
-                .ptr_add => try self.airPtrAdd(inst),
-                .ptr_sub => try self.airPtrSub(inst),
+                .add       => try self.airAdd(inst),
+                .addwrap   => try self.airAddWrap(inst),
+                .add_sat   => try self.airAddSat(inst),
+                .sub       => try self.airSub(inst),
+                .subwrap   => try self.airSubWrap(inst),
+                .sub_sat   => try self.airSubSat(inst),
+                .mul       => try self.airMul(inst),
+                .mulwrap   => try self.airMulWrap(inst),
+                .mul_sat   => try self.airMulSat(inst),
+                .div       => try self.airDiv(inst),
+                .rem       => try self.airRem(inst),
+                .mod       => try self.airMod(inst),
+                .ptr_add   => try self.airPtrAdd(inst),
+                .ptr_sub   => try self.airPtrSub(inst),
+                .shl       => try self.airShl(inst),
+                .shl_sat   => try self.airShlSat(inst),
+                .shl_exact => try self.airShlExact(inst),
 
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
                 .xor                => try self.airXor(inst),
-
-                .shl                => try self.airShl(inst, false),
-                .shl_sat            => try self.airShl(inst, true),
                 .shr                => try self.airShr(inst),
 
                 .cmp_eq  => try self.airCmp(inst, .eq),
@@ -2028,10 +2028,8 @@ pub const FuncGen = struct {
         return self.todo("implement llvm codegen for 'airWrapErrUnionErr'", .{});
     }
 
-    const ArithmeticType = enum { standard, wrapping, saturated };
-    fn airAdd(self: *FuncGen, inst: Air.Inst.Index, ty: ArithmeticType) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+    fn airAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -2039,21 +2037,36 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
 
         if (inst_ty.isAnyFloat()) return self.builder.buildFAdd(lhs, rhs, "");
-        if (ty == .wrapping)
-            return self.builder.buildAdd(lhs, rhs, "")
-        else if (ty == .saturated) {
-            if (inst_ty.isSignedInt())
-                return self.builder.buildSAddSat(lhs, rhs, "")
-            else
-                return self.builder.buildUAddSat(lhs, rhs, "");
-        }
         if (inst_ty.isSignedInt()) return self.builder.buildNSWAdd(lhs, rhs, "");
         return self.builder.buildNUWAdd(lhs, rhs, "");
     }
 
-    fn airSub(self: *FuncGen, inst: Air.Inst.Index, ty: ArithmeticType) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+    fn airAddWrap(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+
+        return self.builder.buildAdd(lhs, rhs, "");
+    }
+
+    fn airAddSat(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.air.typeOfIndex(inst);
+
+        if (inst_ty.isAnyFloat()) return self.todo("saturating float add", .{});
+        if (inst_ty.isSignedInt()) return self.builder.buildSAddSat(lhs, rhs, "");
+
+        return self.builder.buildUAddSat(lhs, rhs, "");
+    }
+
+    fn airSub(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -2061,21 +2074,35 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
 
         if (inst_ty.isAnyFloat()) return self.builder.buildFSub(lhs, rhs, "");
-        if (ty == .wrapping)
-            return self.builder.buildSub(lhs, rhs, "")
-        else if (ty == .saturated) {
-            if (inst_ty.isSignedInt())
-                return self.builder.buildSSubSat(lhs, rhs, "")
-            else
-                return self.builder.buildUSubSat(lhs, rhs, "");
-        }
         if (inst_ty.isSignedInt()) return self.builder.buildNSWSub(lhs, rhs, "");
         return self.builder.buildNUWSub(lhs, rhs, "");
     }
 
-    fn airMul(self: *FuncGen, inst: Air.Inst.Index, ty: ArithmeticType) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+    fn airSubWrap(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+
+        return self.builder.buildSub(lhs, rhs, "");
+    }
+
+    fn airSubSat(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.air.typeOfIndex(inst);
+
+        if (inst_ty.isAnyFloat()) return self.todo("saturating float sub", .{});
+        if (inst_ty.isSignedInt()) return self.builder.buildSSubSat(lhs, rhs, "");
+        return self.builder.buildUSubSat(lhs, rhs, "");
+    }
+
+    fn airMul(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -2083,16 +2110,31 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
 
         if (inst_ty.isAnyFloat()) return self.builder.buildFMul(lhs, rhs, "");
-        if (ty == .wrapping)
-            return self.builder.buildMul(lhs, rhs, "")
-        else if (ty == .saturated) {
-            if (inst_ty.isSignedInt())
-                return self.builder.buildSMulFixSat(lhs, rhs, "")
-            else
-                return self.builder.buildUMulFixSat(lhs, rhs, "");
-        }
         if (inst_ty.isSignedInt()) return self.builder.buildNSWMul(lhs, rhs, "");
         return self.builder.buildNUWMul(lhs, rhs, "");
+    }
+
+    fn airMulWrap(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+
+        return self.builder.buildMul(lhs, rhs, "");
+    }
+
+    fn airMulSat(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.air.typeOfIndex(inst);
+
+        if (inst_ty.isAnyFloat()) return self.todo("saturating float mul", .{});
+        if (inst_ty.isSignedInt()) return self.builder.buildSMulFixSat(lhs, rhs, "");
+        return self.builder.buildUMulFixSat(lhs, rhs, "");
     }
 
     fn airDiv(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -2200,9 +2242,9 @@ pub const FuncGen = struct {
         return self.builder.buildXor(lhs, rhs, "");
     }
 
-    fn airShl(self: *FuncGen, inst: Air.Inst.Index, sat: bool) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+    fn airShlExact(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
@@ -2212,13 +2254,39 @@ pub const FuncGen = struct {
             self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
         else
             rhs;
-        if (sat) {
-            return if (lhs_type.isSignedInt())
-                self.builder.buildSShlSat(lhs, casted_rhs, "")
-            else
-                self.builder.buildUShlSat(lhs, casted_rhs, "");
-        }
+        if (lhs_type.isSignedInt()) return self.builder.buildNSWShl(lhs, casted_rhs, "");
+        return self.builder.buildNUWShl(lhs, casted_rhs, "");
+    }
+
+    fn airShl(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_type = self.air.typeOf(bin_op.lhs);
+        const tg = self.dg.module.getTarget();
+        const casted_rhs = if (self.air.typeOf(bin_op.rhs).bitSize(tg) < lhs_type.bitSize(tg))
+            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
+        else
+            rhs;
         return self.builder.buildShl(lhs, casted_rhs, "");
+    }
+
+    fn airShlSat(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_type = self.air.typeOf(bin_op.lhs);
+        const tg = self.dg.module.getTarget();
+        const casted_rhs = if (self.air.typeOf(bin_op.rhs).bitSize(tg) < lhs_type.bitSize(tg))
+            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
+        else
+            rhs;
+        if (lhs_type.isSignedInt()) return self.builder.buildSShlSat(lhs, casted_rhs, "");
+        return self.builder.buildUShlSat(lhs, casted_rhs, "");
     }
 
     fn airShr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

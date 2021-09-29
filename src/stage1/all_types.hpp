@@ -1818,10 +1818,6 @@ enum BuiltinFnId {
     BuiltinFnIdReduce,
     BuiltinFnIdMaximum,
     BuiltinFnIdMinimum,
-    BuiltinFnIdSatAdd,
-    BuiltinFnIdSatSub,
-    BuiltinFnIdSatMul,
-    BuiltinFnIdSatShl,
 };
 
 struct BuiltinFnEntry {

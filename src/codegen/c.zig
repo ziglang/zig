@@ -883,25 +883,27 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
 
             // TODO use a different strategy for add that communicates to the optimizer
             // that wrapping is UB.
-            .add, .ptr_add => try airBinOp( f, inst, " + "),
-            .addwrap       => try airWrapOp(f, inst, " + ", "addw_"),
-            .addsat        => return f.fail("TODO: C backend: implement codegen for addsat", .{}),
+            .add, .ptr_add => try airBinOp (f, inst, " + "),
             // TODO use a different strategy for sub that communicates to the optimizer
             // that wrapping is UB.
-            .sub, .ptr_sub => try airBinOp( f, inst, " - "),
-            .subwrap       => try airWrapOp(f, inst, " - ", "subw_"),
-            .subsat        => return f.fail("TODO: C backend: implement codegen for subsat", .{}),
+            .sub, .ptr_sub => try airBinOp (f, inst, " - "),
             // TODO use a different strategy for mul that communicates to the optimizer
             // that wrapping is UB.
-            .mul           => try airBinOp( f, inst, " * "),
-            .mulwrap       => try airWrapOp(f, inst, " * ", "mulw_"),
-            .mulsat        => return f.fail("TODO: C backend: implement codegen for mulsat", .{}),
+            .mul           => try airBinOp (f, inst, " * "),
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
             .div           => try airBinOp( f, inst, " / "),
             .rem           => try airBinOp( f, inst, " % "),
-            // TODO implement modulus division
-            .mod           => try airBinOp( f, inst, " mod "),
+            .mod           => try airBinOp( f, inst, " mod "), // TODO implement modulus division
+
+            .addwrap => try airWrapOp(f, inst, " + ", "addw_"),
+            .subwrap => try airWrapOp(f, inst, " - ", "subw_"),
+            .mulwrap => try airWrapOp(f, inst, " * ", "mulw_"),
+
+            .add_sat => try airSatOp(f, inst, "adds_"),
+            .sub_sat => try airSatOp(f, inst, "subs_"),
+            .mul_sat => try airSatOp(f, inst, "muls_"),
+            .shl_sat => try airSatOp(f, inst, "shls_"),
 
             .cmp_eq  => try airBinOp(f, inst, " == "),
             .cmp_gt  => try airBinOp(f, inst, " > "),
@@ -911,18 +913,14 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .cmp_neq => try airBinOp(f, inst, " != "),
 
             // bool_and and bool_or are non-short-circuit operations
-            .bool_and   => try airBinOp(f, inst, " & "),
-            .bool_or    => try airBinOp(f, inst, " | "),
-            .bit_and    => try airBinOp(f, inst, " & "),
-            .bit_or     => try airBinOp(f, inst, " | "),
-            .xor        => try airBinOp(f, inst, " ^ "),
-
-            .shr        => try airBinOp(f, inst, " >> "),
-            .shl        => try airBinOp(f, inst, " << "),
-            .shl_sat    => return f.fail("TODO: C backend: implement codegen for mulsat", .{}),
-            
-
-            .not        => try airNot(  f, inst),
+            .bool_and        => try airBinOp(f, inst, " & "),
+            .bool_or         => try airBinOp(f, inst, " | "),
+            .bit_and         => try airBinOp(f, inst, " & "),
+            .bit_or          => try airBinOp(f, inst, " | "),
+            .xor             => try airBinOp(f, inst, " ^ "),
+            .shr             => try airBinOp(f, inst, " >> "),
+            .shl, .shl_exact => try airBinOp(f, inst, " << "),
+            .not             => try airNot  (f, inst),
 
             .optional_payload     => try airOptionalPayload(f, inst),
             .optional_payload_ptr => try airOptionalPayload(f, inst),
@@ -1314,27 +1312,23 @@ fn airWrapOp(
     return ret;
 }
 
-fn airSatOp(
-    o: *Object,
-    inst: Air.Inst.Index,
-    fn_op: [*:0]const u8,
-) !CValue {
-    if (o.liveness.isUnused(inst))
+fn airSatOp(f: *Function, inst: Air.Inst.Index, fn_op: [*:0]const u8) !CValue {
+    if (f.liveness.isUnused(inst))
         return CValue.none;
 
-    const bin_op = o.air.instructions.items(.data)[inst].bin_op;
-    const inst_ty = o.air.typeOfIndex(inst);
-    const int_info = inst_ty.intInfo(o.dg.module.getTarget());
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const inst_ty = f.air.typeOfIndex(inst);
+    const int_info = inst_ty.intInfo(f.object.dg.module.getTarget());
     const bits = int_info.bits;
 
     switch (bits) {
         8, 16, 32, 64, 128 => {},
-        else => return o.dg.fail("TODO: C backend: airSatOp for non power of 2 integers", .{}),
+        else => return f.object.dg.fail("TODO: C backend: airSatOp for non power of 2 integers", .{}),
     }
 
     // if it's an unsigned int with non-arbitrary bit size then we can just add
     if (bits > 64) {
-        return o.dg.fail("TODO: C backend: airSatOp for large integers", .{});
+        return f.object.dg.fail("TODO: C backend: airSatOp for large integers", .{});
     }
 
     var min_buf: [80]u8 = undefined;
@@ -1382,11 +1376,11 @@ fn airSatOp(
         },
     };
 
-    const lhs = try o.resolveInst(bin_op.lhs);
-    const rhs = try o.resolveInst(bin_op.rhs);
-    const w = o.writer();
+    const lhs = try f.resolveInst(bin_op.lhs);
+    const rhs = try f.resolveInst(bin_op.rhs);
+    const w = f.object.writer();
 
-    const ret = try o.allocLocal(inst_ty, .Mut);
+    const ret = try f.allocLocal(inst_ty, .Mut);
     try w.print(" = zig_{s}", .{fn_op});
 
     switch (inst_ty.tag()) {
@@ -1412,16 +1406,16 @@ fn airSatOp(
     }
 
     try w.writeByte('(');
-    try o.writeCValue(w, lhs);
+    try f.writeCValue(w, lhs);
     try w.writeAll(", ");
-    try o.writeCValue(w, rhs);
+    try f.writeCValue(w, rhs);
 
     if (int_info.signedness == .signed) {
         try w.print(", {s}", .{min});
     }
 
     try w.print(", {s});", .{max});
-    try o.indent_writer.insertNewline();
+    try f.object.indent_writer.insertNewline();
 
     return ret;
 }
