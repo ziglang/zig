@@ -20,6 +20,10 @@ const translate_c = @import("translate_c.zig");
 const Cache = @import("Cache.zig");
 const target_util = @import("target.zig");
 const ThreadPool = @import("ThreadPool.zig");
+const crash_report = @import("crash_report.zig");
+
+// Crash report needs to override the panic handler and other root decls
+pub usingnamespace crash_report.root_decls;
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.emerg(format, args);
@@ -134,6 +138,8 @@ var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{
 }){};
 
 pub fn main() anyerror!void {
+    crash_report.initialize();
+
     var gpa_need_deinit = false;
     const gpa = gpa: {
         if (!std.builtin.link_libc) {
