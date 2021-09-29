@@ -264,6 +264,11 @@ pub const Object = struct {
         );
         errdefer target_machine.dispose();
 
+        const target_data = target_machine.createTargetDataLayout();
+        defer target_data.dispose();
+
+        llvm_module.setModuleDataLayout(target_data);
+
         return Object{
             .llvm_module = llvm_module,
             .context = context,
@@ -1589,13 +1594,17 @@ pub const FuncGen = struct {
             return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const operand = try self.resolveInst(ty_op.operand);
-        const array_len = self.air.typeOf(ty_op.operand).elemType().arrayLen();
-        const usize_llvm_ty = try self.dg.llvmType(Type.initTag(.usize));
-        const len = usize_llvm_ty.constInt(array_len, .False);
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const array_ty = operand_ty.childType();
+        const llvm_usize = try self.dg.llvmType(Type.usize);
+        const len = llvm_usize.constInt(array_ty.arrayLen(), .False);
         const slice_llvm_ty = try self.dg.llvmType(self.air.typeOfIndex(inst));
+        if (!array_ty.hasCodeGenBits()) {
+            return self.builder.buildInsertValue(slice_llvm_ty.getUndef(), len, 1, "");
+        }
+        const operand = try self.resolveInst(ty_op.operand);
         const indices: [2]*const llvm.Value = .{
-            usize_llvm_ty.constNull(), usize_llvm_ty.constNull(),
+            llvm_usize.constNull(), llvm_usize.constNull(),
         };
         const ptr = self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
         const partial = self.builder.buildInsertValue(slice_llvm_ty.getUndef(), ptr, 0, "");
@@ -2454,12 +2463,12 @@ pub const FuncGen = struct {
     }
 
     fn airAlloc(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
         // buildAlloca expects the pointee type, not the pointer type, so assert that
         // a Payload.PointerSimple is passed to the alloc instruction.
         const ptr_ty = self.air.typeOfIndex(inst);
         const pointee_type = ptr_ty.elemType();
+        if (!pointee_type.hasCodeGenBits()) return null;
         const pointee_llvm_ty = try self.dg.llvmType(pointee_type);
         const target = self.dg.module.getTarget();
         const alloca_inst = self.buildAlloca(pointee_llvm_ty);

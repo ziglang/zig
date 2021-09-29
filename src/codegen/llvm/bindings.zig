@@ -219,6 +219,9 @@ pub const Module = opaque {
     pub const verify = LLVMVerifyModule;
     extern fn LLVMVerifyModule(*const Module, Action: VerifierFailureAction, OutMessage: *[*:0]const u8) Bool;
 
+    pub const setModuleDataLayout = LLVMSetModuleDataLayout;
+    extern fn LLVMSetModuleDataLayout(*const Module, *const TargetData) void;
+
     pub const addFunction = LLVMAddFunction;
     extern fn LLVMAddFunction(*const Module, Name: [*:0]const u8, FunctionTy: *const Type) *const Value;
 
@@ -766,6 +769,14 @@ pub const TargetMachine = opaque {
         llvm_ir_filename: ?[*:0]const u8,
         bitcode_filename: ?[*:0]const u8,
     ) bool;
+
+    pub const createTargetDataLayout = LLVMCreateTargetDataLayout;
+    extern fn LLVMCreateTargetDataLayout(*const TargetMachine) *const TargetData;
+};
+
+pub const TargetData = opaque {
+    pub const dispose = LLVMDisposeTargetData;
+    extern fn LLVMDisposeTargetData(*const TargetData) void;
 };
 
 pub const CodeModel = enum(c_int) {
