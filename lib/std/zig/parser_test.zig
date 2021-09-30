@@ -5259,6 +5259,14 @@ test "recovery: nonfinal varargs" {
     });
 }
 
+test "recovery: eof in c pointer" {
+    try testError(
+        \\const Ptr = [*c
+    , &[_]Error{
+        .expected_token,
+    });
+}
+
 const std = @import("std");
 const mem = std.mem;
 const print = std.debug.print;
