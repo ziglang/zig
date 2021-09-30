@@ -617,12 +617,15 @@ pub const Decl = struct {
         return tree.tokens.items(.start)[decl.srcToken()];
     }
 
-    pub fn renderFullyQualifiedName(decl: Decl, writer: anytype) !void {
-        const unqualified_name = mem.spanZ(decl.name);
-        return decl.namespace.renderFullyQualifiedName(unqualified_name, writer);
+    pub fn renderFullyQualifiedName(decl: *const Decl, writer: anytype) @TypeOf(writer).Error!void {
+        // Namespace decls (struct/enum/union/opaque) use their own namespace,
+        // which means the decl name and the namespace name are the same.
+        // In that case we want to omit the decl name, unless this is the root decl.
+        const unqualified_name = if (decl.namespace.getDecl() != decl or decl.namespace.parent == null) mem.spanZ(decl.name) else "";
+        return try decl.namespace.renderFullyQualifiedName(unqualified_name, writer);
     }
 
-    pub fn getFullyQualifiedName(decl: Decl, gpa: *Allocator) ![:0]u8 {
+    pub fn getFullyQualifiedName(decl: *const Decl, gpa: *Allocator) ![:0]u8 {
         var buffer = std.ArrayList(u8).init(gpa);
         defer buffer.deinit();
         try decl.renderFullyQualifiedName(buffer.writer());
