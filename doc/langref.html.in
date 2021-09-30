@@ -8866,7 +8866,7 @@ fn doTheTest() !void {
       {#header_open|@ceil#}
       <pre>{#syntax#}@ceil(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Returns the largest integral value not less than the given floating point number.
+      Returns the smallest integral value not less than the given floating point number.
       Uses a dedicated hardware instruction when available.
       </p>
       <p>
