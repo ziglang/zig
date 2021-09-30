@@ -13,6 +13,12 @@ fn processArgs() void {
     const args = std.process.argsAlloc(&args_allocator.allocator) catch {
         @panic("Too many bytes passed over the CLI to the test runner");
     };
+    if (args.len != 2) {
+        const self_name = if (args.len >= 1) args[0] else if (builtin.os.tag == .windows) "test.exe" else "test";
+        const zig_ext = if (builtin.os.tag == .windows) ".exe" else "";
+        std.debug.print("Usage: {s} path/to/zig{s}\n", .{ self_name, zig_ext });
+        @panic("Wrong number of command line arguments");
+    }
     std.testing.zig_exe_path = args[1];
 }
 
