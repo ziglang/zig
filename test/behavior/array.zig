@@ -27,3 +27,9 @@ test "arrays" {
 fn getArrayLen(a: []const u32) usize {
     return a.len;
 }
+
+test "array init with mult" {
+    const a = 'a';
+    var i: [8]u8 = [2]u8{ a, 'b' } ** 4;
+    try expect(std.mem.eql(u8, &i, "abababab"));
+}
