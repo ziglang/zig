@@ -1584,18 +1584,13 @@ const Parser = struct {
                     _ = p.nextToken();
                     const asterisk = p.nextToken();
                     var sentinel: Node.Index = 0;
-                    prefix: {
-                        if (p.eatToken(.identifier)) |ident| {
-                            const token_slice = p.source[p.token_starts[ident]..][0..2];
-                            if (!std.mem.eql(u8, token_slice, "c]")) {
-                                p.tok_i -= 1;
-                            } else {
-                                break :prefix;
-                            }
+                    if (p.eatToken(.identifier)) |ident| {
+                        const ident_slice = p.source[p.token_starts[ident]..p.token_starts[ident + 1]];
+                        if (!std.mem.eql(u8, std.mem.trimRight(u8, ident_slice, &std.ascii.spaces), "c")) {
+                            p.tok_i -= 1;
                         }
-                        if (p.eatToken(.colon)) |_| {
-                            sentinel = try p.expectExpr();
-                        }
+                    } else if (p.eatToken(.colon)) |_| {
+                        sentinel = try p.expectExpr();
                     }
                     _ = try p.expectToken(.r_bracket);
                     const mods = try p.parsePtrModifiers();
