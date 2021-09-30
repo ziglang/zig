@@ -674,6 +674,11 @@ pub const DeclGen = struct {
         if (!dg.module.comp.bin_file.options.red_zone) {
             dg.addFnAttr(llvm_fn, "noredzone");
         }
+        if (dg.module.comp.bin_file.options.omit_frame_pointer) {
+            dg.addFnAttrString(llvm_fn, "frame-pointer", "none");
+        } else {
+            dg.addFnAttrString(llvm_fn, "frame-pointer", "all");
+        }
         dg.addFnAttr(llvm_fn, "nounwind");
         if (dg.module.comp.unwind_tables) {
             dg.addFnAttr(llvm_fn, "uwtable");
