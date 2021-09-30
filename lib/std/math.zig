@@ -277,6 +277,8 @@ test {
     std.testing.refAllDecls(@This());
 }
 
+/// Returns the number of bits in the mantissa of floating point type
+/// T.
 pub fn floatMantissaBits(comptime T: type) comptime_int {
     assert(@typeInfo(T) == .Float);
 
@@ -290,6 +292,8 @@ pub fn floatMantissaBits(comptime T: type) comptime_int {
     };
 }
 
+/// Returns the number of bits in the exponent of floating point type
+/// T.
 pub fn floatExponentBits(comptime T: type) comptime_int {
     assert(@typeInfo(T) == .Float);
 
@@ -322,20 +326,22 @@ pub fn Min(comptime A: type, comptime B: type) type {
     return @TypeOf(@as(A, 0) + @as(B, 0));
 }
 
-/// Returns the smaller number. When one of the parameter's type's full range fits in the other,
-/// the return type is the smaller type.
+/// Returns the smaller number. When one parameter's type's full range
+/// fits in the other, the return type is the smaller type.
 pub fn min(x: anytype, y: anytype) Min(@TypeOf(x), @TypeOf(y)) {
     const Result = Min(@TypeOf(x), @TypeOf(y));
     if (x < y) {
-        // TODO Zig should allow this as an implicit cast because x is immutable and in this
-        // scope it is known to fit in the return type.
+        // TODO Zig should allow this as an implicit cast because x is
+        // immutable and in this scope it is known to fit in the
+        // return type.
         switch (@typeInfo(Result)) {
             .Int => return @intCast(Result, x),
             else => return x,
         }
     } else {
-        // TODO Zig should allow this as an implicit cast because y is immutable and in this
-        // scope it is known to fit in the return type.
+        // TODO Zig should allow this as an implicit cast because y is
+        // immutable and in this scope it is known to fit in the
+        // return type.
         switch (@typeInfo(Result)) {
             .Int => return @intCast(Result, y),
             else => return y,
@@ -375,7 +381,7 @@ test "math.min" {
     }
 }
 
-/// Finds the min of three numbers
+/// Finds the minimum of three numbers.
 pub fn min3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
     return min(x, min(y, z));
 }
@@ -389,6 +395,8 @@ test "math.min3" {
     try testing.expect(min3(@as(i32, 2), @as(i32, 1), @as(i32, 0)) == 0);
 }
 
+/// Returns the maximum of two numbers. Return type is the one with the
+/// larger range.
 pub fn max(x: anytype, y: anytype) @TypeOf(x, y) {
     return if (x > y) x else y;
 }
@@ -398,7 +406,7 @@ test "math.max" {
     try testing.expect(max(@as(i32, 2), @as(i32, -1)) == 2);
 }
 
-/// Finds the max of three numbers
+/// Finds the maximum of three numbers.
 pub fn max3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
     return max(x, max(y, z));
 }
@@ -412,6 +420,7 @@ test "math.max3" {
     try testing.expect(max3(@as(i32, 2), @as(i32, 1), @as(i32, 0)) == 2);
 }
 
+/// Limit val to the inclusive range [lower, upper]. 
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
     assert(lower <= upper);
     return max(lower, min(val, upper));
@@ -433,17 +442,20 @@ test "math.clamp" {
     try testing.expect(std.math.clamp(i, 0, 1) == 1);
 }
 
+/// Returns the product of a and b. Returns an error on overflow.
 pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     var answer: T = undefined;
     return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
+/// Returns the sum of a and b. Returns an error on overflow.
 pub fn add(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     if (T == comptime_int) return a + b;
     var answer: T = undefined;
     return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
+/// Returns a - b, or an error on overflow.
 pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     var answer: T = undefined;
     return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
@@ -453,6 +465,8 @@ pub fn negate(x: anytype) !@TypeOf(x) {
     return sub(@TypeOf(x), 0, x);
 }
 
+/// Shifts a left by shift_amt. Returns an error on overflow. shift_amt
+/// is unsigned.
 pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
     var answer: T = undefined;
     return if (@shlWithOverflow(T, a, shift_amt, &answer)) error.Overflow else answer;
@@ -538,8 +552,8 @@ test "math.shr" {
     try testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, 33)[0] == 0);
 }
 
-/// Rotates right. Only unsigned values can be rotated.
-/// Negative shift values results in shift modulo the bit count.
+/// Rotates right. Only unsigned values can be rotated.  Negative shift
+/// values result in shift modulo the bit count.
 pub fn rotr(comptime T: type, x: T, r: anytype) T {
     if (@typeInfo(T) == .Vector) {
         const C = @typeInfo(T).Vector.child;
@@ -566,8 +580,8 @@ test "math.rotr" {
     try testing.expect(rotr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1}, @as(isize, -1))[0] == @as(u32, 1) << 1);
 }
 
-/// Rotates left. Only unsigned values can be rotated.
-/// Negative shift values results in shift modulo the bit count.
+/// Rotates left. Only unsigned values can be rotated.  Negative shift
+/// values result in shift modulo the bit count.
 pub fn rotl(comptime T: type, x: T, r: anytype) T {
     if (@typeInfo(T) == .Vector) {
         const C = @typeInfo(T).Vector.child;
@@ -594,6 +608,8 @@ test "math.rotl" {
     try testing.expect(rotl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1 << 31}, @as(isize, -1))[0] == @as(u32, 1) << 30);
 }
 
+/// Returns an unsigned int type that can hold the number of bits in T
+/// - 1. Suitable for 0-based bit indices of T.
 pub fn Log2Int(comptime T: type) type {
     // comptime ceil log2
     comptime var count = 0;
@@ -605,6 +621,7 @@ pub fn Log2Int(comptime T: type) type {
     return std.meta.Int(.unsigned, count);
 }
 
+/// Returns an unsigned int type that can hold the number of bits in T.
 pub fn Log2IntCeil(comptime T: type) type {
     // comptime ceil log2
     comptime var count = 0;
@@ -616,6 +633,7 @@ pub fn Log2IntCeil(comptime T: type) type {
     return std.meta.Int(.unsigned, count);
 }
 
+/// Returns the smallest integer type that can hold both from and to.
 pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) type {
     assert(from <= to);
     if (from == 0 and to == 0) {
@@ -691,6 +709,8 @@ fn testOverflow() !void {
     try testing.expect((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
+/// Returns the absolute value of x, where x is a value of an integer
+/// type.
 pub fn absInt(x: anytype) !@TypeOf(x) {
     const T = @TypeOf(x);
     comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
@@ -724,6 +744,8 @@ fn testAbsFloat() !void {
     try testing.expect(absFloat(@as(f32, 10.05)) == 10.05);
 }
 
+/// Divide numerator by denominator, rounding toward zero. Returns an
+/// error on overflow or when denominator is zero.
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
@@ -745,6 +767,9 @@ fn testDivTrunc() !void {
     try testing.expect((divTrunc(f32, -5.0, 3.0) catch unreachable) == -1.0);
 }
 
+/// Divide numerator by denominator, rounding toward negative
+/// infinity. Returns an error on overflow or when denominator is
+/// zero.
 pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
@@ -766,6 +791,9 @@ fn testDivFloor() !void {
     try testing.expect((divFloor(f32, -5.0, 3.0) catch unreachable) == -2.0);
 }
 
+/// Divide numerator by denominator, rounding toward positive
+/// infinity. Returns an error on overflow or when denominator is
+/// zero.
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (comptime std.meta.trait.isNumber(T) and denominator == 0) return error.DivisionByZero;
@@ -819,6 +847,8 @@ fn testDivCeil() !void {
     try testing.expectError(error.DivisionByZero, divCeil(comptime_float, 23.0, 0.0));
 }
 
+/// Divide numerator by denominator. Return an error if quotient is
+/// not an integer, denominator is zero, or on overflow.
 pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
@@ -844,6 +874,9 @@ fn testDivExact() !void {
     try testing.expectError(error.UnexpectedRemainder, divExact(f32, 5.0, 2.0));
 }
 
+/// Returns numerator modulo denominator, or an error if denominator is
+/// zero or negative. Negative numerators never result in negative
+/// return values.
 pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
@@ -867,6 +900,9 @@ fn testMod() !void {
     try testing.expectError(error.DivisionByZero, mod(f32, 10, 0));
 }
 
+/// Returns the remainder when numerator is divided by denominator, or
+/// an error if denominator is zero or negative. Negative numerators
+/// can give negative results.
 pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
@@ -989,6 +1025,8 @@ pub fn isPowerOfTwo(v: anytype) bool {
     return (v & (v - 1)) == 0;
 }
 
+/// Returns the nearest power of two less than or equal to value, or
+/// zero if value is less than or equal to zero.
 pub fn floorPowerOfTwo(comptime T: type, value: T) T {
     var x = value;
 
@@ -1042,6 +1080,9 @@ pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     return @intCast(T, x);
 }
 
+/// Returns the next power of two (if the value is not already a power
+/// of two). Only unsigned integers can be used. Zero is not an
+/// allowed input. Asserts that the value fits.
 pub fn ceilPowerOfTwoAssert(comptime T: type, value: T) T {
     return ceilPowerOfTwo(T, value) catch unreachable;
 }
@@ -1080,6 +1121,8 @@ fn testCeilPowerOfTwo() !void {
     try testing.expectError(error.Overflow, ceilPowerOfTwo(u4, 9));
 }
 
+/// Return the log base 2 of integer value x, rounding down to the
+/// nearest integer.
 pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
     if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
         @compileError("log2_int requires an unsigned integer, found " ++ @typeName(T));
@@ -1087,6 +1130,8 @@ pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
     return @intCast(Log2Int(T), @typeInfo(T).Int.bits - 1 - @clz(T, x));
 }
 
+/// Return the log base 2 of integer value x, rounding up to the
+/// nearest integer.
 pub fn log2_int_ceil(comptime T: type, x: T) Log2IntCeil(T) {
     if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
         @compileError("log2_int_ceil requires an unsigned integer, found " ++ @typeName(T));
@@ -1109,8 +1154,9 @@ test "std.math.log2_int_ceil" {
     try testing.expect(log2_int_ceil(u32, 10) == 4);
 }
 
-///Cast a value to a different type. If the value doesn't fit in, or can't be perfectly represented by,
-///the new type, it will be converted to the closest possible representation.
+/// Cast a value to a different type. If the value doesn't fit in, or
+/// can't be perfectly represented by, the new type, it will be
+/// converted to the closest possible representation.
 pub fn lossyCast(comptime T: type, value: anytype) T {
     switch (@typeInfo(T)) {
         .Float => {
@@ -1161,6 +1207,7 @@ test "math.f64_min" {
     try testing.expect(@bitCast(u64, fmin) == f64_min_u64);
 }
 
+/// Returns the maximum value of integer type T.
 pub fn maxInt(comptime T: type) comptime_int {
     const info = @typeInfo(T);
     const bit_count = info.Int.bits;
@@ -1168,6 +1215,7 @@ pub fn maxInt(comptime T: type) comptime_int {
     return (1 << (bit_count - @boolToInt(info.Int.signedness == .signed))) - 1;
 }
 
+/// Returns the minimum value of integer type T.
 pub fn minInt(comptime T: type) comptime_int {
     const info = @typeInfo(T);
     const bit_count = info.Int.bits;
@@ -1218,8 +1266,16 @@ test "max value type" {
     try testing.expect(x == 2147483647);
 }
 
-pub fn mulWide(comptime T: type, a: T, b: T) std.meta.Int(@typeInfo(T).Int.signedness, @typeInfo(T).Int.bits * 2) {
-    const ResultInt = std.meta.Int(@typeInfo(T).Int.signedness, @typeInfo(T).Int.bits * 2);
+/// Multiply a and b. Return type is wide enough to guarantee no
+/// overflow.
+pub fn mulWide(comptime T: type, a: T, b: T) std.meta.Int(
+    @typeInfo(T).Int.signedness,
+    @typeInfo(T).Int.bits * 2,
+) {
+    const ResultInt = std.meta.Int(
+        @typeInfo(T).Int.signedness,
+        @typeInfo(T).Int.bits * 2,
+    );
     return @as(ResultInt, a) * @as(ResultInt, b);
 }
 
