@@ -1107,7 +1107,7 @@ pub const Scope = struct {
     /// Asserts the scope has a parent which is a Namespace and returns it.
     pub fn namespace(scope: *Scope) *Namespace {
         switch (scope.tag) {
-            .block => return scope.cast(Block).?.sema.owner_decl.namespace,
+            .block => return scope.cast(Block).?.src_decl.namespace,
             .file => return scope.cast(File).?.root_decl.?.namespace,
             .namespace => return scope.cast(Namespace).?,
         }
@@ -3244,11 +3244,11 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .file_scope = file,
         },
     };
-    const new_decl = try mod.allocateNewDecl(&struct_obj.namespace, 0, null);
+    const decl_name = try file.fullyQualifiedNameZ(gpa);
+    const new_decl = try mod.allocateNewDecl(decl_name, &struct_obj.namespace, 0, null);
     file.root_decl = new_decl;
     struct_obj.owner_decl = new_decl;
     new_decl.src_line = 0;
-    new_decl.name = try file.fullyQualifiedNameZ(gpa);
     new_decl.is_pub = true;
     new_decl.is_exported = false;
     new_decl.has_align = false;
@@ -3276,7 +3276,6 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .perm_arena = &new_decl_arena.allocator,
             .code = file.zir,
             .owner_decl = new_decl,
-            .namespace = &struct_obj.namespace,
             .func = null,
             .fn_ret_ty = Type.initTag(.void),
             .owner_func = null,
@@ -3342,7 +3341,6 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .perm_arena = &decl_arena.allocator,
         .code = zir,
         .owner_decl = decl,
-        .namespace = decl.namespace,
         .func = null,
         .fn_ret_ty = Type.initTag(.void),
         .owner_func = null,
@@ -3818,13 +3816,12 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
     // We create a Decl for it regardless of analysis status.
     const gop = try namespace.decls.getOrPut(gpa, decl_name);
     if (!gop.found_existing) {
-        const new_decl = try mod.allocateNewDecl(namespace, decl_node, iter.parent_decl.src_scope);
+        const new_decl = try mod.allocateNewDecl(decl_name, namespace, decl_node, iter.parent_decl.src_scope);
         if (is_usingnamespace) {
             namespace.usingnamespace_set.putAssumeCapacity(new_decl, is_pub);
         }
         log.debug("scan new {*} ({s}) into {*}", .{ new_decl, decl_name, namespace });
         new_decl.src_line = line;
-        new_decl.name = decl_name;
         gop.value_ptr.* = new_decl;
         // Exported decls, comptime decls, usingnamespace decls, and
         // test decls if in test mode, get analyzed.
@@ -4089,7 +4086,6 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: *Allocator) Se
         .perm_arena = &decl_arena.allocator,
         .code = decl.namespace.file_scope.zir,
         .owner_decl = decl,
-        .namespace = decl.namespace,
         .func = func,
         .fn_ret_ty = func.owner_decl.ty.fnReturnType(),
         .owner_func = func,
@@ -4226,7 +4222,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     decl.analysis = .outdated;
 }
 
-pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.Node.Index, src_scope: ?*CaptureScope) !*Decl {
+pub fn allocateNewDecl(mod: *Module, name: [:0]const u8, namespace: *Scope.Namespace, src_node: Ast.Node.Index, src_scope: ?*CaptureScope) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
     const new_decl: *Decl = if (mod.emit_h != null) blk: {
         const parent_struct = try mod.gpa.create(DeclPlusEmitH);
@@ -4238,7 +4234,7 @@ pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.
     } else try mod.gpa.create(Decl);
 
     new_decl.* = .{
-        .name = "",
+        .name = name,
         .namespace = namespace,
         .src_node = src_node,
         .src_line = undefined,
@@ -4414,9 +4410,8 @@ pub fn createAnonymousDeclFromDeclNamed(
     const namespace = src_decl.namespace;
     try namespace.anon_decls.ensureUnusedCapacity(mod.gpa, 1);
 
-    const new_decl = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope);
+    const new_decl = try mod.allocateNewDecl(name, namespace, src_decl.src_node, src_scope);
 
-    new_decl.name = name;
     new_decl.src_line = src_decl.src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;

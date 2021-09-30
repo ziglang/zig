@@ -24,8 +24,6 @@ inst_map: InstMap = .{},
 /// and `src_decl` of `Scope.Block` is the `Decl` of the callee.
 /// This `Decl` owns the arena memory of this `Sema`.
 owner_decl: *Decl,
-/// How to look up decl names.
-namespace: *Scope.Namespace,
 /// For an inline or comptime function call, this will be the root parent function
 /// which contains the callsite. Corresponds to `owner_decl`.
 owner_func: ?*Module.Fn,
@@ -1048,6 +1046,8 @@ pub fn analyzeStructDecl(
     } else 0;
 
     _ = try sema.mod.scanNamespace(&struct_obj.namespace, extra_index, decls_len, new_decl);
+
+    new_decl.namespace = &struct_obj.namespace;
 }
 
 fn zirStructDecl(
@@ -1084,7 +1084,7 @@ fn zirStructDecl(
         .status = .none,
         .known_has_bits = undefined,
         .namespace = .{
-            .parent = sema.owner_decl.namespace,
+            .parent = block.src_decl.namespace,
             .ty = struct_ty,
             .file_scope = block.getFileScope(),
         },
@@ -1194,7 +1194,7 @@ fn zirEnumDecl(
         .values = .{},
         .node_offset = src.node_offset,
         .namespace = .{
-            .parent = sema.owner_decl.namespace,
+            .parent = block.src_decl.namespace,
             .ty = enum_ty,
             .file_scope = block.getFileScope(),
         },
@@ -1204,6 +1204,8 @@ fn zirEnumDecl(
     });
 
     extra_index = try mod.scanNamespace(&enum_obj.namespace, extra_index, decls_len, new_decl);
+
+    new_decl.namespace = &enum_obj.namespace;
 
     const body = sema.code.extra[extra_index..][0..body_len];
     if (fields_len == 0) {
@@ -1226,10 +1228,6 @@ fn zirEnumDecl(
         const prev_owner_decl = sema.owner_decl;
         sema.owner_decl = new_decl;
         defer sema.owner_decl = prev_owner_decl;
-
-        const prev_namespace = sema.namespace;
-        sema.namespace = &enum_obj.namespace;
-        defer sema.namespace = prev_namespace;
 
         const prev_owner_func = sema.owner_func;
         sema.owner_func = null;
@@ -1385,7 +1383,7 @@ fn zirUnionDecl(
         .layout = small.layout,
         .status = .none,
         .namespace = .{
-            .parent = sema.owner_decl.namespace,
+            .parent = block.src_decl.namespace,
             .ty = union_ty,
             .file_scope = block.getFileScope(),
         },
@@ -1395,6 +1393,8 @@ fn zirUnionDecl(
     });
 
     _ = try sema.mod.scanNamespace(&union_obj.namespace, extra_index, decls_len, new_decl);
+
+    new_decl.namespace = &union_obj.namespace;
 
     try sema.types_pending_resolution.ensureUnusedCapacity(sema.gpa, 1);
     try new_decl.finalizeNewArena(&new_decl_arena);
@@ -2692,7 +2692,7 @@ fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
 }
 
 fn lookupIdentifier(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, name: []const u8) !*Decl {
-    var namespace = sema.namespace;
+    var namespace = block.src_decl.namespace;
     while (true) {
         if (try sema.lookupInNamespace(block, src, namespace, name, false)) |decl| {
             return decl;
@@ -3010,10 +3010,6 @@ fn analyzeCall(
             sema.inst_map = parent_inst_map;
         }
 
-        const parent_namespace = sema.namespace;
-        sema.namespace = module_fn.owner_decl.namespace;
-        defer sema.namespace = parent_namespace;
-
         const parent_func = sema.func;
         sema.func = module_fn;
         defer sema.func = parent_func;
@@ -3276,12 +3272,12 @@ fn analyzeCall(
 
             // Create a Decl for the new function.
             const src_decl = namespace.getDecl();
-            const new_decl = try mod.allocateNewDecl(namespace, module_fn.owner_decl.src_node, src_decl.src_scope);
             // TODO better names for generic function instantiations
             const name_index = mod.getNextAnonNameIndex();
-            new_decl.name = try std.fmt.allocPrintZ(gpa, "{s}__anon_{d}", .{
+            const decl_name = try std.fmt.allocPrintZ(gpa, "{s}__anon_{d}", .{
                 module_fn.owner_decl.name, name_index,
             });
+            const new_decl = try mod.allocateNewDecl(decl_name, namespace, module_fn.owner_decl.src_node, src_decl.src_scope);
             new_decl.src_line = module_fn.owner_decl.src_line;
             new_decl.is_pub = module_fn.owner_decl.is_pub;
             new_decl.is_exported = module_fn.owner_decl.is_exported;
@@ -3311,7 +3307,6 @@ fn analyzeCall(
                 .perm_arena = &new_decl_arena.allocator,
                 .code = fn_zir,
                 .owner_decl = new_decl,
-                .namespace = namespace,
                 .func = null,
                 .fn_ret_ty = Type.initTag(.void),
                 .owner_func = null,
@@ -11809,7 +11804,7 @@ pub fn resolveDeclFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: 
     switch (ty.tag()) {
         .@"struct" => {
             const struct_obj = ty.castTag(.@"struct").?.data;
-            if (struct_obj.owner_decl.namespace != sema.owner_decl.namespace) return;
+            if (struct_obj.owner_decl.namespace.parent != sema.owner_decl.namespace) return;
             switch (struct_obj.status) {
                 .none => {},
                 .field_types_wip => {
@@ -11817,10 +11812,6 @@ pub fn resolveDeclFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: 
                 },
                 .have_field_types, .have_layout, .layout_wip => return,
             }
-            const prev_namespace = sema.namespace;
-            sema.namespace = &struct_obj.namespace;
-            defer sema.namespace = prev_namespace;
-
             const old_src = block.src_decl;
             defer block.src_decl = old_src;
             block.src_decl = struct_obj.owner_decl;
@@ -11831,7 +11822,7 @@ pub fn resolveDeclFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: 
         },
         .@"union", .union_tagged => {
             const union_obj = ty.cast(Type.Payload.Union).?.data;
-            if (union_obj.owner_decl.namespace != sema.owner_decl.namespace) return;
+            if (union_obj.owner_decl.namespace.parent != sema.owner_decl.namespace) return;
             switch (union_obj.status) {
                 .none => {},
                 .field_types_wip => {
@@ -11839,10 +11830,6 @@ pub fn resolveDeclFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: 
                 },
                 .have_field_types, .have_layout, .layout_wip => return,
             }
-            const prev_namespace = sema.namespace;
-            sema.namespace = &union_obj.namespace;
-            defer sema.namespace = prev_namespace;
-
             const old_src = block.src_decl;
             defer block.src_decl = old_src;
             block.src_decl = union_obj.owner_decl;
