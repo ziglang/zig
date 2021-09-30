@@ -680,6 +680,7 @@ pub const InitOptions = struct {
     want_sanitize_c: ?bool = null,
     want_stack_check: ?bool = null,
     want_red_zone: ?bool = null,
+    omit_frame_pointer: ?bool = null,
     want_valgrind: ?bool = null,
     want_tsan: ?bool = null,
     want_compiler_rt: ?bool = null,
@@ -1113,6 +1114,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
         const strip = options.strip or !target_util.hasDebugInfo(options.target);
         const red_zone = options.want_red_zone orelse target_util.hasRedZone(options.target);
+        const omit_frame_pointer = options.omit_frame_pointer orelse (options.optimize_mode != .Debug);
 
         // We put everything into the cache hash that *cannot be modified during an incremental update*.
         // For example, one cannot change the target between updates, but one can change source files,
@@ -1146,6 +1148,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(tsan);
         cache.hash.add(stack_check);
         cache.hash.add(red_zone);
+        cache.hash.add(omit_frame_pointer);
         cache.hash.add(link_mode);
         cache.hash.add(options.function_sections);
         cache.hash.add(strip);
@@ -1416,6 +1419,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .tsan = tsan,
             .stack_check = stack_check,
             .red_zone = red_zone,
+            .omit_frame_pointer = omit_frame_pointer,
             .single_threaded = single_threaded,
             .verbose_link = options.verbose_link,
             .machine_code_model = options.machine_code_model,
@@ -3189,6 +3193,12 @@ pub fn addCCArgs(
                 try argv.append("-mno-red-zone");
             }
 
+            if (comp.bin_file.options.omit_frame_pointer) {
+                try argv.append("-fomit-frame-pointer");
+            } else {
+                try argv.append("-fno-omit-frame-pointer");
+            }
+
             switch (comp.bin_file.options.optimize_mode) {
                 .Debug => {
                     // windows c runtime requires -D_DEBUG if using debug libraries
@@ -4019,6 +4029,7 @@ fn buildOutputFromZig(
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_red_zone = comp.bin_file.options.red_zone,
+        .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
         .want_valgrind = false,
         .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,
@@ -4302,6 +4313,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .include_compiler_rt = include_compiler_rt,
         .enable_stack_probing = comp.bin_file.options.stack_check,
         .red_zone = comp.bin_file.options.red_zone,
+        .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
         .enable_time_report = comp.time_report,
         .enable_stack_report = comp.stack_report,
         .test_is_evented = comp.test_evented_io,
@@ -4451,6 +4463,7 @@ pub fn build_crt_file(
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_red_zone = comp.bin_file.options.red_zone,
+        .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
         .want_valgrind = false,
         .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,

@@ -95,6 +95,7 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
     g->unwind_tables = stage1->unwind_tables;
     g->have_stack_probing = stage1->enable_stack_probing;
     g->red_zone = stage1->red_zone;
+    g->omit_frame_pointer = stage1->omit_frame_pointer;
     g->is_single_threaded = stage1->is_single_threaded;
     g->valgrind_enabled = stage1->valgrind_enabled;
     g->tsan_enabled = stage1->tsan_enabled;
