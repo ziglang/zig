@@ -6111,35 +6111,36 @@ fn zirArrayCat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
     if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
         if (try sema.resolveDefinedValue(block, rhs_src, rhs)) |rhs_val| {
             const final_len = lhs_info.len + rhs_info.len;
-            if (lhs_ty.zigTypeTag() == .Pointer) {
-                var anon_decl = try block.startAnonDecl();
-                defer anon_decl.deinit();
+            const is_pointer = lhs_ty.zigTypeTag() == .Pointer;
+            var anon_decl = try block.startAnonDecl();
+            defer anon_decl.deinit();
 
-                const lhs_sub_val = (try lhs_val.pointerDeref(anon_decl.arena())).?;
-                const rhs_sub_val = (try rhs_val.pointerDeref(anon_decl.arena())).?;
-                const buf = try anon_decl.arena().alloc(Value, final_len);
-                {
-                    var i: u64 = 0;
-                    while (i < lhs_info.len) : (i += 1) {
-                        const val = try lhs_sub_val.elemValue(sema.arena, i);
-                        buf[i] = try val.copy(anon_decl.arena());
-                    }
+            const lhs_sub_val = if (is_pointer) (try lhs_val.pointerDeref(anon_decl.arena())).? else lhs_val;
+            const rhs_sub_val = if (is_pointer) (try rhs_val.pointerDeref(anon_decl.arena())).? else rhs_val;
+            const buf = try anon_decl.arena().alloc(Value, final_len);
+            {
+                var i: u64 = 0;
+                while (i < lhs_info.len) : (i += 1) {
+                    const val = try lhs_sub_val.elemValue(sema.arena, i);
+                    buf[i] = try val.copy(anon_decl.arena());
                 }
-                {
-                    var i: u64 = 0;
-                    while (i < rhs_info.len) : (i += 1) {
-                        const val = try rhs_sub_val.elemValue(sema.arena, i);
-                        buf[lhs_info.len + i] = try val.copy(anon_decl.arena());
-                    }
-                }
-                const ty = if (res_sent) |rs|
-                    try Type.Tag.array_sentinel.create(anon_decl.arena(), .{ .len = final_len, .elem_type = lhs_info.elem_type, .sentinel = rs })
-                else
-                    try Type.Tag.array.create(anon_decl.arena(), .{ .len = final_len, .elem_type = lhs_info.elem_type });
-                const val = try Value.Tag.array.create(anon_decl.arena(), buf);
-                return sema.analyzeDeclRef(try anon_decl.finish(ty, val));
             }
-            return sema.mod.fail(&block.base, lhs_src, "TODO array_cat more types of Values", .{});
+            {
+                var i: u64 = 0;
+                while (i < rhs_info.len) : (i += 1) {
+                    const val = try rhs_sub_val.elemValue(sema.arena, i);
+                    buf[lhs_info.len + i] = try val.copy(anon_decl.arena());
+                }
+            }
+            const ty = if (res_sent) |rs|
+                try Type.Tag.array_sentinel.create(anon_decl.arena(), .{ .len = final_len, .elem_type = lhs_info.elem_type, .sentinel = rs })
+            else
+                try Type.Tag.array.create(anon_decl.arena(), .{ .len = final_len, .elem_type = lhs_info.elem_type });
+            const val = try Value.Tag.array.create(anon_decl.arena(), buf);
+            return if (is_pointer)
+                sema.analyzeDeclRef(try anon_decl.finish(ty, val))
+            else
+                sema.analyzeDeclVal(block, .unneeded, try anon_decl.finish(ty, val));
         } else {
             return sema.mod.fail(&block.base, lhs_src, "TODO runtime array_cat", .{});
         }
@@ -6179,29 +6180,30 @@ fn zirArrayMul(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
 
     const final_len = std.math.mul(u64, mulinfo.len, tomulby) catch return sema.mod.fail(&block.base, rhs_src, "operation results in overflow", .{});
     if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
-        if (lhs_ty.zigTypeTag() == .Pointer) {
-            var anon_decl = try block.startAnonDecl();
-            defer anon_decl.deinit();
-            const lhs_sub_val = (try lhs_val.pointerDeref(anon_decl.arena())).?;
+        var anon_decl = try block.startAnonDecl();
+        defer anon_decl.deinit();
+        const lhs_sub_val = if (lhs_ty.zigTypeTag() == .Pointer) (try lhs_val.pointerDeref(anon_decl.arena())).? else lhs_val;
+        const final_ty = if (mulinfo.sentinel) |sent|
+            try Type.Tag.array_sentinel.create(anon_decl.arena(), .{ .len = final_len, .elem_type = mulinfo.elem_type, .sentinel = sent })
+        else
+            try Type.Tag.array.create(anon_decl.arena(), .{ .len = final_len, .elem_type = mulinfo.elem_type });
+        const buf = try anon_decl.arena().alloc(Value, final_len);
 
-            const final_ty = if (mulinfo.sentinel) |sent|
-                try Type.Tag.array_sentinel.create(anon_decl.arena(), .{ .len = final_len, .elem_type = mulinfo.elem_type, .sentinel = sent })
-            else
-                try Type.Tag.array.create(anon_decl.arena(), .{ .len = final_len, .elem_type = mulinfo.elem_type });
-
-            const buf = try anon_decl.arena().alloc(Value, final_len);
-            var i: u64 = 0;
-            while (i < tomulby) : (i += 1) {
-                var j: u64 = 0;
-                while (j < mulinfo.len) : (j += 1) {
-                    const val = try lhs_sub_val.elemValue(sema.arena, j);
-                    buf[mulinfo.len * i + j] = try val.copy(anon_decl.arena());
-                }
+        // the actual loop
+        var i: u64 = 0;
+        while (i < tomulby) : (i += 1) {
+            var j: u64 = 0;
+            while (j < mulinfo.len) : (j += 1) {
+                const val = try lhs_sub_val.elemValue(sema.arena, j);
+                buf[mulinfo.len * i + j] = try val.copy(anon_decl.arena());
             }
-            const val = try Value.Tag.array.create(anon_decl.arena(), buf);
-            return sema.analyzeDeclRef(try anon_decl.finish(final_ty, val));
         }
-        return sema.mod.fail(&block.base, lhs_src, "TODO array_mul more types of Values", .{});
+        const val = try Value.Tag.array.create(anon_decl.arena(), buf);
+        if (lhs_ty.zigTypeTag() == .Pointer) {
+            return sema.analyzeDeclRef(try anon_decl.finish(final_ty, val));
+        } else {
+            return sema.analyzeDeclVal(block, .unneeded, try anon_decl.finish(final_ty, val));
+        }
     }
     return sema.mod.fail(&block.base, lhs_src, "TODO runtime array_mul", .{});
 }
@@ -8227,8 +8229,49 @@ fn zirArrayInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
 
-    _ = is_ref;
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirArrayInit", .{});
+    const extra = sema.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
+    const args = sema.code.refSlice(extra.end, extra.data.operands_len);
+
+    var resolved_args = try sema.mod.gpa.alloc(Air.Inst.Ref, args.len);
+    for (args) |arg, i| resolved_args[i] = sema.resolveInst(arg);
+
+    var all_args_comptime = for (resolved_args) |arg| {
+        if ((try sema.resolveMaybeUndefVal(block, src, arg)) == null) break false;
+    } else true;
+
+    if (all_args_comptime) {
+        var anon_decl = try block.startAnonDecl();
+        defer anon_decl.deinit();
+        assert(!(resolved_args.len == 0));
+        const final_ty = try Type.Tag.array.create(anon_decl.arena(), .{ .len = resolved_args.len, .elem_type = sema.typeOf(resolved_args[0]) });
+        const buf = try anon_decl.arena().alloc(Value, resolved_args.len);
+        for (resolved_args) |arg, i| {
+            buf[i] = (try sema.resolveMaybeUndefVal(block, src, arg)).?;
+        }
+
+        const val = try Value.Tag.array.create(anon_decl.arena(), buf);
+        if (is_ref)
+            return sema.analyzeDeclRef(try anon_decl.finish(final_ty, val))
+        else
+            return sema.analyzeDeclVal(block, .unneeded, try anon_decl.finish(final_ty, val));
+    }
+
+    assert(!(resolved_args.len == 0));
+    const array_ty = try Type.Tag.array.create(sema.arena, .{ .len = resolved_args.len, .elem_type = sema.typeOf(resolved_args[0]) });
+    const final_ty = try Type.ptr(sema.arena, .{
+        .pointee_type = array_ty,
+        .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+    });
+    const alloc = try block.addTy(.alloc, final_ty);
+
+    for (resolved_args) |arg, i| {
+        const pointer_to_array_at_index = try block.addBinOp(.ptr_elem_ptr, alloc, try sema.addIntUnsigned(Type.initTag(.u64), i));
+        _ = try block.addBinOp(.store, pointer_to_array_at_index, arg);
+    }
+    return if (is_ref)
+        alloc
+    else
+        try sema.analyzeLoad(block, .unneeded, alloc, .unneeded);
 }
 
 fn zirArrayInitAnon(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) CompileError!Air.Inst.Ref {
