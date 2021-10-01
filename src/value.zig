@@ -1669,7 +1669,7 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.addWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
@@ -1693,19 +1693,25 @@ pub const Value = extern union {
         assert(!lhs.isUndef());
         assert(!rhs.isUndef());
 
-        const result = try intAdd(lhs, rhs, arena);
+        const info = ty.intInfo(target);
 
-        const max = try ty.maxInt(arena, target);
-        if (compare(result, .gt, max, ty)) {
-            return max;
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.addSat(lhs_bigint, rhs_bigint, info.signedness, info.bits);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
         }
-
-        const min = try ty.minInt(arena, target);
-        if (compare(result, .lt, min, ty)) {
-            return min;
-        }
-
-        return result;
     }
 
     /// Supports both floats and ints; handles undefined.
@@ -1730,7 +1736,7 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.subWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
@@ -1741,7 +1747,6 @@ pub const Value = extern union {
         } else {
             return Value.Tag.int_big_negative.create(arena, result_limbs);
         }
-
     }
 
     /// Supports integers only; asserts neither operand is undefined.
@@ -1755,19 +1760,25 @@ pub const Value = extern union {
         assert(!lhs.isUndef());
         assert(!rhs.isUndef());
 
-        const result = try intSub(lhs, rhs, arena);
+        const info = ty.intInfo(target);
 
-        const max = try ty.maxInt(arena, target);
-        if (compare(result, .gt, max, ty)) {
-            return max;
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.subSat(lhs_bigint, rhs_bigint, info.signedness, info.bits);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
         }
-
-        const min = try ty.minInt(arena, target);
-        if (compare(result, .lt, min, ty)) {
-            return min;
-        }
-
-        return result;
     }
 
     /// Supports both floats and ints; handles undefined.
