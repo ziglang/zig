@@ -1770,7 +1770,7 @@ pub fn update(self: *Compilation) !void {
                 assert(decl.deletion_flag);
                 assert(decl.dependants.count() == 0);
                 const is_anon = if (decl.zir_decl_index == 0) blk: {
-                    break :blk decl.namespace.anon_decls.swapRemove(decl);
+                    break :blk decl.src_namespace.anon_decls.swapRemove(decl);
                 } else false;
 
                 try module.clearDecl(decl, null);
@@ -1889,13 +1889,13 @@ pub fn totalErrorCount(self: *Compilation) usize {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (module.failed_decls.keys()) |key| {
-            if (key.namespace.file_scope.okToReportErrors()) {
+            if (key.getFileScope().okToReportErrors()) {
                 total += 1;
             }
         }
         if (module.emit_h) |emit_h| {
             for (emit_h.failed_decls.keys()) |key| {
-                if (key.namespace.file_scope.okToReportErrors()) {
+                if (key.getFileScope().okToReportErrors()) {
                     total += 1;
                 }
             }
@@ -1968,7 +1968,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             while (it.next()) |entry| {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (entry.key_ptr.*.namespace.file_scope.okToReportErrors()) {
+                if (entry.key_ptr.*.getFileScope().okToReportErrors()) {
                     try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
                 }
             }
@@ -1978,7 +1978,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             while (it.next()) |entry| {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (entry.key_ptr.*.namespace.file_scope.okToReportErrors()) {
+                if (entry.key_ptr.*.getFileScope().okToReportErrors()) {
                     try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
                 }
             }
@@ -2169,12 +2169,12 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 defer air.deinit(gpa);
 
                 log.debug("analyze liveness of {s}", .{decl.name});
-                var liveness = try Liveness.analyze(gpa, air, decl.namespace.file_scope.zir);
+                var liveness = try Liveness.analyze(gpa, air, decl.getFileScope().zir);
                 defer liveness.deinit(gpa);
 
                 if (builtin.mode == .Debug and self.verbose_air) {
                     std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
-                    @import("print_air.zig").dump(gpa, air, decl.namespace.file_scope.zir, liveness);
+                    @import("print_air.zig").dump(gpa, air, decl.getFileScope().zir, liveness);
                     std.debug.print("# End Function AIR: {s}\n\n", .{decl.name});
                 }
 

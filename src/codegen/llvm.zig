@@ -1819,7 +1819,7 @@ pub const FuncGen = struct {
 
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const air_asm = self.air.extraData(Air.Asm, ty_pl.payload);
-        const zir = self.dg.decl.namespace.file_scope.zir;
+        const zir = self.dg.decl.getFileScope().zir;
         const extended = zir.instructions.items(.data)[air_asm.data.zir_index].extended;
         const zir_extra = zir.extraData(Zir.Inst.Asm, extended.operand);
         const asm_source = zir.nullTerminatedString(zir_extra.data.asm_source);

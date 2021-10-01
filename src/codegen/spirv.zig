@@ -139,7 +139,7 @@ pub const SPIRVModule = struct {
     }
 
     fn resolveSourceFileName(self: *SPIRVModule, decl: *Decl) !ResultId {
-        const path = decl.namespace.file_scope.sub_file_path;
+        const path = decl.getFileScope().sub_file_path;
         const result = try self.file_names.getOrPut(path);
         if (!result.found_existing) {
             result.value_ptr.* = self.allocResultId();

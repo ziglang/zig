@@ -1696,7 +1696,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
     const air_datas = f.air.instructions.items(.data);
     const air_extra = f.air.extraData(Air.Asm, air_datas[inst].ty_pl.payload);
-    const zir = f.object.dg.decl.namespace.file_scope.zir;
+    const zir = f.object.dg.decl.getFileScope().zir;
     const extended = zir.instructions.items(.data)[air_extra.data.zir_index].extended;
     const zir_extra = zir.extraData(Zir.Inst.Asm, extended.operand);
     const asm_source = zir.nullTerminatedString(zir_extra.data.asm_source);

@@ -264,7 +264,7 @@ pub const Export = struct {
 
     pub fn getSrcLoc(exp: Export) SrcLoc {
         return .{
-            .file_scope = exp.src_decl.namespace.file_scope,
+            .file_scope = exp.src_decl.getFileScope(),
             .parent_decl_node = exp.src_decl.src_node,
             .lazy = exp.src,
         };
@@ -350,7 +350,7 @@ pub const Decl = struct {
     /// Reference to externally owned memory.
     /// In the case of the Decl corresponding to a file, this is
     /// the namespace of the struct, since there is no parent.
-    namespace: *Scope.Namespace,
+    src_namespace: *Scope.Namespace,
 
     /// The scope which lexically contains this decl.  A decl must depend
     /// on its lexical parent, in order to ensure that this pointer is valid.
@@ -516,7 +516,7 @@ pub const Decl = struct {
     /// This name is relative to the containing namespace of the decl.
     /// The memory is owned by the containing File ZIR.
     pub fn getName(decl: Decl) ?[:0]const u8 {
-        const zir = decl.namespace.file_scope.zir;
+        const zir = decl.getFileScope().zir;
         return decl.getNameZir(zir);
     }
 
@@ -528,7 +528,7 @@ pub const Decl = struct {
     }
 
     pub fn contentsHash(decl: Decl) std.zig.SrcHash {
-        const zir = decl.namespace.file_scope.zir;
+        const zir = decl.getFileScope().zir;
         return decl.contentsHashZir(zir);
     }
 
@@ -541,21 +541,21 @@ pub const Decl = struct {
 
     pub fn zirBlockIndex(decl: *const Decl) Zir.Inst.Index {
         assert(decl.zir_decl_index != 0);
-        const zir = decl.namespace.file_scope.zir;
+        const zir = decl.getFileScope().zir;
         return zir.extra[decl.zir_decl_index + 6];
     }
 
     pub fn zirAlignRef(decl: Decl) Zir.Inst.Ref {
         if (!decl.has_align) return .none;
         assert(decl.zir_decl_index != 0);
-        const zir = decl.namespace.file_scope.zir;
+        const zir = decl.getFileScope().zir;
         return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 7]);
     }
 
     pub fn zirLinksectionRef(decl: Decl) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
-        const zir = decl.namespace.file_scope.zir;
+        const zir = decl.getFileScope().zir;
         const extra_index = decl.zir_decl_index + 7 + @boolToInt(decl.has_align);
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
     }
@@ -563,16 +563,16 @@ pub const Decl = struct {
     pub fn zirAddrspaceRef(decl: Decl) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
-        const zir = decl.namespace.file_scope.zir;
+        const zir = decl.getFileScope().zir;
         const extra_index = decl.zir_decl_index + 7 + @boolToInt(decl.has_align) + 1;
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
     }
 
     /// Returns true if and only if the Decl is the top level struct associated with a File.
     pub fn isRoot(decl: *const Decl) bool {
-        if (decl.namespace.parent != null)
+        if (decl.src_namespace.parent != null)
             return false;
-        return decl == decl.namespace.ty.getOwnerDecl();
+        return decl == decl.src_namespace.getDecl();
     }
 
     pub fn relativeToLine(decl: Decl, offset: u32) u32 {
@@ -608,29 +608,21 @@ pub const Decl = struct {
     }
 
     pub fn srcToken(decl: Decl) Ast.TokenIndex {
-        const tree = &decl.namespace.file_scope.tree;
+        const tree = &decl.getFileScope().tree;
         return tree.firstToken(decl.src_node);
     }
 
     pub fn srcByteOffset(decl: Decl) u32 {
-        const tree = &decl.namespace.file_scope.tree;
+        const tree = &decl.getFileScope().tree;
         return tree.tokens.items(.start)[decl.srcToken()];
     }
 
     pub fn renderFullyQualifiedName(decl: *const Decl, writer: anytype) @TypeOf(writer).Error!void {
-        // Namespace decls (struct/enum/union/opaque) use their own namespace,
-        // which means the decl name and the namespace name are the same.
-        // In that case we want to omit the decl name, unless this is the root decl.
-        const unqualified_name = if (decl.namespace.getDecl() != decl or decl.namespace.parent == null) mem.spanZ(decl.name) else "";
-        return try decl.namespace.renderFullyQualifiedName(unqualified_name, writer);
+        return try decl.src_namespace.renderFullyQualifiedName(mem.spanZ(decl.name), writer);
     }
 
     pub fn renderFullyQualifiedDebugName(decl: *const Decl, writer: anytype) @TypeOf(writer).Error!void {
-        // Namespace decls (struct/enum/union/opaque) use their own namespace,
-        // which means the decl name and the namespace name are the same.
-        // In that case we want to omit the decl name, unless this is the root decl.
-        const unqualified_name = if (decl.namespace.getDecl() != decl or decl.namespace.parent == null) mem.spanZ(decl.name) else "";
-        return try decl.namespace.renderFullyQualifiedDebugName(unqualified_name, writer);
+        return try decl.src_namespace.renderFullyQualifiedDebugName(mem.spanZ(decl.name), writer);
     }
 
     pub fn getFullyQualifiedName(decl: *const Decl, gpa: *Allocator) ![:0]u8 {
@@ -742,7 +734,7 @@ pub const Decl = struct {
     }
 
     pub fn getFileScope(decl: Decl) *Scope.File {
-        return decl.namespace.file_scope;
+        return decl.src_namespace.file_scope;
     }
 
     pub fn getEmitH(decl: *Decl, module: *Module) *EmitH {
@@ -1118,8 +1110,8 @@ pub const Scope = struct {
     /// Asserts the scope has a parent which is a Namespace and returns it.
     pub fn namespace(scope: *Scope) *Namespace {
         switch (scope.tag) {
-            .block => return scope.cast(Block).?.src_decl.namespace,
-            .file => return scope.cast(File).?.root_decl.?.namespace,
+            .block => return scope.cast(Block).?.namespace,
+            .file => return scope.cast(File).?.root_decl.?.src_namespace,
             .namespace => return scope.cast(Namespace).?,
         }
     }
@@ -1134,14 +1126,14 @@ pub const Scope = struct {
         }
     }
 
-    /// When called from inside a Block Scope, chases the src_decl, not the owner_decl.
+    /// When called from inside a Block Scope, chases the namespace, not the owner_decl.
     pub fn getFileScope(base: *Scope) *Scope.File {
         var cur = base;
         while (true) {
             cur = switch (cur.tag) {
                 .namespace => return @fieldParentPtr(Namespace, "base", cur).file_scope,
                 .file => return @fieldParentPtr(File, "base", cur),
-                .block => return @fieldParentPtr(Block, "base", cur).src_decl.namespace.file_scope,
+                .block => return @fieldParentPtr(Block, "base", cur).namespace.file_scope,
             };
         }
     }
@@ -1475,6 +1467,10 @@ pub const Scope = struct {
         /// This can vary during inline or comptime function calls. See `Sema.owner_decl`
         /// for the one that will be the same for all Block instances.
         src_decl: *Decl,
+        /// The namespace to use for lookups from this source block
+        /// When analyzing fields, this is different from src_decl.src_namepsace.
+        namespace: *Namespace,
+        /// The AIR instructions generated for this block.
         instructions: ArrayListUnmanaged(Air.Inst.Index),
         // `param` instructions are collected here to be used by the `func` instruction.
         params: std.ArrayListUnmanaged(Param) = .{},
@@ -1541,6 +1537,7 @@ pub const Scope = struct {
                 .parent = parent,
                 .sema = parent.sema,
                 .src_decl = parent.src_decl,
+                .namespace = parent.namespace,
                 .instructions = .{},
                 .wip_capture_scope = parent.wip_capture_scope,
                 .label = null,
@@ -1564,7 +1561,7 @@ pub const Scope = struct {
         }
 
         pub fn getFileScope(block: *Block) *Scope.File {
-            return block.src_decl.namespace.file_scope;
+            return block.namespace.file_scope;
         }
 
         pub fn addTy(
@@ -3327,6 +3324,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .parent = null,
             .sema = &sema,
             .src_decl = new_decl,
+            .namespace = &struct_obj.namespace,
             .wip_capture_scope = wip_captures.scope,
             .instructions = .{},
             .inlining = null,
@@ -3355,12 +3353,12 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (decl.namespace.file_scope.status != .success_zir) {
+    if (decl.getFileScope().status != .success_zir) {
         return error.AnalysisFail;
     }
 
     const gpa = mod.gpa;
-    const zir = decl.namespace.file_scope.zir;
+    const zir = decl.getFileScope().zir;
     const zir_datas = zir.instructions.items(.data);
 
     decl.analysis = .in_progress;
@@ -3406,6 +3404,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .parent = null,
         .sema = &sema,
         .src_decl = decl,
+        .namespace = decl.src_namespace,
         .wip_capture_scope = wip_captures.scope,
         .instructions = .{},
         .inlining = null,
@@ -4042,8 +4041,8 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
         },
     }
 
-    const owner_namespace = if (decl.namespace.getDecl() == decl and decl.namespace.parent != null) decl.namespace.parent.? else decl.namespace;
-    assert(owner_namespace.anon_decls.swapRemove(decl));
+    assert(!decl.isRoot());
+    assert(decl.src_namespace.anon_decls.swapRemove(decl));
 
     const dependants = decl.dependants.keys();
     for (dependants) |dep| {
@@ -4059,8 +4058,8 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
 pub fn abortAnonDecl(mod: *Module, decl: *Decl) void {
     log.debug("abortAnonDecl {*} ({s})", .{ decl, decl.name });
 
-    const owner_namespace = if (decl.namespace.getDecl() == decl and decl.namespace.parent != null) decl.namespace.parent.? else decl.namespace;
-    assert(owner_namespace.anon_decls.swapRemove(decl));
+    assert(!decl.isRoot());
+    assert(decl.src_namespace.anon_decls.swapRemove(decl));
 
     const dependants = decl.dependants.keys();
     for (dependants) |dep| {
@@ -4128,7 +4127,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: *Allocator) Se
         .gpa = gpa,
         .arena = arena,
         .perm_arena = &decl_arena.allocator,
-        .code = decl.namespace.file_scope.zir,
+        .code = decl.getFileScope().zir,
         .owner_decl = decl,
         .func = func,
         .fn_ret_ty = func.owner_decl.ty.fnReturnType(),
@@ -4148,6 +4147,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: *Allocator) Se
         .parent = null,
         .sema = &sema,
         .src_decl = decl,
+        .namespace = decl.src_namespace,
         .wip_capture_scope = wip_captures.scope,
         .instructions = .{},
         .inlining = null,
@@ -4279,7 +4279,7 @@ pub fn allocateNewDecl(mod: *Module, name: [:0]const u8, namespace: *Scope.Names
 
     new_decl.* = .{
         .name = name,
-        .namespace = namespace,
+        .src_namespace = namespace,
         .src_node = src_node,
         .src_line = undefined,
         .has_tv = false,
@@ -4426,32 +4426,38 @@ pub fn createAnonymousDeclNamed(
     typed_value: TypedValue,
     name: [:0]u8,
 ) !*Decl {
-    return mod.createAnonymousDeclFromDeclNamed(scope.srcDecl().?, scope.srcScope(), typed_value, name);
+    return mod.createAnonymousDeclFromDeclNamed(scope.srcDecl().?, scope.namespace(), scope.srcScope(), typed_value, name);
 }
 
 pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
-    return mod.createAnonymousDeclFromDecl(scope.srcDecl().?, scope.srcScope(), typed_value);
+    return mod.createAnonymousDeclFromDecl(scope.srcDecl().?, scope.namespace(), scope.srcScope(), typed_value);
 }
 
-pub fn createAnonymousDeclFromDecl(mod: *Module, src_decl: *Decl, src_scope: ?*CaptureScope, tv: TypedValue) !*Decl {
+pub fn createAnonymousDeclFromDecl(
+    mod: *Module,
+    src_decl: *Decl,
+    namespace: *Scope.Namespace,
+    src_scope: ?*CaptureScope,
+    tv: TypedValue,
+) !*Decl {
     const name_index = mod.getNextAnonNameIndex();
     const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
         src_decl.name, name_index,
     });
-    return mod.createAnonymousDeclFromDeclNamed(src_decl, src_scope, tv, name);
+    return mod.createAnonymousDeclFromDeclNamed(src_decl, namespace, src_scope, tv, name);
 }
 
 /// Takes ownership of `name` even if it returns an error.
 pub fn createAnonymousDeclFromDeclNamed(
     mod: *Module,
     src_decl: *Decl,
+    namespace: *Scope.Namespace,
     src_scope: ?*CaptureScope,
     typed_value: TypedValue,
     name: [:0]u8,
 ) !*Decl {
     errdefer mod.gpa.free(name);
 
-    const namespace = src_decl.namespace;
     try namespace.anon_decls.ensureUnusedCapacity(mod.gpa, 1);
 
     const new_decl = try mod.allocateNewDecl(name, namespace, src_decl.src_node, src_scope);
@@ -4705,10 +4711,10 @@ pub const SwitchProngSrc = union(enum) {
         range_expand: RangeExpand,
     ) LazySrcLoc {
         @setCold(true);
-        const tree = decl.namespace.file_scope.getTree(gpa) catch |err| {
+        const tree = decl.getFileScope().getTree(gpa) catch |err| {
             // In this case we emit a warning + a less precise source location.
             log.warn("unable to load {s}: {s}", .{
-                decl.namespace.file_scope.sub_file_path, @errorName(err),
+                decl.getFileScope().sub_file_path, @errorName(err),
             });
             return LazySrcLoc{ .node_offset = 0 };
         };
@@ -4817,10 +4823,10 @@ pub const PeerTypeCandidateSrc = union(enum) {
                     else => {},
                 }
 
-                const tree = decl.namespace.file_scope.getTree(gpa) catch |err| {
+                const tree = decl.getFileScope().getTree(gpa) catch |err| {
                     // In this case we emit a warning + a less precise source location.
                     log.warn("unable to load {s}: {s}", .{
-                        decl.namespace.file_scope.sub_file_path, @errorName(err),
+                        decl.getFileScope().sub_file_path, @errorName(err),
                     });
                     return LazySrcLoc{ .node_offset = 0 };
                 };
@@ -4863,7 +4869,7 @@ pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
 
             // Remove from the namespace it resides in, preserving declaration order.
             assert(decl.zir_decl_index != 0);
-            _ = decl.namespace.decls.orderedRemove(mem.spanZ(decl.name));
+            _ = decl.src_namespace.decls.orderedRemove(mem.spanZ(decl.name));
 
             try mod.clearDecl(decl, &outdated_decls);
             decl.destroy(mod);
@@ -4929,7 +4935,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
     const gpa = mod.gpa;
     const builtin_pkg = mod.main_pkg.table.get("builtin").?;
     const builtin_file = (mod.importPkg(builtin_pkg) catch unreachable).file;
-    const builtin_namespace = builtin_file.root_decl.?.namespace;
+    const builtin_namespace = builtin_file.root_decl.?.src_namespace;
     const decl = builtin_namespace.decls.get("test_functions").?;
     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
     const tmp_test_fn_ty = decl.ty.slicePtrFieldType(&buf).elemType();
@@ -4942,7 +4948,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
         const arena = &new_decl_arena.allocator;
 
         const test_fn_vals = try arena.alloc(Value, mod.test_functions.count());
-        const array_decl = try mod.createAnonymousDeclFromDecl(decl, null, .{
+        const array_decl = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, null, .{
             .ty = try Type.Tag.array.create(arena, .{
                 .len = test_fn_vals.len,
                 .elem_type = try tmp_test_fn_ty.copy(arena),
@@ -4955,7 +4961,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
                 var name_decl_arena = std.heap.ArenaAllocator.init(gpa);
                 errdefer name_decl_arena.deinit();
                 const bytes = try name_decl_arena.allocator.dupe(u8, test_name_slice);
-                const test_name_decl = try mod.createAnonymousDeclFromDecl(array_decl, null, .{
+                const test_name_decl = try mod.createAnonymousDeclFromDecl(array_decl, array_decl.src_namespace, null, .{
                     .ty = try Type.Tag.array_u8.create(&name_decl_arena.allocator, bytes.len),
                     .val = try Value.Tag.bytes.create(&name_decl_arena.allocator, bytes),
                 });

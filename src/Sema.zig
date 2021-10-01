@@ -1042,8 +1042,6 @@ pub fn analyzeStructDecl(
     } else 0;
 
     _ = try sema.mod.scanNamespace(&struct_obj.namespace, extra_index, decls_len, new_decl);
-
-    new_decl.namespace = &struct_obj.namespace;
 }
 
 fn zirStructDecl(
@@ -1080,7 +1078,7 @@ fn zirStructDecl(
         .status = .none,
         .known_has_bits = undefined,
         .namespace = .{
-            .parent = block.src_decl.namespace,
+            .parent = block.namespace,
             .ty = struct_ty,
             .file_scope = block.getFileScope(),
         },
@@ -1188,7 +1186,7 @@ fn zirEnumDecl(
         .values = .{},
         .node_offset = src.node_offset,
         .namespace = .{
-            .parent = block.src_decl.namespace,
+            .parent = block.namespace,
             .ty = enum_ty,
             .file_scope = block.getFileScope(),
         },
@@ -1198,8 +1196,6 @@ fn zirEnumDecl(
     });
 
     extra_index = try mod.scanNamespace(&enum_obj.namespace, extra_index, decls_len, new_decl);
-
-    new_decl.namespace = &enum_obj.namespace;
 
     const body = sema.code.extra[extra_index..][0..body_len];
     if (fields_len == 0) {
@@ -1238,6 +1234,7 @@ fn zirEnumDecl(
             .parent = null,
             .sema = sema,
             .src_decl = new_decl,
+            .namespace = &enum_obj.namespace,
             .wip_capture_scope = wip_captures.scope,
             .instructions = .{},
             .inlining = null,
@@ -1377,7 +1374,7 @@ fn zirUnionDecl(
         .layout = small.layout,
         .status = .none,
         .namespace = .{
-            .parent = block.src_decl.namespace,
+            .parent = block.namespace,
             .ty = union_ty,
             .file_scope = block.getFileScope(),
         },
@@ -1387,8 +1384,6 @@ fn zirUnionDecl(
     });
 
     _ = try sema.mod.scanNamespace(&union_obj.namespace, extra_index, decls_len, new_decl);
-
-    new_decl.namespace = &union_obj.namespace;
 
     try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclVal(block, src, new_decl);
@@ -2283,6 +2278,7 @@ fn zirCImport(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) Com
         .parent = parent_block,
         .sema = sema,
         .src_decl = parent_block.src_decl,
+        .namespace = parent_block.namespace,
         .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .inlining = parent_block.inlining,
@@ -2383,6 +2379,7 @@ fn zirBlock(
         .parent = parent_block,
         .sema = sema,
         .src_decl = parent_block.src_decl,
+        .namespace = parent_block.namespace,
         .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .label = &label,
@@ -2684,7 +2681,7 @@ fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
 }
 
 fn lookupIdentifier(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, name: []const u8) !*Decl {
-    var namespace = block.src_decl.namespace;
+    var namespace = block.namespace;
     while (true) {
         if (try sema.lookupInNamespace(block, src, namespace, name, false)) |decl| {
             return decl;
@@ -2713,7 +2710,7 @@ fn lookupInNamespace(
     }
 
     if (observe_usingnamespace and namespace.usingnamespace_set.count() != 0) {
-        const src_file = block.src_decl.namespace.file_scope;
+        const src_file = block.namespace.file_scope;
 
         const gpa = sema.gpa;
         var checked_namespaces: std.AutoArrayHashMapUnmanaged(*Scope.Namespace, void) = .{};
@@ -2731,7 +2728,7 @@ fn lookupInNamespace(
             if (check_ns.decls.get(ident_name)) |decl| {
                 // Skip decls which are not marked pub, which are in a different
                 // file than the `a.b`/`@hasDecl` syntax.
-                if (decl.is_pub or src_file == decl.namespace.file_scope) {
+                if (decl.is_pub or src_file == decl.getFileScope()) {
                     try candidates.append(gpa, decl);
                 }
             }
@@ -2739,7 +2736,7 @@ fn lookupInNamespace(
             while (it.next()) |entry| {
                 const sub_usingnamespace_decl = entry.key_ptr.*;
                 const sub_is_pub = entry.value_ptr.*;
-                if (!sub_is_pub and src_file != sub_usingnamespace_decl.namespace.file_scope) {
+                if (!sub_is_pub and src_file != sub_usingnamespace_decl.getFileScope()) {
                     // Skip usingnamespace decls which are not marked pub, which are in
                     // a different file than the `a.b`/`@hasDecl` syntax.
                     continue;
@@ -2992,7 +2989,7 @@ fn analyzeCall(
         // In order to save a bit of stack space, directly modify Sema rather
         // than create a child one.
         const parent_zir = sema.code;
-        sema.code = module_fn.owner_decl.namespace.file_scope.zir;
+        sema.code = module_fn.owner_decl.getFileScope().zir;
         defer sema.code = parent_zir;
 
         const parent_inst_map = sema.inst_map;
@@ -3013,6 +3010,7 @@ fn analyzeCall(
             .parent = null,
             .sema = sema,
             .src_decl = module_fn.owner_decl,
+            .namespace = module_fn.owner_decl.src_namespace,
             .wip_capture_scope = wip_captures.scope,
             .instructions = .{},
             .label = null,
@@ -3182,7 +3180,7 @@ fn analyzeCall(
         // Check the Module's generic function map with an adapted context, so that we
         // can match against `uncasted_args` rather than doing the work below to create a
         // generic Scope only to junk it if it matches an existing instantiation.
-        const namespace = module_fn.owner_decl.namespace;
+        const namespace = module_fn.owner_decl.src_namespace;
         const fn_zir = namespace.file_scope.zir;
         const fn_info = fn_zir.getFnInfo(module_fn.zir_body_inst);
         const zir_tags = fn_zir.instructions.items(.tag);
@@ -3314,6 +3312,7 @@ fn analyzeCall(
                 .parent = null,
                 .sema = &child_sema,
                 .src_decl = new_decl,
+                .namespace = namespace,
                 .wip_capture_scope = wip_captures.scope,
                 .instructions = .{},
                 .inlining = null,
@@ -5338,6 +5337,7 @@ fn analyzeSwitch(
         .parent = block,
         .sema = sema,
         .src_decl = block.src_decl,
+        .namespace = block.namespace,
         .wip_capture_scope = block.wip_capture_scope,
         .instructions = .{},
         .label = &label,
@@ -5861,7 +5861,7 @@ fn zirHasDecl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileErr
         .{container_type},
     );
     if (try sema.lookupInNamespace(block, src, namespace, decl_name, true)) |decl| {
-        if (decl.is_pub or decl.namespace.file_scope == block.base.namespace().file_scope) {
+        if (decl.is_pub or decl.getFileScope() == block.base.namespace().file_scope) {
             return Air.Inst.Ref.bool_true;
         }
     }
@@ -9603,8 +9603,9 @@ fn addSafetyCheck(
     var fail_block: Scope.Block = .{
         .parent = parent_block,
         .sema = sema,
-        .wip_capture_scope = parent_block.wip_capture_scope,
         .src_decl = parent_block.src_decl,
+        .namespace = parent_block.namespace,
+        .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
@@ -10259,7 +10260,7 @@ fn namespaceLookup(
     const mod = sema.mod;
     const gpa = sema.gpa;
     if (try sema.lookupInNamespace(block, src, namespace, decl_name, true)) |decl| {
-        if (!decl.is_pub and decl.namespace.file_scope != block.getFileScope()) {
+        if (!decl.is_pub and decl.getFileScope() != block.getFileScope()) {
             const msg = msg: {
                 const msg = try mod.errMsg(&block.base, src, "'{s}' is not marked 'pub'", .{
                     decl_name,
@@ -11911,6 +11912,7 @@ fn semaStructFields(
         .parent = null,
         .sema = &sema,
         .src_decl = decl,
+        .namespace = &struct_obj.namespace,
         .wip_capture_scope = wip_captures.scope,
         .instructions = .{},
         .inlining = null,
@@ -12080,6 +12082,7 @@ fn semaUnionFields(
         .parent = null,
         .sema = &sema,
         .src_decl = decl,
+        .namespace = &union_obj.namespace,
         .wip_capture_scope = wip_captures.scope,
         .instructions = .{},
         .inlining = null,
@@ -12290,7 +12293,7 @@ fn getBuiltin(
     const opt_builtin_inst = try sema.namespaceLookupRef(
         block,
         src,
-        std_file.root_decl.?.namespace,
+        std_file.root_decl.?.src_namespace,
         "builtin",
     );
     const builtin_inst = try sema.analyzeLoad(block, src, opt_builtin_inst.?, src);
@@ -12484,7 +12487,7 @@ fn typeHasOnePossibleValue(
 }
 
 fn getAstTree(sema: *Sema, block: *Scope.Block) CompileError!*const std.zig.Ast {
-    return block.src_decl.namespace.file_scope.getTree(sema.gpa) catch |err| {
+    return block.namespace.file_scope.getTree(sema.gpa) catch |err| {
         log.err("unable to load AST to report compile error: {s}", .{@errorName(err)});
         return error.AnalysisFail;
     };

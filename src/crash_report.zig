@@ -97,7 +97,7 @@ fn dumpStatusReport() !void {
         allocator,
         anal.body,
         anal.body_index,
-        block.src_decl.getFileScope(),
+        block.namespace.file_scope,
         block.src_decl.src_node,
         6, // indent
         stderr,
@@ -106,7 +106,7 @@ fn dumpStatusReport() !void {
         else => |e| return e,
     };
     try stderr.writeAll("    For full context, use the command\n      zig ast-check -t ");
-    try writeFilePath(block.src_decl.getFileScope(), stderr);
+    try writeFilePath(block.namespace.file_scope, stderr);
     try stderr.writeAll("\n\n");
 
     var parent = anal.parent;
@@ -118,7 +118,7 @@ fn dumpStatusReport() !void {
         print_zir.renderSingleInstruction(
             allocator,
             curr.body[curr.body_index],
-            curr.block.src_decl.getFileScope(),
+            curr.block.namespace.file_scope,
             curr.block.src_decl.src_node,
             6, // indent
             stderr,
