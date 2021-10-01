@@ -1021,6 +1021,7 @@ pub const DeclGen = struct {
                 else => |tag| return self.todo("implement const of pointer type '{}' ({})", .{ tv.ty, tag }),
             },
             .Array => {
+                const gpa = self.gpa;
                 if (tv.val.castTag(.bytes)) |payload| {
                     const zero_sentinel = if (tv.ty.sentinel()) |sentinel| blk: {
                         if (sentinel.tag() == .zero) break :blk true;
@@ -1034,7 +1035,6 @@ pub const DeclGen = struct {
                     );
                 }
                 if (tv.val.castTag(.array)) |payload| {
-                    const gpa = self.gpa;
                     const elem_ty = tv.ty.elemType();
                     const elem_vals = payload.data;
                     const sento = tv.ty.sentinel();
@@ -1044,6 +1044,23 @@ pub const DeclGen = struct {
                         llvm_elems[i] = try self.genTypedValue(.{ .ty = elem_ty, .val = elem_val });
                     }
                     if (sento) |sent| llvm_elems[elem_vals.len] = try self.genTypedValue(.{ .ty = elem_ty, .val = sent });
+                    const llvm_elem_ty = try self.llvmType(elem_ty);
+                    return llvm_elem_ty.constArray(
+                        llvm_elems.ptr,
+                        @intCast(c_uint, llvm_elems.len),
+                    );
+                }
+                if (tv.val.castTag(.repeated)) |payload| {
+                    const val = payload.data;
+                    const elem_ty = tv.ty.elemType();
+                    const len = tv.ty.arrayLen();
+
+                    const llvm_elems = try gpa.alloc(*const llvm.Value, len);
+                    defer gpa.free(llvm_elems);
+                    var i: u64 = 0;
+                    while (i < len) : (i += 1) {
+                        llvm_elems[i] = try self.genTypedValue(.{ .ty = elem_ty, .val = val });
+                    }
                     const llvm_elem_ty = try self.llvmType(elem_ty);
                     return llvm_elem_ty.constArray(
                         llvm_elems.ptr,
