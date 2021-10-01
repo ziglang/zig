@@ -4,6 +4,7 @@ const testing = std.testing;
 const Managed = std.math.big.int.Managed;
 const Mutable = std.math.big.int.Mutable;
 const Limb = std.math.big.Limb;
+const SignedLimb = std.math.big.SignedLimb;
 const DoubleLimb = std.math.big.DoubleLimb;
 const SignedDoubleLimb = std.math.big.SignedDoubleLimb;
 const maxInt = std.math.maxInt;
@@ -573,6 +574,102 @@ test "big.int add scalar" {
     try b.addScalar(a.toConst(), 5);
 
     try testing.expect((try b.to(u32)) == 55);
+}
+
+test "big.int addWrap single-single, unsigned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(u17));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 10);
+    defer b.deinit();
+
+    try a.addWrap(a.toConst(), b.toConst(), .unsigned, 17);
+
+    try testing.expect((try a.to(u17)) == 9);
+}
+
+test "big.int subWrap single-single, unsigned" {
+    var a = try Managed.initSet(testing.allocator, 0);
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, maxInt(u17));
+    defer b.deinit();
+
+    try a.subWrap(a.toConst(), b.toConst(), .unsigned, 17);
+
+    try testing.expect((try a.to(u17)) == 1);
+}
+
+test "big.int addWrap multi-multi, unsigned, limb aligned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(DoubleLimb));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, maxInt(DoubleLimb));
+    defer b.deinit();
+
+    try a.addWrap(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+
+    try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb) - 1);
+}
+
+test "big.int subWrap single-multi, unsigned, limb aligned" {
+    var a = try Managed.initSet(testing.allocator, 10);
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, maxInt(DoubleLimb) + 100);
+    defer b.deinit();
+
+    try a.subWrap(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+
+    try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb) - 88);
+}
+
+test "big.int addWrap single-single, signed" {
+    var a = try Managed.initSet(testing.allocator, maxInt(i21));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 1 + 1 + maxInt(u21));
+    defer b.deinit();
+
+    try a.addWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(i21));
+
+    try testing.expect((try a.to(i21)) == minInt(i21));
+}
+
+test "big.int subWrap single-single, signed" {
+    var a = try Managed.initSet(testing.allocator, minInt(i21));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 1);
+    defer b.deinit();
+
+    try a.subWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(i21));
+
+    try testing.expect((try a.to(i21)) == maxInt(i21));
+}
+
+test "big.int addWrap multi-multi, signed, limb aligned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
+    defer b.deinit();
+
+    try a.addWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == -2);
+}
+
+test "big.int subWrap single-multi, signed, limb aligned" {
+    var a = try Managed.initSet(testing.allocator, minInt(SignedDoubleLimb));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 1);
+    defer b.deinit();
+
+    try a.subWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == maxInt(SignedDoubleLimb));
 }
 
 test "big.int sub single-single" {
