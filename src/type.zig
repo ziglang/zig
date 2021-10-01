@@ -3101,9 +3101,8 @@ pub const Type = extern union {
             return Value.Tag.int_i64.create(arena, n);
         }
 
-        var res = try std.math.big.int.Managed.initSet(arena, 1);
-        try res.shiftLeft(res, info.bits - 1);
-        res.negate();
+        var res = try std.math.big.int.Managed.init(arena);
+        try res.setTwosCompIntLimit(.min, info.signedness, info.bits);
 
         const res_const = res.toConst();
         if (res_const.positive) {
@@ -3126,13 +3125,8 @@ pub const Type = extern union {
             return Value.Tag.int_u64.create(arena, n);
         }
 
-        var res = try std.math.big.int.Managed.initSet(arena, 1);
-        try res.shiftLeft(res, info.bits - @boolToInt(info.signedness == .signed));
-        const one = std.math.big.int.Const{
-            .limbs = &[_]std.math.big.Limb{1},
-            .positive = true,
-        };
-        res.sub(res.toConst(), one) catch unreachable;
+        var res = try std.math.big.int.Managed.init(arena);
+        try res.setTwosCompIntLimit(.max, info.signedness, info.bits);
 
         const res_const = res.toConst();
         if (res_const.positive) {
