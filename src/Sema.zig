@@ -8244,10 +8244,13 @@ fn zirArrayInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: 
         var anon_decl = try block.startAnonDecl();
         defer anon_decl.deinit();
         assert(!(resolved_args.len == 0));
-        const final_ty = try Type.Tag.array.create(anon_decl.arena(), .{ .len = resolved_args.len, .elem_type = sema.typeOf(resolved_args[0]) });
+        const final_ty = try Type.Tag.array.create(anon_decl.arena(), .{
+            .len = resolved_args.len,
+            .elem_type = try sema.typeOf(resolved_args[0]).copy(anon_decl.arena()),
+        });
         const buf = try anon_decl.arena().alloc(Value, resolved_args.len);
         for (resolved_args) |arg, i| {
-            buf[i] = (try sema.resolveMaybeUndefVal(block, src, arg)).?;
+            buf[i] = try (try sema.resolveMaybeUndefVal(block, src, arg)).?.copy(anon_decl.arena());
         }
 
         const val = try Value.Tag.array.create(anon_decl.arena(), buf);
