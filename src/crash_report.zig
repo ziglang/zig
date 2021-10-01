@@ -150,7 +150,7 @@ fn writeFilePath(file: *Scope.File, stream: anytype) !void {
 fn writeFullyQualifiedDeclWithFile(decl: *Decl, stream: anytype) !void {
     try writeFilePath(decl.getFileScope(), stream);
     try stream.writeAll(": ");
-    try decl.namespace.renderFullyQualifiedName(std.mem.sliceTo(decl.name, 0), stream);
+    try decl.renderFullyQualifiedDebugName(stream);
 }
 
 fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {

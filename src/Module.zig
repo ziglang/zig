@@ -625,6 +625,14 @@ pub const Decl = struct {
         return try decl.namespace.renderFullyQualifiedName(unqualified_name, writer);
     }
 
+    pub fn renderFullyQualifiedDebugName(decl: *const Decl, writer: anytype) @TypeOf(writer).Error!void {
+        // Namespace decls (struct/enum/union/opaque) use their own namespace,
+        // which means the decl name and the namespace name are the same.
+        // In that case we want to omit the decl name, unless this is the root decl.
+        const unqualified_name = if (decl.namespace.getDecl() != decl or decl.namespace.parent == null) mem.spanZ(decl.name) else "";
+        return try decl.namespace.renderFullyQualifiedDebugName(unqualified_name, writer);
+    }
+
     pub fn getFullyQualifiedName(decl: *const Decl, gpa: *Allocator) ![:0]u8 {
         var buffer = std.ArrayList(u8).init(gpa);
         defer buffer.deinit();
@@ -1246,6 +1254,26 @@ pub const Scope = struct {
             }
         }
 
+        // This renders e.g. "std.fs:Dir.OpenOptions"
+        pub fn renderFullyQualifiedDebugName(
+            ns: Namespace,
+            name: []const u8,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            var separator_char: u8 = '.';
+            if (ns.parent) |parent| {
+                const decl = ns.getDecl();
+                try parent.renderFullyQualifiedDebugName(mem.spanZ(decl.name), writer);
+            } else {
+                try ns.file_scope.renderFullyQualifiedDebugName(writer);
+                separator_char = ':';
+            }
+            if (name.len != 0) {
+                try writer.writeByte(separator_char);
+                try writer.writeAll(name);
+            }
+        }
+
         pub fn getDecl(ns: Namespace) *Decl {
             return ns.ty.getOwnerDecl();
         }
@@ -1396,6 +1424,13 @@ pub const Scope = struct {
             const noext = file.sub_file_path[0 .. file.sub_file_path.len - ext.len];
             for (noext) |byte| switch (byte) {
                 '/', '\\' => try writer.writeByte('.'),
+                else => try writer.writeByte(byte),
+            };
+        }
+
+        pub fn renderFullyQualifiedDebugName(file: File, writer: anytype) !void {
+            for (file.sub_file_path) |byte| switch (byte) {
+                '/', '\\' => try writer.writeByte('/'),
                 else => try writer.writeByte(byte),
             };
         }
