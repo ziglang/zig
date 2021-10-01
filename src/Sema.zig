@@ -3279,6 +3279,11 @@ fn analyzeCall(
 
             namespace.anon_decls.putAssumeCapacityNoClobber(new_decl, {});
 
+            // The generic function Decl is guaranteed to be the first dependency
+            // of each of its instantiations.
+            assert(new_decl.dependencies.keys().len == 0);
+            try mod.declareDeclDependency(new_decl, module_fn.owner_decl);
+
             var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
             errdefer new_decl_arena.deinit();
 
@@ -3410,11 +3415,6 @@ fn analyzeCall(
                 new_decl.name, new_decl.ty,
             });
             assert(!new_decl.ty.fnInfo().is_generic);
-
-            // The generic function Decl is guaranteed to be the first dependency
-            // of each of its instantiations.
-            assert(new_decl.dependencies.keys().len == 0);
-            try mod.declareDeclDependency(new_decl, module_fn.owner_decl);
 
             // Queue up a `codegen_func` work item for the new Fn. The `comptime_args` field
             // will be populated, ensuring it will have `analyzeBody` called with the ZIR
