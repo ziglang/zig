@@ -274,6 +274,19 @@
         color: #fff;
       }
     }
+
+    pre {
+      counter-reset: line;
+    }
+    pre span.line:before {
+      counter-increment: line;
+      content: counter(line);
+      display: inline-block;
+      padding-right: 1em;
+      width: 2em;
+      text-align: right;
+      color: #999;
+    }
   </style>
 </head>
 <body>
