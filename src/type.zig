@@ -3067,7 +3067,7 @@ pub const Type = extern union {
     }
 
     /// Returns null if the type has no namespace.
-    pub fn getNamespace(self: Type) ?*Module.Scope.Namespace {
+    pub fn getNamespace(self: Type) ?*Module.Namespace {
         return switch (self.tag()) {
             .@"struct" => &self.castTag(.@"struct").?.data.namespace,
             .enum_full => &self.castTag(.enum_full).?.data.namespace,
@@ -3833,12 +3833,12 @@ pub const Type = extern union {
         /// Most commonly used for files.
         pub const ContainerScope = struct {
             base: Payload,
-            data: *Module.Scope.Namespace,
+            data: *Module.Namespace,
         };
 
         pub const Opaque = struct {
             base: Payload = .{ .tag = .@"opaque" },
-            data: Module.Scope.Namespace,
+            data: Module.Namespace,
         };
 
         pub const Struct = struct {

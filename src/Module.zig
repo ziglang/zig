@@ -59,7 +59,7 @@ export_owners: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
 /// over it and check which source files have been modified on the file system when
 /// an update is requested, as well as to cache `@import` results.
 /// Keys are fully resolved file paths. This table owns the keys and values.
-import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
+import_table: std.StringArrayHashMapUnmanaged(*File) = .{},
 
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
@@ -85,8 +85,8 @@ failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ErrorMsg) = .{},
 /// The value is the AST node index offset from the Decl.
 compile_log_decls: std.AutoArrayHashMapUnmanaged(*Decl, i32) = .{},
 /// Using a map here for consistency with the other fields here.
-/// The ErrorMsg memory is owned by the `Scope.File`, using Module's general purpose allocator.
-failed_files: std.AutoArrayHashMapUnmanaged(*Scope.File, ?*ErrorMsg) = .{},
+/// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
+failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Export`, using Module's general purpose allocator.
 failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
@@ -350,7 +350,7 @@ pub const Decl = struct {
     /// Reference to externally owned memory.
     /// In the case of the Decl corresponding to a file, this is
     /// the namespace of the struct, since there is no parent.
-    src_namespace: *Scope.Namespace,
+    src_namespace: *Namespace,
 
     /// The scope which lexically contains this decl.  A decl must depend
     /// on its lexical parent, in order to ensure that this pointer is valid.
@@ -690,7 +690,7 @@ pub const Decl = struct {
     /// Gets the namespace that this Decl creates by being a struct, union,
     /// enum, or opaque.
     /// Only returns it if the Decl is the owner.
-    pub fn getInnerNamespace(decl: *Decl) ?*Scope.Namespace {
+    pub fn getInnerNamespace(decl: *Decl) ?*Namespace {
         if (!decl.owns_tv) return null;
         const ty = (decl.val.castTag(.ty) orelse return null).data;
         switch (ty.tag()) {
@@ -735,7 +735,7 @@ pub const Decl = struct {
         std.debug.print("\n", .{});
     }
 
-    pub fn getFileScope(decl: Decl) *Scope.File {
+    pub fn getFileScope(decl: Decl) *File {
         return decl.src_namespace.file_scope;
     }
 
@@ -787,7 +787,7 @@ pub const Struct = struct {
     /// Set of field names in declaration order.
     fields: std.StringArrayHashMapUnmanaged(Field),
     /// Represents the declarations inside this struct.
-    namespace: Scope.Namespace,
+    namespace: Namespace,
     /// Offset from `owner_decl`, points to the struct AST node.
     node_offset: i32,
     /// Index of the struct_decl ZIR instruction.
@@ -909,7 +909,7 @@ pub const EnumFull = struct {
     /// If this hash map is empty, it means the enum tags are auto-numbered.
     values: ValueMap,
     /// Represents the declarations inside this enum.
-    namespace: Scope.Namespace,
+    namespace: Namespace,
     /// Offset from `owner_decl`, points to the enum decl AST node.
     node_offset: i32,
 
@@ -937,7 +937,7 @@ pub const Union = struct {
     /// Set of field names in declaration order.
     fields: std.StringArrayHashMapUnmanaged(Field),
     /// Represents the declarations inside this union.
-    namespace: Scope.Namespace,
+    namespace: Namespace,
     /// Offset from `owner_decl`, points to the union decl AST node.
     node_offset: i32,
     /// Index of the union_decl ZIR instruction.
@@ -1081,668 +1081,312 @@ pub const Var = struct {
     is_threadlocal: bool,
 };
 
-pub const Scope = struct {
-    tag: Tag,
+/// The container that structs, enums, unions, and opaques have.
+pub const Namespace = struct {
+    parent: ?*Namespace,
+    file_scope: *File,
+    /// Will be a struct, enum, union, or opaque.
+    ty: Type,
+    /// Direct children of the namespace. Used during an update to detect
+    /// which decls have been added/removed from source.
+    /// Declaration order is preserved via entry order.
+    /// Key memory is owned by `decl.name`.
+    /// TODO save memory with https://github.com/ziglang/zig/issues/8619.
+    /// Anonymous decls are not stored here; they are kept in `anon_decls` instead.
+    decls: std.StringArrayHashMapUnmanaged(*Decl) = .{},
 
-    pub fn cast(base: *Scope, comptime T: type) ?*T {
-        if (base.tag != T.base_tag)
-            return null;
+    anon_decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
 
-        return @fieldParentPtr(T, "base", base);
+    /// Key is usingnamespace Decl itself. To find the namespace being included,
+    /// the Decl Value has to be resolved as a Type which has a Namespace.
+    /// Value is whether the usingnamespace decl is marked `pub`.
+    usingnamespace_set: std.AutoHashMapUnmanaged(*Decl, bool) = .{},
+
+    pub fn deinit(ns: *Namespace, mod: *Module) void {
+        ns.destroyDecls(mod);
+        ns.* = undefined;
     }
 
-    /// Get the decl which contains this decl, for the purposes of source reporting
-    pub fn srcDecl(scope: *Scope) ?*Decl {
-        return switch (scope.tag) {
-            .block => scope.cast(Block).?.src_decl,
-            .file => null,
-            .namespace => scope.cast(Namespace).?.getDecl(),
+    pub fn destroyDecls(ns: *Namespace, mod: *Module) void {
+        const gpa = mod.gpa;
+
+        log.debug("destroyDecls {*}", .{ns});
+
+        var decls = ns.decls;
+        ns.decls = .{};
+
+        var anon_decls = ns.anon_decls;
+        ns.anon_decls = .{};
+
+        for (decls.values()) |value| {
+            value.destroy(mod);
+        }
+        decls.deinit(gpa);
+
+        for (anon_decls.keys()) |key| {
+            key.destroy(mod);
+        }
+        anon_decls.deinit(gpa);
+    }
+
+    pub fn deleteAllDecls(
+        ns: *Namespace,
+        mod: *Module,
+        outdated_decls: ?*std.AutoArrayHashMap(*Decl, void),
+    ) !void {
+        const gpa = mod.gpa;
+
+        log.debug("deleteAllDecls {*}", .{ns});
+
+        var decls = ns.decls;
+        ns.decls = .{};
+
+        var anon_decls = ns.anon_decls;
+        ns.anon_decls = .{};
+
+        // TODO rework this code to not panic on OOM.
+        // (might want to coordinate with the clearDecl function)
+
+        for (decls.values()) |child_decl| {
+            mod.clearDecl(child_decl, outdated_decls) catch @panic("out of memory");
+            child_decl.destroy(mod);
+        }
+        decls.deinit(gpa);
+
+        for (anon_decls.keys()) |child_decl| {
+            mod.clearDecl(child_decl, outdated_decls) catch @panic("out of memory");
+            child_decl.destroy(mod);
+        }
+        anon_decls.deinit(gpa);
+    }
+
+    // This renders e.g. "std.fs.Dir.OpenOptions"
+    pub fn renderFullyQualifiedName(
+        ns: Namespace,
+        name: []const u8,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        if (ns.parent) |parent| {
+            const decl = ns.getDecl();
+            try parent.renderFullyQualifiedName(mem.spanZ(decl.name), writer);
+        } else {
+            try ns.file_scope.renderFullyQualifiedName(writer);
+        }
+        if (name.len != 0) {
+            try writer.writeAll(".");
+            try writer.writeAll(name);
+        }
+    }
+
+    /// This renders e.g. "std/fs.zig:Dir.OpenOptions"
+    pub fn renderFullyQualifiedDebugName(
+        ns: Namespace,
+        name: []const u8,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        var separator_char: u8 = '.';
+        if (ns.parent) |parent| {
+            const decl = ns.getDecl();
+            try parent.renderFullyQualifiedDebugName(mem.spanZ(decl.name), writer);
+        } else {
+            try ns.file_scope.renderFullyQualifiedDebugName(writer);
+            separator_char = ':';
+        }
+        if (name.len != 0) {
+            try writer.writeByte(separator_char);
+            try writer.writeAll(name);
+        }
+    }
+
+    pub fn getDecl(ns: Namespace) *Decl {
+        return ns.ty.getOwnerDecl();
+    }
+};
+
+pub const File = struct {
+    status: enum {
+        never_loaded,
+        retryable_failure,
+        parse_failure,
+        astgen_failure,
+        success_zir,
+    },
+    source_loaded: bool,
+    tree_loaded: bool,
+    zir_loaded: bool,
+    /// Relative to the owning package's root_src_dir.
+    /// Memory is stored in gpa, owned by File.
+    sub_file_path: []const u8,
+    /// Whether this is populated depends on `source_loaded`.
+    source: [:0]const u8,
+    /// Whether this is populated depends on `status`.
+    stat_size: u64,
+    /// Whether this is populated depends on `status`.
+    stat_inode: std.fs.File.INode,
+    /// Whether this is populated depends on `status`.
+    stat_mtime: i128,
+    /// Whether this is populated or not depends on `tree_loaded`.
+    tree: Ast,
+    /// Whether this is populated or not depends on `zir_loaded`.
+    zir: Zir,
+    /// Package that this file is a part of, managed externally.
+    pkg: *Package,
+    /// The Decl of the struct that represents this File.
+    root_decl: ?*Decl,
+
+    /// Used by change detection algorithm, after astgen, contains the
+    /// set of decls that existed in the previous ZIR but not in the new one.
+    deleted_decls: std.ArrayListUnmanaged(*Decl) = .{},
+    /// Used by change detection algorithm, after astgen, contains the
+    /// set of decls that existed both in the previous ZIR and in the new one,
+    /// but their source code has been modified.
+    outdated_decls: std.ArrayListUnmanaged(*Decl) = .{},
+
+    /// The most recent successful ZIR for this file, with no errors.
+    /// This is only populated when a previously successful ZIR
+    /// newly introduces compile errors during an update. When ZIR is
+    /// successful, this field is unloaded.
+    prev_zir: ?*Zir = null,
+
+    pub fn unload(file: *File, gpa: *Allocator) void {
+        file.unloadTree(gpa);
+        file.unloadSource(gpa);
+        file.unloadZir(gpa);
+    }
+
+    pub fn unloadTree(file: *File, gpa: *Allocator) void {
+        if (file.tree_loaded) {
+            file.tree_loaded = false;
+            file.tree.deinit(gpa);
+        }
+    }
+
+    pub fn unloadSource(file: *File, gpa: *Allocator) void {
+        if (file.source_loaded) {
+            file.source_loaded = false;
+            gpa.free(file.source);
+        }
+    }
+
+    pub fn unloadZir(file: *File, gpa: *Allocator) void {
+        if (file.zir_loaded) {
+            file.zir_loaded = false;
+            file.zir.deinit(gpa);
+        }
+    }
+
+    pub fn deinit(file: *File, mod: *Module) void {
+        const gpa = mod.gpa;
+        log.debug("deinit File {s}", .{file.sub_file_path});
+        file.deleted_decls.deinit(gpa);
+        file.outdated_decls.deinit(gpa);
+        if (file.root_decl) |root_decl| {
+            root_decl.destroy(mod);
+        }
+        gpa.free(file.sub_file_path);
+        file.unload(gpa);
+        if (file.prev_zir) |prev_zir| {
+            prev_zir.deinit(gpa);
+            gpa.destroy(prev_zir);
+        }
+        file.* = undefined;
+    }
+
+    pub fn getSource(file: *File, gpa: *Allocator) ![:0]const u8 {
+        if (file.source_loaded) return file.source;
+
+        const root_dir_path = file.pkg.root_src_directory.path orelse ".";
+        log.debug("File.getSource, not cached. pkgdir={s} sub_file_path={s}", .{
+            root_dir_path, file.sub_file_path,
+        });
+
+        // Keep track of inode, file size, mtime, hash so we can detect which files
+        // have been modified when an incremental update is requested.
+        var f = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{});
+        defer f.close();
+
+        const stat = try f.stat();
+
+        if (stat.size > std.math.maxInt(u32))
+            return error.FileTooBig;
+
+        const source = try gpa.allocSentinel(u8, @intCast(usize, stat.size), 0);
+        defer if (!file.source_loaded) gpa.free(source);
+        const amt = try f.readAll(source);
+        if (amt != stat.size)
+            return error.UnexpectedEndOfFile;
+
+        // Here we do not modify stat fields because this function is the one
+        // used for error reporting. We need to keep the stat fields stale so that
+        // astGenFile can know to regenerate ZIR.
+
+        file.source = source;
+        file.source_loaded = true;
+        return source;
+    }
+
+    pub fn getTree(file: *File, gpa: *Allocator) !*const Ast {
+        if (file.tree_loaded) return &file.tree;
+
+        const source = try file.getSource(gpa);
+        file.tree = try std.zig.parse(gpa, source);
+        file.tree_loaded = true;
+        return &file.tree;
+    }
+
+    pub fn destroy(file: *File, mod: *Module) void {
+        const gpa = mod.gpa;
+        file.deinit(mod);
+        gpa.destroy(file);
+    }
+
+    pub fn renderFullyQualifiedName(file: File, writer: anytype) !void {
+        // Convert all the slashes into dots and truncate the extension.
+        const ext = std.fs.path.extension(file.sub_file_path);
+        const noext = file.sub_file_path[0 .. file.sub_file_path.len - ext.len];
+        for (noext) |byte| switch (byte) {
+            '/', '\\' => try writer.writeByte('.'),
+            else => try writer.writeByte(byte),
         };
     }
 
-    /// Get the scope which contains this decl, for resolving closure_get instructions.
-    pub fn srcScope(scope: *Scope) ?*CaptureScope {
-        return switch (scope.tag) {
-            .block => scope.cast(Block).?.wip_capture_scope,
-            .file => null,
-            .namespace => scope.cast(Namespace).?.getDecl().src_scope,
+    pub fn renderFullyQualifiedDebugName(file: File, writer: anytype) !void {
+        for (file.sub_file_path) |byte| switch (byte) {
+            '/', '\\' => try writer.writeByte('/'),
+            else => try writer.writeByte(byte),
         };
     }
 
-    /// Asserts the scope has a parent which is a Namespace and returns it.
-    pub fn namespace(scope: *Scope) *Namespace {
-        switch (scope.tag) {
-            .block => return scope.cast(Block).?.namespace,
-            .file => return scope.cast(File).?.root_decl.?.src_namespace,
-            .namespace => return scope.cast(Namespace).?,
-        }
+    pub fn fullyQualifiedNameZ(file: File, gpa: *Allocator) ![:0]u8 {
+        var buf = std.ArrayList(u8).init(gpa);
+        defer buf.deinit();
+        try file.renderFullyQualifiedName(buf.writer());
+        return buf.toOwnedSliceSentinel(0);
     }
 
-    /// Asserts the scope has a parent which is a Namespace or File and
-    /// returns the sub_file_path field.
-    pub fn subFilePath(base: *Scope) []const u8 {
-        switch (base.tag) {
-            .namespace => return @fieldParentPtr(Namespace, "base", base).file_scope.sub_file_path,
-            .file => return @fieldParentPtr(File, "base", base).sub_file_path,
-            .block => unreachable,
-        }
+    /// Returns the full path to this file relative to its package.
+    pub fn fullPath(file: File, ally: *Allocator) ![]u8 {
+        return file.pkg.root_src_directory.join(ally, &[_][]const u8{file.sub_file_path});
     }
 
-    /// When called from inside a Block Scope, chases the namespace, not the owner_decl.
-    pub fn getFileScope(base: *Scope) *Scope.File {
-        var cur = base;
-        while (true) {
-            cur = switch (cur.tag) {
-                .namespace => return @fieldParentPtr(Namespace, "base", cur).file_scope,
-                .file => return @fieldParentPtr(File, "base", cur),
-                .block => return @fieldParentPtr(Block, "base", cur).namespace.file_scope,
-            };
-        }
+    pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
+        const loc = std.zig.findLineColumn(file.source.bytes, src);
+        std.debug.print("{s}:{d}:{d}\n", .{ file.sub_file_path, loc.line + 1, loc.column + 1 });
     }
 
-    pub const Tag = enum {
-        /// .zig source code.
-        file,
-        /// Namespace owned by structs, enums, unions, and opaques for decls.
-        namespace,
-        block,
-    };
-
-    /// The container that structs, enums, unions, and opaques have.
-    pub const Namespace = struct {
-        pub const base_tag: Tag = .namespace;
-        base: Scope = Scope{ .tag = base_tag },
-
-        parent: ?*Namespace,
-        file_scope: *Scope.File,
-        /// Will be a struct, enum, union, or opaque.
-        ty: Type,
-        /// Direct children of the namespace. Used during an update to detect
-        /// which decls have been added/removed from source.
-        /// Declaration order is preserved via entry order.
-        /// Key memory is owned by `decl.name`.
-        /// TODO save memory with https://github.com/ziglang/zig/issues/8619.
-        /// Anonymous decls are not stored here; they are kept in `anon_decls` instead.
-        decls: std.StringArrayHashMapUnmanaged(*Decl) = .{},
-
-        anon_decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
-
-        /// Key is usingnamespace Decl itself. To find the namespace being included,
-        /// the Decl Value has to be resolved as a Type which has a Namespace.
-        /// Value is whether the usingnamespace decl is marked `pub`.
-        usingnamespace_set: std.AutoHashMapUnmanaged(*Decl, bool) = .{},
-
-        pub fn deinit(ns: *Namespace, mod: *Module) void {
-            ns.destroyDecls(mod);
-            ns.* = undefined;
-        }
-
-        pub fn destroyDecls(ns: *Namespace, mod: *Module) void {
-            const gpa = mod.gpa;
-
-            log.debug("destroyDecls {*}", .{ns});
-
-            var decls = ns.decls;
-            ns.decls = .{};
-
-            var anon_decls = ns.anon_decls;
-            ns.anon_decls = .{};
-
-            for (decls.values()) |value| {
-                value.destroy(mod);
-            }
-            decls.deinit(gpa);
-
-            for (anon_decls.keys()) |key| {
-                key.destroy(mod);
-            }
-            anon_decls.deinit(gpa);
-        }
-
-        pub fn deleteAllDecls(
-            ns: *Namespace,
-            mod: *Module,
-            outdated_decls: ?*std.AutoArrayHashMap(*Decl, void),
-        ) !void {
-            const gpa = mod.gpa;
-
-            log.debug("deleteAllDecls {*}", .{ns});
-
-            var decls = ns.decls;
-            ns.decls = .{};
-
-            var anon_decls = ns.anon_decls;
-            ns.anon_decls = .{};
-
-            // TODO rework this code to not panic on OOM.
-            // (might want to coordinate with the clearDecl function)
-
-            for (decls.values()) |child_decl| {
-                mod.clearDecl(child_decl, outdated_decls) catch @panic("out of memory");
-                child_decl.destroy(mod);
-            }
-            decls.deinit(gpa);
-
-            for (anon_decls.keys()) |child_decl| {
-                mod.clearDecl(child_decl, outdated_decls) catch @panic("out of memory");
-                child_decl.destroy(mod);
-            }
-            anon_decls.deinit(gpa);
-        }
-
-        // This renders e.g. "std.fs.Dir.OpenOptions"
-        pub fn renderFullyQualifiedName(
-            ns: Namespace,
-            name: []const u8,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
-            if (ns.parent) |parent| {
-                const decl = ns.getDecl();
-                try parent.renderFullyQualifiedName(mem.spanZ(decl.name), writer);
-            } else {
-                try ns.file_scope.renderFullyQualifiedName(writer);
-            }
-            if (name.len != 0) {
-                try writer.writeAll(".");
-                try writer.writeAll(name);
-            }
-        }
-
-        /// This renders e.g. "std/fs.zig:Dir.OpenOptions"
-        pub fn renderFullyQualifiedDebugName(
-            ns: Namespace,
-            name: []const u8,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
-            var separator_char: u8 = '.';
-            if (ns.parent) |parent| {
-                const decl = ns.getDecl();
-                try parent.renderFullyQualifiedDebugName(mem.spanZ(decl.name), writer);
-            } else {
-                try ns.file_scope.renderFullyQualifiedDebugName(writer);
-                separator_char = ':';
-            }
-            if (name.len != 0) {
-                try writer.writeByte(separator_char);
-                try writer.writeAll(name);
-            }
-        }
-
-        pub fn getDecl(ns: Namespace) *Decl {
-            return ns.ty.getOwnerDecl();
-        }
-    };
-
-    pub const File = struct {
-        pub const base_tag: Tag = .file;
-        base: Scope = Scope{ .tag = base_tag },
-        status: enum {
-            never_loaded,
-            retryable_failure,
-            parse_failure,
-            astgen_failure,
-            success_zir,
-        },
-        source_loaded: bool,
-        tree_loaded: bool,
-        zir_loaded: bool,
-        /// Relative to the owning package's root_src_dir.
-        /// Memory is stored in gpa, owned by File.
-        sub_file_path: []const u8,
-        /// Whether this is populated depends on `source_loaded`.
-        source: [:0]const u8,
-        /// Whether this is populated depends on `status`.
-        stat_size: u64,
-        /// Whether this is populated depends on `status`.
-        stat_inode: std.fs.File.INode,
-        /// Whether this is populated depends on `status`.
-        stat_mtime: i128,
-        /// Whether this is populated or not depends on `tree_loaded`.
-        tree: Ast,
-        /// Whether this is populated or not depends on `zir_loaded`.
-        zir: Zir,
-        /// Package that this file is a part of, managed externally.
-        pkg: *Package,
-        /// The Decl of the struct that represents this File.
-        root_decl: ?*Decl,
-
-        /// Used by change detection algorithm, after astgen, contains the
-        /// set of decls that existed in the previous ZIR but not in the new one.
-        deleted_decls: std.ArrayListUnmanaged(*Decl) = .{},
-        /// Used by change detection algorithm, after astgen, contains the
-        /// set of decls that existed both in the previous ZIR and in the new one,
-        /// but their source code has been modified.
-        outdated_decls: std.ArrayListUnmanaged(*Decl) = .{},
-
-        /// The most recent successful ZIR for this file, with no errors.
-        /// This is only populated when a previously successful ZIR
-        /// newly introduces compile errors during an update. When ZIR is
-        /// successful, this field is unloaded.
-        prev_zir: ?*Zir = null,
-
-        pub fn unload(file: *File, gpa: *Allocator) void {
-            file.unloadTree(gpa);
-            file.unloadSource(gpa);
-            file.unloadZir(gpa);
-        }
-
-        pub fn unloadTree(file: *File, gpa: *Allocator) void {
-            if (file.tree_loaded) {
-                file.tree_loaded = false;
-                file.tree.deinit(gpa);
-            }
-        }
-
-        pub fn unloadSource(file: *File, gpa: *Allocator) void {
-            if (file.source_loaded) {
-                file.source_loaded = false;
-                gpa.free(file.source);
-            }
-        }
-
-        pub fn unloadZir(file: *File, gpa: *Allocator) void {
-            if (file.zir_loaded) {
-                file.zir_loaded = false;
-                file.zir.deinit(gpa);
-            }
-        }
-
-        pub fn deinit(file: *File, mod: *Module) void {
-            const gpa = mod.gpa;
-            log.debug("deinit File {s}", .{file.sub_file_path});
-            file.deleted_decls.deinit(gpa);
-            file.outdated_decls.deinit(gpa);
-            if (file.root_decl) |root_decl| {
-                root_decl.destroy(mod);
-            }
-            gpa.free(file.sub_file_path);
-            file.unload(gpa);
-            if (file.prev_zir) |prev_zir| {
-                prev_zir.deinit(gpa);
-                gpa.destroy(prev_zir);
-            }
-            file.* = undefined;
-        }
-
-        pub fn getSource(file: *File, gpa: *Allocator) ![:0]const u8 {
-            if (file.source_loaded) return file.source;
-
-            const root_dir_path = file.pkg.root_src_directory.path orelse ".";
-            log.debug("File.getSource, not cached. pkgdir={s} sub_file_path={s}", .{
-                root_dir_path, file.sub_file_path,
-            });
-
-            // Keep track of inode, file size, mtime, hash so we can detect which files
-            // have been modified when an incremental update is requested.
-            var f = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{});
-            defer f.close();
-
-            const stat = try f.stat();
-
-            if (stat.size > std.math.maxInt(u32))
-                return error.FileTooBig;
-
-            const source = try gpa.allocSentinel(u8, @intCast(usize, stat.size), 0);
-            defer if (!file.source_loaded) gpa.free(source);
-            const amt = try f.readAll(source);
-            if (amt != stat.size)
-                return error.UnexpectedEndOfFile;
-
-            // Here we do not modify stat fields because this function is the one
-            // used for error reporting. We need to keep the stat fields stale so that
-            // astGenFile can know to regenerate ZIR.
-
-            file.source = source;
-            file.source_loaded = true;
-            return source;
-        }
-
-        pub fn getTree(file: *File, gpa: *Allocator) !*const Ast {
-            if (file.tree_loaded) return &file.tree;
-
-            const source = try file.getSource(gpa);
-            file.tree = try std.zig.parse(gpa, source);
-            file.tree_loaded = true;
-            return &file.tree;
-        }
-
-        pub fn destroy(file: *File, mod: *Module) void {
-            const gpa = mod.gpa;
-            file.deinit(mod);
-            gpa.destroy(file);
-        }
-
-        pub fn renderFullyQualifiedName(file: File, writer: anytype) !void {
-            // Convert all the slashes into dots and truncate the extension.
-            const ext = std.fs.path.extension(file.sub_file_path);
-            const noext = file.sub_file_path[0 .. file.sub_file_path.len - ext.len];
-            for (noext) |byte| switch (byte) {
-                '/', '\\' => try writer.writeByte('.'),
-                else => try writer.writeByte(byte),
-            };
-        }
-
-        pub fn renderFullyQualifiedDebugName(file: File, writer: anytype) !void {
-            for (file.sub_file_path) |byte| switch (byte) {
-                '/', '\\' => try writer.writeByte('/'),
-                else => try writer.writeByte(byte),
-            };
-        }
-
-        pub fn fullyQualifiedNameZ(file: File, gpa: *Allocator) ![:0]u8 {
-            var buf = std.ArrayList(u8).init(gpa);
-            defer buf.deinit();
-            try file.renderFullyQualifiedName(buf.writer());
-            return buf.toOwnedSliceSentinel(0);
-        }
-
-        /// Returns the full path to this file relative to its package.
-        pub fn fullPath(file: File, ally: *Allocator) ![]u8 {
-            return file.pkg.root_src_directory.join(ally, &[_][]const u8{file.sub_file_path});
-        }
-
-        pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
-            const loc = std.zig.findLineColumn(file.source.bytes, src);
-            std.debug.print("{s}:{d}:{d}\n", .{ file.sub_file_path, loc.line + 1, loc.column + 1 });
-        }
-
-        pub fn okToReportErrors(file: File) bool {
-            return switch (file.status) {
-                .parse_failure, .astgen_failure => false,
-                else => true,
-            };
-        }
-    };
-
-    /// This is the context needed to semantically analyze ZIR instructions and
-    /// produce AIR instructions.
-    /// This is a temporary structure stored on the stack; references to it are valid only
-    /// during semantic analysis of the block.
-    pub const Block = struct {
-        pub const base_tag: Tag = .block;
-
-        base: Scope = Scope{ .tag = base_tag },
-        parent: ?*Block,
-        /// Shared among all child blocks.
-        sema: *Sema,
-        /// This Decl is the Decl according to the Zig source code corresponding to this Block.
-        /// This can vary during inline or comptime function calls. See `Sema.owner_decl`
-        /// for the one that will be the same for all Block instances.
-        src_decl: *Decl,
-        /// The namespace to use for lookups from this source block
-        /// When analyzing fields, this is different from src_decl.src_namepsace.
-        namespace: *Namespace,
-        /// The AIR instructions generated for this block.
-        instructions: ArrayListUnmanaged(Air.Inst.Index),
-        // `param` instructions are collected here to be used by the `func` instruction.
-        params: std.ArrayListUnmanaged(Param) = .{},
-
-        wip_capture_scope: *CaptureScope,
-
-        label: ?*Label = null,
-        inlining: ?*Inlining,
-        /// If runtime_index is not 0 then one of these is guaranteed to be non null.
-        runtime_cond: ?LazySrcLoc = null,
-        runtime_loop: ?LazySrcLoc = null,
-        /// Non zero if a non-inline loop or a runtime conditional have been encountered.
-        /// Stores to to comptime variables are only allowed when var.runtime_index <= runtime_index.
-        runtime_index: u32 = 0,
-
-        is_comptime: bool,
-
-        /// when null, it is determined by build mode, changed by @setRuntimeSafety
-        want_safety: ?bool = null,
-
-        c_import_buf: ?*std.ArrayList(u8) = null,
-
-        const Param = struct {
-            /// `noreturn` means `anytype`.
-            ty: Type,
-            is_comptime: bool,
+    pub fn okToReportErrors(file: File) bool {
+        return switch (file.status) {
+            .parse_failure, .astgen_failure => false,
+            else => true,
         };
-
-        /// This `Block` maps a block ZIR instruction to the corresponding
-        /// AIR instruction for break instruction analysis.
-        pub const Label = struct {
-            zir_block: Zir.Inst.Index,
-            merges: Merges,
-        };
-
-        /// This `Block` indicates that an inline function call is happening
-        /// and return instructions should be analyzed as a break instruction
-        /// to this AIR block instruction.
-        /// It is shared among all the blocks in an inline or comptime called
-        /// function.
-        pub const Inlining = struct {
-            comptime_result: Air.Inst.Ref,
-            merges: Merges,
-        };
-
-        pub const Merges = struct {
-            block_inst: Air.Inst.Index,
-            /// Separate array list from break_inst_list so that it can be passed directly
-            /// to resolvePeerTypes.
-            results: ArrayListUnmanaged(Air.Inst.Ref),
-            /// Keeps track of the break instructions so that the operand can be replaced
-            /// if we need to add type coercion at the end of block analysis.
-            /// Same indexes, capacity, length as `results`.
-            br_list: ArrayListUnmanaged(Air.Inst.Index),
-        };
-
-        /// For debugging purposes.
-        pub fn dump(block: *Block, mod: Module) void {
-            Zir.dumpBlock(mod, block);
-        }
-
-        pub fn makeSubBlock(parent: *Block) Block {
-            return .{
-                .parent = parent,
-                .sema = parent.sema,
-                .src_decl = parent.src_decl,
-                .namespace = parent.namespace,
-                .instructions = .{},
-                .wip_capture_scope = parent.wip_capture_scope,
-                .label = null,
-                .inlining = parent.inlining,
-                .is_comptime = parent.is_comptime,
-                .runtime_cond = parent.runtime_cond,
-                .runtime_loop = parent.runtime_loop,
-                .runtime_index = parent.runtime_index,
-                .want_safety = parent.want_safety,
-                .c_import_buf = parent.c_import_buf,
-            };
-        }
-
-        pub fn wantSafety(block: *const Block) bool {
-            return block.want_safety orelse switch (block.sema.mod.optimizeMode()) {
-                .Debug => true,
-                .ReleaseSafe => true,
-                .ReleaseFast => false,
-                .ReleaseSmall => false,
-            };
-        }
-
-        pub fn getFileScope(block: *Block) *Scope.File {
-            return block.namespace.file_scope;
-        }
-
-        pub fn addTy(
-            block: *Block,
-            tag: Air.Inst.Tag,
-            ty: Type,
-        ) error{OutOfMemory}!Air.Inst.Ref {
-            return block.addInst(.{
-                .tag = tag,
-                .data = .{ .ty = ty },
-            });
-        }
-
-        pub fn addTyOp(
-            block: *Block,
-            tag: Air.Inst.Tag,
-            ty: Type,
-            operand: Air.Inst.Ref,
-        ) error{OutOfMemory}!Air.Inst.Ref {
-            return block.addInst(.{
-                .tag = tag,
-                .data = .{ .ty_op = .{
-                    .ty = try block.sema.addType(ty),
-                    .operand = operand,
-                } },
-            });
-        }
-
-        pub fn addNoOp(block: *Block, tag: Air.Inst.Tag) error{OutOfMemory}!Air.Inst.Ref {
-            return block.addInst(.{
-                .tag = tag,
-                .data = .{ .no_op = {} },
-            });
-        }
-
-        pub fn addUnOp(
-            block: *Block,
-            tag: Air.Inst.Tag,
-            operand: Air.Inst.Ref,
-        ) error{OutOfMemory}!Air.Inst.Ref {
-            return block.addInst(.{
-                .tag = tag,
-                .data = .{ .un_op = operand },
-            });
-        }
-
-        pub fn addBr(
-            block: *Block,
-            target_block: Air.Inst.Index,
-            operand: Air.Inst.Ref,
-        ) error{OutOfMemory}!Air.Inst.Ref {
-            return block.addInst(.{
-                .tag = .br,
-                .data = .{ .br = .{
-                    .block_inst = target_block,
-                    .operand = operand,
-                } },
-            });
-        }
-
-        pub fn addBinOp(
-            block: *Block,
-            tag: Air.Inst.Tag,
-            lhs: Air.Inst.Ref,
-            rhs: Air.Inst.Ref,
-        ) error{OutOfMemory}!Air.Inst.Ref {
-            return block.addInst(.{
-                .tag = tag,
-                .data = .{ .bin_op = .{
-                    .lhs = lhs,
-                    .rhs = rhs,
-                } },
-            });
-        }
-
-        pub fn addArg(block: *Block, ty: Type, name: u32) error{OutOfMemory}!Air.Inst.Ref {
-            return block.addInst(.{
-                .tag = .arg,
-                .data = .{ .ty_str = .{
-                    .ty = try block.sema.addType(ty),
-                    .str = name,
-                } },
-            });
-        }
-
-        pub fn addStructFieldPtr(
-            block: *Block,
-            struct_ptr: Air.Inst.Ref,
-            field_index: u32,
-            ptr_field_ty: Type,
-        ) !Air.Inst.Ref {
-            const ty = try block.sema.addType(ptr_field_ty);
-            const tag: Air.Inst.Tag = switch (field_index) {
-                0 => .struct_field_ptr_index_0,
-                1 => .struct_field_ptr_index_1,
-                2 => .struct_field_ptr_index_2,
-                3 => .struct_field_ptr_index_3,
-                else => {
-                    return block.addInst(.{
-                        .tag = .struct_field_ptr,
-                        .data = .{ .ty_pl = .{
-                            .ty = ty,
-                            .payload = try block.sema.addExtra(Air.StructField{
-                                .struct_operand = struct_ptr,
-                                .field_index = @intCast(u32, field_index),
-                            }),
-                        } },
-                    });
-                },
-            };
-            return block.addInst(.{
-                .tag = tag,
-                .data = .{ .ty_op = .{
-                    .ty = ty,
-                    .operand = struct_ptr,
-                } },
-            });
-        }
-
-        pub fn addInst(block: *Block, inst: Air.Inst) error{OutOfMemory}!Air.Inst.Ref {
-            return Air.indexToRef(try block.addInstAsIndex(inst));
-        }
-
-        pub fn addInstAsIndex(block: *Block, inst: Air.Inst) error{OutOfMemory}!Air.Inst.Index {
-            const sema = block.sema;
-            const gpa = sema.gpa;
-
-            try sema.air_instructions.ensureUnusedCapacity(gpa, 1);
-            try block.instructions.ensureUnusedCapacity(gpa, 1);
-
-            const result_index = @intCast(Air.Inst.Index, sema.air_instructions.len);
-            sema.air_instructions.appendAssumeCapacity(inst);
-            block.instructions.appendAssumeCapacity(result_index);
-            return result_index;
-        }
-
-        pub fn startAnonDecl(block: *Block) !WipAnonDecl {
-            return WipAnonDecl{
-                .block = block,
-                .new_decl_arena = std.heap.ArenaAllocator.init(block.sema.gpa),
-                .finished = false,
-            };
-        }
-
-        pub const WipAnonDecl = struct {
-            block: *Scope.Block,
-            new_decl_arena: std.heap.ArenaAllocator,
-            finished: bool,
-
-            pub fn arena(wad: *WipAnonDecl) *Allocator {
-                return &wad.new_decl_arena.allocator;
-            }
-
-            pub fn deinit(wad: *WipAnonDecl) void {
-                if (!wad.finished) {
-                    wad.new_decl_arena.deinit();
-                }
-                wad.* = undefined;
-            }
-
-            pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value) !*Decl {
-                const new_decl = try wad.block.sema.mod.createAnonymousDecl(&wad.block.base, .{
-                    .ty = ty,
-                    .val = val,
-                });
-                errdefer wad.block.sema.mod.abortAnonDecl(new_decl);
-                try new_decl.finalizeNewArena(&wad.new_decl_arena);
-                wad.finished = true;
-                return new_decl;
-            }
-        };
-    };
+    }
 };
 
 /// This struct holds data necessary to construct API-facing `AllErrors.Message`.
 /// Its memory is managed with the general purpose allocator so that they
 /// can be created and destroyed in response to incremental updates.
-/// In some cases, the Scope.File could have been inferred from where the ErrorMsg
-/// is stored. For example, if it is stored in Module.failed_decls, then the Scope.File
+/// In some cases, the File could have been inferred from where the ErrorMsg
+/// is stored. For example, if it is stored in Module.failed_decls, then the File
 /// would be determined by the Decl Scope. However, the data structure contains the field
 /// anyway so that `ErrorMsg` can be reused for error notes, which may be in a different
 /// file than the parent error message. It also simplifies processing of error messages.
@@ -1794,7 +1438,7 @@ pub const ErrorMsg = struct {
 
 /// Canonical reference to a position within a source file.
 pub const SrcLoc = struct {
-    file_scope: *Scope.File,
+    file_scope: *File,
     /// Might be 0 depending on tag of `lazy`.
     parent_decl_node: Ast.Node.Index,
     /// Relative to `parent_decl_node`.
@@ -2371,60 +2015,8 @@ pub const LazySrcLoc = union(enum) {
     /// The Decl is determined contextually.
     node_offset_lib_name: i32,
 
-    /// Upgrade to a `SrcLoc` based on the `Decl` or file in the provided scope.
-    pub fn toSrcLoc(lazy: LazySrcLoc, block: *Scope.Block) SrcLoc {
-        return switch (lazy) {
-            .unneeded,
-            .entire_file,
-            .byte_abs,
-            .token_abs,
-            .node_abs,
-            => .{
-                .file_scope = block.getFileScope(),
-                .parent_decl_node = 0,
-                .lazy = lazy,
-            },
-
-            .byte_offset,
-            .token_offset,
-            .node_offset,
-            .node_offset_back2tok,
-            .node_offset_var_decl_ty,
-            .node_offset_for_cond,
-            .node_offset_builtin_call_arg0,
-            .node_offset_builtin_call_arg1,
-            .node_offset_builtin_call_arg2,
-            .node_offset_builtin_call_arg3,
-            .node_offset_builtin_call_arg4,
-            .node_offset_builtin_call_arg5,
-            .node_offset_array_access_index,
-            .node_offset_slice_sentinel,
-            .node_offset_call_func,
-            .node_offset_field_name,
-            .node_offset_deref_ptr,
-            .node_offset_asm_source,
-            .node_offset_asm_ret_ty,
-            .node_offset_if_cond,
-            .node_offset_bin_op,
-            .node_offset_bin_lhs,
-            .node_offset_bin_rhs,
-            .node_offset_switch_operand,
-            .node_offset_switch_special_prong,
-            .node_offset_switch_range,
-            .node_offset_fn_type_cc,
-            .node_offset_fn_type_ret_ty,
-            .node_offset_anyframe_type,
-            .node_offset_lib_name,
-            => .{
-                .file_scope = block.getFileScope(),
-                .parent_decl_node = block.src_decl.src_node,
-                .lazy = lazy,
-            },
-        };
-    }
-
     /// Upgrade to a `SrcLoc` based on the `Decl` provided.
-    pub fn toSrcLocWithDecl(lazy: LazySrcLoc, decl: *Decl) SrcLoc {
+    pub fn toSrcLoc(lazy: LazySrcLoc, decl: *Decl) SrcLoc {
         return switch (lazy) {
             .unneeded,
             .entire_file,
@@ -2613,7 +2205,7 @@ comptime {
     }
 }
 
-pub fn astGenFile(mod: *Module, file: *Scope.File) !void {
+pub fn astGenFile(mod: *Module, file: *File) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2997,7 +2589,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File) !void {
 /// * Decl.zir_index
 /// * Fn.zir_body_inst
 /// * Decl.zir_decl_index
-fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
+fn updateZirRefs(gpa: *Allocator, file: *File, old_zir: Zir) !void {
     const new_zir = file.zir;
 
     // Maps from old ZIR to new ZIR, struct_decl, enum_decl, etc. Any instruction which
@@ -3253,7 +2845,7 @@ pub fn semaPkg(mod: *Module, pkg: *Package) !void {
 
 /// Regardless of the file status, will create a `Decl` so that we
 /// can track dependencies and re-analyze when the file becomes outdated.
-pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
+pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3322,7 +2914,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
         var wip_captures = try WipCaptureScope.init(gpa, &new_decl_arena.allocator, null);
         defer wip_captures.deinit();
 
-        var block_scope: Scope.Block = .{
+        var block_scope: Sema.Block = .{
             .parent = null,
             .sema = &sema,
             .src_decl = new_decl,
@@ -3402,7 +2994,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     var wip_captures = try WipCaptureScope.init(gpa, &decl_arena.allocator, decl.src_scope);
     defer wip_captures.deinit();
 
-    var block_scope: Scope.Block = .{
+    var block_scope: Sema.Block = .{
         .parent = null,
         .sema = &sema,
         .src_decl = decl,
@@ -3617,7 +3209,7 @@ pub fn declareDeclDependency(mod: *Module, depender: *Decl, dependee: *Decl) !vo
 }
 
 pub const ImportFileResult = struct {
-    file: *Scope.File,
+    file: *File,
     is_new: bool,
 };
 
@@ -3643,7 +3235,7 @@ pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
     const sub_file_path = try gpa.dupe(u8, pkg.root_src_path);
     errdefer gpa.free(sub_file_path);
 
-    const new_file = try gpa.create(Scope.File);
+    const new_file = try gpa.create(File);
     errdefer gpa.destroy(new_file);
 
     gop.value_ptr.* = new_file;
@@ -3670,7 +3262,7 @@ pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
 
 pub fn importFile(
     mod: *Module,
-    cur_file: *Scope.File,
+    cur_file: *File,
     import_string: []const u8,
 ) !ImportFileResult {
     if (cur_file.pkg.table.get(import_string)) |pkg| {
@@ -3698,7 +3290,7 @@ pub fn importFile(
     };
     keep_resolved_path = true; // It's now owned by import_table.
 
-    const new_file = try gpa.create(Scope.File);
+    const new_file = try gpa.create(File);
     errdefer gpa.destroy(new_file);
 
     const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
@@ -3739,7 +3331,7 @@ pub fn importFile(
 
 pub fn scanNamespace(
     mod: *Module,
-    namespace: *Scope.Namespace,
+    namespace: *Namespace,
     extra_start: usize,
     decls_len: u32,
     parent_decl: *Decl,
@@ -3783,7 +3375,7 @@ pub fn scanNamespace(
 
 const ScanDeclIter = struct {
     module: *Module,
-    namespace: *Scope.Namespace,
+    namespace: *Namespace,
     parent_decl: *Decl,
     usingnamespace_index: usize = 0,
     comptime_index: usize = 0,
@@ -4146,7 +3738,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: *Allocator) Se
     var wip_captures = try WipCaptureScope.init(gpa, &decl_arena.allocator, decl.src_scope);
     defer wip_captures.deinit();
 
-    var inner_block: Scope.Block = .{
+    var inner_block: Sema.Block = .{
         .parent = null,
         .sema = &sema,
         .src_decl = decl,
@@ -4269,7 +3861,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     decl.analysis = .outdated;
 }
 
-pub fn allocateNewDecl(mod: *Module, name: [:0]const u8, namespace: *Scope.Namespace, src_node: Ast.Node.Index, src_scope: ?*CaptureScope) !*Decl {
+pub fn allocateNewDecl(mod: *Module, name: [:0]const u8, namespace: *Namespace, src_node: Ast.Node.Index, src_scope: ?*CaptureScope) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
     const new_decl: *Decl = if (mod.emit_h != null) blk: {
         const parent_struct = try mod.gpa.create(DeclPlusEmitH);
@@ -4350,21 +3942,21 @@ pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged
 /// Takes ownership of `name` even if it returns an error.
 pub fn createAnonymousDeclNamed(
     mod: *Module,
-    scope: *Scope,
+    block: *Sema.Block,
     typed_value: TypedValue,
     name: [:0]u8,
 ) !*Decl {
-    return mod.createAnonymousDeclFromDeclNamed(scope.srcDecl().?, scope.namespace(), scope.srcScope(), typed_value, name);
+    return mod.createAnonymousDeclFromDeclNamed(block.src_decl, block.namespace, block.wip_capture_scope, typed_value, name);
 }
 
-pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
-    return mod.createAnonymousDeclFromDecl(scope.srcDecl().?, scope.namespace(), scope.srcScope(), typed_value);
+pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedValue) !*Decl {
+    return mod.createAnonymousDeclFromDecl(block.src_decl, block.namespace, block.wip_capture_scope, typed_value);
 }
 
 pub fn createAnonymousDeclFromDecl(
     mod: *Module,
     src_decl: *Decl,
-    namespace: *Scope.Namespace,
+    namespace: *Namespace,
     src_scope: ?*CaptureScope,
     tv: TypedValue,
 ) !*Decl {
@@ -4379,7 +3971,7 @@ pub fn createAnonymousDeclFromDecl(
 pub fn createAnonymousDeclFromDeclNamed(
     mod: *Module,
     src_decl: *Decl,
-    namespace: *Scope.Namespace,
+    namespace: *Namespace,
     src_scope: ?*CaptureScope,
     typed_value: TypedValue,
     name: [:0]u8,
@@ -4516,7 +4108,7 @@ pub fn optimizeMode(mod: Module) std.builtin.Mode {
     return mod.comp.bin_file.options.optimize_mode;
 }
 
-fn lockAndClearFileCompileError(mod: *Module, file: *Scope.File) void {
+fn lockAndClearFileCompileError(mod: *Module, file: *File) void {
     switch (file.status) {
         .success_zir, .retryable_failure => {},
         .never_loaded, .parse_failure, .astgen_failure => {

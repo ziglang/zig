@@ -557,7 +557,7 @@ pub const DeclGen = struct {
     fn todo(self: *DeclGen, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
         @setCold(true);
         assert(self.err_msg == null);
-        const src_loc = @as(LazySrcLoc, .{ .node_offset = 0 }).toSrcLocWithDecl(self.decl);
+        const src_loc = @as(LazySrcLoc, .{ .node_offset = 0 }).toSrcLoc(self.decl);
         self.err_msg = try Module.ErrorMsg.create(self.gpa, src_loc, "TODO (LLVM): " ++ format, args);
         return error.CodegenFail;
     }

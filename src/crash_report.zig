@@ -8,6 +8,7 @@ const print_zir = @import("print_zir.zig");
 const Module = @import("Module.zig");
 const Sema = @import("Sema.zig");
 const Zir = @import("Zir.zig");
+const Decl = Module.Decl;
 
 pub const is_enabled = builtin.mode == .Debug;
 
@@ -36,7 +37,7 @@ fn en(val: anytype) En(@TypeOf(val)) {
 pub const AnalyzeBody = struct {
     parent: if (is_enabled) ?*AnalyzeBody else void,
     sema: En(*Sema),
-    block: En(*Module.Scope.Block),
+    block: En(*Sema.Block),
     body: En([]const Zir.Inst.Index),
     body_index: En(usize),
 
@@ -64,7 +65,7 @@ pub const AnalyzeBody = struct {
 
 threadlocal var zir_state: ?*AnalyzeBody = if (is_enabled) null else @compileError("Cannot use zir_state if crash_report is disabled.");
 
-pub fn prepAnalyzeBody(sema: *Sema, block: *Module.Scope.Block, body: []const Zir.Inst.Index) AnalyzeBody {
+pub fn prepAnalyzeBody(sema: *Sema, block: *Sema.Block, body: []const Zir.Inst.Index) AnalyzeBody {
     if (is_enabled) {
         return .{
             .parent = null,
@@ -87,7 +88,7 @@ fn dumpStatusReport() !void {
     const allocator = &fba.allocator;
 
     const stderr = io.getStdErr().writer();
-    const block: *Scope.Block = anal.block;
+    const block: *Sema.Block = anal.block;
 
     try stderr.writeAll("Analyzing ");
     try writeFullyQualifiedDeclWithFile(block.src_decl, stderr);
@@ -134,12 +135,9 @@ fn dumpStatusReport() !void {
     try stderr.writeAll("\n");
 }
 
-const Scope = Module.Scope;
-const Decl = Module.Decl;
-
 var crash_heap: [16 * 4096]u8 = undefined;
 
-fn writeFilePath(file: *Scope.File, stream: anytype) !void {
+fn writeFilePath(file: *Module.File, stream: anytype) !void {
     if (file.pkg.root_src_directory.path) |path| {
         try stream.writeAll(path);
         try stream.writeAll(std.fs.path.sep_str);

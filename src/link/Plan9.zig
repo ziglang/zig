@@ -57,7 +57,7 @@ path_arena: std.heap.ArenaAllocator,
 /// of the function to know what file it came from.
 /// If we group the decls by file, it makes it really easy to do this (put the symbol in the correct place)
 fn_decl_table: std.AutoArrayHashMapUnmanaged(
-    *Module.Scope.File,
+    *Module.File,
     struct { sym_index: u32, functions: std.AutoArrayHashMapUnmanaged(*Module.Decl, FnDeclOutput) = .{} },
 ) = .{},
 data_decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, []const u8) = .{},

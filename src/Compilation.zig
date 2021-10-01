@@ -54,7 +54,7 @@ c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
 /// These jobs are to tokenize, parse, and astgen files, which may be outdated
 /// since the last compilation, as well as scan for `@import` and queue up
 /// additional jobs corresponding to those new files.
-astgen_work_queue: std.fifo.LinearFifo(*Module.Scope.File, .Dynamic),
+astgen_work_queue: std.fifo.LinearFifo(*Module.File, .Dynamic),
 
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
@@ -446,7 +446,7 @@ pub const AllErrors = struct {
     pub fn addZir(
         arena: *Allocator,
         errors: *std.ArrayList(Message),
-        file: *Module.Scope.File,
+        file: *Module.File,
     ) !void {
         assert(file.zir_loaded);
         assert(file.tree_loaded);
@@ -1444,7 +1444,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .emit_docs = options.emit_docs,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
-            .astgen_work_queue = std.fifo.LinearFifo(*Module.Scope.File, .Dynamic).init(gpa),
+            .astgen_work_queue = std.fifo.LinearFifo(*Module.File, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
             .use_clang = use_clang,
             .clang_argv = options.clang_argv,
@@ -2465,14 +2465,14 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
 const AstGenSrc = union(enum) {
     root,
     import: struct {
-        importing_file: *Module.Scope.File,
+        importing_file: *Module.File,
         import_tok: std.zig.Ast.TokenIndex,
     },
 };
 
 fn workerAstGenFile(
     comp: *Compilation,
-    file: *Module.Scope.File,
+    file: *Module.File,
     prog_node: *std.Progress.Node,
     wg: *WaitGroup,
     src: AstGenSrc,
@@ -2742,7 +2742,7 @@ fn reportRetryableCObjectError(
 fn reportRetryableAstGenError(
     comp: *Compilation,
     src: AstGenSrc,
-    file: *Module.Scope.File,
+    file: *Module.File,
     err: anyerror,
 ) error{OutOfMemory}!void {
     const mod = comp.bin_file.options.module.?;
