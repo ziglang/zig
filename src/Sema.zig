@@ -60,9 +60,6 @@ comptime_args_fn_inst: Zir.Inst.Index = 0,
 /// extra hash table lookup in the `monomorphed_funcs` set.
 /// Sema will set this to null when it takes ownership.
 preallocated_new_func: ?*Module.Fn = null,
-/// Collects struct, union, enum, and opaque decls which need to have their
-/// fields resolved before this Sema is deinitialized.
-types_pending_resolution: std.ArrayListUnmanaged(Type) = .{},
 
 const std = @import("std");
 const mem = std.mem;
@@ -99,7 +96,6 @@ pub fn deinit(sema: *Sema) void {
     sema.air_values.deinit(gpa);
     sema.inst_map.deinit(gpa);
     sema.decl_val_table.deinit(gpa);
-    sema.types_pending_resolution.deinit(gpa);
     sema.* = undefined;
 }
 
@@ -1093,9 +1089,7 @@ fn zirStructDecl(
         &struct_obj.namespace, new_decl, new_decl.name,
     });
     try sema.analyzeStructDecl(new_decl, inst, struct_obj);
-    try sema.types_pending_resolution.ensureUnusedCapacity(sema.gpa, 1);
     try new_decl.finalizeNewArena(&new_decl_arena);
-    sema.types_pending_resolution.appendAssumeCapacity(struct_ty);
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
@@ -1396,9 +1390,7 @@ fn zirUnionDecl(
 
     new_decl.namespace = &union_obj.namespace;
 
-    try sema.types_pending_resolution.ensureUnusedCapacity(sema.gpa, 1);
     try new_decl.finalizeNewArena(&new_decl_arena);
-    sema.types_pending_resolution.appendAssumeCapacity(union_ty);
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
@@ -3176,12 +3168,6 @@ fn analyzeCall(
                     });
                     delete_memoized_call_key = false;
                 }
-
-                // Much like in `Module.semaDecl`, if the result is a struct or union type,
-                // we need to resolve the field type expressions right here, right now, while
-                // the child `Sema` is still available, with the AIR instruction map intact,
-                // because the field type expressions may reference into it.
-                try sema.resolvePendingTypes(&child_block);
             }
 
             break :res2 result;
@@ -11792,70 +11778,23 @@ pub fn resolveTypeLayout(
     }
 }
 
-pub fn resolvePendingTypes(sema: *Sema, block: *Scope.Block) !void {
-    for (sema.types_pending_resolution.items) |ty| {
-        // If an error happens resolving the fields of a struct, it will be marked
-        // invalid and a proper compile error set up. But we should still look at the
-        // other types pending resolution.
-        const src: LazySrcLoc = .{ .node_offset = 0 };
-        sema.resolveDeclFields(block, src, ty) catch continue;
-    }
-}
-
-/// `sema` and `block` are expected to be the same ones used for the `Decl`.
-pub fn resolveDeclFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type) !void {
-    switch (ty.tag()) {
-        .@"struct" => {
-            const struct_obj = ty.castTag(.@"struct").?.data;
-            if (struct_obj.owner_decl.namespace.parent != block.src_decl.namespace) return;
-            switch (struct_obj.status) {
-                .none => {},
-                .field_types_wip => {
-                    return sema.mod.fail(&block.base, src, "struct {} depends on itself", .{ty});
-                },
-                .have_field_types, .have_layout, .layout_wip => return,
-            }
-            const old_src = block.src_decl;
-            defer block.src_decl = old_src;
-            block.src_decl = struct_obj.owner_decl;
-
-            struct_obj.status = .field_types_wip;
-            try sema.analyzeStructFields(block, struct_obj);
-            struct_obj.status = .have_field_types;
-        },
-        .@"union", .union_tagged => {
-            const union_obj = ty.cast(Type.Payload.Union).?.data;
-            if (union_obj.owner_decl.namespace.parent != block.src_decl.namespace) return;
-            switch (union_obj.status) {
-                .none => {},
-                .field_types_wip => {
-                    return sema.mod.fail(&block.base, src, "union {} depends on itself", .{ty});
-                },
-                .have_field_types, .have_layout, .layout_wip => return,
-            }
-            const old_src = block.src_decl;
-            defer block.src_decl = old_src;
-            block.src_decl = union_obj.owner_decl;
-
-            union_obj.status = .field_types_wip;
-            try sema.analyzeUnionFields(block, union_obj);
-            union_obj.status = .have_field_types;
-        },
-        else => return,
-    }
-}
-
 fn resolveTypeFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type) CompileError!Type {
     switch (ty.tag()) {
         .@"struct" => {
             const struct_obj = ty.castTag(.@"struct").?.data;
             switch (struct_obj.status) {
-                .none => unreachable,
+                .none => {},
                 .field_types_wip => {
                     return sema.mod.fail(&block.base, src, "struct {} depends on itself", .{ty});
                 },
                 .have_field_types, .have_layout, .layout_wip => return ty,
             }
+
+            struct_obj.status = .field_types_wip;
+            try semaStructFields(sema.mod, struct_obj);
+            struct_obj.status = .have_field_types;
+
+            return ty;
         },
         .type_info => return sema.resolveBuiltinTypeFields(block, src, "TypeInfo"),
         .extern_options => return sema.resolveBuiltinTypeFields(block, src, "ExternOptions"),
@@ -11871,12 +11810,18 @@ fn resolveTypeFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type
         .@"union", .union_tagged => {
             const union_obj = ty.cast(Type.Payload.Union).?.data;
             switch (union_obj.status) {
-                .none => unreachable,
+                .none => {},
                 .field_types_wip => {
                     return sema.mod.fail(&block.base, src, "union {} depends on itself", .{ty});
                 },
                 .have_field_types, .have_layout, .layout_wip => return ty,
             }
+
+            union_obj.status = .field_types_wip;
+            try semaUnionFields(sema.mod, union_obj);
+            union_obj.status = .have_field_types;
+
+            return ty;
         },
         else => return ty,
     }
@@ -11892,16 +11837,16 @@ fn resolveBuiltinTypeFields(
     return sema.resolveTypeFields(block, src, resolved_ty);
 }
 
-fn analyzeStructFields(
-    sema: *Sema,
-    block: *Scope.Block,
+fn semaStructFields(
+    mod: *Module,
     struct_obj: *Module.Struct,
 ) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = sema.gpa;
-    const zir = sema.code;
+    const gpa = mod.gpa;
+    const decl = struct_obj.owner_decl;
+    const zir = struct_obj.namespace.file_scope.zir;
     const extended = zir.instructions.items(.data)[struct_obj.zir_index].extended;
     assert(extended.opcode == .struct_decl);
     const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
@@ -11940,14 +11885,49 @@ fn analyzeStructFields(
     }
     extra_index += body.len;
 
-    var decl_arena = struct_obj.owner_decl.value_arena.?.promote(gpa);
-    defer struct_obj.owner_decl.value_arena.?.* = decl_arena.state;
+    var decl_arena = decl.value_arena.?.promote(gpa);
+    defer decl.value_arena.?.* = decl_arena.state;
 
-    try struct_obj.fields.ensureTotalCapacity(&decl_arena.allocator, fields_len);
+    var analysis_arena = std.heap.ArenaAllocator.init(gpa);
+    defer analysis_arena.deinit();
+
+    var sema: Sema = .{
+        .mod = mod,
+        .gpa = gpa,
+        .arena = &analysis_arena.allocator,
+        .perm_arena = &decl_arena.allocator,
+        .code = zir,
+        .owner_decl = decl,
+        .func = null,
+        .fn_ret_ty = Type.initTag(.void),
+        .owner_func = null,
+    };
+    defer sema.deinit();
+
+    var wip_captures = try WipCaptureScope.init(gpa, &decl_arena.allocator, decl.src_scope);
+    defer wip_captures.deinit();
+
+    var block_scope: Scope.Block = .{
+        .parent = null,
+        .sema = &sema,
+        .src_decl = decl,
+        .wip_capture_scope = wip_captures.scope,
+        .instructions = .{},
+        .inlining = null,
+        .is_comptime = true,
+    };
+    defer {
+        assert(block_scope.instructions.items.len == 0);
+        block_scope.params.deinit(gpa);
+    }
 
     if (body.len != 0) {
-        _ = try sema.analyzeBody(block, body);
+        _ = try sema.analyzeBody(&block_scope, body);
     }
+
+    try wip_captures.finalize();
+
+    try struct_obj.fields.ensureTotalCapacity(&decl_arena.allocator, fields_len);
 
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
@@ -11985,7 +11965,7 @@ fn analyzeStructFields(
             // TODO: if we need to report an error here, use a source location
             // that points to this type expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
-            try sema.resolveType(block, src, field_type_ref);
+            try sema.resolveType(&block_scope, src, field_type_ref);
 
         const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
         assert(!gop.found_existing);
@@ -12003,7 +11983,7 @@ fn analyzeStructFields(
             // TODO: if we need to report an error here, use a source location
             // that points to this alignment expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
-            const abi_align_val = (try sema.resolveInstConst(block, src, align_ref)).val;
+            const abi_align_val = (try sema.resolveInstConst(&block_scope, src, align_ref)).val;
             gop.value_ptr.abi_align = try abi_align_val.copy(&decl_arena.allocator);
         }
         if (has_default) {
@@ -12013,23 +11993,23 @@ fn analyzeStructFields(
             // TODO: if we need to report an error here, use a source location
             // that points to this default value expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
-            const default_val = (try sema.resolveMaybeUndefVal(block, src, default_inst)) orelse
-                return sema.failWithNeededComptime(block, src);
+            const default_val = (try sema.resolveMaybeUndefVal(&block_scope, src, default_inst)) orelse
+                return sema.failWithNeededComptime(&block_scope, src);
             gop.value_ptr.default_val = try default_val.copy(&decl_arena.allocator);
         }
     }
 }
 
-fn analyzeUnionFields(
-    sema: *Sema,
-    block: *Scope.Block,
+fn semaUnionFields(
+    mod: *Module,
     union_obj: *Module.Union,
 ) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = sema.gpa;
-    const zir = sema.code;
+    const gpa = mod.gpa;
+    const decl = union_obj.owner_decl;
+    const zir = union_obj.namespace.file_scope.zir;
     const extended = zir.instructions.items(.data)[union_obj.zir_index].extended;
     assert(extended.opcode == .union_decl);
     const small = @bitCast(Zir.Inst.UnionDecl.Small, extended.small);
@@ -12077,20 +12057,56 @@ fn analyzeUnionFields(
     var decl_arena = union_obj.owner_decl.value_arena.?.promote(gpa);
     defer union_obj.owner_decl.value_arena.?.* = decl_arena.state;
 
-    try union_obj.fields.ensureTotalCapacity(&decl_arena.allocator, fields_len);
+    var analysis_arena = std.heap.ArenaAllocator.init(gpa);
+    defer analysis_arena.deinit();
+
+    var sema: Sema = .{
+        .mod = mod,
+        .gpa = gpa,
+        .arena = &analysis_arena.allocator,
+        .perm_arena = &decl_arena.allocator,
+        .code = zir,
+        .owner_decl = decl,
+        .func = null,
+        .fn_ret_ty = Type.initTag(.void),
+        .owner_func = null,
+    };
+    defer sema.deinit();
+
+    var wip_captures = try WipCaptureScope.init(gpa, &decl_arena.allocator, decl.src_scope);
+    defer wip_captures.deinit();
+
+    var block_scope: Scope.Block = .{
+        .parent = null,
+        .sema = &sema,
+        .src_decl = decl,
+        .wip_capture_scope = wip_captures.scope,
+        .instructions = .{},
+        .inlining = null,
+        .is_comptime = true,
+    };
+    defer {
+        assert(block_scope.instructions.items.len == 0);
+        block_scope.params.deinit(gpa);
+    }
 
     if (body.len != 0) {
-        _ = try sema.analyzeBody(block, body);
+        _ = try sema.analyzeBody(&block_scope, body);
     }
+
+    try wip_captures.finalize();
+
+    try union_obj.fields.ensureTotalCapacity(&decl_arena.allocator, fields_len);
+
     var int_tag_ty: Type = undefined;
     var enum_field_names: ?*Module.EnumNumbered.NameMap = null;
     var enum_value_map: ?*Module.EnumNumbered.ValueMap = null;
     if (tag_type_ref != .none) {
-        const provided_ty = try sema.resolveType(block, src, tag_type_ref);
+        const provided_ty = try sema.resolveType(&block_scope, src, tag_type_ref);
         if (small.auto_enum_tag) {
             // The provided type is an integer type and we must construct the enum tag type here.
             int_tag_ty = provided_ty;
-            union_obj.tag_ty = try sema.generateUnionTagTypeNumbered(block, fields_len, provided_ty);
+            union_obj.tag_ty = try sema.generateUnionTagTypeNumbered(&block_scope, fields_len, provided_ty);
             enum_field_names = &union_obj.tag_ty.castTag(.enum_numbered).?.data.fields;
             enum_value_map = &union_obj.tag_ty.castTag(.enum_numbered).?.data.values;
         } else {
@@ -12101,7 +12117,7 @@ fn analyzeUnionFields(
         // If auto_enum_tag is false, this is an untagged union. However, for semantic analysis
         // purposes, we still auto-generate an enum tag type the same way. That the union is
         // untagged is represented by the Type tag (union vs union_tagged).
-        union_obj.tag_ty = try sema.generateUnionTagTypeSimple(block, fields_len);
+        union_obj.tag_ty = try sema.generateUnionTagTypeSimple(&block_scope, fields_len);
         enum_field_names = &union_obj.tag_ty.castTag(.enum_simple).?.data.fields;
     }
 
@@ -12150,8 +12166,8 @@ fn analyzeUnionFields(
 
         if (enum_value_map) |map| {
             const tag_src = src; // TODO better source location
-            const coerced = try sema.coerce(block, int_tag_ty, tag_ref, tag_src);
-            const val = try sema.resolveConstValue(block, tag_src, coerced);
+            const coerced = try sema.coerce(&block_scope, int_tag_ty, tag_ref, tag_src);
+            const val = try sema.resolveConstValue(&block_scope, tag_src, coerced);
             map.putAssumeCapacityContext(val, {}, .{ .ty = int_tag_ty });
         }
 
@@ -12167,7 +12183,7 @@ fn analyzeUnionFields(
             // TODO: if we need to report an error here, use a source location
             // that points to this type expression rather than the union.
             // But only resolve the source location if we need to emit a compile error.
-            try sema.resolveType(block, src, field_type_ref);
+            try sema.resolveType(&block_scope, src, field_type_ref);
 
         const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
         assert(!gop.found_existing);
@@ -12180,7 +12196,7 @@ fn analyzeUnionFields(
             // TODO: if we need to report an error here, use a source location
             // that points to this alignment expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
-            const abi_align_val = (try sema.resolveInstConst(block, src, align_ref)).val;
+            const abi_align_val = (try sema.resolveInstConst(&block_scope, src, align_ref)).val;
             gop.value_ptr.abi_align = try abi_align_val.copy(&decl_arena.allocator);
         } else {
             gop.value_ptr.abi_align = Value.initTag(.abi_align_default);

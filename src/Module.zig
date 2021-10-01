@@ -3584,12 +3584,6 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
         }
     }
-    // In case this Decl is a struct or union, we need to resolve the fields
-    // while we still have the `Sema` in scope, so that the field type expressions
-    // can use the resolved AIR instructions that they possibly reference.
-    // We do this after the decl is populated and set to `complete` so that a `Decl`
-    // may reference itself.
-    try sema.resolvePendingTypes(&block_scope);
 
     if (decl.is_exported) {
         const export_src = src; // TODO point to the export token
