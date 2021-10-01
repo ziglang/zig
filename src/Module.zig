@@ -617,15 +617,17 @@ pub const Decl = struct {
         return tree.tokens.items(.start)[decl.srcToken()];
     }
 
-    pub fn renderFullyQualifiedName(decl: *const Decl, writer: anytype) @TypeOf(writer).Error!void {
-        return try decl.src_namespace.renderFullyQualifiedName(mem.spanZ(decl.name), writer);
+    pub fn renderFullyQualifiedName(decl: Decl, writer: anytype) !void {
+        const unqualified_name = mem.spanZ(decl.name);
+        return decl.src_namespace.renderFullyQualifiedName(unqualified_name, writer);
     }
 
-    pub fn renderFullyQualifiedDebugName(decl: *const Decl, writer: anytype) @TypeOf(writer).Error!void {
-        return try decl.src_namespace.renderFullyQualifiedDebugName(mem.spanZ(decl.name), writer);
+    pub fn renderFullyQualifiedDebugName(decl: Decl, writer: anytype) !void {
+        const unqualified_name = mem.spanZ(decl.name);
+        return decl.src_namespace.renderFullyQualifiedDebugName(unqualified_name, writer);
     }
 
-    pub fn getFullyQualifiedName(decl: *const Decl, gpa: *Allocator) ![:0]u8 {
+    pub fn getFullyQualifiedName(decl: Decl, gpa: *Allocator) ![:0]u8 {
         var buffer = std.ArrayList(u8).init(gpa);
         defer buffer.deinit();
         try decl.renderFullyQualifiedName(buffer.writer());
@@ -1246,7 +1248,7 @@ pub const Scope = struct {
             }
         }
 
-        // This renders e.g. "std.fs:Dir.OpenOptions"
+        /// This renders e.g. "std/fs.zig:Dir.OpenOptions"
         pub fn renderFullyQualifiedDebugName(
             ns: Namespace,
             name: []const u8,
@@ -4055,16 +4057,17 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
     decl.destroy(mod);
 }
 
+/// Cancel the creation of an anon decl and delete any references to it.
+/// If other decls depend on this decl, they must be aborted first.
 pub fn abortAnonDecl(mod: *Module, decl: *Decl) void {
     log.debug("abortAnonDecl {*} ({s})", .{ decl, decl.name });
 
     assert(!decl.isRoot());
     assert(decl.src_namespace.anon_decls.swapRemove(decl));
 
-    const dependants = decl.dependants.keys();
-    for (dependants) |dep| {
-        dep.removeDependency(decl);
-    }
+    // An aborted decl must not have dependants -- they must have
+    // been aborted first and removed from this list.
+    assert(decl.dependants.count() == 0);
 
     for (decl.dependencies.keys()) |dep| {
         dep.removeDependant(decl);
