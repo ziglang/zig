@@ -2372,7 +2372,7 @@ pub const LazySrcLoc = union(enum) {
     node_offset_lib_name: i32,
 
     /// Upgrade to a `SrcLoc` based on the `Decl` or file in the provided scope.
-    pub fn toSrcLoc(lazy: LazySrcLoc, scope: *Scope) SrcLoc {
+    pub fn toSrcLoc(lazy: LazySrcLoc, block: *Scope.Block) SrcLoc {
         return switch (lazy) {
             .unneeded,
             .entire_file,
@@ -2380,7 +2380,7 @@ pub const LazySrcLoc = union(enum) {
             .token_abs,
             .node_abs,
             => .{
-                .file_scope = scope.getFileScope(),
+                .file_scope = block.getFileScope(),
                 .parent_decl_node = 0,
                 .lazy = lazy,
             },
@@ -2416,8 +2416,8 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_anyframe_type,
             .node_offset_lib_name,
             => .{
-                .file_scope = scope.getFileScope(),
-                .parent_decl_node = scope.srcDecl().?.src_node,
+                .file_scope = block.getFileScope(),
+                .parent_decl_node = block.src_decl.src_node,
                 .lazy = lazy,
             },
         };
@@ -3464,12 +3464,12 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     if (decl.is_usingnamespace) {
         const ty_ty = Type.initTag(.type);
         if (!decl_tv.ty.eql(ty_ty)) {
-            return mod.fail(&block_scope.base, src, "expected type, found {}", .{decl_tv.ty});
+            return sema.fail(&block_scope, src, "expected type, found {}", .{decl_tv.ty});
         }
         var buffer: Value.ToTypeBuffer = undefined;
         const ty = decl_tv.val.toType(&buffer);
         if (ty.getNamespace() == null) {
-            return mod.fail(&block_scope.base, src, "type {} has no namespace", .{ty});
+            return sema.fail(&block_scope, src, "type {} has no namespace", .{ty});
         }
 
         decl.ty = ty_ty;
@@ -3532,11 +3532,11 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             if (decl.is_exported) {
                 const export_src = src; // TODO make this point at `export` token
                 if (is_inline) {
-                    return mod.fail(&block_scope.base, export_src, "export of inline function", .{});
+                    return sema.fail(&block_scope, export_src, "export of inline function", .{});
                 }
                 // The scope needs to have the decl in it.
                 const options: std.builtin.ExportOptions = .{ .name = mem.spanZ(decl.name) };
-                try mod.analyzeExport(&block_scope, export_src, options, decl);
+                try sema.analyzeExport(&block_scope, export_src, options, decl);
             }
             return type_changed or is_inline != prev_is_inline;
         }
@@ -3590,7 +3590,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         const export_src = src; // TODO point to the export token
         // The scope needs to have the decl in it.
         const options: std.builtin.ExportOptions = .{ .name = mem.spanZ(decl.name) };
-        try mod.analyzeExport(&block_scope, export_src, options, decl);
+        try sema.analyzeExport(&block_scope, export_src, options, decl);
     }
 
     return type_changed;
@@ -4347,81 +4347,6 @@ pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged
     };
 }
 
-pub fn analyzeExport(
-    mod: *Module,
-    block: *Scope.Block,
-    src: LazySrcLoc,
-    borrowed_options: std.builtin.ExportOptions,
-    exported_decl: *Decl,
-) !void {
-    try mod.ensureDeclAnalyzed(exported_decl);
-    switch (exported_decl.ty.zigTypeTag()) {
-        .Fn => {},
-        else => return mod.fail(&block.base, src, "unable to export type '{}'", .{exported_decl.ty}),
-    }
-
-    const gpa = mod.gpa;
-
-    try mod.decl_exports.ensureUnusedCapacity(gpa, 1);
-    try mod.export_owners.ensureUnusedCapacity(gpa, 1);
-
-    const new_export = try gpa.create(Export);
-    errdefer gpa.destroy(new_export);
-
-    const symbol_name = try gpa.dupe(u8, borrowed_options.name);
-    errdefer gpa.free(symbol_name);
-
-    const section: ?[]const u8 = if (borrowed_options.section) |s| try gpa.dupe(u8, s) else null;
-    errdefer if (section) |s| gpa.free(s);
-
-    const src_decl = block.src_decl;
-    const owner_decl = block.sema.owner_decl;
-
-    log.debug("exporting Decl '{s}' as symbol '{s}' from Decl '{s}'", .{
-        exported_decl.name, symbol_name, owner_decl.name,
-    });
-
-    new_export.* = .{
-        .options = .{
-            .name = symbol_name,
-            .linkage = borrowed_options.linkage,
-            .section = section,
-        },
-        .src = src,
-        .link = switch (mod.comp.bin_file.tag) {
-            .coff => .{ .coff = {} },
-            .elf => .{ .elf = link.File.Elf.Export{} },
-            .macho => .{ .macho = link.File.MachO.Export{} },
-            .plan9 => .{ .plan9 = null },
-            .c => .{ .c = {} },
-            .wasm => .{ .wasm = {} },
-            .spirv => .{ .spirv = {} },
-        },
-        .owner_decl = owner_decl,
-        .src_decl = src_decl,
-        .exported_decl = exported_decl,
-        .status = .in_progress,
-    };
-
-    // Add to export_owners table.
-    const eo_gop = mod.export_owners.getOrPutAssumeCapacity(owner_decl);
-    if (!eo_gop.found_existing) {
-        eo_gop.value_ptr.* = &[0]*Export{};
-    }
-    eo_gop.value_ptr.* = try gpa.realloc(eo_gop.value_ptr.*, eo_gop.value_ptr.len + 1);
-    eo_gop.value_ptr.*[eo_gop.value_ptr.len - 1] = new_export;
-    errdefer eo_gop.value_ptr.* = gpa.shrink(eo_gop.value_ptr.*, eo_gop.value_ptr.len - 1);
-
-    // Add to exported_decl table.
-    const de_gop = mod.decl_exports.getOrPutAssumeCapacity(exported_decl);
-    if (!de_gop.found_existing) {
-        de_gop.value_ptr.* = &[0]*Export{};
-    }
-    de_gop.value_ptr.* = try gpa.realloc(de_gop.value_ptr.*, de_gop.value_ptr.len + 1);
-    de_gop.value_ptr.*[de_gop.value_ptr.len - 1] = new_export;
-    errdefer de_gop.value_ptr.* = gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
-}
-
 /// Takes ownership of `name` even if it returns an error.
 pub fn createAnonymousDeclNamed(
     mod: *Module,
@@ -4506,19 +4431,6 @@ pub fn makeIntType(arena: *Allocator, signedness: std.builtin.Signedness, bits: 
     return Type.initPayload(&int_payload.base);
 }
 
-/// We don't return a pointer to the new error note because the pointer
-/// becomes invalid when you add another one.
-pub fn errNote(
-    mod: *Module,
-    scope: *Scope,
-    src: LazySrcLoc,
-    parent: *ErrorMsg,
-    comptime format: []const u8,
-    args: anytype,
-) error{OutOfMemory}!void {
-    return mod.errNoteNonLazy(src.toSrcLoc(scope), parent, format, args);
-}
-
 pub fn errNoteNonLazy(
     mod: *Module,
     src_loc: SrcLoc,
@@ -4534,81 +4446,6 @@ pub fn errNoteNonLazy(
         .src_loc = src_loc,
         .msg = msg,
     };
-}
-
-pub fn errMsg(
-    mod: *Module,
-    scope: *Scope,
-    src: LazySrcLoc,
-    comptime format: []const u8,
-    args: anytype,
-) error{OutOfMemory}!*ErrorMsg {
-    return ErrorMsg.create(mod.gpa, src.toSrcLoc(scope), format, args);
-}
-
-pub fn fail(
-    mod: *Module,
-    scope: *Scope,
-    src: LazySrcLoc,
-    comptime format: []const u8,
-    args: anytype,
-) CompileError {
-    const err_msg = try mod.errMsg(scope, src, format, args);
-    return mod.failWithOwnedErrorMsg(scope, err_msg);
-}
-
-/// Same as `fail`, except given a token index, and the function sets up the `LazySrcLoc`
-/// for pointing at it relatively by subtracting from the containing `Decl`.
-pub fn failTok(
-    mod: *Module,
-    scope: *Scope,
-    token_index: Ast.TokenIndex,
-    comptime format: []const u8,
-    args: anytype,
-) CompileError {
-    const src = scope.srcDecl().?.tokSrcLoc(token_index);
-    return mod.fail(scope, src, format, args);
-}
-
-/// Same as `fail`, except given an AST node index, and the function sets up the `LazySrcLoc`
-/// for pointing at it relatively by subtracting from the containing `Decl`.
-pub fn failNode(
-    mod: *Module,
-    scope: *Scope,
-    node_index: Ast.Node.Index,
-    comptime format: []const u8,
-    args: anytype,
-) CompileError {
-    const src = scope.srcDecl().?.nodeSrcLoc(node_index);
-    return mod.fail(scope, src, format, args);
-}
-
-pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) CompileError {
-    @setCold(true);
-
-    {
-        errdefer err_msg.destroy(mod.gpa);
-        if (err_msg.src_loc.lazy == .unneeded) {
-            return error.NeededSourceLocation;
-        }
-        try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
-        try mod.failed_files.ensureUnusedCapacity(mod.gpa, 1);
-    }
-    switch (scope.tag) {
-        .block => {
-            const block = scope.cast(Scope.Block).?;
-            if (block.sema.owner_func) |func| {
-                func.state = .sema_failure;
-            } else {
-                block.sema.owner_decl.analysis = .sema_failure;
-                block.sema.owner_decl.generation = mod.generation;
-            }
-            mod.failed_decls.putAssumeCapacityNoClobber(block.sema.owner_decl, err_msg);
-        },
-        .file => unreachable,
-        .namespace => unreachable,
-    }
-    return error.AnalysisFail;
 }
 
 pub fn optionalType(arena: *Allocator, child_type: Type) Allocator.Error!Type {
