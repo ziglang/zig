@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const testing = std.testing;
 const mem = std.mem;
 const expect = testing.expect;
-const expectEqual = testing.expectEqual;
 
 test "arrays" {
     var array: [5]u32 = undefined;

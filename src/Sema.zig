@@ -6918,9 +6918,6 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
         if (try sema.resolveDefinedValue(block, rhs_src, rhs)) |rhs_val| {
-            const final_len = lhs_info.len + rhs_info.len;
-            const final_len_including_sent = final_len + @boolToInt(res_sent != null);
-            const is_pointer = lhs_ty.zigTypeTag() == .Pointer;
             const lhs_sub_val = if (is_pointer) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
             const rhs_sub_val = if (is_pointer) (try sema.pointerDeref(block, rhs_src, rhs_val, rhs_ty)).? else rhs_val;
             var anon_decl = try block.startAnonDecl();
@@ -7047,7 +7044,43 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return sema.analyzeDeclVal(block, .unneeded, decl);
         }
     }
-    return sema.fail(block, lhs_src, "TODO runtime array_mul", .{});
+
+    // at runtime!
+    const array_ty = if (mulinfo.sentinel) |sent|
+        try Type.Tag.array_sentinel.create(sema.arena, .{ .len = final_len, .elem_type = mulinfo.elem_type, .sentinel = sent })
+    else
+        try Type.Tag.array.create(sema.arena, .{ .len = final_len, .elem_type = mulinfo.elem_type });
+    const ptr_ty = try Type.ptr(sema.arena, .{
+        .pointee_type = array_ty,
+        .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+    });
+    const alloc = try block.addTy(.alloc, ptr_ty);
+
+    try sema.requireRuntimeBlock(block, lhs_src);
+    // memset(alloc, arr, mulinfo.len);
+    _ = try block.addInst(.{
+        .tag = .memset,
+        .data = .{
+            .pl_op = .{
+                .operand = alloc,
+                .payload = try sema.addExtra(
+                    Air.Bin{
+                        .lhs = try sema.bitCast(
+                            block,
+                            try Module.makeIntType(sema.arena, .unsigned, @intCast(u16, mulinfo.len * 8)),
+                            lhs,
+                            lhs_src,
+                        ),
+                        .rhs = try sema.addIntUnsigned(Type.usize, mulinfo.len),
+                    },
+                ),
+            },
+        },
+    });
+    return if (lhs_ty.zigTypeTag() == .Pointer)
+        alloc
+    else
+        try sema.analyzeLoad(block, .unneeded, alloc, .unneeded);
 }
 
 fn zirNegate(

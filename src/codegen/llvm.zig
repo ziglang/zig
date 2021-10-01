@@ -3490,13 +3490,19 @@ pub const FuncGen = struct {
         const dest_ptr = try self.resolveInst(pl_op.operand);
         const ptr_ty = self.air.typeOf(pl_op.operand);
         const value = try self.resolveInst(extra.lhs);
+        const target = self.dg.module.getTarget();
         const val_is_undef = if (self.air.value(extra.lhs)) |val| val.isUndef() else false;
         const len = try self.resolveInst(extra.rhs);
+        const val_ty = self.air.typeOf(extra.lhs);
+        const val_size = val_ty.abiSize(target);
+        const new_val = if (val_ty.zigTypeTag() == .Int) value else if (val_size > 65535) blk: {
+            const int_ty = self.dg.context.intType(@intCast(c_uint, val_size));
+            break :blk self.builder.buildBitCast(value, int_ty, "");
+        } else return self.todo("fall back to memcpy", .{});
         const u8_llvm_ty = self.context.intType(8);
         const ptr_u8_llvm_ty = u8_llvm_ty.pointerType(0);
         const dest_ptr_u8 = self.builder.buildBitCast(dest_ptr, ptr_u8_llvm_ty, "");
-        const fill_char = if (val_is_undef) u8_llvm_ty.constInt(0xaa, .False) else value;
-        const target = self.dg.module.getTarget();
+        const fill_char = if (val_is_undef) u8_llvm_ty.constInt(0xaa, .False) else new_val;
         const dest_ptr_align = ptr_ty.ptrAlignment(target);
         _ = self.builder.buildMemSet(dest_ptr_u8, fill_char, len, dest_ptr_align, ptr_ty.isVolatilePtr());
 
