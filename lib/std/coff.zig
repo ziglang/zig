@@ -277,7 +277,7 @@ pub const Coff = struct {
         if (self.sections.items.len == self.coff_header.number_of_sections)
             return;
 
-        try self.sections.ensureCapacity(self.coff_header.number_of_sections);
+        try self.sections.ensureTotalCapacity(self.coff_header.number_of_sections);
 
         const in = self.in_file.reader();
 

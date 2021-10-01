@@ -37,7 +37,7 @@ pub const Socket = struct {
 
             /// POSIX `sockaddr.storage`. The expected size and alignment is specified in IETF RFC 2553.
             pub const Storage = extern struct {
-                pub const expected_size = 128;
+                pub const expected_size = os.sockaddr.SS_MAXSIZE;
                 pub const expected_alignment = 8;
 
                 pub const padding_size = expected_size -

@@ -30,7 +30,7 @@ tomb_bits: []usize,
 ///    The main tomb bits are still used and the extra ones are starting with the lsb of the
 ///    value here.
 special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
-/// Auxilliary data. The way this data is interpreted is determined contextually.
+/// Auxiliary data. The way this data is interpreted is determined contextually.
 extra: []const u32,
 
 /// Trailing is the set of instructions whose lifetimes end at the start of the then branch,
@@ -226,12 +226,16 @@ fn analyzeInst(
     switch (inst_tags[inst]) {
         .add,
         .addwrap,
+        .add_sat,
         .sub,
         .subwrap,
+        .sub_sat,
         .mul,
         .mulwrap,
+        .mul_sat,
         .div,
         .rem,
+        .mod,
         .ptr_add,
         .ptr_sub,
         .bit_and,
@@ -251,7 +255,14 @@ fn analyzeInst(
         .ptr_elem_val,
         .ptr_ptr_elem_val,
         .shl,
+        .shl_exact,
+        .shl_sat,
         .shr,
+        .atomic_store_unordered,
+        .atomic_store_monotonic,
+        .atomic_store_release,
+        .atomic_store_seq_cst,
+        .set_union_tag,
         => {
             const o = inst_datas[inst].bin_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.lhs, o.rhs, .none });
@@ -264,12 +275,14 @@ fn analyzeInst(
         .breakpoint,
         .dbg_stmt,
         .unreach,
+        .fence,
         => return trackOperands(a, new_set, inst, main_tomb, .{ .none, .none, .none }),
 
         .not,
         .bitcast,
         .load,
-        .floatcast,
+        .fpext,
+        .fptrunc,
         .intcast,
         .trunc,
         .optional_payload,
@@ -288,6 +301,11 @@ fn analyzeInst(
         .struct_field_ptr_index_2,
         .struct_field_ptr_index_3,
         .array_to_slice,
+        .float_to_int,
+        .int_to_float,
+        .get_union_tag,
+        .clz,
+        .ctz,
         => {
             const o = inst_datas[inst].ty_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.operand, .none, .none });
@@ -343,6 +361,20 @@ fn analyzeInst(
         .cmpxchg_strong, .cmpxchg_weak => {
             const extra = a.air.extraData(Air.Cmpxchg, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.ptr, extra.expected_value, extra.new_value });
+        },
+        .atomic_load => {
+            const ptr = inst_datas[inst].atomic_load.ptr;
+            return trackOperands(a, new_set, inst, main_tomb, .{ ptr, .none, .none });
+        },
+        .atomic_rmw => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.AtomicRmw, pl_op.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, extra.operand, .none });
+        },
+        .memset, .memcpy => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, extra.lhs, extra.rhs });
         },
         .br => {
             const br = inst_datas[inst].br;
@@ -440,7 +472,7 @@ fn analyzeInst(
             }
             // Now we have to correctly populate new_set.
             if (new_set) |ns| {
-                try ns.ensureCapacity(gpa, @intCast(u32, ns.count() + then_table.count() + else_table.count()));
+                try ns.ensureUnusedCapacity(gpa, @intCast(u32, then_table.count() + else_table.count()));
                 var it = then_table.keyIterator();
                 while (it.next()) |key| {
                     _ = ns.putAssumeCapacity(key.*, {});

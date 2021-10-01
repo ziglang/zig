@@ -58,8 +58,10 @@ const Huffman = struct {
         }
 
         // All zero.
-        if (self.count[0] == code_length.len)
+        if (self.count[0] == code_length.len) {
+            self.min_code_len = 0;
             return;
+        }
 
         var left: isize = 1;
         for (self.count[1..]) |val| {
@@ -280,7 +282,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
             return self.bits & mask;
         }
         fn readBits(self: *Self, bits: usize) !u32 {
-            const val = self.peekBits(bits);
+            const val = try self.peekBits(bits);
             self.discardBits(bits);
             return val;
         }
@@ -487,6 +489,8 @@ pub fn InflateStream(comptime ReaderType: type) type {
             // We can't read PREFIX_LUT_BITS as we don't want to read past the
             // deflate stream end, use an incremental approach instead.
             var code_len = h.min_code_len;
+            if (code_len == 0)
+                return error.OutOfCodes;
             while (true) {
                 _ = try self.peekBits(code_len);
                 // Small optimization win, use as many bits as possible in the
@@ -658,11 +662,27 @@ test "lengths overflow" {
     // f dy  hlit hdist hclen 16  17  18   0 (18)    x138 (18)    x138 (18)     x39 (16) x6
     // 1 10 11101 11101 0000 010 010 010 010 (11) 1111111 (11) 1111111 (11) 0011100 (01) 11
     const stream = [_]u8{ 0b11101101, 0b00011101, 0b00100100, 0b11101001, 0b11111111, 0b11111111, 0b00111001, 0b00001110 };
+    try std.testing.expectError(error.InvalidLength, testInflate(stream[0..]));
+}
 
-    const reader = std.io.fixedBufferStream(&stream).reader();
+test "empty distance alphabet" {
+    // dynamic block with empty distance alphabet is valid if end of data symbol is used immediately
+    // f dy  hlit hdist hclen 16  17  18   0   8   7   9   6  10   5  11   4  12   3  13   2  14   1  15 (18)    x128 (18)    x128 (1)  ( 0) (256)
+    // 1 10 00000 00000 1111 000 000 010 010 000 000 000 000 000 000 000 000 000 000 000 000 000 001 000 (11) 1110101 (11) 1110101 (0)  (10)  (0)
+    const stream = [_]u8{ 0b00000101, 0b11100000, 0b00000001, 0b00001001, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00010000, 0b01011100, 0b10111111, 0b00101110 };
+    try testInflate(stream[0..]);
+}
+
+test "inflateStream fuzzing" {
+    // see https://github.com/ziglang/zig/issues/9842
+    try std.testing.expectError(error.EndOfStream, testInflate("\x950000"));
+    try std.testing.expectError(error.OutOfCodes, testInflate("\x950\x00\x0000000"));
+}
+
+fn testInflate(data: []const u8) !void {
     var window: [0x8000]u8 = undefined;
+    const reader = std.io.fixedBufferStream(data).reader();
     var inflate = inflateStream(reader, &window);
-
-    var buf: [1]u8 = undefined;
-    try std.testing.expectError(error.InvalidLength, inflate.read(&buf));
+    var inflated = try inflate.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
+    defer std.testing.allocator.free(inflated);
 }

@@ -812,7 +812,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
     const needs_c_symbols = !options.skip_linker_dependencies and is_exe_or_dyn_lib;
 
-    // WASI-only. Resolve the optinal exec-model option, defaults to command.
+    // WASI-only. Resolve the optional exec-model option, defaults to command.
     const wasi_exec_model = if (options.target.os.tag != .wasi) undefined else options.wasi_exec_model orelse .command;
 
     const comp: *Compilation = comp: {
@@ -849,10 +849,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             if (options.use_llvm) |explicit|
                 break :blk explicit;
 
-            // If we have no zig code to compile, no need for LLVM.
-            if (options.main_pkg == null)
-                break :blk false;
-
             // If we are outputting .c code we must use Zig backend.
             if (ofmt == .c)
                 break :blk false;
@@ -860,6 +856,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             // If emitting to LLVM bitcode object format, must use LLVM backend.
             if (options.emit_llvm_ir != null or options.emit_llvm_bc != null)
                 break :blk true;
+
+            // If we have no zig code to compile, no need for LLVM.
+            if (options.main_pkg == null)
+                break :blk false;
 
             // The stage1 compiler depends on the stage1 C++ LLVM backend
             // to compile zig code.
@@ -875,9 +875,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         if (!use_llvm) {
             if (options.use_llvm == true) {
                 return error.ZigCompilerNotBuiltWithLLVMExtensions;
-            }
-            if (options.machine_code_model != .default) {
-                return error.MachineCodeModelNotSupportedWithoutLlvm;
             }
             if (options.emit_llvm_ir != null or options.emit_llvm_bc != null) {
                 return error.EmittingLlvmModuleRequiresUsingLlvmBackend;
@@ -1100,7 +1097,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
                 if (feature.llvm_name) |llvm_name| {
                     const plus_or_minus = "-+"[@boolToInt(is_enabled)];
-                    try buf.ensureCapacity(buf.items.len + 2 + llvm_name.len);
+                    try buf.ensureUnusedCapacity(2 + llvm_name.len);
                     buf.appendAssumeCapacity(plus_or_minus);
                     buf.appendSliceAssumeCapacity(llvm_name);
                     buf.appendSliceAssumeCapacity(",");
@@ -1180,6 +1177,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             }
             hash.add(valgrind);
             hash.add(single_threaded);
+            hash.add(use_stage1);
+            hash.add(use_llvm);
             hash.add(dll_export_fns);
             hash.add(options.is_test);
             hash.add(options.skip_linker_dependencies);
@@ -1350,7 +1349,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
         var system_libs: std.StringArrayHashMapUnmanaged(void) = .{};
         errdefer system_libs.deinit(gpa);
-        try system_libs.ensureCapacity(gpa, options.system_libs.len);
+        try system_libs.ensureTotalCapacity(gpa, options.system_libs.len);
         for (options.system_libs) |lib_name| {
             system_libs.putAssumeCapacity(lib_name, {});
         }
@@ -1486,7 +1485,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     errdefer comp.astgen_wait_group.deinit();
 
     // Add a `CObject` for each `c_source_files`.
-    try comp.c_object_table.ensureCapacity(gpa, options.c_source_files.len);
+    try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
     for (options.c_source_files) |c_source_file| {
         const c_object = try gpa.create(CObject);
         errdefer gpa.destroy(c_object);
@@ -1577,25 +1576,30 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         // also test the use case of `build-obj -fcompiler-rt` with the self-hosted compiler
         // and make sure the compiler-rt symbols are emitted. Currently this is hooked up for
         // stage1 but not stage2.
-        if (comp.bin_file.options.use_stage1) {
-            if (comp.bin_file.options.include_compiler_rt) {
-                if (is_exe_or_dyn_lib) {
-                    try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
-                } else if (options.output_mode != .Obj) {
-                    // If build-obj with -fcompiler-rt is requested, that is handled specially
-                    // elsewhere. In this case we are making a static library, so we ask
-                    // for a compiler-rt object to put in it.
-                    try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
-                }
+        const capable_of_building_compiler_rt = comp.bin_file.options.use_stage1 or
+            comp.bin_file.options.use_llvm;
+        const capable_of_building_zig_libc = comp.bin_file.options.use_stage1 or
+            comp.bin_file.options.use_llvm;
+        const capable_of_building_ssp = comp.bin_file.options.use_stage1;
+
+        if (comp.bin_file.options.include_compiler_rt and capable_of_building_compiler_rt) {
+            if (is_exe_or_dyn_lib) {
+                try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
+            } else if (options.output_mode != .Obj) {
+                // If build-obj with -fcompiler-rt is requested, that is handled specially
+                // elsewhere. In this case we are making a static library, so we ask
+                // for a compiler-rt object to put in it.
+                try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
             }
-            if (needs_c_symbols) {
-                // MinGW provides no libssp, use our own implementation.
-                if (comp.getTarget().isMinGW()) {
-                    try comp.work_queue.writeItem(.{ .libssp = {} });
-                }
-                if (!comp.bin_file.options.link_libc) {
-                    try comp.work_queue.writeItem(.{ .zig_libc = {} });
-                }
+        }
+        if (needs_c_symbols) {
+            // MinGW provides no libssp, use our own implementation.
+            if (comp.getTarget().isMinGW() and capable_of_building_ssp) {
+                try comp.work_queue.writeItem(.{ .libssp = {} });
+            }
+
+            if (!comp.bin_file.options.link_libc and capable_of_building_zig_libc) {
+                try comp.work_queue.writeItem(.{ .zig_libc = {} });
             }
         }
     }
@@ -1645,6 +1649,9 @@ pub fn destroy(self: *Compilation) void {
         crt_file.deinit(gpa);
     }
     if (self.compiler_rt_static_lib) |*crt_file| {
+        crt_file.deinit(gpa);
+    }
+    if (self.compiler_rt_obj) |*crt_file| {
         crt_file.deinit(gpa);
     }
     if (self.libssp_static_lib) |*crt_file| {
@@ -1793,6 +1800,10 @@ pub fn update(self: *Compilation) !void {
         }
     }
 
+    // Flush takes care of -femit-bin, but we still have -femit-llvm-ir, -femit-llvm-bc, and
+    // -femit-asm to handle, in the case of C objects.
+    try self.emitOthers();
+
     // If there are any errors, we anticipate the source files being loaded
     // to report error messages. Otherwise we unload all source files to save memory.
     // The ZIR needs to stay loaded in memory because (1) Decl objects contain references
@@ -1803,6 +1814,37 @@ pub fn update(self: *Compilation) !void {
             for (module.import_table.values()) |file| {
                 file.unloadTree(self.gpa);
                 file.unloadSource(self.gpa);
+            }
+        }
+    }
+}
+
+fn emitOthers(comp: *Compilation) !void {
+    if (comp.bin_file.options.output_mode != .Obj or comp.bin_file.options.module != null or
+        comp.c_object_table.count() == 0)
+    {
+        return;
+    }
+    const obj_path = comp.c_object_table.keys()[0].status.success.object_path;
+    const cwd = std.fs.cwd();
+    const ext = std.fs.path.extension(obj_path);
+    const basename = obj_path[0 .. obj_path.len - ext.len];
+    // This obj path always ends with the object file extension, but if we change the
+    // extension to .ll, .bc, or .s, then it will be the path to those things.
+    const outs = [_]struct {
+        emit: ?EmitLoc,
+        ext: []const u8,
+    }{
+        .{ .emit = comp.emit_asm, .ext = ".s" },
+        .{ .emit = comp.emit_llvm_ir, .ext = ".ll" },
+        .{ .emit = comp.emit_llvm_bc, .ext = ".bc" },
+    };
+    for (outs) |out| {
+        if (out.emit) |loc| {
+            if (loc.directory) |directory| {
+                const src_path = try std.fmt.allocPrint(comp.gpa, "{s}{s}", .{ basename, out.ext });
+                defer comp.gpa.free(src_path);
+                try cwd.copyFile(src_path, directory.handle, loc.basename, .{});
             }
         }
     }
@@ -2113,7 +2155,11 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 const module = self.bin_file.options.module.?;
                 const decl = func.owner_decl;
 
-                var air = module.analyzeFnBody(decl, func) catch |err| switch (err) {
+                var tmp_arena = std.heap.ArenaAllocator.init(gpa);
+                defer tmp_arena.deinit();
+                const sema_arena = &tmp_arena.allocator;
+
+                var air = module.analyzeFnBody(decl, func, sema_arena) catch |err| switch (err) {
                     error.AnalysisFail => {
                         assert(func.state != .in_progress);
                         continue;
@@ -2175,16 +2221,20 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 const decl_emit_h = decl.getEmitH(module);
                 const fwd_decl = &decl_emit_h.fwd_decl;
                 fwd_decl.shrinkRetainingCapacity(0);
+                var typedefs_arena = std.heap.ArenaAllocator.init(gpa);
+                defer typedefs_arena.deinit();
 
                 var dg: c_codegen.DeclGen = .{
+                    .gpa = gpa,
                     .module = module,
                     .error_msg = null,
                     .decl = decl,
                     .fwd_decl = fwd_decl.toManaged(gpa),
-                    // we don't want to emit optionals and error unions to headers since they have no ABI
-                    .typedefs = undefined,
+                    .typedefs = c_codegen.TypedefMap.init(gpa),
+                    .typedefs_arena = &typedefs_arena.allocator,
                 };
                 defer dg.fwd_decl.deinit();
+                defer dg.typedefs.deinit();
 
                 c_codegen.genHeader(&dg) catch |err| switch (err) {
                     error.AnalysisFail => {
@@ -2612,7 +2662,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
 
         const dep_basename = std.fs.path.basename(out_dep_path);
         try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
-        try comp.stage1_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+        if (build_options.is_stage1 and comp.bin_file.options.use_stage1) try comp.stage1_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
 
         const digest = man.final();
         const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
@@ -2721,16 +2771,12 @@ fn reportRetryableAstGenError(
         try Module.ErrorMsg.create(
             gpa,
             src_loc,
-            "unable to load '{'}" ++ std.fs.path.sep_str ++ "{'}': {s}",
-            .{
-                std.zig.fmtEscapes(dir_path),
-                std.zig.fmtEscapes(file.sub_file_path),
-                @errorName(err),
-            },
+            "unable to load '{s}" ++ std.fs.path.sep_str ++ "{s}': {s}",
+            .{ dir_path, file.sub_file_path, @errorName(err) },
         )
     else
-        try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{'}': {s}", .{
-            std.zig.fmtEscapes(file.sub_file_path), @errorName(err),
+        try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{s}': {s}", .{
+            file.sub_file_path, @errorName(err),
         });
     errdefer err_msg.destroy(gpa);
 
@@ -2766,6 +2812,9 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     defer man.deinit();
 
     man.hash.add(comp.clang_preprocessor_mode);
+    man.hash.addOptionalEmitLoc(comp.emit_asm);
+    man.hash.addOptionalEmitLoc(comp.emit_llvm_ir);
+    man.hash.addOptionalEmitLoc(comp.emit_llvm_bc);
 
     try man.hashCSource(c_object.src);
 
@@ -2789,16 +2838,29 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         comp.bin_file.options.root_name
     else
         c_source_basename[0 .. c_source_basename.len - std.fs.path.extension(c_source_basename).len];
-    const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{
-        o_basename_noext,
-        comp.bin_file.options.object_format.fileExt(comp.bin_file.options.target.cpu.arch),
-    });
 
+    const o_ext = comp.bin_file.options.object_format.fileExt(comp.bin_file.options.target.cpu.arch);
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
 
-        // We can't know the digest until we do the C compiler invocation, so we need a temporary filename.
+        // In case we are doing passthrough mode, we need to detect -S and -emit-llvm.
+        const out_ext = e: {
+            if (!comp.clang_passthrough_mode)
+                break :e o_ext;
+            if (comp.emit_asm != null)
+                break :e ".s";
+            if (comp.emit_llvm_ir != null)
+                break :e ".ll";
+            if (comp.emit_llvm_bc != null)
+                break :e ".bc";
+
+            break :e o_ext;
+        };
+        const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, out_ext });
+
+        // We can't know the digest until we do the C compiler invocation,
+        // so we need a temporary filename.
         const out_obj_path = try comp.tmpFilePath(arena, o_basename);
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
@@ -2812,15 +2874,23 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             try std.fmt.allocPrint(arena, "{s}.d", .{out_obj_path});
         try comp.addCCArgs(arena, &argv, ext, out_dep_path);
 
-        try argv.ensureCapacity(argv.items.len + 3);
+        try argv.ensureUnusedCapacity(6 + c_object.src.extra_flags.len);
         switch (comp.clang_preprocessor_mode) {
             .no => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-c", "-o", out_obj_path }),
             .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-E", "-o", out_obj_path }),
             .stdout => argv.appendAssumeCapacity("-E"),
         }
-
-        try argv.append(c_object.src.src_path);
-        try argv.appendSlice(c_object.src.extra_flags);
+        if (comp.clang_passthrough_mode) {
+            if (comp.emit_asm != null) {
+                argv.appendAssumeCapacity("-S");
+            } else if (comp.emit_llvm_ir != null) {
+                argv.appendSliceAssumeCapacity(&[_][]const u8{ "-emit-llvm", "-S" });
+            } else if (comp.emit_llvm_bc != null) {
+                argv.appendAssumeCapacity("-emit-llvm");
+            }
+        }
+        argv.appendAssumeCapacity(c_object.src.src_path);
+        argv.appendSliceAssumeCapacity(c_object.src.extra_flags);
 
         if (comp.verbose_cc) {
             dump_argv(argv.items);
@@ -2840,8 +2910,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             switch (term) {
                 .Exited => |code| {
                     if (code != 0) {
-                        // TODO https://github.com/ziglang/zig/issues/6342
-                        std.process.exit(1);
+                        std.process.exit(code);
                     }
                     if (comp.clang_preprocessor_mode == .stdout)
                         std.process.exit(0);
@@ -2857,9 +2926,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 
             const stderr_reader = child.stderr.?.reader();
 
-            // TODO https://github.com/ziglang/zig/issues/6343
-            // Please uncomment and use stdout once this issue is fixed
-            // const stdout = try stdout_reader.readAllAlloc(arena, std.math.maxInt(u32));
             const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
 
             const term = child.wait() catch |err| {
@@ -2908,6 +2974,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         };
         break :blk digest;
     };
+
+    const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, o_ext });
 
     c_object.status = .{
         .success = .{
@@ -3032,7 +3100,7 @@ pub fn addCCArgs(
 
             // It would be really nice if there was a more compact way to communicate this info to Clang.
             const all_features_list = target.cpu.arch.allFeaturesList();
-            try argv.ensureCapacity(argv.items.len + all_features_list.len * 4);
+            try argv.ensureUnusedCapacity(all_features_list.len * 4);
             for (all_features_list) |feature, index_usize| {
                 const index = @intCast(std.Target.Cpu.Feature.Set.Index, index_usize);
                 const is_enabled = target.cpu.features.isEnabled(index);
@@ -3533,7 +3601,7 @@ fn detectLibCIncludeDirs(
 
 fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const LibCInstallation) !LibCDirs {
     var list = std.ArrayList([]const u8).init(arena);
-    try list.ensureCapacity(4);
+    try list.ensureTotalCapacity(4);
 
     list.appendAssumeCapacity(lci.include_dir.?);
 
@@ -3640,7 +3708,7 @@ fn setMiscFailure(
     comptime format: []const u8,
     args: anytype,
 ) Allocator.Error!void {
-    try comp.misc_failures.ensureCapacity(comp.gpa, comp.misc_failures.count() + 1);
+    try comp.misc_failures.ensureUnusedCapacity(comp.gpa, 1);
     const msg = try std.fmt.allocPrint(comp.gpa, format, args);
     comp.misc_failures.putAssumeCapacityNoClobber(tag, .{ .msg = msg });
 }
@@ -3662,6 +3730,8 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
     const target = comp.getTarget();
     const generic_arch_name = target.cpu.arch.genericName();
     const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
+    const stage2_x86_cx16 = target.cpu.arch == .x86_64 and
+        std.Target.x86.featureSetHas(target.cpu.features, .cx16);
 
     @setEvalBranchQuota(4000);
     try buffer.writer().print(
@@ -3673,6 +3743,8 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
         \\pub const zig_is_stage2 = {};
         \\/// Temporary until self-hosted supports the `cpu.arch` value.
         \\pub const stage2_arch: std.Target.Cpu.Arch = .{};
+        \\/// Temporary until self-hosted can call `std.Target.x86.featureSetHas` at comptime.
+        \\pub const stage2_x86_cx16 = {};
         \\
         \\pub const output_mode = std.builtin.OutputMode.{};
         \\pub const link_mode = std.builtin.LinkMode.{};
@@ -3688,6 +3760,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
         build_options.version,
         !use_stage1,
         std.zig.fmtId(@tagName(target.cpu.arch)),
+        stage2_x86_cx16,
         std.zig.fmtId(@tagName(comp.bin_file.options.output_mode)),
         std.zig.fmtId(@tagName(comp.bin_file.options.link_mode)),
         comp.bin_file.options.is_test,
@@ -3912,6 +3985,7 @@ fn buildOutputFromZig(
         },
         .root_src_path = src_basename,
     };
+    defer main_pkg.deinitTable(comp.gpa);
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();
     const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{
@@ -3970,7 +4044,7 @@ fn buildOutputFromZig(
     defer if (!keep_errors) errors.deinit(sub_compilation.gpa);
 
     if (errors.list.len != 0) {
-        try comp.misc_failures.ensureCapacity(comp.gpa, comp.misc_failures.count() + 1);
+        try comp.misc_failures.ensureUnusedCapacity(comp.gpa, 1);
         comp.misc_failures.putAssumeCapacityNoClobber(misc_task_tag, .{
             .msg = try std.fmt.allocPrint(comp.gpa, "sub-compilation of {s} failed", .{
                 @tagName(misc_task_tag),
@@ -4402,7 +4476,7 @@ pub fn build_crt_file(
 
     try sub_compilation.updateSubCompilation();
 
-    try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
+    try comp.crt_files.ensureUnusedCapacity(comp.gpa, 1);
 
     comp.crt_files.putAssumeCapacityNoClobber(basename, .{
         .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{

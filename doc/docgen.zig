@@ -901,6 +901,7 @@ fn tokenizeAndPrintRaw(
         switch (token.tag) {
             .eof => break,
 
+            .keyword_addrspace,
             .keyword_align,
             .keyword_and,
             .keyword_asm,
@@ -1057,15 +1058,21 @@ fn tokenizeAndPrintRaw(
             .plus_equal,
             .plus_percent,
             .plus_percent_equal,
+            .plus_pipe,
+            .plus_pipe_equal,
             .minus,
             .minus_equal,
             .minus_percent,
             .minus_percent_equal,
+            .minus_pipe,
+            .minus_pipe_equal,
             .asterisk,
             .asterisk_equal,
             .asterisk_asterisk,
             .asterisk_percent,
             .asterisk_percent_equal,
+            .asterisk_pipe,
+            .asterisk_pipe_equal,
             .arrow,
             .colon,
             .slash,
@@ -1078,6 +1085,8 @@ fn tokenizeAndPrintRaw(
             .angle_bracket_left_equal,
             .angle_bracket_angle_bracket_left,
             .angle_bracket_angle_bracket_left_equal,
+            .angle_bracket_angle_bracket_left_pipe,
+            .angle_bracket_angle_bracket_left_pipe_equal,
             .angle_bracket_right,
             .angle_bracket_right_equal,
             .angle_bracket_angle_bracket_right,
@@ -1222,9 +1231,7 @@ fn genHtml(
 
                 try printSourceBlock(allocator, tokenizer, out, syntax_block);
 
-                // TODO: remove code.just_check_syntax after updating code samples
-                // that have stopped working due to a change in the compiler.
-                if (!do_code_tests or code.just_check_syntax) {
+                if (!do_code_tests) {
                     continue;
                 }
 

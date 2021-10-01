@@ -1244,8 +1244,9 @@ fn divide(a: i32, b: i32) i32 {
       </p>
       <p>
       Operators such as {#syntax#}+{#endsyntax#} and {#syntax#}-{#endsyntax#} cause undefined behavior on
-              integer overflow. Also available are operations such as {#syntax#}+%{#endsyntax#} and
-                  {#syntax#}-%{#endsyntax#} which are defined to have wrapping arithmetic on all targets.
+      integer overflow. Alternative operators are provided for wrapping and saturating arithmetic on all targets.  
+      {#syntax#}+%{#endsyntax#} and {#syntax#}-%{#endsyntax#} perform wrapping arithmetic
+      while {#syntax#}+|{#endsyntax#} and {#syntax#}-|{#endsyntax#} perform saturating arithmetic.
       </p>
       <p>
       Zig supports arbitrary bit-width integers, referenced by using
@@ -1396,6 +1397,23 @@ a +%= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
+          <th scope="row"><pre>{#syntax#}a +| b
+a +|= b{#endsyntax#}</pre></th>
+          <td>
+            <ul>
+              <li>{#link|Integers#}</li>
+            </ul>
+          </td>
+          <td>Saturating Addition.
+            <ul>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+            </ul>
+          </td>
+          <td>
+            <pre>{#syntax#}@as(u32, std.math.maxInt(u32)) +| 1 == @as(u32, std.math.maxInt(u32)){#endsyntax#}</pre>
+          </td>
+        </tr>
+        <tr>
           <th scope="row"><pre>{#syntax#}a - b
 a -= b{#endsyntax#}</pre></th>
           <td>
@@ -1432,6 +1450,23 @@ a -%= b{#endsyntax#}</pre></th>
           </td>
           <td>
             <pre>{#syntax#}@as(u32, 0) -% 1 == std.math.maxInt(u32){#endsyntax#}</pre>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row"><pre>{#syntax#}a -| b
+a -|= b{#endsyntax#}</pre></th>
+          <td>
+            <ul>
+              <li>{#link|Integers#}</li>
+            </ul>
+          </td>
+          <td>Saturating Subtraction.
+            <ul>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+            </ul>
+          </td>
+          <td>
+            <pre>{#syntax#}@as(u32, 0) -| 1 == 0{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1509,6 +1544,23 @@ a *%= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
+          <th scope="row"><pre>{#syntax#}a *| b
+a *|= b{#endsyntax#}</pre></th>
+          <td>
+            <ul>
+              <li>{#link|Integers#}</li>
+            </ul>
+          </td>
+          <td>Saturating Multiplication.
+            <ul>
+              <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
+            </ul>
+          </td>
+          <td>
+            <pre>{#syntax#}@as(u8, 200) *| 2 == 255{#endsyntax#}</pre>
+          </td>
+        </tr>
+        <tr>
           <th scope="row"><pre>{#syntax#}a / b
 a /= b{#endsyntax#}</pre></th>
           <td>
@@ -1575,6 +1627,24 @@ a <<= b{#endsyntax#}</pre></th>
           </td>
           <td>
             <pre>{#syntax#}1 << 8 == 256{#endsyntax#}</pre>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row"><pre>{#syntax#}a <<| b
+a <<|= b{#endsyntax#}</pre></th>
+          <td>
+            <ul>
+              <li>{#link|Integers#}</li>
+            </ul>
+          </td>
+          <td>Saturating Bit Shift Left.
+            <ul>
+              <li>See also {#link|@shlExact#}.</li>
+              <li>See also {#link|@shlWithOverflow#}.</li>
+            </ul>
+          </td>
+          <td>
+            <pre>{#syntax#}@as(u8, 1) <<| 8 == 255{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1968,14 +2038,14 @@ const B = error{Two};
 a!b
 x{}
 !x -x -%x ~x &x ?x
-* / % ** *% ||
-+ - ++ +% -%
-<< >>
+* / % ** *% *| ||
++ - ++ +% -% +| -|
+<< >> <<|
 & ^ | orelse catch
 == != < > <= >=
 and
 or
-= *= /= %= += -= <<= >>= &= ^= |={#endsyntax#}</pre>
+= *= *%= *|= /= %= += +%= +|= -= -%= -|= <<= <<|= >>= &= ^= |={#endsyntax#}</pre>
       {#header_close#}
       {#header_close#}
       {#header_open|Arrays#}
@@ -2125,7 +2195,7 @@ fn dump(args: anytype) !void {
 
       {#header_open|Multidimensional Arrays#}
       <p>
-      Mutlidimensional arrays can be created by nesting arrays:
+      Multidimensional arrays can be created by nesting arrays:
       </p>
       {#code_begin|test|multidimensional#}
 const std = @import("std");
@@ -2898,7 +2968,7 @@ fn bar(x: *const u3) u3 {
 }
       {#code_end#}
       <p>
-      In this case, the function {#syntax#}bar{#endsyntax#} cannot be called becuse the pointer
+      In this case, the function {#syntax#}bar{#endsyntax#} cannot be called because the pointer
       to the non-ABI-aligned field mentions the bit offset, but the function expects an ABI-aligned pointer.
       </p>
       <p>
@@ -4771,6 +4841,8 @@ test "parse u64" {
       {#header_open|catch#}
       <p>If you want to provide a default value, you can use the {#syntax#}catch{#endsyntax#} binary operator:</p>
       {#code_begin|syntax#}
+const parseU64 = @import("error_union_parsing_u64.zig").parseU64;
+
 fn doAThing(str: []u8) void {
     const number = parseU64(str, 10) catch 13;
     _ = number; // ...
@@ -4786,6 +4858,8 @@ fn doAThing(str: []u8) void {
       <p>Let's say you wanted to return the error if you got one, otherwise continue with the
       function logic:</p>
       {#code_begin|syntax#}
+const parseU64 = @import("error_union_parsing_u64.zig").parseU64;
+
 fn doAThing(str: []u8) !void {
     const number = parseU64(str, 10) catch |err| return err;
     _ = number; // ...
@@ -4795,6 +4869,8 @@ fn doAThing(str: []u8) !void {
       There is a shortcut for this. The {#syntax#}try{#endsyntax#} expression:
       </p>
       {#code_begin|syntax#}
+const parseU64 = @import("error_union_parsing_u64.zig").parseU64;
+
 fn doAThing(str: []u8) !void {
     const number = try parseU64(str, 10);
     _ = number; // ...
@@ -4810,7 +4886,7 @@ fn doAThing(str: []u8) !void {
         Maybe you know with complete certainty that an expression will never be an error.
         In this case you can do this:
       </p>
-      {#code_begin|syntax#}const number = parseU64("1234", 10) catch unreachable;{#code_end#}
+      {#syntax#}const number = parseU64("1234", 10) catch unreachable;{#endsyntax#}
       <p>
       Here we know for sure that "1234" will parse successfully. So we put the
       {#syntax#}unreachable{#endsyntax#} value on the right hand side. {#syntax#}unreachable{#endsyntax#} generates
@@ -4822,7 +4898,7 @@ fn doAThing(str: []u8) !void {
       Finally, you may want to take a different action for every situation. For that, we combine
       the {#link|if#} and {#link|switch#} expression:
       </p>
-      {#code_begin|syntax#}
+      {#syntax_block|zig|handle_all_error_scenarios.zig#}
 fn doAThing(str: []u8) void {
     if (parseU64(str, 10)) |number| {
         doSomethingWithNumber(number);
@@ -4834,7 +4910,7 @@ fn doAThing(str: []u8) void {
         error.InvalidChar => unreachable,
     }
 }
-      {#code_end#}
+      {#end_syntax_block#}
       {#header_open|errdefer#}
       <p>
       The other component to error handling is defer statements.
@@ -4845,7 +4921,7 @@ fn doAThing(str: []u8) void {
       <p>
       Example:
       </p>
-      {#code_begin|syntax#}
+      {#syntax_block|zig|errdefer_example.zig#}
 fn createFoo(param: i32) !Foo {
     const foo = try tryToAllocateFoo();
     // now we have allocated foo. we need to free it if the function fails.
@@ -4863,7 +4939,7 @@ fn createFoo(param: i32) !Foo {
     // but the defer will run!
     return foo;
 }
-      {#code_end#}
+      {#end_syntax_block#}
       <p>
       The neat thing about this is that you get robust error handling without
       the verbosity and cognitive overhead of trying to make sure every exit path
@@ -4955,7 +5031,7 @@ test "merge error sets" {
       {#header_open|Inferred Error Sets#}
       <p>
       Because many functions in Zig return a possible error, Zig supports inferring the error set.
-      To infer the error set for a function, use this syntax:
+      To infer the error set for a function, prepend the {#syntax#}!{#endsyntax#} operator to the function’s return type, like {#syntax#}!T{#endsyntax#}:
       </p>
 {#code_begin|test|inferred_error_sets#}
 // With an inferred error set
@@ -5132,12 +5208,12 @@ fn bang2() void {
       For the case when no errors are returned, the cost is a single memory write operation, only in the first non-failable function in the call graph that calls a failable function, i.e. when a function returning {#syntax#}void{#endsyntax#} calls a function returning {#syntax#}error{#endsyntax#}.
       This is to initialize this struct in the stack memory:
       </p>
-      {#code_begin|syntax#}
+      {#syntax_block|zig|stack_trace_struct.zig#}
 pub const StackTrace = struct {
     index: usize,
     instruction_addresses: [N]usize,
 };
-      {#code_end#}
+      {#end_syntax_block#}
       <p>
       Here, N is the maximum function call depth as determined by call graph analysis. Recursion is ignored and counts for 2.
       </p>
@@ -5150,13 +5226,13 @@ pub const StackTrace = struct {
       <p>
       When generating the code for a function that returns an error, just before the {#syntax#}return{#endsyntax#} statement (only for the {#syntax#}return{#endsyntax#} statements that return errors), Zig generates a call to this function:
       </p>
-      {#code_begin|syntax#}
+      {#syntax_block|zig|zig_return_error_fn.zig#}
 // marked as "no-inline" in LLVM IR
 fn __zig_return_error(stack_trace: *StackTrace) void {
     stack_trace.instruction_addresses[stack_trace.index] = @returnAddress();
     stack_trace.index = (stack_trace.index + 1) % N;
 }
-      {#code_end#}
+      {#end_syntax_block#}
       <p>
       The cost is 2 math operations plus some memory reads and writes. The memory accessed is constrained and should remain cached for the duration of the error return bubbling.
       </p>
@@ -5206,16 +5282,16 @@ const optional_int: ?i32 = 5678;
       Task: call malloc, if the result is null, return null.
       </p>
       <p>C code</p>
-      <pre><code class="cpp">// malloc prototype included for reference
+      {#syntax_block|c|call_malloc_in_c.c#}// malloc prototype included for reference
 void *malloc(size_t size);
 
 struct Foo *do_a_thing(void) {
     char *ptr = malloc(1234);
     if (!ptr) return NULL;
     // ...
-}</code></pre>
+}{#end_syntax_block#}
       <p>Zig code</p>
-      {#code_begin|syntax#}
+      {#syntax_block|zig|call_malloc_from_zig.zig#}
 // malloc prototype included for reference
 extern fn malloc(size: size_t) ?*u8;
 
@@ -5223,7 +5299,7 @@ fn doAThing() ?*Foo {
     const ptr = malloc(1234) orelse return null;
     _ = ptr; // ...
 }
-      {#code_end#}
+      {#end_syntax_block#}
       <p>
         Here, Zig is at least as convenient, if not more, than C. And, the type of "ptr"
         is {#syntax#}*u8{#endsyntax#} <em>not</em> {#syntax#}?*u8{#endsyntax#}. The {#syntax#}orelse{#endsyntax#} keyword
@@ -5233,7 +5309,7 @@ fn doAThing() ?*Foo {
       <p>
         The other form of checking against NULL you might see looks like this:
       </p>
-      <pre><code class="cpp">void do_a_thing(struct Foo *foo) {
+      {#syntax_block|c|checking_null_in_c.c#}void do_a_thing(struct Foo *foo) {
     // do some stuff
 
     if (foo) {
@@ -5241,11 +5317,14 @@ fn doAThing() ?*Foo {
     }
 
     // do some stuff
-}</code></pre>
+}{#end_syntax_block#}
       <p>
         In Zig you can accomplish the same thing:
       </p>
-      {#code_begin|syntax#}
+      {#code_begin|syntax|checking_null_in_zig#}
+const Foo = struct{};
+fn doSomethingWithFoo(foo: *Foo) void { _ = foo; }
+
 fn doAThing(optional_foo: ?*Foo) void {
     // do some stuff
 
@@ -5540,7 +5619,7 @@ test "coerce to optionals" {
 }
       {#code_end#}
       <p>It works nested inside the {#link|Error Union Type#}, too:</p>
-      {#code_begin|test|test_corerce_optional_wrapped_error_union#}
+      {#code_begin|test|test_coerce_optional_wrapped_error_union#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -6111,7 +6190,7 @@ test "perform fn" {
       different code. In this example, the function {#syntax#}performFn{#endsyntax#} is generated three different times,
           for the different values of {#syntax#}prefix_char{#endsyntax#} provided:
       </p>
-      {#code_begin|syntax#}
+      {#syntax_block|zig|performFn_1#}
 // From the line:
 // expect(performFn('t', 1) == 6);
 fn performFn(start_value: i32) i32 {
@@ -6120,8 +6199,8 @@ fn performFn(start_value: i32) i32 {
     result = three(result);
     return result;
 }
-      {#code_end#}
-      {#code_begin|syntax#}
+      {#end_syntax_block#}
+      {#syntax_block|zig|performFn_2#}
 // From the line:
 // expect(performFn('o', 0) == 1);
 fn performFn(start_value: i32) i32 {
@@ -6129,15 +6208,15 @@ fn performFn(start_value: i32) i32 {
     result = one(result);
     return result;
 }
-      {#code_end#}
-      {#code_begin|syntax#}
+      {#end_syntax_block#}
+      {#syntax_block|zig|performFn_3#}
 // From the line:
 // expect(performFn('w', 99) == 99);
 fn performFn(start_value: i32) i32 {
     var result: i32 = start_value;
     return result;
 }
-      {#code_end#}
+      {#end_syntax_block#}
       <p>
       Note that this happens even in a debug build; in a release build these generated functions still
       pass through rigorous LLVM optimizations. The important thing to note, however, is not that this
@@ -6367,11 +6446,11 @@ const Node = struct {
       it works fine.
       </p>
       {#header_close#}
-      {#header_open|Case Study: printf in Zig#}
+      {#header_open|Case Study: print in Zig#}
       <p>
-      Putting all of this together, let's see how {#syntax#}printf{#endsyntax#} works in Zig.
+      Putting all of this together, let's see how {#syntax#}print{#endsyntax#} works in Zig.
       </p>
-      {#code_begin|exe|printf#}
+      {#code_begin|exe|print#}
 const print = @import("std").debug.print;
 
 const a_number: i32 = 1234;
@@ -6386,67 +6465,84 @@ pub fn main() void {
       Let's crack open the implementation of this and see how it works:
       </p>
 
-      {#code_begin|syntax#}
-/// Calls print and then flushes the buffer.
-pub fn printf(self: *Writer, comptime format: []const u8, args: anytype) anyerror!void {
-    const State = enum {
-        start,
-        open_brace,
-        close_brace,
-    };
+      {#code_begin|syntax|poc_print_fn#}
+const Writer = struct {
+    /// Calls print and then flushes the buffer.
+    pub fn print(self: *Writer, comptime format: []const u8, args: anytype) anyerror!void {
+        const State = enum {
+            start,
+            open_brace,
+            close_brace,
+        };
 
-    comptime var start_index: usize = 0;
-    comptime var state = State.start;
-    comptime var next_arg: usize = 0;
+        comptime var start_index: usize = 0;
+        comptime var state = State.start;
+        comptime var next_arg: usize = 0;
 
-    inline for (format) |c, i| {
-        switch (state) {
-            State.start => switch (c) {
-                '{' => {
-                    if (start_index < i) try self.write(format[start_index..i]);
-                    state = State.open_brace;
+        inline for (format) |c, i| {
+            switch (state) {
+                State.start => switch (c) {
+                    '{' => {
+                        if (start_index < i) try self.write(format[start_index..i]);
+                        state = State.open_brace;
+                    },
+                    '}' => {
+                        if (start_index < i) try self.write(format[start_index..i]);
+                        state = State.close_brace;
+                    },
+                    else => {},
                 },
-                '}' => {
-                    if (start_index < i) try self.write(format[start_index..i]);
-                    state = State.close_brace;
+                State.open_brace => switch (c) {
+                    '{' => {
+                        state = State.start;
+                        start_index = i;
+                    },
+                    '}' => {
+                        try self.printValue(args[next_arg]);
+                        next_arg += 1;
+                        state = State.start;
+                        start_index = i + 1;
+                    },
+                    's' => {
+                        continue;
+                    },
+                    else => @compileError("Unknown format character: " ++ [1]u8{c}),
                 },
-                else => {},
-            },
-            State.open_brace => switch (c) {
-                '{' => {
-                    state = State.start;
-                    start_index = i;
+                State.close_brace => switch (c) {
+                    '}' => {
+                        state = State.start;
+                        start_index = i;
+                    },
+                    else => @compileError("Single '}' encountered in format string"),
                 },
-                '}' => {
-                    try self.printValue(args[next_arg]);
-                    next_arg += 1;
-                    state = State.start;
-                    start_index = i + 1;
-                },
-                else => @compileError("Unknown format character: " ++ c),
-            },
-            State.close_brace => switch (c) {
-                '}' => {
-                    state = State.start;
-                    start_index = i;
-                },
-                else => @compileError("Single '}' encountered in format string"),
-            },
+            }
         }
-    }
-    comptime {
-        if (args.len != next_arg) {
-            @compileError("Unused arguments");
+        comptime {
+            if (args.len != next_arg) {
+                @compileError("Unused arguments");
+            }
+            if (state != State.start) {
+                @compileError("Incomplete format string: " ++ format);
+            }
         }
-        if (state != State.Start) {
-            @compileError("Incomplete format string: " ++ format);
+        if (start_index < format.len) {
+            try self.write(format[start_index..format.len]);
         }
+        try self.flush();
     }
-    if (start_index < format.len) {
-        try self.write(format[start_index..format.len]);
+
+    fn write(self: *Writer, value: []const u8) !void {
+        _ = self;
+        _ = value;
     }
-    try self.flush();
-}
+    pub fn printValue(self: *Writer, value: anytype) !void {
+        _ = self;
+        _ = value;
+    }
+    fn flush(self: *Writer) !void {
+        _ = self;
+    }
+};
       {#code_end#}
       <p>
       This is a proof of concept implementation; the actual function in the standard library has more
@@ -6459,8 +6555,8 @@ pub fn printf(self: *Writer, comptime format: []const u8, args: anytype) anyerro
       When this function is analyzed from our example code above, Zig partially evaluates the function
       and emits a function that actually looks like this:
       </p>
-      {#code_begin|syntax#}
-pub fn printf(self: *Writer, arg0: i32, arg1: []const u8) !void {
+      {#syntax_block|zig|Emitted print Function#}
+pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
     try self.write("here is a string: '");
     try self.printValue(arg0);
     try self.write("' here is a number: ");
@@ -6468,28 +6564,46 @@ pub fn printf(self: *Writer, arg0: i32, arg1: []const u8) !void {
     try self.write("\n");
     try self.flush();
 }
-      {#code_end#}
+      {#end_syntax_block#}
       <p>
       {#syntax#}printValue{#endsyntax#} is a function that takes a parameter of any type, and does different things depending
       on the type:
       </p>
-      {#code_begin|syntax#}
-pub fn printValue(self: *Writer, value: anytype) !void {
-    switch (@typeInfo(@TypeOf(value))) {
-        .Int => {
-            return self.printInt(T, value);
-        },
-        .Float => {
-            return self.printFloat(T, value);
-        },
-        else => {
-            @compileError("Unable to print type '" ++ @typeName(T) ++ "'");
-        },
+      {#code_begin|syntax|poc_printValue_fn#}
+ const Writer = struct {
+    pub fn printValue(self: *Writer, value: anytype) !void {
+        switch (@typeInfo(@TypeOf(value))) {
+            .Int => {
+                return self.writeInt(value);
+            },
+            .Float => {
+                return self.writeFloat(value);
+            },
+            .Pointer => {
+                return self.write(value);
+            },
+            else => {
+                @compileError("Unable to print type '" ++ @typeName(@TypeOf(value)) ++ "'");
+            },
+        }
     }
-}
+
+    fn write(self: *Writer, value: []const u8) !void {
+        _ = self;
+        _ = value;
+    }
+    fn writeInt(self: *Writer, value: anytype) !void {
+        _ = self;
+        _ = value;
+    }
+    fn writeFloat(self: *Writer, value: anytype) !void {
+        _ = self;
+        _ = value;
+    }
+};
       {#code_end#}
       <p>
-      And now, what happens if we give too many arguments to {#syntax#}printf{#endsyntax#}?
+      And now, what happens if we give too many arguments to {#syntax#}print{#endsyntax#}?
       </p>
       {#code_begin|test_err|Unused argument in 'here is a string: '{s}' here is a number: {}#}
 const print = @import("std").debug.print;
@@ -6497,7 +6611,7 @@ const print = @import("std").debug.print;
 const a_number: i32 = 1234;
 const a_string = "foobar";
 
-test "printf too many arguments" {
+test "print too many arguments" {
     print("here is a string: '{s}' here is a number: {}\n", .{
         a_string,
         a_number,
@@ -6512,7 +6626,7 @@ test "printf too many arguments" {
       Zig doesn't care whether the format argument is a string literal,
       only that it is a compile-time known value that can be coerced to a {#syntax#}[]const u8{#endsyntax#}:
       </p>
-      {#code_begin|exe|printf#}
+      {#code_begin|exe|print#}
 const print = @import("std").debug.print;
 
 const a_number: i32 = 1234;
@@ -7118,16 +7232,6 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
                   If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       {#header_close#}
-      {#header_open|@addWithSaturation#}
-      <pre>{#syntax#}@addWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
-      <p>
-      Returns {#syntax#}a + b{#endsyntax#}. The result will be clamped between the type maximum and minimum.
-      </p>
-      <p>
-      Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
-      is completed, the syntax {#syntax#}a +| b{#endsyntax#} will be equivalent to calling {#syntax#}@addWithSaturation(a, b){#endsyntax#}.
-      </p>
-      {#header_close#}
       {#header_open|@alignCast#}
       <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: anytype) anytype{#endsyntax#}</pre>
       <p>
@@ -7216,7 +7320,9 @@ fn func(y: *i32) void {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
+      {#see_also|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
+
       {#header_open|@atomicRmw#}
       <pre>{#syntax#}@atomicRmw(comptime T: type, ptr: *T, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
       <p>
@@ -7242,7 +7348,9 @@ fn func(y: *i32) void {
         <li>{#syntax#}.Max{#endsyntax#} - stores the operand if it is larger. Supports integers and floats.</li>
         <li>{#syntax#}.Min{#endsyntax#} - stores the operand if it is smaller. Supports integers and floats.</li>
       </ul>
+      {#see_also|@atomicStore|@atomicLoad|@fence|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
+
       {#header_open|@atomicStore#}
       <pre>{#syntax#}@atomicStore(comptime T: type, ptr: *T, value: T, comptime ordering: builtin.AtomicOrder) void{#endsyntax#}</pre>
       <p>
@@ -7252,6 +7360,7 @@ fn func(y: *i32) void {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
+      {#see_also|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@bitCast#}
@@ -7396,9 +7505,11 @@ fn add(a: i32, b: i32) i32 {
       {#syntax#}@call{#endsyntax#} allows more flexibility than normal function call syntax does. The
       {#syntax#}CallOptions{#endsyntax#} struct is reproduced here:
       </p>
-      {#code_begin|syntax#}
+      {#syntax_block|zig|builtin.CallOptions struct#}
 pub const CallOptions = struct {
     modifier: Modifier = .auto,
+
+    /// Only valid when `Modifier` is `Modifier.async_kw`.
     stack: ?[]align(std.Target.stack_align) u8 = null,
 
     pub const Modifier = enum {
@@ -7435,7 +7546,7 @@ pub const CallOptions = struct {
         compile_time,
     };
 };
-      {#code_end#}
+      {#end_syntax_block#}
       {#header_close#}
 
       {#header_open|@cDefine#}
@@ -7540,15 +7651,16 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       an integer or an enum.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
-      {#see_also|Compile Variables|cmpxchgWeak#}
+      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak#}
       {#header_close#}
+
       {#header_open|@cmpxchgWeak#}
       <pre>{#syntax#}@cmpxchgWeak(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
       This function performs a weak atomic compare exchange operation. It's the equivalent of this code,
       except atomic:
       </p>
-      {#code_begin|syntax#}
+      {#syntax_block|zig|cmpxchgWeakButNotAtomic#}
 fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_value: T) ?T {
     const old_value = ptr.*;
     if (old_value == expected_value and usuallyTrueButSometimesFalse()) {
@@ -7558,7 +7670,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
         return old_value;
     }
 }
-      {#code_end#}
+      {#end_syntax_block#}
       <p>
       If you are using cmpxchg in a loop, the sporadic failure will be no problem, and {#syntax#}cmpxchgWeak{#endsyntax#}
       is the better choice, because it can be implemented more efficiently in machine instructions.
@@ -7569,7 +7681,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       an integer or an enum.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
-      {#see_also|Compile Variables|cmpxchgStrong#}
+      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@compileError#}
@@ -7617,7 +7729,7 @@ test "main" {
 }
       {#code_end#}
       <p>
-      will ouput:
+      will output:
       </p>
       <p>
       If all {#syntax#}@compileLog{#endsyntax#} calls are removed or
@@ -7734,7 +7846,7 @@ test "main" {
       the tag value is used as the enumeration value.
       </p>
       <p>
-      If there is only one possible enum value, the resut is a {#syntax#}comptime_int{#endsyntax#}
+      If there is only one possible enum value, the result is a {#syntax#}comptime_int{#endsyntax#}
       known at {#link|comptime#}.
       </p>
       {#see_also|@intToEnum#}
@@ -7849,7 +7961,7 @@ export fn @"A function name that is a complete sentence."() void {}
       <p>
       {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.
       </p>
-      {#see_also|Compile Variables#}
+      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@field#}
@@ -8241,22 +8353,6 @@ test "@wasmMemoryGrow" {
       </p>
       {#header_close#}
       
-      {#header_open|@mulWithSaturation#}
-      <pre>{#syntax#}@mulWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
-      <p>
-      Returns {#syntax#}a * b{#endsyntax#}. The result will be clamped between the type maximum and minimum.
-      </p>
-      <p>
-      Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
-      is completed, the syntax {#syntax#}a *| b{#endsyntax#} will be equivalent to calling {#syntax#}@mulWithSaturation(a, b){#endsyntax#}.
-      </p>
-      <p>
-      NOTE: Currently there is a bug in the llvm.smul.fix.sat intrinsic which affects {#syntax#}@mulWithSaturation{#endsyntax#} of signed integers.  
-      This may result in an incorrect sign bit when there is overflow.  This will be fixed in zig's 0.9.0 release.  
-      Check <a href="https://github.com/ziglang/zig/issues/9643">this issue</a> for more information.
-      </p>
-      {#header_close#}
-
       {#header_open|@panic#}
       <pre>{#syntax#}@panic(message: []const u8) noreturn{#endsyntax#}</pre>
       <p>
@@ -8474,14 +8570,16 @@ test "@setRuntimeSafety" {
       {#header_open|@shlExact#}
       <pre>{#syntax#}@shlExact(value: T, shift_amt: Log2T) T{#endsyntax#}</pre>
       <p>
-      Performs the left shift operation ({#syntax#}<<{#endsyntax#}). Caller guarantees
-      that the shift will not shift any 1 bits out.
+      Performs the left shift operation ({#syntax#}<<{#endsyntax#}).
+      For unsigned integers, the result is {#link|undefined#} if any 1 bits
+      are shifted out. For signed integers, the result is {#link|undefined#} if
+      any bits that disagree with the resultant sign bit are shifted out.
       </p>
       <p>
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
               This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
       </p>
-      {#see_also|@shrExact|@shlWithOverflow|@shlWithSaturation#}
+      {#see_also|@shrExact|@shlWithOverflow#}
       {#header_close#}
 
       {#header_open|@shlWithOverflow#}
@@ -8495,24 +8593,9 @@ test "@setRuntimeSafety" {
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
               This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
       </p>
-      {#see_also|@shlExact|@shrExact|@shlWithSaturation#}
+      {#see_also|@shlExact|@shrExact#}
       {#header_close#}
       
-      {#header_open|@shlWithSaturation#}
-      <pre>{#syntax#}@shlWithSaturation(a: T, shift_amt: T) T{#endsyntax#}</pre>
-      <p>
-      Returns {#syntax#}a << b{#endsyntax#}. The result will be clamped between type minimum and maximum.  
-      </p>
-      <p>
-      Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
-      is completed, the syntax {#syntax#}a <<| b{#endsyntax#} will be equivalent to calling {#syntax#}@shlWithSaturation(a, b){#endsyntax#}.
-      </p>
-      <p>
-      Unlike other @shl builtins, shift_amt doesn't need to be a Log2T as saturated overshifting is well defined.  
-      </p>
-      {#see_also|@shlExact|@shrExact|@shlWithOverflow#}
-      {#header_close#}
-
       {#header_open|@shrExact#}
       <pre>{#syntax#}@shrExact(value: T, shift_amt: Log2T) T{#endsyntax#}</pre>
       <p>
@@ -8523,7 +8606,7 @@ test "@setRuntimeSafety" {
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(T.bit_count){#endsyntax#} bits.
               This is because {#syntax#}shift_amt >= T.bit_count{#endsyntax#} is undefined behavior.
       </p>
-      {#see_also|@shlExact|@shlWithOverflow|@shlWithSaturation#}
+      {#see_also|@shlExact|@shlWithOverflow#}
       {#header_close#}
 
       {#header_open|@shuffle#}
@@ -8684,7 +8767,7 @@ fn doTheTest() !void {
       {#header_open|@sin#}
       <pre>{#syntax#}@sin(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Sine trigometric function on a floating point number. Uses a dedicated hardware instruction
+      Sine trigonometric function on a floating point number. Uses a dedicated hardware instruction
       when available.
       </p>
       <p>
@@ -8695,7 +8778,7 @@ fn doTheTest() !void {
       {#header_open|@cos#}
       <pre>{#syntax#}@cos(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Cosine trigometric function on a floating point number. Uses a dedicated hardware instruction
+      Cosine trigonometric function on a floating point number. Uses a dedicated hardware instruction
       when available.
       </p>
       <p>
@@ -8783,7 +8866,7 @@ fn doTheTest() !void {
       {#header_open|@ceil#}
       <pre>{#syntax#}@ceil(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Returns the largest integral value not less than the given floating point number.
+      Returns the smallest integral value not less than the given floating point number.
       Uses a dedicated hardware instruction when available.
       </p>
       <p>
@@ -8823,17 +8906,6 @@ fn doTheTest() !void {
       </p>
       {#header_close#}
       
-      {#header_open|@subWithSaturation#}
-      <pre>{#syntax#}@subWithSaturation(a: T, b: T) T{#endsyntax#}</pre>
-      <p>
-      Returns {#syntax#}a - b{#endsyntax#}. The result will be clamped between the type maximum and minimum.  
-      </p>
-      <p>
-      Once <a href="https://github.com/ziglang/zig/issues/1284">Saturating arithmetic</a>.
-      is completed, the syntax {#syntax#}a -| b{#endsyntax#} will be equivalent to calling {#syntax#}@subWithSaturation(a, b){#endsyntax#}.
-      </p>
-      {#header_close#}
-
       {#header_open|@tagName#}
       <pre>{#syntax#}@tagName(value: anytype) [:0]const u8{#endsyntax#}</pre>
       <p>
@@ -10153,7 +10225,7 @@ pub fn main() void {
       This expression is evaluated at compile-time and is used to control
       preprocessor directives and include multiple <code class="file">.h</code> files:
       </p>
-      {#code_begin|syntax#}
+      {#syntax_block|zig|@cImport Expression#}
 const builtin = @import("builtin");
 
 const c = @cImport({
@@ -10167,7 +10239,7 @@ const c = @cImport({
     }
     @cInclude("soundio.h");
 });
-      {#code_end#}
+      {#end_syntax_block#}
       {#see_also|@cImport|@cInclude|@cDefine|@cUndef|@import#}
       {#header_close#}
 
@@ -10273,7 +10345,7 @@ pub fn main() void {
       <p>
         Some C constructs cannot be translated to Zig - for example, <em>goto</em>,
         structs with bitfields, and token-pasting macros. Zig employs <em>demotion</em> to allow translation
-        to continue in the face of non-translateable entities.
+        to continue in the face of non-translatable entities.
       </p>
       <p>
         Demotion comes in three varieties - {#link|opaque#}, <em>extern</em>, and
@@ -10283,13 +10355,13 @@ pub fn main() void {
         Functions that contain opaque types or code constructs that cannot be translated will be demoted
         to {#syntax#}extern{#endsyntax#} declarations.
 
-        Thus, non-translateable types can still be used as pointers, and non-translateable functions
+        Thus, non-translatable types can still be used as pointers, and non-translatable functions
         can be called so long as the linker is aware of the compiled function.
       </p>
       <p>
         {#syntax#}@compileError{#endsyntax#} is used when top-level definitions (global variables,
         function prototypes, macros) cannot be translated or demoted. Since Zig uses lazy analysis for
-        top-level declarations, untranslateable entities will not cause a compile error in your code unless
+        top-level declarations, untranslatable entities will not cause a compile error in your code unless
         you actually use them.
       </p>
       {#see_also|opaque|extern|@compileError#}
@@ -10301,7 +10373,7 @@ pub fn main() void {
         can be translated to Zig. Macros that cannot be translated will be be demoted to
         {#syntax#}@compileError{#endsyntax#}. Note that C code which <em>uses</em> macros will be
         translated without any additional issues (since Zig operates on the pre-processed source
-        with macros expanded). It is merely the macros themselves which may not be translateable to
+        with macros expanded). It is merely the macros themselves which may not be translatable to
         Zig.
       </p>
       <p>Consider the following example:</p>
@@ -10321,7 +10393,7 @@ pub export fn foo() c_int {
 }
 pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected token .Equal"); // macro.c:1:9
       {#code_end#}
-      <p>Note that {#syntax#}foo{#endsyntax#} was translated correctly despite using a non-translateable
+      <p>Note that {#syntax#}foo{#endsyntax#} was translated correctly despite using a non-translatable
         macro. {#syntax#}MAKELOCAL{#endsyntax#} was demoted to {#syntax#}@compileError{#endsyntax#} since
         it cannot be expressed as a Zig function; this simply means that you cannot directly use
         {#syntax#}MAKELOCAL{#endsyntax#} from Zig.
@@ -10491,8 +10563,8 @@ const typedArray = new Uint8Array(source);
 
 WebAssembly.instantiate(typedArray, {
   env: {
-    print: (result) =&gt; { console.log(`The result is ${result}`); }
-  }}).then(result =&gt; {
+    print: (result) => { console.log(`The result is ${result}`); }
+  }}).then(result => {
   const add = result.instance.exports.add;
   add(1, 2);
 });{#end_syntax_block#}
@@ -11787,6 +11859,7 @@ AssignOp
      / PLUSEQUAL
      / MINUSEQUAL
      / LARROW2EQUAL
+     / LARROW2PIPEEQUAL
      / RARROW2EQUAL
      / AMPERSANDEQUAL
      / CARETEQUAL
@@ -11821,6 +11894,8 @@ AdditionOp
      / PLUS2
      / PLUSPERCENT
      / MINUSPERCENT
+     / PLUSPIPE
+     / MINUSPIPE
 
 MultiplyOp
     &lt;- PIPE2
@@ -11829,6 +11904,7 @@ MultiplyOp
      / PERCENT
      / ASTERISK2
      / ASTERISKPERCENT
+     / ASTERISKPIPE
 
 PrefixOp
     &lt;- EXCLAMATIONMARK
@@ -11992,6 +12068,8 @@ ASTERISK2            &lt;- '**'               skip
 ASTERISKEQUAL        &lt;- '*='               skip
 ASTERISKPERCENT      &lt;- '*%'     ![=]      skip
 ASTERISKPERCENTEQUAL &lt;- '*%='              skip
+ASTERISKPIPE         &lt;- '*|'     ![=]      skip
+ASTERISKPIPEEQUAL    &lt;- '*|='              skip
 CARET                &lt;- '^'      ![=]      skip
 CARETEQUAL           &lt;- '^='               skip
 COLON                &lt;- ':'                skip
@@ -12008,6 +12086,8 @@ EXCLAMATIONMARK      &lt;- '!'      ![=]      skip
 EXCLAMATIONMARKEQUAL &lt;- '!='               skip
 LARROW               &lt;- '&lt;'      ![&lt;=]     skip
 LARROW2              &lt;- '&lt;&lt;'     ![=]      skip
+LARROW2PIPE          &lt;- '&lt;&lt;|'    ![=]      skip
+LARROW2PIPEEQUAL     &lt;- '&lt;&lt;|='   ![=]      skip
 LARROW2EQUAL         &lt;- '&lt;&lt;='              skip
 LARROWEQUAL          &lt;- '&lt;='               skip
 LBRACE               &lt;- '{'                skip
@@ -12017,6 +12097,8 @@ MINUS                &lt;- '-'      ![%=&gt;]    skip
 MINUSEQUAL           &lt;- '-='               skip
 MINUSPERCENT         &lt;- '-%'     ![=]      skip
 MINUSPERCENTEQUAL    &lt;- '-%='              skip
+MINUSPIPE            &lt;- '-|'     ![=]      skip
+MINUSPIPEEQUAL       &lt;- '-|='              skip
 MINUSRARROW          &lt;- '-&gt;'               skip
 PERCENT              &lt;- '%'      ![=]      skip
 PERCENTEQUAL         &lt;- '%='               skip
@@ -12028,6 +12110,8 @@ PLUS2                &lt;- '++'               skip
 PLUSEQUAL            &lt;- '+='               skip
 PLUSPERCENT          &lt;- '+%'     ![=]      skip
 PLUSPERCENTEQUAL     &lt;- '+%='              skip
+PLUSPIPE             &lt;- '+|'     ![=]      skip
+PLUSPIPEEQUAL        &lt;- '+|='              skip
 LETTERC              &lt;- 'c'                skip
 QUESTIONMARK         &lt;- '?'                skip
 RARROW               &lt;- '&gt;'      ![&gt;=]     skip

@@ -13,6 +13,12 @@ fn processArgs() void {
     const args = std.process.argsAlloc(&args_allocator.allocator) catch {
         @panic("Too many bytes passed over the CLI to the test runner");
     };
+    if (args.len != 2) {
+        const self_name = if (args.len >= 1) args[0] else if (builtin.os.tag == .windows) "test.exe" else "test";
+        const zig_ext = if (builtin.os.tag == .windows) ".exe" else "";
+        std.debug.print("Usage: {s} path/to/zig{s}\n", .{ self_name, zig_ext });
+        @panic("Wrong number of command line arguments");
+    }
     std.testing.zig_exe_path = args[1];
 }
 
@@ -56,7 +62,7 @@ pub fn main() void {
             .evented => blk: {
                 if (async_frame_buffer.len < size) {
                     std.heap.page_allocator.free(async_frame_buffer);
-                    async_frame_buffer = try std.heap.page_allocator.alignedAlloc(u8, std.Target.stack_align, size);
+                    async_frame_buffer = std.heap.page_allocator.alignedAlloc(u8, std.Target.stack_align, size) catch @panic("out of memory");
                 }
                 const casted_fn = @ptrCast(fn () callconv(.Async) anyerror!void, test_fn.func);
                 break :blk await @asyncCall(async_frame_buffer, {}, casted_fn, .{});
@@ -123,8 +129,16 @@ pub fn log(
 }
 
 pub fn main2() anyerror!void {
+    var bad = false;
     // Simpler main(), exercising fewer language features, so that stage2 can handle it.
     for (builtin.test_functions) |test_fn| {
-        try test_fn.func();
+        test_fn.func() catch |err| {
+            if (err != error.SkipZigTest) {
+                bad = true;
+            }
+        };
+    }
+    if (bad) {
+        return error.TestsFailed;
     }
 }

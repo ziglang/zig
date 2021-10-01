@@ -65,18 +65,18 @@ fn nonConstSwitchOnEnum(fruit: Fruit) void {
 }
 
 test "switch statement" {
-    try nonConstSwitch(SwitchStatmentFoo.C);
+    try nonConstSwitch(SwitchStatementFoo.C);
 }
-fn nonConstSwitch(foo: SwitchStatmentFoo) !void {
+fn nonConstSwitch(foo: SwitchStatementFoo) !void {
     const val = switch (foo) {
-        SwitchStatmentFoo.A => @as(i32, 1),
-        SwitchStatmentFoo.B => 2,
-        SwitchStatmentFoo.C => 3,
-        SwitchStatmentFoo.D => 4,
+        SwitchStatementFoo.A => @as(i32, 1),
+        SwitchStatementFoo.B => 2,
+        SwitchStatementFoo.C => 3,
+        SwitchStatementFoo.D => 4,
     };
     try expect(val == 3);
 }
-const SwitchStatmentFoo = enum {
+const SwitchStatementFoo = enum {
     A,
     B,
     C,

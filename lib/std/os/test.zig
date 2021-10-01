@@ -188,7 +188,10 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
 }
 
 test "link with relative paths" {
-    if (native_os != .linux) return error.SkipZigTest;
+    switch (native_os) {
+        .linux, .solaris => {},
+        else => return error.SkipZigTest,
+    }
     var cwd = fs.cwd();
 
     cwd.deleteFile("example.txt") catch {};
@@ -222,7 +225,10 @@ test "link with relative paths" {
 }
 
 test "linkat with different directories" {
-    if (native_os != .linux) return error.SkipZigTest;
+    switch (native_os) {
+        .linux, .solaris => {},
+        else => return error.SkipZigTest,
+    }
     var cwd = fs.cwd();
     var tmp = tmpDir(.{});
 
@@ -634,8 +640,10 @@ test "fcntl" {
 }
 
 test "signalfd" {
-    if (native_os != .linux)
-        return error.SkipZigTest;
+    switch (native_os) {
+        .linux, .solaris => {},
+        else => return error.SkipZigTest,
+    }
     _ = std.os.signalfd;
 }
 
@@ -658,8 +666,10 @@ test "sync" {
 }
 
 test "fsync" {
-    if (native_os != .linux and native_os != .windows)
-        return error.SkipZigTest;
+    switch (native_os) {
+        .linux, .windows, .solaris => {},
+        else => return error.SkipZigTest,
+    }
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -754,7 +764,10 @@ test "sigaction" {
 }
 
 test "dup & dup2" {
-    if (native_os != .linux) return error.SkipZigTest;
+    switch (native_os) {
+        .linux, .solaris => {},
+        else => return error.SkipZigTest,
+    }
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();

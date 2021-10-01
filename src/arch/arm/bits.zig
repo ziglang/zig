@@ -2,7 +2,7 @@ const std = @import("std");
 const DW = std.dwarf;
 const testing = std.testing;
 
-/// The condition field specifies the flags neccessary for an
+/// The condition field specifies the flags necessary for an
 /// Instruction to be executed
 pub const Condition = enum(u4) {
     /// equal

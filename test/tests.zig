@@ -455,7 +455,7 @@ pub fn addTranslateCTests(b: *build.Builder, test_filter: ?[]const u8) *build.St
     const cases = b.allocator.create(TranslateCContext) catch unreachable;
     cases.* = TranslateCContext{
         .b = b,
-        .step = b.step("test-translate-c", "Run the C transation tests"),
+        .step = b.step("test-translate-c", "Run the C translation tests"),
         .test_index = 0,
         .test_filter = test_filter,
     };

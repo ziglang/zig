@@ -228,9 +228,32 @@ pub fn assert(ok: bool) void {
 
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
-    // TODO: remove conditional once wasi / LLVM defines __builtin_return_address
-    const first_trace_addr = if (native_os == .wasi) null else @returnAddress();
-    panicExtra(null, first_trace_addr, format, args);
+
+    panicExtra(null, format, args);
+}
+
+/// `panicExtra` is useful when you want to print out an `@errorReturnTrace`
+/// and also print out some values.
+pub fn panicExtra(
+    trace: ?*builtin.StackTrace,
+    comptime format: []const u8,
+    args: anytype,
+) noreturn {
+    @setCold(true);
+
+    const size = 0x1000;
+    const trunc_msg = "(msg truncated)";
+    var buf: [size + trunc_msg.len]u8 = undefined;
+    // a minor annoyance with this is that it will result in the NoSpaceLeft
+    // error being part of the @panic stack trace (but that error should
+    // only happen rarely)
+    const msg = std.fmt.bufPrint(buf[0..size], format, args) catch |err| switch (err) {
+        std.fmt.BufPrintError.NoSpaceLeft => blk: {
+            std.mem.copy(u8, buf[size..], trunc_msg);
+            break :blk &buf;
+        },
+    };
+    builtin.panic(msg, trace);
 }
 
 /// Non-zero whenever the program triggered a panic.
@@ -244,7 +267,9 @@ var panic_mutex = std.Thread.Mutex{};
 /// This is used to catch and handle panics triggered by the panic handler.
 threadlocal var panic_stage: usize = 0;
 
-pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: anytype) noreturn {
+// `panicImpl` could be useful in implementing a custom panic handler which
+// calls the default handler (on supported platforms)
+pub fn panicImpl(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, msg: []const u8) noreturn {
     @setCold(true);
 
     if (enable_segfault_handler) {
@@ -271,7 +296,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                     const current_thread_id = std.Thread.getCurrentId();
                     stderr.print("thread {} panic: ", .{current_thread_id}) catch os.abort();
                 }
-                stderr.print(format ++ "\n", args) catch os.abort();
+                stderr.print("{s}\n", .{msg}) catch os.abort();
                 if (trace) |t| {
                     dumpStackTrace(t.*);
                 }
@@ -654,6 +679,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
             .openbsd,
             .macos,
             .windows,
+            .solaris,
             => return DebugInfo.init(allocator),
             else => return error.UnsupportedDebugInfo,
         }
@@ -1420,7 +1446,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             };
         }
     },
-    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku => struct {
+    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,
@@ -1468,7 +1494,7 @@ fn getDebugInfoAllocator() *mem.Allocator {
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
 pub const have_segfault_handling_support = switch (native_os) {
-    .linux, .netbsd => true,
+    .linux, .netbsd, .solaris => true,
     .windows => true,
     .freebsd, .openbsd => @hasDecl(os.system, "ucontext_t"),
     else => false,
@@ -1535,6 +1561,7 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         .freebsd => @ptrToInt(info.addr),
         .netbsd => @ptrToInt(info.info.reason.fault.addr),
         .openbsd => @ptrToInt(info.data.fault.addr),
+        .solaris => @ptrToInt(info.reason.fault.addr),
         else => unreachable,
     };
 
@@ -1559,13 +1586,13 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         .x86_64 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
             const ip = switch (native_os) {
-                .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.RIP]),
+                .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RIP]),
                 .freebsd => @intCast(usize, ctx.mcontext.rip),
                 .openbsd => @intCast(usize, ctx.sc_rip),
                 else => unreachable,
             };
             const bp = switch (native_os) {
-                .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.RBP]),
+                .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RBP]),
                 .openbsd => @intCast(usize, ctx.sc_rbp),
                 .freebsd => @intCast(usize, ctx.mcontext.rbp),
                 else => unreachable,
@@ -1624,9 +1651,14 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u
         os.abort();
     } else {
         switch (msg) {
-            0 => panicExtra(null, exception_address, format.?, .{}),
-            1 => panicExtra(null, exception_address, "Segmentation fault at address 0x{x}", .{info.ExceptionRecord.ExceptionInformation[1]}),
-            2 => panicExtra(null, exception_address, "Illegal Instruction", .{}),
+            0 => panicImpl(null, exception_address, format.?),
+            1 => {
+                const format_item = "Segmentation fault at address 0x{x}";
+                var buf: [format_item.len + 64]u8 = undefined; // 64 is arbitrary, but sufficiently large
+                const to_print = std.fmt.bufPrint(buf[0..buf.len], format_item, .{info.ExceptionRecord.ExceptionInformation[1]}) catch unreachable;
+                panicImpl(null, exception_address, to_print);
+            },
+            2 => panicImpl(null, exception_address, "Illegal Instruction"),
             else => unreachable,
         }
     }

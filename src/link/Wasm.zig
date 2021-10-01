@@ -35,7 +35,7 @@ llvm_object: ?*LlvmObject = null,
 /// TODO: can/should we access some data structure in Module directly?
 funcs: std.ArrayListUnmanaged(*Module.Decl) = .{},
 /// List of all extern function Decls to be written to the `import` section of the
-/// wasm binary. The positin in the list defines the function index
+/// wasm binary. The position in the list defines the function index
 ext_funcs: std.ArrayListUnmanaged(*Module.Decl) = .{},
 /// When importing objects from the host environment, a name must be supplied.
 /// LLVM uses "env" by default when none is given. This would be a good default for Zig
@@ -121,7 +121,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
-        self.llvm_object = try LlvmObject.create(allocator, options);
+        self.llvm_object = try LlvmObject.create(allocator, sub_path, options);
         return self;
     }
 
@@ -172,8 +172,8 @@ pub fn deinit(self: *Wasm) void {
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
     if (decl.link.wasm.init) return;
 
-    try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
-    try self.symbols.ensureCapacity(self.base.allocator, self.symbols.items.len + 1);
+    try self.offset_table.ensureUnusedCapacity(self.base.allocator, 1);
+    try self.symbols.ensureUnusedCapacity(self.base.allocator, 1);
 
     const block = &decl.link.wasm;
     block.init = true;
@@ -339,6 +339,10 @@ pub fn updateDeclExports(
 }
 
 pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
+    }
+
     if (self.getFuncidx(decl)) |func_idx| {
         switch (decl.val.tag()) {
             .function => _ = self.funcs.swapRemove(func_idx),
@@ -710,7 +714,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     if (self.base.options.output_mode == .Obj) {
-        // LLD's WASM driver does not support the equvialent of `-r` so we do a simple file copy
+        // LLD's WASM driver does not support the equivalent of `-r` so we do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
@@ -752,7 +756,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 
         if (self.base.options.output_mode == .Exe) {
             // Increase the default stack size to a more reasonable value of 1MB instead of
-            // the default of 1 Wasm page being 64KB, unless overriden by the user.
+            // the default of 1 Wasm page being 64KB, unless overridden by the user.
             try argv.append("-z");
             const stack_size = self.base.options.stack_size_override orelse 1048576;
             const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});

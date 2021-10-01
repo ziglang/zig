@@ -20,6 +20,10 @@ const translate_c = @import("translate_c.zig");
 const Cache = @import("Cache.zig");
 const target_util = @import("target.zig");
 const ThreadPool = @import("ThreadPool.zig");
+const crash_report = @import("crash_report.zig");
+
+// Crash report needs to override the panic handler and other root decls
+pub usingnamespace crash_report.root_decls;
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.emerg(format, args);
@@ -134,6 +138,8 @@ var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{
 }){};
 
 pub fn main() anyerror!void {
+    crash_report.initialize();
+
     var gpa_need_deinit = false;
     const gpa = gpa: {
         if (!std.builtin.link_libc) {
@@ -1151,6 +1157,7 @@ fn buildOutputType(
             var is_shared_lib = false;
             var linker_args = std.ArrayList([]const u8).init(arena);
             var it = ClangArgIterator.init(arena, all_args);
+            var emit_llvm = false;
             while (it.has_next) {
                 it.next() catch |err| {
                     fatal("unable to parse command line parameters: {s}", .{@errorName(err)});
@@ -1161,6 +1168,7 @@ fn buildOutputType(
                     .c => c_out_mode = .object, // -c
                     .asm_only => c_out_mode = .assembly, // -S
                     .preprocess_only => c_out_mode = .preprocessor, // -E
+                    .emit_llvm => emit_llvm = true,
                     .other => {
                         try clang_argv.appendSlice(it.other_args);
                     },
@@ -1518,22 +1526,42 @@ fn buildOutputType(
                     output_mode = if (is_shared_lib) .Lib else .Exe;
                     emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
                     enable_cache = true;
+                    if (emit_llvm) {
+                        fatal("-emit-llvm cannot be used when linking", .{});
+                    }
                 },
                 .object => {
                     output_mode = .Obj;
-                    if (out_path) |p| {
-                        emit_bin = .{ .yes = p };
+                    if (emit_llvm) {
+                        emit_bin = .no;
+                        if (out_path) |p| {
+                            emit_llvm_bc = .{ .yes = p };
+                        } else {
+                            emit_llvm_bc = .yes_default_path;
+                        }
                     } else {
-                        emit_bin = .yes_default_path;
+                        if (out_path) |p| {
+                            emit_bin = .{ .yes = p };
+                        } else {
+                            emit_bin = .yes_default_path;
+                        }
                     }
                 },
                 .assembly => {
                     output_mode = .Obj;
                     emit_bin = .no;
-                    if (out_path) |p| {
-                        emit_asm = .{ .yes = p };
+                    if (emit_llvm) {
+                        if (out_path) |p| {
+                            emit_llvm_ir = .{ .yes = p };
+                        } else {
+                            emit_llvm_ir = .yes_default_path;
+                        }
                     } else {
-                        emit_asm = .yes_default_path;
+                        if (out_path) |p| {
+                            emit_asm = .{ .yes = p };
+                        } else {
+                            emit_asm = .yes_default_path;
+                        }
                     }
                 },
                 .preprocessor => {
@@ -1682,22 +1710,22 @@ fn buildOutputType(
             } else true;
             if (!should_get_sdk_path) break :outer false;
             if (try std.zig.system.darwin.getSDKPath(arena, target_info.target)) |sdk_path| {
-                try clang_argv.ensureCapacity(clang_argv.items.len + 2);
+                try clang_argv.ensureUnusedCapacity(2);
                 clang_argv.appendAssumeCapacity("-isysroot");
                 clang_argv.appendAssumeCapacity(sdk_path);
                 break :outer true;
             } else break :outer false;
         } else false;
 
-        try clang_argv.ensureCapacity(clang_argv.items.len + paths.include_dirs.items.len * 2);
+        try clang_argv.ensureUnusedCapacity(paths.include_dirs.items.len * 2);
         const isystem_flag = if (has_sysroot) "-iwithsysroot" else "-isystem";
         for (paths.include_dirs.items) |include_dir| {
             clang_argv.appendAssumeCapacity(isystem_flag);
             clang_argv.appendAssumeCapacity(include_dir);
         }
 
-        try clang_argv.ensureCapacity(clang_argv.items.len + paths.framework_dirs.items.len * 2);
-        try framework_dirs.ensureCapacity(framework_dirs.items.len + paths.framework_dirs.items.len);
+        try clang_argv.ensureUnusedCapacity(paths.framework_dirs.items.len * 2);
+        try framework_dirs.ensureUnusedCapacity(paths.framework_dirs.items.len);
         const iframework_flag = if (has_sysroot) "-iframeworkwithsysroot" else "-iframework";
         for (paths.framework_dirs.items) |framework_dir| {
             clang_argv.appendAssumeCapacity(iframework_flag);
@@ -2761,7 +2789,7 @@ pub fn cmdInit(
         fatal("unable to read template file 'build.zig': {s}", .{@errorName(err)});
     };
     var modified_build_zig_contents = std.ArrayList(u8).init(arena);
-    try modified_build_zig_contents.ensureCapacity(build_zig_contents.len);
+    try modified_build_zig_contents.ensureTotalCapacity(build_zig_contents.len);
     for (build_zig_contents) |c| {
         if (c == '$') {
             try modified_build_zig_contents.appendSlice(cwd_basename);
@@ -2777,6 +2805,12 @@ pub fn cmdInit(
     } else |err| switch (err) {
         error.FileNotFound => {},
         else => fatal("unable to test existence of build.zig: {s}\n", .{@errorName(err)}),
+    }
+    if (fs.cwd().access("src" ++ s ++ "main.zig", .{})) |_| {
+        fatal("existing src" ++ s ++ "main.zig file would be overwritten", .{});
+    } else |err| switch (err) {
+        error.FileNotFound => {},
+        else => fatal("unable to test existence of src" ++ s ++ "main.zig: {s}\n", .{@errorName(err)}),
     }
     var src_dir = try fs.cwd().makeOpenPath("src", .{});
     defer src_dir.close();
@@ -3442,7 +3476,7 @@ fn fmtPathFile(
 
     // As a heuristic, we make enough capacity for the same as the input source.
     fmt.out_buffer.shrinkRetainingCapacity(0);
-    try fmt.out_buffer.ensureCapacity(source_code.len);
+    try fmt.out_buffer.ensureTotalCapacity(source_code.len);
 
     try tree.renderToArrayList(&fmt.out_buffer);
     if (mem.eql(u8, fmt.out_buffer.items, source_code))
@@ -3663,6 +3697,7 @@ pub const ClangArgIterator = struct {
         no_red_zone,
         strip,
         exec_model,
+        emit_llvm,
     };
 
     const Args = struct {
@@ -4109,7 +4144,7 @@ pub fn cmdAstCheck(
         // zig fmt: on
     }
 
-    return Zir.renderAsTextToFile(gpa, &file, io.getStdOut());
+    return @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
 }
 
 /// This is only enabled for debug builds.

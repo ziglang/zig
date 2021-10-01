@@ -28,6 +28,8 @@ comptime {
                 if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
                     @export(main2, .{ .name = "main" });
                 }
+            } else if (builtin.os.tag == .windows) {
+                @export(wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
             } else {
                 if (!@hasDecl(root, "_start")) {
                     @export(_start2, .{ .name = "_start" });
@@ -87,6 +89,16 @@ fn main2() callconv(.C) c_int {
 }
 
 fn _start2() callconv(.Naked) noreturn {
+    callMain2();
+}
+
+fn callMain2() noreturn {
+    @setAlignStack(16);
+    root.main();
+    exit2(0);
+}
+
+fn wWinMainCRTStartup2() callconv(.C) noreturn {
     root.main();
     exit2(0);
 }
@@ -143,10 +155,15 @@ fn exit2(code: usize) noreturn {
             },
             else => @compileError("TODO"),
         },
+        .windows => {
+            ExitProcess(@truncate(u32, code));
+        },
         else => @compileError("TODO"),
     }
     unreachable;
 }
+
+extern "kernel32" fn ExitProcess(exit_code: u32) callconv(.C) noreturn;
 
 ////////////////////////////////////////////////////////////////////////////////
 

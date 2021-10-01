@@ -12,9 +12,9 @@ pub fn addCases(ctx: *TestContext) !void {
             .os_tag = .macos,
         };
         {
-            var case = ctx.exe("hello world with updates", target);
+            var case = ctx.exe("darwin hello world with updates", target);
             case.addError("", &[_][]const u8{
-                ":90:9: error: struct 'tmp.tmp' has no member named 'main'",
+                ":97:9: error: struct 'tmp.tmp' has no member named 'main'",
             });
 
             // Incorrect return type
@@ -118,7 +118,7 @@ pub fn addCases(ctx: *TestContext) !void {
         {
             var case = ctx.exe("corner case - update existing, singular TextBlock", target);
 
-            // This test case also covers an infrequent scenarion where the string table *may* be relocated
+            // This test case also covers an infrequent scenario where the string table *may* be relocated
             // into the position preceeding the symbol table which results in a dyld error.
             case.addCompareOutput(
                 \\extern fn exit(usize) noreturn;

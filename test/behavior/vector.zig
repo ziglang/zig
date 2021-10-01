@@ -116,7 +116,7 @@ test "array to vector" {
     _ = vec;
 }
 
-test "vector casts of sizes not divisable by 8" {
+test "vector casts of sizes not divisible by 8" {
     const S = struct {
         fn doTheTest() !void {
             {

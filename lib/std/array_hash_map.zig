@@ -90,7 +90,7 @@ pub fn ArrayHashMap(
         /// Modifying the key is allowed only if it does not change the hash.
         /// Modifying the value is allowed.
         /// Entry pointers become invalid whenever this ArrayHashMap is modified,
-        /// unless `ensureCapacity` was previously used.
+        /// unless `ensureTotalCapacity`/`ensureUnusedCapacity` was previously used.
         pub const Entry = Unmanaged.Entry;
 
         /// A KV pair which has been copied out of the backing store
@@ -110,7 +110,7 @@ pub fn ArrayHashMap(
         /// Modifying the key is allowed only if it does not change the hash.
         /// Modifying the value is allowed.
         /// Entry pointers become invalid whenever this ArrayHashMap is modified,
-        /// unless `ensureCapacity` was previously used.
+        /// unless `ensureTotalCapacity`/`ensureUnusedCapacity` was previously used.
         pub const GetOrPutResult = Unmanaged.GetOrPutResult;
 
         /// An Iterator over Entry pointers.
@@ -478,7 +478,7 @@ pub fn ArrayHashMapUnmanaged(
         /// Modifying the key is allowed only if it does not change the hash.
         /// Modifying the value is allowed.
         /// Entry pointers become invalid whenever this ArrayHashMap is modified,
-        /// unless `ensureCapacity` was previously used.
+        /// unless `ensureTotalCapacity`/`ensureUnusedCapacity` was previously used.
         pub const Entry = struct {
             key_ptr: *K,
             value_ptr: *V,
@@ -509,7 +509,7 @@ pub fn ArrayHashMapUnmanaged(
         /// Modifying the key is allowed only if it does not change the hash.
         /// Modifying the value is allowed.
         /// Entry pointers become invalid whenever this ArrayHashMap is modified,
-        /// unless `ensureCapacity` was previously used.
+        /// unless `ensureTotalCapacity`/`ensureUnusedCapacity` was previously used.
         pub const GetOrPutResult = struct {
             key_ptr: *K,
             value_ptr: *V,
@@ -759,20 +759,20 @@ pub fn ArrayHashMapUnmanaged(
         }
         pub fn ensureTotalCapacityContext(self: *Self, allocator: *Allocator, new_capacity: usize, ctx: Context) !void {
             if (new_capacity <= linear_scan_max) {
-                try self.entries.ensureCapacity(allocator, new_capacity);
+                try self.entries.ensureTotalCapacity(allocator, new_capacity);
                 return;
             }
 
             if (self.index_header) |header| {
                 if (new_capacity <= header.capacity()) {
-                    try self.entries.ensureCapacity(allocator, new_capacity);
+                    try self.entries.ensureTotalCapacity(allocator, new_capacity);
                     return;
                 }
             }
 
             const new_bit_index = try IndexHeader.findBitIndex(new_capacity);
             const new_header = try IndexHeader.alloc(allocator, new_bit_index);
-            try self.entries.ensureCapacity(allocator, new_capacity);
+            try self.entries.ensureTotalCapacity(allocator, new_capacity);
 
             if (self.index_header) |old_header| old_header.free(allocator);
             self.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, new_header);
@@ -1441,7 +1441,7 @@ pub fn ArrayHashMapUnmanaged(
             unreachable;
         }
 
-        /// Must ensureCapacity before calling this.
+        /// Must `ensureTotalCapacity`/`ensureUnusedCapacity` before calling this.
         fn getOrPutInternal(self: *Self, key: anytype, ctx: anytype, header: *IndexHeader, comptime I: type) GetOrPutResult {
             const slice = self.entries.slice();
             const hashes_array = if (store_hash) slice.items(.hash) else {};
@@ -1485,7 +1485,7 @@ pub fn ArrayHashMapUnmanaged(
                 }
 
                 // This pointer survives the following append because we call
-                // entries.ensureCapacity before getOrPutInternal.
+                // entries.ensureTotalCapacity before getOrPutInternal.
                 const hash_match = if (store_hash) h == hashes_array[slot_data.entry_index] else true;
                 if (hash_match and checkedEql(ctx, key, keys_array[slot_data.entry_index])) {
                     return .{
@@ -1946,7 +1946,7 @@ test "iterator hash map" {
     var reset_map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
     defer reset_map.deinit();
 
-    // test ensureCapacity with a 0 parameter
+    // test ensureTotalCapacity with a 0 parameter
     try reset_map.ensureTotalCapacity(0);
 
     try reset_map.putNoClobber(0, 11);

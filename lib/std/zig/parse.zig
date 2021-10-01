@@ -17,7 +17,7 @@ pub fn parse(gpa: *Allocator, source: [:0]const u8) Allocator.Error!Ast {
 
     // Empirically, the zig std lib has an 8:1 ratio of source bytes to token count.
     const estimated_token_count = source.len / 8;
-    try tokens.ensureCapacity(gpa, estimated_token_count);
+    try tokens.ensureTotalCapacity(gpa, estimated_token_count);
 
     var tokenizer = std.zig.Tokenizer.init(source);
     while (true) {
@@ -48,7 +48,7 @@ pub fn parse(gpa: *Allocator, source: [:0]const u8) Allocator.Error!Ast {
     // Empirically, Zig source code has a 2:1 ratio of tokens to AST nodes.
     // Make sure at least 1 so we can use appendAssumeCapacity on the root node below.
     const estimated_node_count = (tokens.len + 2) / 2;
-    try parser.nodes.ensureCapacity(gpa, estimated_node_count);
+    try parser.nodes.ensureTotalCapacity(gpa, estimated_node_count);
 
     // Root node must be index 0.
     // Root <- skip ContainerMembers eof
@@ -138,7 +138,7 @@ const Parser = struct {
 
     fn addExtra(p: *Parser, extra: anytype) Allocator.Error!Node.Index {
         const fields = std.meta.fields(@TypeOf(extra));
-        try p.extra_data.ensureCapacity(p.gpa, p.extra_data.items.len + fields.len);
+        try p.extra_data.ensureUnusedCapacity(p.gpa, fields.len);
         const result = @intCast(u32, p.extra_data.items.len);
         inline for (fields) |field| {
             comptime assert(field.field_type == Node.Index);
@@ -629,7 +629,7 @@ const Parser = struct {
         };
     }
 
-    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
+    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpace? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
     fn parseFnProto(p: *Parser) !Node.Index {
         const fn_token = p.eatToken(.keyword_fn) orelse return null_node;
 
@@ -639,6 +639,7 @@ const Parser = struct {
         _ = p.eatToken(.identifier);
         const params = try p.parseParamDeclList();
         const align_expr = try p.parseByteAlign();
+        const addrspace_expr = try p.parseAddrSpace();
         const section_expr = try p.parseLinkSection();
         const callconv_expr = try p.parseCallconv();
         _ = p.eatToken(.bang);
@@ -650,7 +651,7 @@ const Parser = struct {
             try p.warn(.expected_return_type);
         }
 
-        if (align_expr == 0 and section_expr == 0 and callconv_expr == 0) {
+        if (align_expr == 0 and section_expr == 0 and callconv_expr == 0 and addrspace_expr == 0) {
             switch (params) {
                 .zero_or_one => |param| return p.setNode(fn_proto_index, .{
                     .tag = .fn_proto_simple,
@@ -683,6 +684,7 @@ const Parser = struct {
                     .lhs = try p.addExtra(Node.FnProtoOne{
                         .param = param,
                         .align_expr = align_expr,
+                        .addrspace_expr = addrspace_expr,
                         .section_expr = section_expr,
                         .callconv_expr = callconv_expr,
                     }),
@@ -698,6 +700,7 @@ const Parser = struct {
                             .params_start = span.start,
                             .params_end = span.end,
                             .align_expr = align_expr,
+                            .addrspace_expr = addrspace_expr,
                             .section_expr = section_expr,
                             .callconv_expr = callconv_expr,
                         }),
@@ -708,7 +711,7 @@ const Parser = struct {
         }
     }
 
-    /// VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
+    /// VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? AddrSpace? LinkSection? (EQUAL Expr)? SEMICOLON
     fn parseVarDecl(p: *Parser) !Node.Index {
         const mut_token = p.eatToken(.keyword_const) orelse
             p.eatToken(.keyword_var) orelse
@@ -717,9 +720,10 @@ const Parser = struct {
         _ = try p.expectToken(.identifier);
         const type_node: Node.Index = if (p.eatToken(.colon) == null) 0 else try p.expectTypeExpr();
         const align_node = try p.parseByteAlign();
+        const addrspace_node = try p.parseAddrSpace();
         const section_node = try p.parseLinkSection();
         const init_node: Node.Index = if (p.eatToken(.equal) == null) 0 else try p.expectExpr();
-        if (section_node == 0) {
+        if (section_node == 0 and addrspace_node == 0) {
             if (align_node == 0) {
                 return p.addNode(.{
                     .tag = .simple_var_decl,
@@ -759,6 +763,7 @@ const Parser = struct {
                     .lhs = try p.addExtra(Node.GlobalVarDecl{
                         .type_node = type_node,
                         .align_node = align_node,
+                        .addrspace_node = addrspace_node,
                         .section_node = section_node,
                     }),
                     .rhs = init_node,
@@ -1263,14 +1268,18 @@ const Parser = struct {
             .percent_equal => .assign_mod,
             .plus_equal => .assign_add,
             .minus_equal => .assign_sub,
-            .angle_bracket_angle_bracket_left_equal => .assign_bit_shift_left,
-            .angle_bracket_angle_bracket_right_equal => .assign_bit_shift_right,
+            .angle_bracket_angle_bracket_left_equal => .assign_shl,
+            .angle_bracket_angle_bracket_left_pipe_equal => .assign_shl_sat,
+            .angle_bracket_angle_bracket_right_equal => .assign_shr,
             .ampersand_equal => .assign_bit_and,
             .caret_equal => .assign_bit_xor,
             .pipe_equal => .assign_bit_or,
             .asterisk_percent_equal => .assign_mul_wrap,
             .plus_percent_equal => .assign_add_wrap,
             .minus_percent_equal => .assign_sub_wrap,
+            .asterisk_pipe_equal => .assign_mul_sat,
+            .plus_pipe_equal => .assign_add_sat,
+            .minus_pipe_equal => .assign_sub_sat,
             .equal => .assign,
             else => return expr,
         };
@@ -1337,14 +1346,17 @@ const Parser = struct {
         .keyword_orelse = .{ .prec = 40, .tag = .@"orelse" },
         .keyword_catch = .{ .prec = 40, .tag = .@"catch" },
 
-        .angle_bracket_angle_bracket_left = .{ .prec = 50, .tag = .bit_shift_left },
-        .angle_bracket_angle_bracket_right = .{ .prec = 50, .tag = .bit_shift_right },
+        .angle_bracket_angle_bracket_left = .{ .prec = 50, .tag = .shl },
+        .angle_bracket_angle_bracket_left_pipe = .{ .prec = 50, .tag = .shl_sat },
+        .angle_bracket_angle_bracket_right = .{ .prec = 50, .tag = .shr },
 
         .plus = .{ .prec = 60, .tag = .add },
         .minus = .{ .prec = 60, .tag = .sub },
         .plus_plus = .{ .prec = 60, .tag = .array_cat },
         .plus_percent = .{ .prec = 60, .tag = .add_wrap },
         .minus_percent = .{ .prec = 60, .tag = .sub_wrap },
+        .plus_pipe = .{ .prec = 60, .tag = .add_sat },
+        .minus_pipe = .{ .prec = 60, .tag = .sub_sat },
 
         .pipe_pipe = .{ .prec = 70, .tag = .merge_error_sets },
         .asterisk = .{ .prec = 70, .tag = .mul },
@@ -1352,6 +1364,7 @@ const Parser = struct {
         .percent = .{ .prec = 70, .tag = .mod },
         .asterisk_asterisk = .{ .prec = 70, .tag = .array_mult },
         .asterisk_percent = .{ .prec = 70, .tag = .mul_wrap },
+        .asterisk_pipe = .{ .prec = 70, .tag = .mul_sat },
     });
 
     fn parseExprPrecedence(p: *Parser, min_prec: i32) Error!Node.Index {
@@ -1440,8 +1453,8 @@ const Parser = struct {
     /// PrefixTypeOp
     ///     <- QUESTIONMARK
     ///      / KEYWORD_anyframe MINUSRARROW
-    ///      / SliceTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
-    ///      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+    ///      / SliceTypeStart (ByteAlign / AddrSpace / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+    ///      / PtrTypeStart (AddrSpace / KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
     ///      / ArrayTypeStart
     /// SliceTypeStart <- LBRACKET (COLON Expr)? RBRACKET
     /// PtrTypeStart
@@ -1474,16 +1487,7 @@ const Parser = struct {
                 const asterisk = p.nextToken();
                 const mods = try p.parsePtrModifiers();
                 const elem_type = try p.expectTypeExpr();
-                if (mods.bit_range_start == 0) {
-                    return p.addNode(.{
-                        .tag = .ptr_type_aligned,
-                        .main_token = asterisk,
-                        .data = .{
-                            .lhs = mods.align_node,
-                            .rhs = elem_type,
-                        },
-                    });
-                } else {
+                if (mods.bit_range_start != 0) {
                     return p.addNode(.{
                         .tag = .ptr_type_bit_range,
                         .main_token = asterisk,
@@ -1491,9 +1495,32 @@ const Parser = struct {
                             .lhs = try p.addExtra(Node.PtrTypeBitRange{
                                 .sentinel = 0,
                                 .align_node = mods.align_node,
+                                .addrspace_node = mods.addrspace_node,
                                 .bit_range_start = mods.bit_range_start,
                                 .bit_range_end = mods.bit_range_end,
                             }),
+                            .rhs = elem_type,
+                        },
+                    });
+                } else if (mods.addrspace_node != 0) {
+                    return p.addNode(.{
+                        .tag = .ptr_type,
+                        .main_token = asterisk,
+                        .data = .{
+                            .lhs = try p.addExtra(Node.PtrType{
+                                .sentinel = 0,
+                                .align_node = mods.align_node,
+                                .addrspace_node = mods.addrspace_node,
+                            }),
+                            .rhs = elem_type,
+                        },
+                    });
+                } else {
+                    return p.addNode(.{
+                        .tag = .ptr_type_aligned,
+                        .main_token = asterisk,
+                        .data = .{
+                            .lhs = mods.align_node,
                             .rhs = elem_type,
                         },
                     });
@@ -1504,16 +1531,7 @@ const Parser = struct {
                 const mods = try p.parsePtrModifiers();
                 const elem_type = try p.expectTypeExpr();
                 const inner: Node.Index = inner: {
-                    if (mods.bit_range_start == 0) {
-                        break :inner try p.addNode(.{
-                            .tag = .ptr_type_aligned,
-                            .main_token = asterisk,
-                            .data = .{
-                                .lhs = mods.align_node,
-                                .rhs = elem_type,
-                            },
-                        });
-                    } else {
+                    if (mods.bit_range_start != 0) {
                         break :inner try p.addNode(.{
                             .tag = .ptr_type_bit_range,
                             .main_token = asterisk,
@@ -1521,9 +1539,32 @@ const Parser = struct {
                                 .lhs = try p.addExtra(Node.PtrTypeBitRange{
                                     .sentinel = 0,
                                     .align_node = mods.align_node,
+                                    .addrspace_node = mods.addrspace_node,
                                     .bit_range_start = mods.bit_range_start,
                                     .bit_range_end = mods.bit_range_end,
                                 }),
+                                .rhs = elem_type,
+                            },
+                        });
+                    } else if (mods.addrspace_node != 0) {
+                        break :inner try p.addNode(.{
+                            .tag = .ptr_type,
+                            .main_token = asterisk,
+                            .data = .{
+                                .lhs = try p.addExtra(Node.PtrType{
+                                    .sentinel = 0,
+                                    .align_node = mods.align_node,
+                                    .addrspace_node = mods.addrspace_node,
+                                }),
+                                .rhs = elem_type,
+                            },
+                        });
+                    } else {
+                        break :inner try p.addNode(.{
+                            .tag = .ptr_type_aligned,
+                            .main_token = asterisk,
+                            .data = .{
+                                .lhs = mods.align_node,
                                 .rhs = elem_type,
                             },
                         });
@@ -1543,24 +1584,19 @@ const Parser = struct {
                     _ = p.nextToken();
                     const asterisk = p.nextToken();
                     var sentinel: Node.Index = 0;
-                    prefix: {
-                        if (p.eatToken(.identifier)) |ident| {
-                            const token_slice = p.source[p.token_starts[ident]..][0..2];
-                            if (!std.mem.eql(u8, token_slice, "c]")) {
-                                p.tok_i -= 1;
-                            } else {
-                                break :prefix;
-                            }
+                    if (p.eatToken(.identifier)) |ident| {
+                        const ident_slice = p.source[p.token_starts[ident]..p.token_starts[ident + 1]];
+                        if (!std.mem.eql(u8, std.mem.trimRight(u8, ident_slice, &std.ascii.spaces), "c")) {
+                            p.tok_i -= 1;
                         }
-                        if (p.eatToken(.colon)) |_| {
-                            sentinel = try p.expectExpr();
-                        }
+                    } else if (p.eatToken(.colon)) |_| {
+                        sentinel = try p.expectExpr();
                     }
                     _ = try p.expectToken(.r_bracket);
                     const mods = try p.parsePtrModifiers();
                     const elem_type = try p.expectTypeExpr();
                     if (mods.bit_range_start == 0) {
-                        if (sentinel == 0) {
+                        if (sentinel == 0 and mods.addrspace_node == 0) {
                             return p.addNode(.{
                                 .tag = .ptr_type_aligned,
                                 .main_token = asterisk,
@@ -1569,7 +1605,7 @@ const Parser = struct {
                                     .rhs = elem_type,
                                 },
                             });
-                        } else if (mods.align_node == 0) {
+                        } else if (mods.align_node == 0 and mods.addrspace_node == 0) {
                             return p.addNode(.{
                                 .tag = .ptr_type_sentinel,
                                 .main_token = asterisk,
@@ -1586,6 +1622,7 @@ const Parser = struct {
                                     .lhs = try p.addExtra(Node.PtrType{
                                         .sentinel = sentinel,
                                         .align_node = mods.align_node,
+                                        .addrspace_node = mods.addrspace_node,
                                     }),
                                     .rhs = elem_type,
                                 },
@@ -1599,6 +1636,7 @@ const Parser = struct {
                                 .lhs = try p.addExtra(Node.PtrTypeBitRange{
                                     .sentinel = sentinel,
                                     .align_node = mods.align_node,
+                                    .addrspace_node = mods.addrspace_node,
                                     .bit_range_start = mods.bit_range_start,
                                     .bit_range_end = mods.bit_range_end,
                                 }),
@@ -1624,7 +1662,7 @@ const Parser = struct {
                                 .token = p.nodes.items(.main_token)[mods.bit_range_start],
                             });
                         }
-                        if (sentinel == 0) {
+                        if (sentinel == 0 and mods.addrspace_node == 0) {
                             return p.addNode(.{
                                 .tag = .ptr_type_aligned,
                                 .main_token = lbracket,
@@ -1633,7 +1671,7 @@ const Parser = struct {
                                     .rhs = elem_type,
                                 },
                             });
-                        } else if (mods.align_node == 0) {
+                        } else if (mods.align_node == 0 and mods.addrspace_node == 0) {
                             return p.addNode(.{
                                 .tag = .ptr_type_sentinel,
                                 .main_token = lbracket,
@@ -1650,6 +1688,7 @@ const Parser = struct {
                                     .lhs = try p.addExtra(Node.PtrType{
                                         .sentinel = sentinel,
                                         .align_node = mods.align_node,
+                                        .addrspace_node = mods.addrspace_node,
                                     }),
                                     .rhs = elem_type,
                                 },
@@ -1661,6 +1700,7 @@ const Parser = struct {
                             .keyword_const,
                             .keyword_volatile,
                             .keyword_allowzero,
+                            .keyword_addrspace,
                             => return p.fail(.ptr_mod_on_array_child_type),
                             else => {},
                         }
@@ -2879,6 +2919,15 @@ const Parser = struct {
         return expr_node;
     }
 
+    /// AddrSpace <- KEYWORD_addrspace LPAREN Expr RPAREN
+    fn parseAddrSpace(p: *Parser) !Node.Index {
+        _ = p.eatToken(.keyword_addrspace) orelse return null_node;
+        _ = try p.expectToken(.l_paren);
+        const expr_node = try p.expectExpr();
+        _ = try p.expectToken(.r_paren);
+        return expr_node;
+    }
+
     /// ParamDecl
     ///     <- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
     ///     / DOT3
@@ -3011,6 +3060,7 @@ const Parser = struct {
 
     const PtrModifiers = struct {
         align_node: Node.Index,
+        addrspace_node: Node.Index,
         bit_range_start: Node.Index,
         bit_range_end: Node.Index,
     };
@@ -3018,12 +3068,14 @@ const Parser = struct {
     fn parsePtrModifiers(p: *Parser) !PtrModifiers {
         var result: PtrModifiers = .{
             .align_node = 0,
+            .addrspace_node = 0,
             .bit_range_start = 0,
             .bit_range_end = 0,
         };
         var saw_const = false;
         var saw_volatile = false;
         var saw_allowzero = false;
+        var saw_addrspace = false;
         while (true) {
             switch (p.token_tags[p.tok_i]) {
                 .keyword_align => {
@@ -3062,6 +3114,12 @@ const Parser = struct {
                     }
                     p.tok_i += 1;
                     saw_allowzero = true;
+                },
+                .keyword_addrspace => {
+                    if (saw_addrspace) {
+                        try p.warn(.extra_addrspace_qualifier);
+                    }
+                    result.addrspace_node = try p.parseAddrSpace();
                 },
                 else => return result,
             }

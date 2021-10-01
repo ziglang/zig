@@ -63,6 +63,7 @@ pub const Value = extern union {
         atomic_order_type,
         atomic_rmw_op_type,
         calling_convention_type,
+        address_space_type,
         float_mode_type,
         reduce_op_type,
         call_options_type,
@@ -158,6 +159,10 @@ pub const Value = extern union {
         /// Used to coordinate alloc_inferred, store_to_inferred_ptr, and resolve_inferred_alloc
         /// instructions for comptime code.
         inferred_alloc_comptime,
+        /// Used sometimes as the result of field_call_bind.  This value is always temporary,
+        /// and refers directly to the air.  It will never be referenced by the air itself.
+        /// TODO: This is probably a bad encoding, maybe put temp data in the sema instead.
+        bound_fn,
 
         pub const last_no_payload_tag = Tag.empty_array;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -226,6 +231,7 @@ pub const Value = extern union {
                 .atomic_order_type,
                 .atomic_rmw_op_type,
                 .calling_convention_type,
+                .address_space_type,
                 .float_mode_type,
                 .reduce_op_type,
                 .call_options_type,
@@ -277,6 +283,7 @@ pub const Value = extern union {
                 .inferred_alloc => Payload.InferredAlloc,
                 .@"struct" => Payload.Struct,
                 .@"union" => Payload.Union,
+                .bound_fn => Payload.BoundFn,
             };
         }
 
@@ -412,6 +419,7 @@ pub const Value = extern union {
             .atomic_order_type,
             .atomic_rmw_op_type,
             .calling_convention_type,
+            .address_space_type,
             .float_mode_type,
             .reduce_op_type,
             .call_options_type,
@@ -419,6 +427,7 @@ pub const Value = extern union {
             .extern_options_type,
             .type_info_type,
             .generic_poison,
+            .bound_fn,
             => unreachable,
 
             .ty => {
@@ -625,6 +634,7 @@ pub const Value = extern union {
             .atomic_order_type => return out_stream.writeAll("std.builtin.AtomicOrder"),
             .atomic_rmw_op_type => return out_stream.writeAll("std.builtin.AtomicRmwOp"),
             .calling_convention_type => return out_stream.writeAll("std.builtin.CallingConvention"),
+            .address_space_type => return out_stream.writeAll("std.builtin.AddressSpace"),
             .float_mode_type => return out_stream.writeAll("std.builtin.FloatMode"),
             .reduce_op_type => return out_stream.writeAll("std.builtin.ReduceOp"),
             .call_options_type => return out_stream.writeAll("std.builtin.CallOptions"),
@@ -712,6 +722,10 @@ pub const Value = extern union {
                 try out_stream.writeAll("(opt_payload_ptr)");
                 val = val.castTag(.opt_payload_ptr).?.data;
             },
+            .bound_fn => {
+                const bound_func = val.castTag(.bound_fn).?.data;
+                return out_stream.print("(bound_fn %{}(%{})", .{ bound_func.func_inst, bound_func.arg0_inst });
+            },
         };
     }
 
@@ -792,6 +806,7 @@ pub const Value = extern union {
             .atomic_order_type => Type.initTag(.atomic_order),
             .atomic_rmw_op_type => Type.initTag(.atomic_rmw_op),
             .calling_convention_type => Type.initTag(.calling_convention),
+            .address_space_type => Type.initTag(.address_space),
             .float_mode_type => Type.initTag(.float_mode),
             .reduce_op_type => Type.initTag(.reduce_op),
             .call_options_type => Type.initTag(.call_options),
@@ -932,7 +947,7 @@ pub const Value = extern union {
     /// Asserts that the value is a float or an integer.
     pub fn toFloat(self: Value, comptime T: type) T {
         return switch (self.tag()) {
-            .float_16 => @panic("TODO soft float"),
+            .float_16 => @floatCast(T, self.castTag(.float_16).?.data),
             .float_32 => @floatCast(T, self.castTag(.float_32).?.data),
             .float_64 => @floatCast(T, self.castTag(.float_64).?.data),
             .float_128 => @floatCast(T, self.castTag(.float_128).?.data),
@@ -945,6 +960,45 @@ pub const Value = extern union {
             .int_big_positive, .int_big_negative => @panic("big int to f128"),
             else => unreachable,
         };
+    }
+
+    pub fn clz(val: Value, ty: Type, target: Target) u64 {
+        const ty_bits = ty.intInfo(target).bits;
+        switch (val.tag()) {
+            .zero, .bool_false => return ty_bits,
+            .one, .bool_true => return ty_bits - 1,
+
+            .int_u64 => {
+                const big = @clz(u64, val.castTag(.int_u64).?.data);
+                return big + ty_bits - 64;
+            },
+            .int_i64 => {
+                @panic("TODO implement i64 Value clz");
+            },
+            .int_big_positive => {
+                // TODO: move this code into std lib big ints
+                const bigint = val.castTag(.int_big_positive).?.asBigInt();
+                // Limbs are stored in little-endian order but we need
+                // to iterate big-endian.
+                var total_limb_lz: u64 = 0;
+                var i: usize = bigint.limbs.len;
+                const bits_per_limb = @sizeOf(std.math.big.Limb) * 8;
+                while (i != 0) {
+                    i -= 1;
+                    const limb = bigint.limbs[i];
+                    const this_limb_lz = @clz(std.math.big.Limb, limb);
+                    total_limb_lz += this_limb_lz;
+                    if (this_limb_lz != bits_per_limb) break;
+                }
+                const total_limb_bits = bigint.limbs.len * bits_per_limb;
+                return total_limb_lz + ty_bits - total_limb_bits;
+            },
+            .int_big_negative => {
+                @panic("TODO implement int_big_negative Value clz");
+            },
+
+            else => unreachable,
+        }
     }
 
     /// Asserts the value is an integer and not undefined.
@@ -1036,31 +1090,15 @@ pub const Value = extern union {
         }
     }
 
-    /// Converts an integer or a float to a float.
-    /// Returns `error.Overflow` if the value does not fit in the new type.
-    pub fn floatCast(self: Value, allocator: *Allocator, dest_ty: Type) !Value {
+    /// Converts an integer or a float to a float. May result in a loss of information.
+    /// Caller can find out by equality checking the result against the operand.
+    pub fn floatCast(self: Value, arena: *Allocator, dest_ty: Type) !Value {
         switch (dest_ty.tag()) {
-            .f16 => {
-                @panic("TODO add __trunctfhf2 to compiler-rt");
-                //const res = try Value.Tag.float_16.create(allocator, self.toFloat(f16));
-                //if (!self.eql(res))
-                //    return error.Overflow;
-                //return res;
-            },
-            .f32 => {
-                const res = try Value.Tag.float_32.create(allocator, self.toFloat(f32));
-                if (!self.eql(res, dest_ty))
-                    return error.Overflow;
-                return res;
-            },
-            .f64 => {
-                const res = try Value.Tag.float_64.create(allocator, self.toFloat(f64));
-                if (!self.eql(res, dest_ty))
-                    return error.Overflow;
-                return res;
-            },
+            .f16 => return Value.Tag.float_16.create(arena, self.toFloat(f16)),
+            .f32 => return Value.Tag.float_32.create(arena, self.toFloat(f32)),
+            .f64 => return Value.Tag.float_64.create(arena, self.toFloat(f64)),
             .f128, .comptime_float, .c_longdouble => {
-                return Value.Tag.float_128.create(allocator, self.toFloat(f128));
+                return Value.Tag.float_128.create(arena, self.toFloat(f128));
             },
             else => unreachable,
         }
@@ -1286,7 +1324,12 @@ pub const Value = extern union {
                 }
             },
             .Union => {
-                @panic("TODO implement hashing union values");
+                const union_obj = val.castTag(.@"union").?.data;
+                if (ty.unionTagType()) |tag_ty| {
+                    union_obj.tag.hash(tag_ty, hasher);
+                }
+                const active_field_ty = ty.unionFieldType(union_obj.tag);
+                union_obj.val.hash(active_field_ty, hasher);
             },
             .Fn => {
                 @panic("TODO implement hashing function values");
@@ -1442,6 +1485,14 @@ pub const Value = extern union {
         }
     }
 
+    pub fn unionTag(val: Value) Value {
+        switch (val.tag()) {
+            .undef => return val,
+            .@"union" => return val.castTag(.@"union").?.data.tag,
+            else => unreachable,
+        }
+    }
+
     /// Returns a pointer to the element value at the index.
     pub fn elemPtr(self: Value, allocator: *Allocator, index: usize) !Value {
         if (self.castTag(.elem_ptr)) |elem_ptr| {
@@ -1524,6 +1575,341 @@ pub const Value = extern union {
         };
     }
 
+    pub fn intToFloat(val: Value, allocator: *Allocator, dest_ty: Type, target: Target) !Value {
+        switch (val.tag()) {
+            .undef, .zero, .one => return val,
+            .int_u64 => {
+                return intToFloatInner(val.castTag(.int_u64).?.data, allocator, dest_ty, target);
+            },
+            .int_i64 => {
+                return intToFloatInner(val.castTag(.int_i64).?.data, allocator, dest_ty, target);
+            },
+            .int_big_positive, .int_big_negative => @panic("big int to float"),
+            else => unreachable,
+        }
+    }
+
+    fn intToFloatInner(x: anytype, arena: *Allocator, dest_ty: Type, target: Target) !Value {
+        switch (dest_ty.floatBits(target)) {
+            16 => return Value.Tag.float_16.create(arena, @intToFloat(f16, x)),
+            32 => return Value.Tag.float_32.create(arena, @intToFloat(f32, x)),
+            64 => return Value.Tag.float_64.create(arena, @intToFloat(f64, x)),
+            128 => return Value.Tag.float_128.create(arena, @intToFloat(f128, x)),
+            else => unreachable,
+        }
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberAddWrap(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: *Allocator,
+        target: Target,
+    ) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        if (ty.isAnyFloat()) {
+            return floatAdd(lhs, rhs, ty, arena);
+        }
+        const result = try intAdd(lhs, rhs, arena);
+
+        const max = try ty.maxInt(arena, target);
+        if (compare(result, .gt, max, ty)) {
+            @panic("TODO comptime wrapping integer addition");
+        }
+
+        const min = try ty.minInt(arena, target);
+        if (compare(result, .lt, min, ty)) {
+            @panic("TODO comptime wrapping integer addition");
+        }
+
+        return result;
+    }
+
+    /// Supports integers only; asserts neither operand is undefined.
+    pub fn intAddSat(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: *Allocator,
+        target: Target,
+    ) !Value {
+        assert(!lhs.isUndef());
+        assert(!rhs.isUndef());
+
+        const result = try intAdd(lhs, rhs, arena);
+
+        const max = try ty.maxInt(arena, target);
+        if (compare(result, .gt, max, ty)) {
+            return max;
+        }
+
+        const min = try ty.minInt(arena, target);
+        if (compare(result, .lt, min, ty)) {
+            return min;
+        }
+
+        return result;
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberSubWrap(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: *Allocator,
+        target: Target,
+    ) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        if (ty.isAnyFloat()) {
+            return floatSub(lhs, rhs, ty, arena);
+        }
+        const result = try intSub(lhs, rhs, arena);
+
+        const max = try ty.maxInt(arena, target);
+        if (compare(result, .gt, max, ty)) {
+            @panic("TODO comptime wrapping integer subtraction");
+        }
+
+        const min = try ty.minInt(arena, target);
+        if (compare(result, .lt, min, ty)) {
+            @panic("TODO comptime wrapping integer subtraction");
+        }
+
+        return result;
+    }
+
+    /// Supports integers only; asserts neither operand is undefined.
+    pub fn intSubSat(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: *Allocator,
+        target: Target,
+    ) !Value {
+        assert(!lhs.isUndef());
+        assert(!rhs.isUndef());
+
+        const result = try intSub(lhs, rhs, arena);
+
+        const max = try ty.maxInt(arena, target);
+        if (compare(result, .gt, max, ty)) {
+            return max;
+        }
+
+        const min = try ty.minInt(arena, target);
+        if (compare(result, .lt, min, ty)) {
+            return min;
+        }
+
+        return result;
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberMulWrap(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: *Allocator,
+        target: Target,
+    ) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        if (ty.isAnyFloat()) {
+            return floatMul(lhs, rhs, ty, arena);
+        }
+        const result = try intMul(lhs, rhs, arena);
+
+        const max = try ty.maxInt(arena, target);
+        if (compare(result, .gt, max, ty)) {
+            @panic("TODO comptime wrapping integer multiplication");
+        }
+
+        const min = try ty.minInt(arena, target);
+        if (compare(result, .lt, min, ty)) {
+            @panic("TODO comptime wrapping integer multiplication");
+        }
+
+        return result;
+    }
+
+    /// Supports integers only; asserts neither operand is undefined.
+    pub fn intMulSat(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: *Allocator,
+        target: Target,
+    ) !Value {
+        assert(!lhs.isUndef());
+        assert(!rhs.isUndef());
+
+        const result = try intMul(lhs, rhs, arena);
+
+        const max = try ty.maxInt(arena, target);
+        if (compare(result, .gt, max, ty)) {
+            return max;
+        }
+
+        const min = try ty.minInt(arena, target);
+        if (compare(result, .lt, min, ty)) {
+            return min;
+        }
+
+        return result;
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberMax(lhs: Value, rhs: Value, arena: *Allocator) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+
+        switch (lhs_bigint.order(rhs_bigint)) {
+            .lt => result_bigint.copy(rhs_bigint),
+            .gt, .eq => result_bigint.copy(lhs_bigint),
+        }
+
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        }
+    }
+
+    /// Supports both floats and ints; handles undefined.
+    pub fn numberMin(lhs: Value, rhs: Value, arena: *Allocator) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+
+        switch (lhs_bigint.order(rhs_bigint)) {
+            .lt => result_bigint.copy(lhs_bigint),
+            .gt, .eq => result_bigint.copy(rhs_bigint),
+        }
+
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        }
+    }
+
+    /// operands must be integers; handles undefined. 
+    pub fn bitwiseAnd(lhs: Value, rhs: Value, arena: *Allocator) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.bitAnd(lhs_bigint, rhs_bigint);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        }
+    }
+
+    /// operands must be integers; handles undefined. 
+    pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: *Allocator, target: Target) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        const anded = try bitwiseAnd(lhs, rhs, arena);
+
+        const all_ones = if (ty.isSignedInt())
+            try Value.Tag.int_i64.create(arena, -1)
+        else
+            try ty.maxInt(arena, target);
+
+        return bitwiseXor(anded, all_ones, arena);
+    }
+
+    /// operands must be integers; handles undefined. 
+    pub fn bitwiseOr(lhs: Value, rhs: Value, arena: *Allocator) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.bitOr(lhs_bigint, rhs_bigint);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        }
+    }
+
+    /// operands must be integers; handles undefined. 
+    pub fn bitwiseXor(lhs: Value, rhs: Value, arena: *Allocator) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.bitXor(lhs_bigint, rhs_bigint);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        }
+    }
+
     pub fn intAdd(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -1599,6 +1985,82 @@ pub const Value = extern union {
         }
     }
 
+    pub fn intRem(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs_q = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+        );
+        const limbs_r = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len,
+        );
+        const limbs_buffer = try allocator.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
+        var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
+        result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
+        const result_limbs = result_r.limbs[0..result_r.len];
+
+        if (result_r.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
+    }
+
+    pub fn intMod(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs_q = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+        );
+        const limbs_r = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len,
+        );
+        const limbs_buffer = try allocator.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
+        var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
+        result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
+        const result_limbs = result_r.limbs[0..result_r.len];
+
+        if (result_r.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
+    }
+
+    pub fn floatRem(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        _ = lhs;
+        _ = rhs;
+        _ = allocator;
+        @panic("TODO implement Value.floatRem");
+    }
+
+    pub fn floatMod(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        _ = lhs;
+        _ = rhs;
+        _ = allocator;
+        @panic("TODO implement Value.floatMod");
+    }
+
     pub fn intMul(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -1634,6 +2096,31 @@ pub const Value = extern union {
         return Tag.int_u64.create(arena, truncated);
     }
 
+    pub fn shl(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const shift = rhs.toUnsignedInt();
+        const limbs = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len + (shift / (@sizeOf(std.math.big.Limb) * 8)) + 1,
+        );
+        var result_bigint = BigIntMutable{
+            .limbs = limbs,
+            .positive = undefined,
+            .len = undefined,
+        };
+        result_bigint.shiftLeft(lhs_bigint, shift);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
+    }
+
     pub fn shr(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -1667,10 +2154,9 @@ pub const Value = extern union {
     ) !Value {
         switch (float_type.tag()) {
             .f16 => {
-                @panic("TODO add __trunctfhf2 to compiler-rt");
-                //const lhs_val = lhs.toFloat(f16);
-                //const rhs_val = rhs.toFloat(f16);
-                //return Value.Tag.float_16.create(arena, lhs_val + rhs_val);
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, lhs_val + rhs_val);
             },
             .f32 => {
                 const lhs_val = lhs.toFloat(f32);
@@ -1699,10 +2185,9 @@ pub const Value = extern union {
     ) !Value {
         switch (float_type.tag()) {
             .f16 => {
-                @panic("TODO add __trunctfhf2 to compiler-rt");
-                //const lhs_val = lhs.toFloat(f16);
-                //const rhs_val = rhs.toFloat(f16);
-                //return Value.Tag.float_16.create(arena, lhs_val - rhs_val);
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, lhs_val - rhs_val);
             },
             .f32 => {
                 const lhs_val = lhs.toFloat(f32);
@@ -1731,10 +2216,9 @@ pub const Value = extern union {
     ) !Value {
         switch (float_type.tag()) {
             .f16 => {
-                @panic("TODO add __trunctfhf2 to compiler-rt");
-                //const lhs_val = lhs.toFloat(f16);
-                //const rhs_val = rhs.toFloat(f16);
-                //return Value.Tag.float_16.create(arena, lhs_val / rhs_val);
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, lhs_val / rhs_val);
             },
             .f32 => {
                 const lhs_val = lhs.toFloat(f32);
@@ -1763,10 +2247,9 @@ pub const Value = extern union {
     ) !Value {
         switch (float_type.tag()) {
             .f16 => {
-                @panic("TODO add __trunctfhf2 to compiler-rt");
-                //const lhs_val = lhs.toFloat(f16);
-                //const rhs_val = rhs.toFloat(f16);
-                //return Value.Tag.float_16.create(arena, lhs_val * rhs_val);
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, lhs_val * rhs_val);
             },
             .f32 => {
                 const lhs_val = lhs.toFloat(f32);
@@ -1972,6 +2455,16 @@ pub const Value = extern union {
                 val: Value,
             },
         };
+
+        pub const BoundFn = struct {
+            pub const base_tag = Tag.bound_fn;
+
+            base: Payload = Payload{ .tag = base_tag },
+            data: struct {
+                func_inst: Air.Inst.Ref,
+                arg0_inst: Air.Inst.Ref,
+            },
+        };
     };
 
     /// Big enough to fit any non-BigInt value
@@ -1980,4 +2473,13 @@ pub const Value = extern union {
         /// are possible without using an allocator.
         limbs: [(@sizeOf(u64) / @sizeOf(std.math.big.Limb)) + 1]std.math.big.Limb,
     };
+
+    pub const zero = initTag(.zero);
+    pub const one = initTag(.one);
+    pub const negative_one: Value = .{ .ptr_otherwise = &negative_one_payload.base };
+};
+
+var negative_one_payload: Value.Payload.I64 = .{
+    .base = .{ .tag = .int_i64 },
+    .data = -1,
 };

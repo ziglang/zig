@@ -195,7 +195,7 @@ pub const ChildProcess = struct {
         };
 
         var dead_fds: usize = 0;
-        // We ask for ensureCapacity with this much extra space. This has more of an
+        // We ask for ensureTotalCapacity with this much extra space. This has more of an
         // effect on small reads because once the reads start to get larger the amount
         // of space an ArrayList will allocate grows exponentially.
         const bump_amt = 512;
@@ -215,7 +215,7 @@ pub const ChildProcess = struct {
             if (poll_fds[0].revents & os.POLL.IN != 0) {
                 // stdout is ready.
                 const new_capacity = std.math.min(stdout.items.len + bump_amt, max_output_bytes);
-                try stdout.ensureCapacity(new_capacity);
+                try stdout.ensureTotalCapacity(new_capacity);
                 const buf = stdout.unusedCapacitySlice();
                 if (buf.len == 0) return error.StdoutStreamTooLong;
                 const nread = try os.read(poll_fds[0].fd, buf);
@@ -230,7 +230,7 @@ pub const ChildProcess = struct {
             if (poll_fds[1].revents & os.POLL.IN != 0) {
                 // stderr is ready.
                 const new_capacity = std.math.min(stderr.items.len + bump_amt, max_output_bytes);
-                try stderr.ensureCapacity(new_capacity);
+                try stderr.ensureTotalCapacity(new_capacity);
                 const buf = stderr.unusedCapacitySlice();
                 if (buf.len == 0) return error.StderrStreamTooLong;
                 const nread = try os.read(poll_fds[1].fd, buf);
@@ -276,7 +276,8 @@ pub const ChildProcess = struct {
 
         // Windows Async IO requires an initial call to ReadFile before waiting on the handle
         for ([_]u1{ 0, 1 }) |i| {
-            try outs[i].ensureCapacity(bump_amt);
+            const new_capacity = std.math.min(outs[i].items.len + bump_amt, max_output_bytes);
+            try outs[i].ensureTotalCapacity(new_capacity);
             const buf = outs[i].unusedCapacitySlice();
             _ = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);
             wait_objects[wait_object_count] = handles[i];
@@ -318,7 +319,7 @@ pub const ChildProcess = struct {
 
             outs[i].items.len += read_bytes;
             const new_capacity = std.math.min(outs[i].items.len + bump_amt, max_output_bytes);
-            try outs[i].ensureCapacity(new_capacity);
+            try outs[i].ensureTotalCapacity(new_capacity);
             const buf = outs[i].unusedCapacitySlice();
             if (buf.len == 0) return if (i == 0) error.StdoutStreamTooLong else error.StderrStreamTooLong;
             _ = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);

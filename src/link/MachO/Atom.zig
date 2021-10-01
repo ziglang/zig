@@ -2,7 +2,7 @@ const Atom = @This();
 
 const std = @import("std");
 const build_options = @import("build_options");
-const aarch64 = @import("../../codegen/aarch64.zig");
+const aarch64 = @import("../../arch/aarch64/bits.zig");
 const assert = std.debug.assert;
 const commands = @import("commands.zig");
 const log = std.log.scoped(.text_block);
@@ -41,7 +41,7 @@ code: std.ArrayListUnmanaged(u8) = .{},
 size: u64,
 
 /// Alignment of this atom as a power of 2.
-/// For instance, aligmment of 0 should be read as 2^0 = 1 byte aligned.
+/// For instance, alignment of 0 should be read as 2^0 = 1 byte aligned.
 alignment: u32,
 
 /// List of relocations belonging to this atom.
@@ -645,7 +645,6 @@ const RelocContext = struct {
     allocator: *Allocator,
     object: *Object,
     macho_file: *MachO,
-    parsed_atoms: *Object.ParsedAtoms,
 };
 
 fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Relocation {
@@ -664,15 +663,8 @@ fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Reloc
             const sect = seg.sections.items[sect_id];
             const match = (try context.macho_file.getMatchingSection(sect)) orelse unreachable;
             const local_sym_index = @intCast(u32, context.macho_file.locals.items.len);
-            const sym_name = try std.fmt.allocPrint(context.allocator, "l_{s}_{s}_{s}", .{
-                context.object.name,
-                commands.segmentName(sect),
-                commands.sectionName(sect),
-            });
-            defer context.allocator.free(sym_name);
-
             try context.macho_file.locals.append(context.allocator, .{
-                .n_strx = try context.macho_file.makeString(sym_name),
+                .n_strx = 0,
                 .n_type = macho.N_SECT,
                 .n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(match).? + 1),
                 .n_desc = 0,
@@ -877,12 +869,16 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                 .sect = context.macho_file.got_section_index.?,
             };
 
-            if (context.parsed_atoms.getPtr(match)) |last| {
+            if (!context.object.start_atoms.contains(match)) {
+                try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
+            }
+
+            if (context.object.end_atoms.getPtr(match)) |last| {
                 last.*.next = atom;
                 atom.prev = last.*;
                 last.* = atom;
             } else {
-                try context.parsed_atoms.putNoClobber(match, atom);
+                try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
             }
         } else if (parsed_rel.payload == .unsigned) {
             switch (parsed_rel.where) {
@@ -939,52 +935,63 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
             if (parsed_rel.where != .undef) break :blk;
             if (context.macho_file.stubs_map.contains(parsed_rel.where_index)) break :blk;
 
-            const stub_helper_atom = try context.macho_file.createStubHelperAtom();
-            const laptr_atom = try context.macho_file.createLazyPointerAtom(
-                stub_helper_atom.local_sym_index,
-                parsed_rel.where_index,
-            );
-            const stub_atom = try context.macho_file.createStubAtom(laptr_atom.local_sym_index);
-            try context.macho_file.stubs_map.putNoClobber(context.allocator, parsed_rel.where_index, stub_atom);
             // TODO clean this up!
-            if (context.parsed_atoms.getPtr(.{
-                .seg = context.macho_file.text_segment_cmd_index.?,
-                .sect = context.macho_file.stub_helper_section_index.?,
-            })) |last| {
-                last.*.next = stub_helper_atom;
-                stub_helper_atom.prev = last.*;
-                last.* = stub_helper_atom;
-            } else {
-                try context.parsed_atoms.putNoClobber(.{
+            const stub_helper_atom = atom: {
+                const atom = try context.macho_file.createStubHelperAtom();
+                const match = MachO.MatchingSection{
                     .seg = context.macho_file.text_segment_cmd_index.?,
                     .sect = context.macho_file.stub_helper_section_index.?,
-                }, stub_helper_atom);
-            }
-            if (context.parsed_atoms.getPtr(.{
-                .seg = context.macho_file.text_segment_cmd_index.?,
-                .sect = context.macho_file.stubs_section_index.?,
-            })) |last| {
-                last.*.next = stub_atom;
-                stub_atom.prev = last.*;
-                last.* = stub_atom;
-            } else {
-                try context.parsed_atoms.putNoClobber(.{
-                    .seg = context.macho_file.text_segment_cmd_index.?,
-                    .sect = context.macho_file.stubs_section_index.?,
-                }, stub_atom);
-            }
-            if (context.parsed_atoms.getPtr(.{
-                .seg = context.macho_file.data_segment_cmd_index.?,
-                .sect = context.macho_file.la_symbol_ptr_section_index.?,
-            })) |last| {
-                last.*.next = laptr_atom;
-                laptr_atom.prev = last.*;
-                last.* = laptr_atom;
-            } else {
-                try context.parsed_atoms.putNoClobber(.{
+                };
+                if (!context.object.start_atoms.contains(match)) {
+                    try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
+                }
+                if (context.object.end_atoms.getPtr(match)) |last| {
+                    last.*.next = atom;
+                    atom.prev = last.*;
+                    last.* = atom;
+                } else {
+                    try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
+                }
+                break :atom atom;
+            };
+            const laptr_atom = atom: {
+                const atom = try context.macho_file.createLazyPointerAtom(
+                    stub_helper_atom.local_sym_index,
+                    parsed_rel.where_index,
+                );
+                const match = MachO.MatchingSection{
                     .seg = context.macho_file.data_segment_cmd_index.?,
                     .sect = context.macho_file.la_symbol_ptr_section_index.?,
-                }, laptr_atom);
+                };
+                if (!context.object.start_atoms.contains(match)) {
+                    try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
+                }
+                if (context.object.end_atoms.getPtr(match)) |last| {
+                    last.*.next = atom;
+                    atom.prev = last.*;
+                    last.* = atom;
+                } else {
+                    try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
+                }
+                break :atom atom;
+            };
+            {
+                const atom = try context.macho_file.createStubAtom(laptr_atom.local_sym_index);
+                const match = MachO.MatchingSection{
+                    .seg = context.macho_file.text_segment_cmd_index.?,
+                    .sect = context.macho_file.stubs_section_index.?,
+                };
+                if (!context.object.start_atoms.contains(match)) {
+                    try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
+                }
+                if (context.object.end_atoms.getPtr(match)) |last| {
+                    last.*.next = atom;
+                    atom.prev = last.*;
+                    last.* = atom;
+                } else {
+                    try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
+                }
+                try context.macho_file.stubs_map.putNoClobber(context.allocator, parsed_rel.where_index, atom);
             }
         }
     }

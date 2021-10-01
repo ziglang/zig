@@ -44,6 +44,11 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         addwrap,
+        /// Saturating integer addition.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        add_sat,
         /// Float or integer subtraction. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -54,6 +59,11 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         subwrap,
+        /// Saturating integer subtraction.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        sub_sat,
         /// Float or integer multiplication. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -64,15 +74,26 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         mulwrap,
+        /// Saturating integer multiplication.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        mul_sat,
         /// Integer or float division. For integers, wrapping is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         div,
-        /// Integer or float remainder.
-        /// Both operands are guaranteed to be the same type, and the result type is the same as both operands.
+        /// Integer or float remainder division.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
         /// Uses the `bin_op` field.
         rem,
+        /// Integer or float modulus division.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        mod,
         /// Add an offset to a pointer, returning a new pointer.
         /// The offset is in element type units, not bytes.
         /// Wrapping is undefined behavior.
@@ -104,6 +125,14 @@ pub const Inst = struct {
         /// Shift left. `<<`
         /// Uses the `bin_op` field.
         shl,
+        /// Shift left; For unsigned integers, the shift produces a poison value if it shifts
+        /// out any non-zero bits. For signed integers, the shift produces a poison value if
+        /// it shifts out any bits that disagree with the resultant sign bit.
+        /// Uses the `bin_op` field.
+        shl_exact,
+        /// Saturating integer shift left. `<<|`
+        /// Uses the `bin_op` field.
+        shl_sat,
         /// Bitwise XOR. `^`
         /// Uses the `bin_op` field.
         xor,
@@ -131,6 +160,15 @@ pub const Inst = struct {
         /// Result type is the return type of the function being called.
         /// Uses the `pl_op` field with the `Call` payload. operand is the callee.
         call,
+        /// Count leading zeroes of an integer according to its representation in twos complement.
+        /// Result type will always be an unsigned integer big enough to fit the answer.
+        /// Uses the `ty_op` field.
+        clz,
+        /// Count trailing zeroes of an integer according to its representation in twos complement.
+        /// Result type will always be an unsigned integer big enough to fit the answer.
+        /// Uses the `ty_op` field.
+        ctz,
+
         /// `<`. Result type is always bool.
         /// Uses the `bin_op` field.
         cmp_lt,
@@ -149,6 +187,7 @@ pub const Inst = struct {
         /// `!=`. Result type is always bool.
         /// Uses the `bin_op` field.
         cmp_neq,
+
         /// Conditional branch.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `pl_op` field. Operand is the condition. Payload is `CondBr`.
@@ -225,9 +264,12 @@ pub const Inst = struct {
         /// Indicates the program counter will never get to this instruction.
         /// Result type is always noreturn; no instructions in a block follow this one.
         unreach,
-        /// Convert from one float type to another.
+        /// Convert from a float type to a smaller one.
         /// Uses the `ty_op` field.
-        floatcast,
+        fptrunc,
+        /// Convert from a float type to a wider one.
+        /// Uses the `ty_op` field.
+        fpext,
         /// Returns an integer with a different type than the operand. The new type may have
         /// fewer, the same, or more bits than the operand type. However, the instruction
         /// guarantees that the same integer value fits in both types.
@@ -265,19 +307,29 @@ pub const Inst = struct {
         /// wrap from E to E!T
         /// Uses the `ty_op` field.
         wrap_errunion_err,
-        /// Given a pointer to a struct and a field index, returns a pointer to the field.
+        /// Given a pointer to a struct or union and a field index, returns a pointer to the field.
         /// Uses the `ty_pl` field, payload is `StructField`.
+        /// TODO rename to `agg_field_ptr`.
         struct_field_ptr,
-        /// Given a pointer to a struct, returns a pointer to the field.
+        /// Given a pointer to a struct or union, returns a pointer to the field.
         /// The field index is the number at the end of the name.
         /// Uses `ty_op` field.
+        /// TODO rename to `agg_field_ptr_index_X`
         struct_field_ptr_index_0,
         struct_field_ptr_index_1,
         struct_field_ptr_index_2,
         struct_field_ptr_index_3,
-        /// Given a byval struct and a field index, returns the field byval.
+        /// Given a byval struct or union and a field index, returns the field byval.
         /// Uses the `ty_pl` field, payload is `StructField`.
+        /// TODO rename to `agg_field_val`
         struct_field_val,
+        /// Given a pointer to a tagged union, set its tag to the provided value.
+        /// Result type is always void.
+        /// Uses the `bin_op` field. LHS is union pointer, RHS is new tag value.
+        set_union_tag,
+        /// Given a tagged union value, get its tag value.
+        /// Uses the `ty_op` field.
+        get_union_tag,
         /// Given a slice value, return the length.
         /// Result type is always usize.
         /// Uses the `ty_op` field.
@@ -309,10 +361,52 @@ pub const Inst = struct {
         /// Given a pointer to an array, return a slice.
         /// Uses the `ty_op` field.
         array_to_slice,
+        /// Given a float operand, return the integer with the closest mathematical meaning.
+        /// Uses the `ty_op` field.
+        float_to_int,
+        /// Given an integer operand, return the float with the closest mathematical meaning.
+        /// Uses the `ty_op` field.
+        int_to_float,
+
+        /// Given dest ptr, value, and len, set all elements at dest to value.
+        /// Result type is always void.
+        /// Uses the `pl_op` field. Operand is the dest ptr. Payload is `Bin`. `lhs` is the
+        /// value, `rhs` is the length.
+        /// The element type may be any type, not just u8.
+        memset,
+        /// Given dest ptr, src ptr, and len, copy len elements from src to dest.
+        /// Result type is always void.
+        /// Uses the `pl_op` field. Operand is the dest ptr. Payload is `Bin`. `lhs` is the
+        /// src ptr, `rhs` is the length.
+        /// The element type may be any type, not just u8.
+        memcpy,
+
         /// Uses the `ty_pl` field with payload `Cmpxchg`.
         cmpxchg_weak,
         /// Uses the `ty_pl` field with payload `Cmpxchg`.
         cmpxchg_strong,
+        /// Lowers to a memory fence instruction.
+        /// Result type is always void.
+        /// Uses the `fence` field.
+        fence,
+        /// Atomically load from a pointer.
+        /// Result type is the element type of the pointer.
+        /// Uses the `atomic_load` field.
+        atomic_load,
+        /// Atomically store through a pointer.
+        /// Result type is always `void`.
+        /// Uses the `bin_op` field. LHS is pointer, RHS is element.
+        atomic_store_unordered,
+        /// Same as `atomic_store_unordered` but with `AtomicOrder.Monotonic`.
+        atomic_store_monotonic,
+        /// Same as `atomic_store_unordered` but with `AtomicOrder.Release`.
+        atomic_store_release,
+        /// Same as `atomic_store_unordered` but with `AtomicOrder.SeqCst`.
+        atomic_store_seq_cst,
+        /// Atomically read-modify-write via a pointer.
+        /// Result type is the element type of the pointer.
+        /// Uses the `pl_op` field with payload `AtomicRmw`. Operand is `ptr`.
+        atomic_rmw,
 
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
@@ -379,6 +473,11 @@ pub const Inst = struct {
         dbg_stmt: struct {
             line: u32,
             column: u32,
+        },
+        fence: std.builtin.AtomicOrder,
+        atomic_load: struct {
+            ptr: Ref,
+            order: std.builtin.AtomicOrder,
         },
 
         // Make sure we don't accidentally add a field to make this union
@@ -464,6 +563,21 @@ pub const Cmpxchg = struct {
     }
 };
 
+pub const AtomicRmw = struct {
+    operand: Inst.Ref,
+    /// 0b00000000000000000000000000000XXX - ordering
+    /// 0b0000000000000000000000000XXXX000 - op
+    flags: u32,
+
+    pub fn ordering(self: AtomicRmw) std.builtin.AtomicOrder {
+        return @intToEnum(std.builtin.AtomicOrder, @truncate(u3, self.flags));
+    }
+
+    pub fn op(self: AtomicRmw) std.builtin.AtomicRmwOp {
+        return @intToEnum(std.builtin.AtomicRmwOp, @truncate(u4, self.flags >> 3));
+    }
+};
+
 pub fn getMainBody(air: Air) []const Air.Inst.Index {
     const body_index = air.extra[@enumToInt(ExtraIndex.main_block)];
     const extra = air.extraData(Block, body_index);
@@ -485,12 +599,16 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .add,
         .addwrap,
+        .add_sat,
         .sub,
         .subwrap,
+        .sub_sat,
         .mul,
         .mulwrap,
+        .mul_sat,
         .div,
         .rem,
+        .mod,
         .bit_and,
         .bit_or,
         .xor,
@@ -498,6 +616,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ptr_sub,
         .shr,
         .shl,
+        .shl_exact,
+        .shl_sat,
         => return air.typeOf(datas[inst].bin_op.lhs),
 
         .cmp_lt,
@@ -535,7 +655,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .not,
         .bitcast,
         .load,
-        .floatcast,
+        .fpext,
+        .fptrunc,
         .intcast,
         .trunc,
         .optional_payload,
@@ -553,6 +674,11 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .struct_field_ptr_index_2,
         .struct_field_ptr_index_3,
         .array_to_slice,
+        .float_to_int,
+        .int_to_float,
+        .get_union_tag,
+        .clz,
+        .ctz,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,
@@ -566,6 +692,14 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .breakpoint,
         .dbg_stmt,
         .store,
+        .fence,
+        .atomic_store_unordered,
+        .atomic_store_monotonic,
+        .atomic_store_release,
+        .atomic_store_seq_cst,
+        .memset,
+        .memcpy,
+        .set_union_tag,
         => return Type.initTag(.void),
 
         .ptrtoint,
@@ -587,6 +721,14 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
             const outer_ptr_ty = air.typeOf(datas[inst].bin_op.lhs);
             const inner_ptr_ty = outer_ptr_ty.elemType();
             return inner_ptr_ty.elemType();
+        },
+        .atomic_load => {
+            const ptr_ty = air.typeOf(datas[inst].atomic_load.ptr);
+            return ptr_ty.elemType();
+        },
+        .atomic_rmw => {
+            const ptr_ty = air.typeOf(datas[inst].pl_op.operand);
+            return ptr_ty.elemType();
         },
     }
 }

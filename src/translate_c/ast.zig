@@ -728,13 +728,13 @@ pub fn render(gpa: *Allocator, nodes: []const Node) !std.zig.Ast {
 
     // Estimate that each top level node has 10 child nodes.
     const estimated_node_count = nodes.len * 10;
-    try ctx.nodes.ensureCapacity(gpa, estimated_node_count);
+    try ctx.nodes.ensureTotalCapacity(gpa, estimated_node_count);
     // Estimate that each each node has 2 tokens.
     const estimated_tokens_count = estimated_node_count * 2;
-    try ctx.tokens.ensureCapacity(gpa, estimated_tokens_count);
+    try ctx.tokens.ensureTotalCapacity(gpa, estimated_tokens_count);
     // Estimate that each each token is 3 bytes long.
     const estimated_buf_len = estimated_tokens_count * 3;
-    try ctx.buf.ensureCapacity(estimated_buf_len);
+    try ctx.buf.ensureTotalCapacity(estimated_buf_len);
 
     ctx.nodes.appendAssumeCapacity(.{
         .tag = .root,
@@ -839,7 +839,7 @@ const Context = struct {
 
     fn addExtra(c: *Context, extra: anytype) Allocator.Error!NodeIndex {
         const fields = std.meta.fields(@TypeOf(extra));
-        try c.extra_data.ensureCapacity(c.gpa, c.extra_data.items.len + fields.len);
+        try c.extra_data.ensureUnusedCapacity(c.gpa, fields.len);
         const result = @intCast(u32, c.extra_data.items.len);
         inline for (fields) |field| {
             comptime std.debug.assert(field.field_type == NodeIndex);
@@ -1462,10 +1462,10 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .mul_wrap_assign => return renderBinOp(c, node, .assign_mul_wrap, .asterisk_percent_equal, "*%="),
         .div => return renderBinOpGrouped(c, node, .div, .slash, "/"),
         .div_assign => return renderBinOp(c, node, .assign_div, .slash_equal, "/="),
-        .shl => return renderBinOpGrouped(c, node, .bit_shift_left, .angle_bracket_angle_bracket_left, "<<"),
-        .shl_assign => return renderBinOp(c, node, .assign_bit_shift_left, .angle_bracket_angle_bracket_left_equal, "<<="),
-        .shr => return renderBinOpGrouped(c, node, .bit_shift_right, .angle_bracket_angle_bracket_right, ">>"),
-        .shr_assign => return renderBinOp(c, node, .assign_bit_shift_right, .angle_bracket_angle_bracket_right_equal, ">>="),
+        .shl => return renderBinOpGrouped(c, node, .shl, .angle_bracket_angle_bracket_left, "<<"),
+        .shl_assign => return renderBinOp(c, node, .assign_shl, .angle_bracket_angle_bracket_left_equal, "<<="),
+        .shr => return renderBinOpGrouped(c, node, .shr, .angle_bracket_angle_bracket_right, ">>"),
+        .shr_assign => return renderBinOp(c, node, .assign_shr, .angle_bracket_angle_bracket_right_equal, ">>="),
         .mod => return renderBinOpGrouped(c, node, .mod, .percent, "%"),
         .mod_assign => return renderBinOp(c, node, .assign_mod, .percent_equal, "%="),
         .@"and" => return renderBinOpGrouped(c, node, .bool_and, .keyword_and, "and"),
@@ -2614,6 +2614,7 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
                     .type_node = type_node,
                     .align_node = align_node,
                     .section_node = section_node,
+                    .addrspace_node = 0,
                 }),
                 .rhs = init_node,
             },
@@ -2705,6 +2706,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
                     .lhs = try c.addExtra(std.zig.Ast.Node.FnProtoOne{
                         .param = params.items[0],
                         .align_expr = align_expr,
+                        .addrspace_expr = 0, // TODO
                         .section_expr = section_expr,
                         .callconv_expr = callconv_expr,
                     }),
@@ -2720,6 +2722,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
                         .params_start = span.start,
                         .params_end = span.end,
                         .align_expr = align_expr,
+                        .addrspace_expr = 0, // TODO
                         .section_expr = section_expr,
                         .callconv_expr = callconv_expr,
                     }),
@@ -2797,7 +2800,7 @@ fn renderParams(c: *Context, params: []Payload.Param, is_var_args: bool) !std.Ar
     _ = try c.addToken(.l_paren, "(");
     var rendered = std.ArrayList(NodeIndex).init(c.gpa);
     errdefer rendered.deinit();
-    try rendered.ensureCapacity(std.math.max(params.len, 1));
+    try rendered.ensureTotalCapacity(std.math.max(params.len, 1));
 
     for (params) |param, i| {
         if (i != 0) _ = try c.addToken(.comma, ",");

@@ -64,11 +64,16 @@ import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
 /// to the same function.
+/// TODO: remove functions from this set when they are destroyed.
 monomorphed_funcs: MonomorphedFuncsSet = .{},
-
 /// The set of all comptime function calls that have been cached so that future calls
 /// with the same parameters will get the same return value.
 memoized_calls: MemoizedCallSet = .{},
+/// Contains the values from `@setAlignStack`. A sparse table is used here
+/// instead of a field of `Fn` because usage of `@setAlignStack` is rare, while
+/// functions are many.
+/// TODO: remove functions from this set when they are destroyed.
+align_stack_fns: std.AutoHashMapUnmanaged(*const Fn, SetAlignStack) = .{},
 
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
@@ -215,6 +220,13 @@ pub const MemoizedCall = struct {
     }
 };
 
+pub const SetAlignStack = struct {
+    alignment: u32,
+    /// TODO: This needs to store a non-lazy source location for the case of an inline function
+    /// which does `@setAlignStack` (applying it to the caller).
+    src: LazySrcLoc,
+};
+
 /// A `Module` has zero or one of these depending on whether `-femit-h` is enabled.
 pub const GlobalEmitH = struct {
     /// Where to put the output.
@@ -236,6 +248,9 @@ pub const Export = struct {
     link: link.File.Export,
     /// The Decl that performs the export. Note that this is *not* the Decl being exported.
     owner_decl: *Decl,
+    /// The Decl containing the export statement.  Inline function calls
+    /// may cause this to be different from the owner_decl.
+    src_decl: *Decl,
     /// The Decl being exported. Note this is *not* the Decl performing the export.
     exported_decl: *Decl,
     status: enum {
@@ -249,8 +264,8 @@ pub const Export = struct {
 
     pub fn getSrcLoc(exp: Export) SrcLoc {
         return .{
-            .file_scope = exp.owner_decl.namespace.file_scope,
-            .parent_decl_node = exp.owner_decl.src_node,
+            .file_scope = exp.src_decl.namespace.file_scope,
+            .parent_decl_node = exp.src_decl.src_node,
             .lazy = exp.src,
         };
     }
@@ -261,6 +276,56 @@ pub const Export = struct {
 pub const DeclPlusEmitH = struct {
     decl: Decl,
     emit_h: EmitH,
+};
+
+pub const CaptureScope = struct {
+    parent: ?*CaptureScope,
+
+    /// Values from this decl's evaluation that will be closed over in
+    /// child decls. Values stored in the value_arena of the linked decl.
+    /// During sema, this map is backed by the gpa.  Once sema completes,
+    /// it is reallocated using the value_arena.
+    captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, TypedValue) = .{},
+};
+
+pub const WipCaptureScope = struct {
+    scope: *CaptureScope,
+    finalized: bool,
+    gpa: *Allocator,
+    perm_arena: *Allocator,
+
+    pub fn init(gpa: *Allocator, perm_arena: *Allocator, parent: ?*CaptureScope) !@This() {
+        const scope = try perm_arena.create(CaptureScope);
+        scope.* = .{ .parent = parent };
+        return @This(){
+            .scope = scope,
+            .finalized = false,
+            .gpa = gpa,
+            .perm_arena = perm_arena,
+        };
+    }
+
+    pub fn finalize(noalias self: *@This()) !void {
+        assert(!self.finalized);
+        // use a temp to avoid unintentional aliasing due to RLS
+        const tmp = try self.scope.captures.clone(self.perm_arena);
+        self.scope.captures = tmp;
+        self.finalized = true;
+    }
+
+    pub fn reset(noalias self: *@This(), parent: ?*CaptureScope) !void {
+        if (!self.finalized) try self.finalize();
+        self.scope = try self.perm_arena.create(CaptureScope);
+        self.scope.* = .{ .parent = parent };
+        self.finalized = false;
+    }
+
+    pub fn deinit(noalias self: *@This()) void {
+        if (!self.finalized) {
+            self.scope.captures.deinit(self.gpa);
+        }
+        self.* = undefined;
+    }
 };
 
 pub const Decl = struct {
@@ -276,7 +341,9 @@ pub const Decl = struct {
     align_val: Value,
     /// Populated when `has_tv`.
     linksection_val: Value,
-    /// The memory for ty, val, align_val, linksection_val.
+    /// Populated when `has_tv`.
+    @"addrspace": std.builtin.AddressSpace,
+    /// The memory for ty, val, align_val, linksection_val, and captures.
     /// If this is `null` then there is no memory management needed.
     value_arena: ?*std.heap.ArenaAllocator.State = null,
     /// The direct parent namespace of the Decl.
@@ -284,6 +351,11 @@ pub const Decl = struct {
     /// In the case of the Decl corresponding to a file, this is
     /// the namespace of the struct, since there is no parent.
     namespace: *Scope.Namespace,
+
+    /// The scope which lexically contains this decl.  A decl must depend
+    /// on its lexical parent, in order to ensure that this pointer is valid.
+    /// This scope is allocated out of the arena of the parent decl.
+    src_scope: ?*CaptureScope,
 
     /// An integer that can be checked against the corresponding incrementing
     /// generation field of Module. This is used to determine whether `complete` status
@@ -339,7 +411,7 @@ pub const Decl = struct {
         /// to require re-analysis.
         outdated,
     },
-    /// Whether `typed_value`, `align_val`, and `linksection_val` are populated.
+    /// Whether `typed_value`, `align_val`, `linksection_val` and `addrspace` are populated.
     has_tv: bool,
     /// If `true` it means the `Decl` is the resource owner of the type/value associated
     /// with it. That means when `Decl` is destroyed, the cleanup code should additionally
@@ -354,8 +426,8 @@ pub const Decl = struct {
     is_exported: bool,
     /// Whether the ZIR code provides an align instruction.
     has_align: bool,
-    /// Whether the ZIR code provides a linksection instruction.
-    has_linksection: bool,
+    /// Whether the ZIR code provides a linksection and address space instruction.
+    has_linksection_or_addrspace: bool,
     /// Flag used by garbage collection to mark and sweep.
     /// Decls which correspond to an AST node always have this field set to `true`.
     /// Anonymous Decls are initialized with this field set to `false` and then it
@@ -477,14 +549,22 @@ pub const Decl = struct {
         if (!decl.has_align) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.namespace.file_scope.zir;
-        return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 6]);
+        return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 7]);
     }
 
     pub fn zirLinksectionRef(decl: Decl) Zir.Inst.Ref {
-        if (!decl.has_linksection) return .none;
+        if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.namespace.file_scope.zir;
-        const extra_index = decl.zir_decl_index + 6 + @boolToInt(decl.has_align);
+        const extra_index = decl.zir_decl_index + 7 + @boolToInt(decl.has_align);
+        return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+    }
+
+    pub fn zirAddrspaceRef(decl: Decl) Zir.Inst.Ref {
+        if (!decl.has_linksection_or_addrspace) return .none;
+        assert(decl.zir_decl_index != 0);
+        const zir = decl.namespace.file_scope.zir;
+        const extra_index = decl.zir_decl_index + 7 + @boolToInt(decl.has_align) + 1;
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
     }
 
@@ -542,11 +622,11 @@ pub const Decl = struct {
         return decl.namespace.renderFullyQualifiedName(unqualified_name, writer);
     }
 
-    pub fn getFullyQualifiedName(decl: Decl, gpa: *Allocator) ![]u8 {
+    pub fn getFullyQualifiedName(decl: Decl, gpa: *Allocator) ![:0]u8 {
         var buffer = std.ArrayList(u8).init(gpa);
         defer buffer.deinit();
         try decl.renderFullyQualifiedName(buffer.writer());
-        return buffer.toOwnedSlice();
+        return buffer.toOwnedSliceSentinel(0);
     }
 
     pub fn typedValue(decl: Decl) error{AnalysisFail}!TypedValue {
@@ -588,7 +668,7 @@ pub const Decl = struct {
 
     /// If the Decl has a value and it is a function, return it,
     /// otherwise null.
-    pub fn getFunction(decl: *Decl) ?*Fn {
+    pub fn getFunction(decl: *const Decl) ?*Fn {
         if (!decl.owns_tv) return null;
         const func = (decl.val.castTag(.function) orelse return null).data;
         assert(func.owner_decl == decl);
@@ -733,7 +813,7 @@ pub const Struct = struct {
         is_comptime: bool,
     };
 
-    pub fn getFullyQualifiedName(s: *Struct, gpa: *Allocator) ![]u8 {
+    pub fn getFullyQualifiedName(s: *Struct, gpa: *Allocator) ![:0]u8 {
         return s.owner_decl.getFullyQualifiedName(gpa);
     }
 
@@ -779,6 +859,36 @@ pub const EnumSimple = struct {
     }
 };
 
+/// Represents the data that an enum declaration provides, when there are no
+/// declarations. However an integer tag type is provided, and the enum tag values
+/// are explicitly provided.
+pub const EnumNumbered = struct {
+    /// The Decl that corresponds to the enum itself.
+    owner_decl: *Decl,
+    /// An integer type which is used for the numerical value of the enum.
+    /// Whether zig chooses this type or the user specifies it, it is stored here.
+    tag_ty: Type,
+    /// Set of field names in declaration order.
+    fields: NameMap,
+    /// Maps integer tag value to field index.
+    /// Entries are in declaration order, same as `fields`.
+    /// If this hash map is empty, it means the enum tags are auto-numbered.
+    values: ValueMap,
+    /// Offset from `owner_decl`, points to the enum decl AST node.
+    node_offset: i32,
+
+    pub const NameMap = EnumFull.NameMap;
+    pub const ValueMap = EnumFull.ValueMap;
+
+    pub fn srcLoc(self: EnumNumbered) SrcLoc {
+        return .{
+            .file_scope = self.owner_decl.getFileScope(),
+            .parent_decl_node = self.owner_decl.src_node,
+            .lazy = .{ .node_offset = self.node_offset },
+        };
+    }
+};
+
 /// Represents the data that an enum declaration provides, when there is
 /// at least one tag value explicitly specified, or at least one declaration.
 pub const EnumFull = struct {
@@ -788,16 +898,17 @@ pub const EnumFull = struct {
     /// Whether zig chooses this type or the user specifies it, it is stored here.
     tag_ty: Type,
     /// Set of field names in declaration order.
-    fields: std.StringArrayHashMapUnmanaged(void),
+    fields: NameMap,
     /// Maps integer tag value to field index.
     /// Entries are in declaration order, same as `fields`.
     /// If this hash map is empty, it means the enum tags are auto-numbered.
     values: ValueMap,
-    /// Represents the declarations inside this struct.
+    /// Represents the declarations inside this enum.
     namespace: Scope.Namespace,
     /// Offset from `owner_decl`, points to the enum decl AST node.
     node_offset: i32,
 
+    pub const NameMap = std.StringArrayHashMapUnmanaged(void);
     pub const ValueMap = std.ArrayHashMapUnmanaged(Value, void, Value.ArrayHashContext, false);
 
     pub fn srcLoc(self: EnumFull) SrcLoc {
@@ -853,6 +964,44 @@ pub const Union = struct {
             .lazy = .{ .node_offset = self.node_offset },
         };
     }
+
+    pub fn haveFieldTypes(u: Union) bool {
+        return switch (u.status) {
+            .none,
+            .field_types_wip,
+            => false,
+            .have_field_types,
+            .layout_wip,
+            .have_layout,
+            => true,
+        };
+    }
+
+    pub fn onlyTagHasCodegenBits(u: Union) bool {
+        assert(u.haveFieldTypes());
+        for (u.fields.values()) |field| {
+            if (field.ty.hasCodeGenBits()) return false;
+        }
+        return true;
+    }
+
+    pub fn mostAlignedField(u: Union, target: Target) u32 {
+        assert(u.haveFieldTypes());
+        var most_alignment: u64 = 0;
+        var most_index: usize = undefined;
+        for (u.fields.values()) |field, i| {
+            if (!field.ty.hasCodeGenBits()) continue;
+            const field_align = if (field.abi_align.tag() == .abi_align_default)
+                field.ty.abiAlignment(target)
+            else
+                field.abi_align.toUnsignedInt();
+            if (field_align > most_alignment) {
+                most_alignment = field_align;
+                most_index = i;
+            }
+        }
+        return @intCast(u32, most_index);
+    }
 };
 
 /// Some Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.
@@ -881,6 +1030,7 @@ pub const Fn = struct {
 
     state: Analysis,
     is_cold: bool = false,
+    is_noinline: bool = false,
 
     pub const Analysis = enum {
         queued,
@@ -936,19 +1086,21 @@ pub const Scope = struct {
         return @fieldParentPtr(T, "base", base);
     }
 
-    pub fn ownerDecl(scope: *Scope) ?*Decl {
-        return switch (scope.tag) {
-            .block => scope.cast(Block).?.sema.owner_decl,
-            .file => null,
-            .namespace => null,
-        };
-    }
-
+    /// Get the decl which contains this decl, for the purposes of source reporting
     pub fn srcDecl(scope: *Scope) ?*Decl {
         return switch (scope.tag) {
             .block => scope.cast(Block).?.src_decl,
             .file => null,
             .namespace => scope.cast(Namespace).?.getDecl(),
+        };
+    }
+
+    /// Get the scope which contains this decl, for resolving closure_get instructions.
+    pub fn srcScope(scope: *Scope) ?*CaptureScope {
+        return switch (scope.tag) {
+            .block => scope.cast(Block).?.wip_capture_scope,
+            .file => null,
+            .namespace => scope.cast(Namespace).?.getDecl().src_scope,
         };
     }
 
@@ -1288,6 +1440,9 @@ pub const Scope = struct {
         instructions: ArrayListUnmanaged(Air.Inst.Index),
         // `param` instructions are collected here to be used by the `func` instruction.
         params: std.ArrayListUnmanaged(Param) = .{},
+
+        wip_capture_scope: *CaptureScope,
+
         label: ?*Label = null,
         inlining: ?*Inlining,
         /// If runtime_index is not 0 then one of these is guaranteed to be non null.
@@ -1301,6 +1456,8 @@ pub const Scope = struct {
 
         /// when null, it is determined by build mode, changed by @setRuntimeSafety
         want_safety: ?bool = null,
+
+        c_import_buf: ?*std.ArrayList(u8) = null,
 
         const Param = struct {
             /// `noreturn` means `anytype`.
@@ -1347,6 +1504,7 @@ pub const Scope = struct {
                 .sema = parent.sema,
                 .src_decl = parent.src_decl,
                 .instructions = .{},
+                .wip_capture_scope = parent.wip_capture_scope,
                 .label = null,
                 .inlining = parent.inlining,
                 .is_comptime = parent.is_comptime,
@@ -1354,6 +1512,7 @@ pub const Scope = struct {
                 .runtime_loop = parent.runtime_loop,
                 .runtime_index = parent.runtime_index,
                 .want_safety = parent.want_safety,
+                .c_import_buf = parent.c_import_buf,
             };
         }
 
@@ -1449,6 +1608,40 @@ pub const Scope = struct {
                 .data = .{ .ty_str = .{
                     .ty = try block.sema.addType(ty),
                     .str = name,
+                } },
+            });
+        }
+
+        pub fn addStructFieldPtr(
+            block: *Block,
+            struct_ptr: Air.Inst.Ref,
+            field_index: u32,
+            ptr_field_ty: Type,
+        ) !Air.Inst.Ref {
+            const ty = try block.sema.addType(ptr_field_ty);
+            const tag: Air.Inst.Tag = switch (field_index) {
+                0 => .struct_field_ptr_index_0,
+                1 => .struct_field_ptr_index_1,
+                2 => .struct_field_ptr_index_2,
+                3 => .struct_field_ptr_index_3,
+                else => {
+                    return block.addInst(.{
+                        .tag = .struct_field_ptr,
+                        .data = .{ .ty_pl = .{
+                            .ty = ty,
+                            .payload = try block.sema.addExtra(Air.StructField{
+                                .struct_operand = struct_ptr,
+                                .field_index = @intCast(u32, field_index),
+                            }),
+                        } },
+                    });
+                },
+            };
+            return block.addInst(.{
+                .tag = tag,
+                .data = .{ .ty_op = .{
+                    .ty = ty,
+                    .operand = struct_ptr,
                 } },
             });
         }
@@ -2092,39 +2285,39 @@ pub const LazySrcLoc = union(enum) {
     node_offset_bin_op: i32,
     /// The source location points to the LHS of a binary expression, found
     /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a binary expression AST node. Next, nagivate to the LHS.
+    /// which points to a binary expression AST node. Next, navigate to the LHS.
     /// The Decl is determined contextually.
     node_offset_bin_lhs: i32,
     /// The source location points to the RHS of a binary expression, found
     /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a binary expression AST node. Next, nagivate to the RHS.
+    /// which points to a binary expression AST node. Next, navigate to the RHS.
     /// The Decl is determined contextually.
     node_offset_bin_rhs: i32,
     /// The source location points to the operand of a switch expression, found
     /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, nagivate to the operand.
+    /// which points to a switch expression AST node. Next, navigate to the operand.
     /// The Decl is determined contextually.
     node_offset_switch_operand: i32,
     /// The source location points to the else/`_` prong of a switch expression, found
     /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, nagivate to the else/`_` prong.
+    /// which points to a switch expression AST node. Next, navigate to the else/`_` prong.
     /// The Decl is determined contextually.
     node_offset_switch_special_prong: i32,
     /// The source location points to all the ranges of a switch expression, found
     /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, nagivate to any of the
+    /// which points to a switch expression AST node. Next, navigate to any of the
     /// range nodes. The error applies to all of them.
     /// The Decl is determined contextually.
     node_offset_switch_range: i32,
     /// The source location points to the calling convention of a function type
     /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, nagivate to
+    /// Decl AST node, which points to a function type AST node. Next, navigate to
     /// the calling convention node.
     /// The Decl is determined contextually.
     node_offset_fn_type_cc: i32,
     /// The source location points to the return type of a function type
     /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, nagivate to
+    /// Decl AST node, which points to a function type AST node. Next, navigate to
     /// the return type node.
     /// The Decl is determined contextually.
     node_offset_fn_type_ret_ty: i32,
@@ -2347,6 +2540,7 @@ pub fn deinit(mod: *Module) void {
 
     mod.error_name_list.deinit(gpa);
     mod.test_functions.deinit(gpa);
+    mod.align_stack_fns.deinit(gpa);
     mod.monomorphed_funcs.deinit(gpa);
 
     {
@@ -2362,6 +2556,7 @@ pub fn deinit(mod: *Module) void {
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
     for (export_list) |exp| {
         gpa.free(exp.options.name);
+        if (exp.options.section) |s| gpa.free(s);
         gpa.destroy(exp);
     }
     gpa.free(export_list);
@@ -2372,7 +2567,7 @@ const data_has_safety_tag = @sizeOf(Zir.Inst.Data) != 8;
 // We need a better language feature for initializing a union with
 // a runtime known tag.
 const Stage1DataLayout = extern struct {
-    data: [8]u8 align(8),
+    data: [8]u8 align(@alignOf(Zir.Inst.Data)),
     safety_tag: u8,
 };
 comptime {
@@ -2873,12 +3068,10 @@ pub fn mapOldZirToNew(
     var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .{};
     defer match_stack.deinit(gpa);
 
-    const old_main_struct_inst = old_zir.getMainStruct();
-    const new_main_struct_inst = new_zir.getMainStruct();
-
+    // Main struct inst is always the same
     try match_stack.append(gpa, .{
-        .old_inst = old_main_struct_inst,
-        .new_inst = new_main_struct_inst,
+        .old_inst = Zir.main_struct_inst,
+        .new_inst = Zir.main_struct_inst,
     });
 
     var old_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
@@ -3036,6 +3229,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
     const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
     const struct_val = try Value.Tag.ty.create(&new_decl_arena.allocator, struct_ty);
+    const ty_ty = comptime Type.initTag(.type);
     struct_obj.* = .{
         .owner_decl = undefined, // set below
         .fields = .{},
@@ -3050,7 +3244,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .file_scope = file,
         },
     };
-    const new_decl = try mod.allocateNewDecl(&struct_obj.namespace, 0);
+    const new_decl = try mod.allocateNewDecl(&struct_obj.namespace, 0, null);
     file.root_decl = new_decl;
     struct_obj.owner_decl = new_decl;
     new_decl.src_line = 0;
@@ -3058,8 +3252,8 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
     new_decl.is_pub = true;
     new_decl.is_exported = false;
     new_decl.has_align = false;
-    new_decl.has_linksection = false;
-    new_decl.ty = struct_ty;
+    new_decl.has_linksection_or_addrspace = false;
+    new_decl.ty = ty_ty;
     new_decl.val = struct_val;
     new_decl.has_tv = true;
     new_decl.owns_tv = true;
@@ -3069,7 +3263,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
 
     if (file.status == .success_zir) {
         assert(file.zir_loaded);
-        const main_struct_inst = file.zir.getMainStruct();
+        const main_struct_inst = Zir.main_struct_inst;
         struct_obj.zir_index = main_struct_inst;
 
         var sema_arena = std.heap.ArenaAllocator.init(gpa);
@@ -3079,6 +3273,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .mod = mod,
             .gpa = gpa,
             .arena = &sema_arena.allocator,
+            .perm_arena = &new_decl_arena.allocator,
             .code = file.zir,
             .owner_decl = new_decl,
             .namespace = &struct_obj.namespace,
@@ -3087,10 +3282,15 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
             .owner_func = null,
         };
         defer sema.deinit();
+
+        var wip_captures = try WipCaptureScope.init(gpa, &new_decl_arena.allocator, null);
+        defer wip_captures.deinit();
+
         var block_scope: Scope.Block = .{
             .parent = null,
             .sema = &sema,
             .src_decl = new_decl,
+            .wip_capture_scope = wip_captures.scope,
             .instructions = .{},
             .inlining = null,
             .is_comptime = true,
@@ -3098,6 +3298,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) SemaError!void {
         defer block_scope.instructions.deinit(gpa);
 
         if (sema.analyzeStructDecl(new_decl, main_struct_inst, struct_obj)) |_| {
+            try wip_captures.finalize();
             new_decl.analysis = .complete;
         } else |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
@@ -3127,6 +3328,10 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     decl.analysis = .in_progress;
 
+    // We need the memory for the Type to go into the arena for the Decl
+    var decl_arena = std.heap.ArenaAllocator.init(gpa);
+    errdefer decl_arena.deinit();
+
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
@@ -3134,6 +3339,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .mod = mod,
         .gpa = gpa,
         .arena = &analysis_arena.allocator,
+        .perm_arena = &decl_arena.allocator,
         .code = zir,
         .owner_decl = decl,
         .namespace = decl.namespace,
@@ -3145,7 +3351,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     if (decl.isRoot()) {
         log.debug("semaDecl root {*} ({s})", .{ decl, decl.name });
-        const main_struct_inst = zir.getMainStruct();
+        const main_struct_inst = Zir.main_struct_inst;
         const struct_obj = decl.getStruct().?;
         // This might not have gotten set in `semaFile` if the first time had
         // a ZIR failure, so we set it here in case.
@@ -3157,10 +3363,14 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     }
     log.debug("semaDecl {*} ({s})", .{ decl, decl.name });
 
+    var wip_captures = try WipCaptureScope.init(gpa, &decl_arena.allocator, decl.src_scope);
+    defer wip_captures.deinit();
+
     var block_scope: Scope.Block = .{
         .parent = null,
         .sema = &sema,
         .src_decl = decl,
+        .wip_capture_scope = wip_captures.scope,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -3175,6 +3385,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
     const body = zir.extra[extra.end..][0..extra.data.body_len];
     const break_index = try sema.analyzeBody(&block_scope, body);
+    try wip_captures.finalize();
     const result_ref = zir_datas[break_index].@"break".operand;
     const src: LazySrcLoc = .{ .node_offset = 0 };
     const decl_tv = try sema.resolveInstValue(&block_scope, src, result_ref);
@@ -3188,14 +3399,29 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         if (linksection_ref == .none) break :blk Value.initTag(.null_value);
         break :blk (try sema.resolveInstConst(&block_scope, src, linksection_ref)).val;
     };
+    const address_space = blk: {
+        const addrspace_ctx: Sema.AddressSpaceContext = switch (decl_tv.val.tag()) {
+            .function, .extern_fn => .function,
+            .variable => .variable,
+            else => .constant,
+        };
+
+        break :blk switch (decl.zirAddrspaceRef()) {
+            .none => switch (addrspace_ctx) {
+                .function => target_util.defaultAddressSpace(sema.mod.getTarget(), .function),
+                .variable => target_util.defaultAddressSpace(sema.mod.getTarget(), .global_mutable),
+                .constant => target_util.defaultAddressSpace(sema.mod.getTarget(), .global_constant),
+                else => unreachable,
+            },
+            else => |addrspace_ref| try sema.analyzeAddrspace(&block_scope, src, addrspace_ref, addrspace_ctx),
+        };
+    };
+
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
     // not the struct itself.
     try sema.resolveTypeLayout(&block_scope, src, decl_tv.ty);
 
-    // We need the memory for the Type to go into the arena for the Decl
-    var decl_arena = std.heap.ArenaAllocator.init(gpa);
-    errdefer decl_arena.deinit();
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
     if (decl.is_usingnamespace) {
@@ -3244,6 +3470,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             decl.val = try decl_tv.val.copy(&decl_arena.allocator);
             decl.align_val = try align_val.copy(&decl_arena.allocator);
             decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
+            decl.@"addrspace" = address_space;
             decl.has_tv = true;
             decl.owns_tv = owns_tv;
             decl_arena_state.* = decl_arena.state;
@@ -3271,7 +3498,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
                     return mod.fail(&block_scope.base, export_src, "export of inline function", .{});
                 }
                 // The scope needs to have the decl in it.
-                try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
+                const options: std.builtin.ExportOptions = .{ .name = mem.spanZ(decl.name) };
+                try mod.analyzeExport(&block_scope, export_src, options, decl);
             }
             return type_changed or is_inline != prev_is_inline;
         }
@@ -3305,6 +3533,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     decl.val = try decl_tv.val.copy(&decl_arena.allocator);
     decl.align_val = try align_val.copy(&decl_arena.allocator);
     decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
+    decl.@"addrspace" = address_space;
     decl.has_tv = true;
     decl_arena_state.* = decl_arena.state;
     decl.value_arena = decl_arena_state;
@@ -3329,7 +3558,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     if (decl.is_exported) {
         const export_src = src; // TODO point to the export token
         // The scope needs to have the decl in it.
-        try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
+        const options: std.builtin.ExportOptions = .{ .name = mem.spanZ(decl.name) };
+        try mod.analyzeExport(&block_scope, export_src, options, decl);
     }
 
     return type_changed;
@@ -3490,7 +3720,7 @@ pub fn scanNamespace(
     const zir = namespace.file_scope.zir;
 
     try mod.comp.work_queue.ensureUnusedCapacity(decls_len);
-    try namespace.decls.ensureCapacity(gpa, decls_len);
+    try namespace.decls.ensureTotalCapacity(gpa, decls_len);
 
     const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
     var extra_index = extra_start + bit_bags_count;
@@ -3512,8 +3742,8 @@ pub fn scanNamespace(
 
         const decl_sub_index = extra_index;
         extra_index += 7; // src_hash(4) + line(1) + name(1) + value(1)
-        extra_index += @truncate(u1, flags >> 2);
-        extra_index += @truncate(u1, flags >> 3);
+        extra_index += @truncate(u1, flags >> 2); // Align
+        extra_index += @as(u2, @truncate(u1, flags >> 3)) * 2; // Link section or address space, consists of 2 Refs
 
         try scanDecl(&scan_decl_iter, decl_sub_index, flags);
     }
@@ -3539,10 +3769,10 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
     const zir = namespace.file_scope.zir;
 
     // zig fmt: off
-    const is_pub          = (flags & 0b0001) != 0;
-    const export_bit      = (flags & 0b0010) != 0;
-    const has_align       = (flags & 0b0100) != 0;
-    const has_linksection = (flags & 0b1000) != 0;
+    const is_pub                       = (flags & 0b0001) != 0;
+    const export_bit                   = (flags & 0b0010) != 0;
+    const has_align                    = (flags & 0b0100) != 0;
+    const has_linksection_or_addrspace = (flags & 0b1000) != 0;
     // zig fmt: on
 
     const line = iter.parent_decl.relativeToLine(zir.extra[decl_sub_index + 4]);
@@ -3588,7 +3818,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
     // We create a Decl for it regardless of analysis status.
     const gop = try namespace.decls.getOrPut(gpa, decl_name);
     if (!gop.found_existing) {
-        const new_decl = try mod.allocateNewDecl(namespace, decl_node);
+        const new_decl = try mod.allocateNewDecl(namespace, decl_node, iter.parent_decl.src_scope);
         if (is_usingnamespace) {
             namespace.usingnamespace_set.putAssumeCapacity(new_decl, is_pub);
         }
@@ -3625,7 +3855,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
         new_decl.is_exported = is_exported;
         new_decl.is_usingnamespace = is_usingnamespace;
         new_decl.has_align = has_align;
-        new_decl.has_linksection = has_linksection;
+        new_decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
         new_decl.zir_decl_index = @intCast(u32, decl_sub_index);
         new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
         return;
@@ -3642,7 +3872,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
     decl.is_exported = is_exported;
     decl.is_usingnamespace = is_usingnamespace;
     decl.has_align = has_align;
-    decl.has_linksection = has_linksection;
+    decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
     if (decl.getFunction()) |_| {
         switch (mod.comp.bin_file.tag) {
@@ -3660,7 +3890,9 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
                 mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
             },
             .plan9 => {
-                // TODO implement for plan9
+                // TODO Look into detecting when this would be unnecessary by storing enough state
+                // in `Decl` to notice that the line number did not change.
+                mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
             },
             .c, .wasm, .spirv => {},
         }
@@ -3706,13 +3938,6 @@ pub fn clearDecl(
         dep.removeDependency(decl);
         if (outdated_decls) |map| {
             map.putAssumeCapacity(dep, {});
-        } else if (std.debug.runtime_safety) {
-            // If `outdated_decls` is `null`, it means we're being called from
-            // `Compilation` after `performAllTheWork` and we cannot queue up any
-            // more work. `dep` must necessarily be another Decl that is no longer
-            // being referenced, and will be in the `deletion_set`. Otherwise,
-            // something has gone wrong.
-            assert(mod.deletion_set.contains(dep));
         }
     }
     decl.dependants.clearRetainingCapacity();
@@ -3740,7 +3965,7 @@ pub fn clearDecl(
                 .elf => .{ .elf = link.File.Elf.TextBlock.empty },
                 .macho => .{ .macho = link.File.MachO.TextBlock.empty },
                 .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
-                .c => .{ .c = link.File.C.DeclBlock.empty },
+                .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
                 .spirv => .{ .spirv = {} },
             };
@@ -3749,7 +3974,7 @@ pub fn clearDecl(
                 .elf => .{ .elf = link.File.Elf.SrcFn.empty },
                 .macho => .{ .macho = link.File.MachO.SrcFn.empty },
                 .plan9 => .{ .plan9 = {} },
-                .c => .{ .c = link.File.C.FnBlock.empty },
+                .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
                 .spirv => .{ .spirv = .{} },
             };
@@ -3779,10 +4004,13 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
     // about the Decl in the first place.
     // Until then, we did call `allocateDeclIndexes` on this anonymous Decl and so we
     // must call `freeDecl` in the linker backend now.
-    if (decl.has_tv) {
-        if (decl.ty.hasCodeGenBits()) {
-            mod.comp.bin_file.freeDecl(decl);
-        }
+    switch (mod.comp.bin_file.tag) {
+        .c => {}, // this linker backend has already migrated to the new API
+        else => if (decl.has_tv) {
+            if (decl.ty.hasCodeGenBits()) {
+                mod.comp.bin_file.freeDecl(decl);
+            }
+        },
     }
 
     const dependants = decl.dependants.keys();
@@ -3800,7 +4028,7 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
 
 pub fn deleteAnonDecl(mod: *Module, scope: *Scope, decl: *Decl) void {
     log.debug("deleteAnonDecl {*} ({s})", .{ decl, decl.name });
-    const scope_decl = scope.ownerDecl().?;
+    const scope_decl = scope.srcDecl().?;
     assert(scope_decl.namespace.anon_decls.swapRemove(decl));
     decl.destroy(mod);
 }
@@ -3844,22 +4072,21 @@ fn deleteDeclExports(mod: *Module, decl: *Decl) void {
     mod.gpa.free(kv.value);
 }
 
-pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
+pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: *Allocator) SemaError!Air {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = mod.gpa;
 
-    // Use the Decl's arena for function memory.
-    var arena = decl.value_arena.?.promote(gpa);
-    defer decl.value_arena.?.* = arena.state;
-
-    const fn_ty = decl.ty;
+    // Use the Decl's arena for captured values.
+    var decl_arena = decl.value_arena.?.promote(gpa);
+    defer decl.value_arena.?.* = decl_arena.state;
 
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
-        .arena = &arena.allocator,
+        .arena = arena,
+        .perm_arena = &decl_arena.allocator,
         .code = decl.namespace.file_scope.zir,
         .owner_decl = decl,
         .namespace = decl.namespace,
@@ -3874,10 +4101,14 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     try sema.air_extra.ensureTotalCapacity(gpa, reserved_count);
     sema.air_extra.items.len += reserved_count;
 
+    var wip_captures = try WipCaptureScope.init(gpa, &decl_arena.allocator, decl.src_scope);
+    defer wip_captures.deinit();
+
     var inner_block: Scope.Block = .{
         .parent = null,
         .sema = &sema,
         .src_decl = decl,
+        .wip_capture_scope = wip_captures.scope,
         .instructions = .{},
         .inlining = null,
         .is_comptime = false,
@@ -3893,6 +4124,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
     // This could be a generic function instantiation, however, in which case we need to
     // map the comptime parameters to constant values and only emit arg AIR instructions
     // for the runtime ones.
+    const fn_ty = decl.ty;
     const runtime_params_len = @intCast(u32, fn_ty.fnParamLen());
     try inner_block.instructions.ensureTotalCapacity(gpa, runtime_params_len);
     try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
@@ -3952,6 +4184,8 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) SemaError!Air {
         else => |e| return e,
     };
 
+    try wip_captures.finalize();
+
     // Copy the block into place and mark that as the main block.
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
         inner_block.instructions.items.len);
@@ -3977,6 +4211,12 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     if (mod.failed_decls.fetchSwapRemove(decl)) |kv| {
         kv.value.destroy(mod.gpa);
     }
+    if (decl.has_tv and decl.owns_tv) {
+        if (decl.val.castTag(.function)) |payload| {
+            const func = payload.data;
+            _ = mod.align_stack_fns.remove(func);
+        }
+    }
     if (mod.emit_h) |emit_h| {
         if (emit_h.failed_decls.fetchSwapRemove(decl)) |kv| {
             kv.value.destroy(mod.gpa);
@@ -3986,7 +4226,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     decl.analysis = .outdated;
 }
 
-pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.Node.Index) !*Decl {
+pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.Node.Index, src_scope: ?*CaptureScope) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
     const new_decl: *Decl = if (mod.emit_h != null) blk: {
         const parent_struct = try mod.gpa.create(DeclPlusEmitH);
@@ -4008,15 +4248,17 @@ pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.
         .val = undefined,
         .align_val = undefined,
         .linksection_val = undefined,
+        .@"addrspace" = undefined,
         .analysis = .unreferenced,
         .deletion_flag = false,
         .zir_decl_index = 0,
+        .src_scope = src_scope,
         .link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = link.File.Coff.TextBlock.empty },
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
             .macho => .{ .macho = link.File.MachO.TextBlock.empty },
             .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
-            .c => .{ .c = link.File.C.DeclBlock.empty },
+            .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
             .spirv => .{ .spirv = {} },
         },
@@ -4025,18 +4267,19 @@ pub fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: Ast.
             .elf => .{ .elf = link.File.Elf.SrcFn.empty },
             .macho => .{ .macho = link.File.MachO.SrcFn.empty },
             .plan9 => .{ .plan9 = {} },
-            .c => .{ .c = link.File.C.FnBlock.empty },
+            .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
             .spirv => .{ .spirv = .{} },
         },
         .generation = 0,
         .is_pub = false,
         .is_exported = false,
-        .has_linksection = false,
+        .has_linksection_or_addrspace = false,
         .has_align = false,
         .alive = false,
         .is_usingnamespace = false,
     };
+
     return new_decl;
 }
 
@@ -4051,7 +4294,7 @@ pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged
     }
 
     errdefer assert(mod.global_error_set.remove(name));
-    try mod.error_name_list.ensureCapacity(mod.gpa, mod.error_name_list.items.len + 1);
+    try mod.error_name_list.ensureUnusedCapacity(mod.gpa, 1);
     gop.key_ptr.* = try mod.gpa.dupe(u8, name);
     gop.value_ptr.* = @intCast(ErrorInt, mod.error_name_list.items.len);
     mod.error_name_list.appendAssumeCapacity(gop.key_ptr.*);
@@ -4063,34 +4306,44 @@ pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged
 
 pub fn analyzeExport(
     mod: *Module,
-    scope: *Scope,
+    block: *Scope.Block,
     src: LazySrcLoc,
-    borrowed_symbol_name: []const u8,
+    borrowed_options: std.builtin.ExportOptions,
     exported_decl: *Decl,
 ) !void {
     try mod.ensureDeclAnalyzed(exported_decl);
     switch (exported_decl.ty.zigTypeTag()) {
         .Fn => {},
-        else => return mod.fail(scope, src, "unable to export type '{}'", .{exported_decl.ty}),
+        else => return mod.fail(&block.base, src, "unable to export type '{}'", .{exported_decl.ty}),
     }
 
-    try mod.decl_exports.ensureUnusedCapacity(mod.gpa, 1);
-    try mod.export_owners.ensureUnusedCapacity(mod.gpa, 1);
+    const gpa = mod.gpa;
 
-    const new_export = try mod.gpa.create(Export);
-    errdefer mod.gpa.destroy(new_export);
+    try mod.decl_exports.ensureUnusedCapacity(gpa, 1);
+    try mod.export_owners.ensureUnusedCapacity(gpa, 1);
 
-    const symbol_name = try mod.gpa.dupe(u8, borrowed_symbol_name);
-    errdefer mod.gpa.free(symbol_name);
+    const new_export = try gpa.create(Export);
+    errdefer gpa.destroy(new_export);
 
-    const owner_decl = scope.ownerDecl().?;
+    const symbol_name = try gpa.dupe(u8, borrowed_options.name);
+    errdefer gpa.free(symbol_name);
+
+    const section: ?[]const u8 = if (borrowed_options.section) |s| try gpa.dupe(u8, s) else null;
+    errdefer if (section) |s| gpa.free(s);
+
+    const src_decl = block.src_decl;
+    const owner_decl = block.sema.owner_decl;
 
     log.debug("exporting Decl '{s}' as symbol '{s}' from Decl '{s}'", .{
-        exported_decl.name, borrowed_symbol_name, owner_decl.name,
+        exported_decl.name, symbol_name, owner_decl.name,
     });
 
     new_export.* = .{
-        .options = .{ .name = symbol_name },
+        .options = .{
+            .name = symbol_name,
+            .linkage = borrowed_options.linkage,
+            .section = section,
+        },
         .src = src,
         .link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = {} },
@@ -4102,6 +4355,7 @@ pub fn analyzeExport(
             .spirv => .{ .spirv = {} },
         },
         .owner_decl = owner_decl,
+        .src_decl = src_decl,
         .exported_decl = exported_decl,
         .status = .in_progress,
     };
@@ -4111,18 +4365,18 @@ pub fn analyzeExport(
     if (!eo_gop.found_existing) {
         eo_gop.value_ptr.* = &[0]*Export{};
     }
-    eo_gop.value_ptr.* = try mod.gpa.realloc(eo_gop.value_ptr.*, eo_gop.value_ptr.len + 1);
+    eo_gop.value_ptr.* = try gpa.realloc(eo_gop.value_ptr.*, eo_gop.value_ptr.len + 1);
     eo_gop.value_ptr.*[eo_gop.value_ptr.len - 1] = new_export;
-    errdefer eo_gop.value_ptr.* = mod.gpa.shrink(eo_gop.value_ptr.*, eo_gop.value_ptr.len - 1);
+    errdefer eo_gop.value_ptr.* = gpa.shrink(eo_gop.value_ptr.*, eo_gop.value_ptr.len - 1);
 
     // Add to exported_decl table.
     const de_gop = mod.decl_exports.getOrPutAssumeCapacity(exported_decl);
     if (!de_gop.found_existing) {
         de_gop.value_ptr.* = &[0]*Export{};
     }
-    de_gop.value_ptr.* = try mod.gpa.realloc(de_gop.value_ptr.*, de_gop.value_ptr.len + 1);
+    de_gop.value_ptr.* = try gpa.realloc(de_gop.value_ptr.*, de_gop.value_ptr.len + 1);
     de_gop.value_ptr.*[de_gop.value_ptr.len - 1] = new_export;
-    errdefer de_gop.value_ptr.* = mod.gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
+    errdefer de_gop.value_ptr.* = gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
 }
 
 /// Takes ownership of `name` even if it returns an error.
@@ -4132,39 +4386,43 @@ pub fn createAnonymousDeclNamed(
     typed_value: TypedValue,
     name: [:0]u8,
 ) !*Decl {
-    return mod.createAnonymousDeclFromDeclNamed(scope.ownerDecl().?, typed_value, name);
+    return mod.createAnonymousDeclFromDeclNamed(scope.srcDecl().?, scope.srcScope(), typed_value, name);
 }
 
 pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
-    return mod.createAnonymousDeclFromDecl(scope.ownerDecl().?, typed_value);
+    return mod.createAnonymousDeclFromDecl(scope.srcDecl().?, scope.srcScope(), typed_value);
 }
 
-pub fn createAnonymousDeclFromDecl(mod: *Module, owner_decl: *Decl, tv: TypedValue) !*Decl {
+pub fn createAnonymousDeclFromDecl(mod: *Module, src_decl: *Decl, src_scope: ?*CaptureScope, tv: TypedValue) !*Decl {
     const name_index = mod.getNextAnonNameIndex();
     const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
-        owner_decl.name, name_index,
+        src_decl.name, name_index,
     });
-    return mod.createAnonymousDeclFromDeclNamed(owner_decl, tv, name);
+    return mod.createAnonymousDeclFromDeclNamed(src_decl, src_scope, tv, name);
 }
 
 /// Takes ownership of `name` even if it returns an error.
 pub fn createAnonymousDeclFromDeclNamed(
     mod: *Module,
-    owner_decl: *Decl,
+    src_decl: *Decl,
+    src_scope: ?*CaptureScope,
     typed_value: TypedValue,
     name: [:0]u8,
 ) !*Decl {
     errdefer mod.gpa.free(name);
 
-    const namespace = owner_decl.namespace;
+    const namespace = src_decl.namespace;
     try namespace.anon_decls.ensureUnusedCapacity(mod.gpa, 1);
 
-    const new_decl = try mod.allocateNewDecl(namespace, owner_decl.src_node);
+    const new_decl = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope);
 
     new_decl.name = name;
-    new_decl.src_line = owner_decl.src_line;
+    new_decl.src_line = src_decl.src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
+    new_decl.align_val = Value.initTag(.null_value);
+    new_decl.linksection_val = Value.initTag(.null_value);
+    new_decl.@"addrspace" = .generic; // default global addrspace
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
@@ -4303,61 +4561,6 @@ pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) Co
         .namespace => unreachable,
     }
     return error.AnalysisFail;
-}
-
-pub fn simplePtrType(
-    arena: *Allocator,
-    elem_ty: Type,
-    mutable: bool,
-    size: std.builtin.TypeInfo.Pointer.Size,
-) Allocator.Error!Type {
-    if (!mutable and size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
-        return Type.initTag(.const_slice_u8);
-    }
-    // TODO stage1 type inference bug
-    const T = Type.Tag;
-
-    const type_payload = try arena.create(Type.Payload.ElemType);
-    type_payload.* = .{
-        .base = .{
-            .tag = switch (size) {
-                .One => if (mutable) T.single_mut_pointer else T.single_const_pointer,
-                .Many => if (mutable) T.many_mut_pointer else T.many_const_pointer,
-                .C => if (mutable) T.c_mut_pointer else T.c_const_pointer,
-                .Slice => if (mutable) T.mut_slice else T.const_slice,
-            },
-        },
-        .data = elem_ty,
-    };
-    return Type.initPayload(&type_payload.base);
-}
-
-pub fn ptrType(
-    arena: *Allocator,
-    elem_ty: Type,
-    sentinel: ?Value,
-    @"align": u32,
-    bit_offset: u16,
-    host_size: u16,
-    mutable: bool,
-    @"allowzero": bool,
-    @"volatile": bool,
-    size: std.builtin.TypeInfo.Pointer.Size,
-) Allocator.Error!Type {
-    assert(host_size == 0 or bit_offset < host_size * 8);
-
-    // TODO check if type can be represented by simplePtrType
-    return Type.Tag.pointer.create(arena, .{
-        .pointee_type = elem_ty,
-        .sentinel = sentinel,
-        .@"align" = @"align",
-        .bit_offset = bit_offset,
-        .host_size = host_size,
-        .@"allowzero" = @"allowzero",
-        .mutable = mutable,
-        .@"volatile" = @"volatile",
-        .size = size,
-    });
 }
 
 pub fn optionalType(arena: *Allocator, child_type: Type) Allocator.Error!Type {
@@ -4689,7 +4892,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
     const builtin_file = (mod.importPkg(builtin_pkg) catch unreachable).file;
     const builtin_namespace = builtin_file.root_decl.?.namespace;
     const decl = builtin_namespace.decls.get("test_functions").?;
-    var buf: Type.Payload.ElemType = undefined;
+    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
     const tmp_test_fn_ty = decl.ty.slicePtrFieldType(&buf).elemType();
 
     const array_decl = d: {
@@ -4700,7 +4903,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
         const arena = &new_decl_arena.allocator;
 
         const test_fn_vals = try arena.alloc(Value, mod.test_functions.count());
-        const array_decl = try mod.createAnonymousDeclFromDecl(decl, .{
+        const array_decl = try mod.createAnonymousDeclFromDecl(decl, null, .{
             .ty = try Type.Tag.array.create(arena, .{
                 .len = test_fn_vals.len,
                 .elem_type = try tmp_test_fn_ty.copy(arena),
@@ -4713,7 +4916,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
                 var name_decl_arena = std.heap.ArenaAllocator.init(gpa);
                 errdefer name_decl_arena.deinit();
                 const bytes = try name_decl_arena.allocator.dupe(u8, test_name_slice);
-                const test_name_decl = try mod.createAnonymousDeclFromDecl(array_decl, .{
+                const test_name_decl = try mod.createAnonymousDeclFromDecl(array_decl, null, .{
                     .ty = try Type.Tag.array_u8.create(&name_decl_arena.allocator, bytes.len),
                     .val = try Value.Tag.bytes.create(&name_decl_arena.allocator, bytes),
                 });

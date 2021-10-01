@@ -333,27 +333,33 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: Ast, node: Ast.Node.Index,
 
         .add,
         .add_wrap,
+        .add_sat,
         .array_cat,
         .array_mult,
         .assign,
         .assign_bit_and,
         .assign_bit_or,
-        .assign_bit_shift_left,
-        .assign_bit_shift_right,
+        .assign_shl,
+        .assign_shl_sat,
+        .assign_shr,
         .assign_bit_xor,
         .assign_div,
         .assign_sub,
         .assign_sub_wrap,
+        .assign_sub_sat,
         .assign_mod,
         .assign_add,
         .assign_add_wrap,
+        .assign_add_sat,
         .assign_mul,
         .assign_mul_wrap,
+        .assign_mul_sat,
         .bang_equal,
         .bit_and,
         .bit_or,
-        .bit_shift_left,
-        .bit_shift_right,
+        .shl,
+        .shl_sat,
+        .shr,
         .bit_xor,
         .bool_and,
         .bool_or,
@@ -367,8 +373,10 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: Ast, node: Ast.Node.Index,
         .mod,
         .mul,
         .mul_wrap,
+        .mul_sat,
         .sub,
         .sub_wrap,
+        .sub_sat,
         .@"orelse",
         => {
             const infix = datas[node];
@@ -797,6 +805,14 @@ fn renderPtrType(
         }
     }
 
+    if (ptr_type.ast.addrspace_node != 0) {
+        const addrspace_first = tree.firstToken(ptr_type.ast.addrspace_node);
+        try renderToken(ais, tree, addrspace_first - 2, .none); // addrspace
+        try renderToken(ais, tree, addrspace_first - 1, .none); // lparen
+        try renderExpression(gpa, ais, tree, ptr_type.ast.addrspace_node, .none);
+        try renderToken(ais, tree, tree.lastToken(ptr_type.ast.addrspace_node) + 1, .space); // rparen
+    }
+
     if (ptr_type.const_token) |const_token| {
         try renderToken(ais, tree, const_token, .space);
     }
@@ -921,6 +937,7 @@ fn renderVarDecl(gpa: *Allocator, ais: *Ais, tree: Ast, var_decl: Ast.full.VarDe
 
     const name_space = if (var_decl.ast.type_node == 0 and
         (var_decl.ast.align_node != 0 or
+        var_decl.ast.addrspace_node != 0 or
         var_decl.ast.section_node != 0 or
         var_decl.ast.init_node != 0))
         Space.space
@@ -930,8 +947,8 @@ fn renderVarDecl(gpa: *Allocator, ais: *Ais, tree: Ast, var_decl: Ast.full.VarDe
 
     if (var_decl.ast.type_node != 0) {
         try renderToken(ais, tree, var_decl.ast.mut_token + 2, Space.space); // :
-        if (var_decl.ast.align_node != 0 or var_decl.ast.section_node != 0 or
-            var_decl.ast.init_node != 0)
+        if (var_decl.ast.align_node != 0 or var_decl.ast.addrspace_node != 0 or
+            var_decl.ast.section_node != 0 or var_decl.ast.init_node != 0)
         {
             try renderExpression(gpa, ais, tree, var_decl.ast.type_node, .space);
         } else {
@@ -948,6 +965,23 @@ fn renderVarDecl(gpa: *Allocator, ais: *Ais, tree: Ast, var_decl: Ast.full.VarDe
         try renderToken(ais, tree, align_kw, Space.none); // align
         try renderToken(ais, tree, lparen, Space.none); // (
         try renderExpression(gpa, ais, tree, var_decl.ast.align_node, Space.none);
+        if (var_decl.ast.addrspace_node != 0 or var_decl.ast.section_node != 0 or
+            var_decl.ast.init_node != 0)
+        {
+            try renderToken(ais, tree, rparen, .space); // )
+        } else {
+            try renderToken(ais, tree, rparen, .none); // )
+            return renderToken(ais, tree, rparen + 1, Space.newline); // ;
+        }
+    }
+
+    if (var_decl.ast.addrspace_node != 0) {
+        const lparen = tree.firstToken(var_decl.ast.addrspace_node) - 1;
+        const addrspace_kw = lparen - 1;
+        const rparen = tree.lastToken(var_decl.ast.addrspace_node) + 1;
+        try renderToken(ais, tree, addrspace_kw, Space.none); // addrspace
+        try renderToken(ais, tree, lparen, Space.none); // (
+        try renderExpression(gpa, ais, tree, var_decl.ast.addrspace_node, Space.none);
         if (var_decl.ast.section_node != 0 or var_decl.ast.init_node != 0) {
             try renderToken(ais, tree, rparen, .space); // )
         } else {
@@ -1267,6 +1301,14 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: Ast, fn_proto: Ast.full.FnPro
                 smallest_start = start;
             }
         }
+        if (fn_proto.ast.addrspace_expr != 0) {
+            const tok = tree.firstToken(fn_proto.ast.addrspace_expr) - 3;
+            const start = token_starts[tok];
+            if (start < smallest_start) {
+                rparen = tok;
+                smallest_start = start;
+            }
+        }
         if (fn_proto.ast.section_expr != 0) {
             const tok = tree.firstToken(fn_proto.ast.section_expr) - 3;
             const start = token_starts[tok];
@@ -1404,6 +1446,16 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: Ast, fn_proto: Ast.full.FnPro
         try renderToken(ais, tree, align_lparen - 1, .none); // align
         try renderToken(ais, tree, align_lparen, .none); // (
         try renderExpression(gpa, ais, tree, fn_proto.ast.align_expr, .none);
+        try renderToken(ais, tree, align_rparen, .space); // )
+    }
+
+    if (fn_proto.ast.addrspace_expr != 0) {
+        const align_lparen = tree.firstToken(fn_proto.ast.addrspace_expr) - 1;
+        const align_rparen = tree.lastToken(fn_proto.ast.addrspace_expr) + 1;
+
+        try renderToken(ais, tree, align_lparen - 1, .none); // addrspace
+        try renderToken(ais, tree, align_lparen, .none); // (
+        try renderExpression(gpa, ais, tree, fn_proto.ast.addrspace_expr, .none);
         try renderToken(ais, tree, align_rparen, .space); // )
     }
 
@@ -2476,8 +2528,8 @@ fn nodeCausesSliceOpSpace(tag: Ast.Node.Tag) bool {
         .assign,
         .assign_bit_and,
         .assign_bit_or,
-        .assign_bit_shift_left,
-        .assign_bit_shift_right,
+        .assign_shl,
+        .assign_shr,
         .assign_bit_xor,
         .assign_div,
         .assign_sub,
@@ -2490,8 +2542,8 @@ fn nodeCausesSliceOpSpace(tag: Ast.Node.Tag) bool {
         .bang_equal,
         .bit_and,
         .bit_or,
-        .bit_shift_left,
-        .bit_shift_right,
+        .shl,
+        .shr,
         .bit_xor,
         .bool_and,
         .bool_or,

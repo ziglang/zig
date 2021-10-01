@@ -487,9 +487,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
             if (mangled_symbol_buf) buf_destroy(mangled_symbol_buf);
         }
     } else {
-        if (llvm_fn == nullptr) {
-            llvm_fn = LLVMAddFunction(g->module, symbol_name, fn_llvm_type);
-        }
+        llvm_fn = LLVMAddFunction(g->module, symbol_name, fn_llvm_type);
 
         for (size_t i = 1; i < fn->export_list.length; i += 1) {
             GlobalExport *fn_export = &fn->export_list.items[i];
@@ -3335,7 +3333,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
             } else {
                 zig_unreachable();
             }
-        case IrBinOpSatAdd:
+        case IrBinOpAddSat:
             if (scalar_type->id == ZigTypeIdInt) {
                 if (scalar_type->data.integral.is_signed) {
                     return ZigLLVMBuildSAddSat(g->builder, op1_value, op2_value, "");
@@ -3345,7 +3343,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
             } else {
                 zig_unreachable();
             }
-        case IrBinOpSatSub:
+        case IrBinOpSubSat:
             if (scalar_type->id == ZigTypeIdInt) {
                 if (scalar_type->data.integral.is_signed) {
                     return ZigLLVMBuildSSubSat(g->builder, op1_value, op2_value, "");
@@ -3355,7 +3353,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
             } else {
                 zig_unreachable();
             }
-        case IrBinOpSatMul:
+        case IrBinOpMultSat:
             if (scalar_type->id == ZigTypeIdInt) {
                 if (scalar_type->data.integral.is_signed) {
                     return ZigLLVMBuildSMulFixSat(g->builder, op1_value, op2_value, "");
@@ -3365,7 +3363,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
             } else {
                 zig_unreachable();
             }
-        case IrBinOpSatShl:
+        case IrBinOpShlSat:
             if (scalar_type->id == ZigTypeIdInt) {
                 if (scalar_type->data.integral.is_signed) {
                     return ZigLLVMBuildSShlSat(g->builder, op1_value, op2_value, "");
@@ -9134,10 +9132,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdReduce, "reduce", 2);
     create_builtin_fn(g, BuiltinFnIdMaximum, "maximum", 2);
     create_builtin_fn(g, BuiltinFnIdMinimum, "minimum", 2);
-    create_builtin_fn(g, BuiltinFnIdSatAdd, "addWithSaturation", 2);
-    create_builtin_fn(g, BuiltinFnIdSatSub, "subWithSaturation", 2);
-    create_builtin_fn(g, BuiltinFnIdSatMul, "mulWithSaturation", 2);
-    create_builtin_fn(g, BuiltinFnIdSatShl, "shlWithSaturation", 2);
 }
 
 static const char *bool_to_str(bool b) {
@@ -9323,6 +9317,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
     buf_appendf(contents, "pub const abi = std.Target.Abi.%s;\n", cur_abi);
     buf_appendf(contents, "pub const cpu = std.Target.Cpu.baseline(.%s);\n", cur_arch);
+    buf_appendf(contents, "pub const stage2_arch: std.Target.Cpu.Arch = .%s;\n", cur_arch);
     buf_appendf(contents, "pub const os = std.Target.Os.Tag.defaultVersionRange(.%s);\n", cur_os);
     buf_appendf(contents,
         "pub const target = std.Target{\n"

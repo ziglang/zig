@@ -2073,7 +2073,7 @@ static AstNode *ast_parse_field_init(ParseContext *pc) {
         return nullptr;
     }
     if (eat_token_if(pc, TokenIdEq) == 0) {
-        // Because ".Name" can also be intepreted as an enum literal, we should put back
+        // Because ".Name" can also be interpreted as an enum literal, we should put back
         // those two tokens again so that the parser can try to parse them as the enum
         // literal later.
         put_back_token(pc);
@@ -2381,6 +2381,7 @@ static AstNode *ast_parse_switch_item(ParseContext *pc) {
 //      / PLUSEQUAL
 //      / MINUSEQUAL
 //      / LARROW2EQUAL
+//      / LARROW2PIPEEQUAL
 //      / RARROW2EQUAL
 //      / AMPERSANDEQUAL
 //      / CARETEQUAL
@@ -2388,6 +2389,9 @@ static AstNode *ast_parse_switch_item(ParseContext *pc) {
 //      / ASTERISKPERCENTEQUAL
 //      / PLUSPERCENTEQUAL
 //      / MINUSPERCENTEQUAL
+//      / ASTERISKPIPEEQUAL
+//      / PLUSPIPEEQUAL
+//      / MINUSPIPEEQUAL
 //      / EQUAL
 static AstNode *ast_parse_assign_op(ParseContext *pc) {
     // In C, we have `T arr[N] = {[i] = T{}};` but it doesn't
@@ -2396,17 +2400,21 @@ static AstNode *ast_parse_assign_op(ParseContext *pc) {
     table[TokenIdBitAndEq] = BinOpTypeAssignBitAnd;
     table[TokenIdBitOrEq] = BinOpTypeAssignBitOr;
     table[TokenIdBitShiftLeftEq] = BinOpTypeAssignBitShiftLeft;
+    table[TokenIdBitShiftLeftPipeEq] = BinOpTypeAssignBitShiftLeftSat;
     table[TokenIdBitShiftRightEq] = BinOpTypeAssignBitShiftRight;
     table[TokenIdBitXorEq] = BinOpTypeAssignBitXor;
     table[TokenIdDivEq] = BinOpTypeAssignDiv;
     table[TokenIdEq] = BinOpTypeAssign;
     table[TokenIdMinusEq] = BinOpTypeAssignMinus;
     table[TokenIdMinusPercentEq] = BinOpTypeAssignMinusWrap;
+    table[TokenIdMinusPipeEq] = BinOpTypeAssignMinusSat;
     table[TokenIdModEq] = BinOpTypeAssignMod;
     table[TokenIdPlusEq] = BinOpTypeAssignPlus;
     table[TokenIdPlusPercentEq] = BinOpTypeAssignPlusWrap;
+    table[TokenIdPlusPipeEq] = BinOpTypeAssignPlusSat;
     table[TokenIdTimesEq] = BinOpTypeAssignTimes;
     table[TokenIdTimesPercentEq] = BinOpTypeAssignTimesWrap;
+    table[TokenIdTimesPipeEq] = BinOpTypeAssignTimesSat;
 
     BinOpType op = table[pc->token_ids[pc->current_token]];
     if (op != BinOpTypeInvalid) {
@@ -2483,10 +2491,12 @@ static AstNode *ast_parse_bitwise_op(ParseContext *pc) {
 
 // BitShiftOp
 //     <- LARROW2
+//      / LARROW2PIPE
 //      / RARROW2
 static AstNode *ast_parse_bit_shift_op(ParseContext *pc) {
     BinOpType table[TokenIdCount] = {};
     table[TokenIdBitShiftLeft] = BinOpTypeBitShiftLeft;
+    table[TokenIdBitShiftLeftPipe] = BinOpTypeBitShiftLeftSat;
     table[TokenIdBitShiftRight] = BinOpTypeBitShiftRight;
 
     BinOpType op = table[pc->token_ids[pc->current_token]];
@@ -2506,6 +2516,8 @@ static AstNode *ast_parse_bit_shift_op(ParseContext *pc) {
 //      / PLUS2
 //      / PLUSPERCENT
 //      / MINUSPERCENT
+//      / PLUSPIPE
+//      / MINUSPIPE
 static AstNode *ast_parse_addition_op(ParseContext *pc) {
     BinOpType table[TokenIdCount] = {};
     table[TokenIdPlus] = BinOpTypeAdd;
@@ -2513,6 +2525,8 @@ static AstNode *ast_parse_addition_op(ParseContext *pc) {
     table[TokenIdPlusPlus] = BinOpTypeArrayCat;
     table[TokenIdPlusPercent] = BinOpTypeAddWrap;
     table[TokenIdMinusPercent] = BinOpTypeSubWrap;
+    table[TokenIdPlusPipe] = BinOpTypeAddSat;
+    table[TokenIdMinusPipe] = BinOpTypeSubSat;
 
     BinOpType op = table[pc->token_ids[pc->current_token]];
     if (op != BinOpTypeInvalid) {
@@ -2532,6 +2546,7 @@ static AstNode *ast_parse_addition_op(ParseContext *pc) {
 //      / PERCENT
 //      / ASTERISK2
 //      / ASTERISKPERCENT
+//      / ASTERISKPIPE
 static AstNode *ast_parse_multiply_op(ParseContext *pc) {
     BinOpType table[TokenIdCount] = {};
     table[TokenIdBarBar] = BinOpTypeMergeErrorSets;
@@ -2540,6 +2555,7 @@ static AstNode *ast_parse_multiply_op(ParseContext *pc) {
     table[TokenIdPercent] = BinOpTypeMod;
     table[TokenIdStarStar] = BinOpTypeArrayMult;
     table[TokenIdTimesPercent] = BinOpTypeMultWrap;
+    table[TokenIdTimesPipe] = BinOpTypeMultSat;
 
     BinOpType op = table[pc->token_ids[pc->current_token]];
     if (op != BinOpTypeInvalid) {

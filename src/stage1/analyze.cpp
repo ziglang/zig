@@ -1019,6 +1019,16 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
     zig_unreachable();
 }
 
+const char *address_space_name(AddressSpace as) {
+    switch (as) {
+        case AddressSpaceGeneric: return "generic";
+        case AddressSpaceGS: return "gs";
+        case AddressSpaceFS: return "fs";
+        case AddressSpaceSS: return "ss";
+    }
+    zig_unreachable();
+}
+
 ZigType *get_stack_trace_type(CodeGen *g) {
     if (g->stack_trace_type == nullptr) {
         g->stack_trace_type = get_builtin_type(g, "StackTrace");
@@ -6794,7 +6804,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     // Since this frame is async, an await might represent a suspend point, and
     // therefore need to spill. It also needs to mark expr scopes as having to spill.
     // For example: foo() + await z
-    // The funtion call result of foo() must be spilled.
+    // The function call result of foo() must be spilled.
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         Stage1AirInstAwait *await = fn->await_list.at(i);
         if (await->is_nosuspend) {

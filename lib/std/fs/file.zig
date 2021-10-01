@@ -41,6 +41,8 @@ pub const File = struct {
         File,
         UnixDomainSocket,
         Whiteout,
+        Door,
+        EventPort,
         Unknown,
     };
 
@@ -320,28 +322,40 @@ pub const File = struct {
         const atime = st.atime();
         const mtime = st.mtime();
         const ctime = st.ctime();
+        const kind: Kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
+            .BLOCK_DEVICE => Kind.BlockDevice,
+            .CHARACTER_DEVICE => Kind.CharacterDevice,
+            .DIRECTORY => Kind.Directory,
+            .SYMBOLIC_LINK => Kind.SymLink,
+            .REGULAR_FILE => Kind.File,
+            .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
+            else => Kind.Unknown,
+        } else blk: {
+            const m = st.mode & os.S.IFMT;
+            switch (m) {
+                os.S.IFBLK => break :blk Kind.BlockDevice,
+                os.S.IFCHR => break :blk Kind.CharacterDevice,
+                os.S.IFDIR => break :blk Kind.Directory,
+                os.S.IFIFO => break :blk Kind.NamedPipe,
+                os.S.IFLNK => break :blk Kind.SymLink,
+                os.S.IFREG => break :blk Kind.File,
+                os.S.IFSOCK => break :blk Kind.UnixDomainSocket,
+                else => {},
+            }
+            if (builtin.os.tag == .solaris) switch (m) {
+                os.S.IFDOOR => break :blk Kind.Door,
+                os.S.IFPORT => break :blk Kind.EventPort,
+                else => {},
+            };
+
+            break :blk .Unknown;
+        };
+
         return Stat{
             .inode = st.ino,
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
-            .kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
-                .BLOCK_DEVICE => Kind.BlockDevice,
-                .CHARACTER_DEVICE => Kind.CharacterDevice,
-                .DIRECTORY => Kind.Directory,
-                .SYMBOLIC_LINK => Kind.SymLink,
-                .REGULAR_FILE => Kind.File,
-                .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
-                else => Kind.Unknown,
-            } else switch (st.mode & os.S.IFMT) {
-                os.S.IFBLK => Kind.BlockDevice,
-                os.S.IFCHR => Kind.CharacterDevice,
-                os.S.IFDIR => Kind.Directory,
-                os.S.IFIFO => Kind.NamedPipe,
-                os.S.IFLNK => Kind.SymLink,
-                os.S.IFREG => Kind.File,
-                os.S.IFSOCK => Kind.UnixDomainSocket,
-                else => Kind.Unknown,
-            },
+            .kind = kind,
             .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
             .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
             .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
@@ -852,6 +866,7 @@ pub const File = struct {
 
     pub const LockError = error{
         SystemResources,
+        FileLocksNotSupported,
     } || os.UnexpectedError;
 
     /// Blocks when an incompatible lock is held by another process.
@@ -914,6 +929,7 @@ pub const File = struct {
             return os.flock(file.handle, os.LOCK.UN) catch |err| switch (err) {
                 error.WouldBlock => unreachable, // unlocking can't block
                 error.SystemResources => unreachable, // We are deallocating resources.
+                error.FileLocksNotSupported => unreachable, // We already got the lock.
                 error.Unexpected => unreachable, // Resource deallocation must succeed.
             };
         }

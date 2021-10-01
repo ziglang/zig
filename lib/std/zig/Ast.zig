@@ -262,6 +262,9 @@ pub fn renderError(tree: Tree, parse_error: Error, stream: anytype) !void {
                 token_tags[parse_error.token].symbol(),
             });
         },
+        .extra_addrspace_qualifier => {
+            return stream.writeAll("extra addrspace qualifier");
+        },
         .extra_align_qualifier => {
             return stream.writeAll("extra align qualifier");
         },
@@ -392,14 +395,18 @@ pub fn firstToken(tree: Tree, node: Node.Index) TokenIndex {
         .assign_mod,
         .assign_add,
         .assign_sub,
-        .assign_bit_shift_left,
-        .assign_bit_shift_right,
+        .assign_shl,
+        .assign_shl_sat,
+        .assign_shr,
         .assign_bit_and,
         .assign_bit_xor,
         .assign_bit_or,
         .assign_mul_wrap,
         .assign_add_wrap,
         .assign_sub_wrap,
+        .assign_mul_sat,
+        .assign_add_sat,
+        .assign_sub_sat,
         .assign,
         .merge_error_sets,
         .mul,
@@ -407,13 +414,17 @@ pub fn firstToken(tree: Tree, node: Node.Index) TokenIndex {
         .mod,
         .array_mult,
         .mul_wrap,
+        .mul_sat,
         .add,
         .sub,
         .array_cat,
         .add_wrap,
         .sub_wrap,
-        .bit_shift_left,
-        .bit_shift_right,
+        .add_sat,
+        .sub_sat,
+        .shl,
+        .shl_sat,
+        .shr,
         .bit_and,
         .bit_xor,
         .bit_or,
@@ -648,14 +659,18 @@ pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
         .assign_mod,
         .assign_add,
         .assign_sub,
-        .assign_bit_shift_left,
-        .assign_bit_shift_right,
+        .assign_shl,
+        .assign_shl_sat,
+        .assign_shr,
         .assign_bit_and,
         .assign_bit_xor,
         .assign_bit_or,
         .assign_mul_wrap,
         .assign_add_wrap,
         .assign_sub_wrap,
+        .assign_mul_sat,
+        .assign_add_sat,
+        .assign_sub_sat,
         .assign,
         .merge_error_sets,
         .mul,
@@ -663,13 +678,17 @@ pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
         .mod,
         .array_mult,
         .mul_wrap,
+        .mul_sat,
         .add,
         .sub,
         .array_cat,
         .add_wrap,
         .sub_wrap,
-        .bit_shift_left,
-        .bit_shift_right,
+        .add_sat,
+        .sub_sat,
+        .shl,
+        .shl_sat,
+        .shr,
         .bit_and,
         .bit_xor,
         .bit_or,
@@ -1021,7 +1040,7 @@ pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
         },
         .fn_proto_one => {
             const extra = tree.extraData(datas[n].lhs, Node.FnProtoOne);
-            // linksection, callconv, align can appear in any order, so we
+            // addrspace, linksection, callconv, align can appear in any order, so we
             // find the last one here.
             var max_node: Node.Index = datas[n].rhs;
             var max_start = token_starts[main_tokens[max_node]];
@@ -1030,6 +1049,14 @@ pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
                 const start = token_starts[main_tokens[extra.align_expr]];
                 if (start > max_start) {
                     max_node = extra.align_expr;
+                    max_start = start;
+                    max_offset = 1; // for the rparen
+                }
+            }
+            if (extra.addrspace_expr != 0) {
+                const start = token_starts[main_tokens[extra.addrspace_expr]];
+                if (start > max_start) {
+                    max_node = extra.addrspace_expr;
                     max_start = start;
                     max_offset = 1; // for the rparen
                 }
@@ -1055,7 +1082,7 @@ pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
         },
         .fn_proto => {
             const extra = tree.extraData(datas[n].lhs, Node.FnProto);
-            // linksection, callconv, align can appear in any order, so we
+            // addrspace, linksection, callconv, align can appear in any order, so we
             // find the last one here.
             var max_node: Node.Index = datas[n].rhs;
             var max_start = token_starts[main_tokens[max_node]];
@@ -1064,6 +1091,14 @@ pub fn lastToken(tree: Tree, node: Node.Index) TokenIndex {
                 const start = token_starts[main_tokens[extra.align_expr]];
                 if (start > max_start) {
                     max_node = extra.align_expr;
+                    max_start = start;
+                    max_offset = 1; // for the rparen
+                }
+            }
+            if (extra.addrspace_expr != 0) {
+                const start = token_starts[main_tokens[extra.addrspace_expr]];
+                if (start > max_start) {
+                    max_node = extra.addrspace_expr;
                     max_start = start;
                     max_offset = 1; // for the rparen
                 }
@@ -1138,6 +1173,7 @@ pub fn globalVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
     return tree.fullVarDecl(.{
         .type_node = extra.type_node,
         .align_node = extra.align_node,
+        .addrspace_node = extra.addrspace_node,
         .section_node = extra.section_node,
         .init_node = data.rhs,
         .mut_token = tree.nodes.items(.main_token)[node],
@@ -1151,6 +1187,7 @@ pub fn localVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
     return tree.fullVarDecl(.{
         .type_node = extra.type_node,
         .align_node = extra.align_node,
+        .addrspace_node = 0,
         .section_node = 0,
         .init_node = data.rhs,
         .mut_token = tree.nodes.items(.main_token)[node],
@@ -1163,6 +1200,7 @@ pub fn simpleVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
     return tree.fullVarDecl(.{
         .type_node = data.lhs,
         .align_node = 0,
+        .addrspace_node = 0,
         .section_node = 0,
         .init_node = data.rhs,
         .mut_token = tree.nodes.items(.main_token)[node],
@@ -1175,6 +1213,7 @@ pub fn alignedVarDecl(tree: Tree, node: Node.Index) full.VarDecl {
     return tree.fullVarDecl(.{
         .type_node = 0,
         .align_node = data.lhs,
+        .addrspace_node = 0,
         .section_node = 0,
         .init_node = data.rhs,
         .mut_token = tree.nodes.items(.main_token)[node],
@@ -1249,6 +1288,7 @@ pub fn fnProtoSimple(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.
         .return_type = data.rhs,
         .params = params,
         .align_expr = 0,
+        .addrspace_expr = 0,
         .section_expr = 0,
         .callconv_expr = 0,
     });
@@ -1265,6 +1305,7 @@ pub fn fnProtoMulti(tree: Tree, node: Node.Index) full.FnProto {
         .return_type = data.rhs,
         .params = params,
         .align_expr = 0,
+        .addrspace_expr = 0,
         .section_expr = 0,
         .callconv_expr = 0,
     });
@@ -1282,6 +1323,7 @@ pub fn fnProtoOne(tree: Tree, buffer: *[1]Node.Index, node: Node.Index) full.FnP
         .return_type = data.rhs,
         .params = params,
         .align_expr = extra.align_expr,
+        .addrspace_expr = extra.addrspace_expr,
         .section_expr = extra.section_expr,
         .callconv_expr = extra.callconv_expr,
     });
@@ -1298,6 +1340,7 @@ pub fn fnProto(tree: Tree, node: Node.Index) full.FnProto {
         .return_type = data.rhs,
         .params = params,
         .align_expr = extra.align_expr,
+        .addrspace_expr = extra.addrspace_expr,
         .section_expr = extra.section_expr,
         .callconv_expr = extra.callconv_expr,
     });
@@ -1453,6 +1496,7 @@ pub fn ptrTypeAligned(tree: Tree, node: Node.Index) full.PtrType {
     return tree.fullPtrType(.{
         .main_token = tree.nodes.items(.main_token)[node],
         .align_node = data.lhs,
+        .addrspace_node = 0,
         .sentinel = 0,
         .bit_range_start = 0,
         .bit_range_end = 0,
@@ -1466,6 +1510,7 @@ pub fn ptrTypeSentinel(tree: Tree, node: Node.Index) full.PtrType {
     return tree.fullPtrType(.{
         .main_token = tree.nodes.items(.main_token)[node],
         .align_node = 0,
+        .addrspace_node = 0,
         .sentinel = data.lhs,
         .bit_range_start = 0,
         .bit_range_end = 0,
@@ -1480,6 +1525,7 @@ pub fn ptrType(tree: Tree, node: Node.Index) full.PtrType {
     return tree.fullPtrType(.{
         .main_token = tree.nodes.items(.main_token)[node],
         .align_node = extra.align_node,
+        .addrspace_node = extra.addrspace_node,
         .sentinel = extra.sentinel,
         .bit_range_start = 0,
         .bit_range_end = 0,
@@ -1494,6 +1540,7 @@ pub fn ptrTypeBitRange(tree: Tree, node: Node.Index) full.PtrType {
     return tree.fullPtrType(.{
         .main_token = tree.nodes.items(.main_token)[node],
         .align_node = extra.align_node,
+        .addrspace_node = extra.addrspace_node,
         .sentinel = extra.sentinel,
         .bit_range_start = extra.bit_range_start,
         .bit_range_end = extra.bit_range_end,
@@ -2063,6 +2110,7 @@ pub const full = struct {
             mut_token: TokenIndex,
             type_node: Node.Index,
             align_node: Node.Index,
+            addrspace_node: Node.Index,
             section_node: Node.Index,
             init_node: Node.Index,
         };
@@ -2130,6 +2178,7 @@ pub const full = struct {
             return_type: Node.Index,
             params: []const Node.Index,
             align_expr: Node.Index,
+            addrspace_expr: Node.Index,
             section_expr: Node.Index,
             callconv_expr: Node.Index,
         };
@@ -2288,6 +2337,7 @@ pub const full = struct {
         pub const Components = struct {
             main_token: TokenIndex,
             align_node: Node.Index,
+            addrspace_node: Node.Index,
             sentinel: Node.Index,
             bit_range_start: Node.Index,
             bit_range_end: Node.Index,
@@ -2397,6 +2447,7 @@ pub const Error = struct {
         expected_var_decl_or_fn,
         expected_loop_payload,
         expected_container,
+        extra_addrspace_qualifier,
         extra_align_qualifier,
         extra_allowzero_qualifier,
         extra_const_qualifier,
@@ -2489,9 +2540,11 @@ pub const Node = struct {
         /// `lhs -= rhs`. main_token is op.
         assign_sub,
         /// `lhs <<= rhs`. main_token is op.
-        assign_bit_shift_left,
+        assign_shl,
+        /// `lhs <<|= rhs`. main_token is op.
+        assign_shl_sat,
         /// `lhs >>= rhs`. main_token is op.
-        assign_bit_shift_right,
+        assign_shr,
         /// `lhs &= rhs`. main_token is op.
         assign_bit_and,
         /// `lhs ^= rhs`. main_token is op.
@@ -2504,6 +2557,12 @@ pub const Node = struct {
         assign_add_wrap,
         /// `lhs -%= rhs`. main_token is op.
         assign_sub_wrap,
+        /// `lhs *|= rhs`. main_token is op.
+        assign_mul_sat,
+        /// `lhs +|= rhs`. main_token is op.
+        assign_add_sat,
+        /// `lhs -|= rhs`. main_token is op.
+        assign_sub_sat,
         /// `lhs = rhs`. main_token is op.
         assign,
         /// `lhs || rhs`. main_token is the `||`.
@@ -2518,6 +2577,8 @@ pub const Node = struct {
         array_mult,
         /// `lhs *% rhs`. main_token is the `*%`.
         mul_wrap,
+        /// `lhs *| rhs`. main_token is the `*|`.
+        mul_sat,
         /// `lhs + rhs`. main_token is the `+`.
         add,
         /// `lhs - rhs`. main_token is the `-`.
@@ -2528,10 +2589,16 @@ pub const Node = struct {
         add_wrap,
         /// `lhs -% rhs`. main_token is the `-%`.
         sub_wrap,
+        /// `lhs +| rhs`. main_token is the `+|`.
+        add_sat,
+        /// `lhs -| rhs`. main_token is the `-|`.
+        sub_sat,
         /// `lhs << rhs`. main_token is the `<<`.
-        bit_shift_left,
+        shl,
+        /// `lhs <<| rhs`. main_token is the `<<|`.
+        shl_sat,
         /// `lhs >> rhs`. main_token is the `>>`.
-        bit_shift_right,
+        shr,
         /// `lhs & rhs`. main_token is the `&`.
         bit_and,
         /// `lhs ^ rhs`. main_token is the `^`.
@@ -2723,13 +2790,13 @@ pub const Node = struct {
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_multi,
-        /// `fn(a: b) rhs linksection(e) callconv(f)`. `FnProtoOne[lhs]`.
+        /// `fn(a: b) rhs addrspace(e) linksection(f) callconv(g)`. `FnProtoOne[lhs]`.
         /// zero or one parameters.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_one,
-        /// `fn(a: b, c: d) rhs linksection(e) callconv(f)`. `FnProto[lhs]`.
+        /// `fn(a: b, c: d) rhs addrspace(e) linksection(f) callconv(g)`. `FnProto[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
@@ -2893,11 +2960,13 @@ pub const Node = struct {
     pub const PtrType = struct {
         sentinel: Index,
         align_node: Index,
+        addrspace_node: Index,
     };
 
     pub const PtrTypeBitRange = struct {
         sentinel: Index,
         align_node: Index,
+        addrspace_node: Index,
         bit_range_start: Index,
         bit_range_end: Index,
     };
@@ -2920,8 +2989,13 @@ pub const Node = struct {
     };
 
     pub const GlobalVarDecl = struct {
+        /// Populated if there is an explicit type ascription.
         type_node: Index,
+        /// Populated if align(A) is present.
         align_node: Index,
+        /// Populated if addrspace(A) is present.
+        addrspace_node: Index,
+        /// Populated if linksection(A) is present.
         section_node: Index,
     };
 
@@ -2953,6 +3027,8 @@ pub const Node = struct {
         param: Index,
         /// Populated if align(A) is present.
         align_expr: Index,
+        /// Populated if addrspace(A) is present.
+        addrspace_expr: Index,
         /// Populated if linksection(A) is present.
         section_expr: Index,
         /// Populated if callconv(A) is present.
@@ -2964,6 +3040,8 @@ pub const Node = struct {
         params_end: Index,
         /// Populated if align(A) is present.
         align_expr: Index,
+        /// Populated if addrspace(A) is present.
+        addrspace_expr: Index,
         /// Populated if linksection(A) is present.
         section_expr: Index,
         /// Populated if callconv(A) is present.

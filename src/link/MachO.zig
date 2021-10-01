@@ -12,7 +12,7 @@ const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
 
-const aarch64 = @import("../codegen/aarch64.zig");
+const aarch64 = @import("../arch/aarch64/bits.zig");
 const bind = @import("MachO/bind.zig");
 const codegen = @import("../codegen.zig");
 const commands = @import("MachO/commands.zig");
@@ -200,7 +200,7 @@ atoms: std.AutoHashMapUnmanaged(MatchingSection, *Atom) = .{},
 
 /// List of atoms that are owned directly by the linker.
 /// Currently these are only atoms that are the result of linking
-/// object files. Atoms which take part in incremental linking are 
+/// object files. Atoms which take part in incremental linking are
 /// at present owned by Module.Decl.
 /// TODO consolidate this.
 managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
@@ -213,7 +213,7 @@ decls: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
 
 /// Currently active Module.Decl.
 /// TODO this might not be necessary if we figure out how to pass Module.Decl instance
-/// to codegen.genSetReg() or alterntively move PIE displacement for MCValue{ .memory = x }
+/// to codegen.genSetReg() or alternatively move PIE displacement for MCValue{ .memory = x }
 /// somewhere else in the codegen.
 active_decl: ?*Module.Decl = null,
 
@@ -231,7 +231,7 @@ const SymbolWithLoc = struct {
     },
     where_index: u32,
     local_sym_index: u32 = 0,
-    file: u16 = 0,
+    file: ?u16 = null, // null means Zig module
 };
 
 pub const GotIndirectionKey = struct {
@@ -290,7 +290,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
-        self.llvm_object = try LlvmObject.create(allocator, options);
+        self.llvm_object = try LlvmObject.create(allocator, sub_path, options);
         return self;
     }
 
@@ -512,7 +512,7 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     if (self.base.options.output_mode == .Obj) {
-        // LLD's MachO driver does not support the equvialent of `-r` so we do a simple file copy
+        // LLD's MachO driver does not support the equivalent of `-r` so we do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
@@ -543,9 +543,6 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
                 .mode = link.determineMode(self.base.options),
             });
             try self.populateMissingMetadata();
-
-            // TODO mimicking insertion of null symbol from incremental linker.
-            // This will need to moved.
             try self.locals.append(self.base.allocator, .{
                 .n_strx = 0,
                 .n_type = macho.N_UNDF,
@@ -557,13 +554,56 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         }
 
         if (needs_full_relink) {
+            for (self.objects.items) |*object| {
+                object.free(self.base.allocator, self);
+                object.deinit(self.base.allocator);
+            }
             self.objects.clearRetainingCapacity();
+
+            for (self.archives.items) |*archive| {
+                archive.deinit(self.base.allocator);
+            }
             self.archives.clearRetainingCapacity();
+
+            for (self.dylibs.items) |*dylib| {
+                dylib.deinit(self.base.allocator);
+            }
             self.dylibs.clearRetainingCapacity();
             self.dylibs_map.clearRetainingCapacity();
             self.referenced_dylibs.clearRetainingCapacity();
 
-            // TODO figure out how to clear atoms from objects, etc.
+            {
+                var to_remove = std.ArrayList(u32).init(self.base.allocator);
+                defer to_remove.deinit();
+                var it = self.symbol_resolver.iterator();
+                while (it.next()) |entry| {
+                    const key = entry.key_ptr.*;
+                    const value = entry.value_ptr.*;
+                    if (value.file != null) {
+                        try to_remove.append(key);
+                    }
+                }
+
+                for (to_remove.items) |key| {
+                    if (self.symbol_resolver.fetchRemove(key)) |entry| {
+                        const resolv = entry.value;
+                        switch (resolv.where) {
+                            .global => {
+                                self.globals_free_list.append(self.base.allocator, resolv.where_index) catch {};
+                                const sym = &self.globals.items[resolv.where_index];
+                                sym.n_strx = 0;
+                                sym.n_type = 0;
+                                sym.n_value = 0;
+                            },
+                            .undef => {
+                                const sym = &self.undefs.items[resolv.where_index];
+                                sym.n_strx = 0;
+                                sym.n_desc = 0;
+                            },
+                        }
+                    }
+                }
+            }
 
             // Positional arguments to the linker such as object files and static archives.
             var positionals = std.ArrayList([]const u8).init(arena);
@@ -802,13 +842,35 @@ pub fn flush(self: *MachO, comp: *Compilation) !void {
         try self.createDsoHandleAtom();
         try self.addCodeSignatureLC();
 
+        // log.warn("locals:", .{});
+        // for (self.locals.items) |sym, id| {
+        //     log.warn("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
+        // }
+        // log.warn("globals:", .{});
+        // for (self.globals.items) |sym, id| {
+        //     log.warn("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
+        // }
+        // log.warn("undefs:", .{});
+        // for (self.undefs.items) |sym, id| {
+        //     log.warn("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
+        // }
+        // {
+        //     log.warn("resolver:", .{});
+        //     var it = self.symbol_resolver.iterator();
+        //     while (it.next()) |entry| {
+        //         log.warn("  {s} => {}", .{ self.getString(entry.key_ptr.*), entry.value_ptr.* });
+        //     }
+        // }
+
         for (self.unresolved.keys()) |index| {
             const sym = self.undefs.items[index];
             const sym_name = self.getString(sym.n_strx);
             const resolv = self.symbol_resolver.get(sym.n_strx) orelse unreachable;
 
             log.err("undefined reference to symbol '{s}'", .{sym_name});
-            log.err("  first referenced in '{s}'", .{self.objects.items[resolv.file].name});
+            if (resolv.file) |file| {
+                log.err("  first referenced in '{s}'", .{self.objects.items[file].name});
+            }
         }
         if (self.unresolved.count() > 0) {
             return error.UndefinedSymbolReference;
@@ -1807,7 +1869,7 @@ fn writeAtoms(self: *MachO) !void {
 pub fn createGotAtom(self: *MachO, key: GotIndirectionKey) !*Atom {
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
-        .n_strx = try self.makeString("l_zld_got_entry"),
+        .n_strx = 0,
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
@@ -1845,7 +1907,7 @@ fn createDyldPrivateAtom(self: *MachO) !void {
     const local_sym_index = @intCast(u32, self.locals.items.len);
     const sym = try self.locals.addOne(self.base.allocator);
     sym.* = .{
-        .n_strx = try self.makeString("l_zld_dyld_private"),
+        .n_strx = 0,
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
@@ -1879,7 +1941,7 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
     const local_sym_index = @intCast(u32, self.locals.items.len);
     const sym = try self.locals.addOne(self.base.allocator);
     sym.* = .{
-        .n_strx = try self.makeString("l_zld_stub_preamble"),
+        .n_strx = 0,
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
@@ -2021,7 +2083,7 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
     };
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
-        .n_strx = try self.makeString("l_zld_stub_in_stub_helper"),
+        .n_strx = 0,
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
@@ -2076,7 +2138,7 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
 pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, lazy_binding_sym_index: u32) !*Atom {
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
-        .n_strx = try self.makeString("l_zld_lazy_ptr"),
+        .n_strx = 0,
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
@@ -2117,7 +2179,7 @@ pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*Atom {
     };
     const local_sym_index = @intCast(u32, self.locals.items.len);
     try self.locals.append(self.base.allocator, .{
-        .n_strx = try self.makeString("l_zld_stub"),
+        .n_strx = 0,
         .n_type = macho.N_SECT,
         .n_sect = 0,
         .n_desc = 0,
@@ -2183,7 +2245,7 @@ pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*Atom {
 fn createTentativeDefAtoms(self: *MachO) !void {
     if (self.tentatives.count() == 0) return;
     // Convert any tentative definition into a regular symbol and allocate
-    // text blocks for each tentative defintion.
+    // text blocks for each tentative definition.
     while (self.tentatives.popOrNull()) |entry| {
         const match = MatchingSection{
             .seg = self.data_segment_cmd_index.?,
@@ -2349,7 +2411,9 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                         !(symbolIsWeakDef(global.*) or symbolIsPext(global.*)))
                     {
                         log.err("symbol '{s}' defined multiple times", .{sym_name});
-                        log.err("  first definition in '{s}'", .{self.objects.items[resolv.file].name});
+                        if (resolv.file) |file| {
+                            log.err("  first definition in '{s}'", .{self.objects.items[file].name});
+                        }
                         log.err("  next definition in '{s}'", .{object.name});
                         return error.MultipleSymbolDefinitions;
                     } else if (symbolIsWeakDef(sym) or symbolIsPext(sym)) continue; // Current symbol is weak, so skip it.
@@ -2632,10 +2696,10 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    var parsed_atoms = Object.ParsedAtoms.init(self.base.allocator);
+    var parsed_atoms = std.AutoArrayHashMap(MatchingSection, *Atom).init(self.base.allocator);
     defer parsed_atoms.deinit();
 
-    var first_atoms = Object.ParsedAtoms.init(self.base.allocator);
+    var first_atoms = std.AutoArrayHashMap(MatchingSection, *Atom).init(self.base.allocator);
     defer first_atoms.deinit();
 
     var section_metadata = std.AutoHashMap(MatchingSection, struct {
@@ -2644,13 +2708,12 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
     }).init(self.base.allocator);
     defer section_metadata.deinit();
 
-    for (self.objects.items) |*object, object_id| {
+    for (self.objects.items) |*object| {
         if (object.analyzed) continue;
 
-        var atoms_in_objects = try object.parseIntoAtoms(self.base.allocator, @intCast(u16, object_id), self);
-        defer atoms_in_objects.deinit();
+        try object.parseIntoAtoms(self.base.allocator, self);
 
-        var it = atoms_in_objects.iterator();
+        var it = object.end_atoms.iterator();
         while (it.next()) |entry| {
             const match = entry.key_ptr.*;
             const last_atom = entry.value_ptr.*;
@@ -3292,8 +3355,6 @@ pub fn updateDeclExports(
     decl: *Module.Decl,
     exports: []const *Module.Export,
 ) !void {
-    // TODO If we are exporting with global linkage, check for already defined globals and flag
-    // symbol duplicate/collision!
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -3303,7 +3364,7 @@ pub fn updateDeclExports(
     const tracy = trace(@src());
     defer tracy.end();
 
-    try self.globals.ensureCapacity(self.base.allocator, self.globals.items.len + exports.len);
+    try self.globals.ensureUnusedCapacity(self.base.allocator, exports.len);
     if (decl.link.macho.local_sym_index == 0) return;
     const decl_sym = &self.locals.items[decl.link.macho.local_sym_index];
 
@@ -3313,12 +3374,73 @@ pub fn updateDeclExports(
 
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, "__text")) {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
-                module.failed_exports.putAssumeCapacityNoClobber(
+                try module.failed_exports.putNoClobber(
+                    module.gpa,
                     exp,
-                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
+                    try Module.ErrorMsg.create(
+                        self.base.allocator,
+                        decl.srcLoc(),
+                        "Unimplemented: ExportOptions.section",
+                        .{},
+                    ),
                 );
                 continue;
+            }
+        }
+
+        if (exp.options.linkage == .LinkOnce) {
+            try module.failed_exports.putNoClobber(
+                module.gpa,
+                exp,
+                try Module.ErrorMsg.create(
+                    self.base.allocator,
+                    decl.srcLoc(),
+                    "Unimplemented: GlobalLinkage.LinkOnce",
+                    .{},
+                ),
+            );
+            continue;
+        }
+
+        const is_weak = exp.options.linkage == .Internal or exp.options.linkage == .Weak;
+        const n_strx = try self.makeString(exp_name);
+        if (self.symbol_resolver.getPtr(n_strx)) |resolv| {
+            switch (resolv.where) {
+                .global => {
+                    if (resolv.local_sym_index == decl.link.macho.local_sym_index) continue;
+
+                    const sym = &self.globals.items[resolv.where_index];
+
+                    if (symbolIsTentative(sym.*)) {
+                        _ = self.tentatives.fetchSwapRemove(resolv.where_index);
+                    } else if (!is_weak and !(symbolIsWeakDef(sym.*) or symbolIsPext(sym.*))) {
+                        _ = try module.failed_exports.put(
+                            module.gpa,
+                            exp,
+                            try Module.ErrorMsg.create(
+                                self.base.allocator,
+                                decl.srcLoc(),
+                                \\LinkError: symbol '{s}' defined multiple times
+                                \\  first definition in '{s}'
+                            ,
+                                .{ exp_name, self.objects.items[resolv.file.?].name },
+                            ),
+                        );
+                        continue;
+                    } else if (is_weak) continue; // Current symbol is weak, so skip it.
+
+                    // Otherwise, update the resolver and the global symbol.
+                    sym.n_type = macho.N_SECT | macho.N_EXT;
+                    resolv.local_sym_index = decl.link.macho.local_sym_index;
+                    resolv.file = null;
+                    exp.link.macho.sym_index = resolv.where_index;
+
+                    continue;
+                },
+                .undef => {
+                    _ = self.unresolved.fetchSwapRemove(resolv.where_index);
+                    _ = self.symbol_resolver.remove(n_strx);
+                },
             }
         }
 
@@ -3339,14 +3461,7 @@ pub fn updateDeclExports(
                 // Symbol's n_type is like for a symbol with strong linkage.
                 n_desc |= macho.N_WEAK_DEF;
             },
-            .LinkOnce => {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
-                module.failed_exports.putAssumeCapacityNoClobber(
-                    exp,
-                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
-                );
-                continue;
-            },
+            else => unreachable,
         }
 
         const global_sym_index = if (exp.link.macho.sym_index) |i| i else blk: {
@@ -3356,8 +3471,6 @@ pub fn updateDeclExports(
             };
             break :blk i;
         };
-
-        const n_strx = try self.makeString(exp_name);
         const sym = &self.globals.items[global_sym_index];
         sym.* = .{
             .n_strx = try self.makeString(exp_name),
@@ -3368,12 +3481,11 @@ pub fn updateDeclExports(
         };
         exp.link.macho.sym_index = global_sym_index;
 
-        const resolv = try self.symbol_resolver.getOrPut(self.base.allocator, n_strx);
-        resolv.value_ptr.* = .{
+        try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
             .where = .global,
             .where_index = global_sym_index,
             .local_sym_index = decl.link.macho.local_sym_index,
-        };
+        });
     }
 }
 
@@ -3381,11 +3493,17 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
     const sym_index = exp.sym_index orelse return;
     self.globals_free_list.append(self.base.allocator, sym_index) catch {};
     const global = &self.globals.items[sym_index];
-    global.n_type = 0;
+    log.debug("deleting export '{s}': {}", .{ self.getString(global.n_strx), global });
     assert(self.symbol_resolver.remove(global.n_strx));
+    global.n_type = 0;
+    global.n_strx = 0;
+    global.n_value = 0;
 }
 
 pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
+    }
     log.debug("freeDecl {*}", .{decl});
     _ = self.decls.swapRemove(decl);
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
@@ -3970,6 +4088,70 @@ fn findFreeSpace(self: MachO, segment_id: u16, alignment: u64, start: ?u64) u64 
     return mem.alignForwardGeneric(u64, final_off, alignment);
 }
 
+fn growSegment(self: *MachO, seg_id: u16, new_size: u64) !void {
+    const seg = &self.load_commands.items[seg_id].Segment;
+    const new_seg_size = mem.alignForwardGeneric(u64, new_size, self.page_size);
+    assert(new_seg_size > seg.inner.filesize);
+    const offset_amt = new_seg_size - seg.inner.filesize;
+    log.debug("growing segment {s} from 0x{x} to 0x{x}", .{ seg.inner.segname, seg.inner.filesize, new_seg_size });
+    seg.inner.filesize = new_seg_size;
+    seg.inner.vmsize = new_seg_size;
+
+    log.debug("  (new segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+        seg.inner.fileoff,
+        seg.inner.fileoff + seg.inner.filesize,
+        seg.inner.vmaddr,
+        seg.inner.vmaddr + seg.inner.vmsize,
+    });
+
+    // TODO We should probably nop the expanded by distance, or put 0s.
+
+    // TODO copyRangeAll doesn't automatically extend the file on macOS.
+    const ledit_seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    const new_filesize = offset_amt + ledit_seg.inner.fileoff + ledit_seg.inner.filesize;
+    try self.base.file.?.pwriteAll(&[_]u8{0}, new_filesize - 1);
+
+    var next: usize = seg_id + 1;
+    while (next < self.linkedit_segment_cmd_index.? + 1) : (next += 1) {
+        const next_seg = &self.load_commands.items[next].Segment;
+        _ = try self.base.file.?.copyRangeAll(
+            next_seg.inner.fileoff,
+            self.base.file.?,
+            next_seg.inner.fileoff + offset_amt,
+            next_seg.inner.filesize,
+        );
+        next_seg.inner.fileoff += offset_amt;
+        next_seg.inner.vmaddr += offset_amt;
+
+        log.debug("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+            next_seg.inner.segname,
+            next_seg.inner.fileoff,
+            next_seg.inner.fileoff + next_seg.inner.filesize,
+            next_seg.inner.vmaddr,
+            next_seg.inner.vmaddr + next_seg.inner.vmsize,
+        });
+
+        for (next_seg.sections.items) |*moved_sect, moved_sect_id| {
+            moved_sect.offset += @intCast(u32, offset_amt);
+            moved_sect.addr += offset_amt;
+
+            log.debug("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
+                commands.segmentName(moved_sect.*),
+                commands.sectionName(moved_sect.*),
+                moved_sect.offset,
+                moved_sect.offset + moved_sect.size,
+                moved_sect.addr,
+                moved_sect.addr + moved_sect.size,
+            });
+
+            try self.allocateLocalSymbols(.{
+                .seg = @intCast(u16, next),
+                .sect = @intCast(u16, moved_sect_id),
+            }, @intCast(i64, offset_amt));
+        }
+    }
+}
+
 fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -3983,7 +4165,14 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
     const needed_size = mem.alignForwardGeneric(u32, ideal_size, alignment);
 
     if (needed_size > max_size) blk: {
-        log.debug("  (need to grow!)", .{});
+        log.debug("  (need to grow! needed 0x{x}, max 0x{x})", .{ needed_size, max_size });
+
+        if (match.sect == seg.sections.items.len - 1) {
+            // Last section, just grow segments
+            try self.growSegment(match.seg, seg.inner.filesize + needed_size - max_size);
+            break :blk;
+        }
+
         // Need to move all sections below in file and address spaces.
         const offset_amt = offset: {
             const max_alignment = try self.getSectionMaxAlignment(match.seg, match.sect + 1);
@@ -3999,69 +4188,9 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
 
         if (last_sect_off + offset_amt > seg_off) {
             // Need to grow segment first.
-            log.debug("  (need to grow segment first)", .{});
             const spill_size = (last_sect_off + offset_amt) - seg_off;
-            const seg_offset_amt = mem.alignForwardGeneric(u64, spill_size, self.page_size);
-            seg.inner.filesize += seg_offset_amt;
-            seg.inner.vmsize += seg_offset_amt;
-
-            log.debug("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
-                seg.inner.segname,
-                seg.inner.fileoff,
-                seg.inner.fileoff + seg.inner.filesize,
-                seg.inner.vmaddr,
-                seg.inner.vmaddr + seg.inner.vmsize,
-            });
-
-            // TODO We should probably nop the expanded by distance, or put 0s.
-
-            // TODO copyRangeAll doesn't automatically extend the file on macOS.
-            const ledit_seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-            const new_filesize = seg_offset_amt + ledit_seg.inner.fileoff + ledit_seg.inner.filesize;
-            try self.base.file.?.pwriteAll(&[_]u8{0}, new_filesize - 1);
-
-            var next: usize = match.seg + 1;
-            while (next < self.linkedit_segment_cmd_index.? + 1) : (next += 1) {
-                const next_seg = &self.load_commands.items[next].Segment;
-                _ = try self.base.file.?.copyRangeAll(
-                    next_seg.inner.fileoff,
-                    self.base.file.?,
-                    next_seg.inner.fileoff + seg_offset_amt,
-                    next_seg.inner.filesize,
-                );
-                next_seg.inner.fileoff += seg_offset_amt;
-                next_seg.inner.vmaddr += seg_offset_amt;
-
-                log.debug("  (new {s} segment file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
-                    next_seg.inner.segname,
-                    next_seg.inner.fileoff,
-                    next_seg.inner.fileoff + next_seg.inner.filesize,
-                    next_seg.inner.vmaddr,
-                    next_seg.inner.vmaddr + next_seg.inner.vmsize,
-                });
-
-                for (next_seg.sections.items) |*moved_sect, moved_sect_id| {
-                    moved_sect.offset += @intCast(u32, seg_offset_amt);
-                    moved_sect.addr += seg_offset_amt;
-
-                    log.debug("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
-                        commands.segmentName(moved_sect.*),
-                        commands.sectionName(moved_sect.*),
-                        moved_sect.offset,
-                        moved_sect.offset + moved_sect.size,
-                        moved_sect.addr,
-                        moved_sect.addr + moved_sect.size,
-                    });
-
-                    try self.allocateLocalSymbols(.{
-                        .seg = @intCast(u16, next),
-                        .sect = @intCast(u16, moved_sect_id),
-                    }, @intCast(i64, seg_offset_amt));
-                }
-            }
+            try self.growSegment(match.seg, seg.inner.filesize + spill_size);
         }
-
-        if (match.sect + 1 >= seg.sections.items.len) break :blk;
 
         // We have enough space to expand within the segment, so move all sections by
         // the required amount and update their header offsets.
@@ -4228,20 +4357,34 @@ fn allocateAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64, m
     return vaddr;
 }
 
-pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
+const AddExternFnRes = struct {
+    where: enum {
+        local,
+        undef,
+    },
+    where_index: u32,
+};
+
+pub fn addExternFn(self: *MachO, name: []const u8) !AddExternFnRes {
     const sym_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{name});
     defer self.base.allocator.free(sym_name);
+    const n_strx = try self.makeString(sym_name);
 
-    if (self.strtab_dir.getKeyAdapted(@as([]const u8, sym_name), StringIndexAdapter{
-        .bytes = &self.strtab,
-    })) |n_strx| {
-        const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
-        return resolv.where_index;
+    if (self.symbol_resolver.get(n_strx)) |resolv| {
+        return switch (resolv.where) {
+            .global => AddExternFnRes{
+                .where = .local,
+                .where_index = resolv.local_sym_index,
+            },
+            .undef => AddExternFnRes{
+                .where = .undef,
+                .where_index = resolv.where_index,
+            },
+        };
     }
 
     log.debug("adding new extern function '{s}'", .{sym_name});
     const sym_index = @intCast(u32, self.undefs.items.len);
-    const n_strx = try self.makeString(sym_name);
     try self.undefs.append(self.base.allocator, .{
         .n_strx = n_strx,
         .n_type = macho.N_UNDF,
@@ -4255,7 +4398,10 @@ pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
     });
     try self.unresolved.putNoClobber(self.base.allocator, sym_index, .stub);
 
-    return sym_index;
+    return AddExternFnRes{
+        .where = .undef,
+        .where_index = sym_index,
+    };
 }
 
 const NextSegmentAddressAndOffset = struct {
@@ -4386,6 +4532,7 @@ fn writeDyldInfoData(self: *MachO) !void {
         const base_address = text_segment.inner.vmaddr;
 
         for (self.globals.items) |sym| {
+            if (sym.n_type == 0) continue;
             const sym_name = self.getString(sym.n_strx);
             log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
 
@@ -4462,7 +4609,7 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
 
     // Because we insert lazy binding opcodes in reverse order (from last to the first atom),
     // we need reverse the order of atom traversal here as well.
-    // TODO figure out a less error prone mechanims for this!
+    // TODO figure out a less error prone mechanisms for this!
     var atom = last_atom;
     while (atom.prev) |prev| {
         atom = prev;
@@ -4608,7 +4755,12 @@ fn writeSymbolTable(self: *MachO) !void {
 
     var locals = std.ArrayList(macho.nlist_64).init(self.base.allocator);
     defer locals.deinit();
-    try locals.appendSlice(self.locals.items);
+
+    for (self.locals.items) |sym| {
+        if (sym.n_strx == 0) continue;
+        if (symbolIsTemp(sym, self.getString(sym.n_strx))) continue;
+        try locals.append(sym);
+    }
 
     if (self.has_stabs) {
         for (self.objects.items) |object| {
@@ -4638,7 +4790,7 @@ fn writeSymbolTable(self: *MachO) !void {
                 .n_value = object.mtime orelse 0,
             });
 
-            for (object.atoms.items) |atom| {
+            for (object.contained_atoms.items) |atom| {
                 if (atom.stab) |stab| {
                     const nlists = try stab.asNlists(atom.local_sym_index, self);
                     defer self.base.allocator.free(nlists);

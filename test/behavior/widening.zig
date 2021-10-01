@@ -19,6 +19,12 @@ test "implicit unsigned integer to signed integer" {
 }
 
 test "float widening" {
+    if (@import("builtin").zig_is_stage2) {
+        // This test is passing but it depends on compiler-rt symbols, which
+        // cannot yet be built with stage2 due to
+        // "TODO implement equality comparison between a union's tag value and an enum literal"
+        return error.SkipZigTest;
+    }
     var a: f16 = 12.34;
     var b: f32 = a;
     var c: f64 = b;
@@ -29,9 +35,15 @@ test "float widening" {
 }
 
 test "float widening f16 to f128" {
+    if (@import("builtin").zig_is_stage2) {
+        // This test is passing but it depends on compiler-rt symbols, which
+        // cannot yet be built with stage2 due to
+        // "TODO implement equality comparison between a union's tag value and an enum literal"
+        return error.SkipZigTest;
+    }
     // TODO https://github.com/ziglang/zig/issues/3282
-    if (@import("builtin").target.cpu.arch == .aarch64) return error.SkipZigTest;
-    if (@import("builtin").target.cpu.arch == .powerpc64le) return error.SkipZigTest;
+    if (@import("builtin").stage2_arch == .aarch64) return error.SkipZigTest;
+    if (@import("builtin").stage2_arch == .powerpc64le) return error.SkipZigTest;
 
     var x: f16 = 12.34;
     var y: f128 = x;

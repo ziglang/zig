@@ -235,7 +235,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
-        self.llvm_object = try LlvmObject.create(allocator, options);
+        self.llvm_object = try LlvmObject.create(allocator, sub_path, options);
         return self;
     }
 
@@ -411,7 +411,7 @@ fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u16) u64 {
 
 /// TODO Improve this to use a table.
 fn makeString(self: *Elf, bytes: []const u8) !u32 {
-    try self.shstrtab.ensureCapacity(self.base.allocator, self.shstrtab.items.len + bytes.len + 1);
+    try self.shstrtab.ensureUnusedCapacity(self.base.allocator, bytes.len + 1);
     const result = self.shstrtab.items.len;
     self.shstrtab.appendSliceAssumeCapacity(bytes);
     self.shstrtab.appendAssumeCapacity(0);
@@ -420,7 +420,7 @@ fn makeString(self: *Elf, bytes: []const u8) !u32 {
 
 /// TODO Improve this to use a table.
 fn makeDebugString(self: *Elf, bytes: []const u8) !u32 {
-    try self.debug_strtab.ensureCapacity(self.base.allocator, self.debug_strtab.items.len + bytes.len + 1);
+    try self.debug_strtab.ensureUnusedCapacity(self.base.allocator, bytes.len + 1);
     const result = self.debug_strtab.items.len;
     self.debug_strtab.appendSliceAssumeCapacity(bytes);
     self.debug_strtab.appendAssumeCapacity(0);
@@ -856,7 +856,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
 
         // We have a function to compute the upper bound size, because it's needed
         // for determining where to put the offset of the first `LinkBlock`.
-        try di_buf.ensureCapacity(self.dbgInfoNeededHeaderBytes());
+        try di_buf.ensureTotalCapacity(self.dbgInfoNeededHeaderBytes());
 
         // initial length - length of the .debug_info contribution for this compilation unit,
         // not including the initial length itself.
@@ -925,7 +925,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
 
         // Enough for all the data without resizing. When support for more compilation units
         // is added, the size of this section will become more variable.
-        try di_buf.ensureCapacity(100);
+        try di_buf.ensureTotalCapacity(100);
 
         // initial length - length of the .debug_aranges contribution for this compilation unit,
         // not including the initial length itself.
@@ -1004,7 +1004,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
         // The size of this header is variable, depending on the number of directories,
         // files, and padding. We have a function to compute the upper bound size, however,
         // because it's needed for determining where to put the offset of the first `SrcFn`.
-        try di_buf.ensureCapacity(self.dbgLineNeededHeaderBytes());
+        try di_buf.ensureTotalCapacity(self.dbgLineNeededHeaderBytes());
 
         // initial length - length of the .debug_line contribution for this compilation unit,
         // not including the initial length itself.
@@ -1254,11 +1254,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        // Both stage1 and stage2 LLVM backend put the object file in the cache directory.
-        if (self.base.options.use_llvm) {
-            // Stage2 has to call flushModule since that outputs the LLVM object file.
-            if (!build_options.is_stage1 or !self.base.options.use_stage1) try self.flushModule(comp);
-
+        // stage1 puts the object file in the cache directory.
+        if (self.base.options.use_stage1) {
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
                 .target = self.base.options.target,
@@ -1285,20 +1282,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const gc_sections = self.base.options.gc_sections orelse !is_obj;
     const stack_size = self.base.options.stack_size_override orelse 16777216;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
-    const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt) blk: {
-        // TODO: remove when stage2 can build compiler_rt.zig
-        if (!build_options.is_stage1 or !self.base.options.use_stage1) break :blk null;
-
-        // In the case of build-obj we include the compiler-rt symbols directly alongside
-        // the symbols of the root source file, in the same compilation unit.
-        if (is_obj) break :blk null;
-
-        if (is_exe_or_dyn_lib) {
-            break :blk comp.compiler_rt_static_lib.?.full_object_path;
-        } else {
-            break :blk comp.compiler_rt_obj.?.full_object_path;
-        }
-    } else null;
+    const compiler_rt_path: ?[]const u8 = blk: {
+        if (comp.compiler_rt_static_lib) |x| break :blk x.full_object_path;
+        if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
+        break :blk null;
+    };
 
     // Here we want to determine whether we can save time by not invoking LLD when the
     // output is unchanged. None of the linker options or the object files that are being
@@ -1621,14 +1609,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         }
 
         // libc
-        // TODO: enable when stage2 can build c.zig
         if (is_exe_or_dyn_lib and
             !self.base.options.skip_linker_dependencies and
-            !self.base.options.link_libc and
-            build_options.is_stage1 and
-            self.base.options.use_stage1)
+            !self.base.options.link_libc)
         {
-            try argv.append(comp.libc_static_lib.?.full_object_path);
+            if (comp.libc_static_lib) |lib| {
+                try argv.append(lib.full_object_path);
+            }
         }
 
         // compiler-rt
@@ -1639,7 +1626,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
             const system_libs = self.base.options.system_libs.keys();
-            try argv.ensureCapacity(argv.items.len + system_libs.len);
+            try argv.ensureUnusedCapacity(system_libs.len);
             for (system_libs) |link_lib| {
                 // By this time, we depend on these libs being dynamically linked libraries and not static libraries
                 // (the check for that needs to be earlier), but they could be full paths to .so files, in which
@@ -2113,8 +2100,8 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
 
     if (decl.link.elf.local_sym_index != 0) return;
 
-    try self.local_symbols.ensureCapacity(self.base.allocator, self.local_symbols.items.len + 1);
-    try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
+    try self.local_symbols.ensureUnusedCapacity(self.base.allocator, 1);
+    try self.offset_table.ensureUnusedCapacity(self.base.allocator, 1);
 
     if (self.local_symbol_free_list.popOrNull()) |i| {
         log.debug("reusing symbol index {d} for {s}", .{ i, decl.name });
@@ -2147,7 +2134,9 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
 }
 
 pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
-    if (self.llvm_object) |_| return;
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
+    }
 
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     self.freeTextBlock(&decl.link.elf);
@@ -2316,7 +2305,7 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     defer deinitRelocs(self.base.allocator, &dbg_info_type_relocs);
 
     // For functions we need to add a prologue to the debug line program.
-    try dbg_line_buffer.ensureCapacity(26);
+    try dbg_line_buffer.ensureTotalCapacity(26);
 
     const decl = func.owner_decl;
     const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
@@ -2351,7 +2340,7 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
 
     // .debug_info subprogram
     const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
-    try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 25 + decl_name_with_null.len);
+    try dbg_info_buffer.ensureUnusedCapacity(25 + decl_name_with_null.len);
 
     const fn_ret_type = decl.ty.fnReturnType();
     const fn_ret_has_bits = fn_ret_type.hasCodeGenBits();
@@ -2593,7 +2582,7 @@ fn addDbgInfoType(self: *Elf, ty: Type, dbg_info_buffer: *std.ArrayList(u8)) !vo
         },
         .Int => {
             const info = ty.intInfo(self.base.options.target);
-            try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 12);
+            try dbg_info_buffer.ensureUnusedCapacity(12);
             dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
             // DW.AT.encoding, DW.FORM.data1
             dbg_info_buffer.appendAssumeCapacity(switch (info.signedness) {
@@ -2607,7 +2596,7 @@ fn addDbgInfoType(self: *Elf, ty: Type, dbg_info_buffer: *std.ArrayList(u8)) !vo
         },
         .Optional => {
             if (ty.isPtrLikeOptional()) {
-                try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 12);
+                try dbg_info_buffer.ensureUnusedCapacity(12);
                 dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
                 // DW.AT.encoding, DW.FORM.data1
                 dbg_info_buffer.appendAssumeCapacity(DW.ATE.address);
@@ -2747,14 +2736,14 @@ pub fn updateDeclExports(
     const tracy = trace(@src());
     defer tracy.end();
 
-    try self.global_symbols.ensureCapacity(self.base.allocator, self.global_symbols.items.len + exports.len);
+    try self.global_symbols.ensureUnusedCapacity(self.base.allocator, exports.len);
     if (decl.link.elf.local_sym_index == 0) return;
     const decl_sym = self.local_symbols.items[decl.link.elf.local_sym_index];
 
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
+                try module.failed_exports.ensureUnusedCapacity(module.gpa, 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
                     try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
@@ -2772,7 +2761,7 @@ pub fn updateDeclExports(
             },
             .Weak => elf.STB_WEAK,
             .LinkOnce => {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
+                try module.failed_exports.ensureUnusedCapacity(module.gpa, 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
                     try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
@@ -3446,6 +3435,15 @@ const CsuObjects = struct {
                     .dynamic_pie => result.set( "start_dyn.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
                     .static_exe  => result.set( "start_dyn.o", "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
                     .static_pie  => result.set( "start_dyn.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    // zig fmt: on
+                },
+                .solaris => switch (mode) {
+                    // zig fmt: off
+                    .dynamic_lib => result.set( null,     "crti.o", null, null, "crtn.o" ),
+                    .dynamic_exe,
+                    .dynamic_pie => result.set( "crt1.o", "crti.o", null, null, "crtn.o" ),
+                    .static_exe,
+                    .static_pie  => result.set( null,     null,     null, null, null     ),
                     // zig fmt: on
                 },
                 else => {},

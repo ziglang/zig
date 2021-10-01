@@ -170,3 +170,21 @@ test "string concatenation" {
 test "array mult operator" {
     try expect(mem.eql(u8, "ab" ** 5, "ababababab"));
 }
+
+test "memcpy and memset intrinsics" {
+    try testMemcpyMemset();
+    // TODO add comptime test coverage
+    //comptime try testMemcpyMemset();
+}
+
+fn testMemcpyMemset() !void {
+    var foo: [20]u8 = undefined;
+    var bar: [20]u8 = undefined;
+
+    @memset(&foo, 'A', foo.len);
+    @memcpy(&bar, &foo, bar.len);
+
+    try expect(bar[0] == 'A');
+    try expect(bar[11] == 'A');
+    try expect(bar[19] == 'A');
+}

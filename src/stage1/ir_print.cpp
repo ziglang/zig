@@ -558,7 +558,7 @@ const char* ir_inst_gen_type_str(Stage1AirInstId id) {
         case Stage1AirInstIdWasmMemoryGrow:
             return "GenWasmMemoryGrow";
         case Stage1AirInstIdExtern:
-            return "GenExtrern";
+            return "GenExtern";
     }
     zig_unreachable();
 }
@@ -737,13 +737,13 @@ static const char *ir_bin_op_id_str(IrBinOp op_id) {
             return "@maximum";
         case IrBinOpMinimum:
             return "@minimum";
-        case IrBinOpSatAdd:
+        case IrBinOpAddSat:
             return "@addWithSaturation";
-        case IrBinOpSatSub:
+        case IrBinOpSubSat:
             return "@subWithSaturation";
-        case IrBinOpSatMul:
+        case IrBinOpMultSat:
             return "@mulWithSaturation";
-        case IrBinOpSatShl:
+        case IrBinOpShlSat:
             return "@shlWithSaturation";
     }
     zig_unreachable();
@@ -829,7 +829,7 @@ static const char *cast_op_str(CastOp op) {
         case CastOpIntToFloat: return "IntToFloat";
         case CastOpFloatToInt: return "FloatToInt";
         case CastOpBoolToInt: return "BoolToInt";
-        case CastOpNumLitToConcrete: return "NumLitToConcrate";
+        case CastOpNumLitToConcrete: return "NumLitToConcrete";
         case CastOpErrSet: return "ErrSet";
         case CastOpBitCast: return "BitCast";
     }

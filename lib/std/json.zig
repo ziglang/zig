@@ -1838,7 +1838,7 @@ fn parseInternal(
                                     else => {},
                                 }
 
-                                try arraylist.ensureCapacity(arraylist.items.len + 1);
+                                try arraylist.ensureUnusedCapacity(1);
                                 const v = try parseInternal(ptrInfo.child, tok, tokens, options);
                                 arraylist.appendAssumeCapacity(v);
                             }

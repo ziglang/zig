@@ -353,7 +353,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
 
         // We have a function to compute the upper bound size, because it's needed
         // for determining where to put the offset of the first `LinkBlock`.
-        try di_buf.ensureCapacity(self.dbgInfoNeededHeaderBytes());
+        try di_buf.ensureTotalCapacity(self.dbgInfoNeededHeaderBytes());
 
         // initial length - length of the .debug_info contribution for this compilation unit,
         // not including the initial length itself.
@@ -408,7 +408,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
 
         // Enough for all the data without resizing. When support for more compilation units
         // is added, the size of this section will become more variable.
-        try di_buf.ensureCapacity(100);
+        try di_buf.ensureTotalCapacity(100);
 
         // initial length - length of the .debug_aranges contribution for this compilation unit,
         // not including the initial length itself.
@@ -479,7 +479,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         // The size of this header is variable, depending on the number of directories,
         // files, and padding. We have a function to compute the upper bound size, however,
         // because it's needed for determining where to put the offset of the first `SrcFn`.
-        try di_buf.ensureCapacity(self.dbgLineNeededHeaderBytes(module));
+        try di_buf.ensureTotalCapacity(self.dbgLineNeededHeaderBytes(module));
 
         // initial length - length of the .debug_line contribution for this compilation unit,
         // not including the initial length itself.
@@ -607,7 +607,7 @@ fn copySegmentCommand(self: *DebugSymbols, allocator: *Allocator, base_cmd: Segm
     };
     mem.copy(u8, &cmd.inner.segname, &base_cmd.inner.segname);
 
-    try cmd.sections.ensureCapacity(allocator, cmd.inner.nsects);
+    try cmd.sections.ensureTotalCapacity(allocator, cmd.inner.nsects);
     for (base_cmd.sections.items) |base_sect, i| {
         var sect = macho.section_64{
             .sectname = undefined,
@@ -855,7 +855,7 @@ pub fn initDeclDebugBuffers(
     switch (decl.ty.zigTypeTag()) {
         .Fn => {
             // For functions we need to add a prologue to the debug line program.
-            try dbg_line_buffer.ensureCapacity(26);
+            try dbg_line_buffer.ensureTotalCapacity(26);
 
             const func = decl.val.castTag(.function).?.data;
             const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
@@ -889,7 +889,7 @@ pub fn initDeclDebugBuffers(
 
             // .debug_info subprogram
             const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
-            try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 27 + decl_name_with_null.len);
+            try dbg_info_buffer.ensureUnusedCapacity(27 + decl_name_with_null.len);
 
             const fn_ret_type = decl.ty.fnReturnType();
             const fn_ret_has_bits = fn_ret_type.hasCodeGenBits();
@@ -1124,7 +1124,7 @@ fn addDbgInfoType(
         },
         .Int => {
             const info = ty.intInfo(target);
-            try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 12);
+            try dbg_info_buffer.ensureUnusedCapacity(12);
             dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
             // DW.AT.encoding, DW.FORM.data1
             dbg_info_buffer.appendAssumeCapacity(switch (info.signedness) {
@@ -1261,7 +1261,7 @@ fn getDebugLineProgramEnd(self: DebugSymbols) u32 {
 
 /// TODO Improve this to use a table.
 fn makeDebugString(self: *DebugSymbols, allocator: *Allocator, bytes: []const u8) !u32 {
-    try self.debug_string_table.ensureCapacity(allocator, self.debug_string_table.items.len + bytes.len + 1);
+    try self.debug_string_table.ensureUnusedCapacity(allocator, bytes.len + 1);
     const result = self.debug_string_table.items.len;
     self.debug_string_table.appendSliceAssumeCapacity(bytes);
     self.debug_string_table.appendAssumeCapacity(0);

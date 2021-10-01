@@ -88,7 +88,7 @@ var st_init_str_foo = StInitStrFoo{
     .y = true,
 };
 
-test "statically initalized array literal" {
+test "statically initialized array literal" {
     const y: [4]u8 = st_init_arr_lit_x;
     try expect(y[3] == 4);
 }
@@ -106,21 +106,6 @@ test "const slice" {
         const b = a[1..2];
         try expect(b.len == 1);
         try expect(b[0] == '2');
-    }
-}
-
-test "try to trick eval with runtime if" {
-    try expect(testTryToTrickEvalWithRuntimeIf(true) == 10);
-}
-
-fn testTryToTrickEvalWithRuntimeIf(b: bool) usize {
-    comptime var i: usize = 0;
-    inline while (i < 10) : (i += 1) {
-        const result = if (b) false else true;
-        _ = result;
-    }
-    comptime {
-        return i;
     }
 }
 
@@ -274,19 +259,6 @@ test "const global shares pointer with other same one" {
 }
 fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) !void {
     try expect(ptr1 == ptr2);
-}
-
-test "@setEvalBranchQuota" {
-    comptime {
-        // 1001 for the loop and then 1 more for the expect fn call
-        @setEvalBranchQuota(1002);
-        var i = 0;
-        var sum = 0;
-        while (i < 1001) : (i += 1) {
-            sum += i;
-        }
-        try expect(sum == 500500);
-    }
 }
 
 test "float literal at compile time not lossy" {

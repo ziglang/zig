@@ -242,4 +242,184 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("invalid address space coercion", linux_x64);
+        case.addError(
+            \\fn entry(a: *addrspace(.gs) i32) *i32 {
+            \\    return a;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        , &[_][]const u8{
+            ":2:12: error: expected *i32, found *addrspace(.gs) i32",
+        });
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("pointer keeps address space", linux_x64);
+        case.compiles(
+            \\fn entry(a: *addrspace(.gs) i32) *addrspace(.gs) i32 {
+            \\    return a;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("pointer to explicit generic address space coerces to implicit pointer", linux_x64);
+        case.compiles(
+            \\fn entry(a: *addrspace(.generic) i32) *i32 {
+            \\    return a;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("pointers with different address spaces", linux_x64);
+        case.addError(
+            \\fn entry(a: *addrspace(.gs) i32) *addrspace(.fs) i32 {
+            \\    return a;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        , &[_][]const u8{
+            ":2:12: error: expected *addrspace(.fs) i32, found *addrspace(.gs) i32",
+        });
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("pointers with different address spaces", linux_x64);
+        case.addError(
+            \\fn entry(a: ?*addrspace(.gs) i32) *i32 {
+            \\    return a.?;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        , &[_][]const u8{
+            ":2:13: error: expected *i32, found *addrspace(.gs) i32",
+        });
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("invalid pointer keeps address space when taking address of dereference", linux_x64);
+        case.addError(
+            \\fn entry(a: *addrspace(.gs) i32) *i32 {
+            \\    return &a.*;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        , &[_][]const u8{
+            ":2:12: error: expected *i32, found *addrspace(.gs) i32",
+        });
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("pointer keeps address space when taking address of dereference", linux_x64);
+        case.compiles(
+            \\fn entry(a: *addrspace(.gs) i32) *addrspace(.gs) i32 {
+            \\    return &a.*;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("address spaces pointer access chaining: array pointer", linux_x64);
+        case.compiles(
+            \\fn entry(a: *addrspace(.gs) [1]i32) *addrspace(.gs) i32 {
+            \\    return &a[0];
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("address spaces pointer access chaining: pointer to optional array", linux_x64);
+        case.compiles(
+            \\fn entry(a: *addrspace(.gs) ?[1]i32) *addrspace(.gs) i32 {
+            \\    return &a.*.?[0];
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("address spaces pointer access chaining: struct pointer", linux_x64);
+        case.compiles(
+            \\const A = struct{ a: i32 };
+            \\fn entry(a: *addrspace(.gs) A) *addrspace(.gs) i32 {
+            \\    return &a.a;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("address spaces pointer access chaining: complex", linux_x64);
+        case.compiles(
+            \\const A = struct{ a: ?[1]i32 };
+            \\fn entry(a: *addrspace(.gs) [1]A) *addrspace(.gs) i32 {
+            \\    return &a[0].a.?[0];
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("dereferencing through multiple pointers with address spaces", linux_x64);
+        case.compiles(
+            \\fn entry(a: *addrspace(.fs) *addrspace(.gs) *i32) *i32 {
+            \\    return a.*.*;
+            \\}
+            \\pub export fn main() void { _ = entry; }
+        );
+    }
+
+    {
+        var case = ctx.exeUsingLlvmBackend("f segment address space reading and writing", linux_x64);
+        case.addCompareOutput(
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\fn setFs(value: c_ulong) void {
+            \\    asm volatile (
+            \\        \\syscall
+            \\        :
+            \\        : [number] "{rax}" (158),
+            \\          [code] "{rdi}" (0x1002),
+            \\          [val] "{rsi}" (value),
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\}
+            \\
+            \\fn getFs() c_ulong {
+            \\    var result: c_ulong = undefined;
+            \\    asm volatile (
+            \\        \\syscall
+            \\        :
+            \\        : [number] "{rax}" (158),
+            \\          [code] "{rdi}" (0x1003),
+            \\          [ptr] "{rsi}" (@ptrToInt(&result)),
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return result;
+            \\}
+            \\
+            \\var test_value: u64 = 12345;
+            \\
+            \\pub export fn main() c_int {
+            \\    const orig_fs = getFs();
+            \\
+            \\    setFs(@ptrToInt(&test_value));
+            \\    assert(getFs() == @ptrToInt(&test_value));
+            \\
+            \\    var test_ptr = @intToPtr(*allowzero addrspace(.fs) u64, 0);
+            \\    assert(test_ptr.* == 12345);
+            \\    test_ptr.* = 98765;
+            \\    assert(test_value == 98765);
+            \\
+            \\    setFs(orig_fs);
+            \\    return 0;
+            \\}
+        , "");
+    }
 }

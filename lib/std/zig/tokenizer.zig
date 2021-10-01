@@ -11,6 +11,7 @@ pub const Token = struct {
     };
 
     pub const keywords = std.ComptimeStringMap(Tag, .{
+        .{ "addrspace", .keyword_addrspace },
         .{ "align", .keyword_align },
         .{ "allowzero", .keyword_allowzero },
         .{ "and", .keyword_and },
@@ -102,15 +103,21 @@ pub const Token = struct {
         plus_equal,
         plus_percent,
         plus_percent_equal,
+        plus_pipe,
+        plus_pipe_equal,
         minus,
         minus_equal,
         minus_percent,
         minus_percent_equal,
+        minus_pipe,
+        minus_pipe_equal,
         asterisk,
         asterisk_equal,
         asterisk_asterisk,
         asterisk_percent,
         asterisk_percent_equal,
+        asterisk_pipe,
+        asterisk_pipe_equal,
         arrow,
         colon,
         slash,
@@ -123,6 +130,8 @@ pub const Token = struct {
         angle_bracket_left_equal,
         angle_bracket_angle_bracket_left,
         angle_bracket_angle_bracket_left_equal,
+        angle_bracket_angle_bracket_left_pipe,
+        angle_bracket_angle_bracket_left_pipe_equal,
         angle_bracket_right,
         angle_bracket_right_equal,
         angle_bracket_angle_bracket_right,
@@ -132,6 +141,7 @@ pub const Token = struct {
         float_literal,
         doc_comment,
         container_doc_comment,
+        keyword_addrspace,
         keyword_align,
         keyword_allowzero,
         keyword_and,
@@ -225,15 +235,21 @@ pub const Token = struct {
                 .plus_equal => "+=",
                 .plus_percent => "+%",
                 .plus_percent_equal => "+%=",
+                .plus_pipe => "+|",
+                .plus_pipe_equal => "+|=",
                 .minus => "-",
                 .minus_equal => "-=",
                 .minus_percent => "-%",
                 .minus_percent_equal => "-%=",
+                .minus_pipe => "-|",
+                .minus_pipe_equal => "-|=",
                 .asterisk => "*",
                 .asterisk_equal => "*=",
                 .asterisk_asterisk => "**",
                 .asterisk_percent => "*%",
                 .asterisk_percent_equal => "*%=",
+                .asterisk_pipe => "*|",
+                .asterisk_pipe_equal => "*|=",
                 .arrow => "->",
                 .colon => ":",
                 .slash => "/",
@@ -246,11 +262,14 @@ pub const Token = struct {
                 .angle_bracket_left_equal => "<=",
                 .angle_bracket_angle_bracket_left => "<<",
                 .angle_bracket_angle_bracket_left_equal => "<<=",
+                .angle_bracket_angle_bracket_left_pipe => "<<|",
+                .angle_bracket_angle_bracket_left_pipe_equal => "<<|=",
                 .angle_bracket_right => ">",
                 .angle_bracket_right_equal => ">=",
                 .angle_bracket_angle_bracket_right => ">>",
                 .angle_bracket_angle_bracket_right_equal => ">>=",
                 .tilde => "~",
+                .keyword_addrspace => "addrspace",
                 .keyword_align => "align",
                 .keyword_allowzero => "allowzero",
                 .keyword_and => "and",
@@ -349,8 +368,10 @@ pub const Tokenizer = struct {
         pipe,
         minus,
         minus_percent,
+        minus_pipe,
         asterisk,
         asterisk_percent,
+        asterisk_pipe,
         slash,
         line_comment_start,
         line_comment,
@@ -379,8 +400,10 @@ pub const Tokenizer = struct {
         percent,
         plus,
         plus_percent,
+        plus_pipe,
         angle_bracket_left,
         angle_bracket_angle_bracket_left,
+        angle_bracket_angle_bracket_left_pipe,
         angle_bracket_right,
         angle_bracket_angle_bracket_right,
         period,
@@ -581,6 +604,9 @@ pub const Tokenizer = struct {
                     '%' => {
                         state = .asterisk_percent;
                     },
+                    '|' => {
+                        state = .asterisk_pipe;
+                    },
                     else => {
                         result.tag = .asterisk;
                         break;
@@ -595,6 +621,18 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.tag = .asterisk_percent;
+                        break;
+                    },
+                },
+
+                .asterisk_pipe => switch (c) {
+                    '=' => {
+                        result.tag = .asterisk_pipe_equal;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.tag = .asterisk_pipe;
                         break;
                     },
                 },
@@ -625,6 +663,9 @@ pub const Tokenizer = struct {
                     '%' => {
                         state = .plus_percent;
                     },
+                    '|' => {
+                        state = .plus_pipe;
+                    },
                     else => {
                         result.tag = .plus;
                         break;
@@ -639,6 +680,18 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.tag = .plus_percent;
+                        break;
+                    },
+                },
+
+                .plus_pipe => switch (c) {
+                    '=' => {
+                        result.tag = .plus_pipe_equal;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.tag = .plus_pipe;
                         break;
                     },
                 },
@@ -700,7 +753,7 @@ pub const Tokenizer = struct {
                 },
 
                 .string_literal_backslash => switch (c) {
-                    '\n' => {
+                    0, '\n' => {
                         result.tag = .invalid;
                         break;
                     },
@@ -769,6 +822,10 @@ pub const Tokenizer = struct {
                 },
 
                 .char_literal_unicode_escape_saw_u => switch (c) {
+                    0 => {
+                        result.tag = .invalid;
+                        break;
+                    },
                     '{' => {
                         state = .char_literal_unicode_escape;
                     },
@@ -779,6 +836,10 @@ pub const Tokenizer = struct {
                 },
 
                 .char_literal_unicode_escape => switch (c) {
+                    0 => {
+                        result.tag = .invalid;
+                        break;
+                    },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     '}' => {
                         state = .char_literal_end; // too many/few digits handled later
@@ -892,6 +953,9 @@ pub const Tokenizer = struct {
                     '%' => {
                         state = .minus_percent;
                     },
+                    '|' => {
+                        state = .minus_pipe;
+                    },
                     else => {
                         result.tag = .minus;
                         break;
@@ -906,6 +970,17 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.tag = .minus_percent;
+                        break;
+                    },
+                },
+                .minus_pipe => switch (c) {
+                    '=' => {
+                        result.tag = .minus_pipe_equal;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.tag = .minus_pipe;
                         break;
                     },
                 },
@@ -931,8 +1006,23 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
+                    '|' => {
+                        state = .angle_bracket_angle_bracket_left_pipe;
+                    },
                     else => {
                         result.tag = .angle_bracket_angle_bracket_left;
+                        break;
+                    },
+                },
+
+                .angle_bracket_angle_bracket_left_pipe => switch (c) {
+                    '=' => {
+                        result.tag = .angle_bracket_angle_bracket_left_pipe_equal;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.tag = .angle_bracket_angle_bracket_left_pipe;
                         break;
                     },
                 },
@@ -1917,6 +2007,30 @@ test "tokenizer - multi line string literal with only 1 backslash" {
 test "tokenizer - invalid builtin identifiers" {
     try testTokenize("@()", &.{ .invalid, .l_paren, .r_paren });
     try testTokenize("@0()", &.{ .invalid, .integer_literal, .l_paren, .r_paren });
+}
+
+test "tokenizer - invalid token with unfinished escape right before eof" {
+    try testTokenize("\"\\", &.{.invalid});
+    try testTokenize("'\\", &.{.invalid});
+    try testTokenize("'\\u", &.{.invalid});
+}
+
+test "tokenizer - saturating" {
+    try testTokenize("<<", &.{.angle_bracket_angle_bracket_left});
+    try testTokenize("<<|", &.{.angle_bracket_angle_bracket_left_pipe});
+    try testTokenize("<<|=", &.{.angle_bracket_angle_bracket_left_pipe_equal});
+
+    try testTokenize("*", &.{.asterisk});
+    try testTokenize("*|", &.{.asterisk_pipe});
+    try testTokenize("*|=", &.{.asterisk_pipe_equal});
+
+    try testTokenize("+", &.{.plus});
+    try testTokenize("+|", &.{.plus_pipe});
+    try testTokenize("+|=", &.{.plus_pipe_equal});
+
+    try testTokenize("-", &.{.minus});
+    try testTokenize("-|", &.{.minus_pipe});
+    try testTokenize("-|=", &.{.minus_pipe_equal});
 }
 
 fn testTokenize(source: [:0]const u8, expected_tokens: []const Token.Tag) !void {

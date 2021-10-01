@@ -24,11 +24,10 @@ test "this refer to module call private fn" {
 }
 
 test "this refer to container" {
-    var pt = Point(i32){
-        .x = 12,
-        .y = 34,
-    };
-    pt.addOne();
+    var pt: Point(i32) = undefined;
+    pt.x = 12;
+    pt.y = 34;
+    Point(i32).addOne(&pt);
     try expect(pt.x == 13);
     try expect(pt.y == 35);
 }

@@ -260,7 +260,7 @@ pub const DeclGen = struct {
         };
     }
 
-    /// Generate the code for `decl`. If a reportable error occured during code generation,
+    /// Generate the code for `decl`. If a reportable error occurred during code generation,
     /// a message is returned by this function. Callee owns the memory. If this function
     /// returns such a reportable error, it is valid to be called again for a different decl.
     pub fn gen(self: *DeclGen, decl: *Decl, air: Air, liveness: Liveness) !?*Module.ErrorMsg {
@@ -565,7 +565,7 @@ pub const DeclGen = struct {
                 }
             },
             // When recursively generating a type, we cannot infer the pointer's storage class. See genPointerType.
-            .Pointer => return self.fail("Cannot create pointer with unkown storage class", .{}),
+            .Pointer => return self.fail("Cannot create pointer with unknown storage class", .{}),
             .Vector => {
                 // Although not 100% the same, Zig vectors map quite neatly to SPIR-V vectors (including many integer and float operations
                 // which work on them), so simply use those.
@@ -629,7 +629,7 @@ pub const DeclGen = struct {
             const params = decl.ty.fnParamLen();
             var i: usize = 0;
 
-            try self.args.ensureCapacity(params);
+            try self.args.ensureTotalCapacity(params);
             while (i < params) : (i += 1) {
                 const param_type_id = self.spv.types.get(decl.ty.fnParamType(i)).?;
                 const arg_result_id = self.spv.allocResultId();

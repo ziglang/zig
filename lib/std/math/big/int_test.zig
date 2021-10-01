@@ -5,6 +5,7 @@ const Managed = std.math.big.int.Managed;
 const Mutable = std.math.big.int.Mutable;
 const Limb = std.math.big.Limb;
 const DoubleLimb = std.math.big.DoubleLimb;
+const SignedDoubleLimb = std.math.big.SignedDoubleLimb;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 
@@ -1364,6 +1365,83 @@ test "big.int bitwise and multi-limb" {
     try testing.expect((try a.to(u128)) == 0);
 }
 
+test "big.int bitwise and negative-positive simple" {
+    var a = try Managed.initSet(testing.allocator, -0xffffffff11111111);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 0xeeeeeeee22222222);
+    defer b.deinit();
+
+    try a.bitAnd(a, b);
+
+    try testing.expect((try a.to(u64)) == 0x22222222);
+}
+
+test "big.int bitwise and negative-positive multi-limb" {
+    var a = try Managed.initSet(testing.allocator, -maxInt(Limb) - 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, maxInt(Limb));
+    defer b.deinit();
+
+    try a.bitAnd(a, b);
+
+    try testing.expect(a.eqZero());
+}
+
+test "big.int bitwise and positive-negative simple" {
+    var a = try Managed.initSet(testing.allocator, 0xffffffff11111111);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -0xeeeeeeee22222222);
+    defer b.deinit();
+
+    try a.bitAnd(a, b);
+
+    try testing.expect((try a.to(u64)) == 0x1111111111111110);
+}
+
+test "big.int bitwise and positive-negative multi-limb" {
+    var a = try Managed.initSet(testing.allocator, maxInt(Limb));
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -maxInt(Limb) - 1);
+    defer b.deinit();
+
+    try a.bitAnd(a, b);
+
+    try testing.expect(a.eqZero());
+}
+
+test "big.int bitwise and negative-negative simple" {
+    var a = try Managed.initSet(testing.allocator, -0xffffffff11111111);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -0xeeeeeeee22222222);
+    defer b.deinit();
+
+    try a.bitAnd(a, b);
+
+    try testing.expect((try a.to(i128)) == -0xffffffff33333332);
+}
+
+test "big.int bitwise and negative-negative multi-limb" {
+    var a = try Managed.initSet(testing.allocator, -maxInt(Limb) - 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -maxInt(Limb) - 2);
+    defer b.deinit();
+
+    try a.bitAnd(a, b);
+
+    try testing.expect((try a.to(i128)) == -maxInt(Limb) * 2 - 2);
+}
+
+test "big.int bitwise and negative overflow" {
+    var a = try Managed.initSet(testing.allocator, -maxInt(Limb));
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -2);
+    defer b.deinit();
+
+    try a.bitAnd(a, b);
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == -maxInt(Limb) - 1);
+}
+
 test "big.int bitwise xor simple" {
     var a = try Managed.initSet(testing.allocator, 0xffffffff11111111);
     defer a.deinit();
@@ -1384,6 +1462,72 @@ test "big.int bitwise xor multi-limb" {
     try a.bitXor(a, b);
 
     try testing.expect((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) ^ maxInt(Limb));
+}
+
+test "big.int bitwise xor single negative simple" {
+    var a = try Managed.initSet(testing.allocator, 0x6b03e381328a3154);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -0x45fd3acef9191fad);
+    defer b.deinit();
+
+    try a.bitXor(a, b);
+
+    try testing.expect((try a.to(i64)) == -0x2efed94fcb932ef9);
+}
+
+test "big.int bitwise xor single negative zero" {
+    var a = try Managed.initSet(testing.allocator, 0);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -0);
+    defer b.deinit();
+
+    try a.bitXor(a, b);
+
+    try testing.expect(a.eqZero());
+}
+
+test "big.int bitwise xor single negative multi-limb" {
+    var a = try Managed.initSet(testing.allocator, -0x9849c6e7a10d66d0e4260d4846254c32);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 0xf2194e7d1c855272a997fcde16f6d5a8);
+    defer b.deinit();
+
+    try a.bitXor(a, b);
+
+    try testing.expect((try a.to(i128)) == -0x6a50889abd8834a24db1f19650d3999a);
+}
+
+test "big.int bitwise xor single negative overflow" {
+    var a = try Managed.initSet(testing.allocator, maxInt(Limb));
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -1);
+    defer b.deinit();
+
+    try a.bitXor(a, b);
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == -(maxInt(Limb) + 1));
+}
+
+test "big.int bitwise xor double negative simple" {
+    var a = try Managed.initSet(testing.allocator, -0x8e48bd5f755ef1f3);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -0x4dd4fa576f3046ac);
+    defer b.deinit();
+
+    try a.bitXor(a, b);
+
+    try testing.expect((try a.to(u64)) == 0xc39c47081a6eb759);
+}
+
+test "big.int bitwise xor double negative multi-limb" {
+    var a = try Managed.initSet(testing.allocator, -0x684e5da8f500ec8ca7204c33ccc51c9c);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -0xcb07736a7b62289c78d967c3985eebeb);
+    defer b.deinit();
+
+    try a.bitXor(a, b);
+
+    try testing.expect((try a.to(u128)) == 0xa3492ec28e62c410dff92bf0549bf771);
 }
 
 test "big.int bitwise or simple" {
@@ -1407,6 +1551,72 @@ test "big.int bitwise or multi-limb" {
 
     // TODO: big.int.cpp or is wrong on multi-limb.
     try testing.expect((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) + maxInt(Limb));
+}
+
+test "big.int bitwise or negative-positive simple" {
+    var a = try Managed.initSet(testing.allocator, -0xffffffff11111111);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 0xeeeeeeee22222222);
+    defer b.deinit();
+
+    try a.bitOr(a, b);
+
+    try testing.expect((try a.to(i64)) == -0x1111111111111111);
+}
+
+test "big.int bitwise or negative-positive multi-limb" {
+    var a = try Managed.initSet(testing.allocator, -maxInt(Limb) - 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 1);
+    defer b.deinit();
+
+    try a.bitOr(a, b);
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == -maxInt(Limb));
+}
+
+test "big.int bitwise or positive-negative simple" {
+    var a = try Managed.initSet(testing.allocator, 0xffffffff11111111);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -0xeeeeeeee22222222);
+    defer b.deinit();
+
+    try a.bitOr(a, b);
+
+    try testing.expect((try a.to(i64)) == -0x22222221);
+}
+
+test "big.int bitwise or positive-negative multi-limb" {
+    var a = try Managed.initSet(testing.allocator, maxInt(Limb) + 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -1);
+    defer b.deinit();
+
+    try a.bitOr(a, b);
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == -1);
+}
+
+test "big.int bitwise or negative-negative simple" {
+    var a = try Managed.initSet(testing.allocator, -0xffffffff11111111);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -0xeeeeeeee22222222);
+    defer b.deinit();
+
+    try a.bitOr(a, b);
+
+    try testing.expect((try a.to(i128)) == -0xeeeeeeee00000001);
+}
+
+test "big.int bitwise or negative-negative multi-limb" {
+    var a = try Managed.initSet(testing.allocator, -maxInt(Limb) - 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -maxInt(Limb));
+    defer b.deinit();
+
+    try a.bitOr(a, b);
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == -maxInt(Limb));
 }
 
 test "big.int var args" {

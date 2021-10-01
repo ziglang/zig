@@ -404,6 +404,25 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform a IORING_OP_READ_FIXED.
+    /// The `buffer` provided must be registered with the kernel by calling `register_buffers` first.
+    /// The `buffer_index` must be the same as its index in the array provided to `register_buffers`.
+    ///
+    /// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
+    pub fn read_fixed(
+        self: *IO_Uring,
+        user_data: u64,
+        fd: os.fd_t,
+        buffer: *os.iovec,
+        offset: u64,
+        buffer_index: u16,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_read_fixed(sqe, fd, buffer, offset, buffer_index);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Queues (but does not submit) an SQE to perform a `pwritev()`.
     /// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
     /// For example, if you want to do a `pwritev2()` then set `rw_flags` on the returned SQE.
@@ -417,6 +436,25 @@ pub const IO_Uring = struct {
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_writev(sqe, fd, iovecs, offset);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
+    /// Queues (but does not submit) an SQE to perform a IORING_OP_WRITE_FIXED.
+    /// The `buffer` provided must be registered with the kernel by calling `register_buffers` first.
+    /// The `buffer_index` must be the same as its index in the array provided to `register_buffers`.
+    ///
+    /// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
+    pub fn write_fixed(
+        self: *IO_Uring,
+        user_data: u64,
+        fd: os.fd_t,
+        buffer: *os.iovec,
+        offset: u64,
+        buffer_index: u16,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_write_fixed(sqe, fd, buffer, offset, buffer_index);
         sqe.user_data = user_data;
         return sqe;
     }
@@ -674,6 +712,29 @@ pub const IO_Uring = struct {
         try handle_registration_result(res);
     }
 
+    /// Registers an array of buffers for use with `read_fixed` and `write_fixed`.
+    pub fn register_buffers(self: *IO_Uring, buffers: []const os.iovec) !void {
+        assert(self.fd >= 0);
+        const res = linux.io_uring_register(
+            self.fd,
+            .REGISTER_BUFFERS,
+            buffers.ptr,
+            @intCast(u32, buffers.len),
+        );
+        try handle_registration_result(res);
+    }
+
+    /// Unregister the registered buffers.
+    pub fn unregister_buffers(self: *IO_Uring) !void {
+        assert(self.fd >= 0);
+        const res = linux.io_uring_register(self.fd, .UNREGISTER_BUFFERS, null, 0);
+        switch (linux.getErrno(res)) {
+            .SUCCESS => {},
+            .NXIO => return error.BuffersNotRegistered,
+            else => |errno| return os.unexpectedErrno(errno),
+        }
+    }
+
     fn handle_registration_result(res: usize) !void {
         switch (linux.getErrno(res)) {
             .SUCCESS => {},
@@ -903,6 +964,16 @@ pub fn io_uring_prep_writev(
     offset: u64,
 ) void {
     io_uring_prep_rw(.WRITEV, sqe, fd, @ptrToInt(iovecs.ptr), iovecs.len, offset);
+}
+
+pub fn io_uring_prep_read_fixed(sqe: *io_uring_sqe, fd: os.fd_t, buffer: *os.iovec, offset: u64, buffer_index: u16) void {
+    io_uring_prep_rw(.READ_FIXED, sqe, fd, @ptrToInt(buffer.iov_base), buffer.iov_len, offset);
+    sqe.buf_index = buffer_index;
+}
+
+pub fn io_uring_prep_write_fixed(sqe: *io_uring_sqe, fd: os.fd_t, buffer: *os.iovec, offset: u64, buffer_index: u16) void {
+    io_uring_prep_rw(.WRITE_FIXED, sqe, fd, @ptrToInt(buffer.iov_base), buffer.iov_len, offset);
+    sqe.buf_index = buffer_index;
 }
 
 pub fn io_uring_prep_accept(
@@ -1280,6 +1351,63 @@ test "write/read" {
         .flags = 0,
     }, cqe_read);
     try testing.expectEqualSlices(u8, buffer_write[0..], buffer_read[0..]);
+}
+
+test "write_fixed/read_fixed" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const path = "test_io_uring_write_read_fixed";
+    const file = try std.fs.cwd().createFile(path, .{ .read = true, .truncate = true });
+    defer file.close();
+    defer std.fs.cwd().deleteFile(path) catch {};
+    const fd = file.handle;
+
+    var raw_buffers: [2][11]u8 = undefined;
+    // First buffer will be written to the file.
+    std.mem.set(u8, &raw_buffers[0], 'z');
+    std.mem.copy(u8, &raw_buffers[0], "foobar");
+
+    var buffers = [2]os.iovec{
+        .{ .iov_base = &raw_buffers[0], .iov_len = raw_buffers[0].len },
+        .{ .iov_base = &raw_buffers[1], .iov_len = raw_buffers[1].len },
+    };
+    try ring.register_buffers(&buffers);
+
+    const sqe_write = try ring.write_fixed(0x45454545, fd, &buffers[0], 3, 0);
+    try testing.expectEqual(linux.IORING_OP.WRITE_FIXED, sqe_write.opcode);
+    try testing.expectEqual(@as(u64, 3), sqe_write.off);
+    sqe_write.flags |= linux.IOSQE_IO_LINK;
+
+    const sqe_read = try ring.read_fixed(0x12121212, fd, &buffers[1], 0, 1);
+    try testing.expectEqual(linux.IORING_OP.READ_FIXED, sqe_read.opcode);
+    try testing.expectEqual(@as(u64, 0), sqe_read.off);
+
+    try testing.expectEqual(@as(u32, 2), try ring.submit());
+
+    const cqe_write = try ring.copy_cqe();
+    const cqe_read = try ring.copy_cqe();
+
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x45454545,
+        .res = @intCast(i32, buffers[0].iov_len),
+        .flags = 0,
+    }, cqe_write);
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x12121212,
+        .res = @intCast(i32, buffers[1].iov_len),
+        .flags = 0,
+    }, cqe_read);
+
+    try testing.expectEqualSlices(u8, "\x00\x00\x00", buffers[1].iov_base[0..3]);
+    try testing.expectEqualSlices(u8, "foobar", buffers[1].iov_base[3..9]);
+    try testing.expectEqualSlices(u8, "zz", buffers[1].iov_base[9..11]);
 }
 
 test "openat" {

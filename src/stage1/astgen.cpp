@@ -3672,6 +3672,8 @@ static Stage1ZirInst *astgen_bin_op(Stage1AstGen *ag, Scope *scope, AstNode *nod
             return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpMult), lval, result_loc);
         case BinOpTypeAssignTimesWrap:
             return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpMultWrap), lval, result_loc);
+        case BinOpTypeAssignTimesSat:
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpMultSat), lval, result_loc);
         case BinOpTypeAssignDiv:
             return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpDivUnspecified), lval, result_loc);
         case BinOpTypeAssignMod:
@@ -3680,12 +3682,18 @@ static Stage1ZirInst *astgen_bin_op(Stage1AstGen *ag, Scope *scope, AstNode *nod
             return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpAdd), lval, result_loc);
         case BinOpTypeAssignPlusWrap:
             return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpAddWrap), lval, result_loc);
+        case BinOpTypeAssignPlusSat:
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpAddSat), lval, result_loc);
         case BinOpTypeAssignMinus:
             return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpSub), lval, result_loc);
         case BinOpTypeAssignMinusWrap:
             return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpSubWrap), lval, result_loc);
+        case BinOpTypeAssignMinusSat:
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpSubSat), lval, result_loc);
         case BinOpTypeAssignBitShiftLeft:
             return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpBitShiftLeftLossy), lval, result_loc);
+        case BinOpTypeAssignBitShiftLeftSat:
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpShlSat), lval, result_loc);
         case BinOpTypeAssignBitShiftRight:
             return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpBitShiftRightLossy), lval, result_loc);
         case BinOpTypeAssignBitAnd:
@@ -3718,20 +3726,28 @@ static Stage1ZirInst *astgen_bin_op(Stage1AstGen *ag, Scope *scope, AstNode *nod
             return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpBinAnd), lval, result_loc);
         case BinOpTypeBitShiftLeft:
             return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpBitShiftLeftLossy), lval, result_loc);
+        case BinOpTypeBitShiftLeftSat:
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpShlSat), lval, result_loc);
         case BinOpTypeBitShiftRight:
             return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpBitShiftRightLossy), lval, result_loc);
         case BinOpTypeAdd:
             return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpAdd), lval, result_loc);
         case BinOpTypeAddWrap:
             return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpAddWrap), lval, result_loc);
+        case BinOpTypeAddSat:
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpAddSat), lval, result_loc);
         case BinOpTypeSub:
             return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpSub), lval, result_loc);
         case BinOpTypeSubWrap:
             return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpSubWrap), lval, result_loc);
+        case BinOpTypeSubSat:
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpSubSat), lval, result_loc);
         case BinOpTypeMult:
             return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpMult), lval, result_loc);
         case BinOpTypeMultWrap:
             return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpMultWrap), lval, result_loc);
+        case BinOpTypeMultSat:
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpMultSat), lval, result_loc);
         case BinOpTypeDiv:
             return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpDivUnspecified), lval, result_loc);
         case BinOpTypeMod:
@@ -4702,66 +4718,6 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
                     return arg1_value;
 
                 Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpMaximum, arg0_value, arg1_value, true);
-                return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
-            }
-        case BuiltinFnIdSatAdd:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
-                if (arg0_value == ag->codegen->invalid_inst_src)
-                    return arg0_value;
-
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
-                if (arg1_value == ag->codegen->invalid_inst_src)
-                    return arg1_value;
-
-                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpSatAdd, arg0_value, arg1_value, true);
-                return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
-            }
-        case BuiltinFnIdSatSub:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
-                if (arg0_value == ag->codegen->invalid_inst_src)
-                    return arg0_value;
-
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
-                if (arg1_value == ag->codegen->invalid_inst_src)
-                    return arg1_value;
-
-                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpSatSub, arg0_value, arg1_value, true);
-                return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
-            }
-        case BuiltinFnIdSatMul:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
-                if (arg0_value == ag->codegen->invalid_inst_src)
-                    return arg0_value;
-
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
-                if (arg1_value == ag->codegen->invalid_inst_src)
-                    return arg1_value;
-
-                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpSatMul, arg0_value, arg1_value, true);
-                return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
-            }
-        case BuiltinFnIdSatShl:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                Stage1ZirInst *arg0_value = astgen_node(ag, arg0_node, scope);
-                if (arg0_value == ag->codegen->invalid_inst_src)
-                    return arg0_value;
-
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
-                if (arg1_value == ag->codegen->invalid_inst_src)
-                    return arg1_value;
-
-                Stage1ZirInst *bin_op = ir_build_bin_op(ag, scope, node, IrBinOpSatShl, arg0_value, arg1_value, true);
                 return ir_lval_wrap(ag, scope, bin_op, lval, result_loc);
             }
         case BuiltinFnIdMemcpy:

@@ -147,6 +147,46 @@ test "mem.Allocator basics" {
     try testing.expectError(error.OutOfMemory, failAllocator.allocSentinel(u8, 1, 0));
 }
 
+test "Allocator.resize" {
+    const primitiveIntTypes = .{
+        i8,
+        u8,
+        i16,
+        u16,
+        i32,
+        u32,
+        i64,
+        u64,
+        i128,
+        u128,
+        isize,
+        usize,
+    };
+    inline for (primitiveIntTypes) |T| {
+        var values = try testing.allocator.alloc(T, 100);
+        defer testing.allocator.free(values);
+
+        for (values) |*v, i| v.* = @intCast(T, i);
+        values = try testing.allocator.resize(values, values.len + 10);
+        try testing.expect(values.len == 110);
+    }
+
+    const primitiveFloatTypes = .{
+        f16,
+        f32,
+        f64,
+        f128,
+    };
+    inline for (primitiveFloatTypes) |T| {
+        var values = try testing.allocator.alloc(T, 100);
+        defer testing.allocator.free(values);
+
+        for (values) |*v, i| v.* = @intToFloat(T, i);
+        values = try testing.allocator.resize(values, values.len + 10);
+        try testing.expect(values.len == 110);
+    }
+}
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
@@ -2472,6 +2512,7 @@ fn CopyPtrAttrs(comptime source: type, comptime size: std.builtin.TypeInfo.Point
             .is_volatile = info.is_volatile,
             .is_allowzero = info.is_allowzero,
             .alignment = info.alignment,
+            .address_space = info.address_space,
             .child = child,
             .sentinel = null,
         },
@@ -2960,6 +3001,7 @@ fn AlignedSlice(comptime AttributeSource: type, comptime new_alignment: u29) typ
             .is_volatile = info.is_volatile,
             .is_allowzero = info.is_allowzero,
             .alignment = new_alignment,
+            .address_space = info.address_space,
             .child = info.child,
             .sentinel = null,
         },

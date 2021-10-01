@@ -29,7 +29,7 @@ pub fn parseAppend(buf: *std.ArrayList(u8), bytes: []const u8) error{OutOfMemory
     const slice = bytes[1..];
 
     const prev_len = buf.items.len;
-    try buf.ensureCapacity(prev_len + slice.len - 1);
+    try buf.ensureUnusedCapacity(slice.len - 1);
     errdefer buf.shrinkRetainingCapacity(prev_len);
 
     const State = enum {

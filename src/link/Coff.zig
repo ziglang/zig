@@ -50,7 +50,7 @@ last_text_block: ?*TextBlock = null,
 section_table_offset: u32 = 0,
 /// Section data file pointer.
 section_data_offset: u32 = 0,
-/// Optiona header file pointer.
+/// Optional header file pointer.
 optional_header_offset: u32 = 0,
 
 /// Absolute virtual address of the offset table when the executable is loaded in memory.
@@ -132,7 +132,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
-        self.llvm_object = try LlvmObject.create(allocator, options);
+        self.llvm_object = try LlvmObject.create(allocator, sub_path, options);
         return self;
     }
 
@@ -418,7 +418,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Coff {
 pub fn allocateDeclIndexes(self: *Coff, decl: *Module.Decl) !void {
     if (self.llvm_object) |_| return;
 
-    try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
+    try self.offset_table.ensureUnusedCapacity(self.base.allocator, 1);
 
     if (self.offset_table_free_list.popOrNull()) |i| {
         decl.link.coff.offset_table_index = i;
@@ -602,7 +602,7 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
         const current_virtual_size = mem.alignForwardGeneric(u32, self.offset_table_size, section_alignment);
         const new_virtual_size = mem.alignForwardGeneric(u32, new_raw_size, section_alignment);
         // If we had to move in the virtual address space, we need to fix the VAs in the offset table, as well as the virtual address of the `.text` section
-        // and the virutal size of the `.got` section
+        // and the virtual size of the `.got` section
 
         if (new_virtual_size != current_virtual_size) {
             log.debug("growing offset table from virtual size {} to {}\n", .{ current_virtual_size, new_virtual_size });
@@ -770,7 +770,9 @@ fn finishUpdateDecl(self: *Coff, module: *Module, decl: *Module.Decl, code: []co
 }
 
 pub fn freeDecl(self: *Coff, decl: *Module.Decl) void {
-    if (self.llvm_object) |_| return;
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
+    }
 
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     self.freeTextBlock(&decl.link.coff);
@@ -793,7 +795,7 @@ pub fn updateDeclExports(
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
+                try module.failed_exports.ensureUnusedCapacity(module.gpa, 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
                     try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
@@ -804,7 +806,7 @@ pub fn updateDeclExports(
         if (mem.eql(u8, exp.options.name, "_start")) {
             self.entry_addr = decl.link.coff.getVAddr(self.*) - default_image_base;
         } else {
-            try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
+            try module.failed_exports.ensureUnusedCapacity(module.gpa, 1);
             module.failed_exports.putAssumeCapacityNoClobber(
                 exp,
                 try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: Exports other than '_start'", .{}),
@@ -882,11 +884,8 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        // Both stage1 and stage2 LLVM backend put the object file in the cache directory.
-        if (self.base.options.use_llvm) {
-            // Stage2 has to call flushModule since that outputs the LLVM object file.
-            if (!build_options.is_stage1 or !self.base.options.use_stage1) try self.flushModule(comp);
-
+        const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
+        if (use_stage1) {
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
                 .target = self.base.options.target,
@@ -981,7 +980,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     if (self.base.options.output_mode == .Obj) {
-        // LLD's COFF driver does not support the equvialent of `-r` so we do a simple file copy
+        // LLD's COFF driver does not support the equivalent of `-r` so we do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
@@ -1267,22 +1266,23 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             try argv.append(comp.libunwind_static_lib.?.full_object_path);
         }
 
-        // TODO: remove when stage2 can build compiler_rt.zig, c.zig and ssp.zig
-        // compiler-rt, libc and libssp
-        if (is_exe_or_dyn_lib and
-            !self.base.options.skip_linker_dependencies and
-            build_options.is_stage1 and self.base.options.use_stage1)
-        {
+        if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies) {
             if (!self.base.options.link_libc) {
-                try argv.append(comp.libc_static_lib.?.full_object_path);
+                if (comp.libc_static_lib) |lib| {
+                    try argv.append(lib.full_object_path);
+                }
             }
             // MinGW doesn't provide libssp symbols
             if (target.abi.isGnu()) {
-                try argv.append(comp.libssp_static_lib.?.full_object_path);
+                if (comp.libssp_static_lib) |lib| {
+                    try argv.append(lib.full_object_path);
+                }
             }
             // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
             // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
-            try argv.append(comp.compiler_rt_static_lib.?.full_object_path);
+            if (comp.compiler_rt_static_lib) |lib| {
+                try argv.append(lib.full_object_path);
+            }
         }
 
         try argv.ensureUnusedCapacity(self.base.options.system_libs.count());

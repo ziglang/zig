@@ -86,6 +86,14 @@ enum CallingConvention {
     CallingConventionSysV
 };
 
+// Stage 1 supports only the generic address space
+enum AddressSpace {
+    AddressSpaceGeneric,
+    AddressSpaceGS,
+    AddressSpaceFS,
+    AddressSpaceSS,
+};
+
 // This one corresponds to the builtin.zig enum.
 enum BuiltinPtrSize {
     BuiltinPtrSizeOne,
@@ -804,14 +812,18 @@ enum BinOpType {
     BinOpTypeInvalid,
     BinOpTypeAssign,
     BinOpTypeAssignTimes,
+    BinOpTypeAssignTimesSat,
     BinOpTypeAssignTimesWrap,
     BinOpTypeAssignDiv,
     BinOpTypeAssignMod,
     BinOpTypeAssignPlus,
+    BinOpTypeAssignPlusSat,
     BinOpTypeAssignPlusWrap,
     BinOpTypeAssignMinus,
+    BinOpTypeAssignMinusSat,
     BinOpTypeAssignMinusWrap,
     BinOpTypeAssignBitShiftLeft,
+    BinOpTypeAssignBitShiftLeftSat,
     BinOpTypeAssignBitShiftRight,
     BinOpTypeAssignBitAnd,
     BinOpTypeAssignBitXor,
@@ -828,12 +840,16 @@ enum BinOpType {
     BinOpTypeBinXor,
     BinOpTypeBinAnd,
     BinOpTypeBitShiftLeft,
+    BinOpTypeBitShiftLeftSat,
     BinOpTypeBitShiftRight,
     BinOpTypeAdd,
+    BinOpTypeAddSat,
     BinOpTypeAddWrap,
     BinOpTypeSub,
+    BinOpTypeSubSat,
     BinOpTypeSubWrap,
     BinOpTypeMult,
+    BinOpTypeMultSat,
     BinOpTypeMultWrap,
     BinOpTypeDiv,
     BinOpTypeMod,
@@ -1802,10 +1818,6 @@ enum BuiltinFnId {
     BuiltinFnIdReduce,
     BuiltinFnIdMaximum,
     BuiltinFnIdMinimum,
-    BuiltinFnIdSatAdd,
-    BuiltinFnIdSatSub,
-    BuiltinFnIdSatMul,
-    BuiltinFnIdSatShl,
 };
 
 struct BuiltinFnEntry {
@@ -2950,10 +2962,10 @@ enum IrBinOp {
     IrBinOpArrayMult,
     IrBinOpMaximum,
     IrBinOpMinimum,
-    IrBinOpSatAdd,
-    IrBinOpSatSub,
-    IrBinOpSatMul,
-    IrBinOpSatShl,
+    IrBinOpAddSat,
+    IrBinOpSubSat,
+    IrBinOpMultSat,
+    IrBinOpShlSat,
 };
 
 struct Stage1ZirInstBinOp {

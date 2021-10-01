@@ -189,7 +189,7 @@ pub fn MultiArrayList(comptime S: type) type {
         /// sets the given index to the specified element.  May reallocate
         /// and invalidate iterators.
         pub fn insert(self: *Self, gpa: *Allocator, index: usize, elem: S) void {
-            try self.ensureCapacity(gpa, self.len + 1);
+            try self.ensureUnusedCapacity(gpa, 1);
             self.insertAssumeCapacity(index, elem);
         }
 
@@ -376,7 +376,7 @@ pub fn MultiArrayList(comptime S: type) type {
         pub fn clone(self: Self, gpa: *Allocator) !Self {
             var result = Self{};
             errdefer result.deinit(gpa);
-            try result.ensureCapacity(gpa, self.len);
+            try result.ensureTotalCapacity(gpa, self.len);
             result.len = self.len;
             const self_slice = self.slice();
             const result_slice = result.slice();

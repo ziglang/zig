@@ -438,6 +438,13 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
             "-lc",
             "-lutil",
         },
+        .solaris => &[_][]const u8{
+            "-lm",
+            "-lsocket",
+            "-lnsl",
+            // Solaris releases after 10 merged the threading libraries into libc.
+            "-lc",
+        },
         .haiku => &[_][]const u8{
             "-lm",
             "-lroot",
@@ -549,4 +556,22 @@ pub fn largestAtomicBits(target: std.Target) u32 {
 
         .x86_64 => 128,
     };
+}
+
+pub fn defaultAddressSpace(
+    target: std.Target,
+    context: enum {
+        /// Query the default address space for global constant values.
+        global_constant,
+        /// Query the default address space for global mutable values.
+        global_mutable,
+        /// Query the default address space for function-local values.
+        local,
+        /// Query the default address space for functions themselves.
+        function,
+    },
+) std.builtin.AddressSpace {
+    _ = target;
+    _ = context;
+    return .generic;
 }

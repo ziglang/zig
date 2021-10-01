@@ -31,6 +31,7 @@ pub const freebsd = std.c;
 pub const haiku = std.c;
 pub const netbsd = std.c;
 pub const openbsd = std.c;
+pub const solaris = std.c;
 pub const linux = @import("os/linux.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
@@ -64,8 +65,10 @@ else switch (builtin.os.tag) {
 };
 
 pub const AF = system.AF;
+pub const AF_SUN = system.AF_SUN;
 pub const ARCH = system.ARCH;
 pub const AT = system.AT;
+pub const AT_SUN = system.AT_SUN;
 pub const CLOCK = system.CLOCK;
 pub const CPU_COUNT = system.CPU_COUNT;
 pub const CTL = system.CTL;
@@ -101,6 +104,7 @@ pub const RR = system.RR;
 pub const S = system.S;
 pub const SA = system.SA;
 pub const SC = system.SC;
+pub const _SC = system._SC;
 pub const SEEK = system.SEEK;
 pub const SHUT = system.SHUT;
 pub const SIG = system.SIG;
@@ -143,6 +147,10 @@ pub const off_t = system.off_t;
 pub const oflags_t = system.oflags_t;
 pub const pid_t = system.pid_t;
 pub const pollfd = system.pollfd;
+pub const port_t = system.port_t;
+pub const port_event = system.port_event;
+pub const port_notify = system.port_notify;
+pub const file_obj = system.file_obj;
 pub const rights_t = system.rights_t;
 pub const rlim_t = system.rlim_t;
 pub const rlimit = system.rlimit;
@@ -2038,6 +2046,7 @@ pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatEr
         .NOTDIR => return error.NotDir,
         .NOMEM => return error.SystemResources,
         .ROFS => return error.ReadOnlyFileSystem,
+        .EXIST => return error.DirNotEmpty,
         .NOTEMPTY => return error.DirNotEmpty,
 
         .INVAL => unreachable, // invalid flags, or pathname has . as last component
@@ -4492,8 +4501,12 @@ pub const FlockError = error{
 
     /// The kernel ran out of memory for allocating file locks
     SystemResources,
+
+    /// The underlying filesystem does not support file locks
+    FileLocksNotSupported,
 } || UnexpectedError;
 
+/// Depending on the operating system `flock` may or may not interact with `fcntl` locks made by other processes.
 pub fn flock(fd: fd_t, operation: i32) FlockError!void {
     while (true) {
         const rc = system.flock(fd, operation);
@@ -4504,6 +4517,7 @@ pub fn flock(fd: fd_t, operation: i32) FlockError!void {
             .INVAL => unreachable, // invalid parameters
             .NOLCK => return error.SystemResources,
             .AGAIN => return error.WouldBlock, // TODO: integrate with async instead of just returning an error
+            .OPNOTSUPP => return error.FileLocksNotSupported,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -4664,6 +4678,16 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                     error.UnsupportedReparsePointType => unreachable, // Windows only,
                     else => |e| return e,
                 }
+            };
+            return target;
+        },
+        .solaris => {
+            var procfs_buf: ["/proc/self/path/-2147483648".len:0]u8 = undefined;
+            const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/path/{d}", .{fd}) catch unreachable;
+
+            const target = readlinkZ(proc_path, out_buffer) catch |err| switch (err) {
+                error.UnsupportedReparsePointType => unreachable,
+                else => |e| return e,
             };
             return target;
         },
