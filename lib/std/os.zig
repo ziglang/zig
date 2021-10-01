@@ -2592,6 +2592,7 @@ pub const ReadLinkError = error{
     NameTooLong,
     FileNotFound,
     SystemResources,
+    NotLink,
     NotDir,
     InvalidUtf8,
     BadPathName,
