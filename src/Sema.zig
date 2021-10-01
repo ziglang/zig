@@ -1074,7 +1074,7 @@ fn zirStructDecl(
         .val = struct_val,
     }, type_name);
     new_decl.owns_tv = true;
-    errdefer sema.mod.deleteAnonDecl(&block.base, new_decl);
+    errdefer sema.mod.abortAnonDecl(new_decl);
     struct_obj.* = .{
         .owner_decl = new_decl,
         .fields = .{},
@@ -1185,7 +1185,7 @@ fn zirEnumDecl(
         .val = enum_val,
     }, type_name);
     new_decl.owns_tv = true;
-    errdefer sema.mod.deleteAnonDecl(&block.base, new_decl);
+    errdefer sema.mod.abortAnonDecl(new_decl);
 
     enum_obj.* = .{
         .owner_decl = new_decl,
@@ -1373,7 +1373,7 @@ fn zirUnionDecl(
         .val = union_val,
     }, type_name);
     new_decl.owns_tv = true;
-    errdefer sema.mod.deleteAnonDecl(&block.base, new_decl);
+    errdefer sema.mod.abortAnonDecl(new_decl);
     union_obj.* = .{
         .owner_decl = new_decl,
         .tag_ty = Type.initTag(.@"null"),
@@ -1443,7 +1443,7 @@ fn zirErrorSetDecl(
         .val = error_set_val,
     }, type_name);
     new_decl.owns_tv = true;
-    errdefer sema.mod.deleteAnonDecl(&block.base, new_decl);
+    errdefer sema.mod.abortAnonDecl(new_decl);
     const names = try new_decl_arena.allocator.alloc([]const u8, fields.len);
     for (fields) |str_index, i| {
         names[i] = try new_decl_arena.allocator.dupe(u8, sema.code.nullTerminatedString(str_index));
@@ -2101,7 +2101,7 @@ fn zirStr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileError!A
         .ty = decl_ty,
         .val = decl_val,
     });
-    errdefer sema.mod.deleteAnonDecl(&block.base, new_decl);
+    errdefer sema.mod.abortAnonDecl(new_decl);
     try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclRef(new_decl);
 }
@@ -11804,7 +11804,7 @@ pub fn resolveDeclFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: 
     switch (ty.tag()) {
         .@"struct" => {
             const struct_obj = ty.castTag(.@"struct").?.data;
-            if (struct_obj.owner_decl.namespace.parent != sema.owner_decl.namespace) return;
+            if (struct_obj.owner_decl.namespace.parent != block.src_decl.namespace) return;
             switch (struct_obj.status) {
                 .none => {},
                 .field_types_wip => {
@@ -11822,7 +11822,7 @@ pub fn resolveDeclFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: 
         },
         .@"union", .union_tagged => {
             const union_obj = ty.cast(Type.Payload.Union).?.data;
-            if (union_obj.owner_decl.namespace.parent != sema.owner_decl.namespace) return;
+            if (union_obj.owner_decl.namespace.parent != block.src_decl.namespace) return;
             switch (union_obj.status) {
                 .none => {},
                 .field_types_wip => {
@@ -12210,7 +12210,7 @@ fn generateUnionTagTypeNumbered(
         .val = enum_val,
     });
     new_decl.owns_tv = true;
-    errdefer sema.mod.deleteAnonDecl(&block.base, new_decl);
+    errdefer sema.mod.abortAnonDecl(new_decl);
 
     enum_obj.* = .{
         .owner_decl = new_decl,
@@ -12246,7 +12246,7 @@ fn generateUnionTagTypeSimple(sema: *Sema, block: *Scope.Block, fields_len: u32)
         .val = enum_val,
     });
     new_decl.owns_tv = true;
-    errdefer sema.mod.deleteAnonDecl(&block.base, new_decl);
+    errdefer sema.mod.abortAnonDecl(new_decl);
 
     enum_obj.* = .{
         .owner_decl = new_decl,

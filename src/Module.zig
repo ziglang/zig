@@ -1695,7 +1695,7 @@ pub const Scope = struct {
                     .ty = ty,
                     .val = val,
                 });
-                errdefer wad.block.sema.mod.deleteAnonDecl(&wad.block.base, new_decl);
+                errdefer wad.block.sema.mod.abortAnonDecl(new_decl);
                 try new_decl.finalizeNewArena(&wad.new_decl_arena);
                 wad.finished = true;
                 return new_decl;
@@ -4013,9 +4013,10 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
         },
     }
 
-    const dependants = decl.dependants.keys();
-    assert(dependants[0].namespace.anon_decls.swapRemove(decl));
+    const owner_namespace = if (decl.namespace.getDecl() == decl and decl.namespace.parent != null) decl.namespace.parent.? else decl.namespace;
+    assert(owner_namespace.anon_decls.swapRemove(decl));
 
+    const dependants = decl.dependants.keys();
     for (dependants) |dep| {
         dep.removeDependency(decl);
     }
@@ -4026,10 +4027,11 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
     decl.destroy(mod);
 }
 
-pub fn deleteAnonDecl(mod: *Module, scope: *Scope, decl: *Decl) void {
-    log.debug("deleteAnonDecl {*} ({s})", .{ decl, decl.name });
-    const scope_decl = scope.srcDecl().?;
-    assert(scope_decl.namespace.anon_decls.swapRemove(decl));
+pub fn abortAnonDecl(mod: *Module, decl: *Decl) void {
+    log.debug("abortAnonDecl {*} ({s})", .{ decl, decl.name });
+    assert(decl.namespace.anon_decls.swapRemove(decl));
+    assert(decl.dependants.count() == 0);
+    assert(decl.dependencies.count() == 0);
     decl.destroy(mod);
 }
 
