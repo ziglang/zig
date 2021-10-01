@@ -1503,6 +1503,72 @@ test "big.int div multi-multi fuzz case #2" {
     try testing.expect(std.mem.eql(u8, rs, "a900000000000000000000000000000000000000000000000000"));
 }
 
+test "big.int truncate single unsigned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(u47));
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .unsigned, 17);
+
+    try testing.expect((try a.to(u17)) == maxInt(u17));
+}
+
+test "big.int truncate single signed" {
+    var a = try Managed.initSet(testing.allocator, 0x1_0000);
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .signed, 17);
+
+    try testing.expect((try a.to(i17)) == minInt(i17));
+}
+
+test "big.int truncate multi to single unsigned" {
+    var a = try Managed.initSet(testing.allocator, (maxInt(Limb) + 1) | 0x1234_5678_9ABC_DEF0);
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .unsigned, 37);
+
+    try testing.expect((try a.to(u37)) == 0x18_9ABC_DEF0);
+}
+
+test "big.int truncate multi to single signed" {
+    var a = try Managed.initSet(testing.allocator, maxInt(Limb) << 10);
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .signed, @bitSizeOf(i11));
+
+    try testing.expect((try a.to(i11)) == minInt(i11));
+}
+
+test "big.int truncate multi to multi unsigned" {
+    const bits = @typeInfo(SignedDoubleLimb).Int.bits;
+    const Int = std.meta.Int(.unsigned, bits - 1);
+
+    var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .unsigned, bits - 1);
+
+    try testing.expect((try a.to(Int)) == maxInt(Int));
+}
+
+test "big.int truncate multi to multi signed" {
+    var a = try Managed.initSet(testing.allocator, 3 << @bitSizeOf(Limb));
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .signed, @bitSizeOf(Limb) + 1);
+
+    try testing.expect((try a.to(std.meta.Int(.signed, @bitSizeOf(Limb) + 1))) == -1 << @bitSizeOf(Limb));
+}
+
+test "big.int truncate negative multi to single" {
+    var a = try Managed.initSet(testing.allocator, -@as(SignedDoubleLimb, maxInt(Limb) + 1));
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .signed, @bitSizeOf(i17));
+
+    try testing.expect((try a.to(i17)) == 0);
+}
+
 test "big.int shift-right single" {
     var a = try Managed.initSet(testing.allocator, 0xffff0000);
     defer a.deinit();
