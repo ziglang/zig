@@ -9351,11 +9351,18 @@ fn zirArrayInit(
         .pointee_type = array_ty,
         .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
     });
+    try sema.requireRuntimeBlock(block, src);
     const alloc = try block.addTy(.alloc, alloc_ty);
 
     for (resolved_args) |arg, i| {
         const index = try sema.addIntUnsigned(Type.initTag(.u64), i);
-        const elem_ptr = try block.addBinOp(.ptr_elem_ptr, alloc, index);
+        const elem_ptr = try block.addInst(.{
+            .tag = .ptr_elem_ptr,
+            .data = .{ .ty_pl = .{
+                .ty = try sema.addType(alloc_ty),
+                .payload = try sema.addExtra(Air.Bin{ .lhs = alloc, .rhs = index }),
+            } },
+        });
         _ = try block.addBinOp(.store, elem_ptr, arg);
     }
     if (is_ref) {
