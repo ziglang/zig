@@ -454,6 +454,7 @@ pub const Mutable = struct {
             // - We overflowed req_limbs. In this case, the carry is ignored, as it would be removed by
             //   truncate anyway.
             // - a and b had less elements than req_limbs, and those were overflowed. This case needs to be handled.
+            //   Note: after this we still might need to wrap.
             const msl = math.max(a.limbs.len, b.limbs.len);
             if (msl < req_limbs) {
                 r.limbs[msl] = 1;
@@ -462,6 +463,48 @@ pub const Mutable = struct {
         }
 
         r.truncate(r.toConst(), signedness, bit_count);
+    }
+
+    /// r = a + b with 2s-complement saturating semantics.
+    /// r, a and b may be aliases.
+    ///
+    /// Assets the result fits in `r`. Upper bound on the number of limbs needed by
+    /// r is `calcTwosCompLimbCount(bit_count)`.
+    pub fn addSat(r: *Mutable, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) void {
+        const req_limbs = calcTwosCompLimbCount(bit_count);
+
+        // Slice of the upper bits if they exist, these will be ignored and allows us to use addCarry to determine
+        // if an overflow occured.
+        const x = Const{
+            .positive = a.positive,
+            .limbs = a.limbs[0..math.min(req_limbs, a.limbs.len)],
+        };
+
+        const y = Const{
+            .positive = b.positive,
+            .limbs = b.limbs[0..math.min(req_limbs, b.limbs.len)],
+        };
+
+        if (r.addCarry(x, y)) {
+            // There are two possibilities here:
+            // - We overflowed req_limbs, in which case we need to saturate.
+            // - a and b had less elements than req_limbs, and those were overflowed.
+            //   Note: In this case, might _also_ need to saturate.
+            const msl = math.max(a.limbs.len, b.limbs.len);
+            if (msl < req_limbs) {
+                r.limbs[msl] = 1;
+                r.len = req_limbs;
+                // Note: Saturation may still be required if msl == req_limbs - 1
+            } else {
+                // Overflowed req_limbs, definitely saturate.
+                r.setTwosCompIntLimit(if (r.positive) .max else .min, signedness, bit_count);
+            }
+        }
+
+        // Saturate if the result didn't fit.
+        if (!r.toConst().fitsInTwosComp(signedness, bit_count)) {
+            r.setTwosCompIntLimit(if (r.positive) .max else .min, signedness, bit_count);
+        }
     }
 
     /// Base implementation for subtraction. Subtracts `max(a.limbs.len, b.limbs.len)` elements from a and b,
@@ -559,6 +602,7 @@ pub const Mutable = struct {
             // - We overflowed req_limbs. In this case, the carry is ignored, as it would be removed by
             //   truncate anyway.
             // - a and b had less elements than req_limbs, and those were overflowed. This case needs to be handled.
+            //   Note: after this we still might need to wrap.
             const msl = math.max(a.limbs.len, b.limbs.len);
             if (msl < req_limbs) {
                 r.limbs[msl] = 1;
@@ -2067,6 +2111,13 @@ pub const Managed = struct {
         try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
         var m = r.toMutable();
         m.addWrap(a, b, signedness, bit_count);
+        r.setMetadata(m.positive, m.len);
+    }
+
+    pub fn addSat(r: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) Allocator.Error!void {
+        try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
+        var m = r.toMutable();
+        m.addSat(a, b, signedness, bit_count);
         r.setMetadata(m.positive, m.len);
     }
 
