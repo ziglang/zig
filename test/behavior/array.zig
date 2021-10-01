@@ -32,4 +32,9 @@ test "array init with mult" {
     const a = 'a';
     var i: [8]u8 = [2]u8{ a, 'b' } ** 4;
     try expect(std.mem.eql(u8, &i, "abababab"));
+
+    // this should cause a Value.repeated to be emitted in AIR.
+    // TODO: find a way to test that this is actually getting emmited
+    var j: [4]u8 = [1]u8{'a'} ** 4;
+    try expect(std.mem.eql(u8, &j, "aaaa"));
 }

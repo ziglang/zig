@@ -6189,16 +6189,22 @@ fn zirArrayMul(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) CompileEr
             try Type.Tag.array.create(anon_decl.arena(), .{ .len = final_len, .elem_type = mulinfo.elem_type });
         const buf = try anon_decl.arena().alloc(Value, final_len);
 
-        // the actual loop
-        var i: u64 = 0;
-        while (i < tomulby) : (i += 1) {
-            var j: u64 = 0;
-            while (j < mulinfo.len) : (j += 1) {
-                const val = try lhs_sub_val.elemValue(sema.arena, j);
-                buf[mulinfo.len * i + j] = try val.copy(anon_decl.arena());
+        // handles the optimisation where arr.len == 0 : [_]T { X } ** N
+        const val = if (mulinfo.len == 1) blk: {
+            const copied_val = try (try lhs_sub_val.elemValue(sema.arena, 0)).copy(anon_decl.arena());
+            break :blk try Value.Tag.repeated.create(anon_decl.arena(), copied_val);
+        } else blk: {
+            // the actual loop
+            var i: u64 = 0;
+            while (i < tomulby) : (i += 1) {
+                var j: u64 = 0;
+                while (j < mulinfo.len) : (j += 1) {
+                    const val = try lhs_sub_val.elemValue(sema.arena, j);
+                    buf[mulinfo.len * i + j] = try val.copy(anon_decl.arena());
+                }
             }
-        }
-        const val = try Value.Tag.array.create(anon_decl.arena(), buf);
+            break :blk try Value.Tag.array.create(anon_decl.arena(), buf);
+        };
         if (lhs_ty.zigTypeTag() == .Pointer) {
             return sema.analyzeDeclRef(try anon_decl.finish(final_ty, val));
         } else {
