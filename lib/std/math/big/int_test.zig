@@ -269,6 +269,36 @@ test "big.int string set bad base error" {
     try testing.expectError(error.InvalidBase, a.setString(45, "10"));
 }
 
+test "big.int twos complement limit set" {
+    const test_types = [_]type{
+        u64,
+        i64,
+        u1,
+        i1,
+        u0,
+        i0,
+        u65,
+        i65,
+    };
+
+    inline for (test_types) |T| {
+        // To work around 'control flow attempts to use compile-time variable at runtime'
+        const U = T;
+        const int_info = @typeInfo(U).Int;
+
+        var a = try Managed.init(testing.allocator);
+        defer a.deinit();
+
+        try a.setTwosCompIntLimit(.max, int_info.signedness, int_info.bits);
+        var max: U = maxInt(U);
+        try testing.expect(max == try a.to(U));
+
+        try a.setTwosCompIntLimit(.min, int_info.signedness, int_info.bits);
+        var min: U = minInt(U);
+        try testing.expect(min == try a.to(U));
+    }
+}
+
 test "big.int string to" {
     var a = try Managed.initSet(testing.allocator, 120317241209124781241290847124);
     defer a.deinit();

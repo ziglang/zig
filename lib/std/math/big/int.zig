@@ -86,6 +86,15 @@ pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
     return r1;
 }
 
+/// Used to indicate either limit of a 2s-complement integer.
+pub const TwosCompIntLimit = enum {
+    // The low limit, either 0x00 (unsigned) or (-)0x80 (signed) for an 8-bit integer.
+    min,
+
+    // The high limit, either 0xFF (unsigned) or 0x7F (signed) for an 8-bit integer.
+    max,
+};
+
 /// A arbitrary-precision big integer, with a fixed set of mutable limbs.
 pub const Mutable = struct {
     /// Raw digits. These are:
@@ -287,6 +296,75 @@ pub const Mutable = struct {
         self.positive = positive;
     }
 
+    /// Set self to either bound of a 2s-complement integer.
+    /// Note: The result is still sign-magnitude, not twos complement! In order to convert the
+    /// result to twos complement, it is sufficient to take the absolute value.
+    ///
+    /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
+    /// r is `calcTwosCompLimbCount(bit_count)`.
+    pub fn setTwosCompIntLimit(
+        r: *Mutable,
+        limit: TwosCompIntLimit,
+        signedness: std.builtin.Signedness,
+        bit_count: usize
+    ) void {
+        // Handle zero-bit types.
+        if (bit_count == 0) {
+            r.set(0);
+            return;
+        }
+
+        const req_limbs = calcTwosCompLimbCount(bit_count);
+        const bit = @truncate(Log2Limb, bit_count - 1);
+        const signmask = @as(Limb, 1) << bit; // 0b0..010..0 where 1 is the sign bit.
+        const mask = (signmask << 1) -% 1;    // 0b0..011..1 where the leftmost 1 is the sign bit.
+
+        r.positive = true;
+
+        switch (signedness) {
+            .signed => switch (limit) {
+                .min => {
+                    // Negative bound, signed = -0x80.
+                    r.len = req_limbs;
+                    mem.set(Limb, r.limbs[0..r.len - 1], 0);
+                    r.limbs[r.len - 1] = signmask;
+                    r.positive = false;
+                },
+                .max => {
+                    // Positive bound, signed = 0x7F
+                    // Note, in this branch we need to normalize because the first bit is
+                    // supposed to be 0.
+
+                    // Special case for 1-bit integers.
+                    if (bit_count == 1) {
+                        r.set(0);
+                    } else {
+                        const new_req_limbs = calcTwosCompLimbCount(bit_count - 1);
+                        const msb = @truncate(Log2Limb, bit_count - 2);
+                        const new_signmask = @as(Limb, 1) << msb;  // 0b0..010..0 where 1 is the sign bit.
+                        const new_mask = (new_signmask << 1) -% 1; // 0b0..001..1 where the rightmost 0 is the sign bit.
+
+                        r.len = new_req_limbs;
+                        std.mem.set(Limb, r.limbs[0..r.len - 1], maxInt(Limb));
+                        r.limbs[r.len - 1] = new_mask;
+                    }
+                },
+            },
+            .unsigned => switch (limit) {
+                .min => {
+                    // Min bound, unsigned = 0x00
+                    r.set(0);
+                },
+                .max => {
+                    // Max bound, unsigned = 0xFF
+                    r.len = req_limbs;
+                    std.mem.set(Limb, r.limbs[0..r.len - 1], maxInt(Limb));
+                    r.limbs[r.len - 1] = mask;
+                },
+            },
+        }
+    }
+
     /// r = a + scalar
     ///
     /// r and a may be aliases.
@@ -335,7 +413,6 @@ pub const Mutable = struct {
     }
 
     /// r = a + b
-    ///
     /// r, a and b may be aliases.
     ///
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
@@ -353,8 +430,8 @@ pub const Mutable = struct {
     }
 
     /// r = a + b with 2s-complement wrapping semantics.
-    ///
     /// r, a and b may be aliases
+    ///
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
     /// r is `calcTwosCompLimbCount(bit_count)`.
     pub fn addWrap(r: *Mutable, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) void {
@@ -374,7 +451,8 @@ pub const Mutable = struct {
 
         if (r.addCarry(x, y)) {
             // There are two possibilities here:
-            // - We overflowed req_limbs. In this case, the carry is ignored.
+            // - We overflowed req_limbs. In this case, the carry is ignored, as it would be removed by
+            //   truncate anyway.
             // - a and b had less elements than req_limbs, and those were overflowed. This case needs to be handled.
             const msl = math.max(a.limbs.len, b.limbs.len);
             if (msl < req_limbs) {
@@ -399,7 +477,7 @@ pub const Mutable = struct {
         } else if (b.eqZero()) {
             r.copy(a);
             return false;
-        } if (a.positive != b.positive) {
+        } else if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) - (-b) => a + b
                 return r.addCarry(a, b.abs());
@@ -478,7 +556,8 @@ pub const Mutable = struct {
 
         if (r.subCarry(x, y)) {
             // There are two possibilities here:
-            // - We overflowed req_limbs. In this case, the carry is ignored.
+            // - We overflowed req_limbs. In this case, the carry is ignored, as it would be removed by
+            //   truncate anyway.
             // - a and b had less elements than req_limbs, and those were overflowed. This case needs to be handled.
             const msl = math.max(a.limbs.len, b.limbs.len);
             if (msl < req_limbs) {
@@ -1131,8 +1210,8 @@ pub const Mutable = struct {
         }
 
         const bit = @truncate(Log2Limb, bit_count - 1);
-        const signmask = @as(Limb, 1) << bit;
-        const mask = (signmask << 1) -% 1;
+        const signmask = @as(Limb, 1) << bit; // 0b0..010...0 where 1 is the sign bit.
+        const mask = (signmask << 1) -% 1; // 0b0..01..1 where the leftmost 1 is the sign bit.
 
         if (!a.positive) {
             // Convert the integer from sign-magnitude into twos-complement.
@@ -1871,6 +1950,21 @@ pub const Managed = struct {
         self.setMetadata(m.positive, m.len);
     }
 
+    /// Set self to either bound of a 2s-complement integer.
+    /// Note: The result is still sign-magnitude, not twos complement! In order to convert the
+    /// result to twos complement, it is sufficient to take the absolute value.
+    pub fn setTwosCompIntLimit(
+        r: *Managed,
+        limit: TwosCompIntLimit,
+        signedness: std.builtin.Signedness,
+        bit_count: usize
+    ) !void {
+        try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
+        var m = r.toMutable();
+        m.setTwosCompIntLimit(limit, signedness, bit_count);
+        r.setMetadata(m.positive, m.len);
+    }
+
     /// Converts self to a string in the requested base. Memory is allocated from the provided
     /// allocator and not the one present in self.
     pub fn toString(self: Managed, allocator: *Allocator, base: u8, case: std.fmt.Case) ![]u8 {
@@ -2184,7 +2278,7 @@ pub const Managed = struct {
         }
     }
 
-    // r = truncate(Int(signedness, bit_count), a)
+    /// r = truncate(Int(signedness, bit_count), a)
     pub fn truncate(r: *Managed, a: Const, signedness: std.builtin.Signedness, bit_count: usize) !void {
         try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
         var m = r.toMutable();
