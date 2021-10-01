@@ -612,6 +612,7 @@ pub const NativeTargetInfo = struct {
             error.AccessDenied => return error.GnuLibCVersionUnavailable,
             error.FileSystem => return error.FileSystem,
             error.SymLinkLoop => return error.SymLinkLoop,
+            error.NotLink => return error.NotLink,
             error.NameTooLong => unreachable,
             error.FileNotFound => return error.GnuLibCVersionUnavailable,
             error.SystemResources => return error.SystemResources,
