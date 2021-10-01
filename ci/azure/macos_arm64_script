@@ -50,7 +50,7 @@ cd build.host
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="$(pwd)/release" \
   -DCMAKE_PREFIX_PATH="$HOST_PREFIX" \
-  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_BUILD_TYPE=Release \
   -DZIG_TARGET_TRIPLE="$HOST_TARGET" \
   -DZIG_TARGET_MCPU="$HOST_MCPU" \
   -DZIG_STATIC=ON
