@@ -11644,7 +11644,7 @@ fn readU32Be() u32 {}
       {#header_close#}
 
       {#header_open|Grammar#}
-      <pre><code>Root &lt;- skip container_doc_comment? ContainerMembers eof
+      {#syntax_block|peg|zig.peg#}Root &lt;- skip container_doc_comment? ContainerMembers eof
 
 # *** Top level ***
 ContainerMembers &lt;- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)
@@ -12202,7 +12202,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_allowzero / KEYWORD_and / KEYWORD_anyframe
          / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_try
          / KEYWORD_union / KEYWORD_unreachable
          / KEYWORD_usingnamespace / KEYWORD_var / KEYWORD_volatile / KEYWORD_while
-</code></pre>
+{#end_syntax_block#}
       {#header_close#}
       {#header_open|Zen#}
       <ul>

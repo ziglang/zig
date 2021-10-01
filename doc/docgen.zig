@@ -313,6 +313,7 @@ const SyntaxBlock = struct {
     const SourceType = enum {
         zig,
         c,
+        peg,
         javascript,
     };
 };
@@ -666,6 +667,8 @@ fn genToc(allocator: *Allocator, tokenizer: *Tokenizer) !Toc {
                         source_type = SyntaxBlock.SourceType.zig;
                     } else if (mem.eql(u8, source_type_str, "c")) {
                         source_type = SyntaxBlock.SourceType.c;
+                    } else if (mem.eql(u8, source_type_str, "peg")) {
+                        source_type = SyntaxBlock.SourceType.c;
                     } else if (mem.eql(u8, source_type_str, "javascript")) {
                         source_type = SyntaxBlock.SourceType.javascript;
                     } else {
@@ -979,12 +982,18 @@ fn tokenizeAndPrintRaw(
             },
 
             .string_literal,
-            .multiline_string_literal_line,
             .char_literal,
             => {
                 try out.writeAll("<span class=\"tok-str\">");
                 try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
+            },
+
+            .multiline_string_literal_line,
+            => {
+                try out.writeAll("<span class=\"tok-str\">");
+                try writeEscaped(out, src[token.loc.start..token.loc.end - 1]);
+                try out.writeAll("</span>" ++ end_line ++ "\n" ++ start_line);
             },
 
             .builtin => {
