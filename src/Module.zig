@@ -4064,9 +4064,19 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
 
 pub fn abortAnonDecl(mod: *Module, decl: *Decl) void {
     log.debug("abortAnonDecl {*} ({s})", .{ decl, decl.name });
-    assert(decl.namespace.anon_decls.swapRemove(decl));
-    assert(decl.dependants.count() == 0);
-    assert(decl.dependencies.count() == 0);
+
+    const owner_namespace = if (decl.namespace.getDecl() == decl and decl.namespace.parent != null) decl.namespace.parent.? else decl.namespace;
+    assert(owner_namespace.anon_decls.swapRemove(decl));
+
+    const dependants = decl.dependants.keys();
+    for (dependants) |dep| {
+        dep.removeDependency(decl);
+    }
+
+    for (decl.dependencies.keys()) |dep| {
+        dep.removeDependant(decl);
+    }
+
     decl.destroy(mod);
 }
 
