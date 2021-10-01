@@ -1913,8 +1913,8 @@ const Writer = struct {
         try stream.writeAll(") ");
         if (body.len != 0) {
             try stream.print("(lbrace={d}:{d},rbrace={d}:{d}) ", .{
-                src_locs.lbrace_line, @truncate(u16, src_locs.columns),
-                src_locs.rbrace_line, @truncate(u16, src_locs.columns >> 16),
+                src_locs.lbrace_line + 1, @truncate(u16, src_locs.columns) + 1,
+                src_locs.rbrace_line + 1, @truncate(u16, src_locs.columns >> 16) + 1,
             });
         }
         try self.writeSrc(stream, src);
@@ -1928,7 +1928,7 @@ const Writer = struct {
 
     fn writeDbgStmt(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].dbg_stmt;
-        try stream.print("{d}, {d})", .{ inst_data.line, inst_data.column });
+        try stream.print("{d}, {d})", .{ inst_data.line + 1, inst_data.column + 1 });
     }
 
     fn writeInstRef(self: *Writer, stream: anytype, ref: Zir.Inst.Ref) !void {
