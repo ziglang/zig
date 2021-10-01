@@ -7,7 +7,7 @@ sudo pkg update -fq
 sudo pkg install -y cmake py38-s3cmd wget curl jq samurai
 
 ZIGDIR="$(pwd)"
-CACHE_BASENAME="zig+llvm+lld+clang-x86_64-freebsd-gnu-0.8.0-dev.2703+c12704a33"
+CACHE_BASENAME="zig+llvm+lld+clang-x86_64-freebsd-gnu-0.9.0-dev.1243+456d7e5f5"
 PREFIX="$HOME/$CACHE_BASENAME"
 
 cd $HOME
