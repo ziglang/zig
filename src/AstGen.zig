@@ -1683,7 +1683,7 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
                 const expr_node = node_datas[defer_scope.defer_node].rhs;
-                _ = try unusedResultExpr(parent_gz, defer_scope.parent, expr_node);
+                try unusedResultDeferExpr(parent_gz, defer_scope, defer_scope.parent, expr_node);
             },
             .defer_error => scope = scope.cast(Scope.Defer).?.parent,
             .top => unreachable,
@@ -1736,7 +1736,7 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
                 const expr_node = node_datas[defer_scope.defer_node].rhs;
-                _ = try unusedResultExpr(parent_gz, defer_scope.parent, expr_node);
+                try unusedResultDeferExpr(parent_gz, defer_scope, defer_scope.parent, expr_node);
             },
             .defer_error => scope = scope.cast(Scope.Defer).?.parent,
             .namespace => break,
@@ -1922,8 +1922,8 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
             .simple_var_decl  => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.simpleVarDecl(statement)),
             .aligned_var_decl => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.alignedVarDecl(statement)),
 
-            .@"defer"    => scope = try makeDeferScope(scope, statement, &block_arena.allocator, .defer_normal),
-            .@"errdefer" => scope = try makeDeferScope(scope, statement, &block_arena.allocator, .defer_error),
+            .@"defer"    => scope = try makeDeferScope(gz.astgen, scope, statement, &block_arena.allocator, .defer_normal),
+            .@"errdefer" => scope = try makeDeferScope(gz.astgen, scope, statement, &block_arena.allocator, .defer_error),
 
             .assign => try assign(gz, scope, statement),
 
@@ -1949,6 +1949,22 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
 
     try genDefers(gz, parent_scope, scope, .normal_only);
     try checkUsed(gz, parent_scope, scope);
+}
+
+fn unusedResultDeferExpr(gz: *GenZir, defer_scope: *Scope.Defer, expr_scope: *Scope, expr_node: Ast.Node.Index) InnerError!void {
+    const astgen = gz.astgen;
+    const prev_offset = astgen.source_offset;
+    const prev_line = astgen.source_line;
+    const prev_column = astgen.source_column;
+    defer {
+        astgen.source_offset = prev_offset;
+        astgen.source_line = prev_line;
+        astgen.source_column = prev_column;
+    }
+    astgen.source_offset = defer_scope.source_offset;
+    astgen.source_line = defer_scope.source_line;
+    astgen.source_column = defer_scope.source_column;
+    _ = try unusedResultExpr(gz, expr_scope, expr_node);
 }
 
 /// Returns AST source node of the thing that is noreturn if the statement is definitely `noreturn`.
@@ -2333,7 +2349,7 @@ fn genDefers(
                 const prev_in_defer = gz.in_defer;
                 gz.in_defer = true;
                 defer gz.in_defer = prev_in_defer;
-                _ = try unusedResultExpr(gz, defer_scope.parent, expr_node);
+                try unusedResultDeferExpr(gz, defer_scope, defer_scope.parent, expr_node);
             },
             .defer_error => {
                 const defer_scope = scope.cast(Scope.Defer).?;
@@ -2344,7 +2360,7 @@ fn genDefers(
                         const prev_in_defer = gz.in_defer;
                         gz.in_defer = true;
                         defer gz.in_defer = prev_in_defer;
-                        _ = try unusedResultExpr(gz, defer_scope.parent, expr_node);
+                        try unusedResultDeferExpr(gz, defer_scope, defer_scope.parent, expr_node);
                     },
                     .both => |err_code| {
                         const expr_node = node_datas[defer_scope.defer_node].rhs;
@@ -2365,7 +2381,7 @@ fn genDefers(
                             };
                             break :blk &local_val_scope.base;
                         };
-                        _ = try unusedResultExpr(gz, sub_scope, expr_node);
+                        try unusedResultDeferExpr(gz, defer_scope, sub_scope, expr_node);
                     },
                     .normal_only => continue,
                 }
@@ -2409,16 +2425,27 @@ fn checkUsed(
 }
 
 fn makeDeferScope(
+    astgen: *AstGen,
     scope: *Scope,
     node: Ast.Node.Index,
     block_arena: *Allocator,
     scope_tag: Scope.Tag,
 ) InnerError!*Scope {
+    const tree = astgen.tree;
+    const node_datas = tree.nodes.items(.data);
+    const expr_node = node_datas[node].rhs;
+    const token_starts = tree.tokens.items(.start);
+    const node_start = token_starts[tree.firstToken(expr_node)];
     const defer_scope = try block_arena.create(Scope.Defer);
+    astgen.advanceSourceCursor(tree.source, node_start);
+
     defer_scope.* = .{
         .base = .{ .tag = scope_tag },
         .parent = scope,
         .defer_node = node,
+        .source_offset = astgen.source_offset,
+        .source_line = astgen.source_line,
+        .source_column = astgen.source_column,
     };
     return &defer_scope.base;
 }
@@ -9245,6 +9272,9 @@ const Scope = struct {
         /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`, `Namespace`.
         parent: *Scope,
         defer_node: Ast.Node.Index,
+        source_offset: u32,
+        source_line: u32,
+        source_column: u32,
     };
 
     /// Represents a global scope that has any number of declarations in it.
