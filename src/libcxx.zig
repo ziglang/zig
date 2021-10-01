@@ -158,7 +158,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
             try cflags.append("-fPIC");
         }
         try cflags.append("-nostdinc++");
-        try cflags.append("-std=c++14");
+        try cflags.append("-std=c++20");
         try cflags.append("-Wno-user-defined-literals");
 
         c_source_files.appendAssumeCapacity(.{
