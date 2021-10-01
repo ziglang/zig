@@ -1238,9 +1238,24 @@ pub const Value = extern union {
                     const b_field_index = b.castTag(.enum_field_index).?.data;
                     return a_field_index == b_field_index;
                 },
+                .elem_ptr => @panic("TODO: Implement more pointer eql cases"),
+                .field_ptr => @panic("TODO: Implement more pointer eql cases"),
+                .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
+                .opt_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
                 else => {},
             }
         }
+
+        if (a.pointerDecl()) |a_decl| {
+            if (b.pointerDecl()) |b_decl| {
+                return a_decl == b_decl;
+            } else {
+                return false;
+            }
+        } else if (b.pointerDecl()) |_| {
+            return false;
+        }
+
         if (ty.zigTypeTag() == .Type) {
             var buf_a: ToTypeBuffer = undefined;
             var buf_b: ToTypeBuffer = undefined;
@@ -1285,8 +1300,28 @@ pub const Value = extern union {
                 const float = val.toFloat(f128);
                 std.hash.autoHash(hasher, @bitCast(u128, float));
             },
-            .Pointer => {
-                @panic("TODO implement hashing pointer values");
+            .Pointer => switch (val.tag()) {
+                .decl_ref_mut,
+                .extern_fn,
+                .decl_ref,
+                .function,
+                .variable,
+                => std.hash.autoHash(hasher, val.pointerDecl().?),
+
+                .elem_ptr => @panic("TODO: Implement more pointer hashing cases"),
+                .field_ptr => @panic("TODO: Implement more pointer hashing cases"),
+                .eu_payload_ptr => @panic("TODO: Implement more pointer hashing cases"),
+                .opt_payload_ptr => @panic("TODO: Implement more pointer hashing cases"),
+
+                .zero,
+                .one,
+                .int_u64,
+                .int_i64,
+                .int_big_positive,
+                .int_big_negative,
+                => @panic("TODO: Implement pointer hashing for int pointers"),
+
+                else => unreachable,
             },
             .Array, .Vector => {
                 @panic("TODO implement hashing array/vector values");
@@ -1430,6 +1465,19 @@ pub const Value = extern union {
             return null;
         }
         return sub_val;
+    }
+
+    /// Gets the decl referenced by this pointer.  If the pointer does not point
+    /// to a decl, or if it points to some part of a decl (like field_ptr or element_ptr),
+    /// this function returns null.
+    pub fn pointerDecl(self: Value) ?*Module.Decl {
+        return switch (self.tag()) {
+            .decl_ref_mut => self.castTag(.decl_ref_mut).?.data.decl,
+            .extern_fn, .decl_ref => self.cast(Payload.Decl).?.data,
+            .function => self.castTag(.function).?.data.owner_decl,
+            .variable => self.castTag(.variable).?.data.owner_decl,
+            else => null,
+        };
     }
 
     pub fn sliceLen(val: Value) u64 {
