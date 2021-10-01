@@ -3184,6 +3184,12 @@ fn fnDecl(
         astgen.fn_block = &fn_gz;
         defer astgen.fn_block = prev_fn_block;
 
+        const token_starts = tree.tokens.items(.start);
+        const lbrace_start = token_starts[tree.firstToken(body_node)];
+        astgen.advanceSourceCursor(tree.source, lbrace_start);
+        const lbrace_line = @intCast(u32, astgen.source_line);
+        const lbrace_column = @intCast(u32, astgen.source_column);
+
         _ = try expr(&fn_gz, params_scope, .none, body_node);
         try checkUsed(gz, &fn_gz.base, params_scope);
 
@@ -3202,6 +3208,8 @@ fn fnDecl(
 
         break :func try decl_gz.addFunc(.{
             .src_node = decl_node,
+            .lbrace_line = lbrace_line,
+            .lbrace_column = lbrace_column,
             .param_block = block_inst,
             .ret_ty = ret_gz.instructions.items,
             .ret_br = ret_br,
@@ -3544,6 +3552,12 @@ fn testDecl(
     astgen.fn_block = &fn_block;
     defer astgen.fn_block = prev_fn_block;
 
+    const token_starts = tree.tokens.items(.start);
+    const lbrace_start = token_starts[tree.firstToken(body_node)];
+    astgen.advanceSourceCursor(tree.source, lbrace_start);
+    const lbrace_line = @intCast(u32, astgen.source_line);
+    const lbrace_column = @intCast(u32, astgen.source_column);
+
     const block_result = try expr(&fn_block, &fn_block.base, .none, body_node);
     if (fn_block.instructions.items.len == 0 or !fn_block.refIsNoReturn(block_result)) {
         // Since we are adding the return instruction here, we must handle the coercion.
@@ -3553,6 +3567,8 @@ fn testDecl(
 
     const func_inst = try decl_block.addFunc(.{
         .src_node = node,
+        .lbrace_line = lbrace_line,
+        .lbrace_column = lbrace_column,
         .param_block = block_inst,
         .ret_ty = &.{},
         .ret_br = 0,
@@ -9548,6 +9564,8 @@ const GenZir = struct {
 
     fn addFunc(gz: *GenZir, args: struct {
         src_node: Ast.Node.Index,
+        lbrace_line: u32 = 0,
+        lbrace_column: u32 = 0,
         body: []const Zir.Inst.Index,
         param_block: Zir.Inst.Index,
         ret_ty: []const Zir.Inst.Index,
@@ -9577,19 +9595,13 @@ const GenZir = struct {
             const fn_decl = args.src_node;
             assert(node_tags[fn_decl] == .fn_decl or node_tags[fn_decl] == .test_decl);
             const block = node_datas[fn_decl].rhs;
-            const lbrace_start = token_starts[tree.firstToken(block)];
             const rbrace_start = token_starts[tree.lastToken(block)];
-
-            astgen.advanceSourceCursor(tree.source, lbrace_start);
-            const lbrace_line = @intCast(u32, astgen.source_line);
-            const lbrace_column = @intCast(u32, astgen.source_column);
-
             astgen.advanceSourceCursor(tree.source, rbrace_start);
             const rbrace_line = @intCast(u32, astgen.source_line);
             const rbrace_column = @intCast(u32, astgen.source_column);
 
-            const columns = lbrace_column | (rbrace_column << 16);
-            src_locs_buffer[0] = lbrace_line;
+            const columns = args.lbrace_column | (rbrace_column << 16);
+            src_locs_buffer[0] = args.lbrace_line;
             src_locs_buffer[1] = rbrace_line;
             src_locs_buffer[2] = columns;
             src_locs = &src_locs_buffer;
