@@ -87,7 +87,7 @@ void InitializeFlags(Flags *f, const char *env, const char *env_option_name) {
   // Let a frontend override.
   parser.ParseString(__tsan_default_options());
 #if TSAN_CONTAINS_UBSAN
-  const char *ubsan_default_options = __ubsan::MaybeCallUbsanDefaultOptions();
+  const char *ubsan_default_options = __ubsan_default_options();
   ubsan_parser.ParseString(ubsan_default_options);
 #endif
   // Override from command line.

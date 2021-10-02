@@ -40,20 +40,27 @@ COMMON_FLAG(bool, fast_unwind_on_check, false,
 COMMON_FLAG(bool, fast_unwind_on_fatal, false,
             "If available, use the fast frame-pointer-based unwinder on fatal "
             "errors.")
-COMMON_FLAG(bool, fast_unwind_on_malloc, true,
+// ARM thumb/thumb2 frame pointer is inconsistent on GCC and Clang [1]
+// and fast-unwider is also unreliable with mixing arm and thumb code [2].
+// [1] https://gcc.gnu.org/bugzilla/show_bug.cgi?id=92172
+// [2] https://bugs.llvm.org/show_bug.cgi?id=44158
+COMMON_FLAG(bool, fast_unwind_on_malloc,
+            !(SANITIZER_LINUX && !SANITIZER_ANDROID && SANITIZER_ARM),
             "If available, use the fast frame-pointer-based unwinder on "
             "malloc/free.")
 COMMON_FLAG(bool, handle_ioctl, false, "Intercept and handle ioctl requests.")
 COMMON_FLAG(int, malloc_context_size, 1,
             "Max number of stack frames kept for each allocation/deallocation.")
 COMMON_FLAG(
-    const char *, log_path, "stderr",
+    const char *, log_path, nullptr,
     "Write logs to \"log_path.pid\". The special values are \"stdout\" and "
-    "\"stderr\". The default is \"stderr\".")
+    "\"stderr\". If unspecified, defaults to \"stderr\".")
 COMMON_FLAG(
     bool, log_exe_name, false,
     "Mention name of executable when reporting error and "
     "append executable name to logs (as in \"log_path.exe_name.pid\").")
+COMMON_FLAG(const char *, log_suffix, nullptr,
+            "String to append to log file name, e.g. \".txt\".")
 COMMON_FLAG(
     bool, log_to_syslog, (bool)SANITIZER_ANDROID || (bool)SANITIZER_MAC,
     "Write all sanitizer output to syslog in addition to other means of "
@@ -77,8 +84,9 @@ COMMON_FLAG(bool, print_summary, true,
             "If false, disable printing error summaries in addition to error "
             "reports.")
 COMMON_FLAG(int, print_module_map, 0,
-            "OS X only (0 - don't print, 1 - print only once before process "
-            "exits, 2 - print after each report).")
+            "Print the process module map where supported (0 - don't print, "
+            "1 - print only once before process exits, 2 - print after each "
+            "report).")
 COMMON_FLAG(bool, check_printf, true, "Check printf arguments.")
 #define COMMON_FLAG_HANDLE_SIGNAL_HELP(signal) \
     "Controls custom tool's " #signal " handler (0 - do not registers the " \
@@ -195,6 +203,9 @@ COMMON_FLAG(bool, intercept_strtok, true,
 COMMON_FLAG(bool, intercept_strpbrk, true,
             "If set, uses custom wrappers for strpbrk function "
             "to find more errors.")
+COMMON_FLAG(
+    bool, intercept_strcmp, true,
+    "If set, uses custom wrappers for strcmp functions to find more errors.")
 COMMON_FLAG(bool, intercept_strlen, true,
             "If set, uses custom wrappers for strlen and strnlen functions "
             "to find more errors.")

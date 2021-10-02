@@ -120,11 +120,7 @@ INTERCEPTOR(int, malloc_make_nonpurgeable, void *ptr) {
 
 INTERCEPTOR(void, malloc_set_zone_name, malloc_zone_t *zone, const char *name) {
   COMMON_MALLOC_ENTER();
-  // Allocate |sizeof(COMMON_MALLOC_ZONE_NAME "-") + internal_strlen(name)|
-  // bytes.
-  size_t buflen =
-      sizeof(COMMON_MALLOC_ZONE_NAME "-") + (name ? internal_strlen(name) : 0);
-  InternalScopedString new_name(buflen);
+  InternalScopedString new_name;
   if (name && zone->introspect == sanitizer_zone.introspect) {
     new_name.append(COMMON_MALLOC_ZONE_NAME "-%s", name);
     name = new_name.data();

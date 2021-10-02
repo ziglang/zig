@@ -17,7 +17,6 @@
 #include "sanitizer_common/sanitizer_deadlock_detector_interface.h"
 #include "tsan_defs.h"
 #include "tsan_clock.h"
-#include "tsan_mutex.h"
 #include "tsan_dense_alloc.h"
 
 namespace __tsan {
@@ -50,13 +49,11 @@ enum MutexFlags {
 struct SyncVar {
   SyncVar();
 
-  static const int kInvalidTid = -1;
-
   uptr addr;  // overwritten by DenseSlabAlloc freelist
   Mutex mtx;
   u64 uid;  // Globally unique id.
   u32 creation_stack_id;
-  int owner_tid;  // Set only by exclusive owners.
+  u32 owner_tid;  // Set only by exclusive owners.
   u64 last_lock;
   int recursion;
   atomic_uint32_t flags;
@@ -130,8 +127,8 @@ class MetaMap {
   static const u32 kFlagMask  = 3u << 30;
   static const u32 kFlagBlock = 1u << 30;
   static const u32 kFlagSync  = 2u << 30;
-  typedef DenseSlabAlloc<MBlock, 1<<16, 1<<12> BlockAlloc;
-  typedef DenseSlabAlloc<SyncVar, 1<<16, 1<<10> SyncAlloc;
+  typedef DenseSlabAlloc<MBlock, 1 << 18, 1 << 12, kFlagMask> BlockAlloc;
+  typedef DenseSlabAlloc<SyncVar, 1 << 20, 1 << 10, kFlagMask> SyncAlloc;
   BlockAlloc block_alloc_;
   SyncAlloc sync_alloc_;
   atomic_uint64_t uid_gen_;

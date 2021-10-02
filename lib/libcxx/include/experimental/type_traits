@@ -105,7 +105,7 @@ using raw_invocation_type_t = typename raw_invocation_type<_Tp>::type;
 // 3.3.4, Detection idiom
 template <class...> using void_t = void;
 
-struct nonesuch : private _VSTD::__nat { // make nonesuch "not an aggregate"
+struct nonesuch : private __nat { // make nonesuch "not an aggregate"
   ~nonesuch() = delete;
   nonesuch      (nonesuch const&) = delete;
   void operator=(nonesuch const&) = delete;

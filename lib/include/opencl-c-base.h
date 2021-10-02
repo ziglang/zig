@@ -21,8 +21,36 @@
 #define cl_khr_subgroup_shuffle 1
 #define cl_khr_subgroup_shuffle_relative 1
 #define cl_khr_subgroup_clustered_reduce 1
+#define cl_khr_extended_bit_ops 1
+#define cl_khr_integer_dot_product 1
+#define __opencl_c_integer_dot_product_input_4x8bit 1
+#define __opencl_c_integer_dot_product_input_4x8bit_packed 1
+
 #endif // defined(__SPIR__)
 #endif // (defined(__OPENCL_CPP_VERSION__) || __OPENCL_C_VERSION__ >= 200)
+
+// Define feature macros for OpenCL C 2.0
+#if (defined(__OPENCL_CPP_VERSION__) || __OPENCL_C_VERSION__ == 200)
+#define __opencl_c_pipes 1
+#define __opencl_c_generic_address_space 1
+#define __opencl_c_work_group_collective_functions 1
+#define __opencl_c_atomic_order_acq_rel 1
+#define __opencl_c_atomic_order_seq_cst 1
+#define __opencl_c_atomic_scope_device 1
+#define __opencl_c_atomic_scope_all_devices 1
+#define __opencl_c_device_enqueue 1
+#define __opencl_c_read_write_images 1
+#define __opencl_c_program_scope_global_variables 1
+#define __opencl_c_images 1
+#endif
+
+// Define header-only feature macros for OpenCL C 3.0.
+#if (__OPENCL_C_VERSION__ == 300)
+// For the SPIR target all features are supported.
+#if defined(__SPIR__)
+#define __opencl_c_atomic_scope_all_devices 1
+#endif // defined(__SPIR__)
+#endif // (__OPENCL_C_VERSION__ == 300)
 
 // built-in scalar data types:
 
@@ -141,7 +169,9 @@ typedef double double8 __attribute__((ext_vector_type(8)));
 typedef double double16 __attribute__((ext_vector_type(16)));
 #endif
 
-#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#if defined(__OPENCL_CPP_VERSION__)
+#define NULL nullptr
+#elif defined(__OPENCL_C_VERSION__)
 #define NULL ((void*)0)
 #endif
 
@@ -297,7 +327,12 @@ typedef enum memory_scope {
   memory_scope_work_item = __OPENCL_MEMORY_SCOPE_WORK_ITEM,
   memory_scope_work_group = __OPENCL_MEMORY_SCOPE_WORK_GROUP,
   memory_scope_device = __OPENCL_MEMORY_SCOPE_DEVICE,
+#if defined(__opencl_c_atomic_scope_all_devices)
   memory_scope_all_svm_devices = __OPENCL_MEMORY_SCOPE_ALL_SVM_DEVICES,
+#if (__OPENCL_C_VERSION__ >= CL_VERSION_3_0)
+  memory_scope_all_devices = memory_scope_all_svm_devices,
+#endif // __OPENCL_C_VERSION__ >= CL_VERSION_3_0
+#endif // defined(__opencl_c_atomic_scope_all_devices)
 #if defined(cl_intel_subgroups) || defined(cl_khr_subgroups)
   memory_scope_sub_group = __OPENCL_MEMORY_SCOPE_SUB_GROUP
 #endif
@@ -322,7 +357,9 @@ typedef enum memory_order
   memory_order_acquire = __ATOMIC_ACQUIRE,
   memory_order_release = __ATOMIC_RELEASE,
   memory_order_acq_rel = __ATOMIC_ACQ_REL,
+#if defined(__opencl_c_atomic_order_seq_cst)
   memory_order_seq_cst = __ATOMIC_SEQ_CST
+#endif
 } memory_order;
 
 #endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
@@ -445,8 +482,113 @@ typedef struct {
 
 #endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
+/**
+ * OpenCL v1.1/1.2/2.0 s6.2.4.2 - as_type operators
+ * Reinterprets a data type as another data type of the same size
+ */
+#define as_char(x) __builtin_astype((x), char)
+#define as_char2(x) __builtin_astype((x), char2)
+#define as_char3(x) __builtin_astype((x), char3)
+#define as_char4(x) __builtin_astype((x), char4)
+#define as_char8(x) __builtin_astype((x), char8)
+#define as_char16(x) __builtin_astype((x), char16)
+
+#define as_uchar(x) __builtin_astype((x), uchar)
+#define as_uchar2(x) __builtin_astype((x), uchar2)
+#define as_uchar3(x) __builtin_astype((x), uchar3)
+#define as_uchar4(x) __builtin_astype((x), uchar4)
+#define as_uchar8(x) __builtin_astype((x), uchar8)
+#define as_uchar16(x) __builtin_astype((x), uchar16)
+
+#define as_short(x) __builtin_astype((x), short)
+#define as_short2(x) __builtin_astype((x), short2)
+#define as_short3(x) __builtin_astype((x), short3)
+#define as_short4(x) __builtin_astype((x), short4)
+#define as_short8(x) __builtin_astype((x), short8)
+#define as_short16(x) __builtin_astype((x), short16)
+
+#define as_ushort(x) __builtin_astype((x), ushort)
+#define as_ushort2(x) __builtin_astype((x), ushort2)
+#define as_ushort3(x) __builtin_astype((x), ushort3)
+#define as_ushort4(x) __builtin_astype((x), ushort4)
+#define as_ushort8(x) __builtin_astype((x), ushort8)
+#define as_ushort16(x) __builtin_astype((x), ushort16)
+
+#define as_int(x) __builtin_astype((x), int)
+#define as_int2(x) __builtin_astype((x), int2)
+#define as_int3(x) __builtin_astype((x), int3)
+#define as_int4(x) __builtin_astype((x), int4)
+#define as_int8(x) __builtin_astype((x), int8)
+#define as_int16(x) __builtin_astype((x), int16)
+
+#define as_uint(x) __builtin_astype((x), uint)
+#define as_uint2(x) __builtin_astype((x), uint2)
+#define as_uint3(x) __builtin_astype((x), uint3)
+#define as_uint4(x) __builtin_astype((x), uint4)
+#define as_uint8(x) __builtin_astype((x), uint8)
+#define as_uint16(x) __builtin_astype((x), uint16)
+
+#define as_long(x) __builtin_astype((x), long)
+#define as_long2(x) __builtin_astype((x), long2)
+#define as_long3(x) __builtin_astype((x), long3)
+#define as_long4(x) __builtin_astype((x), long4)
+#define as_long8(x) __builtin_astype((x), long8)
+#define as_long16(x) __builtin_astype((x), long16)
+
+#define as_ulong(x) __builtin_astype((x), ulong)
+#define as_ulong2(x) __builtin_astype((x), ulong2)
+#define as_ulong3(x) __builtin_astype((x), ulong3)
+#define as_ulong4(x) __builtin_astype((x), ulong4)
+#define as_ulong8(x) __builtin_astype((x), ulong8)
+#define as_ulong16(x) __builtin_astype((x), ulong16)
+
+#define as_float(x) __builtin_astype((x), float)
+#define as_float2(x) __builtin_astype((x), float2)
+#define as_float3(x) __builtin_astype((x), float3)
+#define as_float4(x) __builtin_astype((x), float4)
+#define as_float8(x) __builtin_astype((x), float8)
+#define as_float16(x) __builtin_astype((x), float16)
+
+#ifdef cl_khr_fp64
+#define as_double(x) __builtin_astype((x), double)
+#define as_double2(x) __builtin_astype((x), double2)
+#define as_double3(x) __builtin_astype((x), double3)
+#define as_double4(x) __builtin_astype((x), double4)
+#define as_double8(x) __builtin_astype((x), double8)
+#define as_double16(x) __builtin_astype((x), double16)
+#endif // cl_khr_fp64
+
+#ifdef cl_khr_fp16
+#define as_half(x) __builtin_astype((x), half)
+#define as_half2(x) __builtin_astype((x), half2)
+#define as_half3(x) __builtin_astype((x), half3)
+#define as_half4(x) __builtin_astype((x), half4)
+#define as_half8(x) __builtin_astype((x), half8)
+#define as_half16(x) __builtin_astype((x), half16)
+#endif // cl_khr_fp16
+
+#define as_size_t(x) __builtin_astype((x), size_t)
+#define as_ptrdiff_t(x) __builtin_astype((x), ptrdiff_t)
+#define as_intptr_t(x) __builtin_astype((x), intptr_t)
+#define as_uintptr_t(x) __builtin_astype((x), uintptr_t)
+
+// OpenCL v1.1 s6.9, v1.2/2.0 s6.10 - Function qualifiers
+
+#define __kernel_exec(X, typen) __kernel \
+	__attribute__((work_group_size_hint(X, 1, 1))) \
+	__attribute__((vec_type_hint(typen)))
+
+#define kernel_exec(X, typen) __kernel \
+	__attribute__((work_group_size_hint(X, 1, 1))) \
+	__attribute__((vec_type_hint(typen)))
+
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
+// OpenCL v1.2 s6.12.13, v2.0 s6.13.13 - printf
+
+int printf(__constant const char* st, ...) __attribute__((format(printf, 1, 2)));
+#endif
+
 #ifdef cl_intel_device_side_avc_motion_estimation
-#pragma OPENCL EXTENSION cl_intel_device_side_avc_motion_estimation : begin
 
 #define CLK_AVC_ME_MAJOR_16x16_INTEL 0x0
 #define CLK_AVC_ME_MAJOR_16x8_INTEL 0x1
@@ -580,7 +722,6 @@ typedef struct {
 #define CLK_AVC_IME_RESULT_DUAL_REFERENCE_STREAMOUT_INITIALIZE_INTEL 0x0
 #define CLK_AVC_IME_RESULT_DUAL_REFERENCE_STREAMIN_INITIALIZE_INTEL 0x0
 
-#pragma OPENCL EXTENSION cl_intel_device_side_avc_motion_estimation : end
 #endif // cl_intel_device_side_avc_motion_estimation
 
 // Disable any extensions we may have enabled previously.

@@ -15,7 +15,7 @@ X86_64_WINDOWS_JSON_URL="https://ziglang.org/builds/x86_64-windows-$VERSION.json
 AARCH64_MACOS_JSON_URL="https://ziglang.org/builds/aarch64-macos-$VERSION.json"
 X86_64_MACOS_JSON_URL="https://ziglang.org/builds/x86_64-macos-$VERSION.json"
 X86_64_FREEBSD_JSON_URL="https://ziglang.org/builds/x86_64-freebsd-$VERSION.json"
-X86_64_NETBSD_JSON_URL="https://ziglang.org/builds/x86_64-netbsd-$VERSION.json"
+#X86_64_NETBSD_JSON_URL="https://ziglang.org/builds/x86_64-netbsd-$VERSION.json"
 
 # If any of these fail, it's not really this job failing; rather we have detected
 # that this job will be called again later when other jobs have completed.
@@ -25,7 +25,7 @@ curl --fail -I "$X86_64_WINDOWS_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$AARCH64_MACOS_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$X86_64_MACOS_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$X86_64_FREEBSD_JSON_URL" >/dev/null || exit 0
-curl --fail -I "$X86_64_NETBSD_JSON_URL" >/dev/null || exit 0
+#curl --fail -I "$X86_64_NETBSD_JSON_URL" >/dev/null || exit 0
 
 # Without --user, this gave me:
 # ERROR: Could not install packages due to an EnvironmentError: [Errno 13] Permission denied
@@ -86,10 +86,10 @@ export X86_64_FREEBSD_TARBALL="$(echo "$X86_64_FREEBSD_JSON" | jq .tarball -r)"
 export X86_64_FREEBSD_BYTESIZE="$(echo "$X86_64_FREEBSD_JSON" | jq .size -r)"
 export X86_64_FREEBSD_SHASUM="$(echo "$X86_64_FREEBSD_JSON" | jq .shasum -r)"
 
-X86_64_NETBSD_JSON=$(curl --fail "$X86_64_NETBSD_JSON_URL" || exit 1)
-export X86_64_NETBSD_TARBALL="$(echo "$X86_64_NETBSD_JSON" | jq .tarball -r)"
-export X86_64_NETBSD_BYTESIZE="$(echo "$X86_64_NETBSD_JSON" | jq .size -r)"
-export X86_64_NETBSD_SHASUM="$(echo "$X86_64_NETBSD_JSON" | jq .shasum -r)"
+#X86_64_NETBSD_JSON=$(curl --fail "$X86_64_NETBSD_JSON_URL" || exit 1)
+#export X86_64_NETBSD_TARBALL="$(echo "$X86_64_NETBSD_JSON" | jq .tarball -r)"
+#export X86_64_NETBSD_BYTESIZE="$(echo "$X86_64_NETBSD_JSON" | jq .size -r)"
+#export X86_64_NETBSD_SHASUM="$(echo "$X86_64_NETBSD_JSON" | jq .shasum -r)"
 
 export MASTER_DATE="$(date +%Y-%m-%d)"
 export MASTER_VERSION="$VERSION"

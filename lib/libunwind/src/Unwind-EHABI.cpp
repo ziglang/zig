@@ -97,9 +97,11 @@ _Unwind_Reason_Code ProcessDescriptors(
       case Descriptor::LU32:
         descriptor = getNextWord(descriptor, &length);
         descriptor = getNextWord(descriptor, &offset);
+        break;
       case Descriptor::LU16:
         descriptor = getNextNibble(descriptor, &length);
         descriptor = getNextNibble(descriptor, &offset);
+        break;
       default:
         assert(false);
         return _URC_FAILURE;

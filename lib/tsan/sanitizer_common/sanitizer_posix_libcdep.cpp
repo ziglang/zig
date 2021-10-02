@@ -18,7 +18,6 @@
 #include "sanitizer_common.h"
 #include "sanitizer_flags.h"
 #include "sanitizer_platform_limits_netbsd.h"
-#include "sanitizer_platform_limits_openbsd.h"
 #include "sanitizer_platform_limits_posix.h"
 #include "sanitizer_platform_limits_solaris.h"
 #include "sanitizer_posix.h"
@@ -61,27 +60,24 @@ void ReleaseMemoryPagesToOS(uptr beg, uptr end) {
   uptr beg_aligned = RoundUpTo(beg, page_size);
   uptr end_aligned = RoundDownTo(end, page_size);
   if (beg_aligned < end_aligned)
-    // In the default Solaris compilation environment, madvise() is declared
-    // to take a caddr_t arg; casting it to void * results in an invalid
-    // conversion error, so use char * instead.
-    madvise((char *)beg_aligned, end_aligned - beg_aligned,
-            SANITIZER_MADVISE_DONTNEED);
+    internal_madvise(beg_aligned, end_aligned - beg_aligned,
+                     SANITIZER_MADVISE_DONTNEED);
 }
 
 void SetShadowRegionHugePageMode(uptr addr, uptr size) {
 #ifdef MADV_NOHUGEPAGE  // May not be defined on old systems.
   if (common_flags()->no_huge_pages_for_shadow)
-    madvise((char *)addr, size, MADV_NOHUGEPAGE);
+    internal_madvise(addr, size, MADV_NOHUGEPAGE);
   else
-    madvise((char *)addr, size, MADV_HUGEPAGE);
+    internal_madvise(addr, size, MADV_HUGEPAGE);
 #endif  // MADV_NOHUGEPAGE
 }
 
 bool DontDumpShadowMemory(uptr addr, uptr length) {
 #if defined(MADV_DONTDUMP)
-  return madvise((char *)addr, length, MADV_DONTDUMP) == 0;
+  return internal_madvise(addr, length, MADV_DONTDUMP) == 0;
 #elif defined(MADV_NOCORE)
-  return madvise((char *)addr, length, MADV_NOCORE) == 0;
+  return internal_madvise(addr, length, MADV_NOCORE) == 0;
 #else
   return true;
 #endif  // MADV_DONTDUMP
@@ -132,14 +128,6 @@ void SetAddressSpaceUnlimited() {
   CHECK(AddressSpaceIsUnlimited());
 }
 
-void SleepForSeconds(int seconds) {
-  sleep(seconds);
-}
-
-void SleepForMillis(int millis) {
-  usleep(millis * 1000);
-}
-
 void Abort() {
 #if !SANITIZER_GO
   // If we are handling SIGABRT, unhandle it first.
@@ -147,7 +135,7 @@ void Abort() {
   if (GetHandleSignalMode(SIGABRT) != kHandleSignalNo) {
     struct sigaction sigact;
     internal_memset(&sigact, 0, sizeof(sigact));
-    sigact.sa_sigaction = (sa_sigaction_t)SIG_DFL;
+    sigact.sa_handler = SIG_DFL;
     internal_sigaction(SIGABRT, &sigact, nullptr);
   }
 #endif
@@ -169,7 +157,12 @@ bool SupportsColoredOutput(fd_t fd) {
 
 #if !SANITIZER_GO
 // TODO(glider): different tools may require different altstack size.
-static const uptr kAltStackSize = SIGSTKSZ * 4;  // SIGSTKSZ is not enough.
+static uptr GetAltStackSize() {
+  // Note: since GLIBC_2.31, SIGSTKSZ may be a function call, so this may be
+  // more costly that you think. However GetAltStackSize is only call 2-3 times
+  // per thread so don't cache the evaluation.
+  return SIGSTKSZ * 4;
+}
 
 void SetAlternateSignalStack() {
   stack_t altstack, oldstack;
@@ -180,10 +173,9 @@ void SetAlternateSignalStack() {
   // TODO(glider): the mapped stack should have the MAP_STACK flag in the
   // future. It is not required by man 2 sigaltstack now (they're using
   // malloc()).
-  void* base = MmapOrDie(kAltStackSize, __func__);
-  altstack.ss_sp = (char*) base;
+  altstack.ss_size = GetAltStackSize();
+  altstack.ss_sp = (char *)MmapOrDie(altstack.ss_size, __func__);
   altstack.ss_flags = 0;
-  altstack.ss_size = kAltStackSize;
   CHECK_EQ(0, sigaltstack(&altstack, nullptr));
 }
 
@@ -191,7 +183,7 @@ void UnsetAlternateSignalStack() {
   stack_t altstack, oldstack;
   altstack.ss_sp = nullptr;
   altstack.ss_flags = SS_DISABLE;
-  altstack.ss_size = kAltStackSize;  // Some sane value required on Darwin.
+  altstack.ss_size = GetAltStackSize();  // Some sane value required on Darwin.
   CHECK_EQ(0, sigaltstack(&altstack, &oldstack));
   UnmapOrDie(oldstack.ss_sp, oldstack.ss_size);
 }

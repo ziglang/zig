@@ -679,7 +679,7 @@ __dynamic_cast(const void *static_ptr, const __class_type_info *static_type,
             info.number_of_dst_type = 1;
             dynamic_type->search_above_dst(&info, dynamic_ptr, dynamic_ptr, public_path, true);
         }
-#endif  // _LIBCXXABI_FORGIVING_DYNAMIC_CAST
+#endif // _LIBCXXABI_FORGIVING_DYNAMIC_CAST
         // Query the search.
         if (info.path_dst_ptr_to_static_ptr == public_path)
             dst_ptr = dynamic_ptr;
@@ -707,7 +707,7 @@ __dynamic_cast(const void *static_ptr, const __class_type_info *static_type,
             info = {dst_type, static_ptr, static_type, src2dst_offset, 0};
             dynamic_type->search_below_dst(&info, dynamic_ptr, public_path, true);
         }
-#endif  // _LIBCXXABI_FORGIVING_DYNAMIC_CAST
+#endif // _LIBCXXABI_FORGIVING_DYNAMIC_CAST
         // Query the search.
         switch (info.number_to_static_ptr)
         {

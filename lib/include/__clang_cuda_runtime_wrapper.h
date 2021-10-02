@@ -349,9 +349,14 @@ extern "C" {
 __device__ int vprintf(const char *, const char *);
 __device__ void free(void *) __attribute((nothrow));
 __device__ void *malloc(size_t) __attribute((nothrow)) __attribute__((malloc));
+
+// __assertfail() used to have a `noreturn` attribute. Unfortunately that
+// contributed to triggering the longstanding bug in ptxas when assert was used
+// in sufficiently convoluted code. See
+// https://bugs.llvm.org/show_bug.cgi?id=27738 for the details.
 __device__ void __assertfail(const char *__message, const char *__file,
                              unsigned __line, const char *__function,
-                             size_t __charSize) __attribute__((noreturn));
+                             size_t __charSize);
 
 // In order for standard assert() macro on linux to work we need to
 // provide device-side __assert_fail()

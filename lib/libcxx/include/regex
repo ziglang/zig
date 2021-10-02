@@ -763,15 +763,18 @@ typedef regex_token_iterator<wstring::const_iterator> wsregex_token_iterator;
 */
 
 #include <__config>
-#include <stdexcept>
+#include <__debug>
+#include <__iterator/wrap_iter.h>
 #include <__locale>
-#include <initializer_list>
-#include <utility>
-#include <iterator>
-#include <string>
-#include <memory>
-#include <vector>
+#include <compare>
 #include <deque>
+#include <initializer_list>
+#include <iterator>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -2000,14 +2003,14 @@ class __l_anchor_multiline
 {
     typedef __owns_one_state<_CharT> base;
 
-    bool __multiline;
+    bool __multiline_;
 
 public:
     typedef _VSTD::__state<_CharT> __state;
 
     _LIBCPP_INLINE_VISIBILITY
     __l_anchor_multiline(bool __multiline, __node<_CharT>* __s)
-        : base(__s), __multiline(__multiline) {}
+        : base(__s), __multiline_(__multiline) {}
 
     virtual void __exec(__state&) const;
 };
@@ -2022,7 +2025,7 @@ __l_anchor_multiline<_CharT>::__exec(__state& __s) const
         __s.__do_ = __state::__accept_but_not_consume;
         __s.__node_ = this->first();
     }
-    else if (__multiline &&
+    else if (__multiline_ &&
              !__s.__at_first_ &&
              __is_eol(*_VSTD::prev(__s.__current_)))
     {
@@ -2634,7 +2637,7 @@ public:
         {
         __init(__il.begin(), __il.end());
         }
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 //    ~basic_regex() = default;
 
@@ -2647,7 +2650,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     basic_regex& operator=(initializer_list<value_type> __il)
         {return assign(__il);}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
     template <class _ST, class _SA>
         _LIBCPP_INLINE_VISIBILITY
         basic_regex& operator=(const basic_string<value_type, _ST, _SA>& __p)
@@ -2721,7 +2724,7 @@ public:
                         flag_type __f = regex_constants::ECMAScript)
         {return assign(__il.begin(), __il.end(), __f);}
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     // const operations:
     _LIBCPP_INLINE_VISIBILITY
@@ -4571,7 +4574,7 @@ basic_regex<_CharT, _Traits>::__parse_character_escape(_ForwardIterator __first,
             if (__hd == -1)
                 __throw_regex_error<regex_constants::error_escape>();
             __sum = 16 * __sum + static_cast<unsigned>(__hd);
-            // drop through
+            // fallthrough
         case 'x':
             ++__first;
             if (__first == __last)
@@ -5882,7 +5885,6 @@ basic_regex<_CharT, _Traits>::__match_at_start_posix_subs(
 {
     vector<__state> __states;
     __state __best_state;
-    ptrdiff_t __j = 0;
     ptrdiff_t __highest_j = 0;
     ptrdiff_t _Np = _VSTD::distance(__first, __last);
     __node* __st = __start_.get();
@@ -5903,7 +5905,6 @@ basic_regex<_CharT, _Traits>::__match_at_start_posix_subs(
         __states.back().__node_ = __st;
         __states.back().__flags_ = __flags;
         __states.back().__at_first_ = __at_first;
-        const _CharT* __current = __first;
         bool __matched = false;
         int __counter = 0;
         int __length = __last - __first;
@@ -5943,9 +5944,6 @@ basic_regex<_CharT, _Traits>::__match_at_start_posix_subs(
                     __states.pop_back();
                 break;
             case __state::__accept_and_consume:
-                __j += __s.__current_ - __current;
-                __current = __s.__current_;
-                break;
             case __state::__repeat:
             case __state::__accept_but_not_consume:
                 break;
@@ -6442,7 +6440,7 @@ public:
                          regex_constants::match_flag_type __m =
                                        regex_constants::match_default) = delete;
 #endif
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
     template <size_t _Np>
         regex_token_iterator(_BidirectionalIterator __a,
                              _BidirectionalIterator __b,
@@ -6557,7 +6555,7 @@ regex_token_iterator<_BidirectionalIterator, _CharT, _Traits>::
     __init(__a, __b);
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _BidirectionalIterator, class _CharT, class _Traits>
 template <size_t _Np>
@@ -6774,4 +6772,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_REGEX
+#endif // _LIBCPP_REGEX

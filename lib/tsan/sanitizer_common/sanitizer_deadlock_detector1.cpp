@@ -32,7 +32,7 @@ struct DDLogicalThread {
   bool report_pending;
 };
 
-struct DD : public DDetector {
+struct DD final : public DDetector {
   SpinMutex mtx;
   DeadlockDetector<DDBV> dd;
   DDFlags flags;
@@ -136,7 +136,7 @@ void DD::ReportDeadlock(DDCallback *cb, DDMutex *m) {
     DDMutex *m0 = (DDMutex*)dd.getData(from);
     DDMutex *m1 = (DDMutex*)dd.getData(to);
 
-    u32 stk_from = -1U, stk_to = -1U;
+    u32 stk_from = 0, stk_to = 0;
     int unique_tid = 0;
     dd.findEdge(from, to, &stk_from, &stk_to, &unique_tid);
     // Printf("Edge: %zd=>%zd: %u/%u T%d\n", from, to, stk_from, stk_to,

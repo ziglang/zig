@@ -31,9 +31,10 @@ namespace __sanitizer {
 void ReportErrorSummary(const char *error_type, const AddressInfo &info,
                         const char *alt_tool_name) {
   if (!common_flags()->print_summary) return;
-  InternalScopedString buff(kMaxSummaryLength);
+  InternalScopedString buff;
   buff.append("%s ", error_type);
-  RenderFrame(&buff, "%L %F", 0, info, common_flags()->symbolize_vs_style,
+  RenderFrame(&buff, "%L %F", 0, info.address, &info,
+              common_flags()->symbolize_vs_style,
               common_flags()->strip_path_prefix);
   ReportErrorSummary(buff.data(), alt_tool_name);
 }
@@ -47,14 +48,14 @@ bool ReportFile::SupportsColors() {
   return SupportsColoredOutput(fd);
 }
 
-static INLINE bool ReportSupportsColors() {
+static inline bool ReportSupportsColors() {
   return report_file.SupportsColors();
 }
 
 #else  // SANITIZER_FUCHSIA
 
 // Fuchsia's logs always go through post-processing that handles colorization.
-static INLINE bool ReportSupportsColors() { return true; }
+static inline bool ReportSupportsColors() { return true; }
 
 #endif  // !SANITIZER_FUCHSIA
 
@@ -119,7 +120,7 @@ void ReportMmapWriteExec(int prot) {
 #endif
 }
 
-#if !SANITIZER_FUCHSIA && !SANITIZER_RTEMS && !SANITIZER_GO
+#if !SANITIZER_FUCHSIA && !SANITIZER_GO
 void StartReportDeadlySignal() {
   // Write the first message using fd=2, just in case.
   // It may actually fail to write in case stderr is closed.
@@ -149,7 +150,7 @@ static void PrintMemoryByte(InternalScopedString *str, const char *before,
 static void MaybeDumpInstructionBytes(uptr pc) {
   if (!common_flags()->dump_instruction_bytes || (pc < GetPageSizeCached()))
     return;
-  InternalScopedString str(1024);
+  InternalScopedString str;
   str.append("First 16 instruction bytes at pc: ");
   if (IsAccessibleMemoryRange(pc, 16)) {
     for (int i = 0; i < 16; ++i) {
@@ -210,7 +211,7 @@ static void ReportDeadlySignalImpl(const SignalContext &sig, u32 tid,
     Report("The signal is caused by a %s memory access.\n", access_type);
     if (!sig.is_true_faulting_addr)
       Report("Hint: this fault was caused by a dereference of a high value "
-             "address (see register values below).  Dissassemble the provided "
+             "address (see register values below).  Disassemble the provided "
              "pc to learn which register was used.\n");
     else if (sig.addr < GetPageSizeCached())
       Report("Hint: address points to the zero page.\n");
@@ -249,17 +250,17 @@ void HandleDeadlySignal(void *siginfo, void *context, u32 tid,
 
 #endif  // !SANITIZER_FUCHSIA && !SANITIZER_GO
 
-static atomic_uintptr_t reporting_thread = {0};
-static StaticSpinMutex CommonSanitizerReportMutex;
+atomic_uintptr_t ScopedErrorReportLock::reporting_thread_ = {0};
+StaticSpinMutex ScopedErrorReportLock::mutex_;
 
-ScopedErrorReportLock::ScopedErrorReportLock() {
+void ScopedErrorReportLock::Lock() {
   uptr current = GetThreadSelf();
   for (;;) {
     uptr expected = 0;
-    if (atomic_compare_exchange_strong(&reporting_thread, &expected, current,
+    if (atomic_compare_exchange_strong(&reporting_thread_, &expected, current,
                                        memory_order_relaxed)) {
       // We've claimed reporting_thread so proceed.
-      CommonSanitizerReportMutex.Lock();
+      mutex_.Lock();
       return;
     }
 
@@ -281,13 +282,11 @@ ScopedErrorReportLock::ScopedErrorReportLock() {
   }
 }
 
-ScopedErrorReportLock::~ScopedErrorReportLock() {
-  CommonSanitizerReportMutex.Unlock();
-  atomic_store_relaxed(&reporting_thread, 0);
+void ScopedErrorReportLock::Unlock() {
+  mutex_.Unlock();
+  atomic_store_relaxed(&reporting_thread_, 0);
 }
 
-void ScopedErrorReportLock::CheckLocked() {
-  CommonSanitizerReportMutex.CheckLocked();
-}
+void ScopedErrorReportLock::CheckLocked() { mutex_.CheckLocked(); }
 
 }  // namespace __sanitizer

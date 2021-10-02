@@ -17,6 +17,8 @@ pub const Feature = enum {
     ptx64,
     ptx65,
     ptx70,
+    ptx71,
+    ptx72,
     sm_20,
     sm_21,
     sm_30,
@@ -33,6 +35,7 @@ pub const Feature = enum {
     sm_72,
     sm_75,
     sm_80,
+    sm_86,
 };
 
 pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
@@ -102,6 +105,16 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.ptx70)] = .{
         .llvm_name = "ptx70",
         .description = "Use PTX version 7.0",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ptx71)] = .{
+        .llvm_name = "ptx71",
+        .description = "Use PTX version 7.1",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ptx72)] = .{
+        .llvm_name = "ptx72",
+        .description = "Use PTX version 7.2",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_20)] = .{
@@ -182,6 +195,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.sm_80)] = .{
         .llvm_name = "sm_80",
         .description = "Target SM 8.0",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.sm_86)] = .{
+        .llvm_name = "sm_86",
+        .description = "Target SM 8.6",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
@@ -315,6 +333,14 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .ptx70,
             .sm_80,
+        }),
+    };
+    pub const sm_86 = CpuModel{
+        .name = "sm_86",
+        .llvm_name = "sm_86",
+        .features = featureSet(&[_]Feature{
+            .ptx71,
+            .sm_86,
         }),
     };
 };

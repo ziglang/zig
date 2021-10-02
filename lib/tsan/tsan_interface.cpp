@@ -14,14 +14,11 @@
 #include "tsan_interface_ann.h"
 #include "tsan_rtl.h"
 #include "sanitizer_common/sanitizer_internal_defs.h"
+#include "sanitizer_common/sanitizer_ptrauth.h"
 
 #define CALLERPC ((uptr)__builtin_return_address(0))
 
 using namespace __tsan;
-
-typedef u16 uint16_t;
-typedef u32 uint32_t;
-typedef u64 uint64_t;
 
 void __tsan_init() {
   cur_thread_init();
@@ -43,13 +40,13 @@ void __tsan_write16(void *addr) {
 }
 
 void __tsan_read16_pc(void *addr, void *pc) {
-  MemoryRead(cur_thread(), (uptr)pc, (uptr)addr, kSizeLog8);
-  MemoryRead(cur_thread(), (uptr)pc, (uptr)addr + 8, kSizeLog8);
+  MemoryRead(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr, kSizeLog8);
+  MemoryRead(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr + 8, kSizeLog8);
 }
 
 void __tsan_write16_pc(void *addr, void *pc) {
-  MemoryWrite(cur_thread(), (uptr)pc, (uptr)addr, kSizeLog8);
-  MemoryWrite(cur_thread(), (uptr)pc, (uptr)addr + 8, kSizeLog8);
+  MemoryWrite(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr, kSizeLog8);
+  MemoryWrite(cur_thread(), STRIP_PAC_PC(pc), (uptr)addr + 8, kSizeLog8);
 }
 
 // __tsan_unaligned_read/write calls are emitted by compiler.

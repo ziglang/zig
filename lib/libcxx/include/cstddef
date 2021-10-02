@@ -46,11 +46,11 @@ Types:
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-using ::ptrdiff_t;
-using ::size_t;
+using ::ptrdiff_t _LIBCPP_USING_IF_EXISTS;
+using ::size_t _LIBCPP_USING_IF_EXISTS;
 
 #if !defined(_LIBCPP_CXX03_LANG)
-using ::max_align_t;
+using ::max_align_t _LIBCPP_USING_IF_EXISTS;
 #endif
 
 template <class _Tp> struct __libcpp_is_integral                     { enum { value = 0 }; };
@@ -59,13 +59,13 @@ template <>          struct __libcpp_is_integral<char>               { enum { va
 template <>          struct __libcpp_is_integral<signed char>        { enum { value = 1 }; };
 template <>          struct __libcpp_is_integral<unsigned char>      { enum { value = 1 }; };
 template <>          struct __libcpp_is_integral<wchar_t>            { enum { value = 1 }; };
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
 template <>          struct __libcpp_is_integral<char8_t>            { enum { value = 1 }; };
 #endif
 #ifndef _LIBCPP_HAS_NO_UNICODE_CHARS
 template <>          struct __libcpp_is_integral<char16_t>           { enum { value = 1 }; };
 template <>          struct __libcpp_is_integral<char32_t>           { enum { value = 1 }; };
-#endif  // _LIBCPP_HAS_NO_UNICODE_CHARS
+#endif // _LIBCPP_HAS_NO_UNICODE_CHARS
 template <>          struct __libcpp_is_integral<short>              { enum { value = 1 }; };
 template <>          struct __libcpp_is_integral<unsigned short>     { enum { value = 1 }; };
 template <>          struct __libcpp_is_integral<int>                { enum { value = 1 }; };
@@ -152,10 +152,10 @@ template <class _Integer>
   { return static_cast<byte>(static_cast<unsigned char>(static_cast<unsigned int>(__lhs) >> __shift)); }
 
 template <class _Integer, class = _EnableByteOverload<_Integer> >
-  constexpr _Integer
+  _LIBCPP_NODISCARD_EXT constexpr _Integer
   to_integer(byte __b) noexcept { return static_cast<_Integer>(__b); }
 }
 
 #endif
 
-#endif  // _LIBCPP_CSTDDEF
+#endif // _LIBCPP_CSTDDEF

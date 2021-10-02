@@ -6,6 +6,11 @@ set -e
 pacman -Suy --needed --noconfirm
 pacman -S --needed --noconfirm wget p7zip python3-pip tar xz
 
+TARBALL="llvm+clang+lld-13.0.0-x86_64-windows-msvc-release-mt.tar.xz"
+
 pip install s3cmd
-wget -nv "https://ziglang.org/deps/llvm%2bclang%2blld-12.0.1-rc1-x86_64-windows-msvc-release-mt.tar.xz"
-tar xf llvm+clang+lld-12.0.1-rc1-x86_64-windows-msvc-release-mt.tar.xz
+wget -nv "https://ziglang.org/deps/$TARBALL"
+# If the first extraction fails, re-try it once; this can happen if the tarball
+# contains symlinks that are in the table of contents before the files that
+# they point to.
+tar -xf $TARBALL || tar --overwrite -xf $TARBALL

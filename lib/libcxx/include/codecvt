@@ -570,4 +570,4 @@ public:
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_CODECVT
+#endif // _LIBCPP_CODECVT

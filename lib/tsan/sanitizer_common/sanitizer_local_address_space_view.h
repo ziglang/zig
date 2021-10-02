@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // `LocalAddressSpaceView` provides the local (i.e. target and current address
-// space are the same) implementation of the `AddressSpaveView` interface which
+// space are the same) implementation of the `AddressSpaceView` interface which
 // provides a simple interface to load memory from another process (i.e.
 // out-of-process)
 //

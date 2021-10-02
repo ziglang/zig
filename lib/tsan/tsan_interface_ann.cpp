@@ -15,7 +15,6 @@
 #include "sanitizer_common/sanitizer_stacktrace.h"
 #include "sanitizer_common/sanitizer_vector.h"
 #include "tsan_interface_ann.h"
-#include "tsan_mutex.h"
 #include "tsan_report.h"
 #include "tsan_rtl.h"
 #include "tsan_mman.h"
@@ -38,7 +37,7 @@ class ScopedAnnotation {
 
   ~ScopedAnnotation() {
     FuncExit(thr_);
-    CheckNoLocks(thr_);
+    CheckedMutex::CheckNoLocks();
   }
  private:
   ThreadState *const thr_;
@@ -49,8 +48,6 @@ class ScopedAnnotation {
       return ret; \
     ThreadState *thr = cur_thread(); \
     const uptr caller_pc = (uptr)__builtin_return_address(0); \
-    StatInc(thr, StatAnnotation); \
-    StatInc(thr, Stat##typ); \
     ScopedAnnotation sa(thr, __func__, caller_pc); \
     const uptr pc = StackTrace::GetCurrentPc(); \
     (void)pc; \
@@ -77,9 +74,7 @@ struct DynamicAnnContext {
   ExpectRace expect;
   ExpectRace benign;
 
-  DynamicAnnContext()
-    : mtx(MutexTypeAnnotations, StatMtxAnnotations) {
-  }
+  DynamicAnnContext() : mtx(MutexTypeAnnotations) {}
 };
 
 static DynamicAnnContext *dyn_ann_ctx;

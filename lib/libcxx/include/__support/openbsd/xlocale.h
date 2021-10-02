@@ -10,10 +10,10 @@
 #ifndef _LIBCPP_SUPPORT_OPENBSD_XLOCALE_H
 #define _LIBCPP_SUPPORT_OPENBSD_XLOCALE_H
 
-#include <cstdlib>
-#include <clocale>
-#include <cwctype>
-#include <ctype.h>
 #include <__support/xlocale/__strtonum_fallback.h>
+#include <clocale>
+#include <cstdlib>
+#include <ctype.h>
+#include <cwctype>
 
 #endif

@@ -28,29 +28,29 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // class error_category
 
 #if defined(_LIBCPP_DEPRECATED_ABI_LEGACY_LIBRARY_DEFINITIONS_FOR_INLINE_FUNCTIONS)
-error_category::error_category() _NOEXCEPT
+error_category::error_category() noexcept
 {
 }
 #endif
 
-error_category::~error_category() _NOEXCEPT
+error_category::~error_category() noexcept
 {
 }
 
 error_condition
-error_category::default_error_condition(int ev) const _NOEXCEPT
+error_category::default_error_condition(int ev) const noexcept
 {
     return error_condition(ev, *this);
 }
 
 bool
-error_category::equivalent(int code, const error_condition& condition) const _NOEXCEPT
+error_category::equivalent(int code, const error_condition& condition) const noexcept
 {
     return default_error_condition(code) == condition;
 }
 
 bool
-error_category::equivalent(const error_code& code, int condition) const _NOEXCEPT
+error_category::equivalent(const error_code& code, int condition) const noexcept
 {
     return *this == code.category() && code.value() == condition;
 }
@@ -141,12 +141,12 @@ class _LIBCPP_HIDDEN __generic_error_category
     : public __do_message
 {
 public:
-    virtual const char* name() const _NOEXCEPT;
+    virtual const char* name() const noexcept;
     virtual string message(int ev) const;
 };
 
 const char*
-__generic_error_category::name() const _NOEXCEPT
+__generic_error_category::name() const noexcept
 {
     return "generic";
 }
@@ -157,12 +157,12 @@ __generic_error_category::message(int ev) const
 #ifdef _LIBCPP_ELAST
     if (ev > _LIBCPP_ELAST)
       return string("unspecified generic_category error");
-#endif  // _LIBCPP_ELAST
+#endif // _LIBCPP_ELAST
     return __do_message::message(ev);
 }
 
 const error_category&
-generic_category() _NOEXCEPT
+generic_category() noexcept
 {
     static __generic_error_category s;
     return s;
@@ -172,13 +172,13 @@ class _LIBCPP_HIDDEN __system_error_category
     : public __do_message
 {
 public:
-    virtual const char* name() const _NOEXCEPT;
+    virtual const char* name() const noexcept;
     virtual string message(int ev) const;
-    virtual error_condition default_error_condition(int ev) const _NOEXCEPT;
+    virtual error_condition default_error_condition(int ev) const noexcept;
 };
 
 const char*
-__system_error_category::name() const _NOEXCEPT
+__system_error_category::name() const noexcept
 {
     return "system";
 }
@@ -189,22 +189,22 @@ __system_error_category::message(int ev) const
 #ifdef _LIBCPP_ELAST
     if (ev > _LIBCPP_ELAST)
       return string("unspecified system_category error");
-#endif  // _LIBCPP_ELAST
+#endif // _LIBCPP_ELAST
     return __do_message::message(ev);
 }
 
 error_condition
-__system_error_category::default_error_condition(int ev) const _NOEXCEPT
+__system_error_category::default_error_condition(int ev) const noexcept
 {
 #ifdef _LIBCPP_ELAST
     if (ev > _LIBCPP_ELAST)
       return error_condition(ev, system_category());
-#endif  // _LIBCPP_ELAST
+#endif // _LIBCPP_ELAST
     return error_condition(ev, generic_category());
 }
 
 const error_category&
-system_category() _NOEXCEPT
+system_category() noexcept
 {
     static __system_error_category s;
     return s;
@@ -276,7 +276,7 @@ system_error::system_error(int ev, const error_category& ecat)
 {
 }
 
-system_error::~system_error() _NOEXCEPT
+system_error::~system_error() noexcept
 {
 }
 

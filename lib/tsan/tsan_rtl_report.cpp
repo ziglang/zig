@@ -31,23 +31,6 @@ using namespace __sanitizer;
 
 static ReportStack *SymbolizeStack(StackTrace trace);
 
-void TsanCheckFailed(const char *file, int line, const char *cond,
-                     u64 v1, u64 v2) {
-  // There is high probability that interceptors will check-fail as well,
-  // on the other hand there is no sense in processing interceptors
-  // since we are going to die soon.
-  ScopedIgnoreInterceptors ignore;
-#if !SANITIZER_GO
-  cur_thread()->ignore_sync++;
-  cur_thread()->ignore_reads_and_writes++;
-#endif
-  Printf("FATAL: ThreadSanitizer CHECK failed: "
-         "%s:%d \"%s\" (0x%zx, 0x%zx)\n",
-         file, line, cond, (uptr)v1, (uptr)v2);
-  PrintCurrentStackSlow(StackTrace::GetCurrentPc());
-  Die();
-}
-
 // Can be overriden by an application/test to intercept reports.
 #ifdef TSAN_EXTERNAL_HOOKS
 bool OnReport(const ReportDesc *rep, bool suppressed);
@@ -140,6 +123,34 @@ static ReportStack *SymbolizeStack(StackTrace trace) {
   ReportStack *stack = ReportStack::New();
   stack->frames = top;
   return stack;
+}
+
+bool ShouldReport(ThreadState *thr, ReportType typ) {
+  // We set thr->suppress_reports in the fork context.
+  // Taking any locking in the fork context can lead to deadlocks.
+  // If any locks are already taken, it's too late to do this check.
+  CheckedMutex::CheckNoLocks();
+  // For the same reason check we didn't lock thread_registry yet.
+  if (SANITIZER_DEBUG)
+    ThreadRegistryLock l(ctx->thread_registry);
+  if (!flags()->report_bugs || thr->suppress_reports)
+    return false;
+  switch (typ) {
+    case ReportTypeSignalUnsafe:
+      return flags()->report_signal_unsafe;
+    case ReportTypeThreadLeak:
+#if !SANITIZER_GO
+      // It's impossible to join phantom threads
+      // in the child after fork.
+      if (ctx->after_multithreaded_fork)
+        return false;
+#endif
+      return flags()->report_thread_leaks;
+    case ReportTypeMutexDestroyLocked:
+      return flags()->report_destroy_locked;
+    default:
+      return true;
+  }
 }
 
 ScopedReportBase::ScopedReportBase(ReportType typ, uptr tag) {
@@ -274,7 +285,7 @@ void ScopedReportBase::AddMutex(const SyncVar *s) {
   rm->stack = SymbolizeStackId(s->creation_stack_id);
 }
 
-u64 ScopedReportBase::AddMutex(u64 id) {
+u64 ScopedReportBase::AddMutex(u64 id) NO_THREAD_SAFETY_ANALYSIS {
   u64 uid = 0;
   u64 mid = id;
   uptr addr = SyncVar::SplitId(id, &uid);
@@ -497,8 +508,10 @@ static bool HandleRacyAddress(ThreadState *thr, uptr addr_min, uptr addr_max) {
 }
 
 bool OutputReport(ThreadState *thr, const ScopedReport &srep) {
-  if (!flags()->report_bugs || thr->suppress_reports)
-    return false;
+  // These should have been checked in ShouldReport.
+  // It's too late to check them here, we have already taken locks.
+  CHECK(flags()->report_bugs);
+  CHECK(!thr->suppress_reports);
   atomic_store_relaxed(&ctx->last_symbolize_time_ns, NanoTime());
   const ReportDesc *rep = srep.GetReport();
   CHECK_EQ(thr->current_report, nullptr);
@@ -583,13 +596,13 @@ static bool RaceBetweenAtomicAndFree(ThreadState *thr) {
 }
 
 void ReportRace(ThreadState *thr) {
-  CheckNoLocks(thr);
+  CheckedMutex::CheckNoLocks();
 
   // Symbolizer makes lots of intercepted calls. If we try to process them,
   // at best it will cause deadlocks on internal mutexes.
   ScopedIgnoreInterceptors ignore;
 
-  if (!flags()->report_bugs)
+  if (!ShouldReport(thr, ReportTypeRace))
     return;
   if (!flags()->report_atomic_races && !RaceBetweenAtomicAndFree(thr))
     return;
@@ -706,9 +719,7 @@ void ReportRace(ThreadState *thr) {
   }
 #endif
 
-  if (!OutputReport(thr, rep))
-    return;
-
+  OutputReport(thr, rep);
 }
 
 void PrintCurrentStack(ThreadState *thr, uptr pc) {
@@ -724,8 +735,7 @@ void PrintCurrentStack(ThreadState *thr, uptr pc) {
 // However, this solution is not reliable enough, please see dvyukov's comment
 // http://reviews.llvm.org/D19148#406208
 // Also see PR27280 comment 2 and 3 for breaking examples and analysis.
-ALWAYS_INLINE
-void PrintCurrentStackSlow(uptr pc) {
+ALWAYS_INLINE USED void PrintCurrentStackSlow(uptr pc) {
 #if !SANITIZER_GO
   uptr bp = GET_CURRENT_FRAME();
   BufferedStackTrace *ptrace =

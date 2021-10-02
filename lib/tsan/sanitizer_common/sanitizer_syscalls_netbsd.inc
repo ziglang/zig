@@ -42,8 +42,8 @@
 // DO NOT EDIT! THIS FILE HAS BEEN GENERATED!
 //
 // Generated with: generate_netbsd_syscalls.awk
-// Generated date: 2019-12-24
-// Generated from: syscalls.master,v 1.296 2019/09/22 22:59:39 christos Exp
+// Generated date: 2020-09-10
+// Generated from: syscalls.master,v 1.306 2020/08/14 00:53:16 riastradh Exp
 //
 //===----------------------------------------------------------------------===//
 
@@ -872,7 +872,13 @@ PRE_SYSCALL(dup2)(long long from_, long long to_) { /* Nothing to do */ }
 POST_SYSCALL(dup2)(long long res, long long from_, long long to_) {
   /* Nothing to do */
 }
-/* syscall 91 has been skipped */
+PRE_SYSCALL(getrandom)(void *buf_, long long buflen_, long long flags_) {
+  /* TODO */
+}
+POST_SYSCALL(getrandom)
+(long long res, void *buf_, long long buflen_, long long flags_) {
+  /* TODO */
+}
 PRE_SYSCALL(fcntl)(long long fd_, long long cmd_, void *arg_) {
   /* Nothing to do */
 }
@@ -1332,9 +1338,29 @@ PRE_SYSCALL(compat_09_ouname)(void *name_) { /* TODO */ }
 POST_SYSCALL(compat_09_ouname)(long long res, void *name_) { /* TODO */ }
 PRE_SYSCALL(sysarch)(long long op_, void *parms_) { /* TODO */ }
 POST_SYSCALL(sysarch)(long long res, long long op_, void *parms_) { /* TODO */ }
-/* syscall 166 has been skipped */
-/* syscall 167 has been skipped */
-/* syscall 168 has been skipped */
+PRE_SYSCALL(__futex)
+(void *uaddr_, long long op_, long long val_, void *timeout_, void *uaddr2_,
+  long long val2_, long long val3_) {
+  /* TODO */
+}
+POST_SYSCALL(__futex)
+(long long res, void *uaddr_, long long op_, long long val_, void *timeout_,
+  void *uaddr2_, long long val2_, long long val3_) {
+  /* TODO */
+}
+PRE_SYSCALL(__futex_set_robust_list)(void *head_, long long len_) { /* TODO */ }
+POST_SYSCALL(__futex_set_robust_list)
+(long long res, void *head_, long long len_) {
+  /* TODO */
+}
+PRE_SYSCALL(__futex_get_robust_list)
+(long long lwpid_, void **headp_, void *lenp_) {
+  /* TODO */
+}
+POST_SYSCALL(__futex_get_robust_list)
+(long long res, long long lwpid_, void **headp_, void *lenp_) {
+  /* TODO */
+}
 #if !defined(_LP64)
 PRE_SYSCALL(compat_10_osemsys)
 (long long which_, long long a2_, long long a3_, long long a4_, long long a5_) {
@@ -3824,6 +3850,87 @@ PRE_SYSCALL(__fhstatvfs190)
 }
 POST_SYSCALL(__fhstatvfs190)
 (long long res, void *fhp_, long long fh_size_, void *buf_, long long flags_) {}
+PRE_SYSCALL(__acl_get_link)(void *path_, long long type_, void *aclp_) {
+  /* TODO */
+}
+POST_SYSCALL(__acl_get_link)
+(long long res, void *path_, long long type_, void *aclp_) {
+  /* TODO */
+}
+PRE_SYSCALL(__acl_set_link)(void *path_, long long type_, void *aclp_) {
+  /* TODO */
+}
+POST_SYSCALL(__acl_set_link)
+(long long res, void *path_, long long type_, void *aclp_) {
+  /* TODO */
+}
+PRE_SYSCALL(__acl_delete_link)(void *path_, long long type_) { /* TODO */ }
+POST_SYSCALL(__acl_delete_link)(long long res, void *path_, long long type_) {
+  /* TODO */
+}
+PRE_SYSCALL(__acl_aclcheck_link)(void *path_, long long type_, void *aclp_) {
+  /* TODO */
+}
+POST_SYSCALL(__acl_aclcheck_link)
+(long long res, void *path_, long long type_, void *aclp_) {
+  /* TODO */
+}
+PRE_SYSCALL(__acl_get_file)(void *path_, long long type_, void *aclp_) {
+  /* TODO */
+}
+POST_SYSCALL(__acl_get_file)
+(long long res, void *path_, long long type_, void *aclp_) {
+  /* TODO */
+}
+PRE_SYSCALL(__acl_set_file)(void *path_, long long type_, void *aclp_) {
+  /* TODO */
+}
+POST_SYSCALL(__acl_set_file)
+(long long res, void *path_, long long type_, void *aclp_) {
+  /* TODO */
+}
+PRE_SYSCALL(__acl_get_fd)(long long filedes_, long long type_, void *aclp_) {
+  /* TODO */
+}
+POST_SYSCALL(__acl_get_fd)
+(long long res, long long filedes_, long long type_, void *aclp_) {
+  /* TODO */
+}
+PRE_SYSCALL(__acl_set_fd)(long long filedes_, long long type_, void *aclp_) {
+  /* TODO */
+}
+POST_SYSCALL(__acl_set_fd)
+(long long res, long long filedes_, long long type_, void *aclp_) {
+  /* TODO */
+}
+PRE_SYSCALL(__acl_delete_file)(void *path_, long long type_) { /* TODO */ }
+POST_SYSCALL(__acl_delete_file)(long long res, void *path_, long long type_) {
+  /* TODO */
+}
+PRE_SYSCALL(__acl_delete_fd)(long long filedes_, long long type_) { /* TODO */ }
+POST_SYSCALL(__acl_delete_fd)
+(long long res, long long filedes_, long long type_) {
+  /* TODO */
+}
+PRE_SYSCALL(__acl_aclcheck_file)(void *path_, long long type_, void *aclp_) {
+  /* TODO */
+}
+POST_SYSCALL(__acl_aclcheck_file)
+(long long res, void *path_, long long type_, void *aclp_) {
+  /* TODO */
+}
+PRE_SYSCALL(__acl_aclcheck_fd)
+(long long filedes_, long long type_, void *aclp_) {
+  /* TODO */
+}
+POST_SYSCALL(__acl_aclcheck_fd)
+(long long res, long long filedes_, long long type_, void *aclp_) {
+  /* TODO */
+}
+PRE_SYSCALL(lpathconf)(void *path_, long long name_) { /* TODO */ }
+POST_SYSCALL(lpathconf)(long long res, void *path_, long long name_) {
+  /* TODO */
+}
 #undef SYS_MAXSYSARGS
 } // extern "C"
 

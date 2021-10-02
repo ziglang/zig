@@ -130,8 +130,8 @@ private:
 */
 
 #include <__config>
-#include <ostream>
 #include <istream>
+#include <ostream>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -163,7 +163,7 @@ public:
     strstreambuf(strstreambuf&& __rhs);
     _LIBCPP_INLINE_VISIBILITY
     strstreambuf& operator=(strstreambuf&& __rhs);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     virtual ~strstreambuf();
 
@@ -233,7 +233,7 @@ strstreambuf::operator=(strstreambuf&& __rhs)
     return *this;
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 class _LIBCPP_TYPE_VIS istrstream
     : public istream
@@ -268,7 +268,7 @@ public:
         __sb_ = _VSTD::move(__rhs.__sb_);
         return *this;
     }
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     virtual ~istrstream();
 
@@ -317,7 +317,7 @@ public:
         __sb_ = _VSTD::move(__rhs.__sb_);
         return *this;
     }
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     virtual ~ostrstream();
 
@@ -377,7 +377,7 @@ public:
         __sb_ = _VSTD::move(__rhs.__sb_);
         return *this;
     }
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     virtual ~strstream();
 
@@ -404,4 +404,4 @@ private:
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_STRSTREAM
+#endif // _LIBCPP_STRSTREAM

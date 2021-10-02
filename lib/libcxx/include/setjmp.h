@@ -41,4 +41,4 @@ void longjmp(jmp_buf env, int val);
 
 #endif // __cplusplus
 
-#endif  // _LIBCPP_SETJMP_H
+#endif // _LIBCPP_SETJMP_H

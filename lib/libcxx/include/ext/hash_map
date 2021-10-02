@@ -208,7 +208,7 @@ template <class Key, class T, class Hash, class Pred, class Alloc>
 #include <type_traits>
 #include <ext/__hash>
 
-#if __DEPRECATED
+#if defined(__DEPRECATED) && __DEPRECATED
 #if defined(_LIBCPP_WARNING)
     _LIBCPP_WARNING("Use of the header <ext/hash_map> is deprecated.  Migrate to <unordered_map>")
 #else
@@ -350,7 +350,7 @@ public:
         {
             const_cast<bool&>(__x.__value_constructed) = false;
         }
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     _LIBCPP_INLINE_VISIBILITY
     void operator()(pointer __p)
@@ -981,4 +981,4 @@ operator!=(const hash_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>& __x,
 
 } // __gnu_cxx
 
-#endif  // _LIBCPP_HASH_MAP
+#endif // _LIBCPP_HASH_MAP

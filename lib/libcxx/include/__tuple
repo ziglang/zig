@@ -134,7 +134,7 @@ template<> struct __parity<7> { template<size_t _Np> struct __pmake : __repeat<t
 
 } // namespace detail
 
-#endif  // !__has_builtin(__make_integer_seq) || defined(_LIBCPP_TESTING_FALLBACK_MAKE_INTEGER_SEQUENCE)
+#endif // !__has_builtin(__make_integer_seq) || defined(_LIBCPP_TESTING_FALLBACK_MAKE_INTEGER_SEQUENCE)
 
 #if __has_builtin(__make_integer_seq)
 template <size_t _Ep, size_t _Sp>
@@ -548,4 +548,4 @@ struct __sfinae_assign_base<false, true> {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP___TUPLE
+#endif // _LIBCPP___TUPLE

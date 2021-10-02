@@ -14,17 +14,17 @@
 #include "sanitizer_fuchsia.h"
 #if SANITIZER_FUCHSIA
 
-#include "sanitizer_common.h"
-#include "sanitizer_libc.h"
-#include "sanitizer_mutex.h"
-
-#include <limits.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <zircon/errors.h>
 #include <zircon/process.h>
 #include <zircon/syscalls.h>
+#include <zircon/utc.h>
+
+#include "sanitizer_common.h"
+#include "sanitizer_libc.h"
+#include "sanitizer_mutex.h"
 
 namespace __sanitizer {
 
@@ -36,19 +36,16 @@ uptr internal_sched_yield() {
   return 0;  // Why doesn't this return void?
 }
 
-static void internal_nanosleep(zx_time_t ns) {
-  zx_status_t status = _zx_nanosleep(_zx_deadline_after(ns));
+void internal_usleep(u64 useconds) {
+  zx_status_t status = _zx_nanosleep(_zx_deadline_after(ZX_USEC(useconds)));
   CHECK_EQ(status, ZX_OK);
 }
 
-unsigned int internal_sleep(unsigned int seconds) {
-  internal_nanosleep(ZX_SEC(seconds));
-  return 0;
-}
-
 u64 NanoTime() {
+  zx_handle_t utc_clock = _zx_utc_reference_get();
+  CHECK_NE(utc_clock, ZX_HANDLE_INVALID);
   zx_time_t time;
-  zx_status_t status = _zx_clock_get(ZX_CLOCK_UTC, &time);
+  zx_status_t status = _zx_clock_read(utc_clock, &time);
   CHECK_EQ(status, ZX_OK);
   return time;
 }
@@ -66,9 +63,7 @@ uptr internal_getpid() {
   return pid;
 }
 
-int internal_dlinfo(void *handle, int request, void *p) {
-  UNIMPLEMENTED();
-}
+int internal_dlinfo(void *handle, int request, void *p) { UNIMPLEMENTED(); }
 
 uptr GetThreadSelf() { return reinterpret_cast<uptr>(thrd_current()); }
 
@@ -77,10 +72,6 @@ tid_t GetTid() { return GetThreadSelf(); }
 void Abort() { abort(); }
 
 int Atexit(void (*function)(void)) { return atexit(function); }
-
-void SleepForSeconds(int seconds) { internal_sleep(seconds); }
-
-void SleepForMillis(int millis) { internal_nanosleep(ZX_MSEC(millis)); }
 
 void GetThreadStackTopAndBottom(bool, uptr *stack_top, uptr *stack_bottom) {
   pthread_attr_t attr;
@@ -105,11 +96,21 @@ void SetAlternateSignalStack() {}
 void UnsetAlternateSignalStack() {}
 void InitTlsSize() {}
 
-void PrintModuleMap() {}
-
 bool SignalContext::IsStackOverflow() const { return false; }
 void SignalContext::DumpAllRegisters(void *context) { UNIMPLEMENTED(); }
 const char *SignalContext::Describe() const { UNIMPLEMENTED(); }
+
+void FutexWait(atomic_uint32_t *p, u32 cmp) {
+  zx_status_t status = _zx_futex_wait(reinterpret_cast<zx_futex_t *>(p), cmp,
+                                      ZX_HANDLE_INVALID, ZX_TIME_INFINITE);
+  if (status != ZX_ERR_BAD_STATE)  // Normal race.
+    CHECK_EQ(status, ZX_OK);
+}
+
+void FutexWake(atomic_uint32_t *p, u32 count) {
+  zx_status_t status = _zx_futex_wake(reinterpret_cast<zx_futex_t *>(p), count);
+  CHECK_EQ(status, ZX_OK);
+}
 
 enum MutexState : int { MtxUnlocked = 0, MtxLocked = 1, MtxSleeping = 2 };
 
@@ -147,19 +148,21 @@ void BlockingMutex::Unlock() {
   }
 }
 
-void BlockingMutex::CheckLocked() {
-  atomic_uint32_t *m = reinterpret_cast<atomic_uint32_t *>(&opaque_storage_);
+void BlockingMutex::CheckLocked() const {
+  auto m = reinterpret_cast<atomic_uint32_t const *>(&opaque_storage_);
   CHECK_NE(MtxUnlocked, atomic_load(m, memory_order_relaxed));
 }
 
-uptr GetPageSize() { return PAGE_SIZE; }
+uptr GetPageSize() { return _zx_system_get_page_size(); }
 
-uptr GetMmapGranularity() { return PAGE_SIZE; }
+uptr GetMmapGranularity() { return _zx_system_get_page_size(); }
 
 sanitizer_shadow_bounds_t ShadowBounds;
 
+void InitShadowBounds() { ShadowBounds = __sanitizer_shadow_bounds(); }
+
 uptr GetMaxUserVirtualAddress() {
-  ShadowBounds = __sanitizer_shadow_bounds();
+  InitShadowBounds();
   return ShadowBounds.memory_limit - 1;
 }
 
@@ -167,7 +170,7 @@ uptr GetMaxVirtualAddress() { return GetMaxUserVirtualAddress(); }
 
 static void *DoAnonymousMmapOrDie(uptr size, const char *mem_type,
                                   bool raw_report, bool die_for_nomem) {
-  size = RoundUpTo(size, PAGE_SIZE);
+  size = RoundUpTo(size, GetPageSize());
 
   zx_handle_t vmo;
   zx_status_t status = _zx_vmo_create(size, 0, &vmo);
@@ -213,15 +216,14 @@ void *MmapOrDieOnFatalError(uptr size, const char *mem_type) {
 
 uptr ReservedAddressRange::Init(uptr init_size, const char *name,
                                 uptr fixed_addr) {
-  init_size = RoundUpTo(init_size, PAGE_SIZE);
+  init_size = RoundUpTo(init_size, GetPageSize());
   DCHECK_EQ(os_handle_, ZX_HANDLE_INVALID);
   uintptr_t base;
   zx_handle_t vmar;
-  zx_status_t status =
-      _zx_vmar_allocate(
-          _zx_vmar_root_self(),
-          ZX_VM_CAN_MAP_READ | ZX_VM_CAN_MAP_WRITE | ZX_VM_CAN_MAP_SPECIFIC,
-          0, init_size, &vmar, &base);
+  zx_status_t status = _zx_vmar_allocate(
+      _zx_vmar_root_self(),
+      ZX_VM_CAN_MAP_READ | ZX_VM_CAN_MAP_WRITE | ZX_VM_CAN_MAP_SPECIFIC, 0,
+      init_size, &vmar, &base);
   if (status != ZX_OK)
     ReportMmapFailureAndDie(init_size, name, "zx_vmar_allocate", status);
   base_ = reinterpret_cast<void *>(base);
@@ -235,7 +237,7 @@ uptr ReservedAddressRange::Init(uptr init_size, const char *name,
 static uptr DoMmapFixedOrDie(zx_handle_t vmar, uptr fixed_addr, uptr map_size,
                              void *base, const char *name, bool die_for_nomem) {
   uptr offset = fixed_addr - reinterpret_cast<uptr>(base);
-  map_size = RoundUpTo(map_size, PAGE_SIZE);
+  map_size = RoundUpTo(map_size, GetPageSize());
   zx_handle_t vmo;
   zx_status_t status = _zx_vmo_create(map_size, 0, &vmo);
   if (status != ZX_OK) {
@@ -263,19 +265,19 @@ static uptr DoMmapFixedOrDie(zx_handle_t vmar, uptr fixed_addr, uptr map_size,
 
 uptr ReservedAddressRange::Map(uptr fixed_addr, uptr map_size,
                                const char *name) {
-  return DoMmapFixedOrDie(os_handle_, fixed_addr, map_size, base_,
-                          name_, false);
+  return DoMmapFixedOrDie(os_handle_, fixed_addr, map_size, base_, name_,
+                          false);
 }
 
 uptr ReservedAddressRange::MapOrDie(uptr fixed_addr, uptr map_size,
                                     const char *name) {
-  return DoMmapFixedOrDie(os_handle_, fixed_addr, map_size, base_,
-                          name_, true);
+  return DoMmapFixedOrDie(os_handle_, fixed_addr, map_size, base_, name_, true);
 }
 
 void UnmapOrDieVmar(void *addr, uptr size, zx_handle_t target_vmar) {
-  if (!addr || !size) return;
-  size = RoundUpTo(size, PAGE_SIZE);
+  if (!addr || !size)
+    return;
+  size = RoundUpTo(size, GetPageSize());
 
   zx_status_t status =
       _zx_vmar_unmap(target_vmar, reinterpret_cast<uintptr_t>(addr), size);
@@ -315,7 +317,7 @@ void *MmapFixedNoAccess(uptr fixed_addr, uptr size, const char *name) {
 
 void *MmapAlignedOrDieOnFatalError(uptr size, uptr alignment,
                                    const char *mem_type) {
-  CHECK_GE(size, PAGE_SIZE);
+  CHECK_GE(size, GetPageSize());
   CHECK(IsPowerOfTwo(size));
   CHECK(IsPowerOfTwo(alignment));
 
@@ -355,7 +357,8 @@ void *MmapAlignedOrDieOnFatalError(uptr size, uptr alignment,
             _zx_vmar_root_self(),
             ZX_VM_PERM_READ | ZX_VM_PERM_WRITE | ZX_VM_SPECIFIC_OVERWRITE,
             addr - info.base, vmo, 0, size, &new_addr);
-        if (status == ZX_OK) CHECK_EQ(new_addr, addr);
+        if (status == ZX_OK)
+          CHECK_EQ(new_addr, addr);
       }
     }
     if (status == ZX_OK && addr != map_addr)
@@ -380,9 +383,18 @@ void UnmapOrDie(void *addr, uptr size) {
   UnmapOrDieVmar(addr, size, _zx_vmar_root_self());
 }
 
-// This is used on the shadow mapping, which cannot be changed.
-// Zircon doesn't have anything like MADV_DONTNEED.
-void ReleaseMemoryPagesToOS(uptr beg, uptr end) {}
+void ReleaseMemoryPagesToOS(uptr beg, uptr end) {
+  uptr beg_aligned = RoundUpTo(beg, GetPageSize());
+  uptr end_aligned = RoundDownTo(end, GetPageSize());
+  if (beg_aligned < end_aligned) {
+    zx_handle_t root_vmar = _zx_vmar_root_self();
+    CHECK_NE(root_vmar, ZX_HANDLE_INVALID);
+    zx_status_t status =
+        _zx_vmar_op_range(root_vmar, ZX_VMAR_OP_DECOMMIT, beg_aligned,
+                          end_aligned - beg_aligned, nullptr, 0);
+    CHECK_EQ(status, ZX_OK);
+  }
+}
 
 void DumpProcessMap() {
   // TODO(mcgrathr): write it
@@ -411,8 +423,9 @@ bool ReadFileToBuffer(const char *file_name, char **buff, uptr *buff_size,
     uint64_t vmo_size;
     status = _zx_vmo_get_size(vmo, &vmo_size);
     if (status == ZX_OK) {
-      if (vmo_size < max_len) max_len = vmo_size;
-      size_t map_size = RoundUpTo(max_len, PAGE_SIZE);
+      if (vmo_size < max_len)
+        max_len = vmo_size;
+      size_t map_size = RoundUpTo(max_len, GetPageSize());
       uintptr_t addr;
       status = _zx_vmar_map(_zx_vmar_root_self(), ZX_VM_PERM_READ, 0, vmo, 0,
                             map_size, &addr);
@@ -424,7 +437,8 @@ bool ReadFileToBuffer(const char *file_name, char **buff, uptr *buff_size,
     }
     _zx_handle_close(vmo);
   }
-  if (status != ZX_OK && errno_p) *errno_p = status;
+  if (status != ZX_OK && errno_p)
+    *errno_p = status;
   return status == ZX_OK;
 }
 
@@ -498,11 +512,11 @@ bool GetRandom(void *buffer, uptr length, bool blocking) {
   return true;
 }
 
-u32 GetNumberOfCPUs() {
-  return zx_system_get_num_cpus();
-}
+u32 GetNumberOfCPUs() { return zx_system_get_num_cpus(); }
 
 uptr GetRSS() { UNIMPLEMENTED(); }
+
+void InitializePlatformCommonFlags(CommonFlags *cf) {}
 
 }  // namespace __sanitizer
 
@@ -524,6 +538,10 @@ void __sanitizer_set_report_path(const char *path) {
 }
 
 void __sanitizer_set_report_fd(void *fd) {
+  UNREACHABLE("not available on Fuchsia");
+}
+
+const char *__sanitizer_get_report_path() {
   UNREACHABLE("not available on Fuchsia");
 }
 }  // extern "C"

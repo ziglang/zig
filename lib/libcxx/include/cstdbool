@@ -28,4 +28,4 @@ Macros:
 #undef __bool_true_false_are_defined
 #define __bool_true_false_are_defined 1
 
-#endif  // _LIBCPP_CSTDBOOL
+#endif // _LIBCPP_CSTDBOOL

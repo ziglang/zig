@@ -2504,10 +2504,6 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
-    if (builtin.target.cpu.arch == .mipsel or builtin.target.cpu.arch == .mips) {
-        // https://github.com/ziglang/zig/issues/3317
-        return error.SkipZigTest;
-    }
     if (builtin.target.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;

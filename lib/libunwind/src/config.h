@@ -52,7 +52,8 @@
   #endif
 #endif
 
-#if defined(_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS)
+#if defined(_LIBUNWIND_HIDE_SYMBOLS)
+  // The CMake file passes -fvisibility=hidden to control ELF/Mach-O visibility.
   #define _LIBUNWIND_EXPORT
   #define _LIBUNWIND_HIDDEN
 #else
@@ -70,11 +71,15 @@
 #define SYMBOL_NAME(name) XSTR(__USER_LABEL_PREFIX__) #name
 
 #if defined(__APPLE__)
+#if defined(_LIBUNWIND_HIDE_SYMBOLS)
+#define _LIBUNWIND_ALIAS_VISIBILITY(name) __asm__(".private_extern " name);
+#else
+#define _LIBUNWIND_ALIAS_VISIBILITY(name)
+#endif
 #define _LIBUNWIND_WEAK_ALIAS(name, aliasname)                                 \
   __asm__(".globl " SYMBOL_NAME(aliasname));                                   \
   __asm__(SYMBOL_NAME(aliasname) " = " SYMBOL_NAME(name));                     \
-  extern "C" _LIBUNWIND_EXPORT __typeof(name) aliasname                        \
-      __attribute__((weak_import));
+  _LIBUNWIND_ALIAS_VISIBILITY(SYMBOL_NAME(aliasname))
 #elif defined(__ELF__)
 #define _LIBUNWIND_WEAK_ALIAS(name, aliasname)                                 \
   extern "C" _LIBUNWIND_EXPORT __typeof(name) aliasname                        \

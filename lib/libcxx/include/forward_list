@@ -180,11 +180,12 @@ template <class T, class Allocator, class Predicate>
 */
 
 #include <__config>
-#include <initializer_list>
-#include <memory>
-#include <limits>
-#include <iterator>
+#include <__utility/forward.h>
 #include <algorithm>
+#include <initializer_list>
+#include <iterator>
+#include <limits>
+#include <memory>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -272,7 +273,7 @@ struct _LIBCPP_HIDDEN __begin_node_of
 };
 
 template <class _Tp, class _VoidPtr>
-struct __forward_list_node
+struct _LIBCPP_STANDALONE_DEBUG __forward_list_node
     : public __begin_node_of<_Tp, _VoidPtr>::type
 {
     typedef _Tp value_type;
@@ -506,7 +507,7 @@ public:
         _NOEXCEPT_(is_nothrow_move_constructible<__node_allocator>::value);
     _LIBCPP_INLINE_VISIBILITY
     __forward_list_base(__forward_list_base&& __x, const allocator_type& __a);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 private:
     __forward_list_base(const __forward_list_base&);
@@ -534,7 +535,7 @@ public:
 #if _LIBCPP_STD_VER >= 14
         _NOEXCEPT;
 #else
-        _NOEXCEPT_(!__node_traits::propagate_on_container_move_assignment::value ||
+        _NOEXCEPT_(!__node_traits::propagate_on_container_swap::value ||
                     __is_nothrow_swappable<__node_allocator>::value);
 #endif
 protected:
@@ -584,7 +585,7 @@ __forward_list_base<_Tp, _Alloc>::__forward_list_base(__forward_list_base&& __x,
     }
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _Tp, class _Alloc>
 __forward_list_base<_Tp, _Alloc>::~__forward_list_base()
@@ -599,7 +600,7 @@ __forward_list_base<_Tp, _Alloc>::swap(__forward_list_base& __x)
 #if _LIBCPP_STD_VER >= 14
         _NOEXCEPT
 #else
-        _NOEXCEPT_(!__node_traits::propagate_on_container_move_assignment::value ||
+        _NOEXCEPT_(!__node_traits::propagate_on_container_swap::value ||
                     __is_nothrow_swappable<__node_allocator>::value)
 #endif
 {
@@ -681,7 +682,7 @@ public:
                        __is_cpp17_input_iterator<_InputIterator>::value
                      >::type* = nullptr);
     forward_list(const forward_list& __x);
-    forward_list(const forward_list& __x, const allocator_type& __a);
+    forward_list(const forward_list& __x, const __identity_t<allocator_type>& __a);
 
     forward_list& operator=(const forward_list& __x);
 
@@ -690,7 +691,7 @@ public:
     forward_list(forward_list&& __x)
         _NOEXCEPT_(is_nothrow_move_constructible<base>::value)
         : base(_VSTD::move(__x)) {}
-    forward_list(forward_list&& __x, const allocator_type& __a);
+    forward_list(forward_list&& __x, const __identity_t<allocator_type>& __a);
 
     forward_list(initializer_list<value_type> __il);
     forward_list(initializer_list<value_type> __il, const allocator_type& __a);
@@ -706,7 +707,7 @@ public:
 
     _LIBCPP_INLINE_VISIBILITY
     void assign(initializer_list<value_type> __il);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     // ~forward_list() = default;
 
@@ -775,7 +776,7 @@ public:
     template <class... _Args> void      emplace_front(_Args&&... __args);
 #endif
     void push_front(value_type&& __v);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
     void push_front(const value_type& __v);
 
     void pop_front();
@@ -787,7 +788,7 @@ public:
     iterator insert_after(const_iterator __p, value_type&& __v);
     iterator insert_after(const_iterator __p, initializer_list<value_type> __il)
         {return insert_after(__p, __il.begin(), __il.end());}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
     iterator insert_after(const_iterator __p, const value_type& __v);
     iterator insert_after(const_iterator __p, size_type __n, const value_type& __v);
     template <class _InputIterator>
@@ -840,7 +841,7 @@ public:
         _LIBCPP_INLINE_VISIBILITY
         void merge(forward_list&& __x, _Compare __comp)
         {merge(__x, _VSTD::move(__comp));}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     void merge(forward_list& __x) {merge(__x, __less<value_type>());}
     template <class _Compare> void merge(forward_list& __x, _Compare __comp);
@@ -855,7 +856,7 @@ private:
     void __move_assign(forward_list& __x, true_type)
         _NOEXCEPT_(is_nothrow_move_assignable<allocator_type>::value);
     void __move_assign(forward_list& __x, false_type);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     template <class _Compare>
         static
@@ -871,18 +872,18 @@ private:
 
 #ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
 template<class _InputIterator,
-         class _Alloc = allocator<typename iterator_traits<_InputIterator>::value_type>,
-         class = typename enable_if<__is_allocator<_Alloc>::value, void>::type
+         class _Alloc = allocator<__iter_value_type<_InputIterator>>,
+         class = _EnableIf<__is_allocator<_Alloc>::value>
          >
 forward_list(_InputIterator, _InputIterator)
-  -> forward_list<typename iterator_traits<_InputIterator>::value_type, _Alloc>;
+  -> forward_list<__iter_value_type<_InputIterator>, _Alloc>;
 
 template<class _InputIterator,
          class _Alloc,
-         class = typename enable_if<__is_allocator<_Alloc>::value, void>::type
+         class = _EnableIf<__is_allocator<_Alloc>::value>
          >
 forward_list(_InputIterator, _InputIterator, _Alloc)
-  -> forward_list<typename iterator_traits<_InputIterator>::value_type, _Alloc>;
+  -> forward_list<__iter_value_type<_InputIterator>, _Alloc>;
 #endif
 
 template <class _Tp, class _Alloc>
@@ -979,7 +980,7 @@ forward_list<_Tp, _Alloc>::forward_list(const forward_list& __x)
 
 template <class _Tp, class _Alloc>
 forward_list<_Tp, _Alloc>::forward_list(const forward_list& __x,
-                                        const allocator_type& __a)
+                                        const __identity_t<allocator_type>& __a)
     : base(__a)
 {
     insert_after(cbefore_begin(), __x.begin(), __x.end());
@@ -1000,7 +1001,7 @@ forward_list<_Tp, _Alloc>::operator=(const forward_list& __x)
 #ifndef _LIBCPP_CXX03_LANG
 template <class _Tp, class _Alloc>
 forward_list<_Tp, _Alloc>::forward_list(forward_list&& __x,
-                                        const allocator_type& __a)
+                                        const __identity_t<allocator_type>& __a)
     : base(_VSTD::move(__x), __a)
 {
     if (base::__alloc() != __x.__alloc())
@@ -1070,7 +1071,7 @@ forward_list<_Tp, _Alloc>::operator=(initializer_list<value_type> __il)
     return *this;
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _Tp, class _Alloc>
 template <class _InputIterator>
@@ -1150,7 +1151,7 @@ forward_list<_Tp, _Alloc>::push_front(value_type&& __v)
     base::__before_begin()->__next_ = __h.release();
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _Tp, class _Alloc>
 void
@@ -1207,7 +1208,7 @@ forward_list<_Tp, _Alloc>::insert_after(const_iterator __p, value_type&& __v)
     return iterator(__r->__next_);
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _Tp, class _Alloc>
 typename forward_list<_Tp, _Alloc>::iterator
@@ -1240,7 +1241,7 @@ forward_list<_Tp, _Alloc>::insert_after(const_iterator __p, size_type __n,
 #ifndef _LIBCPP_NO_EXCEPTIONS
         try
         {
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
             for (--__n; __n != 0; --__n, __last = __last->__next_)
             {
                 __h.reset(__node_traits::allocate(__a, 1));
@@ -1260,7 +1261,7 @@ forward_list<_Tp, _Alloc>::insert_after(const_iterator __p, size_type __n,
             }
             throw;
         }
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
         __last->__next_ = __r->__next_;
         __r->__next_ = __first;
         __r = static_cast<__begin_node_pointer>(__last);
@@ -1290,7 +1291,7 @@ forward_list<_Tp, _Alloc>::insert_after(const_iterator __p,
 #ifndef _LIBCPP_NO_EXCEPTIONS
         try
         {
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
             for (++__f; __f != __l; ++__f, ((void)(__last = __last->__next_)))
             {
                 __h.reset(__node_traits::allocate(__a, 1));
@@ -1310,7 +1311,7 @@ forward_list<_Tp, _Alloc>::insert_after(const_iterator __p,
             }
             throw;
         }
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
         __last->__next_ = __r->__next_;
         __r->__next_ = __first;
         __r = static_cast<__begin_node_pointer>(__last);
@@ -1784,4 +1785,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_FORWARD_LIST
+#endif // _LIBCPP_FORWARD_LIST

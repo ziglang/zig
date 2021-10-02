@@ -70,10 +70,7 @@ struct GlobalProc {
   Mutex mtx;
   Processor *proc;
 
-  GlobalProc()
-      : mtx(MutexTypeGlobalProc, StatMtxGlobalProc)
-      , proc(ProcCreate()) {
-  }
+  GlobalProc() : mtx(MutexTypeGlobalProc), proc(ProcCreate()) {}
 };
 
 static char global_proc_placeholder[sizeof(GlobalProc)] ALIGNED(64);
@@ -145,7 +142,7 @@ void AllocatorPrintStats() {
 
 static void SignalUnsafeCall(ThreadState *thr, uptr pc) {
   if (atomic_load_relaxed(&thr->in_signal_handler) == 0 ||
-      !flags()->report_signal_unsafe)
+      !ShouldReport(thr, ReportTypeSignalUnsafe))
     return;
   VarSizeStackTrace stack;
   ObtainCurrentStack(thr, pc, &stack);

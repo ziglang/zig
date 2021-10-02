@@ -28,25 +28,11 @@ static __inline__ __m256i __DEFAULT_FN_ATTRS
               (__v4di) __B);
 }
 
-static __inline__ __m512i __DEFAULT_FN_ATTRS_F
- _mm512_aesenc_epi128(__m512i __A, __m512i __B)
-{
-  return (__m512i) __builtin_ia32_aesenc512((__v8di) __A,
-              (__v8di) __B);
-}
-
 static __inline__ __m256i __DEFAULT_FN_ATTRS
  _mm256_aesdec_epi128(__m256i __A, __m256i __B)
 {
   return (__m256i) __builtin_ia32_aesdec256((__v4di) __A,
               (__v4di) __B);
-}
-
-static __inline__ __m512i __DEFAULT_FN_ATTRS_F
- _mm512_aesdec_epi128(__m512i __A, __m512i __B)
-{
-  return (__m512i) __builtin_ia32_aesdec512((__v8di) __A,
-              (__v8di) __B);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
@@ -56,18 +42,33 @@ static __inline__ __m256i __DEFAULT_FN_ATTRS
               (__v4di) __B);
 }
 
-static __inline__ __m512i __DEFAULT_FN_ATTRS_F
- _mm512_aesenclast_epi128(__m512i __A, __m512i __B)
-{
-  return (__m512i) __builtin_ia32_aesenclast512((__v8di) __A,
-              (__v8di) __B);
-}
-
 static __inline__ __m256i __DEFAULT_FN_ATTRS
  _mm256_aesdeclast_epi128(__m256i __A, __m256i __B)
 {
   return (__m256i) __builtin_ia32_aesdeclast256((__v4di) __A,
               (__v4di) __B);
+}
+
+#ifdef __AVX512FINTRIN_H
+static __inline__ __m512i __DEFAULT_FN_ATTRS_F
+ _mm512_aesenc_epi128(__m512i __A, __m512i __B)
+{
+  return (__m512i) __builtin_ia32_aesenc512((__v8di) __A,
+              (__v8di) __B);
+}
+
+static __inline__ __m512i __DEFAULT_FN_ATTRS_F
+ _mm512_aesdec_epi128(__m512i __A, __m512i __B)
+{
+  return (__m512i) __builtin_ia32_aesdec512((__v8di) __A,
+              (__v8di) __B);
+}
+
+static __inline__ __m512i __DEFAULT_FN_ATTRS_F
+ _mm512_aesenclast_epi128(__m512i __A, __m512i __B)
+{
+  return (__m512i) __builtin_ia32_aesenclast512((__v8di) __A,
+              (__v8di) __B);
 }
 
 static __inline__ __m512i __DEFAULT_FN_ATTRS_F
@@ -76,7 +77,7 @@ static __inline__ __m512i __DEFAULT_FN_ATTRS_F
   return (__m512i) __builtin_ia32_aesdeclast512((__v8di) __A,
               (__v8di) __B);
 }
-
+#endif // __AVX512FINTRIN_H
 
 #undef __DEFAULT_FN_ATTRS
 #undef __DEFAULT_FN_ATTRS_F

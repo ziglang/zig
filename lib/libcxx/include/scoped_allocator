@@ -106,6 +106,7 @@ template <class OuterA1, class OuterA2, class... InnerAllocs>
 */
 
 #include <__config>
+#include <__utility/forward.h>
 #include <memory>
 #include <version>
 
@@ -375,7 +376,7 @@ struct __outermost<_Alloc, true>
 {
     typedef typename remove_reference
                      <
-                        decltype(_VSTD::declval<_Alloc>().outer_allocator())
+                        decltype(declval<_Alloc>().outer_allocator())
                      >::type                                    _OuterAlloc;
     typedef typename __outermost<_OuterAlloc>::type             type;
     _LIBCPP_INLINE_VISIBILITY
@@ -676,8 +677,8 @@ operator!=(const scoped_allocator_adaptor<_OuterA1, _InnerAllocs...>& __a,
     return !(__a == __b);
 }
 
-#endif  // !defined(_LIBCPP_CXX03_LANG)
+#endif // !defined(_LIBCPP_CXX03_LANG)
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_SCOPED_ALLOCATOR
+#endif // _LIBCPP_SCOPED_ALLOCATOR

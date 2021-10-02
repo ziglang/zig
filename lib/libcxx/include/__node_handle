@@ -11,6 +11,7 @@
 #define _LIBCPP___NODE_HANDLE
 
 #include <__config>
+#include <__debug>
 #include <memory>
 #include <optional>
 
@@ -205,4 +206,4 @@ struct _LIBCPP_TEMPLATE_VIS __insert_return_type
 _LIBCPP_END_NAMESPACE_STD
 _LIBCPP_POP_MACROS
 
-#endif
+#endif  // _LIBCPP___NODE_HANDLE

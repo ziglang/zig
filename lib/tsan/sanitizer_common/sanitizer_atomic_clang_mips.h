@@ -37,11 +37,11 @@ static struct {
 } __attribute__((aligned(32))) lock = {0, {0}};
 
 template <>
-INLINE atomic_uint64_t::Type atomic_fetch_add(volatile atomic_uint64_t *ptr,
+inline atomic_uint64_t::Type atomic_fetch_add(volatile atomic_uint64_t *ptr,
                                               atomic_uint64_t::Type val,
                                               memory_order mo) {
   DCHECK(mo &
-         (memory_order_relaxed | memory_order_releasae | memory_order_seq_cst));
+         (memory_order_relaxed | memory_order_release | memory_order_seq_cst));
   DCHECK(!((uptr)ptr % sizeof(*ptr)));
 
   atomic_uint64_t::Type ret;
@@ -55,19 +55,19 @@ INLINE atomic_uint64_t::Type atomic_fetch_add(volatile atomic_uint64_t *ptr,
 }
 
 template <>
-INLINE atomic_uint64_t::Type atomic_fetch_sub(volatile atomic_uint64_t *ptr,
+inline atomic_uint64_t::Type atomic_fetch_sub(volatile atomic_uint64_t *ptr,
                                               atomic_uint64_t::Type val,
                                               memory_order mo) {
   return atomic_fetch_add(ptr, -val, mo);
 }
 
 template <>
-INLINE bool atomic_compare_exchange_strong(volatile atomic_uint64_t *ptr,
+inline bool atomic_compare_exchange_strong(volatile atomic_uint64_t *ptr,
                                            atomic_uint64_t::Type *cmp,
                                            atomic_uint64_t::Type xchg,
                                            memory_order mo) {
   DCHECK(mo &
-         (memory_order_relaxed | memory_order_releasae | memory_order_seq_cst));
+         (memory_order_relaxed | memory_order_release | memory_order_seq_cst));
   DCHECK(!((uptr)ptr % sizeof(*ptr)));
 
   typedef atomic_uint64_t::Type Type;
@@ -87,10 +87,10 @@ INLINE bool atomic_compare_exchange_strong(volatile atomic_uint64_t *ptr,
 }
 
 template <>
-INLINE atomic_uint64_t::Type atomic_load(const volatile atomic_uint64_t *ptr,
+inline atomic_uint64_t::Type atomic_load(const volatile atomic_uint64_t *ptr,
                                          memory_order mo) {
   DCHECK(mo &
-         (memory_order_relaxed | memory_order_releasae | memory_order_seq_cst));
+         (memory_order_relaxed | memory_order_release | memory_order_seq_cst));
   DCHECK(!((uptr)ptr % sizeof(*ptr)));
 
   atomic_uint64_t::Type zero = 0;
@@ -100,10 +100,10 @@ INLINE atomic_uint64_t::Type atomic_load(const volatile atomic_uint64_t *ptr,
 }
 
 template <>
-INLINE void atomic_store(volatile atomic_uint64_t *ptr, atomic_uint64_t::Type v,
+inline void atomic_store(volatile atomic_uint64_t *ptr, atomic_uint64_t::Type v,
                          memory_order mo) {
   DCHECK(mo &
-         (memory_order_relaxed | memory_order_releasae | memory_order_seq_cst));
+         (memory_order_relaxed | memory_order_release | memory_order_seq_cst));
   DCHECK(!((uptr)ptr % sizeof(*ptr)));
 
   __spin_lock(&lock.lock);

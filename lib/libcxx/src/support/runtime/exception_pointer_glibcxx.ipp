@@ -25,35 +25,35 @@ struct exception_ptr
 {
     void* __ptr_;
 
-    exception_ptr(const exception_ptr&) _NOEXCEPT;
-    exception_ptr& operator=(const exception_ptr&) _NOEXCEPT;
-    ~exception_ptr() _NOEXCEPT;
+    exception_ptr(const exception_ptr&) noexcept;
+    exception_ptr& operator=(const exception_ptr&) noexcept;
+    ~exception_ptr() noexcept;
 };
 
 }
 
 _LIBCPP_NORETURN void rethrow_exception(__exception_ptr::exception_ptr);
 
-exception_ptr::~exception_ptr() _NOEXCEPT
+exception_ptr::~exception_ptr() noexcept
 {
     reinterpret_cast<__exception_ptr::exception_ptr*>(this)->~exception_ptr();
 }
 
-exception_ptr::exception_ptr(const exception_ptr& other) _NOEXCEPT
+exception_ptr::exception_ptr(const exception_ptr& other) noexcept
     : __ptr_(other.__ptr_)
 {
     new (reinterpret_cast<void*>(this)) __exception_ptr::exception_ptr(
         reinterpret_cast<const __exception_ptr::exception_ptr&>(other));
 }
 
-exception_ptr& exception_ptr::operator=(const exception_ptr& other) _NOEXCEPT
+exception_ptr& exception_ptr::operator=(const exception_ptr& other) noexcept
 {
     *reinterpret_cast<__exception_ptr::exception_ptr*>(this) =
         reinterpret_cast<const __exception_ptr::exception_ptr&>(other);
     return *this;
 }
 
-nested_exception::nested_exception() _NOEXCEPT
+nested_exception::nested_exception() noexcept
     : __ptr_(current_exception())
 {
 }

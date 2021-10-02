@@ -34,10 +34,12 @@ __DEVICE__ unsigned long long __brevll(unsigned long long __a) {
   return __nv_brevll(__a);
 }
 #if defined(__cplusplus)
-__DEVICE__ void __brkpt() { asm volatile("brkpt;"); }
+__DEVICE__ void __brkpt() { __asm__ __volatile__("brkpt;"); }
 __DEVICE__ void __brkpt(int __a) { __brkpt(); }
 #else
-__DEVICE__ void __attribute__((overloadable)) __brkpt(void) { asm volatile("brkpt;"); }
+__DEVICE__ void __attribute__((overloadable)) __brkpt(void) {
+  __asm__ __volatile__("brkpt;");
+}
 __DEVICE__ void __attribute__((overloadable)) __brkpt(int __a) { __brkpt(); }
 #endif
 __DEVICE__ unsigned int __byte_perm(unsigned int __a, unsigned int __b,
@@ -507,7 +509,7 @@ __DEVICE__ float __powf(float __a, float __b) {
 }
 
 // Parameter must have a known integer value.
-#define __prof_trigger(__a) asm __volatile__("pmevent \t%0;" ::"i"(__a))
+#define __prof_trigger(__a) __asm__ __volatile__("pmevent \t%0;" ::"i"(__a))
 __DEVICE__ int __rhadd(int __a, int __b) { return __nv_rhadd(__a, __b); }
 __DEVICE__ unsigned int __sad(int __a, int __b, unsigned int __c) {
   return __nv_sad(__a, __b, __c);
@@ -526,7 +528,7 @@ __DEVICE__ float __tanf(float __a) { return __nv_fast_tanf(__a); }
 __DEVICE__ void __threadfence(void) { __nvvm_membar_gl(); }
 __DEVICE__ void __threadfence_block(void) { __nvvm_membar_cta(); };
 __DEVICE__ void __threadfence_system(void) { __nvvm_membar_sys(); };
-__DEVICE__ void __trap(void) { asm volatile("trap;"); }
+__DEVICE__ void __trap(void) { __asm__ __volatile__("trap;"); }
 __DEVICE__ unsigned int __uAtomicAdd(unsigned int *__p, unsigned int __v) {
   return __nvvm_atom_add_gen_i((int *)__p, __v);
 }
@@ -1051,122 +1053,136 @@ __DEVICE__ unsigned int __bool2mask(unsigned int __a, int shift) {
 }
 __DEVICE__ unsigned int __vabs2(unsigned int __a) {
   unsigned int r;
-  asm("vabsdiff2.s32.s32.s32 %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(0), "r"(0));
+  __asm__("vabsdiff2.s32.s32.s32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(0), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vabs4(unsigned int __a) {
   unsigned int r;
-  asm("vabsdiff4.s32.s32.s32 %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(0), "r"(0));
+  __asm__("vabsdiff4.s32.s32.s32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(0), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vabsdiffs2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vabsdiff2.s32.s32.s32 %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vabsdiff2.s32.s32.s32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 
 __DEVICE__ unsigned int __vabsdiffs4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vabsdiff4.s32.s32.s32 %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vabsdiff4.s32.s32.s32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vabsdiffu2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vabsdiff2.u32.u32.u32 %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vabsdiff2.u32.u32.u32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vabsdiffu4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vabsdiff4.u32.u32.u32 %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vabsdiff4.u32.u32.u32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vabsss2(unsigned int __a) {
   unsigned int r;
-  asm("vabsdiff2.s32.s32.s32.sat %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(0), "r"(0));
+  __asm__("vabsdiff2.s32.s32.s32.sat %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(0), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vabsss4(unsigned int __a) {
   unsigned int r;
-  asm("vabsdiff4.s32.s32.s32.sat %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(0), "r"(0));
+  __asm__("vabsdiff4.s32.s32.s32.sat %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(0), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vadd2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vadd2.u32.u32.u32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vadd2.u32.u32.u32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vadd4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vadd4.u32.u32.u32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vadd4.u32.u32.u32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vaddss2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vadd2.s32.s32.s32.sat %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vadd2.s32.s32.s32.sat %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vaddss4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vadd4.s32.s32.s32.sat %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vadd4.s32.s32.s32.sat %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vaddus2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vadd2.u32.u32.u32.sat %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vadd2.u32.u32.u32.sat %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vaddus4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vadd4.u32.u32.u32.sat %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vadd4.u32.u32.u32.sat %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vavgs2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vavrg2.s32.s32.s32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vavrg2.s32.s32.s32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vavgs4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vavrg4.s32.s32.s32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vavrg4.s32.s32.s32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vavgu2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vavrg2.u32.u32.u32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vavrg2.u32.u32.u32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vavgu4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vavrg4.u32.u32.u32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vavrg4.u32.u32.u32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vseteq2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset2.u32.u32.eq %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset2.u32.u32.eq %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpeq2(unsigned int __a, unsigned int __b) {
@@ -1174,7 +1190,9 @@ __DEVICE__ unsigned int __vcmpeq2(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vseteq4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset4.u32.u32.eq %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset4.u32.u32.eq %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpeq4(unsigned int __a, unsigned int __b) {
@@ -1182,7 +1200,9 @@ __DEVICE__ unsigned int __vcmpeq4(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetges2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset2.s32.s32.ge %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset2.s32.s32.ge %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpges2(unsigned int __a, unsigned int __b) {
@@ -1190,7 +1210,9 @@ __DEVICE__ unsigned int __vcmpges2(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetges4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset4.s32.s32.ge %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset4.s32.s32.ge %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpges4(unsigned int __a, unsigned int __b) {
@@ -1198,7 +1220,9 @@ __DEVICE__ unsigned int __vcmpges4(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetgeu2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset2.u32.u32.ge %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset2.u32.u32.ge %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpgeu2(unsigned int __a, unsigned int __b) {
@@ -1206,7 +1230,9 @@ __DEVICE__ unsigned int __vcmpgeu2(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetgeu4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset4.u32.u32.ge %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset4.u32.u32.ge %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpgeu4(unsigned int __a, unsigned int __b) {
@@ -1214,7 +1240,9 @@ __DEVICE__ unsigned int __vcmpgeu4(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetgts2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset2.s32.s32.gt %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset2.s32.s32.gt %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpgts2(unsigned int __a, unsigned int __b) {
@@ -1222,7 +1250,9 @@ __DEVICE__ unsigned int __vcmpgts2(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetgts4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset4.s32.s32.gt %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset4.s32.s32.gt %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpgts4(unsigned int __a, unsigned int __b) {
@@ -1230,7 +1260,9 @@ __DEVICE__ unsigned int __vcmpgts4(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetgtu2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset2.u32.u32.gt %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset2.u32.u32.gt %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpgtu2(unsigned int __a, unsigned int __b) {
@@ -1238,7 +1270,9 @@ __DEVICE__ unsigned int __vcmpgtu2(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetgtu4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset4.u32.u32.gt %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset4.u32.u32.gt %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpgtu4(unsigned int __a, unsigned int __b) {
@@ -1246,7 +1280,9 @@ __DEVICE__ unsigned int __vcmpgtu4(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetles2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset2.s32.s32.le %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset2.s32.s32.le %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmples2(unsigned int __a, unsigned int __b) {
@@ -1254,7 +1290,9 @@ __DEVICE__ unsigned int __vcmples2(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetles4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset4.s32.s32.le %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset4.s32.s32.le %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmples4(unsigned int __a, unsigned int __b) {
@@ -1262,7 +1300,9 @@ __DEVICE__ unsigned int __vcmples4(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetleu2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset2.u32.u32.le %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset2.u32.u32.le %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpleu2(unsigned int __a, unsigned int __b) {
@@ -1270,7 +1310,9 @@ __DEVICE__ unsigned int __vcmpleu2(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetleu4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset4.u32.u32.le %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset4.u32.u32.le %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpleu4(unsigned int __a, unsigned int __b) {
@@ -1278,7 +1320,9 @@ __DEVICE__ unsigned int __vcmpleu4(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetlts2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset2.s32.s32.lt %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset2.s32.s32.lt %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmplts2(unsigned int __a, unsigned int __b) {
@@ -1286,7 +1330,9 @@ __DEVICE__ unsigned int __vcmplts2(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetlts4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset4.s32.s32.lt %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset4.s32.s32.lt %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmplts4(unsigned int __a, unsigned int __b) {
@@ -1294,7 +1340,9 @@ __DEVICE__ unsigned int __vcmplts4(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetltu2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset2.u32.u32.lt %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset2.u32.u32.lt %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpltu2(unsigned int __a, unsigned int __b) {
@@ -1302,7 +1350,9 @@ __DEVICE__ unsigned int __vcmpltu2(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetltu4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset4.u32.u32.lt %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset4.u32.u32.lt %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpltu4(unsigned int __a, unsigned int __b) {
@@ -1310,7 +1360,9 @@ __DEVICE__ unsigned int __vcmpltu4(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetne2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset2.u32.u32.ne %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset2.u32.u32.ne %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpne2(unsigned int __a, unsigned int __b) {
@@ -1318,7 +1370,9 @@ __DEVICE__ unsigned int __vcmpne2(unsigned int __a, unsigned int __b) {
 }
 __DEVICE__ unsigned int __vsetne4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vset4.u32.u32.ne %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vset4.u32.u32.ne %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vcmpne4(unsigned int __a, unsigned int __b) {
@@ -1345,94 +1399,112 @@ __DEVICE__ unsigned int __vmaxs2(unsigned int __a, unsigned int __b) {
     unsigned mask = __vcmpgts2(__a, __b);
     r = (__a & mask) | (__b & ~mask);
   } else {
-    asm("vmax2.s32.s32.s32 %0,%1,%2,%3;"
-        : "=r"(r)
-        : "r"(__a), "r"(__b), "r"(0));
+    __asm__("vmax2.s32.s32.s32 %0,%1,%2,%3;"
+            : "=r"(r)
+            : "r"(__a), "r"(__b), "r"(0));
   }
   return r;
 }
 __DEVICE__ unsigned int __vmaxs4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vmax4.s32.s32.s32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vmax4.s32.s32.s32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vmaxu2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vmax2.u32.u32.u32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vmax2.u32.u32.u32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vmaxu4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vmax4.u32.u32.u32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vmax4.u32.u32.u32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vmins2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vmin2.s32.s32.s32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vmin2.s32.s32.s32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vmins4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vmin4.s32.s32.s32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vmin4.s32.s32.s32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vminu2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vmin2.u32.u32.u32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vmin2.u32.u32.u32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vminu4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vmin4.u32.u32.u32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vmin4.u32.u32.u32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vsads2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vabsdiff2.s32.s32.s32.add %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vabsdiff2.s32.s32.s32.add %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vsads4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vabsdiff4.s32.s32.s32.add %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vabsdiff4.s32.s32.s32.add %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vsadu2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vabsdiff2.u32.u32.u32.add %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vabsdiff2.u32.u32.u32.add %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vsadu4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vabsdiff4.u32.u32.u32.add %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vabsdiff4.u32.u32.u32.add %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 
 __DEVICE__ unsigned int __vsub2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vsub2.u32.u32.u32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vsub2.u32.u32.u32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vneg2(unsigned int __a) { return __vsub2(0, __a); }
 
 __DEVICE__ unsigned int __vsub4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vsub4.u32.u32.u32 %0,%1,%2,%3;" : "=r"(r) : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vsub4.u32.u32.u32 %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vneg4(unsigned int __a) { return __vsub4(0, __a); }
 __DEVICE__ unsigned int __vsubss2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vsub2.s32.s32.s32.sat %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vsub2.s32.s32.s32.sat %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vnegss2(unsigned int __a) {
@@ -1440,9 +1512,9 @@ __DEVICE__ unsigned int __vnegss2(unsigned int __a) {
 }
 __DEVICE__ unsigned int __vsubss4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vsub4.s32.s32.s32.sat %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vsub4.s32.s32.s32.sat %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vnegss4(unsigned int __a) {
@@ -1450,16 +1522,16 @@ __DEVICE__ unsigned int __vnegss4(unsigned int __a) {
 }
 __DEVICE__ unsigned int __vsubus2(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vsub2.u32.u32.u32.sat %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vsub2.u32.u32.u32.sat %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 __DEVICE__ unsigned int __vsubus4(unsigned int __a, unsigned int __b) {
   unsigned int r;
-  asm("vsub4.u32.u32.u32.sat %0,%1,%2,%3;"
-      : "=r"(r)
-      : "r"(__a), "r"(__b), "r"(0));
+  __asm__("vsub4.u32.u32.u32.sat %0,%1,%2,%3;"
+          : "=r"(r)
+          : "r"(__a), "r"(__b), "r"(0));
   return r;
 }
 #endif // CUDA_VERSION >= 9020

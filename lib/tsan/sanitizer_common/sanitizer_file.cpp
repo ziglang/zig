@@ -58,38 +58,50 @@ void ReportFile::ReopenIfNecessary() {
   } else {
     internal_snprintf(full_path, kMaxPathLength, "%s.%zu", path_prefix, pid);
   }
-  fd = OpenFile(full_path, WrOnly);
+  if (common_flags()->log_suffix) {
+    internal_strlcat(full_path, common_flags()->log_suffix, kMaxPathLength);
+  }
+  error_t err;
+  fd = OpenFile(full_path, WrOnly, &err);
   if (fd == kInvalidFd) {
     const char *ErrorMsgPrefix = "ERROR: Can't open file: ";
     WriteToFile(kStderrFd, ErrorMsgPrefix, internal_strlen(ErrorMsgPrefix));
     WriteToFile(kStderrFd, full_path, internal_strlen(full_path));
+    char errmsg[100];
+    internal_snprintf(errmsg, sizeof(errmsg), " (reason: %d)", err);
+    WriteToFile(kStderrFd, errmsg, internal_strlen(errmsg));
     Die();
   }
   fd_pid = pid;
 }
 
 void ReportFile::SetReportPath(const char *path) {
-  if (!path)
-    return;
-  uptr len = internal_strlen(path);
-  if (len > sizeof(path_prefix) - 100) {
-    Report("ERROR: Path is too long: %c%c%c%c%c%c%c%c...\n",
-           path[0], path[1], path[2], path[3],
-           path[4], path[5], path[6], path[7]);
-    Die();
+  if (path) {
+    uptr len = internal_strlen(path);
+    if (len > sizeof(path_prefix) - 100) {
+      Report("ERROR: Path is too long: %c%c%c%c%c%c%c%c...\n", path[0], path[1],
+             path[2], path[3], path[4], path[5], path[6], path[7]);
+      Die();
+    }
   }
 
   SpinMutexLock l(mu);
   if (fd != kStdoutFd && fd != kStderrFd && fd != kInvalidFd)
     CloseFile(fd);
   fd = kInvalidFd;
-  if (internal_strcmp(path, "stdout") == 0) {
-    fd = kStdoutFd;
-  } else if (internal_strcmp(path, "stderr") == 0) {
+  if (!path || internal_strcmp(path, "stderr") == 0) {
     fd = kStderrFd;
+  } else if (internal_strcmp(path, "stdout") == 0) {
+    fd = kStdoutFd;
   } else {
     internal_snprintf(path_prefix, kMaxPathLength, "%s", path);
   }
+}
+
+const char *ReportFile::GetReportPath() {
+  SpinMutexLock l(mu);
+  ReopenIfNecessary();
+  return full_path;
 }
 
 bool ReadFileToBuffer(const char *file_name, char **buff, uptr *buff_size,
@@ -209,6 +221,10 @@ void __sanitizer_set_report_path(const char *path) {
 void __sanitizer_set_report_fd(void *fd) {
   report_file.fd = (fd_t)reinterpret_cast<uptr>(fd);
   report_file.fd_pid = internal_getpid();
+}
+
+const char *__sanitizer_get_report_path() {
+  return report_file.GetReportPath();
 }
 } // extern "C"
 

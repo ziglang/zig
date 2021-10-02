@@ -26,6 +26,7 @@ struct ReportFile {
   void Write(const char *buffer, uptr length);
   bool SupportsColors();
   void SetReportPath(const char *path);
+  const char *GetReportPath();
 
   // Don't use fields directly. They are only declared public to allow
   // aggregate initialization.

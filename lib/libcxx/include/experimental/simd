@@ -725,12 +725,12 @@ constexpr size_t __ceil_pow_of_2(size_t __val) {
 
 template <class _Tp, size_t __bytes>
 struct __vec_ext_traits {
-#if !defined(_LIBCPP_COMPILER_CLANG)
+#if !defined(_LIBCPP_COMPILER_CLANG_BASED)
   typedef _Tp type __attribute__((vector_size(__ceil_pow_of_2(__bytes))));
 #endif
 };
 
-#if defined(_LIBCPP_COMPILER_CLANG)
+#if defined(_LIBCPP_COMPILER_CLANG_BASED)
 #define _LIBCPP_SPECIALIZE_VEC_EXT(_TYPE, _NUM_ELEMENT)                        \
   template <>                                                                  \
   struct __vec_ext_traits<_TYPE, sizeof(_TYPE) * _NUM_ELEMENT> {               \

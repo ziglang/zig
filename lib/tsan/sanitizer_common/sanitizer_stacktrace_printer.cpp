@@ -107,8 +107,14 @@ static const char *DemangleFunctionName(const char *function) {
 static const char kDefaultFormat[] = "    #%n %p %F %L";
 
 void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
-                 const AddressInfo &info, bool vs_style,
+                 uptr address, const AddressInfo *info, bool vs_style,
                  const char *strip_path_prefix, const char *strip_func_prefix) {
+  // info will be null in the case where symbolization is not needed for the
+  // given format. This ensures that the code below will get a hard failure
+  // rather than print incorrect information in case RenderNeedsSymbolization
+  // ever ends up out of sync with this function. If non-null, the addresses
+  // should match.
+  CHECK(!info || address == info->address);
   if (0 == internal_strcmp(format, "DEFAULT"))
     format = kDefaultFormat;
   for (const char *p = format; *p != '\0'; p++) {
@@ -126,71 +132,70 @@ void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
       buffer->append("%zu", frame_no);
       break;
     case 'p':
-      buffer->append("0x%zx", info.address);
+      buffer->append("0x%zx", address);
       break;
     case 'm':
-      buffer->append("%s", StripPathPrefix(info.module, strip_path_prefix));
+      buffer->append("%s", StripPathPrefix(info->module, strip_path_prefix));
       break;
     case 'o':
-      buffer->append("0x%zx", info.module_offset);
+      buffer->append("0x%zx", info->module_offset);
       break;
     case 'f':
-      buffer->append("%s",
-        DemangleFunctionName(
-          StripFunctionName(info.function, strip_func_prefix)));
+      buffer->append("%s", DemangleFunctionName(StripFunctionName(
+                               info->function, strip_func_prefix)));
       break;
     case 'q':
-      buffer->append("0x%zx", info.function_offset != AddressInfo::kUnknown
-                                  ? info.function_offset
+      buffer->append("0x%zx", info->function_offset != AddressInfo::kUnknown
+                                  ? info->function_offset
                                   : 0x0);
       break;
     case 's':
-      buffer->append("%s", StripPathPrefix(info.file, strip_path_prefix));
+      buffer->append("%s", StripPathPrefix(info->file, strip_path_prefix));
       break;
     case 'l':
-      buffer->append("%d", info.line);
+      buffer->append("%d", info->line);
       break;
     case 'c':
-      buffer->append("%d", info.column);
+      buffer->append("%d", info->column);
       break;
     // Smarter special cases.
     case 'F':
       // Function name and offset, if file is unknown.
-      if (info.function) {
-        buffer->append("in %s",
-                       DemangleFunctionName(
-                         StripFunctionName(info.function, strip_func_prefix)));
-        if (!info.file && info.function_offset != AddressInfo::kUnknown)
-          buffer->append("+0x%zx", info.function_offset);
+      if (info->function) {
+        buffer->append("in %s", DemangleFunctionName(StripFunctionName(
+                                    info->function, strip_func_prefix)));
+        if (!info->file && info->function_offset != AddressInfo::kUnknown)
+          buffer->append("+0x%zx", info->function_offset);
       }
       break;
     case 'S':
       // File/line information.
-      RenderSourceLocation(buffer, info.file, info.line, info.column, vs_style,
-                           strip_path_prefix);
+      RenderSourceLocation(buffer, info->file, info->line, info->column,
+                           vs_style, strip_path_prefix);
       break;
     case 'L':
       // Source location, or module location.
-      if (info.file) {
-        RenderSourceLocation(buffer, info.file, info.line, info.column,
+      if (info->file) {
+        RenderSourceLocation(buffer, info->file, info->line, info->column,
                              vs_style, strip_path_prefix);
-      } else if (info.module) {
-        RenderModuleLocation(buffer, info.module, info.module_offset,
-                             info.module_arch, strip_path_prefix);
+      } else if (info->module) {
+        RenderModuleLocation(buffer, info->module, info->module_offset,
+                             info->module_arch, strip_path_prefix);
       } else {
         buffer->append("(<unknown module>)");
       }
       break;
     case 'M':
       // Module basename and offset, or PC.
-      if (info.address & kExternalPCBit)
-        {} // There PCs are not meaningful.
-      else if (info.module)
+      if (address & kExternalPCBit) {
+        // There PCs are not meaningful.
+      } else if (info->module) {
         // Always strip the module name for %M.
-        RenderModuleLocation(buffer, StripModuleName(info.module),
-                             info.module_offset, info.module_arch, "");
-      else
-        buffer->append("(%p)", (void *)info.address);
+        RenderModuleLocation(buffer, StripModuleName(info->module),
+                             info->module_offset, info->module_arch, "");
+      } else {
+        buffer->append("(%p)", (void *)address);
+      }
       break;
     default:
       Report("Unsupported specifier in stack frame format: %c (0x%zx)!\n", *p,
@@ -198,6 +203,29 @@ void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
       Die();
     }
   }
+}
+
+bool RenderNeedsSymbolization(const char *format) {
+  if (0 == internal_strcmp(format, "DEFAULT"))
+    format = kDefaultFormat;
+  for (const char *p = format; *p != '\0'; p++) {
+    if (*p != '%')
+      continue;
+    p++;
+    switch (*p) {
+      case '%':
+        break;
+      case 'n':
+        // frame_no
+        break;
+      case 'p':
+        // address
+        break;
+      default:
+        return true;
+    }
+  }
+  return false;
 }
 
 void RenderData(InternalScopedString *buffer, const char *format,

@@ -13,9 +13,11 @@
 #ifndef SANITIZER_STACKDEPOTBASE_H
 #define SANITIZER_STACKDEPOTBASE_H
 
+#include <stdio.h>
+
+#include "sanitizer_atomic.h"
 #include "sanitizer_internal_defs.h"
 #include "sanitizer_mutex.h"
-#include "sanitizer_atomic.h"
 #include "sanitizer_persistent_allocator.h"
 
 namespace __sanitizer {
@@ -34,6 +36,7 @@ class StackDepotBase {
 
   void LockAll();
   void UnlockAll();
+  void PrintAll();
 
  private:
   static Node *find(Node *s, args_type args, u32 hash);
@@ -169,6 +172,21 @@ void StackDepotBase<Node, kReservedBits, kTabSizeLog>::UnlockAll() {
     atomic_uintptr_t *p = &tab[i];
     uptr s = atomic_load(p, memory_order_relaxed);
     unlock(p, (Node *)(s & ~1UL));
+  }
+}
+
+template <class Node, int kReservedBits, int kTabSizeLog>
+void StackDepotBase<Node, kReservedBits, kTabSizeLog>::PrintAll() {
+  for (int i = 0; i < kTabSize; ++i) {
+    atomic_uintptr_t *p = &tab[i];
+    lock(p);
+    uptr v = atomic_load(p, memory_order_relaxed);
+    Node *s = (Node *)(v & ~1UL);
+    for (; s; s = s->link) {
+      Printf("Stack for id %u:\n", s->id);
+      s->load().Print();
+    }
+    unlock(p, s);
   }
 }
 

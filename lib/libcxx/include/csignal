@@ -48,10 +48,10 @@ int raise(int sig);
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-using ::sig_atomic_t;
-using ::signal;
-using ::raise;
+using ::sig_atomic_t _LIBCPP_USING_IF_EXISTS;
+using ::signal _LIBCPP_USING_IF_EXISTS;
+using ::raise _LIBCPP_USING_IF_EXISTS;
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_CSIGNAL
+#endif // _LIBCPP_CSIGNAL

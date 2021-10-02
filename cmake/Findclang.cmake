@@ -9,31 +9,31 @@
 
 find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
   PATHS
-    /usr/lib/llvm/12/include
-    /usr/lib/llvm-12/include
-    /usr/lib/llvm-12.0/include
-    /usr/local/llvm120/include
-    /usr/local/llvm12/include
-    /usr/local/opt/llvm@12/include
-    /opt/homebrew/opt/llvm@12/include
+    /usr/lib/llvm/13/include
+    /usr/lib/llvm-13/include
+    /usr/lib/llvm-13.0/include
+    /usr/local/llvm130/include
+    /usr/local/llvm13/include
+    /usr/local/opt/llvm@13/include
+    /opt/homebrew/opt/llvm@13/include
     /mingw64/include
 )
 
 if(ZIG_PREFER_CLANG_CPP_DYLIB)
   find_library(CLANG_LIBRARIES
     NAMES
-      clang-cpp-12.0
-      clang-cpp120
+      clang-cpp-13.0
+      clang-cpp130
       clang-cpp
     PATHS
       ${CLANG_LIBDIRS}
-      /usr/lib/llvm/12/lib
-      /usr/lib/llvm/12/lib64
-      /usr/lib/llvm-12/lib
-      /usr/local/llvm120/lib
-      /usr/local/llvm12/lib
-      /usr/local/opt/llvm@12/lib
-      /opt/homebrew/opt/llvm@12/lib
+      /usr/lib/llvm/13/lib
+      /usr/lib/llvm/13/lib64
+      /usr/lib/llvm-13/lib
+      /usr/local/llvm130/lib
+      /usr/local/llvm13/lib
+      /usr/local/opt/llvm@13/lib
+      /opt/homebrew/opt/llvm@13/lib
   )
 endif()
 
@@ -43,13 +43,13 @@ if(NOT CLANG_LIBRARIES)
     find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
       PATHS
         ${CLANG_LIBDIRS}
-        /usr/lib/llvm/12/lib
-        /usr/lib/llvm-12/lib
-        /usr/lib/llvm-12.0/lib
-        /usr/local/llvm120/lib
-        /usr/local/llvm12/lib
-        /usr/local/opt/llvm@12/lib
-        /opt/homebrew/opt/llvm@12/lib
+        /usr/lib/llvm/13/lib
+        /usr/lib/llvm-13/lib
+        /usr/lib/llvm-13.0/lib
+        /usr/local/llvm130/lib
+        /usr/local/llvm13/lib
+        /usr/local/opt/llvm@13/lib
+        /opt/homebrew/opt/llvm@13/lib
         /mingw64/lib
         /c/msys64/mingw64/lib
         c:\\msys64\\mingw64\\lib

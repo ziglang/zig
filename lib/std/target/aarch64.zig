@@ -65,6 +65,7 @@ pub const Feature = enum {
     fuse_csel,
     fuse_literals,
     harden_sls_blr,
+    harden_sls_nocomdat,
     harden_sls_retbr,
     hcx,
     i8mm,
@@ -81,6 +82,7 @@ pub const Feature = enum {
     neoverse_n2,
     neoverse_v1,
     no_neg_immediates,
+    no_zcz_fp,
     nv,
     outline_atomics,
     pan,
@@ -120,6 +122,7 @@ pub const Feature = enum {
     reserve_x6,
     reserve_x7,
     reserve_x9,
+    rme,
     sb,
     sel2,
     sha2,
@@ -128,6 +131,9 @@ pub const Feature = enum {
     slow_paired_128,
     slow_strqro_store,
     sm4,
+    sme,
+    sme_f64,
+    sme_i64,
     spe,
     spe_eef,
     specrestrict,
@@ -148,7 +154,6 @@ pub const Feature = enum {
     tracev8_4,
     trbe,
     uaops,
-    use_aa,
     use_experimental_zeroing_pseudos,
     use_postra_scheduler,
     use_reciprocal_square_root,
@@ -166,7 +171,6 @@ pub const Feature = enum {
     xs,
     zcm,
     zcz,
-    zcz_fp,
     zcz_fp_workaround,
     zcz_gp,
 };
@@ -594,6 +598,11 @@ pub const all_features = blk: {
         .description = "Harden against straight line speculation across BLR instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.harden_sls_nocomdat)] = .{
+        .llvm_name = "harden-sls-nocomdat",
+        .description = "Generate thunk code for SLS mitigation in the normal text section",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.harden_sls_retbr)] = .{
         .llvm_name = "harden-sls-retbr",
         .description = "Harden against straight line speculation across RET and BR instructions",
@@ -660,8 +669,10 @@ pub const all_features = blk: {
             .crypto,
             .dotprod,
             .fullfp16,
+            .fuse_aes,
             .rcpc,
             .ssbs,
+            .use_postra_scheduler,
             .v8_2a,
         }),
     };
@@ -672,9 +683,11 @@ pub const all_features = blk: {
             .crypto,
             .dotprod,
             .fullfp16,
+            .fuse_aes,
             .rcpc,
             .spe,
             .ssbs,
+            .use_postra_scheduler,
             .v8_2a,
         }),
     };
@@ -683,10 +696,13 @@ pub const all_features = blk: {
         .description = "Neoverse N2 ARM processors",
         .dependencies = featureSet(&[_]Feature{
             .bf16,
+            .crypto,
             .ete,
+            .fuse_aes,
             .i8mm,
             .mte,
             .sve2_bitperm,
+            .use_postra_scheduler,
             .v8_5a,
         }),
     };
@@ -712,6 +728,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.no_neg_immediates)] = .{
         .llvm_name = "no-neg-immediates",
         .description = "Convert immediates and instructions to their negated or complemented equivalent when the immediate does not fit in the encoding.",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.no_zcz_fp)] = .{
+        .llvm_name = "no-zcz-fp",
+        .description = "Has no zero-cycle zeroing instructions for FP registers",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.nv)] = .{
@@ -913,6 +934,11 @@ pub const all_features = blk: {
         .description = "Reserve X9, making it unavailable as a GPR",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.rme)] = .{
+        .llvm_name = "rme",
+        .description = "Enable Realm Management Extension",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.sb)] = .{
         .llvm_name = "sb",
         .description = "Enable v8.5 Speculation Barrier",
@@ -957,6 +983,28 @@ pub const all_features = blk: {
         .description = "Enable SM3 and SM4 support",
         .dependencies = featureSet(&[_]Feature{
             .neon,
+        }),
+    };
+    result[@enumToInt(Feature.sme)] = .{
+        .llvm_name = "sme",
+        .description = "Enable Scalable Matrix Extension (SME)",
+        .dependencies = featureSet(&[_]Feature{
+            .bf16,
+            .sve2,
+        }),
+    };
+    result[@enumToInt(Feature.sme_f64)] = .{
+        .llvm_name = "sme-f64",
+        .description = "Enable Scalable Matrix Extension (SME) F64F64 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sme,
+        }),
+    };
+    result[@enumToInt(Feature.sme_i64)] = .{
+        .llvm_name = "sme-i64",
+        .description = "Enable Scalable Matrix Extension (SME) I16I64 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sme,
         }),
     };
     result[@enumToInt(Feature.spe)] = .{
@@ -1072,11 +1120,6 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.uaops)] = .{
         .llvm_name = "uaops",
         .description = "Enable v8.2 UAO PState",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.use_aa)] = .{
-        .llvm_name = "use-aa",
-        .description = "Use alias analysis during codegen",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.use_experimental_zeroing_pseudos)] = .{
@@ -1251,14 +1294,8 @@ pub const all_features = blk: {
         .llvm_name = "zcz",
         .description = "Has zero-cycle zeroing instructions",
         .dependencies = featureSet(&[_]Feature{
-            .zcz_fp,
             .zcz_gp,
         }),
-    };
-    result[@enumToInt(Feature.zcz_fp)] = .{
-        .llvm_name = "zcz-fp",
-        .description = "Has zero-cycle zeroing instructions for FP registers",
-        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zcz_fp_workaround)] = .{
         .llvm_name = "zcz-fp-workaround",
@@ -1403,7 +1440,62 @@ pub const cpu = struct {
         .name = "apple_latest",
         .llvm_name = "apple-latest",
         .features = featureSet(&[_]Feature{
-            .apple_a13,
+            .aggressive_fma,
+            .alternate_sextload_cvt_f32_pattern,
+            .altnzcv,
+            .arith_bcc_fusion,
+            .arith_cbz_fusion,
+            .ccdp,
+            .crypto,
+            .disable_latency_sched_heuristic,
+            .fp16fml,
+            .fptoint,
+            .fuse_address,
+            .fuse_aes,
+            .fuse_arith_logic,
+            .fuse_crypto_eor,
+            .fuse_csel,
+            .fuse_literals,
+            .perfmon,
+            .predres,
+            .sb,
+            .sha3,
+            .specrestrict,
+            .ssbs,
+            .v8_4a,
+            .zcm,
+            .zcz,
+        }),
+    };
+    pub const apple_m1 = CpuModel{
+        .name = "apple_m1",
+        .llvm_name = "apple-m1",
+        .features = featureSet(&[_]Feature{
+            .aggressive_fma,
+            .alternate_sextload_cvt_f32_pattern,
+            .altnzcv,
+            .arith_bcc_fusion,
+            .arith_cbz_fusion,
+            .ccdp,
+            .crypto,
+            .disable_latency_sched_heuristic,
+            .fp16fml,
+            .fptoint,
+            .fuse_address,
+            .fuse_aes,
+            .fuse_arith_logic,
+            .fuse_crypto_eor,
+            .fuse_csel,
+            .fuse_literals,
+            .perfmon,
+            .predres,
+            .sb,
+            .sha3,
+            .specrestrict,
+            .ssbs,
+            .v8_4a,
+            .zcm,
+            .zcz,
         }),
     };
     pub const apple_s4 = CpuModel{
@@ -1459,7 +1551,6 @@ pub const cpu = struct {
             .custom_cheap_as_move,
             .fuse_aes,
             .perfmon,
-            .use_aa,
             .use_postra_scheduler,
             .v8a,
         }),
@@ -1474,6 +1565,7 @@ pub const cpu = struct {
             .fuse_aes,
             .perfmon,
             .rcpc,
+            .use_postra_scheduler,
             .v8_2a,
         }),
     };
@@ -1649,7 +1741,6 @@ pub const cpu = struct {
             .use_postra_scheduler,
             .use_reciprocal_square_root,
             .v8a,
-            .zcz_fp,
         }),
     };
     pub const exynos_m2 = CpuModel{
@@ -1666,7 +1757,6 @@ pub const cpu = struct {
             .slow_paired_128,
             .use_postra_scheduler,
             .v8a,
-            .zcz_fp,
         }),
     };
     pub const exynos_m3 = CpuModel{
@@ -1686,7 +1776,6 @@ pub const cpu = struct {
             .predictable_select_expensive,
             .use_postra_scheduler,
             .v8a,
-            .zcz_fp,
         }),
     };
     pub const exynos_m4 = CpuModel{
@@ -1824,7 +1913,6 @@ pub const cpu = struct {
             .perfmon,
             .predictable_select_expensive,
             .strict_align,
-            .use_aa,
             .use_postra_scheduler,
             .v8_3a,
         }),

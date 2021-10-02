@@ -41,6 +41,7 @@ StackTrace StackDepotGet(u32 id);
 
 void StackDepotLockAll();
 void StackDepotUnlockAll();
+void StackDepotPrintAll();
 
 // Instantiating this class creates a snapshot of StackDepot which can be
 // efficiently queried with StackDepotGet(). You can use it concurrently with

@@ -99,7 +99,7 @@ append8_no_zeros(char* buffer, T v) noexcept
 }
 
 char*
-__u32toa(uint32_t value, char* buffer) _NOEXCEPT
+__u32toa(uint32_t value, char* buffer) noexcept
 {
     if (value < 100000000)
     {
@@ -120,7 +120,7 @@ __u32toa(uint32_t value, char* buffer) _NOEXCEPT
 }
 
 char*
-__u64toa(uint64_t value, char* buffer) _NOEXCEPT
+__u64toa(uint64_t value, char* buffer) noexcept
 {
     if (value < 100000000)
     {

@@ -119,7 +119,8 @@ class SizeClassAllocator32 {
   typedef SizeClassAllocator32<Params> ThisT;
   typedef SizeClassAllocator32LocalCache<ThisT> AllocatorCache;
 
-  void Init(s32 release_to_os_interval_ms) {
+  void Init(s32 release_to_os_interval_ms, uptr heap_start = 0) {
+    CHECK(!heap_start);
     possible_regions.Init();
     internal_memset(size_class_info_array, 0, sizeof(size_class_info_array));
   }
@@ -153,6 +154,7 @@ class SizeClassAllocator32 {
   }
 
   void *GetMetaData(const void *p) {
+    CHECK(kMetadataSize);
     CHECK(PointerIsMine(p));
     uptr mem = reinterpret_cast<uptr>(p);
     uptr beg = ComputeRegionBeg(mem);
@@ -235,13 +237,13 @@ class SizeClassAllocator32 {
 
   // ForceLock() and ForceUnlock() are needed to implement Darwin malloc zone
   // introspection API.
-  void ForceLock() {
+  void ForceLock() NO_THREAD_SAFETY_ANALYSIS {
     for (uptr i = 0; i < kNumClasses; i++) {
       GetSizeClassInfo(i)->mutex.Lock();
     }
   }
 
-  void ForceUnlock() {
+  void ForceUnlock() NO_THREAD_SAFETY_ANALYSIS {
     for (int i = kNumClasses - 1; i >= 0; i--) {
       GetSizeClassInfo(i)->mutex.Unlock();
     }

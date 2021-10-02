@@ -45,8 +45,10 @@ struct hash<type_index>
 */
 
 #include <__config>
-#include <typeinfo>
+#include <__functional/unary_function.h>
 #include <__functional_base>
+#include <compare>
+#include <typeinfo>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -99,4 +101,4 @@ struct _LIBCPP_TEMPLATE_VIS hash<type_index>
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_TYPEINDEX
+#endif // _LIBCPP_TYPEINDEX

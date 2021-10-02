@@ -201,7 +201,7 @@ bool SymbolizerProcess::StartSymbolizerSubprocess() {
   return true;
 }
 
-class Addr2LineProcess : public SymbolizerProcess {
+class Addr2LineProcess final : public SymbolizerProcess {
  public:
   Addr2LineProcess(const char *path, const char *module_name)
       : SymbolizerProcess(path), module_name_(internal_strdup(module_name)) {}
@@ -261,7 +261,7 @@ bool Addr2LineProcess::ReachedEndOfOutput(const char *buffer,
                           output_terminator_, kTerminatorLen);
 }
 
-class Addr2LinePool : public SymbolizerTool {
+class Addr2LinePool final : public SymbolizerTool {
  public:
   explicit Addr2LinePool(const char *addr2line_path,
                          LowLevelAllocator *allocator)
@@ -328,7 +328,7 @@ int __sanitizer_symbolize_demangle(const char *Name, char *Buffer,
                                    int MaxLength);
 }  // extern "C"
 
-class InternalSymbolizer : public SymbolizerTool {
+class InternalSymbolizer final : public SymbolizerTool {
  public:
   static InternalSymbolizer *get(LowLevelAllocator *alloc) {
     if (__sanitizer_symbolize_code != 0 &&
@@ -387,7 +387,7 @@ class InternalSymbolizer : public SymbolizerTool {
 };
 #else  // SANITIZER_SUPPORTS_WEAK_HOOKS
 
-class InternalSymbolizer : public SymbolizerTool {
+class InternalSymbolizer final : public SymbolizerTool {
  public:
   static InternalSymbolizer *get(LowLevelAllocator *alloc) { return 0; }
 };
@@ -400,11 +400,20 @@ const char *Symbolizer::PlatformDemangle(const char *name) {
 
 static SymbolizerTool *ChooseExternalSymbolizer(LowLevelAllocator *allocator) {
   const char *path = common_flags()->external_symbolizer_path;
+
+  if (path && internal_strchr(path, '%')) {
+    char *new_path = (char *)InternalAlloc(kMaxPathLength);
+    SubstituteForFlagValue(path, new_path, kMaxPathLength);
+    path = new_path;
+  }
+
   const char *binary_name = path ? StripModuleName(path) : "";
+  static const char kLLVMSymbolizerPrefix[] = "llvm-symbolizer";
   if (path && path[0] == '\0') {
     VReport(2, "External symbolizer is explicitly disabled.\n");
     return nullptr;
-  } else if (!internal_strcmp(binary_name, "llvm-symbolizer")) {
+  } else if (!internal_strncmp(binary_name, kLLVMSymbolizerPrefix,
+                               internal_strlen(kLLVMSymbolizerPrefix))) {
     VReport(2, "Using llvm-symbolizer at user-specified path: %s\n", path);
     return new(*allocator) LLVMSymbolizer(path, allocator);
   } else if (!internal_strcmp(binary_name, "atos")) {

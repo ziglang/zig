@@ -20,6 +20,13 @@
 
 #ifdef __x86_64__
 
+struct __uintr_frame
+{
+  unsigned long long rip;
+  unsigned long long rflags;
+  unsigned long long rsp;
+};
+
 /// Clears the user interrupt flag (UIF). Its effect takes place immediately: a
 ///    user interrupt cannot be delivered on the instruction boundary following
 ///    CLUI. Can be executed only if CR4.UINT = 1, the logical processor is in

@@ -73,14 +73,14 @@ struct DDLogicalThread {
   int         nlocked;
 };
 
-struct Mutex {
+struct MutexState {
   StaticSpinMutex mtx;
   u32 seq;
   int nlink;
   Link link[kMaxLink];
 };
 
-struct DD : public DDetector {
+struct DD final : public DDetector {
   explicit DD(const DDFlags *flags);
 
   DDPhysicalThread* CreatePhysicalThread();
@@ -101,12 +101,12 @@ struct DD : public DDetector {
   void CycleCheck(DDPhysicalThread *pt, DDLogicalThread *lt, DDMutex *mtx);
   void Report(DDPhysicalThread *pt, DDLogicalThread *lt, int npath);
   u32 allocateId(DDCallback *cb);
-  Mutex *getMutex(u32 id);
-  u32 getMutexId(Mutex *m);
+  MutexState *getMutex(u32 id);
+  u32 getMutexId(MutexState *m);
 
   DDFlags flags;
 
-  Mutex* mutex[kL1Size];
+  MutexState *mutex[kL1Size];
 
   SpinMutex mtx;
   InternalMmapVector<u32> free_id;
@@ -152,13 +152,11 @@ void DD::MutexInit(DDCallback *cb, DDMutex *m) {
   atomic_store(&m->owner, 0, memory_order_relaxed);
 }
 
-Mutex *DD::getMutex(u32 id) {
-  return &mutex[id / kL2Size][id % kL2Size];
-}
+MutexState *DD::getMutex(u32 id) { return &mutex[id / kL2Size][id % kL2Size]; }
 
-u32 DD::getMutexId(Mutex *m) {
+u32 DD::getMutexId(MutexState *m) {
   for (int i = 0; i < kL1Size; i++) {
-    Mutex *tab = mutex[i];
+    MutexState *tab = mutex[i];
     if (tab == 0)
       break;
     if (m >= tab && m < tab + kL2Size)
@@ -176,8 +174,8 @@ u32 DD::allocateId(DDCallback *cb) {
   } else {
     CHECK_LT(id_gen, kMaxMutex);
     if ((id_gen % kL2Size) == 0) {
-      mutex[id_gen / kL2Size] = (Mutex*)MmapOrDie(kL2Size * sizeof(Mutex),
-          "deadlock detector (mutex table)");
+      mutex[id_gen / kL2Size] = (MutexState *)MmapOrDie(
+          kL2Size * sizeof(MutexState), "deadlock detector (mutex table)");
     }
     id = id_gen++;
   }
@@ -216,11 +214,11 @@ void DD::MutexBeforeLock(DDCallback *cb, DDMutex *m, bool wlock) {
   }
 
   bool added = false;
-  Mutex *mtx = getMutex(m->id);
+  MutexState *mtx = getMutex(m->id);
   for (int i = 0; i < lt->nlocked - 1; i++) {
     u32 id1 = lt->locked[i].id;
     u32 stk1 = lt->locked[i].stk;
-    Mutex *mtx1 = getMutex(id1);
+    MutexState *mtx1 = getMutex(id1);
     SpinMutexLock l(&mtx1->mtx);
     if (mtx1->nlink == kMaxLink) {
       // FIXME(dvyukov): check stale links
@@ -342,7 +340,7 @@ void DD::MutexDestroy(DDCallback *cb, DDMutex *m) {
 
   // Clear and invalidate the mutex descriptor.
   {
-    Mutex *mtx = getMutex(m->id);
+    MutexState *mtx = getMutex(m->id);
     SpinMutexLock l(&mtx->mtx);
     mtx->seq++;
     mtx->nlink = 0;
@@ -361,7 +359,7 @@ void DD::CycleCheck(DDPhysicalThread *pt, DDLogicalThread *lt,
   int npath = 0;
   int npending = 0;
   {
-    Mutex *mtx = getMutex(m->id);
+    MutexState *mtx = getMutex(m->id);
     SpinMutexLock l(&mtx->mtx);
     for (int li = 0; li < mtx->nlink; li++)
       pt->pending[npending++] = mtx->link[li];
@@ -374,7 +372,7 @@ void DD::CycleCheck(DDPhysicalThread *pt, DDLogicalThread *lt,
     }
     if (pt->visited[link.id])
       continue;
-    Mutex *mtx1 = getMutex(link.id);
+    MutexState *mtx1 = getMutex(link.id);
     SpinMutexLock l(&mtx1->mtx);
     if (mtx1->seq != link.seq)
       continue;
@@ -387,7 +385,7 @@ void DD::CycleCheck(DDPhysicalThread *pt, DDLogicalThread *lt,
       return Report(pt, lt, npath);  // Bingo!
     for (int li = 0; li < mtx1->nlink; li++) {
       Link *link1 = &mtx1->link[li];
-      // Mutex *mtx2 = getMutex(link->id);
+      // MutexState *mtx2 = getMutex(link->id);
       // FIXME(dvyukov): fast seq check
       // FIXME(dvyukov): fast nlink != 0 check
       // FIXME(dvyukov): fast pending check?

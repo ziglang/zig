@@ -84,8 +84,11 @@ typedef basic_ofstream<wchar_t>      wofstream;
 typedef basic_fstream<wchar_t>       wfstream;
 
 template <class state> class fpos;
-typedef fpos<char_traits<char>::state_type>    streampos;
-typedef fpos<char_traits<wchar_t>::state_type> wstreampos;
+using streampos  = fpos<char_traits<char>::state_type>;
+using wstreampos = fpos<char_traits<wchar_t>::state_type>;
+using u8streampos = fpos<char_traits<char8_t>::state_type>; // C++20
+using u16streampos = fpos<char_traits<char16_t>::state_type>;
+using u32streampos = fpos<char_traits<char32_t>::state_type>;
 
 }  // std
 
@@ -104,7 +107,7 @@ class _LIBCPP_TYPE_VIS ios_base;
 
 template<class _CharT>  struct _LIBCPP_TEMPLATE_VIS char_traits;
 template<> struct char_traits<char>;
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
 template<> struct char_traits<char8_t>;
 #endif
 template<> struct char_traits<char16_t>;
@@ -218,13 +221,13 @@ template <class _CharT, class _Traits>
 template <class _State>             class _LIBCPP_TEMPLATE_VIS fpos;
 typedef fpos<mbstate_t>    streampos;
 typedef fpos<mbstate_t>    wstreampos;
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
 typedef fpos<mbstate_t>    u8streampos;
 #endif
 #ifndef _LIBCPP_HAS_NO_UNICODE_CHARS
 typedef fpos<mbstate_t>    u16streampos;
 typedef fpos<mbstate_t>    u32streampos;
-#endif  // _LIBCPP_HAS_NO_UNICODE_CHARS
+#endif // _LIBCPP_HAS_NO_UNICODE_CHARS
 
 #if defined(_NEWLIB_VERSION)
 // On newlib, off_t is 'long int'
@@ -276,4 +279,4 @@ public:
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_IOSFWD
+#endif // _LIBCPP_IOSFWD

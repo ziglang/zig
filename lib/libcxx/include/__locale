@@ -10,8 +10,8 @@
 #ifndef _LIBCPP___LOCALE
 #define _LIBCPP___LOCALE
 
-#include <__config>
 #include <__availability>
+#include <__config>
 #include <string>
 #include <memory>
 #include <utility>
@@ -1161,7 +1161,7 @@ protected:
     virtual int do_max_length() const  _NOEXCEPT;
 };
 
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
 
 // template <> class codecvt<char16_t, char8_t, mbstate_t> // C++20
 
@@ -1337,7 +1337,7 @@ protected:
     virtual int do_max_length() const  _NOEXCEPT;
 };
 
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
 
 // template <> class codecvt<char32_t, char8_t, mbstate_t> // C++20
 
@@ -1455,7 +1455,7 @@ _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VI
 _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<wchar_t, char, mbstate_t>)
 _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char, mbstate_t>) // deprecated in C++20
 _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char, mbstate_t>) // deprecated in C++20
-#ifndef _LIBCPP_NO_HAS_CHAR8_T
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
 _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char8_t, mbstate_t>) // C++20
 _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char8_t, mbstate_t>) // C++20
 #endif
@@ -1484,14 +1484,14 @@ struct __narrow_to_utf8<8>
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-struct _LIBCPP_TEMPLATE_VIS __narrow_to_utf8<16>
+struct _LIBCPP_TYPE_VIS __narrow_to_utf8<16>
     : public codecvt<char16_t, char, mbstate_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     __narrow_to_utf8() : codecvt<char16_t, char, mbstate_t>(1) {}
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 
-    _LIBCPP_EXPORTED_FROM_ABI ~__narrow_to_utf8();
+    ~__narrow_to_utf8();
 
     template <class _OutputIterator, class _CharT>
     _LIBCPP_INLINE_VISIBILITY
@@ -1520,14 +1520,14 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-struct _LIBCPP_TEMPLATE_VIS __narrow_to_utf8<32>
+struct _LIBCPP_TYPE_VIS __narrow_to_utf8<32>
     : public codecvt<char32_t, char, mbstate_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     __narrow_to_utf8() : codecvt<char32_t, char, mbstate_t>(1) {}
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 
-    _LIBCPP_EXPORTED_FROM_ABI ~__narrow_to_utf8();
+    ~__narrow_to_utf8();
 
     template <class _OutputIterator, class _CharT>
     _LIBCPP_INLINE_VISIBILITY
@@ -1578,14 +1578,14 @@ struct __widen_from_utf8<8>
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-struct _LIBCPP_TEMPLATE_VIS __widen_from_utf8<16>
+struct _LIBCPP_TYPE_VIS __widen_from_utf8<16>
     : public codecvt<char16_t, char, mbstate_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     __widen_from_utf8() : codecvt<char16_t, char, mbstate_t>(1) {}
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 
-    _LIBCPP_EXPORTED_FROM_ABI ~__widen_from_utf8();
+    ~__widen_from_utf8();
 
     template <class _OutputIterator>
     _LIBCPP_INLINE_VISIBILITY
@@ -1614,14 +1614,14 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-struct _LIBCPP_TEMPLATE_VIS __widen_from_utf8<32>
+struct _LIBCPP_TYPE_VIS __widen_from_utf8<32>
     : public codecvt<char32_t, char, mbstate_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     __widen_from_utf8() : codecvt<char32_t, char, mbstate_t>(1) {}
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 
-    _LIBCPP_EXPORTED_FROM_ABI ~__widen_from_utf8();
+    ~__widen_from_utf8();
 
     template <class _OutputIterator>
     _LIBCPP_INLINE_VISIBILITY
@@ -1756,4 +1756,4 @@ private:
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP___LOCALE
+#endif // _LIBCPP___LOCALE

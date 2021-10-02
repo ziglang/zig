@@ -33,8 +33,15 @@ bool DlAddrSymbolizer::SymbolizePC(uptr addr, SymbolizedStack *stack) {
   int result = dladdr((const void *)addr, &info);
   if (!result) return false;
 
-  CHECK(addr >= reinterpret_cast<uptr>(info.dli_saddr));
-  stack->info.function_offset = addr - reinterpret_cast<uptr>(info.dli_saddr);
+  // Compute offset if possible. `dladdr()` doesn't always ensure that `addr >=
+  // sym_addr` so only compute the offset when this holds. Failure to find the
+  // function offset is not treated as a failure because it might still be
+  // possible to get the symbol name.
+  uptr sym_addr = reinterpret_cast<uptr>(info.dli_saddr);
+  if (addr >= sym_addr) {
+    stack->info.function_offset = addr - sym_addr;
+  }
+
   const char *demangled = DemangleSwiftAndCXX(info.dli_sname);
   if (!demangled) return false;
   stack->info.function = internal_strdup(demangled);
@@ -58,7 +65,7 @@ bool DlAddrSymbolizer::SymbolizeData(uptr addr, DataInfo *datainfo) {
 // kAsanInternalHeapMagic.
 static char kAtosMachPortEnvEntry[] = K_ATOS_ENV_VAR "=000000000000000";
 
-class AtosSymbolizerProcess : public SymbolizerProcess {
+class AtosSymbolizerProcess final : public SymbolizerProcess {
  public:
   explicit AtosSymbolizerProcess(const char *path)
       : SymbolizerProcess(path, /*use_posix_spawn*/ true) {
@@ -219,10 +226,10 @@ bool AtosSymbolizer::SymbolizePC(uptr addr, SymbolizedStack *stack) {
       start_address = reinterpret_cast<uptr>(info.dli_saddr);
   }
 
-  // Only assig to `function_offset` if we were able to get the function's
-  // start address.
-  if (start_address != AddressInfo::kUnknown) {
-    CHECK(addr >= start_address);
+  // Only assign to `function_offset` if we were able to get the function's
+  // start address and we got a sensible `start_address` (dladdr doesn't always
+  // ensure that `addr >= sym_addr`).
+  if (start_address != AddressInfo::kUnknown && addr >= start_address) {
     stack->info.function_offset = addr - start_address;
   }
   return true;

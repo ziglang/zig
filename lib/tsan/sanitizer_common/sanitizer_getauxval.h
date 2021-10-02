@@ -21,8 +21,9 @@
 
 #if SANITIZER_LINUX || SANITIZER_FUCHSIA
 
-# if __GLIBC_PREREQ(2, 16) || (SANITIZER_ANDROID && __ANDROID_API__ >= 21) || \
-     SANITIZER_FUCHSIA
+# if (__GLIBC_PREREQ(2, 16) || (SANITIZER_ANDROID && __ANDROID_API__ >= 21) || \
+      SANITIZER_FUCHSIA) &&                                                    \
+     !SANITIZER_GO
 #  define SANITIZER_USE_GETAUXVAL 1
 # else
 #  define SANITIZER_USE_GETAUXVAL 0

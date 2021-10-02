@@ -9,6 +9,8 @@
 #ifndef __CLANG_OPENMP_WRAPPERS_NEW
 #define __CLANG_OPENMP_WRAPPERS_NEW
 
+// We need the system <new> for the std::nothrow_t. The new/delete operators
+// which do not use nothrow_t are provided without the <new> header.
 #include_next <new>
 
 #if defined(__NVPTX__) && defined(_OPENMP)
@@ -22,47 +24,23 @@
 #define OPENMP_NOEXCEPT
 #endif
 
-// Device overrides for non-placement new and delete.
-inline void *operator new(__SIZE_TYPE__ size) {
-  if (size == 0)
-    size = 1;
-  return ::malloc(size);
-}
 inline void *operator new(__SIZE_TYPE__ size,
                           const std::nothrow_t &) OPENMP_NOEXCEPT {
   return ::operator new(size);
 }
 
-inline void *operator new[](__SIZE_TYPE__ size) { return ::operator new(size); }
 inline void *operator new[](__SIZE_TYPE__ size, const std::nothrow_t &) {
   return ::operator new(size);
 }
 
-inline void operator delete(void *ptr)OPENMP_NOEXCEPT {
-  if (ptr)
-    ::free(ptr);
-}
 inline void operator delete(void *ptr, const std::nothrow_t &)OPENMP_NOEXCEPT {
   ::operator delete(ptr);
 }
 
-inline void operator delete[](void *ptr) OPENMP_NOEXCEPT {
-  ::operator delete(ptr);
-}
 inline void operator delete[](void *ptr,
                               const std::nothrow_t &) OPENMP_NOEXCEPT {
   ::operator delete(ptr);
 }
-
-// Sized delete, C++14 only.
-#if __cplusplus >= 201402L
-inline void operator delete(void *ptr, __SIZE_TYPE__ size)OPENMP_NOEXCEPT {
-  ::operator delete(ptr);
-}
-inline void operator delete[](void *ptr, __SIZE_TYPE__ size) OPENMP_NOEXCEPT {
-  ::operator delete(ptr);
-}
-#endif
 
 #pragma pop_macro("OPENMP_NOEXCEPT")
 #endif

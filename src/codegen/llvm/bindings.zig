@@ -137,6 +137,9 @@ pub const Value = opaque {
     pub const constIntToPtr = LLVMConstIntToPtr;
     extern fn LLVMConstIntToPtr(ConstantVal: *const Value, ToType: *const Type) *const Value;
 
+    pub const setWeak = LLVMSetWeak;
+    extern fn LLVMSetWeak(CmpXchgInst: *const Value, IsWeak: Bool) void;
+
     pub const setOrdering = LLVMSetOrdering;
     extern fn LLVMSetOrdering(MemoryAccessInst: *const Value, Ordering: AtomicOrdering) void;
 
@@ -308,6 +311,7 @@ extern fn LLVMGetInlineAsm(
     HasSideEffects: Bool,
     IsAlignStack: Bool,
     Dialect: InlineAsmDialect,
+    CanThrow: Bool,
 ) *const Value;
 
 pub const functionType = LLVMFunctionType;
@@ -589,16 +593,15 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
-    pub const buildCmpXchg = ZigLLVMBuildCmpXchg;
-    extern fn ZigLLVMBuildCmpXchg(
+    pub const buildAtomicCmpXchg = LLVMBuildAtomicCmpXchg;
+    extern fn LLVMBuildAtomicCmpXchg(
         builder: *const Builder,
         ptr: *const Value,
         cmp: *const Value,
         new_val: *const Value,
         success_ordering: AtomicOrdering,
         failure_ordering: AtomicOrdering,
-        is_weak: bool,
-        is_single_threaded: bool,
+        is_single_threaded: Bool,
     ) *const Value;
 
     pub const buildSelect = LLVMBuildSelect;
@@ -842,6 +845,10 @@ pub extern fn LLVMInitializeSystemZTargetInfo() void;
 pub extern fn LLVMInitializeWebAssemblyTargetInfo() void;
 pub extern fn LLVMInitializeX86TargetInfo() void;
 pub extern fn LLVMInitializeXCoreTargetInfo() void;
+pub extern fn LLVMInitializeM68kTargetInfo() void;
+pub extern fn LLVMInitializeCSKYTargetInfo() void;
+pub extern fn LLVMInitializeVETargetInfo() void;
+pub extern fn LLVMInitializeARCTargetInfo() void;
 
 pub extern fn LLVMInitializeAArch64Target() void;
 pub extern fn LLVMInitializeAMDGPUTarget() void;
@@ -860,6 +867,10 @@ pub extern fn LLVMInitializeSystemZTarget() void;
 pub extern fn LLVMInitializeWebAssemblyTarget() void;
 pub extern fn LLVMInitializeX86Target() void;
 pub extern fn LLVMInitializeXCoreTarget() void;
+pub extern fn LLVMInitializeM68kTarget() void;
+pub extern fn LLVMInitializeVETarget() void;
+pub extern fn LLVMInitializeCSKYTarget() void;
+pub extern fn LLVMInitializeARCTarget() void;
 
 pub extern fn LLVMInitializeAArch64TargetMC() void;
 pub extern fn LLVMInitializeAMDGPUTargetMC() void;
@@ -878,6 +889,10 @@ pub extern fn LLVMInitializeSystemZTargetMC() void;
 pub extern fn LLVMInitializeWebAssemblyTargetMC() void;
 pub extern fn LLVMInitializeX86TargetMC() void;
 pub extern fn LLVMInitializeXCoreTargetMC() void;
+pub extern fn LLVMInitializeM68kTargetMC() void;
+pub extern fn LLVMInitializeCSKYTargetMC() void;
+pub extern fn LLVMInitializeVETargetMC() void;
+pub extern fn LLVMInitializeARCTargetMC() void;
 
 pub extern fn LLVMInitializeAArch64AsmPrinter() void;
 pub extern fn LLVMInitializeAMDGPUAsmPrinter() void;
@@ -896,6 +911,9 @@ pub extern fn LLVMInitializeSystemZAsmPrinter() void;
 pub extern fn LLVMInitializeWebAssemblyAsmPrinter() void;
 pub extern fn LLVMInitializeX86AsmPrinter() void;
 pub extern fn LLVMInitializeXCoreAsmPrinter() void;
+pub extern fn LLVMInitializeM68kAsmPrinter() void;
+pub extern fn LLVMInitializeVEAsmPrinter() void;
+pub extern fn LLVMInitializeARCAsmPrinter() void;
 
 pub extern fn LLVMInitializeAArch64AsmParser() void;
 pub extern fn LLVMInitializeAMDGPUAsmParser() void;
@@ -912,6 +930,9 @@ pub extern fn LLVMInitializeSparcAsmParser() void;
 pub extern fn LLVMInitializeSystemZAsmParser() void;
 pub extern fn LLVMInitializeWebAssemblyAsmParser() void;
 pub extern fn LLVMInitializeX86AsmParser() void;
+pub extern fn LLVMInitializeM68kAsmParser() void;
+pub extern fn LLVMInitializeCSKYAsmParser() void;
+pub extern fn LLVMInitializeVEAsmParser() void;
 
 extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
 extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
@@ -991,6 +1012,7 @@ pub const ArchType = enum(c_int) {
     bpfeb,
     csky,
     hexagon,
+    m68k,
     mips,
     mipsel,
     mips64,

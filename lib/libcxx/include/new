@@ -86,8 +86,8 @@ void  operator delete[](void* ptr, void*) noexcept;
 
 */
 
-#include <__config>
 #include <__availability>
+#include <__config>
 #include <cstddef>
 #include <cstdlib>
 #include <exception>
@@ -314,7 +314,7 @@ void* __libcpp_aligned_alloc(std::size_t __alignment, std::size_t __size) {
   return ::_aligned_malloc(__size, __alignment);
 #else
   void* __result = nullptr;
-  ::posix_memalign(&__result, __alignment, __size);
+  (void)::posix_memalign(&__result, __alignment, __size);
   // If posix_memalign fails, __result is unmodified so we still return `nullptr`.
   return __result;
 #endif
@@ -356,4 +356,4 @@ constexpr _Tp* launder(_Tp* __p) noexcept
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_NEW
+#endif // _LIBCPP_NEW

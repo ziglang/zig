@@ -7,6 +7,7 @@ const link = @import("../link.zig");
 const log = std.log.scoped(.codegen);
 const math = std.math;
 
+const build_options = @import("build_options");
 const Module = @import("../Module.zig");
 const TypedValue = @import("../TypedValue.zig");
 const Zir = @import("../Zir.zig");
@@ -31,6 +32,7 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .bpfeb => "bpfeb",
         .csky => "csky",
         .hexagon => "hexagon",
+        .m68k => "m68k",
         .mips => "mips",
         .mipsel => "mipsel",
         .mips64 => "mips64",
@@ -140,6 +142,7 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .musl => "musl",
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
+        .muslx32 => "muslx32",
         .msvc => "msvc",
         .itanium => "itanium",
         .cygnus => "cygnus",
@@ -1902,6 +1905,7 @@ pub const FuncGen = struct {
             llvm.Bool.fromBool(is_volatile),
             .False,
             .ATT,
+            .False,
         );
         return self.builder.buildCall(
             asm_fn,
@@ -2552,15 +2556,15 @@ pub const FuncGen = struct {
                 new_value = self.builder.buildZExt(new_value, abi_ty, "");
             }
         }
-        const result = self.builder.buildCmpXchg(
+        const result = self.builder.buildAtomicCmpXchg(
             ptr,
             expected_value,
             new_value,
             toLlvmAtomicOrdering(extra.successOrder()),
             toLlvmAtomicOrdering(extra.failureOrder()),
-            is_weak,
-            self.single_threaded,
+            llvm.Bool.fromBool(self.single_threaded),
         );
+        result.setWeak(llvm.Bool.fromBool(is_weak));
 
         const optional_ty = self.air.typeOfIndex(inst);
 
@@ -2873,7 +2877,7 @@ fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeAMDGPUAsmPrinter();
             llvm.LLVMInitializeAMDGPUAsmParser();
         },
-        .arm, .armeb => {
+        .thumb, .thumbeb, .arm, .armeb => {
             llvm.LLVMInitializeARMTarget();
             llvm.LLVMInitializeARMTargetInfo();
             llvm.LLVMInitializeARMTargetMC();
@@ -2976,25 +2980,66 @@ fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeXCoreTargetInfo();
             llvm.LLVMInitializeXCoreTargetMC();
             llvm.LLVMInitializeXCoreAsmPrinter();
-            // There is no LLVMInitializeXCoreAsmParser function available.
+            // There is no LLVMInitializeXCoreAsmParser function.
         },
-        .arc => {},
-        .csky => {},
-        .r600 => {},
-        .tce, .tcele => {},
-        .thumb, .thumbeb => {},
-        .le32, .le64 => {},
-        .amdil, .amdil64 => {},
-        .hsail, .hsail64 => {},
-        .spir, .spir64 => {},
-        .kalimba => {},
-        .shave => {},
-        .renderscript32 => {},
-        .renderscript64 => {},
-        .ve => {},
-        .spu_2 => {},
-        .spirv32 => {},
-        .spirv64 => {},
+        .m68k => {
+            if (build_options.llvm_has_m68k) {
+                llvm.LLVMInitializeM68kTarget();
+                llvm.LLVMInitializeM68kTargetInfo();
+                llvm.LLVMInitializeM68kTargetMC();
+                llvm.LLVMInitializeM68kAsmPrinter();
+                llvm.LLVMInitializeM68kAsmParser();
+            }
+        },
+        .csky => {
+            if (build_options.llvm_has_csky) {
+                llvm.LLVMInitializeCSKYTarget();
+                llvm.LLVMInitializeCSKYTargetInfo();
+                llvm.LLVMInitializeCSKYTargetMC();
+                // There is no LLVMInitializeCSKYAsmPrinter function.
+                llvm.LLVMInitializeCSKYAsmParser();
+            }
+        },
+        .ve => {
+            if (build_options.llvm_has_ve) {
+                llvm.LLVMInitializeVETarget();
+                llvm.LLVMInitializeVETargetInfo();
+                llvm.LLVMInitializeVETargetMC();
+                llvm.LLVMInitializeVEAsmPrinter();
+                llvm.LLVMInitializeVEAsmParser();
+            }
+        },
+        .arc => {
+            if (build_options.llvm_has_arc) {
+                llvm.LLVMInitializeARCTarget();
+                llvm.LLVMInitializeARCTargetInfo();
+                llvm.LLVMInitializeARCTargetMC();
+                llvm.LLVMInitializeARCAsmPrinter();
+                // There is no LLVMInitializeARCAsmParser function.
+            }
+        },
+
+        // LLVM backends that have no initialization functions.
+        .tce,
+        .tcele,
+        .r600,
+        .le32,
+        .le64,
+        .amdil,
+        .amdil64,
+        .hsail,
+        .hsail64,
+        .shave,
+        .spir,
+        .spir64,
+        .kalimba,
+        .renderscript32,
+        .renderscript64,
+        => {},
+
+        .spu_2 => unreachable, // LLVM does not support this backend
+        .spirv32 => unreachable, // LLVM does not support this backend
+        .spirv64 => unreachable, // LLVM does not support this backend
     }
 }
 

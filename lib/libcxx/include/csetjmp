@@ -39,9 +39,9 @@ void longjmp(jmp_buf env, int val);
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-using ::jmp_buf;
-using ::longjmp;
+using ::jmp_buf _LIBCPP_USING_IF_EXISTS;
+using ::longjmp _LIBCPP_USING_IF_EXISTS;
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_CSETJMP
+#endif // _LIBCPP_CSETJMP

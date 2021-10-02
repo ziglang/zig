@@ -84,9 +84,6 @@ typedef Allocator::AllocatorCache AllocatorCache;
 Allocator *allocator();
 #endif
 
-void TsanCheckFailed(const char *file, int line, const char *cond,
-                     u64 v1, u64 v2);
-
 const u64 kShadowRodata = (u64)-1;  // .rodata shadow marker
 
 // FastState (from most significant bit):
@@ -403,10 +400,7 @@ struct ThreadState {
   Vector<JmpBuf> jmp_bufs;
   int ignore_interceptors;
 #endif
-#if TSAN_COLLECT_STATS
-  u64 stat[StatCnt];
-#endif
-  const int tid;
+  const u32 tid;
   const int unique_id;
   bool in_symbolizer;
   bool in_ignored_lib;
@@ -420,9 +414,6 @@ struct ThreadState {
   const uptr tls_size;
   ThreadContext *tctx;
 
-#if SANITIZER_DEBUG && !SANITIZER_GO
-  InternalDeadlockDetector internal_deadlock_detector;
-#endif
   DDLogicalThread *dd_lt;
 
   // Current wired Processor, or nullptr. Required to handle any events.
@@ -447,9 +438,8 @@ struct ThreadState {
 
   const ReportDesc *current_report;
 
-  explicit ThreadState(Context *ctx, int tid, int unique_id, u64 epoch,
-                       unsigned reuse_count,
-                       uptr stk_addr, uptr stk_size,
+  explicit ThreadState(Context *ctx, u32 tid, int unique_id, u64 epoch,
+                       unsigned reuse_count, uptr stk_addr, uptr stk_size,
                        uptr tls_addr, uptr tls_size);
 };
 
@@ -458,26 +448,26 @@ struct ThreadState {
 ThreadState *cur_thread();
 void set_cur_thread(ThreadState *thr);
 void cur_thread_finalize();
-INLINE void cur_thread_init() { }
+inline void cur_thread_init() { }
 #else
 __attribute__((tls_model("initial-exec")))
 extern THREADLOCAL char cur_thread_placeholder[];
-INLINE ThreadState *cur_thread() {
+inline ThreadState *cur_thread() {
   return reinterpret_cast<ThreadState *>(cur_thread_placeholder)->current;
 }
-INLINE void cur_thread_init() {
+inline void cur_thread_init() {
   ThreadState *thr = reinterpret_cast<ThreadState *>(cur_thread_placeholder);
   if (UNLIKELY(!thr->current))
     thr->current = thr;
 }
-INLINE void set_cur_thread(ThreadState *thr) {
+inline void set_cur_thread(ThreadState *thr) {
   reinterpret_cast<ThreadState *>(cur_thread_placeholder)->current = thr;
 }
-INLINE void cur_thread_finalize() { }
+inline void cur_thread_finalize() { }
 #endif  // SANITIZER_MAC || SANITIZER_ANDROID
 #endif  // SANITIZER_GO
 
-class ThreadContext : public ThreadContextBase {
+class ThreadContext final : public ThreadContextBase {
  public:
   explicit ThreadContext(int tid);
   ~ThreadContext();
@@ -554,7 +544,6 @@ struct Context {
 
   Flags flags;
 
-  u64 stat[StatCnt];
   u64 int_alloc_cnt[MBlockTypeCount];
   u64 int_alloc_siz[MBlockTypeCount];
 };
@@ -624,6 +613,7 @@ class ScopedReport : public ScopedReportBase {
   ScopedErrorReportLock lock_;
 };
 
+bool ShouldReport(ThreadState *thr, ReportType typ);
 ThreadContext *IsThreadStackOrTls(uptr addr, bool *is_stack);
 void RestoreStack(int tid, const u64 epoch, VarSizeStackTrace *stk,
                   MutexSet *mset, uptr *tag = nullptr);
@@ -660,22 +650,6 @@ void ObtainCurrentStack(ThreadState *thr, uptr toppc, StackTraceTy *stack,
   VarSizeStackTrace stack; \
   ObtainCurrentStack(thr, pc, &stack); \
   stack.ReverseOrder();
-
-#if TSAN_COLLECT_STATS
-void StatAggregate(u64 *dst, u64 *src);
-void StatOutput(u64 *stat);
-#endif
-
-void ALWAYS_INLINE StatInc(ThreadState *thr, StatType typ, u64 n = 1) {
-#if TSAN_COLLECT_STATS
-  thr->stat[typ] += n;
-#endif
-}
-void ALWAYS_INLINE StatSet(ThreadState *thr, StatType typ, u64 n) {
-#if TSAN_COLLECT_STATS
-  thr->stat[typ] = n;
-#endif
-}
 
 void MapShadow(uptr addr, uptr size);
 void MapThreadTrace(uptr addr, uptr size, const char *name);
@@ -857,7 +831,6 @@ void ALWAYS_INLINE TraceAddEvent(ThreadState *thr, FastState fs,
   DCHECK_GE((int)typ, 0);
   DCHECK_LE((int)typ, 7);
   DCHECK_EQ(GetLsb(addr, kEventPCBits), addr);
-  StatInc(thr, StatEvents);
   u64 pos = fs.GetTracePos();
   if (UNLIKELY((pos % kTracePartSize) == 0)) {
 #if !SANITIZER_GO

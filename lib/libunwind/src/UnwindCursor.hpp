@@ -1737,14 +1737,16 @@ bool UnwindCursor<A, R>::getInfoFromCompactEncodingSection(pint_t pc,
     else
       funcEnd = firstLevelNextPageFunctionOffset + sects.dso_base;
     if (pc < funcStart) {
-      _LIBUNWIND_DEBUG_LOG("malformed __unwind_info, pc=0x%llX not in second  "
-                           "level compressed unwind table. funcStart=0x%llX",
+      _LIBUNWIND_DEBUG_LOG("malformed __unwind_info, pc=0x%llX "
+                           "not in second level compressed unwind table. "
+                           "funcStart=0x%llX",
                             (uint64_t) pc, (uint64_t) funcStart);
       return false;
     }
     if (pc > funcEnd) {
-      _LIBUNWIND_DEBUG_LOG("malformed __unwind_info, pc=0x%llX not in second  "
-                          "level compressed unwind table. funcEnd=0x%llX",
+      _LIBUNWIND_DEBUG_LOG("malformed __unwind_info, pc=0x%llX "
+                           "not in second level compressed unwind table. "
+                           "funcEnd=0x%llX",
                            (uint64_t) pc, (uint64_t) funcEnd);
       return false;
     }
@@ -1764,9 +1766,9 @@ bool UnwindCursor<A, R>::getInfoFromCompactEncodingSection(pint_t pc,
                                      pageEncodingIndex * sizeof(uint32_t));
     }
   } else {
-    _LIBUNWIND_DEBUG_LOG("malformed __unwind_info at 0x%0llX bad second "
-                         "level page",
-                          (uint64_t) sects.compact_unwind_section);
+    _LIBUNWIND_DEBUG_LOG(
+        "malformed __unwind_info at 0x%0llX bad second level page",
+        (uint64_t)sects.compact_unwind_section);
     return false;
   }
 

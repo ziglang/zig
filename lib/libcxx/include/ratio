@@ -78,8 +78,8 @@ typedef ratio<1000000000000000000000000, 1> yotta;  // not supported
 */
 
 #include <__config>
-#include <cstdint>
 #include <climits>
+#include <cstdint>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -312,7 +312,7 @@ template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_multiply
     : public __ratio_multiply<_R1, _R2>::type {};
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _R1, class _R2>
 struct __ratio_divide
@@ -339,7 +339,7 @@ template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_divide
     : public __ratio_divide<_R1, _R2>::type {};
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _R1, class _R2>
 struct __ratio_add
@@ -374,7 +374,7 @@ template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_add
     : public __ratio_add<_R1, _R2>::type {};
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _R1, class _R2>
 struct __ratio_subtract
@@ -409,7 +409,7 @@ template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_subtract
     : public __ratio_subtract<_R1, _R2>::type {};
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 // ratio_equal
 
@@ -529,4 +529,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_RATIO
+#endif // _LIBCPP_RATIO

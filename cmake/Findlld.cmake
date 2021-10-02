@@ -8,20 +8,20 @@
 
 find_path(LLD_INCLUDE_DIRS NAMES lld/Common/Driver.h
     PATHS
-        /usr/lib/llvm-12/include
-        /usr/local/llvm120/include
-        /usr/local/llvm12/include
-        /usr/local/opt/llvm@12/include
-        /opt/homebrew/opt/llvm@12/include
+        /usr/lib/llvm-13/include
+        /usr/local/llvm130/include
+        /usr/local/llvm13/include
+        /usr/local/opt/llvm@13/include
+        /opt/homebrew/opt/llvm@13/include
         /mingw64/include)
 
-find_library(LLD_LIBRARY NAMES lld-12.0 lld120 lld
+find_library(LLD_LIBRARY NAMES lld-13.0 lld130 lld
     PATHS
-        /usr/lib/llvm-12/lib
-        /usr/local/llvm120/lib
-        /usr/local/llvm12/lib
-        /usr/local/opt/llvm@12/lib
-        /opt/homebrew/opt/llvm@12/lib
+        /usr/lib/llvm-13/lib
+        /usr/local/llvm130/lib
+        /usr/local/llvm13/lib
+        /usr/local/opt/llvm@13/lib
+        /opt/homebrew/opt/llvm@13/lib
 )
 if(EXISTS ${LLD_LIBRARY})
     set(LLD_LIBRARIES ${LLD_LIBRARY})
@@ -31,11 +31,11 @@ else()
         find_library(LLD_${_prettylibname_}_LIB NAMES ${_libname_}
             PATHS
                 ${LLD_LIBDIRS}
-                /usr/lib/llvm-12/lib
-                /usr/local/llvm120/lib
-                /usr/local/llvm12/lib
-                /usr/local/opt/llvm@12/lib
-                /opt/homebrew/opt/llvm@12/lib
+                /usr/lib/llvm-13/lib
+                /usr/local/llvm130/lib
+                /usr/local/llvm13/lib
+                /usr/local/opt/llvm@13/lib
+                /opt/homebrew/opt/llvm@13/lib
                 /mingw64/lib
                 /c/msys64/mingw64/lib
                 c:/msys64/mingw64/lib)

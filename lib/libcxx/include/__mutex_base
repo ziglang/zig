@@ -11,10 +11,9 @@
 #define _LIBCPP___MUTEX_BASE
 
 #include <__config>
+#include <__threading_support>
 #include <chrono>
 #include <system_error>
-#include <__threading_support>
-
 #include <time.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -190,8 +189,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     bool owns_lock() const _NOEXCEPT {return __owns_;}
     _LIBCPP_INLINE_VISIBILITY
-    _LIBCPP_EXPLICIT
-        operator bool () const _NOEXCEPT {return __owns_;}
+    explicit operator bool() const _NOEXCEPT {return __owns_;}
     _LIBCPP_INLINE_VISIBILITY
     mutex_type* mutex() const _NOEXCEPT {return __m_;}
 };
@@ -526,4 +524,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP___MUTEX_BASE
+#endif // _LIBCPP___MUTEX_BASE

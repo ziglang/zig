@@ -270,4 +270,4 @@ _LIBCPP_FUNC_VIS const __libcpp_db* __get_const_db();
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_DEBUG_H
+#endif // _LIBCPP_DEBUG_H

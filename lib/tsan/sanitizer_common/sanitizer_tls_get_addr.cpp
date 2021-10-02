@@ -12,6 +12,7 @@
 
 #include "sanitizer_tls_get_addr.h"
 
+#include "sanitizer_atomic.h"
 #include "sanitizer_flags.h"
 #include "sanitizer_platform_interceptors.h"
 
@@ -42,46 +43,66 @@ static atomic_uintptr_t number_of_live_dtls;
 
 static const uptr kDestroyedThread = -1;
 
-static inline void DTLS_Deallocate(DTLS::DTV *dtv, uptr size) {
-  if (!size) return;
-  VReport(2, "__tls_get_addr: DTLS_Deallocate %p %zd\n", dtv, size);
-  UnmapOrDie(dtv, size * sizeof(DTLS::DTV));
+static void DTLS_Deallocate(DTLS::DTVBlock *block) {
+  VReport(2, "__tls_get_addr: DTLS_Deallocate %p %zd\n", block);
+  UnmapOrDie(block, sizeof(DTLS::DTVBlock));
   atomic_fetch_sub(&number_of_live_dtls, 1, memory_order_relaxed);
 }
 
-static inline void DTLS_Resize(uptr new_size) {
-  if (dtls.dtv_size >= new_size) return;
-  new_size = RoundUpToPowerOfTwo(new_size);
-  new_size = Max(new_size, 4096UL / sizeof(DTLS::DTV));
-  DTLS::DTV *new_dtv =
-      (DTLS::DTV *)MmapOrDie(new_size * sizeof(DTLS::DTV), "DTLS_Resize");
+static DTLS::DTVBlock *DTLS_NextBlock(atomic_uintptr_t *cur) {
+  uptr v = atomic_load(cur, memory_order_acquire);
+  if (v == kDestroyedThread)
+    return nullptr;
+  DTLS::DTVBlock *next = (DTLS::DTVBlock *)v;
+  if (next)
+    return next;
+  DTLS::DTVBlock *new_dtv =
+      (DTLS::DTVBlock *)MmapOrDie(sizeof(DTLS::DTVBlock), "DTLS_NextBlock");
+  uptr prev = 0;
+  if (!atomic_compare_exchange_strong(cur, &prev, (uptr)new_dtv,
+                                      memory_order_seq_cst)) {
+    UnmapOrDie(new_dtv, sizeof(DTLS::DTVBlock));
+    return (DTLS::DTVBlock *)prev;
+  }
   uptr num_live_dtls =
       atomic_fetch_add(&number_of_live_dtls, 1, memory_order_relaxed);
-  VReport(2, "__tls_get_addr: DTLS_Resize %p %zd\n", &dtls, num_live_dtls);
-  CHECK_LT(num_live_dtls, 1 << 20);
-  uptr old_dtv_size = dtls.dtv_size;
-  DTLS::DTV *old_dtv = dtls.dtv;
-  if (old_dtv_size)
-    internal_memcpy(new_dtv, dtls.dtv, dtls.dtv_size * sizeof(DTLS::DTV));
-  dtls.dtv = new_dtv;
-  dtls.dtv_size = new_size;
-  if (old_dtv_size)
-    DTLS_Deallocate(old_dtv, old_dtv_size);
+  VReport(2, "__tls_get_addr: DTLS_NextBlock %p %zd\n", &dtls, num_live_dtls);
+  return new_dtv;
+}
+
+static DTLS::DTV *DTLS_Find(uptr id) {
+  VReport(2, "__tls_get_addr: DTLS_Find %p %zd\n", &dtls, id);
+  static constexpr uptr kPerBlock = ARRAY_SIZE(DTLS::DTVBlock::dtvs);
+  DTLS::DTVBlock *cur = DTLS_NextBlock(&dtls.dtv_block);
+  if (!cur)
+    return nullptr;
+  for (; id >= kPerBlock; id -= kPerBlock) cur = DTLS_NextBlock(&cur->next);
+  return cur->dtvs + id;
 }
 
 void DTLS_Destroy() {
   if (!common_flags()->intercept_tls_get_addr) return;
-  VReport(2, "__tls_get_addr: DTLS_Destroy %p %zd\n", &dtls, dtls.dtv_size);
-  uptr s = dtls.dtv_size;
-  dtls.dtv_size = kDestroyedThread;  // Do this before unmap for AS-safety.
-  DTLS_Deallocate(dtls.dtv, s);
+  VReport(2, "__tls_get_addr: DTLS_Destroy %p\n", &dtls);
+  DTLS::DTVBlock *block = (DTLS::DTVBlock *)atomic_exchange(
+      &dtls.dtv_block, kDestroyedThread, memory_order_release);
+  while (block) {
+    DTLS::DTVBlock *next =
+        (DTLS::DTVBlock *)atomic_load(&block->next, memory_order_acquire);
+    DTLS_Deallocate(block);
+    block = next;
+  }
 }
 
 #if defined(__powerpc64__) || defined(__mips__)
 // This is glibc's TLS_DTV_OFFSET:
 // "Dynamic thread vector pointers point 0x8000 past the start of each
-//  TLS block."
+//  TLS block." (sysdeps/<arch>/dl-tls.h)
 static const uptr kDtvOffset = 0x8000;
+#elif defined(__riscv)
+// This is glibc's TLS_DTV_OFFSET:
+// "Dynamic thread vector pointers point 0x800 past the start of each
+// TLS block." (sysdeps/riscv/dl-tls.h)
+static const uptr kDtvOffset = 0x800;
 #else
 static const uptr kDtvOffset = 0;
 #endif
@@ -91,9 +112,9 @@ DTLS::DTV *DTLS_on_tls_get_addr(void *arg_void, void *res,
   if (!common_flags()->intercept_tls_get_addr) return 0;
   TlsGetAddrParam *arg = reinterpret_cast<TlsGetAddrParam *>(arg_void);
   uptr dso_id = arg->dso_id;
-  if (dtls.dtv_size == kDestroyedThread) return 0;
-  DTLS_Resize(dso_id + 1);
-  if (dtls.dtv[dso_id].beg) return 0;
+  DTLS::DTV *dtv = DTLS_Find(dso_id);
+  if (!dtv || dtv->beg)
+    return 0;
   uptr tls_size = 0;
   uptr tls_beg = reinterpret_cast<uptr>(res) - arg->offset - kDtvOffset;
   VReport(2, "__tls_get_addr: %p {%p,%p} => %p; tls_beg: %p; sp: %p "
@@ -121,9 +142,9 @@ DTLS::DTV *DTLS_on_tls_get_addr(void *arg_void, void *res,
     // This may happen inside the DTOR of main thread, so just ignore it.
     tls_size = 0;
   }
-  dtls.dtv[dso_id].beg = tls_beg;
-  dtls.dtv[dso_id].size = tls_size;
-  return dtls.dtv + dso_id;
+  dtv->beg = tls_beg;
+  dtv->size = tls_size;
+  return dtv;
 }
 
 void DTLS_on_libc_memalign(void *ptr, uptr size) {
@@ -136,7 +157,8 @@ void DTLS_on_libc_memalign(void *ptr, uptr size) {
 DTLS *DTLS_Get() { return &dtls; }
 
 bool DTLSInDestruction(DTLS *dtls) {
-  return dtls->dtv_size == kDestroyedThread;
+  return atomic_load(&dtls->dtv_block, memory_order_relaxed) ==
+         kDestroyedThread;
 }
 
 #else

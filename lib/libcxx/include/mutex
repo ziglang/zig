@@ -188,14 +188,15 @@ template<class Callable, class ...Args>
 
 #include <__config>
 #include <__mutex_base>
+#include <__threading_support>
+#include <__utility/forward.h>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #ifndef _LIBCPP_CXX03_LANG
-#include <tuple>
+# include <tuple>
 #endif
 #include <version>
-#include <__threading_support>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -365,7 +366,7 @@ try_lock(_L0& __l0, _L1& __l1, _L2& __l2, _L3&... __l3)
     return __r;
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _L0, class _L1>
 void
@@ -469,7 +470,7 @@ void __unlock(_L0& __l0, _L1& __l1, _L2& __l2, _L3&... __l3) {
     _VSTD::__unlock(__l2, __l3...);
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 #if _LIBCPP_STD_VER > 14
 template <class ..._Mutexes>
@@ -568,7 +569,7 @@ template<class _Callable>
 _LIBCPP_INLINE_VISIBILITY
 void call_once(once_flag&, const _Callable&);
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 struct _LIBCPP_TEMPLATE_VIS once_flag
 {
@@ -601,7 +602,7 @@ private:
     template<class _Callable>
     friend
     void call_once(once_flag&, const _Callable&);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 };
 
 #ifndef _LIBCPP_CXX03_LANG
@@ -702,10 +703,10 @@ call_once(once_flag& __flag, const _Callable& __func)
     }
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_MUTEX
+#endif // _LIBCPP_MUTEX

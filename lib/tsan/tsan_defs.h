@@ -15,16 +15,12 @@
 
 #include "sanitizer_common/sanitizer_internal_defs.h"
 #include "sanitizer_common/sanitizer_libc.h"
-#include "tsan_stat.h"
+#include "sanitizer_common/sanitizer_mutex.h"
 #include "ubsan/ubsan_platform.h"
 
 // Setup defaults for compile definitions.
 #ifndef TSAN_NO_HISTORY
 # define TSAN_NO_HISTORY 0
-#endif
-
-#ifndef TSAN_COLLECT_STATS
-# define TSAN_COLLECT_STATS 0
 #endif
 
 #ifndef TSAN_CONTAINS_UBSAN
@@ -98,8 +94,6 @@ const bool kCollectHistory = false;
 const bool kCollectHistory = true;
 #endif
 
-const u16 kInvalidTid = kMaxTid + 1;
-
 // The following "build consistency" machinery ensures that all source files
 // are built in the same configuration. Inconsistent builds lead to
 // hard to debug crashes.
@@ -109,22 +103,11 @@ void build_consistency_debug();
 void build_consistency_release();
 #endif
 
-#if TSAN_COLLECT_STATS
-void build_consistency_stats();
-#else
-void build_consistency_nostats();
-#endif
-
 static inline void USED build_consistency() {
 #if SANITIZER_DEBUG
   build_consistency_debug();
 #else
   build_consistency_release();
-#endif
-#if TSAN_COLLECT_STATS
-  build_consistency_stats();
-#else
-  build_consistency_nostats();
 #endif
 }
 
@@ -188,6 +171,17 @@ enum ExternalTag : uptr {
   kExternalTagMax = 1024,
   // Don't set kExternalTagMax over 65,536, since MBlock only stores tags
   // as 16-bit values, see tsan_defs.h.
+};
+
+enum MutexType {
+  MutexTypeTrace = MutexLastCommon,
+  MutexTypeReport,
+  MutexTypeSyncVar,
+  MutexTypeAnnotations,
+  MutexTypeAtExit,
+  MutexTypeFired,
+  MutexTypeRacy,
+  MutexTypeGlobalProc,
 };
 
 }  // namespace __tsan

@@ -3,8 +3,9 @@
 #define _LIBCPP_SPLIT_BUFFER
 
 #include <__config>
-#include <type_traits>
+#include <__utility/forward.h>
 #include <algorithm>
+#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -20,8 +21,8 @@ template <bool>
 class __split_buffer_common
 {
 protected:
-    void __throw_length_error() const;
-    void __throw_out_of_range() const;
+    _LIBCPP_NORETURN void __throw_length_error() const;
+    _LIBCPP_NORETURN void __throw_out_of_range() const;
 };
 
 template <class _Tp, class _Allocator = allocator<_Tp> >
@@ -444,7 +445,7 @@ __split_buffer<_Tp, _Allocator>::shrink_to_fit() _NOEXCEPT
 #ifndef _LIBCPP_NO_EXCEPTIONS
         try
         {
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
             __split_buffer<value_type, __alloc_rr&> __t(size(), 0, __alloc());
             __t.__construct_at_end(move_iterator<pointer>(__begin_),
                                    move_iterator<pointer>(__end_));
@@ -458,7 +459,7 @@ __split_buffer<_Tp, _Allocator>::shrink_to_fit() _NOEXCEPT
         catch (...)
         {
         }
-#endif  // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_NO_EXCEPTIONS
     }
 }
 
@@ -625,4 +626,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_SPLIT_BUFFER
+#endif // _LIBCPP_SPLIT_BUFFER

@@ -248,4 +248,4 @@ public:
 
 }  // __cxxabiv1
 
-#endif  // __PRIVATE_TYPEINFO_H_
+#endif // __PRIVATE_TYPEINFO_H_

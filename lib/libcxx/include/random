@@ -17,6 +17,9 @@
 
 namespace std
 {
+// [rand.req.urng], uniform random bit generator requirements
+template<class G>
+concept uniform_random_bit_generator = see below; // C++20
 
 // Engines
 
@@ -1675,17 +1678,19 @@ class piecewise_linear_distribution
 */
 
 #include <__config>
+#include <__random/uniform_int_distribution.h>
+#include <algorithm>
+#include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <cmath>
-#include <type_traits>
 #include <initializer_list>
-#include <limits>
-#include <algorithm>
-#include <numeric>
-#include <vector>
-#include <string>
 #include <iosfwd>
+#include <limits>
+#include <numeric>
+#include <string>
+#include <type_traits>
+#include <vector>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -1696,6 +1701,20 @@ _LIBCPP_PUSH_MACROS
 
 
 _LIBCPP_BEGIN_NAMESPACE_STD
+
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_CONCEPTS)
+
+// [rand.req.urng]
+template<class _Gen>
+concept uniform_random_bit_generator =
+  invocable<_Gen&> && unsigned_integral<invoke_result_t<_Gen&>> &&
+  requires {
+    { _Gen::min() } -> same_as<invoke_result_t<_Gen&>>;
+    { _Gen::max() } -> same_as<invoke_result_t<_Gen&>>;
+    requires bool_constant<(_Gen::min() < _Gen::max())>::value;
+  };
+
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_CONCEPTS)
 
 // __is_seed_sequence
 
@@ -1712,7 +1731,7 @@ struct __is_seed_sequence
 template <unsigned long long __a, unsigned long long __c,
           unsigned long long __m, unsigned long long _Mp,
           bool _MightOverflow = (__a != 0 && __m != 0 && __m-1 > (_Mp-__c)/__a),
-          bool _OverflowOK = ((__m|__m-1) > __m), // m = 2^n
+          bool _OverflowOK = ((__m | (__m-1)) > __m), // m = 2^n
           bool _SchrageOK = (__a != 0 && __m != 0 && __m % __a <= __m / __a)> // r <= q
 struct __lce_alg_picker
 {
@@ -1901,7 +1920,7 @@ private:
 
     static_assert(__m == 0 || __a < __m, "linear_congruential_engine invalid parameters");
     static_assert(__m == 0 || __c < __m, "linear_congruential_engine invalid parameters");
-    static_assert(_VSTD::is_unsigned<_UIntType>::value, "_UIntType must be unsigned type");
+    static_assert(is_unsigned<_UIntType>::value, "_UIntType must be unsigned type");
 public:
     static _LIBCPP_CONSTEXPR const result_type _Min = __c == 0u ? 1u: 0u;
     static _LIBCPP_CONSTEXPR const result_type _Max = __m - 1u;
@@ -2940,7 +2959,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     explicit discard_block_engine(_Engine&& __e)
         : __e_(_VSTD::move(__e)), __n_(0) {}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     explicit discard_block_engine(result_type __sd) : __e_(__sd), __n_(0) {}
     template<class _Sseq>
@@ -3152,7 +3171,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     explicit independent_bits_engine(_Engine&& __e)
         : __e_(_VSTD::move(__e)) {}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     explicit independent_bits_engine(result_type __sd) : __e_(__sd) {}
     template<class _Sseq>
@@ -3382,7 +3401,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     explicit shuffle_order_engine(_Engine&& __e)
         : __e_(_VSTD::move(__e)) {__init();}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     explicit shuffle_order_engine(result_type __sd) : __e_(__sd) {__init();}
     template<class _Sseq>
@@ -3634,7 +3653,7 @@ public:
     template<class _Tp>
         _LIBCPP_INLINE_VISIBILITY
         seed_seq(initializer_list<_Tp> __il) {init(__il.begin(), __il.end());}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     template<class _InputIterator>
         _LIBCPP_INLINE_VISIBILITY
@@ -3753,42 +3772,6 @@ generate_canonical(_URNG& __g)
     for (size_t __i = 1; __i < __k; ++__i, __base *= _Rp)
         _Sp += (__g() - _URNG::min()) * __base;
     return _Sp / __base;
-}
-
-// uniform_int_distribution
-
-// in <algorithm>
-
-template <class _CharT, class _Traits, class _IT>
-basic_ostream<_CharT, _Traits>&
-operator<<(basic_ostream<_CharT, _Traits>& __os,
-           const uniform_int_distribution<_IT>& __x)
-{
-    __save_flags<_CharT, _Traits> __lx(__os);
-    typedef basic_ostream<_CharT, _Traits> _Ostream;
-    __os.flags(_Ostream::dec | _Ostream::left);
-    _CharT __sp = __os.widen(' ');
-    __os.fill(__sp);
-    return __os << __x.a() << __sp << __x.b();
-}
-
-template <class _CharT, class _Traits, class _IT>
-basic_istream<_CharT, _Traits>&
-operator>>(basic_istream<_CharT, _Traits>& __is,
-           uniform_int_distribution<_IT>& __x)
-{
-    typedef uniform_int_distribution<_IT> _Eng;
-    typedef typename _Eng::result_type result_type;
-    typedef typename _Eng::param_type param_type;
-    __save_flags<_CharT, _Traits> __lx(__is);
-    typedef basic_istream<_CharT, _Traits> _Istream;
-    __is.flags(_Istream::dec | _Istream::skipws);
-    result_type __a;
-    result_type __b;
-    __is >> __a >> __b;
-    if (!__is.fail())
-        __x.param(param_type(__a, __b));
-    return __is;
 }
 
 // uniform_real_distribution
@@ -4142,7 +4125,7 @@ inline _LIBCPP_INLINE_VISIBILITY double __libcpp_lgamma(double __d) {
 }
 
 template<class _IntType>
-binomial_distribution<_IntType>::param_type::param_type(const result_type __t, const double __p)
+binomial_distribution<_IntType>::param_type::param_type(result_type __t, double __p)
     : __t_(__t), __p_(__p)
 {
     if (0 < __p_ && __p_ < 1)
@@ -6145,7 +6128,7 @@ public:
         _LIBCPP_INLINE_VISIBILITY
         param_type(initializer_list<double> __wl)
             : __p_(__wl.begin(), __wl.end()) {__init();}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
         template<class _UnaryOperation>
             param_type(size_t __nw, double __xmin, double __xmax,
                        _UnaryOperation __fw);
@@ -6192,7 +6175,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     discrete_distribution(initializer_list<double> __wl)
         : __p_(__wl) {}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
     template<class _UnaryOperation>
         _LIBCPP_INLINE_VISIBILITY
         discrete_distribution(size_t __nw, double __xmin, double __xmax,
@@ -6274,8 +6257,7 @@ discrete_distribution<_IntType>::param_type::__init()
         if (__p_.size() > 1)
         {
             double __s = _VSTD::accumulate(__p_.begin(), __p_.end(), 0.0);
-            for (_VSTD::vector<double>::iterator __i = __p_.begin(), __e = __p_.end();
-                                                                       __i < __e; ++__i)
+            for (vector<double>::iterator __i = __p_.begin(), __e = __p_.end(); __i < __e; ++__i)
                 *__i /= __s;
             vector<double> __t(__p_.size() - 1);
             _VSTD::partial_sum(__p_.begin(), __p_.end() - 1, __t.begin());
@@ -6294,7 +6276,7 @@ vector<double>
 discrete_distribution<_IntType>::param_type::probabilities() const
 {
     size_t __n = __p_.size();
-    _VSTD::vector<double> __p(__n+1);
+    vector<double> __p(__n+1);
     _VSTD::adjacent_difference(__p_.begin(), __p_.end(), __p.begin());
     if (__n > 0)
         __p[__n] = 1 - __p_[__n-1];
@@ -6374,7 +6356,7 @@ public:
 #ifndef _LIBCPP_CXX03_LANG
         template<class _UnaryOperation>
             param_type(initializer_list<result_type> __bl, _UnaryOperation __fw);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
         template<class _UnaryOperation>
             param_type(size_t __nw, result_type __xmin, result_type __xmax,
                        _UnaryOperation __fw);
@@ -6431,7 +6413,7 @@ public:
         piecewise_constant_distribution(initializer_list<result_type> __bl,
                                         _UnaryOperation __fw)
         : __p_(__bl, __fw) {}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     template<class _UnaryOperation>
         _LIBCPP_INLINE_VISIBILITY
@@ -6586,7 +6568,7 @@ piecewise_constant_distribution<_RealType>::param_type::param_type(
     }
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template<class _RealType>
 template<class _UnaryOperation>
@@ -6700,7 +6682,7 @@ public:
 #ifndef _LIBCPP_CXX03_LANG
         template<class _UnaryOperation>
             param_type(initializer_list<result_type> __bl, _UnaryOperation __fw);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
         template<class _UnaryOperation>
             param_type(size_t __nw, result_type __xmin, result_type __xmax,
                        _UnaryOperation __fw);
@@ -6757,7 +6739,7 @@ public:
         piecewise_linear_distribution(initializer_list<result_type> __bl,
                                       _UnaryOperation __fw)
         : __p_(__bl, __fw) {}
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     template<class _UnaryOperation>
         _LIBCPP_INLINE_VISIBILITY
@@ -6916,7 +6898,7 @@ piecewise_linear_distribution<_RealType>::param_type::param_type(
     }
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template<class _RealType>
 template<class _UnaryOperation>
@@ -7022,4 +7004,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_RANDOM
+#endif // _LIBCPP_RANDOM

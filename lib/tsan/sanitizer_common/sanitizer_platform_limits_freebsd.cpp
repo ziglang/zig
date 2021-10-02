@@ -35,7 +35,10 @@
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/time.h>
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-W#warnings"
 #include <sys/timeb.h>
+#pragma clang diagnostic pop
 #include <sys/times.h>
 #include <sys/timespec.h>
 #include <sys/types.h>
@@ -80,8 +83,6 @@
 #define _KERNEL  // to declare 'shminfo' structure
 #include <sys/shm.h>
 #undef _KERNEL
-
-#undef INLINE  // to avoid clashes with sanitizers' definitions
 
 #undef IOC_DIRMASK
 

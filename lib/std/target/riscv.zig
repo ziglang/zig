@@ -185,7 +185,7 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.experimental_zvamo)] = .{
         .llvm_name = "experimental-zvamo",
-        .description = "'Zvamo'(Vector AMO Operations)",
+        .description = "'Zvamo' (Vector AMO Operations)",
         .dependencies = featureSet(&[_]Feature{
             .experimental_v,
         }),

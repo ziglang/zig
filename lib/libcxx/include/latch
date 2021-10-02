@@ -40,8 +40,8 @@ namespace std
 
 */
 
-#include <__config>
 #include <__availability>
+#include <__config>
 #include <atomic>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

@@ -2725,7 +2725,7 @@ fn reportRetryableCObjectError(
 
     const c_obj_err_msg = try comp.gpa.create(CObject.ErrorMsg);
     errdefer comp.gpa.destroy(c_obj_err_msg);
-    const msg = try std.fmt.allocPrint(comp.gpa, "unable to build C object: {s}", .{@errorName(err)});
+    const msg = try std.fmt.allocPrint(comp.gpa, "{s}", .{@errorName(err)});
     errdefer comp.gpa.free(msg);
     c_obj_err_msg.* = .{
         .msg = msg,
@@ -2796,6 +2796,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 
     const tracy = trace(@src());
     defer tracy.end();
+
+    log.debug("updating C object: {s}", .{c_object.src.src_path});
 
     if (c_object.clearStatus(comp.gpa)) {
         // There was previous failure.

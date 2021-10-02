@@ -137,8 +137,6 @@ static void RawInternalFree(void *ptr, InternalAllocatorCache *cache) {
 
 #endif  // SANITIZER_GO || defined(SANITIZER_USE_MALLOC)
 
-const u64 kBlockMagic = 0x6A6CB03ABCEBC041ull;
-
 static void NORETURN ReportInternalAllocatorOutOfMemory(uptr requested_size) {
   SetAllocatorOutOfMemory();
   Report("FATAL: %s: internal allocator is out of memory trying to allocate "
@@ -147,27 +145,17 @@ static void NORETURN ReportInternalAllocatorOutOfMemory(uptr requested_size) {
 }
 
 void *InternalAlloc(uptr size, InternalAllocatorCache *cache, uptr alignment) {
-  if (size + sizeof(u64) < size)
-    return nullptr;
-  void *p = RawInternalAlloc(size + sizeof(u64), cache, alignment);
+  void *p = RawInternalAlloc(size, cache, alignment);
   if (UNLIKELY(!p))
-    ReportInternalAllocatorOutOfMemory(size + sizeof(u64));
-  ((u64*)p)[0] = kBlockMagic;
-  return (char*)p + sizeof(u64);
+    ReportInternalAllocatorOutOfMemory(size);
+  return p;
 }
 
 void *InternalRealloc(void *addr, uptr size, InternalAllocatorCache *cache) {
-  if (!addr)
-    return InternalAlloc(size, cache);
-  if (size + sizeof(u64) < size)
-    return nullptr;
-  addr = (char*)addr - sizeof(u64);
-  size = size + sizeof(u64);
-  CHECK_EQ(kBlockMagic, ((u64*)addr)[0]);
   void *p = RawInternalRealloc(addr, size, cache);
   if (UNLIKELY(!p))
     ReportInternalAllocatorOutOfMemory(size);
-  return (char*)p + sizeof(u64);
+  return p;
 }
 
 void *InternalReallocArray(void *addr, uptr count, uptr size,
@@ -196,11 +184,6 @@ void *InternalCalloc(uptr count, uptr size, InternalAllocatorCache *cache) {
 }
 
 void InternalFree(void *addr, InternalAllocatorCache *cache) {
-  if (!addr)
-    return;
-  addr = (char*)addr - sizeof(u64);
-  CHECK_EQ(kBlockMagic, ((u64*)addr)[0]);
-  ((u64*)addr)[0] = 0;
   RawInternalFree(addr, cache);
 }
 

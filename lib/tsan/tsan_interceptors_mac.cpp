@@ -44,8 +44,9 @@ namespace __tsan {
 // actually aliases of each other, and we cannot have different interceptors for
 // them, because they're actually the same function.  Thus, we have to stay
 // conservative and treat the non-barrier versions as mo_acq_rel.
-static const morder kMacOrderBarrier = mo_acq_rel;
-static const morder kMacOrderNonBarrier = mo_acq_rel;
+static constexpr morder kMacOrderBarrier = mo_acq_rel;
+static constexpr morder kMacOrderNonBarrier = mo_acq_rel;
+static constexpr morder kMacFailureOrder = mo_relaxed;
 
 #define OSATOMIC_INTERCEPTOR(return_t, t, tsan_t, f, tsan_atomic_f, mo) \
   TSAN_INTERCEPTOR(return_t, f, t x, volatile t *ptr) {                 \
@@ -110,7 +111,7 @@ OSATOMIC_INTERCEPTORS_BITWISE(OSAtomicXor, fetch_xor,
     SCOPED_TSAN_INTERCEPTOR(f, old_value, new_value, ptr);                  \
     return tsan_atomic_f##_compare_exchange_strong(                         \
         (volatile tsan_t *)ptr, (tsan_t *)&old_value, (tsan_t)new_value,    \
-        kMacOrderNonBarrier, kMacOrderNonBarrier);                          \
+        kMacOrderNonBarrier, kMacFailureOrder);                             \
   }                                                                         \
                                                                             \
   TSAN_INTERCEPTOR(bool, f##Barrier, t old_value, t new_value,              \
@@ -118,7 +119,7 @@ OSATOMIC_INTERCEPTORS_BITWISE(OSAtomicXor, fetch_xor,
     SCOPED_TSAN_INTERCEPTOR(f##Barrier, old_value, new_value, ptr);         \
     return tsan_atomic_f##_compare_exchange_strong(                         \
         (volatile tsan_t *)ptr, (tsan_t *)&old_value, (tsan_t)new_value,    \
-        kMacOrderBarrier, kMacOrderNonBarrier);                             \
+        kMacOrderBarrier, kMacFailureOrder);                                \
   }
 
 OSATOMIC_INTERCEPTORS_CAS(OSAtomicCompareAndSwapInt, __tsan_atomic32, a32, int)
@@ -438,6 +439,7 @@ struct fake_shared_weak_count {
   virtual void on_zero_shared() = 0;
   virtual void _unused_0x18() = 0;
   virtual void on_zero_shared_weak() = 0;
+  virtual ~fake_shared_weak_count() = 0;  // suppress -Wnon-virtual-dtor
 };
 }  // namespace
 

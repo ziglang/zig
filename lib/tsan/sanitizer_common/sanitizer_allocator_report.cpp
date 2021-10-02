@@ -134,4 +134,12 @@ void NORETURN ReportOutOfMemory(uptr requested_size, const StackTrace *stack) {
   Die();
 }
 
+void NORETURN ReportRssLimitExceeded(const StackTrace *stack) {
+  {
+    ScopedAllocatorErrorReport report("rss-limit-exceeded", stack);
+    Report("ERROR: %s: allocator exceeded the RSS limit\n", SanitizerToolName);
+  }
+  Die();
+}
+
 }  // namespace __sanitizer

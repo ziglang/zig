@@ -11,10 +11,10 @@
 #define _LIBCPP___STD_STREAM
 
 #include <__config>
-#include <ostream>
-#include <istream>
 #include <__locale>
 #include <cstdio>
+#include <istream>
+#include <ostream>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -358,4 +358,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP___STD_STREAM
+#endif // _LIBCPP___STD_STREAM

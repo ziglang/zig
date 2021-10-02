@@ -59,26 +59,31 @@ void NORETURN Die() {
   internal__exit(common_flags()->exitcode);
 }
 
-static CheckFailedCallbackType CheckFailedCallback;
-void SetCheckFailedCallback(CheckFailedCallbackType callback) {
-  CheckFailedCallback = callback;
+static void (*CheckUnwindCallback)();
+void SetCheckUnwindCallback(void (*callback)()) {
+  CheckUnwindCallback = callback;
 }
-
-const int kSecondsToSleepWhenRecursiveCheckFailed = 2;
 
 void NORETURN CheckFailed(const char *file, int line, const char *cond,
                           u64 v1, u64 v2) {
-  static atomic_uint32_t num_calls;
-  if (atomic_fetch_add(&num_calls, 1, memory_order_relaxed) > 10) {
-    SleepForSeconds(kSecondsToSleepWhenRecursiveCheckFailed);
+  u32 tid = GetTid();
+  Printf("%s: CHECK failed: %s:%d \"%s\" (0x%zx, 0x%zx) (tid=%u)\n",
+         SanitizerToolName, StripModuleName(file), line, cond, (uptr)v1,
+         (uptr)v2, tid);
+  static atomic_uint32_t first_tid;
+  u32 cmp = 0;
+  if (!atomic_compare_exchange_strong(&first_tid, &cmp, tid,
+                                      memory_order_relaxed)) {
+    if (cmp == tid) {
+      // Recursing into CheckFailed.
+    } else {
+      // Another thread fails already, let it print the stack and terminate.
+      SleepForSeconds(2);
+    }
     Trap();
   }
-
-  if (CheckFailedCallback) {
-    CheckFailedCallback(file, line, cond, v1, v2);
-  }
-  Report("Sanitizer CHECK failed: %s:%d %s (%lld, %lld)\n", file, line, cond,
-                                                            v1, v2);
+  if (CheckUnwindCallback)
+    CheckUnwindCallback();
   Die();
 }
 

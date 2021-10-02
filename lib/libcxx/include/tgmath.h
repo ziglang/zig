@@ -31,6 +31,6 @@
 
 #include_next <tgmath.h>
 
-#endif  // __cplusplus
+#endif // __cplusplus
 
-#endif  // _LIBCPP_TGMATH_H
+#endif // _LIBCPP_TGMATH_H

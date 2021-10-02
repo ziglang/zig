@@ -46,9 +46,6 @@ fn testPopCountIntegers() !void {
 }
 
 test "@popCount vectors" {
-    // https://github.com/ziglang/zig/issues/3317
-    if (std.Target.current.cpu.arch == .mipsel or std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     comptime try testPopCountVectors();
     try testPopCountVectors();
 }

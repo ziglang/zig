@@ -432,14 +432,17 @@ template <class Key, class T, class Hash, class Pred, class Alloc>
 */
 
 #include <__config>
+#include <__debug>
+#include <__functional/is_transparent.h>
 #include <__hash_table>
 #include <__node_handle>
+#include <__utility/forward.h>
+#include <compare>
 #include <functional>
+#include <iterator> // __libcpp_erase_if_container
 #include <stdexcept>
 #include <tuple>
 #include <version>
-
-#include <__debug>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -684,7 +687,7 @@ public:
         {
             const_cast<bool&>(__x.__value_constructed) = false;
         }
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     _LIBCPP_INLINE_VISIBILITY
     void operator()(pointer __p) _NOEXCEPT
@@ -700,7 +703,7 @@ public:
 
 #ifndef _LIBCPP_CXX03_LANG
 template <class _Key, class _Tp>
-struct __hash_value_type
+struct _LIBCPP_STANDALONE_DEBUG __hash_value_type
 {
     typedef _Key                                     key_type;
     typedef _Tp                                      mapped_type;
@@ -920,9 +923,9 @@ public:
     // types
     typedef _Key                                           key_type;
     typedef _Tp                                            mapped_type;
-    typedef typename __identity<_Hash>::type               hasher;
-    typedef typename __identity<_Pred>::type               key_equal;
-    typedef typename __identity<_Alloc>::type              allocator_type;
+    typedef __identity_t<_Hash>                            hasher;
+    typedef __identity_t<_Pred>                            key_equal;
+    typedef __identity_t<_Alloc>                           allocator_type;
     typedef pair<const key_type, mapped_type>              value_type;
     typedef value_type&                                    reference;
     typedef const value_type&                              const_reference;
@@ -1013,7 +1016,7 @@ public:
     unordered_map(initializer_list<value_type> __il, size_type __n,
                   const hasher& __hf, const key_equal& __eql,
                   const allocator_type& __a);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 #if _LIBCPP_STD_VER > 11
     _LIBCPP_INLINE_VISIBILITY
     unordered_map(size_type __n, const allocator_type& __a)
@@ -1066,7 +1069,7 @@ public:
         _NOEXCEPT_(is_nothrow_move_assignable<__table>::value);
     _LIBCPP_INLINE_VISIBILITY
     unordered_map& operator=(initializer_list<value_type> __il);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     _LIBCPP_INLINE_VISIBILITY
     allocator_type get_allocator() const _NOEXCEPT
@@ -1171,7 +1174,7 @@ public:
         return __table_.__emplace_unique(_VSTD::forward<_Args>(__args)...).first;
     }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 #if _LIBCPP_STD_VER > 14
     template <class... _Args>
@@ -1452,7 +1455,7 @@ public:
     bool __subscriptable(const const_iterator* __i, ptrdiff_t __n) const
         {return __table_.__addable(&__i->__i_, __n);}
 
-#endif  // _LIBCPP_DEBUG_LEVEL == 2
+#endif // _LIBCPP_DEBUG_LEVEL == 2
 
 private:
 
@@ -1718,7 +1721,7 @@ unordered_map<_Key, _Tp, _Hash, _Pred, _Alloc>::operator=(
     return *this;
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
 template <class _InputIterator>
@@ -1778,7 +1781,7 @@ unordered_map<_Key, _Tp, _Hash, _Pred, _Alloc>::operator[](const key_type& __k)
     return __r.first->second;
 }
 
-#endif  // _LIBCPP_CXX03_MODE
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
 _Tp&
@@ -1817,7 +1820,7 @@ inline _LIBCPP_INLINE_VISIBILITY
     typename unordered_map<_Key, _Tp, _Hash, _Pred, _Alloc>::size_type
     erase_if(unordered_map<_Key, _Tp, _Hash, _Pred, _Alloc>& __c,
              _Predicate __pred) {
-  return __libcpp_erase_if_container(__c, __pred);
+  return _VSTD::__libcpp_erase_if_container(__c, __pred);
 }
 #endif
 
@@ -1857,9 +1860,9 @@ public:
     // types
     typedef _Key                                           key_type;
     typedef _Tp                                            mapped_type;
-    typedef typename __identity<_Hash>::type               hasher;
-    typedef typename __identity<_Pred>::type               key_equal;
-    typedef typename __identity<_Alloc>::type              allocator_type;
+    typedef __identity_t<_Hash>                            hasher;
+    typedef __identity_t<_Pred>                            key_equal;
+    typedef __identity_t<_Alloc>                           allocator_type;
     typedef pair<const key_type, mapped_type>              value_type;
     typedef value_type&                                    reference;
     typedef const value_type&                              const_reference;
@@ -1948,7 +1951,7 @@ public:
     unordered_multimap(initializer_list<value_type> __il, size_type __n,
                        const hasher& __hf, const key_equal& __eql,
                        const allocator_type& __a);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 #if _LIBCPP_STD_VER > 11
     _LIBCPP_INLINE_VISIBILITY
     unordered_multimap(size_type __n, const allocator_type& __a)
@@ -2001,7 +2004,7 @@ public:
         _NOEXCEPT_(is_nothrow_move_assignable<__table>::value);
     _LIBCPP_INLINE_VISIBILITY
     unordered_multimap& operator=(initializer_list<value_type> __il);
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
     _LIBCPP_INLINE_VISIBILITY
     allocator_type get_allocator() const _NOEXCEPT
@@ -2070,7 +2073,7 @@ public:
     iterator emplace_hint(const_iterator __p, _Args&&... __args) {
         return __table_.__emplace_hint_multi(__p.__i_, _VSTD::forward<_Args>(__args)...);
     }
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 
     _LIBCPP_INLINE_VISIBILITY
@@ -2255,7 +2258,7 @@ public:
     bool __subscriptable(const const_iterator* __i, ptrdiff_t __n) const
         {return __table_.__addable(&__i->__i_, __n);}
 
-#endif  // _LIBCPP_DEBUG_LEVEL == 2
+#endif // _LIBCPP_DEBUG_LEVEL == 2
 
 
 };
@@ -2518,7 +2521,7 @@ unordered_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>::operator=(
     return *this;
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 
 
@@ -2550,7 +2553,7 @@ inline _LIBCPP_INLINE_VISIBILITY
     typename unordered_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>::size_type
     erase_if(unordered_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>& __c,
              _Predicate __pred) {
-  return __libcpp_erase_if_container(__c, __pred);
+  return _VSTD::__libcpp_erase_if_container(__c, __pred);
 }
 #endif
 
@@ -2588,4 +2591,4 @@ operator!=(const unordered_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>& __x,
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_UNORDERED_MAP
+#endif // _LIBCPP_UNORDERED_MAP

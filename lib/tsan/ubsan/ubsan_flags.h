@@ -34,8 +34,6 @@ inline Flags *flags() { return &ubsan_flags; }
 void InitializeFlags();
 void RegisterUbsanFlags(FlagParser *parser, Flags *f);
 
-const char *MaybeCallUbsanDefaultOptions();
-
 }  // namespace __ubsan
 
 extern "C" {

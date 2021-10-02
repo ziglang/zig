@@ -110,8 +110,8 @@ end(initializer_list<_Ep> __il) _NOEXCEPT
     return __il.end();
 }
 
-#endif  // !defined(_LIBCPP_CXX03_LANG)
+#endif // !defined(_LIBCPP_CXX03_LANG)
 
 }  // std
 
-#endif  // _LIBCPP_INITIALIZER_LIST
+#endif // _LIBCPP_INITIALIZER_LIST

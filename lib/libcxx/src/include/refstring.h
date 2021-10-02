@@ -55,7 +55,7 @@ inline char * data_from_rep(_Rep_base *rep) noexcept {
 
 #if defined(_LIBCPP_CHECK_FOR_GCC_EMPTY_STRING_STORAGE)
 inline
-const char* compute_gcc_empty_string_storage() _NOEXCEPT
+const char* compute_gcc_empty_string_storage() noexcept
 {
     void* handle = dlopen("/usr/lib/libstdc++.6.dylib", RTLD_NOLOAD);
     if (handle == nullptr)
@@ -68,7 +68,7 @@ const char* compute_gcc_empty_string_storage() _NOEXCEPT
 
 inline
 const char*
-get_gcc_empty_string_storage() _NOEXCEPT
+get_gcc_empty_string_storage() noexcept
 {
     static const char* p = compute_gcc_empty_string_storage();
     return p;
@@ -92,7 +92,7 @@ __libcpp_refstring::__libcpp_refstring(const char* msg) {
 }
 
 inline
-__libcpp_refstring::__libcpp_refstring(const __libcpp_refstring &s) _NOEXCEPT
+__libcpp_refstring::__libcpp_refstring(const __libcpp_refstring &s) noexcept
     : __imp_(s.__imp_)
 {
     if (__uses_refcount())
@@ -100,7 +100,7 @@ __libcpp_refstring::__libcpp_refstring(const __libcpp_refstring &s) _NOEXCEPT
 }
 
 inline
-__libcpp_refstring& __libcpp_refstring::operator=(__libcpp_refstring const& s) _NOEXCEPT {
+__libcpp_refstring& __libcpp_refstring::operator=(__libcpp_refstring const& s) noexcept {
     bool adjust_old_count = __uses_refcount();
     struct _Rep_base *old_rep = rep_from_data(__imp_);
     __imp_ = s.__imp_;

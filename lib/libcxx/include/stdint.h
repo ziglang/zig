@@ -122,4 +122,4 @@ Macros:
 
 #include_next <stdint.h>
 
-#endif  // _LIBCPP_STDINT_H
+#endif // _LIBCPP_STDINT_H

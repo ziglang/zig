@@ -73,11 +73,13 @@ namespace std {
 
 */
 
-#include <__config>
 #include <__availability>
+#include <__config>
 #include <__errc>
+#include <__utility/to_underlying.h>
 #include <cmath> // for log2f
 #include <cstdint>
+#include <cstdlib> // for _LIBCPP_UNREACHABLE
 #include <cstring>
 #include <limits>
 #include <type_traits>
@@ -107,6 +109,47 @@ enum class _LIBCPP_ENUM_VIS chars_format
     hex = 0x4,
     general = fixed | scientific
 };
+
+inline _LIBCPP_INLINE_VISIBILITY constexpr chars_format
+operator~(chars_format __x) {
+  return chars_format(~_VSTD::__to_underlying(__x));
+}
+
+inline _LIBCPP_INLINE_VISIBILITY constexpr chars_format
+operator&(chars_format __x, chars_format __y) {
+  return chars_format(_VSTD::__to_underlying(__x) &
+                      _VSTD::__to_underlying(__y));
+}
+
+inline _LIBCPP_INLINE_VISIBILITY constexpr chars_format
+operator|(chars_format __x, chars_format __y) {
+  return chars_format(_VSTD::__to_underlying(__x) |
+                      _VSTD::__to_underlying(__y));
+}
+
+inline _LIBCPP_INLINE_VISIBILITY constexpr chars_format
+operator^(chars_format __x, chars_format __y) {
+  return chars_format(_VSTD::__to_underlying(__x) ^
+                      _VSTD::__to_underlying(__y));
+}
+
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 chars_format&
+operator&=(chars_format& __x, chars_format __y) {
+  __x = __x & __y;
+  return __x;
+}
+
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 chars_format&
+operator|=(chars_format& __x, chars_format __y) {
+  __x = __x | __y;
+  return __x;
+}
+
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 chars_format&
+operator^=(chars_format& __x, chars_format __y) {
+  __x = __x ^ __y;
+  return __x;
+}
 
 struct _LIBCPP_TYPE_VIS to_chars_result
 {
@@ -289,18 +332,11 @@ __complement(_Tp __x)
 }
 
 template <typename _Tp>
-inline _LIBCPP_INLINE_VISIBILITY typename make_unsigned<_Tp>::type
-__to_unsigned(_Tp __x)
-{
-    return static_cast<typename make_unsigned<_Tp>::type>(__x);
-}
-
-template <typename _Tp>
 _LIBCPP_AVAILABILITY_TO_CHARS
 inline _LIBCPP_INLINE_VISIBILITY to_chars_result
 __to_chars_itoa(char* __first, char* __last, _Tp __value, true_type)
 {
-    auto __x = __to_unsigned(__value);
+    auto __x = __to_unsigned_like(__value);
     if (__value < 0 && __first != __last)
     {
         *__first++ = '-';
@@ -348,7 +384,7 @@ inline _LIBCPP_INLINE_VISIBILITY to_chars_result
 __to_chars_integral(char* __first, char* __last, _Tp __value, int __base,
                     true_type)
 {
-    auto __x = __to_unsigned(__value);
+    auto __x = __to_unsigned_like(__value);
     if (__value < 0 && __first != __last)
     {
         *__first++ = '-';
@@ -359,32 +395,53 @@ __to_chars_integral(char* __first, char* __last, _Tp __value, int __base,
 }
 
 template <typename _Tp>
+_LIBCPP_AVAILABILITY_TO_CHARS _LIBCPP_INLINE_VISIBILITY int __to_chars_integral_width(_Tp __value, unsigned __base) {
+  _LIBCPP_ASSERT(__value >= 0, "The function requires a non-negative value.");
+
+  unsigned __base_2 = __base * __base;
+  unsigned __base_3 = __base_2 * __base;
+  unsigned __base_4 = __base_2 * __base_2;
+
+  int __r = 0;
+  while (true) {
+    if (__value < __base)
+      return __r + 1;
+    if (__value < __base_2)
+      return __r + 2;
+    if (__value < __base_3)
+      return __r + 3;
+    if (__value < __base_4)
+      return __r + 4;
+
+    __value /= __base_4;
+    __r += 4;
+  }
+
+  _LIBCPP_UNREACHABLE();
+}
+
+template <typename _Tp>
 _LIBCPP_AVAILABILITY_TO_CHARS
 inline _LIBCPP_INLINE_VISIBILITY to_chars_result
 __to_chars_integral(char* __first, char* __last, _Tp __value, int __base,
                     false_type)
 {
-    if (__base == 10)
-        return __to_chars_itoa(__first, __last, __value, false_type());
+  if (__base == 10)
+    return __to_chars_itoa(__first, __last, __value, false_type());
 
-    auto __p = __last;
-    while (__p != __first)
-    {
-        auto __c = __value % __base;
-        __value /= __base;
-        *--__p = "0123456789abcdefghijklmnopqrstuvwxyz"[__c];
-        if (__value == 0)
-            break;
-    }
+  ptrdiff_t __cap = __last - __first;
+  int __n = __to_chars_integral_width(__value, __base);
+  if (__n > __cap)
+    return {__last, errc::value_too_large};
 
-    auto __len = __last - __p;
-    if (__value != 0 || !__len)
-        return {__last, errc::value_too_large};
-    else
-    {
-        _VSTD::memmove(__first, __p, __len);
-        return {__first + __len, {}};
-    }
+  __last = __first + __n;
+  char* __p = __last;
+  do {
+    unsigned __c = __value % __base;
+    __value /= __base;
+    *--__p = "0123456789abcdefghijklmnopqrstuvwxyz"[__c];
+  } while (__value != 0);
+  return {__last, errc(0)};
 }
 
 template <typename _Tp, typename enable_if<is_integral<_Tp>::value, int>::type = 0>
@@ -410,7 +467,7 @@ inline _LIBCPP_INLINE_VISIBILITY from_chars_result
 __sign_combinator(_It __first, _It __last, _Tp& __value, _Fn __f, _Ts... __args)
 {
     using __tl = numeric_limits<_Tp>;
-    decltype(__to_unsigned(__value)) __x;
+    decltype(__to_unsigned_like(__value)) __x;
 
     bool __neg = (__first != __last && *__first == '-');
     auto __r = __f(__neg ? __first + 1 : __first, __last, __x, __args...);
@@ -426,7 +483,7 @@ __sign_combinator(_It __first, _It __last, _Tp& __value, _Fn __f, _Ts... __args)
 
     if (__neg)
     {
-        if (__x <= __complement(__to_unsigned(__tl::min())))
+        if (__x <= __complement(__to_unsigned_like(__tl::min())))
         {
             __x = __complement(__x);
             _VSTD::memcpy(&__value, &__x, sizeof(__x));
@@ -541,7 +598,7 @@ template <typename _Tp, typename enable_if<is_signed<_Tp>::value, int>::type = 0
 inline _LIBCPP_INLINE_VISIBILITY from_chars_result
 __from_chars_atoi(const char* __first, const char* __last, _Tp& __value)
 {
-    using __t = decltype(__to_unsigned(__value));
+    using __t = decltype(__to_unsigned_like(__value));
     return __sign_combinator(__first, __last, __value, __from_chars_atoi<__t>);
 }
 
@@ -555,13 +612,13 @@ __from_chars_integral(const char* __first, const char* __last, _Tp& __value,
 
     return __subject_seq_combinator(
         __first, __last, __value,
-        [](const char* __p, const char* __last, _Tp& __value,
+        [](const char* __p, const char* __lastx, _Tp& __value,
            int __base) -> from_chars_result {
             using __tl = numeric_limits<_Tp>;
             auto __digits = __tl::digits / log2f(float(__base));
             _Tp __a = __in_pattern(*__p++, __base).__val, __b = 0;
 
-            for (int __i = 1; __p != __last; ++__i, ++__p)
+            for (int __i = 1; __p != __lastx; ++__i, ++__p)
             {
                 if (auto __c = __in_pattern(*__p, __base))
                 {
@@ -579,7 +636,7 @@ __from_chars_integral(const char* __first, const char* __last, _Tp& __value,
                     break;
             }
 
-            if (__p == __last || !__in_pattern(*__p, __base))
+            if (__p == __lastx || !__in_pattern(*__p, __base))
             {
                 if (__tl::max() - __a >= __b)
                 {
@@ -597,7 +654,7 @@ inline _LIBCPP_INLINE_VISIBILITY from_chars_result
 __from_chars_integral(const char* __first, const char* __last, _Tp& __value,
                       int __base)
 {
-    using __t = decltype(__to_unsigned(__value));
+    using __t = decltype(__to_unsigned_like(__value));
     return __sign_combinator(__first, __last, __value,
                              __from_chars_integral<__t>, __base);
 }
@@ -617,10 +674,10 @@ from_chars(const char* __first, const char* __last, _Tp& __value, int __base)
     return __from_chars_integral(__first, __last, __value, __base);
 }
 
-#endif  // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_CXX03_LANG
 
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif  // _LIBCPP_CHARCONV
+#endif // _LIBCPP_CHARCONV
