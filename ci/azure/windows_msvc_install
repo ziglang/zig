@@ -13,4 +13,4 @@ wget -nv "https://ziglang.org/deps/$TARBALL"
 # If the first extraction fails, re-try it once; this can happen if the tarball
 # contains symlinks that are in the table of contents before the files that
 # they point to.
-tar -xf $TARBALL || tar -xf --overwrite $TARBALL
+tar -xf $TARBALL || tar --overwrite -xf $TARBALL
