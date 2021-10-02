@@ -4529,6 +4529,7 @@ pub const RealPathError = error{
     AccessDenied,
     NameTooLong,
     NotSupported,
+    NotLink,
     NotDir,
     SymLinkLoop,
     InputOutput,
