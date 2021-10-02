@@ -10566,6 +10566,7 @@ fn advanceSourceCursor(astgen: *AstGen, source: []const u8, end: usize) void {
     var i = astgen.source_offset;
     var line = astgen.source_line;
     var column = astgen.source_column;
+    assert(i <= end);
     while (i < end) : (i += 1) {
         if (source[i] == '\n') {
             line += 1;
