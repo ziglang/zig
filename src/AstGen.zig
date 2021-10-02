@@ -6016,17 +6016,17 @@ fn switchExpr(
                 break :blk &case_scope.base;
             }
             const capture = if (case_node == special_node) capture: {
-               const capture_tag: Zir.Inst.Tag = if (is_ptr)
-                   .switch_capture_else_ref
-               else
-                   .switch_capture_else;
-               break :capture try case_scope.add(.{
-                   .tag = capture_tag,
-                   .data = .{ .switch_capture = .{
-                       .switch_inst = switch_block,
-                       .prong_index = undefined,
-                   } },
-               });
+                const capture_tag: Zir.Inst.Tag = if (is_ptr)
+                    .switch_capture_else_ref
+                else
+                    .switch_capture_else;
+                break :capture try case_scope.add(.{
+                    .tag = capture_tag,
+                    .data = .{ .switch_capture = .{
+                        .switch_inst = switch_block,
+                        .prong_index = undefined,
+                    } },
+                });
             } else capture: {
                 const is_multi_case_bits: u2 = @boolToInt(is_multi_case);
                 const is_ptr_bits: u2 = @boolToInt(is_ptr);
@@ -6160,8 +6160,7 @@ fn switchExpr(
     const zir_datas = astgen.instructions.items(.data);
     zir_datas[switch_block].pl_node.payload_index = @intCast(u32, payload_index);
     // Documentation for this: `Zir.Inst.SwitchBlock` and `Zir.Inst.SwitchBlockMulti`.
-    try astgen.extra.ensureUnusedCapacity(gpa,
-        @as(usize, 2) + // operand, scalar_cases_len
+    try astgen.extra.ensureUnusedCapacity(gpa, @as(usize, 2) + // operand, scalar_cases_len
         @boolToInt(multi_cases_len != 0) +
         special_case_payload.items.len +
         scalar_cases_payload.items.len +
