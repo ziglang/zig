@@ -170,6 +170,9 @@
       background: #a8b9cc;
       color: #000;
     }
+    figcaption.y-cap {
+      background: #fcdba5;
+    }
     figcaption.javascript-cap {
       background: #365d95;
       color: #fff;
@@ -199,7 +202,7 @@
     pre {
       counter-reset: line;
     }
-    pre span.line:before {
+    pre .line:before {
       counter-increment: line;
       content: counter(line);
       display: inline-block;
@@ -211,7 +214,7 @@
     th pre code {
         background: none;
     }
-    th span.line:before {
+    th .line:before {
         display: none;
     }
 
@@ -285,6 +288,10 @@
           color: #aaa;
       }
       figcaption.zig-cap {
+          background-color: #b27306;
+          color: #000;
+      }
+      figcaption.y-cap {
           background-color: #b27306;
           color: #000;
       }
@@ -11650,7 +11657,7 @@ fn readU32Be() u32 {}
       {#header_close#}
 
       {#header_open|Grammar#}
-      {#syntax_block|peg|grammar.y#}Root <- skip container_doc_comment? ContainerMembers eof
+      {#syntax_block|y|grammar.y#}Root <- skip container_doc_comment? ContainerMembers eof
 
 # *** Top level ***
 ContainerMembers <- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)

@@ -313,7 +313,7 @@ const SyntaxBlock = struct {
     const SourceType = enum {
         zig,
         c,
-        peg,
+        y,
         javascript,
     };
 };
@@ -667,8 +667,8 @@ fn genToc(allocator: *Allocator, tokenizer: *Tokenizer) !Toc {
                         source_type = SyntaxBlock.SourceType.zig;
                     } else if (mem.eql(u8, source_type_str, "c")) {
                         source_type = SyntaxBlock.SourceType.c;
-                    } else if (mem.eql(u8, source_type_str, "peg")) {
-                        source_type = SyntaxBlock.SourceType.c;
+                    } else if (mem.eql(u8, source_type_str, "y")) {
+                        source_type = SyntaxBlock.SourceType.y;
                     } else if (mem.eql(u8, source_type_str, "javascript")) {
                         source_type = SyntaxBlock.SourceType.javascript;
                     } else {
