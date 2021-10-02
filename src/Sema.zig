@@ -6916,6 +6916,11 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         }
     }
 
+    const final_len = lhs_info.len + rhs_info.len;
+    const final_len_including_sent = final_len + @boolToInt(res_sent != null);
+    const is_pointer = lhs_ty.zigTypeTag() == .Pointer;
+
+    // at comptime!
     if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
         if (try sema.resolveDefinedValue(block, rhs_src, rhs)) |rhs_val| {
             const lhs_sub_val = if (is_pointer) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
@@ -6959,9 +6964,71 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         } else {
             return sema.fail(block, lhs_src, "TODO runtime array_cat", .{});
         }
-    } else {
-        return sema.fail(block, lhs_src, "TODO runtime array_cat", .{});
     }
+
+    // at runtime!
+    const usize_ty = Type.initTag(.usize);
+    const array_ty = if (res_sent) |rs|
+        try Type.Tag.array_sentinel.create(sema.arena, .{ .len = final_len, .elem_type = lhs_info.elem_type, .sentinel = rs })
+    else
+        try Type.Tag.array.create(sema.arena, .{ .len = final_len, .elem_type = lhs_info.elem_type });
+    const ptr_ty = try Type.ptr(sema.arena, .{
+        .pointee_type = array_ty,
+        .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+    });
+    const alloc = try block.addTy(.alloc, ptr_ty);
+
+    // TODO there is some ownership issue where if one of these is comptime-known, it generates an invalid tv
+    const ptr_to_lhs = if (!is_pointer) try sema.analyzeRef(block, lhs_src, lhs) else lhs;
+    const ptr_to_rhs = if (!is_pointer) try sema.analyzeRef(block, rhs_src, rhs) else rhs;
+
+    try sema.requireRuntimeBlock(block, lhs_src);
+
+    // memcpy(alloc, ptr_to_lhs, lhs_info.len);
+    _ = try block.addInst(.{
+        .tag = .memcpy,
+        .data = .{
+            .pl_op = .{
+                .operand = alloc,
+                .payload = try sema.addExtra(
+                    Air.Bin{
+                        .lhs = ptr_to_lhs,
+                        .rhs = try sema.addIntUnsigned(usize_ty, lhs_info.len),
+                    },
+                ),
+            },
+        },
+    });
+
+    // memcpy(alloc + lhs_info.len, ptr_to_rhs, rhs_info.len);
+    const alloc_offsetted = try block.addInst(.{
+        .tag = .ptr_elem_ptr,
+        .data = .{ .ty_pl = .{
+            .ty = try sema.addType(ptr_ty),
+            .payload = try sema.addExtra(Air.Bin{
+                .lhs = alloc,
+                .rhs = try sema.addIntUnsigned(usize_ty, lhs_info.len),
+            }),
+        } },
+    });
+    _ = try block.addInst(.{
+        .tag = .memcpy,
+        .data = .{
+            .pl_op = .{
+                .operand = alloc_offsetted,
+                .payload = try sema.addExtra(
+                    Air.Bin{
+                        .lhs = ptr_to_rhs,
+                        .rhs = try sema.addIntUnsigned(usize_ty, rhs_info.len),
+                    },
+                ),
+            },
+        },
+    });
+    return if (lhs_ty.zigTypeTag() == .Pointer)
+        alloc
+    else
+        try sema.analyzeLoad(block, .unneeded, alloc, .unneeded);
 }
 
 fn getArrayCatInfo(t: Type) ?Type.ArrayInfo {
