@@ -892,6 +892,7 @@ pub const NativeTargetInfo = struct {
 
                             error.AccessDenied,
                             error.FileNotFound,
+                            error.NotLink,
                             error.NotDir,
                             => continue,
 
