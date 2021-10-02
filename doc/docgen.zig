@@ -1725,7 +1725,7 @@ test "shell parsed" {
             \\$ zig build test.zig
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
             \\</samp></pre></figure>
         ;
 
@@ -1733,6 +1733,7 @@ test "shell parsed" {
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out);
+        std.log.emerg("{s}", .{buffer.items});
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -1741,8 +1742,8 @@ test "shell parsed" {
             \\build output
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
-            \\build output
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
+            \\<span class="line">build output</span>
             \\</samp></pre></figure>
         ;
 
@@ -1759,9 +1760,9 @@ test "shell parsed" {
             \\$ ./test
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
-            \\build output
-            \\$ <kbd>./test</kbd>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
+            \\<span class="line">build output</span>
+            \\<span class="line">$ <kbd>./test</kbd></span>
             \\</samp></pre></figure>
         ;
 
@@ -1779,10 +1780,10 @@ test "shell parsed" {
             \\output
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
-            \\
-            \\$ <kbd>./test</kbd>
-            \\output
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
+            \\<span class="line"></span>
+            \\<span class="line">$ <kbd>./test</kbd></span>
+            \\<span class="line">output</span>
             \\</samp></pre></figure>
         ;
 
@@ -1799,9 +1800,9 @@ test "shell parsed" {
             \\output
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
-            \\$ <kbd>./test</kbd>
-            \\output
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
+            \\<span class="line">$ <kbd>./test</kbd></span>
+            \\<span class="line">output</span>
             \\</samp></pre></figure>
         ;
 
@@ -1820,11 +1821,11 @@ test "shell parsed" {
             \\output
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig \
-            \\ --build-option</kbd>
-            \\build output
-            \\$ <kbd>./test</kbd>
-            \\output
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig \</span>
+            \\<span class="line"> --build-option</kbd></span>
+            \\<span class="line">build output</span>
+            \\<span class="line">$ <kbd>./test</kbd></span>
+            \\<span class="line">output</span>
             \\</samp></pre></figure>
         ;
 
@@ -1843,10 +1844,10 @@ test "shell parsed" {
             \\$ ./test
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig \
-            \\ --build-option1 \
-            \\ --build-option2</kbd>
-            \\$ <kbd>./test</kbd>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig \</span>
+            \\<span class="line"> --build-option1 \</span>
+            \\<span class="line"> --build-option2</kbd></span>
+            \\<span class="line">$ <kbd>./test</kbd></span>
             \\</samp></pre></figure>
         ;
 
@@ -1862,8 +1863,8 @@ test "shell parsed" {
             \\$ ./test
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig \
-            \\$ ./test</kbd>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig \</span>
+            \\<span class="line">$ ./test</kbd></span>
             \\</samp></pre></figure>
         ;
 
@@ -1880,9 +1881,9 @@ test "shell parsed" {
             \\$1
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
-            \\$ <kbd>./test</kbd>
-            \\$1
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
+            \\<span class="line">$ <kbd>./test</kbd></span>
+            \\<span class="line">$1</span>
             \\</samp></pre></figure>
         ;
 
@@ -1897,7 +1898,7 @@ test "shell parsed" {
             \\$zig build test.zig
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$zig build test.zig
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$zig build test.zig</span>
             \\</samp></pre></figure>
         ;
 
