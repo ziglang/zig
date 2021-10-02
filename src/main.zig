@@ -3233,7 +3233,7 @@ pub fn cmdFmt(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !voi
             const Module = @import("Module.zig");
             const AstGen = @import("AstGen.zig");
 
-            var file: Module.Scope.File = .{
+            var file: Module.File = .{
                 .status = .never_loaded,
                 .source_loaded = true,
                 .zir_loaded = false,
@@ -3429,7 +3429,7 @@ fn fmtPathFile(
         const Module = @import("Module.zig");
         const AstGen = @import("AstGen.zig");
 
-        var file: Module.Scope.File = .{
+        var file: Module.File = .{
             .status = .never_loaded,
             .source_loaded = true,
             .zir_loaded = false,
@@ -4019,7 +4019,7 @@ pub fn cmdAstCheck(
         }
     }
 
-    var file: Module.Scope.File = .{
+    var file: Module.File = .{
         .status = .never_loaded,
         .source_loaded = false,
         .tree_loaded = false,
@@ -4170,7 +4170,7 @@ pub fn cmdChangelist(
     if (stat.size > max_src_size)
         return error.FileTooBig;
 
-    var file: Module.Scope.File = .{
+    var file: Module.File = .{
         .status = .never_loaded,
         .source_loaded = false,
         .tree_loaded = false,

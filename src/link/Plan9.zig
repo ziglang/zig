@@ -57,7 +57,7 @@ path_arena: std.heap.ArenaAllocator,
 /// of the function to know what file it came from.
 /// If we group the decls by file, it makes it really easy to do this (put the symbol in the correct place)
 fn_decl_table: std.AutoArrayHashMapUnmanaged(
-    *Module.Scope.File,
+    *Module.File,
     struct { sym_index: u32, functions: std.AutoArrayHashMapUnmanaged(*Module.Decl, FnDeclOutput) = .{} },
 ) = .{},
 data_decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, []const u8) = .{},
@@ -163,11 +163,11 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Plan9 {
 
 fn putFn(self: *Plan9, decl: *Module.Decl, out: FnDeclOutput) !void {
     const gpa = self.base.allocator;
-    const fn_map_res = try self.fn_decl_table.getOrPut(gpa, decl.namespace.file_scope);
+    const fn_map_res = try self.fn_decl_table.getOrPut(gpa, decl.getFileScope());
     if (fn_map_res.found_existing) {
         try fn_map_res.value_ptr.functions.put(gpa, decl, out);
     } else {
-        const file = decl.namespace.file_scope;
+        const file = decl.getFileScope();
         const arena = &self.path_arena.allocator;
         // each file gets a symbol
         fn_map_res.value_ptr.* = .{
@@ -548,7 +548,7 @@ pub fn freeDecl(self: *Plan9, decl: *Module.Decl) void {
     const is_fn = (decl.val.tag() == .function);
     if (is_fn) {
         var symidx_and_submap =
-            self.fn_decl_table.get(decl.namespace.file_scope).?;
+            self.fn_decl_table.get(decl.getFileScope()).?;
         var submap = symidx_and_submap.functions;
         _ = submap.swapRemove(decl);
         if (submap.count() == 0) {

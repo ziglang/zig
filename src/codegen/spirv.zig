@@ -139,7 +139,7 @@ pub const SPIRVModule = struct {
     }
 
     fn resolveSourceFileName(self: *SPIRVModule, decl: *Decl) !ResultId {
-        const path = decl.namespace.file_scope.sub_file_path;
+        const path = decl.getFileScope().sub_file_path;
         const result = try self.file_names.getOrPut(path);
         if (!result.found_existing) {
             result.value_ptr.* = self.allocResultId();
@@ -295,7 +295,7 @@ pub const DeclGen = struct {
     fn fail(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
         const src: LazySrcLoc = .{ .node_offset = 0 };
-        const src_loc = src.toSrcLocWithDecl(self.decl);
+        const src_loc = src.toSrcLoc(self.decl);
         self.error_msg = try Module.ErrorMsg.create(self.spv.module.gpa, src_loc, format, args);
         return error.AnalysisFail;
     }

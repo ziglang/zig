@@ -557,7 +557,7 @@ pub const DeclGen = struct {
     fn todo(self: *DeclGen, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
         @setCold(true);
         assert(self.err_msg == null);
-        const src_loc = @as(LazySrcLoc, .{ .node_offset = 0 }).toSrcLocWithDecl(self.decl);
+        const src_loc = @as(LazySrcLoc, .{ .node_offset = 0 }).toSrcLoc(self.decl);
         self.err_msg = try Module.ErrorMsg.create(self.gpa, src_loc, "TODO (LLVM): " ++ format, args);
         return error.CodegenFail;
     }
@@ -1819,7 +1819,7 @@ pub const FuncGen = struct {
 
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const air_asm = self.air.extraData(Air.Asm, ty_pl.payload);
-        const zir = self.dg.decl.namespace.file_scope.zir;
+        const zir = self.dg.decl.getFileScope().zir;
         const extended = zir.instructions.items(.data)[air_asm.data.zir_index].extended;
         const zir_extra = zir.extraData(Zir.Inst.Asm, extended.operand);
         const asm_source = zir.nullTerminatedString(zir_extra.data.asm_source);

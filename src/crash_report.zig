@@ -8,6 +8,7 @@ const print_zir = @import("print_zir.zig");
 const Module = @import("Module.zig");
 const Sema = @import("Sema.zig");
 const Zir = @import("Zir.zig");
+const Decl = Module.Decl;
 
 pub const is_enabled = builtin.mode == .Debug;
 
@@ -36,7 +37,7 @@ fn en(val: anytype) En(@TypeOf(val)) {
 pub const AnalyzeBody = struct {
     parent: if (is_enabled) ?*AnalyzeBody else void,
     sema: En(*Sema),
-    block: En(*Module.Scope.Block),
+    block: En(*Sema.Block),
     body: En([]const Zir.Inst.Index),
     body_index: En(usize),
 
@@ -64,7 +65,7 @@ pub const AnalyzeBody = struct {
 
 threadlocal var zir_state: ?*AnalyzeBody = if (is_enabled) null else @compileError("Cannot use zir_state if crash_report is disabled.");
 
-pub fn prepAnalyzeBody(sema: *Sema, block: *Module.Scope.Block, body: []const Zir.Inst.Index) AnalyzeBody {
+pub fn prepAnalyzeBody(sema: *Sema, block: *Sema.Block, body: []const Zir.Inst.Index) AnalyzeBody {
     if (is_enabled) {
         return .{
             .parent = null,
@@ -87,7 +88,7 @@ fn dumpStatusReport() !void {
     const allocator = &fba.allocator;
 
     const stderr = io.getStdErr().writer();
-    const block: *Scope.Block = anal.block;
+    const block: *Sema.Block = anal.block;
 
     try stderr.writeAll("Analyzing ");
     try writeFullyQualifiedDeclWithFile(block.src_decl, stderr);
@@ -97,7 +98,7 @@ fn dumpStatusReport() !void {
         allocator,
         anal.body,
         anal.body_index,
-        block.src_decl.getFileScope(),
+        block.namespace.file_scope,
         block.src_decl.src_node,
         6, // indent
         stderr,
@@ -106,7 +107,7 @@ fn dumpStatusReport() !void {
         else => |e| return e,
     };
     try stderr.writeAll("    For full context, use the command\n      zig ast-check -t ");
-    try writeFilePath(block.src_decl.getFileScope(), stderr);
+    try writeFilePath(block.namespace.file_scope, stderr);
     try stderr.writeAll("\n\n");
 
     var parent = anal.parent;
@@ -118,7 +119,7 @@ fn dumpStatusReport() !void {
         print_zir.renderSingleInstruction(
             allocator,
             curr.body[curr.body_index],
-            curr.block.src_decl.getFileScope(),
+            curr.block.namespace.file_scope,
             curr.block.src_decl.src_node,
             6, // indent
             stderr,
@@ -134,12 +135,9 @@ fn dumpStatusReport() !void {
     try stderr.writeAll("\n");
 }
 
-const Scope = Module.Scope;
-const Decl = Module.Decl;
-
 var crash_heap: [16 * 4096]u8 = undefined;
 
-fn writeFilePath(file: *Scope.File, stream: anytype) !void {
+fn writeFilePath(file: *Module.File, stream: anytype) !void {
     if (file.pkg.root_src_directory.path) |path| {
         try stream.writeAll(path);
         try stream.writeAll(std.fs.path.sep_str);
@@ -150,7 +148,7 @@ fn writeFilePath(file: *Scope.File, stream: anytype) !void {
 fn writeFullyQualifiedDeclWithFile(decl: *Decl, stream: anytype) !void {
     try writeFilePath(decl.getFileScope(), stream);
     try stream.writeAll(": ");
-    try decl.namespace.renderFullyQualifiedName(std.mem.sliceTo(decl.name, 0), stream);
+    try decl.renderFullyQualifiedDebugName(stream);
 }
 
 fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {

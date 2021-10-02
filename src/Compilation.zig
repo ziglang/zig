@@ -54,7 +54,7 @@ c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
 /// These jobs are to tokenize, parse, and astgen files, which may be outdated
 /// since the last compilation, as well as scan for `@import` and queue up
 /// additional jobs corresponding to those new files.
-astgen_work_queue: std.fifo.LinearFifo(*Module.Scope.File, .Dynamic),
+astgen_work_queue: std.fifo.LinearFifo(*Module.File, .Dynamic),
 
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
@@ -446,7 +446,7 @@ pub const AllErrors = struct {
     pub fn addZir(
         arena: *Allocator,
         errors: *std.ArrayList(Message),
-        file: *Module.Scope.File,
+        file: *Module.File,
     ) !void {
         assert(file.zir_loaded);
         assert(file.tree_loaded);
@@ -1444,7 +1444,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .emit_docs = options.emit_docs,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
-            .astgen_work_queue = std.fifo.LinearFifo(*Module.Scope.File, .Dynamic).init(gpa),
+            .astgen_work_queue = std.fifo.LinearFifo(*Module.File, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
             .use_clang = use_clang,
             .clang_argv = options.clang_argv,
@@ -1770,7 +1770,7 @@ pub fn update(self: *Compilation) !void {
                 assert(decl.deletion_flag);
                 assert(decl.dependants.count() == 0);
                 const is_anon = if (decl.zir_decl_index == 0) blk: {
-                    break :blk decl.namespace.anon_decls.swapRemove(decl);
+                    break :blk decl.src_namespace.anon_decls.swapRemove(decl);
                 } else false;
 
                 try module.clearDecl(decl, null);
@@ -1889,13 +1889,13 @@ pub fn totalErrorCount(self: *Compilation) usize {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (module.failed_decls.keys()) |key| {
-            if (key.namespace.file_scope.okToReportErrors()) {
+            if (key.getFileScope().okToReportErrors()) {
                 total += 1;
             }
         }
         if (module.emit_h) |emit_h| {
             for (emit_h.failed_decls.keys()) |key| {
-                if (key.namespace.file_scope.okToReportErrors()) {
+                if (key.getFileScope().okToReportErrors()) {
                     total += 1;
                 }
             }
@@ -1968,7 +1968,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             while (it.next()) |entry| {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (entry.key_ptr.*.namespace.file_scope.okToReportErrors()) {
+                if (entry.key_ptr.*.getFileScope().okToReportErrors()) {
                     try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
                 }
             }
@@ -1978,7 +1978,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             while (it.next()) |entry| {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (entry.key_ptr.*.namespace.file_scope.okToReportErrors()) {
+                if (entry.key_ptr.*.getFileScope().okToReportErrors()) {
                     try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
                 }
             }
@@ -2169,12 +2169,12 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 defer air.deinit(gpa);
 
                 log.debug("analyze liveness of {s}", .{decl.name});
-                var liveness = try Liveness.analyze(gpa, air, decl.namespace.file_scope.zir);
+                var liveness = try Liveness.analyze(gpa, air, decl.getFileScope().zir);
                 defer liveness.deinit(gpa);
 
                 if (builtin.mode == .Debug and self.verbose_air) {
                     std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
-                    @import("print_air.zig").dump(gpa, air, decl.namespace.file_scope.zir, liveness);
+                    @import("print_air.zig").dump(gpa, air, decl.getFileScope().zir, liveness);
                     std.debug.print("# End Function AIR: {s}\n\n", .{decl.name});
                 }
 
@@ -2465,14 +2465,14 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
 const AstGenSrc = union(enum) {
     root,
     import: struct {
-        importing_file: *Module.Scope.File,
+        importing_file: *Module.File,
         import_tok: std.zig.Ast.TokenIndex,
     },
 };
 
 fn workerAstGenFile(
     comp: *Compilation,
-    file: *Module.Scope.File,
+    file: *Module.File,
     prog_node: *std.Progress.Node,
     wg: *WaitGroup,
     src: AstGenSrc,
@@ -2742,7 +2742,7 @@ fn reportRetryableCObjectError(
 fn reportRetryableAstGenError(
     comp: *Compilation,
     src: AstGenSrc,
-    file: *Module.Scope.File,
+    file: *Module.File,
     err: anyerror,
 ) error{OutOfMemory}!void {
     const mod = comp.bin_file.options.module.?;

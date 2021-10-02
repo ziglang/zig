@@ -540,7 +540,7 @@ pub const Context = struct {
     /// Sets `err_msg` on `Context` and returns `error.CodegemFail` which is caught in link/Wasm.zig
     fn fail(self: *Context, comptime fmt: []const u8, args: anytype) InnerError {
         const src: LazySrcLoc = .{ .node_offset = 0 };
-        const src_loc = src.toSrcLocWithDecl(self.decl);
+        const src_loc = src.toSrcLoc(self.decl);
         self.err_msg = try Module.ErrorMsg.create(self.gpa, src_loc, fmt, args);
         return error.CodegenFail;
     }

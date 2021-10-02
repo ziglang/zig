@@ -2584,7 +2584,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue) !void {
             const ty_str = self.air.instructions.items(.data)[inst].ty_str;
-            const zir = &self.mod_fn.owner_decl.namespace.file_scope.zir;
+            const zir = &self.mod_fn.owner_decl.getFileScope().zir;
             const name = zir.nullTerminatedString(ty_str.str);
             const name_with_null = name.ptr[0 .. name.len + 1];
             const ty = self.air.getRefType(ty_str.ty);
@@ -3834,7 +3834,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             const air_datas = self.air.instructions.items(.data);
             const air_extra = self.air.extraData(Air.Asm, air_datas[inst].ty_pl.payload);
-            const zir = self.mod_fn.owner_decl.namespace.file_scope.zir;
+            const zir = self.mod_fn.owner_decl.getFileScope().zir;
             const extended = zir.instructions.items(.data)[air_extra.data.zir_index].extended;
             const zir_extra = zir.extraData(Zir.Inst.Asm, extended.operand);
             const asm_source = zir.nullTerminatedString(zir_extra.data.asm_source);
