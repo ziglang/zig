@@ -1046,7 +1046,6 @@ const llvm_libs = [_][]const u8{
     "LLVMRemarks",
     "LLVMBitstreamReader",
     "LLVMBinaryFormat",
-    "LLVMTableGen",
     "LLVMSupport",
     "LLVMDemangle",
 };
