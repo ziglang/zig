@@ -148,6 +148,12 @@ pub fn buildLibCXX(comp: *Compilation) !void {
             try cflags.append("-fno-exceptions");
         }
 
+        if (target.os.tag == .zos) {
+            try cflags.append("-fno-aligned-allocation");
+        } else {
+            try cflags.append("-faligned-allocation");
+        }
+
         try cflags.append("-I");
         try cflags.append(cxx_include_path);
 
