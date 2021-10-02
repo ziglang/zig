@@ -524,6 +524,8 @@ fn addStaticLlvmOptionsToExe(
         exe.linkSystemLibrary(lib_name);
     }
 
+    exe.linkSystemLibrary("z");
+
     // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
     exe.linkSystemLibrary("c++");
 
