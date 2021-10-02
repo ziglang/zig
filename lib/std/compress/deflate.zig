@@ -702,8 +702,22 @@ test "empty distance alphabet" {
 
 test "inflateStream fuzzing" {
     // see https://github.com/ziglang/zig/issues/9842
-    try std.testing.expectError(error.EndOfStream, testInflate("\x950000"));
+    try std.testing.expectError(error.EndOfStream, testInflate("\x95\x90=o\xc20\x10\x86\xf30"));
     try std.testing.expectError(error.OutOfCodes, testInflate("\x950\x00\x0000000"));
+
+    // Huffman.construct errors
+    // lencode
+    try std.testing.expectError(error.InvalidTree, testInflate("\x950000"));
+    try std.testing.expectError(error.InvalidTree, testInflate("\x05000"));
+    // hlen
+    try std.testing.expectError(error.InvalidTree, testInflate("\x05\xea\x01\t\x00\x00\x00\x01\x00\\\xbf.\t\x00"));
+    // hdist
+    try std.testing.expectError(error.InvalidTree, testInflate("\x05\xe0\x01A\x00\x00\x00\x00\x10\\\xbf."));
+
+    // Huffman.construct -> error.IncompleteSet returns that shouldn't give error.InvalidTree
+    // (like the "empty distance alphabet" test but for ndist instead of nlen)
+    try std.testing.expectError(error.EndOfStream, testInflate("\x05\xe0\x01\t\x00\x00\x00\x00\x10\\\xbf\xce"));
+    try testInflate("\x15\xe0\x01\t\x00\x00\x00\x00\x10\\\xbf.0");
 }
 
 fn testInflate(data: []const u8) !void {
