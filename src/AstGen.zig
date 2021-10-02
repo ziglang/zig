@@ -5936,10 +5936,11 @@ fn switchExpr(
     const operand_ty_inst = try parent_gz.addUnNode(typeof_tag, operand, operand_node);
     const item_rl: ResultLoc = .{ .ty = operand_ty_inst };
 
-    // Contains the data that goes into the `extra` array for the SwitchBlock/SwitchBlockMulti.
-    // This is the header as well as the optional else prong body, as well as all the
-    // scalar cases.
-    // At the end we will memcpy this into place.
+    // These contain the data that goes into the `extra` array for the SwitchBlock/SwitchBlockMulti.
+    // This is the optional else prong body.
+    var special_case_payload = ArrayListUnmanaged(u32){};
+    defer special_case_payload.deinit(gpa);
+    // This is all the scalar cases.
     var scalar_cases_payload = ArrayListUnmanaged(u32){};
     defer scalar_cases_payload.deinit(gpa);
     // Same deal, but this is only the `extra` data for the multi cases.
@@ -5957,86 +5958,10 @@ fn switchExpr(
     var case_scope = parent_gz.makeSubBlock(&block_scope.base);
     defer case_scope.instructions.deinit(gpa);
 
-    // Do the else/`_` first because it goes first in the payload.
-    var capture_val_scope: Scope.LocalVal = undefined;
-    if (special_node != 0) {
-        const case = switch (node_tags[special_node]) {
-            .switch_case_one => tree.switchCaseOne(special_node),
-            .switch_case => tree.switchCase(special_node),
-            else => unreachable,
-        };
-        const sub_scope = blk: {
-            const payload_token = case.payload_token orelse break :blk &case_scope.base;
-            const ident = if (token_tags[payload_token] == .asterisk)
-                payload_token + 1
-            else
-                payload_token;
-            const is_ptr = ident != payload_token;
-            if (mem.eql(u8, tree.tokenSlice(ident), "_")) {
-                if (is_ptr) {
-                    return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
-                }
-                break :blk &case_scope.base;
-            }
-            const capture_tag: Zir.Inst.Tag = if (is_ptr)
-                .switch_capture_else_ref
-            else
-                .switch_capture_else;
-            const capture = try case_scope.add(.{
-                .tag = capture_tag,
-                .data = .{ .switch_capture = .{
-                    .switch_inst = switch_block,
-                    .prong_index = undefined,
-                } },
-            });
-            const capture_name = try astgen.identAsString(payload_token);
-            capture_val_scope = .{
-                .parent = &case_scope.base,
-                .gen_zir = &case_scope,
-                .name = capture_name,
-                .inst = capture,
-                .token_src = payload_token,
-                .id_cat = .@"capture",
-            };
-            break :blk &capture_val_scope.base;
-        };
-        const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
-        try checkUsed(parent_gz, &case_scope.base, sub_scope);
-        if (!parent_gz.refIsNoReturn(case_result)) {
-            block_scope.break_count += 1;
-            _ = try case_scope.addBreak(.@"break", switch_block, case_result);
-        }
-        // Documentation for this: `Zir.Inst.SwitchBlock` and `Zir.Inst.SwitchBlockMulti`.
-        try scalar_cases_payload.ensureUnusedCapacity(gpa, case_scope.instructions.items.len +
-            3 + // operand, scalar_cases_len, else body len
-            @boolToInt(multi_cases_len != 0));
-        scalar_cases_payload.appendAssumeCapacity(@enumToInt(operand));
-        scalar_cases_payload.appendAssumeCapacity(scalar_cases_len);
-        if (multi_cases_len != 0) {
-            scalar_cases_payload.appendAssumeCapacity(multi_cases_len);
-        }
-        scalar_cases_payload.appendAssumeCapacity(@intCast(u32, case_scope.instructions.items.len));
-        scalar_cases_payload.appendSliceAssumeCapacity(case_scope.instructions.items);
-    } else {
-        // Documentation for this: `Zir.Inst.SwitchBlock` and `Zir.Inst.SwitchBlockMulti`.
-        try scalar_cases_payload.ensureUnusedCapacity(
-            gpa,
-            @as(usize, 2) + // operand, scalar_cases_len
-                @boolToInt(multi_cases_len != 0),
-        );
-        scalar_cases_payload.appendAssumeCapacity(@enumToInt(operand));
-        scalar_cases_payload.appendAssumeCapacity(scalar_cases_len);
-        if (multi_cases_len != 0) {
-            scalar_cases_payload.appendAssumeCapacity(multi_cases_len);
-        }
-    }
-
-    // In this pass we generate all the item and prong expressions except the special case.
+    // In this pass we generate all the item and prong expressions.
     var multi_case_index: u32 = 0;
     var scalar_case_index: u32 = 0;
     for (case_nodes) |case_node| {
-        if (case_node == special_node)
-            continue;
         const case = switch (node_tags[case_node]) {
             .switch_case_one => tree.switchCaseOne(case_node),
             .switch_case => tree.switchCase(case_node),
@@ -6046,9 +5971,10 @@ fn switchExpr(
         // Reset the scope.
         case_scope.instructions.shrinkRetainingCapacity(0);
 
-        const is_multi_case = case.ast.values.len != 1 or
-            node_tags[case.ast.values[0]] == .switch_range;
+        const is_multi_case = case.ast.values.len > 1 or
+            (case.ast.values.len == 1 and node_tags[case.ast.values[0]] == .switch_range);
 
+        var capture_val_scope: Scope.LocalVal = undefined;
         const sub_scope = blk: {
             const payload_token = case.payload_token orelse break :blk &case_scope.base;
             const ident = if (token_tags[payload_token] == .asterisk)
@@ -6062,28 +5988,42 @@ fn switchExpr(
                 }
                 break :blk &case_scope.base;
             }
-            const is_multi_case_bits: u2 = @boolToInt(is_multi_case);
-            const is_ptr_bits: u2 = @boolToInt(is_ptr);
-            const capture_tag: Zir.Inst.Tag = switch ((is_multi_case_bits << 1) | is_ptr_bits) {
-                0b00 => .switch_capture,
-                0b01 => .switch_capture_ref,
-                0b10 => .switch_capture_multi,
-                0b11 => .switch_capture_multi_ref,
+            const capture = if (case_node == special_node) capture: {
+               const capture_tag: Zir.Inst.Tag = if (is_ptr)
+                   .switch_capture_else_ref
+               else
+                   .switch_capture_else;
+               break :capture try case_scope.add(.{
+                   .tag = capture_tag,
+                   .data = .{ .switch_capture = .{
+                       .switch_inst = switch_block,
+                       .prong_index = undefined,
+                   } },
+               });
+            } else capture: {
+                const is_multi_case_bits: u2 = @boolToInt(is_multi_case);
+                const is_ptr_bits: u2 = @boolToInt(is_ptr);
+                const capture_tag: Zir.Inst.Tag = switch ((is_multi_case_bits << 1) | is_ptr_bits) {
+                    0b00 => .switch_capture,
+                    0b01 => .switch_capture_ref,
+                    0b10 => .switch_capture_multi,
+                    0b11 => .switch_capture_multi_ref,
+                };
+                const capture_index = if (is_multi_case) ci: {
+                    multi_case_index += 1;
+                    break :ci multi_case_index - 1;
+                } else ci: {
+                    scalar_case_index += 1;
+                    break :ci scalar_case_index - 1;
+                };
+                break :capture try case_scope.add(.{
+                    .tag = capture_tag,
+                    .data = .{ .switch_capture = .{
+                        .switch_inst = switch_block,
+                        .prong_index = capture_index,
+                    } },
+                });
             };
-            const capture_index = if (is_multi_case) ci: {
-                multi_case_index += 1;
-                break :ci multi_case_index - 1;
-            } else ci: {
-                scalar_case_index += 1;
-                break :ci scalar_case_index - 1;
-            };
-            const capture = try case_scope.add(.{
-                .tag = capture_tag,
-                .data = .{ .switch_capture = .{
-                    .switch_inst = switch_block,
-                    .prong_index = capture_index,
-                } },
-            });
             const capture_name = try astgen.identAsString(ident);
             capture_val_scope = .{
                 .parent = &case_scope.base,
@@ -6135,6 +6075,17 @@ fn switchExpr(
             multi_cases_payload.items[header_index + 1] = ranges_len;
             multi_cases_payload.items[header_index + 2] = @intCast(u32, case_scope.instructions.items.len);
             try multi_cases_payload.appendSlice(gpa, case_scope.instructions.items);
+        } else if (case_node == special_node) {
+            const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
+            try checkUsed(parent_gz, &case_scope.base, sub_scope);
+            if (!parent_gz.refIsNoReturn(case_result)) {
+                block_scope.break_count += 1;
+                _ = try case_scope.addBreak(.@"break", switch_block, case_result);
+            }
+            try special_case_payload.ensureUnusedCapacity(gpa, 1 + // body_len
+                case_scope.instructions.items.len);
+            special_case_payload.appendAssumeCapacity(@intCast(u32, case_scope.instructions.items.len));
+            special_case_payload.appendSliceAssumeCapacity(case_scope.instructions.items);
         } else {
             const item_node = case.ast.values[0];
             const item_inst = try comptimeExpr(parent_gz, scope, item_rl, item_node);
@@ -6144,7 +6095,7 @@ fn switchExpr(
                 block_scope.break_count += 1;
                 _ = try case_scope.addBreak(.@"break", switch_block, case_result);
             }
-            try scalar_cases_payload.ensureUnusedCapacity(gpa, 2 +
+            try scalar_cases_payload.ensureUnusedCapacity(gpa, 2 + // item + body_len
                 case_scope.instructions.items.len);
             scalar_cases_payload.appendAssumeCapacity(@enumToInt(item_inst));
             scalar_cases_payload.appendAssumeCapacity(@intCast(u32, case_scope.instructions.items.len));
@@ -6181,8 +6132,18 @@ fn switchExpr(
     const payload_index = astgen.extra.items.len;
     const zir_datas = astgen.instructions.items(.data);
     zir_datas[switch_block].pl_node.payload_index = @intCast(u32, payload_index);
-    try astgen.extra.ensureUnusedCapacity(gpa, scalar_cases_payload.items.len +
+    // Documentation for this: `Zir.Inst.SwitchBlock` and `Zir.Inst.SwitchBlockMulti`.
+    try astgen.extra.ensureUnusedCapacity(gpa,
+        @as(usize, 2) + // operand, scalar_cases_len
+        @boolToInt(multi_cases_len != 0) +
+        special_case_payload.items.len +
+        scalar_cases_payload.items.len +
         multi_cases_payload.items.len);
+    astgen.extra.appendAssumeCapacity(@enumToInt(operand));
+    astgen.extra.appendAssumeCapacity(scalar_cases_len);
+    if (multi_cases_len != 0) {
+        astgen.extra.appendAssumeCapacity(multi_cases_len);
+    }
     const strat = rl.strategy(&block_scope);
     switch (strat.tag) {
         .break_operand => {
@@ -6190,6 +6151,7 @@ fn switchExpr(
             // `elide_store_to_block_ptr_instructions` will either be true,
             // or all prongs are noreturn.
             if (!strat.elide_store_to_block_ptr_instructions) {
+                astgen.extra.appendSliceAssumeCapacity(special_case_payload.items);
                 astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items);
                 astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items);
                 return indexToRef(switch_block);
@@ -6205,32 +6167,30 @@ fn switchExpr(
             // it as the break operand.
 
             var extra_index: usize = 0;
-            extra_index += 2;
-            extra_index += @boolToInt(multi_cases_len != 0);
             if (special_prong != .none) special_prong: {
                 const body_len_index = extra_index;
-                const body_len = scalar_cases_payload.items[extra_index];
+                const body_len = special_case_payload.items[extra_index];
                 extra_index += 1;
                 if (body_len < 2) {
                     extra_index += body_len;
-                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
+                    astgen.extra.appendSliceAssumeCapacity(special_case_payload.items[0..extra_index]);
                     break :special_prong;
                 }
                 extra_index += body_len - 2;
-                const store_inst = scalar_cases_payload.items[extra_index];
+                const store_inst = special_case_payload.items[extra_index];
                 if (zir_tags[store_inst] != .store_to_block_ptr or
                     zir_datas[store_inst].bin.lhs != block_scope.rl_ptr)
                 {
                     extra_index += 2;
-                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
+                    astgen.extra.appendSliceAssumeCapacity(special_case_payload.items[0..extra_index]);
                     break :special_prong;
                 }
                 assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
                 if (block_scope.rl_ty_inst != .none) {
                     extra_index += 1;
-                    const break_inst = scalar_cases_payload.items[extra_index];
+                    const break_inst = special_case_payload.items[extra_index];
                     extra_index += 1;
-                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
+                    astgen.extra.appendSliceAssumeCapacity(special_case_payload.items[0..extra_index]);
                     zir_tags[store_inst] = .as;
                     zir_datas[store_inst].bin = .{
                         .lhs = block_scope.rl_ty_inst,
@@ -6238,15 +6198,16 @@ fn switchExpr(
                     };
                     zir_datas[break_inst].@"break".operand = indexToRef(store_inst);
                 } else {
-                    scalar_cases_payload.items[body_len_index] -= 1;
-                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
+                    special_case_payload.items[body_len_index] -= 1;
+                    astgen.extra.appendSliceAssumeCapacity(special_case_payload.items[0..extra_index]);
                     extra_index += 1;
-                    astgen.extra.appendAssumeCapacity(scalar_cases_payload.items[extra_index]);
+                    astgen.extra.appendAssumeCapacity(special_case_payload.items[extra_index]);
                     extra_index += 1;
                 }
             } else {
-                astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
+                astgen.extra.appendSliceAssumeCapacity(special_case_payload.items[0..extra_index]);
             }
+            extra_index = 0;
             var scalar_i: u32 = 0;
             while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
                 const start_index = extra_index;
@@ -6343,6 +6304,7 @@ fn switchExpr(
         },
         .break_void => {
             assert(!strat.elide_store_to_block_ptr_instructions);
+            astgen.extra.appendSliceAssumeCapacity(special_case_payload.items);
             astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items);
             astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items);
             // Modify all the terminating instruction tags to become `break` variants.
