@@ -32,6 +32,9 @@ pub const CValue = union(enum) {
     /// By-value
     decl: *Decl,
     decl_ref: *Decl,
+    /// Render these bytes literally.
+    /// TODO make this a [*:0]const u8 to save memory
+    bytes: []const u8,
 };
 
 const BlockData = struct {
@@ -120,7 +123,7 @@ pub const Function = struct {
 
     fn allocLocal(f: *Function, ty: Type, mutability: Mutability) !CValue {
         const local_value = f.allocLocalValue();
-        try f.object.renderTypeAndName(f.object.writer(), ty, local_value, mutability);
+        try f.object.dg.renderTypeAndName(f.object.writer(), ty, local_value, mutability);
         return local_value;
     }
 
@@ -131,7 +134,7 @@ pub const Function = struct {
                 const val = f.air.value(inst).?;
                 return f.object.dg.renderValue(w, ty, val);
             },
-            else => return Object.writeCValue(w, c_value),
+            else => return DeclGen.writeCValue(w, c_value),
         }
     }
 
@@ -153,82 +156,6 @@ pub const Object = struct {
 
     fn writer(o: *Object) IndentWriter(std.ArrayList(u8).Writer).Writer {
         return o.indent_writer.writer();
-    }
-
-    fn writeCValue(w: anytype, c_value: CValue) !void {
-        switch (c_value) {
-            .none => unreachable,
-            .local => |i| return w.print("t{d}", .{i}),
-            .local_ref => |i| return w.print("&t{d}", .{i}),
-            .constant => unreachable,
-            .arg => |i| return w.print("a{d}", .{i}),
-            .decl => |decl| return w.writeAll(mem.span(decl.name)),
-            .decl_ref => |decl| return w.print("&{s}", .{decl.name}),
-        }
-    }
-
-    fn renderTypeAndName(
-        o: *Object,
-        w: anytype,
-        ty: Type,
-        name: CValue,
-        mutability: Mutability,
-    ) error{ OutOfMemory, AnalysisFail }!void {
-        var suffix = std.ArrayList(u8).init(o.dg.gpa);
-        defer suffix.deinit();
-
-        var render_ty = ty;
-        while (render_ty.zigTypeTag() == .Array) {
-            const sentinel_bit = @boolToInt(render_ty.sentinel() != null);
-            const c_len = render_ty.arrayLen() + sentinel_bit;
-            try suffix.writer().print("[{d}]", .{c_len});
-            render_ty = render_ty.elemType();
-        }
-
-        if (render_ty.zigTypeTag() == .Fn) {
-            const ret_ty = render_ty.fnReturnType();
-            if (ret_ty.zigTypeTag() == .NoReturn) {
-                // noreturn attribute is not allowed here.
-                try w.writeAll("void");
-            } else {
-                try o.dg.renderType(w, ret_ty);
-            }
-            try w.writeAll(" (*");
-            switch (mutability) {
-                .Const => try w.writeAll("const "),
-                .Mut => {},
-            }
-            try writeCValue(w, name);
-            try w.writeAll(")(");
-            const param_len = render_ty.fnParamLen();
-            const is_var_args = render_ty.fnIsVarArgs();
-            if (param_len == 0 and !is_var_args)
-                try w.writeAll("void")
-            else {
-                var index: usize = 0;
-                while (index < param_len) : (index += 1) {
-                    if (index > 0) {
-                        try w.writeAll(", ");
-                    }
-                    try o.dg.renderType(w, render_ty.fnParamType(index));
-                }
-            }
-            if (is_var_args) {
-                if (param_len != 0) try w.writeAll(", ");
-                try w.writeAll("...");
-            }
-            try w.writeByte(')');
-        } else {
-            try o.dg.renderType(w, render_ty);
-
-            const const_prefix = switch (mutability) {
-                .Const => "const ",
-                .Mut => "",
-            };
-            try w.print(" {s}", .{const_prefix});
-            try writeCValue(w, name);
-        }
-        try w.writeAll(suffix.items);
     }
 };
 
@@ -486,7 +413,7 @@ pub const DeclGen = struct {
             .Struct => {
                 const field_vals = val.castTag(.@"struct").?.data;
 
-                try ty.renderFullyQualifiedName(writer);
+                try dg.renderType(writer, ty);
                 try writer.writeAll("{");
 
                 for (field_vals) |field_val, i| {
@@ -740,9 +667,11 @@ pub const DeclGen = struct {
                 {
                     var it = struct_obj.fields.iterator();
                     while (it.next()) |entry| {
+                        const field_ty = entry.value_ptr.ty;
+                        const name: CValue = .{ .bytes = entry.key_ptr.* };
                         try buffer.append(' ');
-                        try dg.renderType(buffer.writer(), entry.value_ptr.ty);
-                        try buffer.writer().print(" {s};\n", .{fmtIdent(entry.key_ptr.*)});
+                        try dg.renderTypeAndName(buffer.writer(), field_ty, name, .Mut);
+                        try buffer.appendSlice(";\n");
                     }
                 }
                 try buffer.appendSlice("} ");
@@ -808,6 +737,70 @@ pub const DeclGen = struct {
         }
     }
 
+    fn renderTypeAndName(
+        dg: *DeclGen,
+        w: anytype,
+        ty: Type,
+        name: CValue,
+        mutability: Mutability,
+    ) error{ OutOfMemory, AnalysisFail }!void {
+        var suffix = std.ArrayList(u8).init(dg.gpa);
+        defer suffix.deinit();
+
+        var render_ty = ty;
+        while (render_ty.zigTypeTag() == .Array) {
+            const sentinel_bit = @boolToInt(render_ty.sentinel() != null);
+            const c_len = render_ty.arrayLen() + sentinel_bit;
+            try suffix.writer().print("[{d}]", .{c_len});
+            render_ty = render_ty.elemType();
+        }
+
+        if (render_ty.zigTypeTag() == .Fn) {
+            const ret_ty = render_ty.fnReturnType();
+            if (ret_ty.zigTypeTag() == .NoReturn) {
+                // noreturn attribute is not allowed here.
+                try w.writeAll("void");
+            } else {
+                try dg.renderType(w, ret_ty);
+            }
+            try w.writeAll(" (*");
+            switch (mutability) {
+                .Const => try w.writeAll("const "),
+                .Mut => {},
+            }
+            try writeCValue(w, name);
+            try w.writeAll(")(");
+            const param_len = render_ty.fnParamLen();
+            const is_var_args = render_ty.fnIsVarArgs();
+            if (param_len == 0 and !is_var_args)
+                try w.writeAll("void")
+            else {
+                var index: usize = 0;
+                while (index < param_len) : (index += 1) {
+                    if (index > 0) {
+                        try w.writeAll(", ");
+                    }
+                    try dg.renderType(w, render_ty.fnParamType(index));
+                }
+            }
+            if (is_var_args) {
+                if (param_len != 0) try w.writeAll(", ");
+                try w.writeAll("...");
+            }
+            try w.writeByte(')');
+        } else {
+            try dg.renderType(w, render_ty);
+
+            const const_prefix = switch (mutability) {
+                .Const => "const ",
+                .Mut => "",
+            };
+            try w.print(" {s}", .{const_prefix});
+            try writeCValue(w, name);
+        }
+        try w.writeAll(suffix.items);
+    }
+
     fn declIsGlobal(dg: *DeclGen, tv: TypedValue) bool {
         switch (tv.val.tag()) {
             .extern_fn => return true,
@@ -820,6 +813,19 @@ pub const DeclGen = struct {
                 return dg.module.decl_exports.contains(variable.owner_decl);
             },
             else => unreachable,
+        }
+    }
+
+    fn writeCValue(w: anytype, c_value: CValue) !void {
+        switch (c_value) {
+            .none => unreachable,
+            .local => |i| return w.print("t{d}", .{i}),
+            .local_ref => |i| return w.print("&t{d}", .{i}),
+            .constant => unreachable,
+            .arg => |i| return w.print("a{d}", .{i}),
+            .decl => |decl| return w.writeAll(mem.span(decl.name)),
+            .decl_ref => |decl| return w.print("&{s}", .{decl.name}),
+            .bytes => |bytes| return w.writeAll(bytes),
         }
     }
 };
@@ -891,7 +897,7 @@ pub fn genDecl(o: *Object) !void {
         // https://github.com/ziglang/zig/issues/7582
 
         const decl_c_value: CValue = .{ .decl = o.dg.decl };
-        try o.renderTypeAndName(writer, tv.ty, decl_c_value, .Mut);
+        try o.dg.renderTypeAndName(writer, tv.ty, decl_c_value, .Mut);
 
         try writer.writeAll(" = ");
         try o.dg.renderValue(writer, tv.ty, tv.val);
