@@ -1569,6 +1569,70 @@ test "big.int truncate negative multi to single" {
     try testing.expect((try a.to(i17)) == 0);
 }
 
+test "big.int saturate single signed positive" {
+    var a = try Managed.initSet(testing.allocator, 0xBBBB_BBBB);
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .signed, 17);
+
+    try testing.expect((try a.to(i17)) == maxInt(i17));
+}
+
+test "big.int saturate single signed negative" {
+    var a = try Managed.initSet(testing.allocator, -1_234_567);
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .signed, 17);
+
+    try testing.expect((try a.to(i17)) == minInt(i17));
+}
+
+test "big.int saturate single signed" {
+    var a = try Managed.initSet(testing.allocator, maxInt(i17) - 1);
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .signed, 17);
+
+    try testing.expect((try a.to(i17)) == maxInt(i17) - 1);
+}
+
+test "big.int saturate multi signed" {
+    var a = try Managed.initSet(testing.allocator, maxInt(Limb) << @bitSizeOf(SignedDoubleLimb));
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == maxInt(SignedDoubleLimb));
+}
+
+test "big.int saturate single unsigned" {
+    var a = try Managed.initSet(testing.allocator, 0xFEFE_FEFE);
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .unsigned, 23);
+
+    try testing.expect((try a.to(u23)) == maxInt(u23));
+}
+
+test "big.int saturate multi unsigned zero" {
+    var a = try Managed.initSet(testing.allocator, -1);
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+
+    try testing.expect(a.eqZero());
+}
+
+
+test "big.int saturate multi unsigned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(Limb) << @bitSizeOf(DoubleLimb));
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+
+    try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb));
+}
+
 test "big.int shift-right single" {
     var a = try Managed.initSet(testing.allocator, 0xffff0000);
     defer a.deinit();
