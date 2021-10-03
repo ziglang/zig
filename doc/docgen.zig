@@ -990,9 +990,15 @@ fn tokenizeAndPrintRaw(
             },
 
             .multiline_string_literal_line => {
-                try out.writeAll("<span class=\"tok-str\">");
-                try writeEscaped(out, src[token.loc.start .. token.loc.end - 1]);
-                try out.writeAll("</span>" ++ end_line ++ "\n" ++ start_line);
+                if (src[token.loc.end - 1] == '\n') {
+                    try out.writeAll("<span class=\"tok-str\">");
+                    try writeEscaped(out, src[token.loc.start .. token.loc.end - 1]);
+                    try out.writeAll("</span>" ++ end_line ++ "\n" ++ start_line);
+                } else {
+                    try out.writeAll("<span class=\"tok-str\">");
+                    try writeEscaped(out, src[token.loc.start..token.loc.end]);
+                    try out.writeAll("</span>");
+                }
             },
 
             .builtin => {
