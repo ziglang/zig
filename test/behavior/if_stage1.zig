@@ -2,17 +2,6 @@ const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-test "const result loc, runtime if cond, else unreachable" {
-    const Num = enum {
-        One,
-        Two,
-    };
-
-    var t = true;
-    const x = if (t) Num.Two else unreachable;
-    try expect(x == .Two);
-}
-
 test "if prongs cast to expected type instead of peer type resolution" {
     const S = struct {
         fn doTheTest(f: bool) !void {

@@ -4891,7 +4891,7 @@ fn orelseCatchExpr(
     // We cannot use `block_scope.break_result_loc` because that has the bare
     // type, whereas this expression has the optional type. Later we make
     // up for this fact by calling rvalue on the else branch.
-    const operand = try expr(&block_scope, &block_scope.base, operand_rl, lhs);
+    const operand = try reachableExpr(&block_scope, &block_scope.base, operand_rl, lhs, rhs);
     const cond = try block_scope.addUnNode(cond_op, operand, node);
     const condbr = try block_scope.addCondBr(.condbr, node);
 
@@ -4930,8 +4930,10 @@ fn orelseCatchExpr(
         break :blk &err_val_scope.base;
     };
 
-    block_scope.break_count += 1;
     const else_result = try expr(&else_scope, else_sub_scope, block_scope.break_result_loc, rhs);
+    if (!else_scope.endsWithNoReturn()) {
+        block_scope.break_count += 1;
+    }
     try checkUsed(parent_gz, &else_scope.base, else_sub_scope);
 
     // We hold off on the break instructions as well as copying the then/else
@@ -5249,8 +5251,10 @@ fn ifExpr(
         }
     };
 
-    block_scope.break_count += 1;
     const then_result = try expr(&then_scope, then_sub_scope, block_scope.break_result_loc, if_full.ast.then_expr);
+    if (!then_scope.endsWithNoReturn()) {
+        block_scope.break_count += 1;
+    }
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
     // We hold off on the break instructions as well as copying the then/else
     // instructions into place until we know whether to keep store_to_block_ptr
@@ -5264,7 +5268,6 @@ fn ifExpr(
         src: Ast.Node.Index,
         result: Zir.Inst.Ref,
     } = if (else_node != 0) blk: {
-        block_scope.break_count += 1;
         const sub_scope = s: {
             if (if_full.error_token) |error_token| {
                 const tag: Zir.Inst.Tag = if (payload_is_ref)
@@ -5291,6 +5294,9 @@ fn ifExpr(
             }
         };
         const e = try expr(&else_scope, sub_scope, block_scope.break_result_loc, else_node);
+        if (!else_scope.endsWithNoReturn()) {
+            block_scope.break_count += 1;
+        }
         try checkUsed(parent_gz, &else_scope.base, sub_scope);
         break :blk .{
             .src = else_node,
