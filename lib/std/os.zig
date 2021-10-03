@@ -4804,6 +4804,9 @@ pub fn dl_iterate_phdr(
 
 pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
 
+/// WARNING: CLOCK_REALTIME may have discontinuities following a leap second.
+/// This is for compatibility with existing code that needs POSIX timestamps.
+/// For a more robust and well-specified calendar timestamp, consider std.time.timestamp().
 /// TODO: change this to return the timespec as a return value
 /// TODO: look into making clk_id an enum
 pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
@@ -4823,13 +4826,32 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
     }
     if (builtin.os.tag == .windows) {
         if (clk_id == CLOCK.REALTIME) {
+            // FILETIME is in Utc2018.
+            // When the ITU agrees that leap seconds are bad, the runtime calculation of
+            // leap_seconds_since_2018 can be removed.
             var ft: windows.FILETIME = undefined;
-            windows.kernel32.GetSystemTimeAsFileTime(&ft);
-            // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch.
-            const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+            windows.kernel32.GetSystemTimePreciseAsFileTime(&ft);
+            var st: windows.SYSTEMTIME = undefined;
+            if (!windows.kernel32.FileTimeToSystemTime(&ft, &st)) return error.UnsupportedClock;
+
+            var leap_seconds_since_2018 = 0;
+
+            const ft_now = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
             const ft_per_s = std.time.ns_per_s / 100;
+            const ft_per_day = ft_per_s * std.time.s_per_day;
+            if (st.wYear >= 2021) {
+                // Use the same SYSTEMTIME, but in 2018, to calculate the number of leap seconds.
+                st.wYear = 2018;
+                if (!windows.kernel32.SystemTimeToFileTime(&st, &ft)) return error.UnsupportedClock;
+                const ft_2018 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+
+                // mod by ft_per_day removes leap days
+                leap_seconds_since_2018 = ((ft_now - ft_2018) % ft_per_day) / ft_per_s;
+            }
+            
+            const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
             tp.* = .{
-                .tv_sec = @intCast(i64, ft64 / ft_per_s) + std.time.epoch.windows,
+                .tv_sec = @intCast(i64, ft64 / ft_per_s) + std.time.epoch.windows - leap_seconds_since_2018,
                 .tv_nsec = @intCast(c_long, ft64 % ft_per_s) * 100,
             };
             return;

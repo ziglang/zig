@@ -1,5 +1,6 @@
 //! Epoch reference times in terms of their difference from
-//! UTC 1970-01-01 in seconds.
+//! UTC 1970-01-01 in seconds. Assumes no leap seconds occured
+//! in UTC (which is false).
 const std = @import("../std.zig");
 const testing = std.testing;
 const math = std.math;

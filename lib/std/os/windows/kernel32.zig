@@ -34,6 +34,7 @@ const Win32Error = windows.Win32Error;
 const va_list = windows.va_list;
 const HLOCAL = windows.HLOCAL;
 const FILETIME = windows.FILETIME;
+const SYSTEMTIME = windows.SYSTEMTIME;
 const STARTUPINFOW = windows.STARTUPINFOW;
 const PROCESS_INFORMATION = windows.PROCESS_INFORMATION;
 const OVERLAPPED_ENTRY = windows.OVERLAPPED_ENTRY;
@@ -229,6 +230,8 @@ pub extern "kernel32" fn GetQueuedCompletionStatusEx(
 pub extern "kernel32" fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) callconv(WINAPI) void;
 pub extern "kernel32" fn GetSystemTimeAsFileTime(*FILETIME) callconv(WINAPI) void;
 pub extern "kernel32" fn GetSystemTimePreciseAsFileTime(*FILETIME) callconv(WINAPI) void;
+pub extern "kernel32" fn FileTimeToSystemTime(*const FILETIME, *SYSTEMTIME) BOOL;
+pub extern "kernel32" fn SystemTimeToFileTime (*const SYSTEMTIME, *FILETIME) BOOL;
 
 pub extern "kernel32" fn GetThreadTimes(HANDLE, *FILETIME, *FILETIME, *FILETIME, *FILETIME) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn GetProcessTimes(HANDLE, *FILETIME, *FILETIME, *FILETIME, *FILETIME) callconv(WINAPI) BOOL;

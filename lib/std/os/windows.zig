@@ -1746,33 +1746,26 @@ pub fn peb() *PEB {
     return teb().ProcessEnvironmentBlock;
 }
 
-/// A file time is a 64-bit value that represents the number of 100-nanosecond
-/// intervals that have elapsed since 12:00 A.M. January 1, 1601 Coordinated
-/// Universal Time (UTC).
-/// This function returns the number of nanoseconds since the canonical epoch,
-/// which is the POSIX one (Jan 01, 1970 AD).
-pub fn fromSysTime(hns: i64) i128 {
-    const adjusted_epoch: i128 = hns + std.time.epoch.windows * (std.time.ns_per_s / 100);
-    return adjusted_epoch * 100;
+/// A FILETIME is a 64-bit value that represents the number of 100-nanosecond intervals that have
+/// elapsed since 12:00 A.M. January 1, 1601 in 2018's Coordinated Universal Time (Utc2018).
+/// This returns canonical Zig 'std' Utc2018, specified in 36.28 fixed-point.
+pub fn stdTimeFromFileTime(ft: FILETIME) u64 {
+    // Fixed-point math. Move to the left for 60 bits of fraction.  
+    const ft_68_60 = @as(u128, ft) << 60;
+
+    // Convert from 100ns units to seconds. 10_000_000 100ns units per second.
+    // Fractional part remains in the 60 lowest bits.
+    const st_68_60 = ft_68_60 / (std.time.ns_per_s / 100);
+
+    // Truncate to a reasonable range and precision (remove 32 bits on both ends) 
+    return @truncate(u64, st_68_60 >> 32);
 }
 
-pub fn toSysTime(ns: i128) i64 {
-    const hns = @divFloor(ns, 100);
-    return @intCast(i64, hns) - std.time.epoch.windows * (std.time.ns_per_s / 100);
-}
+pub fn fileTimeFromStdTime(st: u64) FILETIME {
+    const ft_68_60 = @as(u128, st) * (std.time.ns_per_s / 100);
 
-pub fn fileTimeToNanoSeconds(ft: FILETIME) i128 {
-    const hns = (@as(i64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-    return fromSysTime(hns);
-}
-
-/// Converts a number of nanoseconds since the POSIX epoch to a Windows FILETIME.
-pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
-    const adjusted = @bitCast(u64, toSysTime(ns));
-    return FILETIME{
-        .dwHighDateTime = @truncate(u32, adjusted >> 32),
-        .dwLowDateTime = @truncate(u32, adjusted),
-    };
+    // Fixed-point math. Move to the right to remove 60 bits of fraction.  
+    return @truncate(u64, ft_68_60 >> 60);
 }
 
 pub const PathSpace = struct {
@@ -2691,9 +2684,28 @@ pub const WIN32_FIND_DATAW = extern struct {
     cAlternateFileName: [14]u16,
 };
 
-pub const FILETIME = extern struct {
-    dwLowDateTime: DWORD,
-    dwHighDateTime: DWORD,
+
+/// A FILETIME is a 64-bit value that represents the number of 100-nanosecond intervals that have 
+/// elapsed since 12:00 A.M. January 1, 1601 in 2018's Coordinated Universal Time (Utc2018).
+/// This value is unsigned because values prior to the Gregorian calendar don't make sense.
+/// FILETIME is really just a u64, even though Windows headers expose it as two u32 fields for 
+/// the benefit of ancient compilers that didn't support 64-bit types. Zig isn't ancient :-)
+/// No worries about byte order, Windows will NEVER run on big-endian architectures.
+pub const FILETIME = u64;
+// extern struct {
+//     dwLowDateTime: DWORD,
+//     dwHighDateTime: DWORD,
+// };
+
+pub const SYSTEMTIME = extern struct {
+    wYear: WORD,
+    wMonth: WORD,
+    wDayOfWeek: WORD,
+    wDay: WORD,
+    wHour: WORD,
+    wMinute: WORD,
+    wSecond: WORD,
+    wMilliseconds: WORD,
 };
 
 pub const SYSTEM_INFO = extern struct {

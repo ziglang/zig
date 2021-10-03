@@ -6,6 +6,12 @@ const os = std.os;
 const math = std.math;
 const is_windows = builtin.os.tag == .windows;
 
+pub const utc2018 = std.utc2018;
+
+const ctime = @cImport({
+    @cInclude("time.h");
+});
+
 pub const epoch = @import("time/epoch.zig");
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
@@ -85,6 +91,19 @@ pub fn nanoTimestamp() i128 {
         // "Precision of timing depends on hardware and OS".
         error.UnsupportedClock, error.Unexpected => 0,
     };
+}
+
+pub fn stdTimeFromPosixTimeAlreadyUtc2018(ts: os.timespec) u64 {
+    // Convert to Utc2018 seconds
+    const utc2018_seconds = @as(i128, ts.tv_sec) + utc2018.posix;
+
+    // Fixed-point math. Move to the left for 60 bits of fraction.  
+    const utc2018_seconds_68_60 = utc2018_seconds << 60;
+    const utc2018_ns_68_60 = @as(i128, ts.tv_nsec) << 60;
+    
+    // Convert from 1ns units to seconds.
+    // Fractional part remains in the 60 lowest bits.
+    return utc2018_seconds_68_60 + (utc2018_ns_68_60 / ns_per_s);
 }
 
 test "timestamp" {
@@ -210,7 +229,31 @@ pub const Clock = struct {
     /// Id represents the type of clock source to interact with.
     /// Each clock sources may start, tick, and change in different ways.
     pub const Id = enum {
-        /// Returns nanoseconds since Unix Epoch (Jan 1 1970)
+        /// Returns ticks since Zig's Utc2018 Epoch: 00:00:00 Jan. 1, 1601 in 2018's
+        /// UTC (00:00:37 TAI Jan. 1, 1601). These timestamps don't jump around with leap seconds,
+        /// like UTC does.
+        /// These ticks run at 2^60 Hz. This is silly large.
+        /// It's a fixed-point value in (1.67.60).
+        /// Ignore the Sign bit, values prior to the Gregorian calendar make no sense.
+        /// Shift right by 60 to get seconds with no fractional part.
+        /// For a more reasonable precision, consider shifting right by 32 and truncating to a u64.
+        /// This leaves a fixed-point value (36.28 format).
+        /// 36 bits for seconds allows timestamps between year 1601 and year 3780
+        /// 28 bits for fraction gives ~4ns precision (2^28 Hz = 268_435_456 Hz)
+        /// NOTE: This suffers from discontinuities due to NTP initialization or manual time changes.
+        utc2018,
+        /// Returns nanoseconds since the current Unix Epoch (Jan 1 1970).
+        /// Forward and backward jumps happen non-deterministically when the system time
+        /// changes (manually, from NTP, leap seconds, or others). Except on systems that 
+        /// use a 'leap smearing' NTP server, building any logic around this timestamp may
+        /// lead to bugs.
+        /// NOTE: 
+        /// * A new Unix Epoch is created every leap second.
+        /// * Comparing values across systems is unspecified due to unknown number of
+        ///   leap seconds within each timestamp.
+        /// * On Windows, the returned value will be offset by the number of
+        ///   Leap Seconds that were declared and then occurred since this std library
+        ///   was compiled into your program.
         realtime,
         /// Returns nanoseconds since an arbitrary point in time. Increments while suspended
         monotonic,
@@ -236,10 +279,14 @@ pub const Clock = struct {
 
     const PosixImpl = struct {
         pub fn read(id: Id) Error!i128 {
-            const clock_id = toOsClockId(id) orelse return error.UnsupportedClock;
-            var ts: os.timespec = undefined;
-            try os.clock_gettime(clock_id, &ts);
-            return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;
+            if (id == Id.utc2018) {
+                return @as(i128, try utc2018.now());
+            } else {
+                const clock_id = toOsClockId(id) orelse return error.UnsupportedClock;
+                var ts: os.timespec = undefined;
+                try os.clock_gettime(clock_id, &ts);
+                return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;
+            }
         }
 
         // https://github.com/polazarus/oclock-testing/blob/master/docs/clock_gettime.md
@@ -282,7 +329,8 @@ pub const Clock = struct {
     const WindowsImpl = struct {
         pub fn read(id: Id) Error!i128 {
             return switch (id) {
-                .realtime => getSystemTime(),
+                .utc2018 => @intCast(i128, try utc2018.now()),
+                .realtime => getUnixTime(),
                 .monotonic => getInterruptTime(),
                 .uptime => getUnbiasedInterruptTime(),
                 .thread_cputime => getCpuTime("GetThreadTimes", "GetCurrentThread"),
@@ -290,15 +338,15 @@ pub const Clock = struct {
             };
         }
 
-        fn getSystemTime() i128 {
+        fn getUnixTime() i128 {
             var ft: os.windows.FILETIME = undefined;
             os.windows.kernel32.GetSystemTimePreciseAsFileTime(&ft);
-            const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
 
             // FileTime has a granularity of 100ns and uses the NTFS/Windows epoch
-            // which is 1601-01-01
+            // which is 1601-01-01. Explicitly doesn't have leap seconds (as of June 2018).
+            // WARNING: epoch.windows will be incorrect by the number of leap seconds after 2018!
             const epoch_adj = epoch.windows * (ns_per_s / 100);
-            return @as(i128, @bitCast(i64, ft64) + epoch_adj) * 100;
+            return (@intCast(i128, ft) + epoch_adj) * 100;
         }
 
         /// TODO: Replace with QueryInterruptTimePrecise() once available
@@ -358,7 +406,7 @@ pub const Clock = struct {
 
         /// Calls either GetThreadTimes or GetProcessTimes and returns
         /// the amount of nanoseconds spent in userspace and the the kernel.
-        fn getCpuTime(comptime GetTimesFn: []const u8, comptime GetCurrentFn: []const u8) !i128 {
+        fn getCpuTime(comptime GetTimesFn: []const u8, comptime GetCurrentFn: []const u8) Error!i128 {
             var creation_time: os.windows.FILETIME = undefined;
             var exit_time: os.windows.FILETIME = undefined;
             var kernel_time: os.windows.FILETIME = undefined;
@@ -377,8 +425,8 @@ pub const Clock = struct {
                 return os.windows.unexpectedError(err);
             }
 
-            var cpu_time: i128 = (@as(u64, kernel_time.dwHighDateTime) << 32) | kernel_time.dwLowDateTime;
-            cpu_time += (@as(u64, user_time.dwHighDateTime) << 32) | user_time.dwLowDateTime;
+            var cpu_time = @intCast(i128, kernel_time);
+            cpu_time += user_time;
             return cpu_time * 100;
         }
     };

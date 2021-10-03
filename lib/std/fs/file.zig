@@ -5,6 +5,7 @@ const io = std.io;
 const mem = std.mem;
 const math = std.math;
 const assert = std.debug.assert;
+const time = std.time;
 const windows = os.windows;
 const Os = std.builtin.Os;
 const maxInt = std.math.maxInt;
@@ -284,12 +285,12 @@ pub const File = struct {
         mode: Mode,
         kind: Kind,
 
-        /// Access time in nanoseconds, relative to UTC 1970-01-01.
-        atime: i128,
-        /// Last modification time in nanoseconds, relative to UTC 1970-01-01.
-        mtime: i128,
-        /// Creation time in nanoseconds, relative to UTC 1970-01-01.
-        ctime: i128,
+        /// Access time in Zig std Utc2018.
+        atime: u64,
+        /// Last modification time in Zig std Utc2018.
+        mtime: u64,
+        /// Creation time in Zig std Utc2018.
+        ctime: u64,
     };
 
     pub const StatError = os.FStatError;
@@ -312,9 +313,9 @@ pub const File = struct {
                 .size = @bitCast(u64, info.StandardInformation.EndOfFile),
                 .mode = 0,
                 .kind = if (info.StandardInformation.Directory == 0) .File else .Directory,
-                .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
-                .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
-                .ctime = windows.fromSysTime(info.BasicInformation.CreationTime),
+                .atime = windows.stdTimeFromFileTime(@intCast(u64, info.BasicInformation.LastAccessTime)),
+                .mtime = windows.stdTimeFromFileTime(@intCast(u64, info.BasicInformation.LastWriteTime)),
+                .ctime = windows.stdTimeFromFileTime(@intCast(u64, info.BasicInformation.CreationTime)),
             };
         }
 
@@ -356,9 +357,9 @@ pub const File = struct {
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
             .kind = kind,
-            .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            .atime = time.stdTimeFromPosixTime(atime),
+            .mtime = time.stdTimeFromPosixTime(mtime),
+            .ctime = time.stdTimeFromPosixTime(ctime),
         };
     }
 
@@ -371,14 +372,14 @@ pub const File = struct {
     /// TODO: integrate with async I/O
     pub fn updateTimes(
         self: File,
-        /// access timestamp in nanoseconds
-        atime: i128,
-        /// last modification timestamp in nanoseconds
-        mtime: i128,
+        /// access timestamp in Zig std Utc2018
+        atime: u64,
+        /// last modification timestamp in Zig std Utc2018
+        mtime: u64,
     ) UpdateTimesError!void {
         if (builtin.os.tag == .windows) {
-            const atime_ft = windows.nanoSecondsToFileTime(atime);
-            const mtime_ft = windows.nanoSecondsToFileTime(mtime);
+            const atime_ft = windows.fileTimeFromStdTime(atime);
+            const mtime_ft = windows.fileTimeFromStdTime(mtime);
             return windows.SetFileTime(self.handle, null, &atime_ft, &mtime_ft);
         }
         const times = [2]os.timespec{
