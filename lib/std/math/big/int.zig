@@ -2738,7 +2738,7 @@ pub fn llcmp(a: []const Limb, b: []const Limb) i8 {
 /// The result is computed modulo `r.len`. When `r.len >= a.len + b.len`, no overflow occurs.
 fn llmulaccLong(comptime op: AccOp, r: []Limb, a: []const Limb, b: []const Limb) void {
     @setRuntimeSafety(debug_safety);
-    assert(r.len >= a.len + b.len);
+    assert(r.len >= a.len);
     assert(a.len >= b.len);
 
     var i: usize = 0;

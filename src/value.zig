@@ -1669,7 +1669,7 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+            std.math.big.int.calcTwosCompLimbCount(info.bits),
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.addWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
@@ -1701,7 +1701,7 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+            std.math.big.int.calcTwosCompLimbCount(info.bits),
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.addSat(lhs_bigint, rhs_bigint, info.signedness, info.bits);
@@ -1736,7 +1736,7 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+            std.math.big.int.calcTwosCompLimbCount(info.bits),
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.subWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
@@ -1768,7 +1768,7 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+            std.math.big.int.calcTwosCompLimbCount(info.bits),
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.subSat(lhs_bigint, rhs_bigint, info.signedness, info.bits);
@@ -1794,19 +1794,31 @@ pub const Value = extern union {
         if (ty.isAnyFloat()) {
             return floatMul(lhs, rhs, ty, arena);
         }
-        const result = try intMul(lhs, rhs, arena);
 
-        const max = try ty.maxInt(arena, target);
-        if (compare(result, .gt, max, ty)) {
-            @panic("TODO comptime wrapping integer multiplication");
+        const info = ty.intInfo(target);
+
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcTwosCompLimbCount(info.bits),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        var limbs_buffer = try arena.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcMulWrapLimbsBufferLen(info.bits, lhs_bigint.limbs.len, rhs_bigint.limbs.len, 1),
+        );
+        defer arena.free(limbs_buffer);
+        result_bigint.mulWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits, limbs_buffer, arena);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
         }
-
-        const min = try ty.minInt(arena, target);
-        if (compare(result, .lt, min, ty)) {
-            @panic("TODO comptime wrapping integer multiplication");
-        }
-
-        return result;
     }
 
     /// Supports integers only; asserts neither operand is undefined.
@@ -1820,19 +1832,35 @@ pub const Value = extern union {
         assert(!lhs.isUndef());
         assert(!rhs.isUndef());
 
-        const result = try intMul(lhs, rhs, arena);
+        const info = ty.intInfo(target);
 
-        const max = try ty.maxInt(arena, target);
-        if (compare(result, .gt, max, ty)) {
-            return max;
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.max(
+                // For the saturate
+                std.math.big.int.calcTwosCompLimbCount(info.bits),
+                lhs_bigint.limbs.len + rhs_bigint.limbs.len,
+            ),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        var limbs_buffer = try arena.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcMulLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len, 1),
+        );
+        defer arena.free(limbs_buffer);
+        result_bigint.mul(lhs_bigint, rhs_bigint, limbs_buffer, arena);
+        result_bigint.saturate(result_bigint.toConst(), info.signedness, info.bits);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
         }
-
-        const min = try ty.minInt(arena, target);
-        if (compare(result, .lt, min, ty)) {
-            return min;
-        }
-
-        return result;
     }
 
     /// Supports both floats and ints; handles undefined.
@@ -2144,7 +2172,7 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+            lhs_bigint.limbs.len + rhs_bigint.limbs.len,
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         var limbs_buffer = try allocator.alloc(
