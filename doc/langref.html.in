@@ -170,7 +170,7 @@
       background: #a8b9cc;
       color: #000;
     }
-    figcaption.y-cap {
+    figcaption.peg-cap {
       background: #fcdba5;
     }
     figcaption.javascript-cap {
@@ -291,7 +291,7 @@
           background-color: #b27306;
           color: #000;
       }
-      figcaption.y-cap {
+      figcaption.peg-cap {
           background-color: #b27306;
           color: #000;
       }
@@ -11657,7 +11657,7 @@ fn readU32Be() u32 {}
       {#header_close#}
 
       {#header_open|Grammar#}
-      {#syntax_block|y|grammar.y#}Root <- skip container_doc_comment? ContainerMembers eof
+      {#syntax_block|peg|grammar.y#}Root <- skip container_doc_comment? ContainerMembers eof
 
 # *** Top level ***
 ContainerMembers <- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)
