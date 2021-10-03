@@ -580,9 +580,15 @@ pub const Type = extern union {
                 return a.tag() == b.tag();
             },
             .ErrorUnion => {
-                const a_data = a.castTag(.error_union).?.data;
-                const b_data = b.castTag(.error_union).?.data;
-                return a_data.error_set.eql(b_data.error_set) and a_data.payload.eql(b_data.payload);
+                const a_set = a.errorUnionSet();
+                const b_set = b.errorUnionSet();
+                if (!a_set.eql(b_set)) return false;
+
+                const a_payload = a.errorUnionPayload();
+                const b_payload = b.errorUnionPayload();
+                if (!a_payload.eql(b_payload)) return false;
+
+                return true;
             },
             .ErrorSet => {
                 if (a.tag() == .anyerror and b.tag() == .anyerror) {
@@ -888,6 +894,77 @@ pub const Type = extern union {
         const new_payload = try allocator.create(T);
         new_payload.* = payload.*;
         return Type{ .ptr_otherwise = &new_payload.base };
+    }
+
+    pub fn renderFullyQualifiedName(ty: Type, writer: anytype) !void {
+        const t = ty.tag();
+        switch (t) {
+            .u1,
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .u128,
+            .i128,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .c_void,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .@"anyframe",
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .var_args_param,
+            .bound_fn,
+            => return writer.writeAll(@tagName(t)),
+
+            .enum_literal => return writer.writeAll("@Type(.EnumLiteral)"),
+            .@"null" => return writer.writeAll("@Type(.Null)"),
+            .@"undefined" => return writer.writeAll("@Type(.Undefined)"),
+
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return struct_obj.owner_decl.renderFullyQualifiedName(writer);
+            },
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
+                return union_obj.owner_decl.renderFullyQualifiedName(writer);
+            },
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Payload.EnumFull).?.data;
+                return enum_full.owner_decl.renderFullyQualifiedName(writer);
+            },
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                return enum_simple.owner_decl.renderFullyQualifiedName(writer);
+            },
+            .enum_numbered => {
+                const enum_numbered = ty.castTag(.enum_numbered).?.data;
+                return enum_numbered.owner_decl.renderFullyQualifiedName(writer);
+            },
+            .@"opaque" => @panic("TODO"),
+            else => unreachable,
+        }
     }
 
     pub fn format(
