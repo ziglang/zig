@@ -971,6 +971,84 @@ test "big.int mul large" {
     try testing.expect(b.eq(c));
 }
 
+test "big.int mulWrap single-single unsigned" {
+    var a = try Managed.initSet(testing.allocator, 1234);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 5678);
+    defer b.deinit();
+
+    var c = try Managed.init(testing.allocator);
+    defer c.deinit();
+    try c.mulWrap(a.toConst(), b.toConst(), .unsigned, 17);
+
+    try testing.expect((try c.to(u17)) == 59836);
+}
+
+test "big.int mulWrap single-single signed" {
+    var a = try Managed.initSet(testing.allocator, 1234);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -5678);
+    defer b.deinit();
+
+    var c = try Managed.init(testing.allocator);
+    defer c.deinit();
+    try c.mulWrap(a.toConst(), b.toConst(), .signed, 17);
+
+    try testing.expect((try c.to(i17)) == -59836);
+}
+
+test "big.int mulWrap multi-multi unsigned" {
+    const op1 = 0x998888efefefefefefefef;
+    const op2 = 0x333000abababababababab;
+    var a = try Managed.initSet(testing.allocator, op1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, op2);
+    defer b.deinit();
+
+    var c = try Managed.init(testing.allocator);
+    defer c.deinit();
+    try c.mulWrap(a.toConst(), b.toConst(), .unsigned, 65);
+
+    try testing.expect((try c.to(u256)) == (op1 * op2) & ((1 << 65) - 1));
+}
+
+test "big.int mulWrap multi-multi signed" {
+    var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb) - 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
+    defer b.deinit();
+
+    var c = try Managed.init(testing.allocator);
+    defer c.deinit();
+    try c.mulWrap(a.toConst(), b.toConst(), .signed, 128);
+
+    try testing.expect((try c.to(SignedDoubleLimb)) == minInt(SignedDoubleLimb) + 2);
+}
+
+test "big.int mulWrap large" {
+    var a = try Managed.initCapacity(testing.allocator, 50);
+    defer a.deinit();
+    var b = try Managed.initCapacity(testing.allocator, 100);
+    defer b.deinit();
+    var c = try Managed.initCapacity(testing.allocator, 100);
+    defer c.deinit();
+
+    // Generate a number that's large enough to cross the thresholds for the use
+    // of subquadratic algorithms
+    for (a.limbs) |*p| {
+        p.* = std.math.maxInt(Limb);
+    }
+    a.setMetadata(true, 50);
+
+    const testbits = @bitSizeOf(Limb) * 64 + 45;
+
+    try b.mulWrap(a.toConst(), a.toConst(), .signed, testbits);
+    try c.sqr(a.toConst());
+    try c.truncate(c.toConst(), .signed, testbits);
+
+    try testing.expect(b.eq(c));
+}
+
 test "big.int div single-single no rem" {
     var a = try Managed.initSet(testing.allocator, 50);
     defer a.deinit();
@@ -1622,7 +1700,6 @@ test "big.int saturate multi unsigned zero" {
 
     try testing.expect(a.eqZero());
 }
-
 
 test "big.int saturate multi unsigned" {
     var a = try Managed.initSet(testing.allocator, maxInt(Limb) << @bitSizeOf(DoubleLimb));
