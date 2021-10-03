@@ -17,18 +17,3 @@ test "if prongs cast to expected type instead of peer type resolution" {
     try S.doTheTest(false);
     comptime try S.doTheTest(false);
 }
-
-test "while copies its payload" {
-    const S = struct {
-        fn doTheTest() !void {
-            var tmp: ?i32 = 10;
-            if (tmp) |value| {
-                // Modify the original variable
-                tmp = null;
-                try expectEqual(@as(i32, 10), value);
-            } else unreachable;
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
-}

@@ -121,22 +121,6 @@ fn returnNullLitFromOptionalTypeErrorRef() anyerror!?*A {
     return null;
 }
 
-test "peer type resolution: ?T and T" {
-    try expect(peerTypeTAndOptionalT(true, false).? == 0);
-    try expect(peerTypeTAndOptionalT(false, false).? == 3);
-    comptime {
-        try expect(peerTypeTAndOptionalT(true, false).? == 0);
-        try expect(peerTypeTAndOptionalT(false, false).? == 3);
-    }
-}
-fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
-    if (c) {
-        return if (b) null else @as(usize, 0);
-    }
-
-    return @as(usize, 3);
-}
-
 test "peer type resolution: [0]u8 and []const u8" {
     try expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
     try expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
@@ -201,17 +185,6 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     }
 
     return slice[0..1];
-}
-
-test "resolve undefined with integer" {
-    try testResolveUndefWithInt(true, 1234);
-    comptime try testResolveUndefWithInt(true, 1234);
-}
-fn testResolveUndefWithInt(b: bool, x: i32) !void {
-    const value = if (b) x else undefined;
-    if (b) {
-        try expect(value == x);
-    }
 }
 
 test "implicit cast from &const [N]T to []const T" {
@@ -424,13 +397,6 @@ test "comptime_int @intToFloat" {
     }
 }
 
-test "@intCast i32 to u7" {
-    var x: u128 = maxInt(u128);
-    var y: i32 = 120;
-    var z = x >> @intCast(u7, y);
-    try expect(z == 0xff);
-}
-
 test "@floatCast cast down" {
     {
         var double: f64 = 0.001534;
@@ -533,20 +499,8 @@ test "implicit ptr to *c_void" {
     try expect(c.* == 1);
 }
 
-test "@intCast to comptime_int" {
-    try expect(@intCast(comptime_int, 0) == 0);
-}
-
-test "implicit cast comptime numbers to any type when the value fits" {
-    const a: u64 = 255;
-    var b: u8 = a;
-    try expect(b == 255);
-}
-
 test "@intToEnum passed a comptime_int to an enum with one item" {
-    const E = enum {
-        A,
-    };
+    const E = enum { A };
     const x = @intToEnum(E, 0);
     try expect(x == E.A);
 }
@@ -599,11 +553,6 @@ test "peer type resolution: unreachable, error set, unreachable" {
     try expect(transformed_err == error.SystemResources);
 }
 
-test "implicit cast comptime_int to comptime_float" {
-    comptime try expect(@as(comptime_float, 10) == @as(f32, 10));
-    try expect(2 == 2.0);
-}
-
 test "implicit cast *[0]T to E![]const u8" {
     var x = @as(anyerror![]const u8, &[0]u8{});
     try expect((x catch unreachable).len == 0);
@@ -645,12 +594,7 @@ test "*const [N]null u8 to ?[]const u8" {
 
 test "peer resolution of string literals" {
     const S = struct {
-        const E = enum {
-            a,
-            b,
-            c,
-            d,
-        };
+        const E = enum { a, b, c, d };
 
         fn doTheTest(e: E) !void {
             const cmd = switch (e) {

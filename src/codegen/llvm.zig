@@ -1605,7 +1605,15 @@ pub const FuncGen = struct {
         self.builder.positionBuilderAtEnd(loop_block);
         try self.genBody(body);
 
-        _ = self.builder.buildBr(loop_block);
+        // TODO instead of this logic, change AIR to have the property that
+        // every block is guaranteed to end with a noreturn instruction.
+        // Then we can simply rely on the fact that a repeat or break instruction
+        // would have been emitted already. Also the main loop in genBody can
+        // be while(true) instead of for(body), which will eliminate 1 branch on
+        // a hot path.
+        if (body.len == 0 or !self.air.typeOfIndex(body[body.len - 1]).isNoReturn()) {
+            _ = self.builder.buildBr(loop_block);
+        }
         return null;
     }
 

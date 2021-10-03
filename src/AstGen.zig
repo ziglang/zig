@@ -5537,8 +5537,10 @@ fn whileExpr(
         });
     }
 
-    loop_scope.break_count += 1;
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
+    if (!then_scope.endsWithNoReturn()) {
+        loop_scope.break_count += 1;
+    }
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
 
     var else_scope = parent_gz.makeSubBlock(&continue_scope.base);
@@ -5549,7 +5551,6 @@ fn whileExpr(
         src: Ast.Node.Index,
         result: Zir.Inst.Ref,
     } = if (else_node != 0) blk: {
-        loop_scope.break_count += 1;
         const sub_scope = s: {
             if (while_full.error_token) |error_token| {
                 const tag: Zir.Inst.Tag = if (payload_is_ref)
@@ -5576,6 +5577,9 @@ fn whileExpr(
             }
         };
         const e = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
+        if (!else_scope.endsWithNoReturn()) {
+            loop_scope.break_count += 1;
+        }
         try checkUsed(parent_gz, &else_scope.base, sub_scope);
         break :blk .{
             .src = else_node,
@@ -5746,8 +5750,10 @@ fn forExpr(
         break :blk &index_scope.base;
     };
 
-    loop_scope.break_count += 1;
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, for_full.ast.then_expr);
+    if (!then_scope.endsWithNoReturn()) {
+        loop_scope.break_count += 1;
+    }
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
 
     var else_scope = parent_gz.makeSubBlock(&cond_scope.base);
@@ -5758,11 +5764,14 @@ fn forExpr(
         src: Ast.Node.Index,
         result: Zir.Inst.Ref,
     } = if (else_node != 0) blk: {
-        loop_scope.break_count += 1;
         const sub_scope = &else_scope.base;
+        const else_result = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
+        if (!else_scope.endsWithNoReturn()) {
+            loop_scope.break_count += 1;
+        }
         break :blk .{
             .src = else_node,
-            .result = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node),
+            .result = else_result,
         };
     } else .{
         .src = for_full.ast.then_expr,
