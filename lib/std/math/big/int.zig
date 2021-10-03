@@ -44,6 +44,11 @@ pub fn calcMulLimbsBufferLen(a_len: usize, b_len: usize, aliases: usize) usize {
     return aliases * math.max(a_len, b_len);
 }
 
+pub fn calcMulWrapLimbsBufferLen(bit_count: usize, a_len: usize, b_len: usize, aliases: usize) usize {
+    const req_limbs = calcTwosCompLimbCount(bit_count);
+    return aliases * math.min(req_limbs, math.max(a_len, b_len));
+}
+
 pub fn calcSetStringLimbsBufferLen(base: u8, string_len: usize) usize {
     const limb_count = calcSetStringLimbCount(base, string_len);
     return calcMulLimbsBufferLen(limb_count, limb_count, 2);
@@ -611,7 +616,7 @@ pub const Mutable = struct {
     /// `a` and `b` may alias with each other.
     ///
     /// Asserts the result fits in `rma`. An upper bound on the number of limbs needed by
-    /// rma is given by `a.limbs.len + b.limbs.len + 1`.
+    /// rma is given by `a.limbs.len + b.limbs.len`.
     ///
     /// `limbs_buffer` is used for temporary storage. The amount required is given by `calcMulLimbsBufferLen`.
     pub fn mul(rma: *Mutable, a: Const, b: Const, limbs_buffer: []Limb, allocator: ?*Allocator) void {
@@ -640,7 +645,7 @@ pub const Mutable = struct {
     /// `a` and `b` may alias with each other.
     ///
     /// Asserts the result fits in `rma`. An upper bound on the number of limbs needed by
-    /// rma is given by `a.limbs.len + b.limbs.len + 1`.
+    /// rma is given by `a.limbs.len + b.limbs.len`.
     ///
     /// If `allocator` is provided, it will be used for temporary storage to improve
     /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
@@ -658,18 +663,69 @@ pub const Mutable = struct {
 
         mem.set(Limb, rma.limbs[0 .. a.limbs.len + b.limbs.len + 1], 0);
 
-        _ = llmulacc(.add, allocator, rma.limbs, a.limbs, b.limbs);
+        llmulacc(.add, allocator, rma.limbs, a.limbs, b.limbs);
 
         rma.normalize(a.limbs.len + b.limbs.len);
         rma.positive = (a.positive == b.positive);
     }
 
-    pub fn mulNoAliasWrap(
+    /// rma = a * b with 2s-complement wrapping semantics.
+    ///
+    /// `rma` may alias with `a` or `b`.
+    /// `a` and `b` may alias with each other.
+    ///
+    /// Asserts the result fits in `rma`. An upper bound on the number of limbs needed by
+    /// rma is given by `a.limbs.len + b.limbs.len`.
+    ///
+    /// `limbs_buffer` is used for temporary storage. The amount required is given by `calcMulWrapLimbsBufferLen`.
+    pub fn mulWrap(
         rma: *Mutable,
         a: Const,
         b: Const,
         signedness: std.builtin.Signedness,
         bit_count: usize,
+        limbs_buffer: []Limb,
+        allocator: ?*Allocator,
+    ) void {
+        var buf_index: usize = 0;
+        const req_limbs = calcTwosCompLimbCount(bit_count);
+
+        const a_copy = if (rma.limbs.ptr == a.limbs.ptr) blk: {
+            const start = buf_index;
+            const a_len = math.min(req_limbs, a.limbs.len);
+            mem.copy(Limb, limbs_buffer[buf_index..], a.limbs[0..a_len]);
+            buf_index += a_len;
+            break :blk a.toMutable(limbs_buffer[start..buf_index]).toConst();
+        } else a;
+
+        const b_copy = if (rma.limbs.ptr == b.limbs.ptr) blk: {
+            const start = buf_index;
+            const b_len = math.min(req_limbs, b.limbs.len);
+            mem.copy(Limb, limbs_buffer[buf_index..], b.limbs[0..b_len]);
+            buf_index += b_len;
+            break :blk a.toMutable(limbs_buffer[start..buf_index]).toConst();
+        } else b;
+
+        return rma.mulWrapNoAlias(a_copy, b_copy, signedness, bit_count, allocator);
+    }
+
+    /// rma = a * b with 2s-complement wrapping semantics.
+    ///
+    /// `rma` may not alias with `a` or `b`.
+    /// `a` and `b` may alias with each other.
+    ///
+    /// Asserts the result fits in `rma`. An upper bound on the number of limbs needed by
+    /// rma is given by `a.limbs.len + b.limbs.len`.
+    ///
+    /// If `allocator` is provided, it will be used for temporary storage to improve
+    /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
+    pub fn mulWrapNoAlias(
+        rma: *Mutable,
+        a: Const,
+        b: Const,
+        signedness: std.builtin.Signedness,
+        bit_count: usize,
+        allocator: ?*Allocator,
     ) void {
         assert(rma.limbs.ptr != a.limbs.ptr); // illegal aliasing
         assert(rma.limbs.ptr != b.limbs.ptr); // illegal aliasing
@@ -682,15 +738,9 @@ pub const Mutable = struct {
 
         mem.set(Limb, rma.limbs[0..req_limbs], 0);
 
-        if (a_limbs.len >= b_limbs.len) {
-            llmulaccLow(rma.limbs, a_limbs, b_limbs);
-        } else {
-            llmulaccLow(rma.limbs, b_limbs, a_limbs);
-        }
-
+        llmulacc(.add, allocator, rma.limbs, a_limbs, b_limbs);
         rma.normalize(math.min(req_limbs, a.limbs.len + b.limbs.len));
         rma.positive = (a.positive == b.positive);
-
         rma.truncate(rma.toConst(), signedness, bit_count);
     }
 
@@ -2167,6 +2217,35 @@ pub const Managed = struct {
         rma.setMetadata(m.positive, m.len);
     }
 
+    /// rma = a * b with 2s-complement wrapping semantics.
+    ///
+    /// rma, a and b may be aliases. However, it is more efficient if rma does not alias a or b.
+    /// If rma aliases a or b, then caller must call `rma.ensureCapacity(calcTwosCompLimbCount(bit_count))`
+    /// prior to calling `mul`.
+    ///
+    /// Returns an error if memory could not be allocated.
+    ///
+    /// rma's allocator is used for temporary storage to speed up the multiplication.
+    pub fn mulWrap(rma: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) !void {
+        var alias_count: usize = 0;
+        if (rma.limbs.ptr == a.limbs.ptr)
+            alias_count += 1;
+        if (rma.limbs.ptr == b.limbs.ptr)
+            alias_count += 1;
+
+        try rma.ensureCapacity(calcTwosCompLimbCount(bit_count));
+        var m = rma.toMutable();
+        if (alias_count == 0) {
+            m.mulWrapNoAlias(a, b, signedness, bit_count, rma.allocator);
+        } else {
+            const limb_count = calcMulWrapLimbsBufferLen(bit_count, a.limbs.len, b.limbs.len, alias_count);
+            const limbs_buffer = try rma.allocator.alloc(Limb, limb_count);
+            defer rma.allocator.free(limbs_buffer);
+            m.mulWrap(a, b, signedness, bit_count, limbs_buffer, rma.allocator);
+        }
+        rma.setMetadata(m.positive, m.len);
+    }
+
     pub fn ensureAddScalarCapacity(r: *Managed, a: Const, scalar: anytype) !void {
         try r.ensureCapacity(math.max(a.limbs.len, calcLimbLen(scalar)) + 1);
     }
@@ -2336,19 +2415,6 @@ pub const Managed = struct {
         r.setMetadata(m.positive, m.len);
     }
 };
-
-/// r = r + a * b, ignoring overflow
-fn llmulaccLow(r: []Limb, a: []const Limb, b: []const Limb) void {
-    assert(r.len >= a.len);
-    assert(a.len >= b.len);
-
-    // TODO: Improve performance.
-
-    var i: usize = 0;
-    while (i < b.len) : (i += 1) {
-        llmulLimb(.add, r[i..], a, b[i]);
-    }
-}
 
 /// Different operators which can be used in accumulation style functions
 /// (llmulacc, llmulaccKaratsuba, llmulaccLong, llmulLimb). In all these functions,
