@@ -525,9 +525,7 @@ pub const Mutable = struct {
         }
 
         // Saturate if the result didn't fit.
-        if (!r.toConst().fitsInTwosComp(signedness, bit_count)) {
-            r.setTwosCompIntLimit(if (r.positive) .max else .min, signedness, bit_count);
-        }
+        r.saturate(r.toConst(), signedness, bit_count);
     }
 
     /// Base implementation for subtraction. Subtracts `max(a.limbs.len, b.limbs.len)` elements from a and b,
@@ -661,7 +659,7 @@ pub const Mutable = struct {
             }
         }
 
-        mem.set(Limb, rma.limbs[0 .. a.limbs.len + b.limbs.len + 1], 0);
+        mem.set(Limb, rma.limbs[0 .. a.limbs.len + b.limbs.len], 0);
 
         llmulacc(.add, allocator, rma.limbs, a.limbs, b.limbs);
 
@@ -1363,6 +1361,17 @@ pub const Mutable = struct {
 
                 r.positive = false;
             }
+        }
+    }
+
+    /// Saturate an integer to a number of bits, following 2s-complement semantics.
+    /// r may alias a.
+    ///
+    /// Asserts `r` has enough storage to store the result.
+    /// The upper bound is `calcTwosCompLimbCount(a.len)`.
+    pub fn saturate(r: *Mutable, a: Const, signedness: std.builtin.Signedness, bit_count: usize) void {
+        if (!a.fitsInTwosComp(signedness, bit_count)) {
+            r.setTwosCompIntLimit(if (r.positive) .max else .min, signedness, bit_count);
         }
     }
 
@@ -2412,6 +2421,14 @@ pub const Managed = struct {
         try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
         var m = r.toMutable();
         m.truncate(a, signedness, bit_count);
+        r.setMetadata(m.positive, m.len);
+    }
+
+    /// r = saturate(Int(signedness, bit_count), a)
+    pub fn saturate(r: *Managed, a: Const, signedness: std.builtin.Signedness, bit_count: usize) !void {
+        try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
+        var m = r.toMutable();
+        m.saturate(a, signedness, bit_count);
         r.setMetadata(m.positive, m.len);
     }
 };
