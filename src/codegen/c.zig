@@ -251,10 +251,42 @@ pub const DeclGen = struct {
         return error.AnalysisFail;
     }
 
+    fn renderDeclValue(
+        dg: *DeclGen,
+        writer: anytype,
+        ty: Type,
+        val: Value,
+        decl: *Decl,
+    ) error{ OutOfMemory, AnalysisFail }!void {
+        decl.alive = true;
+
+        if (ty.isSlice()) {
+            try writer.writeByte('(');
+            try dg.renderType(writer, ty);
+            try writer.writeAll("){");
+            var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+            try dg.renderValue(writer, ty.slicePtrFieldType(&buf), val);
+            try writer.writeAll(", ");
+            try writer.print("{d}", .{val.sliceLen()});
+            try writer.writeAll("}");
+            return;
+        }
+
+        // Determine if we must pointer cast.
+        assert(decl.has_tv);
+        if (ty.eql(decl.ty)) {
+            try writer.print("&{s}", .{decl.name});
+        } else {
+            try writer.writeAll("(");
+            try dg.renderType(writer, ty);
+            try writer.print(")&{s}", .{decl.name});
+        }
+    }
+
     fn renderValue(
         dg: *DeclGen,
         writer: anytype,
-        t: Type,
+        ty: Type,
         val: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
         if (val.isUndef()) {
@@ -264,50 +296,50 @@ pub const DeclGen = struct {
             return writer.writeAll("{}");
             //return dg.fail("TODO: C backend: implement renderValue undef", .{});
         }
-        switch (t.zigTypeTag()) {
+        switch (ty.zigTypeTag()) {
             .Int => {
-                if (t.isSignedInt())
+                if (ty.isSignedInt())
                     return writer.print("{d}", .{val.toSignedInt()});
                 return writer.print("{d}", .{val.toUnsignedInt()});
             },
-            .Pointer => switch (t.ptrSize()) {
-                .Slice => {
-                    try writer.writeByte('(');
-                    try dg.renderType(writer, t);
-                    try writer.writeAll("){");
+            .Float => {
+                if (ty.floatBits(dg.module.getTarget()) <= 64) {
+                    return writer.print("{x}", .{val.toFloat(f64)});
+                }
+                return dg.fail("TODO: C backend: implement lowering large float values", .{});
+            },
+            .Pointer => switch (val.tag()) {
+                .null_value, .zero => try writer.writeAll("NULL"),
+                .one => try writer.writeAll("1"),
+                .decl_ref => {
+                    const decl = val.castTag(.decl_ref).?.data;
+                    return dg.renderDeclValue(writer, ty, val, decl);
+                },
+                .variable => {
+                    const decl = val.castTag(.variable).?.data.owner_decl;
+                    return dg.renderDeclValue(writer, ty, val, decl);
+                },
+                .slice => {
+                    const slice = val.castTag(.slice).?.data;
                     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    try dg.renderValue(writer, t.slicePtrFieldType(&buf), val);
+
+                    try writer.writeByte('(');
+                    try dg.renderType(writer, ty);
+                    try writer.writeAll("){");
+                    try dg.renderValue(writer, ty.slicePtrFieldType(&buf), slice.ptr);
                     try writer.writeAll(", ");
-                    try writer.print("{d}", .{val.sliceLen()});
+                    try dg.renderValue(writer, Type.usize, slice.len);
                     try writer.writeAll("}");
                 },
-                else => switch (val.tag()) {
-                    .null_value, .zero => try writer.writeAll("NULL"),
-                    .one => try writer.writeAll("1"),
-                    .decl_ref => {
-                        const decl = val.castTag(.decl_ref).?.data;
-                        decl.alive = true;
-
-                        // Determine if we must pointer cast.
-                        assert(decl.has_tv);
-                        if (t.eql(decl.ty)) {
-                            try writer.print("&{s}", .{decl.name});
-                        } else {
-                            try writer.writeAll("(");
-                            try dg.renderType(writer, t);
-                            try writer.print(")&{s}", .{decl.name});
-                        }
-                    },
-                    .function => {
-                        const func = val.castTag(.function).?.data;
-                        try writer.print("{s}", .{func.owner_decl.name});
-                    },
-                    .extern_fn => {
-                        const decl = val.castTag(.extern_fn).?.data;
-                        try writer.print("{s}", .{decl.name});
-                    },
-                    else => unreachable,
+                .function => {
+                    const func = val.castTag(.function).?.data;
+                    try writer.print("{s}", .{func.owner_decl.name});
                 },
+                .extern_fn => {
+                    const decl = val.castTag(.extern_fn).?.data;
+                    try writer.print("{s}", .{decl.name});
+                },
+                else => unreachable,
             },
             .Array => {
                 // First try specific tag representations for more efficiency.
@@ -325,14 +357,14 @@ pub const DeclGen = struct {
 
                         try writer.writeAll("{");
                         var index: usize = 0;
-                        const len = t.arrayLen();
-                        const elem_ty = t.elemType();
+                        const len = ty.arrayLen();
+                        const elem_ty = ty.elemType();
                         while (index < len) : (index += 1) {
                             if (index != 0) try writer.writeAll(",");
                             const elem_val = try val.elemValue(&arena.allocator, index);
                             try dg.renderValue(writer, elem_ty, elem_val);
                         }
-                        if (t.sentinel()) |sentinel_val| {
+                        if (ty.sentinel()) |sentinel_val| {
                             if (index != 0) try writer.writeAll(",");
                             try dg.renderValue(writer, elem_ty, sentinel_val);
                         }
@@ -343,12 +375,12 @@ pub const DeclGen = struct {
             .Bool => return writer.print("{}", .{val.toBool()}),
             .Optional => {
                 var opt_buf: Type.Payload.ElemType = undefined;
-                const payload_type = t.optionalChild(&opt_buf);
-                if (t.isPtrLikeOptional()) {
+                const payload_type = ty.optionalChild(&opt_buf);
+                if (ty.isPtrLikeOptional()) {
                     return dg.renderValue(writer, payload_type, val);
                 }
                 try writer.writeByte('(');
-                try dg.renderType(writer, t);
+                try dg.renderType(writer, ty);
                 try writer.writeAll("){");
                 if (val.castTag(.opt_payload)) |pl| {
                     const payload_val = pl.data;
@@ -374,8 +406,8 @@ pub const DeclGen = struct {
                 }
             },
             .ErrorUnion => {
-                const error_type = t.errorUnionSet();
-                const payload_type = t.errorUnionPayload();
+                const error_type = ty.errorUnionSet();
+                const payload_type = ty.errorUnionPayload();
 
                 if (!payload_type.hasCodeGenBits()) {
                     // We use the error type directly as the type.
@@ -384,7 +416,7 @@ pub const DeclGen = struct {
                 }
 
                 try writer.writeByte('(');
-                try dg.renderType(writer, t);
+                try dg.renderType(writer, ty);
                 try writer.writeAll("){");
                 if (val.castTag(.eu_payload)) |pl| {
                     const payload_val = pl.data;
@@ -401,10 +433,10 @@ pub const DeclGen = struct {
                 switch (val.tag()) {
                     .enum_field_index => {
                         const field_index = val.castTag(.enum_field_index).?.data;
-                        switch (t.tag()) {
+                        switch (ty.tag()) {
                             .enum_simple => return writer.print("{d}", .{field_index}),
                             .enum_full, .enum_nonexhaustive => {
-                                const enum_full = t.cast(Type.Payload.EnumFull).?.data;
+                                const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
                                 if (enum_full.values.count() != 0) {
                                     const tag_val = enum_full.values.keys()[field_index];
                                     return dg.renderValue(writer, enum_full.tag_ty, tag_val);
@@ -417,7 +449,7 @@ pub const DeclGen = struct {
                     },
                     else => {
                         var int_tag_ty_buffer: Type.Payload.Bits = undefined;
-                        const int_tag_ty = t.intTagType(&int_tag_ty_buffer);
+                        const int_tag_ty = ty.intTagType(&int_tag_ty_buffer);
                         return dg.renderValue(writer, int_tag_ty, val);
                     },
                 }
@@ -431,11 +463,11 @@ pub const DeclGen = struct {
 
                     // Determine if we must pointer cast.
                     assert(decl.has_tv);
-                    if (t.eql(decl.ty)) {
+                    if (ty.eql(decl.ty)) {
                         try writer.print("&{s}", .{decl.name});
                     } else {
                         try writer.writeAll("(");
-                        try dg.renderType(writer, t);
+                        try dg.renderType(writer, ty);
                         try writer.print(")&{s}", .{decl.name});
                     }
                 },
@@ -451,8 +483,40 @@ pub const DeclGen = struct {
                 },
                 else => unreachable,
             },
-            else => |e| return dg.fail("TODO: C backend: implement value {s}", .{
-                @tagName(e),
+            .Struct => {
+                const field_vals = val.castTag(.@"struct").?.data;
+
+                try ty.renderFullyQualifiedName(writer);
+                try writer.writeAll("{");
+
+                for (field_vals) |field_val, i| {
+                    const field_ty = ty.structFieldType(i);
+                    if (!field_ty.hasCodeGenBits()) continue;
+
+                    if (i != 0) try writer.writeAll(",");
+                    try dg.renderValue(writer, field_ty, field_val);
+                }
+
+                try writer.writeAll("}");
+            },
+
+            .ComptimeInt => unreachable,
+            .ComptimeFloat => unreachable,
+            .Type => unreachable,
+            .EnumLiteral => unreachable,
+            .Void => unreachable,
+            .NoReturn => unreachable,
+            .Undefined => unreachable,
+            .Null => unreachable,
+            .BoundFn => unreachable,
+            .Opaque => unreachable,
+
+            .Union,
+            .Frame,
+            .AnyFrame,
+            .Vector,
+            => |tag| return dg.fail("TODO: C backend: implement value of type {s}", .{
+                @tagName(tag),
             }),
         }
     }

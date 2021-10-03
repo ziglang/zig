@@ -1010,7 +1010,7 @@ pub const DeclGen = struct {
                             .val = slice.ptr,
                         }),
                         try self.genTypedValue(.{
-                            .ty = Type.initTag(.usize),
+                            .ty = Type.usize,
                             .val = slice.len,
                         }),
                     };
