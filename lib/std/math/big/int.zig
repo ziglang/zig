@@ -2158,15 +2158,27 @@ pub const Managed = struct {
         r.setMetadata(m.positive, m.len);
     }
 
+    /// r = a + b with 2s-complement wrapping semantics.
+    ///
+    /// r, a and b may be aliases. If r aliases a or b, then caller must call
+    /// `r.ensureTwosCompCapacity` prior to calling `add`.
+    ///
+    /// Returns an error if memory could not be allocated.
     pub fn addWrap(r: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) Allocator.Error!void {
-        try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
+        try r.ensureTwosCompCapacity(bit_count);
         var m = r.toMutable();
         m.addWrap(a, b, signedness, bit_count);
         r.setMetadata(m.positive, m.len);
     }
 
+    /// r = a + b with 2s-complement saturating semantics.
+    ///
+    /// r, a and b may be aliases. If r aliases a or b, then caller must call
+    /// `r.ensureTwosCompCapacity` prior to calling `add`.
+    ///
+    /// Returns an error if memory could not be allocated.
     pub fn addSat(r: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) Allocator.Error!void {
-        try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
+        try r.ensureTwosCompCapacity(bit_count);
         var m = r.toMutable();
         m.addSat(a, b, signedness, bit_count);
         r.setMetadata(m.positive, m.len);
@@ -2184,15 +2196,27 @@ pub const Managed = struct {
         r.setMetadata(m.positive, m.len);
     }
 
+    /// r = a - b with 2s-complement wrapping semantics.
+    ///
+    /// r, a and b may be aliases. If r aliases a or b, then caller must call
+    /// `r.ensureTwosCompCapacity` prior to calling `add`.
+    ///
+    /// Returns an error if memory could not be allocated.
     pub fn subWrap(r: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) Allocator.Error!void {
-        try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
+        try r.ensureTwosCompCapacity(bit_count);
         var m = r.toMutable();
         m.subWrap(a, b, signedness, bit_count);
         r.setMetadata(m.positive, m.len);
     }
 
+    /// r = a - b with 2s-complement saturating semantics.
+    ///
+    /// r, a and b may be aliases. If r aliases a or b, then caller must call
+    /// `r.ensureTwosCompCapacity` prior to calling `add`.
+    ///
+    /// Returns an error if memory could not be allocated.
     pub fn subSat(r: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) Allocator.Error!void {
-        try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
+        try r.ensureTwosCompCapacity(bit_count);
         var m = r.toMutable();
         m.subSat(a, b, signedness, bit_count);
         r.setMetadata(m.positive, m.len);
@@ -2229,7 +2253,7 @@ pub const Managed = struct {
     /// rma = a * b with 2s-complement wrapping semantics.
     ///
     /// rma, a and b may be aliases. However, it is more efficient if rma does not alias a or b.
-    /// If rma aliases a or b, then caller must call `rma.ensureCapacity(calcTwosCompLimbCount(bit_count))`
+    /// If rma aliases a or b, then caller must call `ensureTwosCompCapacity`
     /// prior to calling `mul`.
     ///
     /// Returns an error if memory could not be allocated.
@@ -2242,7 +2266,7 @@ pub const Managed = struct {
         if (rma.limbs.ptr == b.limbs.ptr)
             alias_count += 1;
 
-        try rma.ensureCapacity(calcTwosCompLimbCount(bit_count));
+        try rma.ensureTwosCompCapacity(bit_count);
         var m = rma.toMutable();
         if (alias_count == 0) {
             m.mulWrapNoAlias(a, b, signedness, bit_count, rma.allocator);
@@ -2253,6 +2277,10 @@ pub const Managed = struct {
             m.mulWrap(a, b, signedness, bit_count, limbs_buffer, rma.allocator);
         }
         rma.setMetadata(m.positive, m.len);
+    }
+
+    pub fn ensureTwosCompCapacity(r: *Managed, bit_count: usize) !void {
+        try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
     }
 
     pub fn ensureAddScalarCapacity(r: *Managed, a: Const, scalar: anytype) !void {
