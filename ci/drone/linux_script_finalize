@@ -13,8 +13,7 @@ pip3 install s3cmd
 cd build
 
 mv ../LICENSE "$DISTDIR/"
-# docs are disabled due to: https://github.com/ziglang/zig/issues/8597
-#mv ../zig-cache/langref.html "$DISTDIR/"
+mv ../zig-cache/langref.html "$DISTDIR/"
 mv "$DISTDIR/bin/zig" "$DISTDIR/"
 rmdir "$DISTDIR/bin"
 
