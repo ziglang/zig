@@ -32,12 +32,44 @@ steps:
   commands:
   - ./ci/drone/linux_script_test 3
 
+- name: test-4
+  depends_on:
+  - build
+  image: ziglang/static-base:llvm13-aarch64-1
+  commands:
+  - ./ci/drone/linux_script_test 4
+
+- name: test-5
+  depends_on:
+  - build
+  image: ziglang/static-base:llvm13-aarch64-1
+  commands:
+  - ./ci/drone/linux_script_test 5
+
+- name: test-6
+  depends_on:
+  - build
+  image: ziglang/static-base:llvm13-aarch64-1
+  commands:
+  - ./ci/drone/linux_script_test 6
+
+- name: test-7
+  depends_on:
+  - build
+  image: ziglang/static-base:llvm13-aarch64-1
+  commands:
+  - ./ci/drone/linux_script_test 7
+
 - name: finalize
   depends_on:
   - build
   - test-1
   - test-2
   - test-3
+  - test-4
+  - test-5
+  - test-6
+  - test-7
   image: ziglang/static-base:llvm13-aarch64-1
   environment:
     SRHT_OAUTH_TOKEN:
