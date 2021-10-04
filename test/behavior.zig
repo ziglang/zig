@@ -34,8 +34,8 @@ test {
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/union.zig");
     _ = @import("behavior/usingnamespace.zig");
-    _ = @import("behavior/widening.zig");
     _ = @import("behavior/while.zig");
+    _ = @import("behavior/widening.zig");
 
     if (builtin.zig_is_stage2) {
         // When all comptime_memory.zig tests pass, #9646 can be closed.
@@ -140,7 +140,12 @@ test {
         _ = @import("behavior/pub_enum.zig");
         _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
         _ = @import("behavior/reflection.zig");
-        _ = @import("behavior/saturating_arithmetic.zig");
+        {
+            // Checklist for getting saturating_arithmetic.zig passing for stage2:
+            // * add __muloti4 to compiler-rt
+            // * implement comptime saturating shift-left
+            _ = @import("behavior/saturating_arithmetic.zig");
+        }
         _ = @import("behavior/shuffle.zig");
         _ = @import("behavior/select.zig");
         _ = @import("behavior/sizeof_and_typeof_stage1.zig");

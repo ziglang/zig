@@ -3096,7 +3096,7 @@ pub const Type = extern union {
             return Value.initTag(.zero);
         }
 
-        if ((info.bits - 1) <= std.math.maxInt(u6)) {
+        if (info.bits <= 6) {
             const n: i64 = -(@as(i64, 1) << @truncate(u6, info.bits - 1));
             return Value.Tag.int_i64.create(arena, n);
         }
@@ -3117,13 +3117,16 @@ pub const Type = extern union {
         assert(self.zigTypeTag() == .Int);
         const info = self.intInfo(target);
 
-        if (info.signedness == .signed and (info.bits - 1) <= std.math.maxInt(u6)) {
-            const n: i64 = (@as(i64, 1) << @truncate(u6, info.bits - 1)) - 1;
-            return Value.Tag.int_i64.create(arena, n);
-        } else if (info.signedness == .signed and info.bits <= std.math.maxInt(u6)) {
-            const n: u64 = (@as(u64, 1) << @truncate(u6, info.bits)) - 1;
-            return Value.Tag.int_u64.create(arena, n);
-        }
+        if (info.bits <= 6) switch (info.signedness) {
+            .signed => {
+                const n: i64 = (@as(i64, 1) << @truncate(u6, info.bits - 1)) - 1;
+                return Value.Tag.int_i64.create(arena, n);
+            },
+            .unsigned => {
+                const n: u64 = (@as(u64, 1) << @truncate(u6, info.bits)) - 1;
+                return Value.Tag.int_u64.create(arena, n);
+            },
+        };
 
         var res = try std.math.big.int.Managed.init(arena);
         try res.setTwosCompIntLimit(.max, info.signedness, info.bits);

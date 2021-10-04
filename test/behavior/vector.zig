@@ -647,3 +647,53 @@ test "mask parameter of @shuffle is comptime scope" {
     });
     _ = shuffled;
 }
+
+test "saturating add" {
+    const S = struct {
+        fn doTheTest() !void {
+            const u8x3 = std.meta.Vector(3, u8);
+            try expectEqual(u8x3{ 255, 255, 255 }, (u8x3{ 255, 254, 1 } +| u8x3{ 1, 2, 255 }));
+            const i8x3 = std.meta.Vector(3, i8);
+            try expectEqual(i8x3{ 127, 127, 127 }, (i8x3{ 127, 126, 1 } +| i8x3{ 1, 2, 127 }));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "saturating subtraction" {
+    const S = struct {
+        fn doTheTest() !void {
+            const u8x3 = std.meta.Vector(3, u8);
+            try expectEqual(u8x3{ 0, 0, 0 }, (u8x3{ 0, 0, 0 } -| u8x3{ 255, 255, 255 }));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "saturating multiplication" {
+    // TODO: once #9660 has been solved, remove this line
+    if (std.builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest() !void {
+            const u8x3 = std.meta.Vector(3, u8);
+            try expectEqual(u8x3{ 255, 255, 255 }, (u8x3{ 2, 2, 2 } *| u8x3{ 255, 255, 255 }));
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "saturating shift-left" {
+    const S = struct {
+        fn doTheTest() !void {
+            const u8x3 = std.meta.Vector(3, u8);
+            try expectEqual(u8x3{ 255, 255, 255 }, (u8x3{ 255, 255, 255 } <<| u8x3{ 1, 1, 1 }));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
