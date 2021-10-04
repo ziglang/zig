@@ -5274,6 +5274,18 @@ const MacroCtx = struct {
         return self.list[self.i].id;
     }
 
+    fn skip(self: *MacroCtx, c: *Context, expected_id: std.meta.Tag(CToken.Id)) ParseError!void {
+        const next_id = self.next().?;
+        if (next_id != expected_id) {
+            try self.fail(
+                c,
+                "unable to translate C expr: expected '{s}' instead got '{s}'",
+                .{ CToken.Id.symbol(expected_id), next_id.symbol() },
+            );
+            return error.ParseError;
+        }
+    }
+
     fn slice(self: *MacroCtx) []const u8 {
         const tok = self.list[self.i];
         return self.source[tok.start..tok.end];
@@ -5411,7 +5423,7 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
     if (last != .Eof and last != .Nl)
-        return m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(last)});
+        return m.fail(c, "unable to translate C expr: unexpected token '{s}'", .{last.symbol()});
 
     const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
     try c.global_scope.macro_table.put(m.name, var_decl);
@@ -5432,9 +5444,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     defer block_scope.deinit();
     const scope = &block_scope.base;
 
-    if (m.next().? != .LParen) {
-        return m.fail(c, "unable to translate C expr: expected '('", .{});
-    }
+    try m.skip(c, .LParen);
 
     var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
     defer fn_params.deinit();
@@ -5454,9 +5464,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         _ = m.next();
     }
 
-    if (m.next().? != .RParen) {
-        return m.fail(c, "unable to translate C expr: expected ')'", .{});
-    }
+    try m.skip(c, .RParen);
 
     if (m.containsUndefinedIdentifier(scope, fn_params.items)) |ident|
         return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident});
@@ -5464,7 +5472,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const expr = try parseCExpr(c, m, scope);
     const last = m.next().?;
     if (last != .Eof and last != .Nl)
-        return m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(last)});
+        return m.fail(c, "unable to translate C expr: unexpected token '{s}'", .{last.symbol()});
 
     const typeof_arg = if (expr.castTag(.block)) |some| blk: {
         const stmts = some.data.stmts;
@@ -5810,11 +5818,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
         .LParen => {
             const inner_node = try parseCExpr(c, m, scope);
 
-            const next_id = m.next().?;
-            if (next_id != .RParen) {
-                try m.fail(c, "unable to translate C expr: expected ')' instead got: {s}", .{@tagName(next_id)});
-                return error.ParseError;
-            }
+            try m.skip(c, .RParen);
             return inner_node;
         },
         else => {
@@ -5824,7 +5828,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
             if (try parseCTypeName(c, m, scope, true)) |type_name| {
                 return type_name;
             }
-            try m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(tok)});
+            try m.fail(c, "unable to translate C expr: unexpected token '{s}'", .{tok.symbol()});
             return error.ParseError;
         },
     }
@@ -5869,10 +5873,7 @@ fn parseCCondExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     _ = m.next();
 
     const then_body = try parseCOrExpr(c, m, scope);
-    if (m.next().? != .Colon) {
-        try m.fail(c, "unable to translate C expr: expected ':'", .{});
-        return error.ParseError;
-    }
+    try m.skip(c, .Colon);
     const else_body = try parseCCondExpr(c, m, scope);
     return Tag.@"if".create(c.arena, .{ .cond = node, .then = then_body, .@"else" = else_body });
 }
@@ -6059,10 +6060,7 @@ fn parseCCastExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     switch (m.next().?) {
         .LParen => {
             if (try parseCTypeName(c, m, scope, true)) |type_name| {
-                if (m.next().? != .RParen) {
-                    try m.fail(c, "unable to translate C expr: expected ')'", .{});
-                    return error.ParseError;
-                }
+                try m.skip(c, .RParen);
                 if (m.peek().? == .LBrace) {
                     // initializer list
                     return parseCPostfixExpr(c, m, scope, type_name);
@@ -6114,11 +6112,7 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_
         .Keyword_enum, .Keyword_struct, .Keyword_union => {
             // struct Foo will be declared as struct_Foo by transRecordDecl
             const slice = m.slice();
-            const next_id = m.next().?;
-            if (next_id != .Identifier) {
-                try m.fail(c, "unable to translate C expr: expected Identifier instead got: {s}", .{@tagName(next_id)});
-                return error.ParseError;
-            }
+            try m.skip(c, .Identifier);
 
             const name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ slice, m.slice() });
             return try Tag.identifier.create(c.arena, name);
@@ -6130,7 +6124,7 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_
         m.i -= 1;
         return null;
     } else {
-        try m.fail(c, "unable to translate C expr: unexpected token .{s}", .{@tagName(tok)});
+        try m.fail(c, "unable to translate C expr: unexpected token '{s}'", .{tok.symbol()});
         return error.ParseError;
     }
 }
@@ -6271,18 +6265,12 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
     while (true) {
         switch (m.next().?) {
             .Period => {
-                if (m.next().? != .Identifier) {
-                    try m.fail(c, "unable to translate C expr: expected identifier", .{});
-                    return error.ParseError;
-                }
+                try m.skip(c, .Identifier);
 
                 node = try Tag.field_access.create(c.arena, .{ .lhs = node, .field_name = m.slice() });
             },
             .Arrow => {
-                if (m.next().? != .Identifier) {
-                    try m.fail(c, "unable to translate C expr: expected identifier", .{});
-                    return error.ParseError;
-                }
+                try m.skip(c, .Identifier);
 
                 const deref = try Tag.deref.create(c.arena, node);
                 node = try Tag.field_access.create(c.arena, .{ .lhs = deref, .field_name = m.slice() });
@@ -6290,10 +6278,7 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
             .LBracket => {
                 const index = try macroBoolToInt(c, try parseCExpr(c, m, scope));
                 node = try Tag.array_access.create(c.arena, .{ .lhs = node, .rhs = index });
-                if (m.next().? != .RBracket) {
-                    try m.fail(c, "unable to translate C expr: expected ']'", .{});
-                    return error.ParseError;
-                }
+                try m.skip(c, .RBracket);
             },
             .LParen => {
                 if (m.peek().? == .RParen) {
@@ -6305,11 +6290,12 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
                     while (true) {
                         const arg = try parseCCondExpr(c, m, scope);
                         try args.append(arg);
-                        switch (m.next().?) {
+                        const next_id = m.next().?;
+                        switch (next_id) {
                             .Comma => {},
                             .RParen => break,
                             else => {
-                                try m.fail(c, "unable to translate C expr: expected ',' or ')'", .{});
+                                try m.fail(c, "unable to translate C expr: expected ',' or ')' instead got '{s}'", .{next_id.symbol()});
                                 return error.ParseError;
                             },
                         }
@@ -6324,27 +6310,19 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
                     defer init_vals.deinit();
 
                     while (true) {
-                        if (m.next().? != .Period) {
-                            try m.fail(c, "unable to translate C expr: expected '.'", .{});
-                            return error.ParseError;
-                        }
-                        if (m.next().? != .Identifier) {
-                            try m.fail(c, "unable to translate C expr: expected identifier", .{});
-                            return error.ParseError;
-                        }
+                        try m.skip(c, .Period);
+                        try m.skip(c, .Identifier);
                         const name = m.slice();
-                        if (m.next().? != .Equal) {
-                            try m.fail(c, "unable to translate C expr: expected '='", .{});
-                            return error.ParseError;
-                        }
+                        try m.skip(c, .Equal);
 
                         const val = try parseCCondExpr(c, m, scope);
                         try init_vals.append(.{ .name = name, .value = val });
-                        switch (m.next().?) {
+                        const next_id = m.next().?;
+                        switch (next_id) {
                             .Comma => {},
                             .RBrace => break,
                             else => {
-                                try m.fail(c, "unable to translate C expr: expected ',' or '}}'", .{});
+                                try m.fail(c, "unable to translate C expr: expected ',' or '}}' instead got '{s}'", .{next_id.symbol()});
                                 return error.ParseError;
                             },
                         }
@@ -6360,11 +6338,12 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
                 while (true) {
                     const val = try parseCCondExpr(c, m, scope);
                     try init_vals.append(val);
-                    switch (m.next().?) {
+                    const next_id = m.next().?;
+                    switch (next_id) {
                         .Comma => {},
                         .RBrace => break,
                         else => {
-                            try m.fail(c, "unable to translate C expr: expected ',' or '}}'", .{});
+                            try m.fail(c, "unable to translate C expr: expected ',' or '}}' instead got '{s}'", .{next_id.symbol()});
                             return error.ParseError;
                         },
                     }
@@ -6411,10 +6390,7 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             const operand = if (m.peek().? == .LParen) blk: {
                 _ = m.next();
                 const inner = (try parseCTypeName(c, m, scope, false)).?;
-                if (m.next().? != .RParen) {
-                    try m.fail(c, "unable to translate C expr: expected ')'", .{});
-                    return error.ParseError;
-                }
+                try m.skip(c, .RParen);
                 break :blk inner;
             } else try parseCUnaryExpr(c, m, scope);
 
@@ -6423,15 +6399,9 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         .Keyword_alignof => {
             // TODO this won't work if using <stdalign.h>'s
             // #define alignof _Alignof
-            if (m.next().? != .LParen) {
-                try m.fail(c, "unable to translate C expr: expected '('", .{});
-                return error.ParseError;
-            }
+            try m.skip(c, .LParen);
             const operand = (try parseCTypeName(c, m, scope, false)).?;
-            if (m.next().? != .RParen) {
-                try m.fail(c, "unable to translate C expr: expected ')'", .{});
-                return error.ParseError;
-            }
+            try m.skip(c, .RParen);
 
             return Tag.alignof.create(c.arena, operand);
         },
