@@ -1020,7 +1020,7 @@ test "big.int mulWrap multi-multi signed" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.mulWrap(a.toConst(), b.toConst(), .signed, 128);
+    try c.mulWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
 
     try testing.expect((try c.to(SignedDoubleLimb)) == minInt(SignedDoubleLimb) + 2);
 }
@@ -1603,9 +1603,9 @@ test "big.int truncate multi to single unsigned" {
     var a = try Managed.initSet(testing.allocator, (maxInt(Limb) + 1) | 0x1234_5678_9ABC_DEF0);
     defer a.deinit();
 
-    try a.truncate(a.toConst(), .unsigned, 37);
+    try a.truncate(a.toConst(), .unsigned, 27);
 
-    try testing.expect((try a.to(u37)) == 0x18_9ABC_DEF0);
+    try testing.expect((try a.to(u27)) == 0x2BC_DEF0);
 }
 
 test "big.int truncate multi to single signed" {
