@@ -11606,7 +11606,7 @@ fn analyzeSliceLen(
         if (slice_val.isUndef()) {
             return sema.addConstUndef(Type.initTag(.usize));
         }
-        return sema.fail(block, src, "TODO implement Sema analyzeSliceLen on comptime slice", .{});
+        return sema.addIntUnsigned(Type.usize, slice_val.sliceLen());
     }
     try sema.requireRuntimeBlock(block, src);
     return block.addTyOp(.slice_len, Type.initTag(.usize), slice_inst);
