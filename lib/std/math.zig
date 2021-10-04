@@ -9,6 +9,9 @@ pub const e = 2.71828182845904523536028747135266249775724709369995;
 /// Archimedes' constant (π)
 pub const pi = 3.14159265358979323846264338327950288419716939937510;
 
+/// Phi or Golden ratio constant (Φ) = (1 + sqrt(5))/2
+pub const phi = 1.6180339887498948482045868343656381177203091798057628621;
+
 /// Circle constant (τ)
 pub const tau = 2 * pi;
 
