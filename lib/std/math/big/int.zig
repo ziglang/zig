@@ -329,7 +329,7 @@ pub const Mutable = struct {
         r: *Mutable,
         limit: TwosCompIntLimit,
         signedness: std.builtin.Signedness,
-        bit_count: usize
+        bit_count: usize,
     ) void {
         // Handle zero-bit types.
         if (bit_count == 0) {
@@ -340,7 +340,7 @@ pub const Mutable = struct {
         const req_limbs = calcTwosCompLimbCount(bit_count);
         const bit = @truncate(Log2Limb, bit_count - 1);
         const signmask = @as(Limb, 1) << bit; // 0b0..010..0 where 1 is the sign bit.
-        const mask = (signmask << 1) -% 1;    // 0b0..011..1 where the leftmost 1 is the sign bit.
+        const mask = (signmask << 1) -% 1; // 0b0..011..1 where the leftmost 1 is the sign bit.
 
         r.positive = true;
 
@@ -349,7 +349,7 @@ pub const Mutable = struct {
                 .min => {
                     // Negative bound, signed = -0x80.
                     r.len = req_limbs;
-                    mem.set(Limb, r.limbs[0..r.len - 1], 0);
+                    mem.set(Limb, r.limbs[0 .. r.len - 1], 0);
                     r.limbs[r.len - 1] = signmask;
                     r.positive = false;
                 },
@@ -364,11 +364,11 @@ pub const Mutable = struct {
                     } else {
                         const new_req_limbs = calcTwosCompLimbCount(bit_count - 1);
                         const msb = @truncate(Log2Limb, bit_count - 2);
-                        const new_signmask = @as(Limb, 1) << msb;  // 0b0..010..0 where 1 is the sign bit.
+                        const new_signmask = @as(Limb, 1) << msb; // 0b0..010..0 where 1 is the sign bit.
                         const new_mask = (new_signmask << 1) -% 1; // 0b0..001..1 where the rightmost 0 is the sign bit.
 
                         r.len = new_req_limbs;
-                        std.mem.set(Limb, r.limbs[0..r.len - 1], maxInt(Limb));
+                        std.mem.set(Limb, r.limbs[0 .. r.len - 1], maxInt(Limb));
                         r.limbs[r.len - 1] = new_mask;
                     }
                 },
@@ -381,7 +381,7 @@ pub const Mutable = struct {
                 .max => {
                     // Max bound, unsigned = 0xFF
                     r.len = req_limbs;
-                    std.mem.set(Limb, r.limbs[0..r.len - 1], maxInt(Limb));
+                    std.mem.set(Limb, r.limbs[0 .. r.len - 1], maxInt(Limb));
                     r.limbs[r.len - 1] = mask;
                 },
             },
@@ -2052,7 +2052,7 @@ pub const Managed = struct {
         r: *Managed,
         limit: TwosCompIntLimit,
         signedness: std.builtin.Signedness,
-        bit_count: usize
+        bit_count: usize,
     ) !void {
         try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
         var m = r.toMutable();
@@ -2599,14 +2599,14 @@ fn llmulaccKaratsuba(
 
     mem.set(Limb, tmp[0..p2_limbs], 0);
     llmulacc(.add, allocator, tmp[0..p2_limbs], a1[0..math.min(a1.len, p2_limbs)], b1[0..math.min(b1.len, p2_limbs)]);
-    const p2 = tmp[0 .. llnormalize(tmp[0..p2_limbs])];
+    const p2 = tmp[0..llnormalize(tmp[0..p2_limbs])];
 
     // Add p2 * B to the result.
     llaccum(op, r[split..], p2);
 
     // Add p2 * B^2 to the result if required.
     if (limbs_after_split2 > 0) {
-        llaccum(op, r[split * 2..], p2[0..math.min(p2.len, limbs_after_split2)]);
+        llaccum(op, r[split * 2 ..], p2[0..math.min(p2.len, limbs_after_split2)]);
     }
 
     // Compute p0.
@@ -2614,14 +2614,13 @@ fn llmulaccKaratsuba(
     const p0_limbs = a0.len + b0.len;
     mem.set(Limb, tmp[0..p0_limbs], 0);
     llmulacc(.add, allocator, tmp[0..p0_limbs], a0, b0);
-    const p0 = tmp[0 .. llnormalize(tmp[0..p0_limbs])];
+    const p0 = tmp[0..llnormalize(tmp[0..p0_limbs])];
 
     // Add p0 to the result.
     llaccum(op, r, p0);
 
     // Add p0 * B to the result. In this case, we may not need all of it.
     llaccum(op, r[split..], p0[0..math.min(limbs_after_split, p0.len)]);
-
 
     // Finally, compute and add p1.
     // From now on we only need `limbs_after_split` limbs for a0 and b0, since the result of the
@@ -2643,8 +2642,8 @@ fn llmulaccKaratsuba(
     // Note that in this case, we again need some storage for intermediary results
     // j0 and j1. Since we have tmp.len >= 2B, we can store both
     // intermediaries in the already allocated array.
-    const j0 = tmp[0..a.len - split];
-    const j1 = tmp[a.len - split..];
+    const j0 = tmp[0 .. a.len - split];
+    const j1 = tmp[a.len - split ..];
 
     // Ensure that no subtraction overflows.
     if (j0_sign == 1) {
