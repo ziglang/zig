@@ -4,6 +4,7 @@ const testing = std.testing;
 const Managed = std.math.big.int.Managed;
 const Mutable = std.math.big.int.Mutable;
 const Limb = std.math.big.Limb;
+const SignedLimb = std.math.big.SignedLimb;
 const DoubleLimb = std.math.big.DoubleLimb;
 const SignedDoubleLimb = std.math.big.SignedDoubleLimb;
 const maxInt = std.math.maxInt;
@@ -267,6 +268,36 @@ test "big.int string set bad base error" {
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
     try testing.expectError(error.InvalidBase, a.setString(45, "10"));
+}
+
+test "big.int twos complement limit set" {
+    const test_types = [_]type{
+        u64,
+        i64,
+        u1,
+        i1,
+        u0,
+        i0,
+        u65,
+        i65,
+    };
+
+    inline for (test_types) |T| {
+        // To work around 'control flow attempts to use compile-time variable at runtime'
+        const U = T;
+        const int_info = @typeInfo(U).Int;
+
+        var a = try Managed.init(testing.allocator);
+        defer a.deinit();
+
+        try a.setTwosCompIntLimit(.max, int_info.signedness, int_info.bits);
+        var max: U = maxInt(U);
+        try testing.expect(max == try a.to(U));
+
+        try a.setTwosCompIntLimit(.min, int_info.signedness, int_info.bits);
+        var min: U = minInt(U);
+        try testing.expect(min == try a.to(U));
+    }
 }
 
 test "big.int string to" {
@@ -545,6 +576,198 @@ test "big.int add scalar" {
     try testing.expect((try b.to(u32)) == 55);
 }
 
+test "big.int addWrap single-single, unsigned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(u17));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 10);
+    defer b.deinit();
+
+    try a.addWrap(a.toConst(), b.toConst(), .unsigned, 17);
+
+    try testing.expect((try a.to(u17)) == 9);
+}
+
+test "big.int subWrap single-single, unsigned" {
+    var a = try Managed.initSet(testing.allocator, 0);
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, maxInt(u17));
+    defer b.deinit();
+
+    try a.subWrap(a.toConst(), b.toConst(), .unsigned, 17);
+
+    try testing.expect((try a.to(u17)) == 1);
+}
+
+test "big.int addWrap multi-multi, unsigned, limb aligned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(DoubleLimb));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, maxInt(DoubleLimb));
+    defer b.deinit();
+
+    try a.addWrap(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+
+    try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb) - 1);
+}
+
+test "big.int subWrap single-multi, unsigned, limb aligned" {
+    var a = try Managed.initSet(testing.allocator, 10);
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, maxInt(DoubleLimb) + 100);
+    defer b.deinit();
+
+    try a.subWrap(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+
+    try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb) - 88);
+}
+
+test "big.int addWrap single-single, signed" {
+    var a = try Managed.initSet(testing.allocator, maxInt(i21));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 1 + 1 + maxInt(u21));
+    defer b.deinit();
+
+    try a.addWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(i21));
+
+    try testing.expect((try a.to(i21)) == minInt(i21));
+}
+
+test "big.int subWrap single-single, signed" {
+    var a = try Managed.initSet(testing.allocator, minInt(i21));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 1);
+    defer b.deinit();
+
+    try a.subWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(i21));
+
+    try testing.expect((try a.to(i21)) == maxInt(i21));
+}
+
+test "big.int addWrap multi-multi, signed, limb aligned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
+    defer b.deinit();
+
+    try a.addWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == -2);
+}
+
+test "big.int subWrap single-multi, signed, limb aligned" {
+    var a = try Managed.initSet(testing.allocator, minInt(SignedDoubleLimb));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 1);
+    defer b.deinit();
+
+    try a.subWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == maxInt(SignedDoubleLimb));
+}
+
+test "big.int addSat single-single, unsigned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(u17) - 5);
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 10);
+    defer b.deinit();
+
+    try a.addSat(a.toConst(), b.toConst(), .unsigned, 17);
+
+    try testing.expect((try a.to(u17)) == maxInt(u17));
+}
+
+test "big.int subSat single-single, unsigned" {
+    var a = try Managed.initSet(testing.allocator, 123);
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 4000);
+    defer b.deinit();
+
+    try a.subSat(a.toConst(), b.toConst(), .unsigned, 17);
+
+    try testing.expect((try a.to(u17)) == 0);
+}
+
+test "big.int addSat multi-multi, unsigned, limb aligned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(DoubleLimb));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, maxInt(DoubleLimb));
+    defer b.deinit();
+
+    try a.addSat(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+
+    try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb));
+}
+
+test "big.int subSat single-multi, unsigned, limb aligned" {
+    var a = try Managed.initSet(testing.allocator, 10);
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, maxInt(DoubleLimb) + 100);
+    defer b.deinit();
+
+    try a.subSat(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+
+    try testing.expect((try a.to(DoubleLimb)) == 0);
+}
+
+test "big.int addSat single-single, signed" {
+    var a = try Managed.initSet(testing.allocator, maxInt(i14));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 1);
+    defer b.deinit();
+
+    try a.addSat(a.toConst(), b.toConst(), .signed, @bitSizeOf(i14));
+
+    try testing.expect((try a.to(i14)) == maxInt(i14));
+}
+
+test "big.int subSat single-single, signed" {
+    var a = try Managed.initSet(testing.allocator, minInt(i21));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 1);
+    defer b.deinit();
+
+    try a.subSat(a.toConst(), b.toConst(), .signed, @bitSizeOf(i21));
+
+    try testing.expect((try a.to(i21)) == minInt(i21));
+}
+
+test "big.int addSat multi-multi, signed, limb aligned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
+    defer b.deinit();
+
+    try a.addSat(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == maxInt(SignedDoubleLimb));
+}
+
+test "big.int subSat single-multi, signed, limb aligned" {
+    var a = try Managed.initSet(testing.allocator, minInt(SignedDoubleLimb));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 1);
+    defer b.deinit();
+
+    try a.subSat(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == minInt(SignedDoubleLimb));
+}
+
 test "big.int sub single-single" {
     var a = try Managed.initSet(testing.allocator, 50);
     defer a.deinit();
@@ -744,6 +967,84 @@ test "big.int mul large" {
 
     try b.mul(a.toConst(), a.toConst());
     try c.sqr(a.toConst());
+
+    try testing.expect(b.eq(c));
+}
+
+test "big.int mulWrap single-single unsigned" {
+    var a = try Managed.initSet(testing.allocator, 1234);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 5678);
+    defer b.deinit();
+
+    var c = try Managed.init(testing.allocator);
+    defer c.deinit();
+    try c.mulWrap(a.toConst(), b.toConst(), .unsigned, 17);
+
+    try testing.expect((try c.to(u17)) == 59836);
+}
+
+test "big.int mulWrap single-single signed" {
+    var a = try Managed.initSet(testing.allocator, 1234);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -5678);
+    defer b.deinit();
+
+    var c = try Managed.init(testing.allocator);
+    defer c.deinit();
+    try c.mulWrap(a.toConst(), b.toConst(), .signed, 17);
+
+    try testing.expect((try c.to(i17)) == -59836);
+}
+
+test "big.int mulWrap multi-multi unsigned" {
+    const op1 = 0x998888efefefefefefefef;
+    const op2 = 0x333000abababababababab;
+    var a = try Managed.initSet(testing.allocator, op1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, op2);
+    defer b.deinit();
+
+    var c = try Managed.init(testing.allocator);
+    defer c.deinit();
+    try c.mulWrap(a.toConst(), b.toConst(), .unsigned, 65);
+
+    try testing.expect((try c.to(u256)) == (op1 * op2) & ((1 << 65) - 1));
+}
+
+test "big.int mulWrap multi-multi signed" {
+    var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb) - 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
+    defer b.deinit();
+
+    var c = try Managed.init(testing.allocator);
+    defer c.deinit();
+    try c.mulWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+
+    try testing.expect((try c.to(SignedDoubleLimb)) == minInt(SignedDoubleLimb) + 2);
+}
+
+test "big.int mulWrap large" {
+    var a = try Managed.initCapacity(testing.allocator, 50);
+    defer a.deinit();
+    var b = try Managed.initCapacity(testing.allocator, 100);
+    defer b.deinit();
+    var c = try Managed.initCapacity(testing.allocator, 100);
+    defer c.deinit();
+
+    // Generate a number that's large enough to cross the thresholds for the use
+    // of subquadratic algorithms
+    for (a.limbs) |*p| {
+        p.* = std.math.maxInt(Limb);
+    }
+    a.setMetadata(true, 50);
+
+    const testbits = @bitSizeOf(Limb) * 64 + 45;
+
+    try b.mulWrap(a.toConst(), a.toConst(), .signed, testbits);
+    try c.sqr(a.toConst());
+    try c.truncate(c.toConst(), .signed, testbits);
 
     try testing.expect(b.eq(c));
 }
@@ -1278,6 +1579,135 @@ test "big.int div multi-multi fuzz case #2" {
     const rs = try r.toString(testing.allocator, 16, .lower);
     defer testing.allocator.free(rs);
     try testing.expect(std.mem.eql(u8, rs, "a900000000000000000000000000000000000000000000000000"));
+}
+
+test "big.int truncate single unsigned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(u47));
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .unsigned, 17);
+
+    try testing.expect((try a.to(u17)) == maxInt(u17));
+}
+
+test "big.int truncate single signed" {
+    var a = try Managed.initSet(testing.allocator, 0x1_0000);
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .signed, 17);
+
+    try testing.expect((try a.to(i17)) == minInt(i17));
+}
+
+test "big.int truncate multi to single unsigned" {
+    var a = try Managed.initSet(testing.allocator, (maxInt(Limb) + 1) | 0x1234_5678_9ABC_DEF0);
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .unsigned, 27);
+
+    try testing.expect((try a.to(u27)) == 0x2BC_DEF0);
+}
+
+test "big.int truncate multi to single signed" {
+    var a = try Managed.initSet(testing.allocator, maxInt(Limb) << 10);
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .signed, @bitSizeOf(i11));
+
+    try testing.expect((try a.to(i11)) == minInt(i11));
+}
+
+test "big.int truncate multi to multi unsigned" {
+    const bits = @typeInfo(SignedDoubleLimb).Int.bits;
+    const Int = std.meta.Int(.unsigned, bits - 1);
+
+    var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .unsigned, bits - 1);
+
+    try testing.expect((try a.to(Int)) == maxInt(Int));
+}
+
+test "big.int truncate multi to multi signed" {
+    var a = try Managed.initSet(testing.allocator, 3 << @bitSizeOf(Limb));
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .signed, @bitSizeOf(Limb) + 1);
+
+    try testing.expect((try a.to(std.meta.Int(.signed, @bitSizeOf(Limb) + 1))) == -1 << @bitSizeOf(Limb));
+}
+
+test "big.int truncate negative multi to single" {
+    var a = try Managed.initSet(testing.allocator, -@as(SignedDoubleLimb, maxInt(Limb) + 1));
+    defer a.deinit();
+
+    try a.truncate(a.toConst(), .signed, @bitSizeOf(i17));
+
+    try testing.expect((try a.to(i17)) == 0);
+}
+
+test "big.int saturate single signed positive" {
+    var a = try Managed.initSet(testing.allocator, 0xBBBB_BBBB);
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .signed, 17);
+
+    try testing.expect((try a.to(i17)) == maxInt(i17));
+}
+
+test "big.int saturate single signed negative" {
+    var a = try Managed.initSet(testing.allocator, -1_234_567);
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .signed, 17);
+
+    try testing.expect((try a.to(i17)) == minInt(i17));
+}
+
+test "big.int saturate single signed" {
+    var a = try Managed.initSet(testing.allocator, maxInt(i17) - 1);
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .signed, 17);
+
+    try testing.expect((try a.to(i17)) == maxInt(i17) - 1);
+}
+
+test "big.int saturate multi signed" {
+    var a = try Managed.initSet(testing.allocator, maxInt(Limb) << @bitSizeOf(SignedDoubleLimb));
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == maxInt(SignedDoubleLimb));
+}
+
+test "big.int saturate single unsigned" {
+    var a = try Managed.initSet(testing.allocator, 0xFEFE_FEFE);
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .unsigned, 23);
+
+    try testing.expect((try a.to(u23)) == maxInt(u23));
+}
+
+test "big.int saturate multi unsigned zero" {
+    var a = try Managed.initSet(testing.allocator, -1);
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+
+    try testing.expect(a.eqZero());
+}
+
+test "big.int saturate multi unsigned" {
+    var a = try Managed.initSet(testing.allocator, maxInt(Limb) << @bitSizeOf(DoubleLimb));
+    defer a.deinit();
+
+    try a.saturate(a.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+
+    try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb));
 }
 
 test "big.int shift-right single" {
