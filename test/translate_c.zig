@@ -2076,7 +2076,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export var @"anyerror": c_uint = 2;
         ,
-        \\pub const @"noreturn" = @compileError("unable to translate C expr: unexpected token .Keyword_noreturn");
+        \\pub const @"noreturn" = @compileError("unable to translate C expr: unexpected token '_Noreturn'");
         ,
         \\pub const @"f32": c_int = 0;
         \\pub const @"u32": c_int = 1;
