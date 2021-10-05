@@ -1,5 +1,7 @@
 const std = @import("../std.zig");
-const target = std.Target.current;
+const builtin = @import("builtin");
+const target = builtin.target;
+
 const SpinWait = @This();
 
 // Spin for a longer period of time on x86 since throughput is more important there.

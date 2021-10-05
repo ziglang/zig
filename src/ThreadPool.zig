@@ -25,7 +25,7 @@ pub fn init(self: *ThreadPool, allocator: *std.mem.Allocator) !void {
         .threads = &[_]std.Thread{},
     };
 
-    if (std.builtin.single_threaded)
+    if (builtin.single_threaded)
         return;
 
     const thread_count = std.math.max(1, std.Thread.getCpuCount() catch 1);
