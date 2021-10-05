@@ -999,6 +999,22 @@ bool target_has_debug_info(const ZigTarget *target) {
     return !target_is_wasm(target);
 }
 
+bool target_long_double_is_f128(const ZigTarget *target) {
+    switch (target->arch) {
+        case ZigLLVM_riscv64:
+        case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
+        case ZigLLVM_aarch64_32:
+        case ZigLLVM_systemz:
+        case ZigLLVM_mips64:
+        case ZigLLVM_mips64el:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 bool target_is_riscv(const ZigTarget *target) {
     return target->arch == ZigLLVM_riscv32 || target->arch == ZigLLVM_riscv64;
 }

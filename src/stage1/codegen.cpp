@@ -57,6 +57,9 @@ static const char *symbols_that_llvm_depends_on[] = {
     "log10",
     "log2",
     "fma",
+    "fmaf",
+    "fmal",
+    "fmaq",
     "fabs",
     "minnum",
     "maxnum",
@@ -832,10 +835,25 @@ static LLVMValueRef get_float_fn(CodeGen *g, ZigType *type_entry, ZigLLVMFnId fn
 
     bool is_vector = (type_entry->id == ZigTypeIdVector);
     ZigType *float_type = is_vector ? type_entry->data.vector.elem_type : type_entry;
+    uint32_t float_bits = float_type->data.floating.bit_count;
+
+    // LLVM incorrectly lowers the fma builtin for f128 to fmal, which is for
+    // `long double`. On some targets this will be correct; on others it will be incorrect.
+    if (fn_id == ZigLLVMFnIdFMA && float_bits == 128 &&
+        !target_long_double_is_f128(g->zig_target))
+    {
+        LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, "fmaq");
+        if (existing_llvm_fn != nullptr) return existing_llvm_fn;
+
+        LLVMTypeRef float_type_ref = get_llvm_type(g, type_entry);
+        LLVMTypeRef return_elem_types[3] = { float_type_ref, float_type_ref, float_type_ref };
+        LLVMTypeRef fn_type = LLVMFunctionType(float_type_ref, return_elem_types, 3, false);
+        return LLVMAddFunction(g->module, "fmaq", fn_type);
+    }
 
     ZigLLVMFnKey key = {};
     key.id = fn_id;
-    key.data.floating.bit_count = (uint32_t)float_type->data.floating.bit_count;
+    key.data.floating.bit_count = float_bits;
     key.data.floating.vector_len = is_vector ? (uint32_t)type_entry->data.vector.len : 0;
     key.data.floating.op = op;
 
@@ -861,11 +879,7 @@ static LLVMValueRef get_float_fn(CodeGen *g, ZigType *type_entry, ZigLLVMFnId fn
     else
         sprintf(fn_name, "llvm.%s.f%" PRIu32, name, key.data.floating.bit_count);
     LLVMTypeRef float_type_ref = get_llvm_type(g, type_entry);
-    LLVMTypeRef return_elem_types[3] = {
-        float_type_ref,
-        float_type_ref,
-        float_type_ref,
-    };
+    LLVMTypeRef return_elem_types[3] = { float_type_ref, float_type_ref, float_type_ref };
     LLVMTypeRef fn_type = LLVMFunctionType(float_type_ref, return_elem_types, num_args, false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type);
     assert(LLVMGetIntrinsicID(fn_val));
@@ -6583,11 +6597,7 @@ static LLVMValueRef ir_render_mul_add(CodeGen *g, Stage1Air *executable, Stage1A
     assert(instruction->base.value->type->id == ZigTypeIdFloat ||
            instruction->base.value->type->id == ZigTypeIdVector);
     LLVMValueRef fn_val = get_float_fn(g, instruction->base.value->type, ZigLLVMFnIdFMA, BuiltinFnIdMulAdd);
-    LLVMValueRef args[3] = {
-        op1,
-        op2,
-        op3,
-    };
+    LLVMValueRef args[3] = { op1, op2, op3 };
     return LLVMBuildCall(g->builder, fn_val, args, 3, "");
 }
 

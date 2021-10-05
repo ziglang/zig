@@ -616,7 +616,13 @@ comptime {
         @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
 
         _ = @import("compiler_rt/atomics.zig");
+
+        @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
     }
+}
+
+fn fmaq(a: f128, b: f128, c: f128) callconv(.C) f128 {
+    return std.math.fma(f128, a, b, c);
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
