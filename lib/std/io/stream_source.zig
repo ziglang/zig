@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const io = std.io;
 
 /// Provides `io.Reader`, `io.Writer`, and `io.SeekableStream` for in-memory buffers as
@@ -6,7 +7,7 @@ const io = std.io;
 /// For memory sources, if the supplied byte buffer is const, then `io.Writer` is not available.
 /// The error set of the stream functions is the error set of the corresponding file functions.
 pub const StreamSource = union(enum) {
-    const has_file = (std.builtin.os.tag != .freestanding);
+    const has_file = (builtin.os.tag != .freestanding);
 
     /// The stream access is redirected to this buffer.
     buffer: io.FixedBufferStream([]u8),

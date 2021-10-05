@@ -1,5 +1,6 @@
+const std = @import("../std.zig");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
-const builtin = std.builtin;
 const expect = std.testing.expect;
 
 /// Many reader, many writer, non-allocating, thread-safe
@@ -67,7 +68,6 @@ pub fn Stack(comptime T: type) type {
     };
 }
 
-const std = @import("../std.zig");
 const Context = struct {
     allocator: *std.mem.Allocator,
     stack: *Stack(i32),

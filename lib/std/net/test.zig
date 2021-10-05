@@ -1,5 +1,5 @@
 const std = @import("../std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const net = std.net;
 const mem = std.mem;
 const testing = std.testing;
@@ -35,7 +35,7 @@ test "parse and render IPv6 addresses" {
         var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
         try std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
 
-        if (std.builtin.os.tag == .linux) {
+        if (builtin.os.tag == .linux) {
             var addr_via_resolve = net.Address.resolveIp6(ip, 0) catch unreachable;
             var newResolvedIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr_via_resolve}) catch unreachable;
             try std.testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
@@ -49,7 +49,7 @@ test "parse and render IPv6 addresses" {
     try testing.expectError(error.Incomplete, net.Address.parseIp6("FF01:", 0));
     try testing.expectError(error.InvalidIpv4Mapping, net.Address.parseIp6("::123.123.123.123", 0));
     // TODO Make this test pass on other operating systems.
-    if (std.builtin.os.tag == .linux) {
+    if (builtin.os.tag == .linux) {
         try testing.expectError(error.Incomplete, net.Address.resolveIp6("ff01::fb%", 0));
         try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3s0s0s0s0s0s0s0s0", 0));
         try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%12345678901234", 0));
@@ -57,7 +57,7 @@ test "parse and render IPv6 addresses" {
 }
 
 test "invalid but parseable IPv6 scope ids" {
-    if (std.builtin.os.tag != .linux) {
+    if (builtin.os.tag != .linux) {
         // Currently, resolveIp6 with alphanumerical scope IDs only works on Linux.
         // TODO Make this test pass on other operating systems.
         return error.SkipZigTest;
@@ -106,11 +106,11 @@ test "parse and render UNIX addresses" {
 test "resolve DNS" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    if (std.builtin.os.tag == .windows) {
+    if (builtin.os.tag == .windows) {
         _ = try std.os.windows.WSAStartup(2, 2);
     }
     defer {
-        if (std.builtin.os.tag == .windows) {
+        if (builtin.os.tag == .windows) {
             std.os.windows.WSACleanup() catch unreachable;
         }
     }
@@ -143,11 +143,11 @@ test "listen on a port, send bytes, receive bytes" {
     if (builtin.single_threaded) return error.SkipZigTest;
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    if (std.builtin.os.tag == .windows) {
+    if (builtin.os.tag == .windows) {
         _ = try std.os.windows.WSAStartup(2, 2);
     }
     defer {
-        if (std.builtin.os.tag == .windows) {
+        if (builtin.os.tag == .windows) {
             std.os.windows.WSACleanup() catch unreachable;
         }
     }
@@ -185,7 +185,7 @@ test "listen on a port, send bytes, receive bytes" {
 test "listen on a port, send bytes, receive bytes" {
     if (!std.io.is_async) return error.SkipZigTest;
 
-    if (std.builtin.os.tag != .linux and !std.builtin.os.tag.isDarwin()) {
+    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) {
         // TODO build abstractions for other operating systems
         return error.SkipZigTest;
     }
@@ -207,7 +207,7 @@ test "listen on a port, send bytes, receive bytes" {
 test "listen on ipv4 try connect on ipv6 then ipv4" {
     if (!std.io.is_async) return error.SkipZigTest;
 
-    if (std.builtin.os.tag != .linux and !std.builtin.os.tag.isDarwin()) {
+    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) {
         // TODO build abstractions for other operating systems
         return error.SkipZigTest;
     }
@@ -267,11 +267,11 @@ test "listen on a unix socket, send bytes, receive bytes" {
     if (builtin.single_threaded) return error.SkipZigTest;
     if (!net.has_unix_sockets) return error.SkipZigTest;
 
-    if (std.builtin.os.tag == .windows) {
+    if (builtin.os.tag == .windows) {
         _ = try std.os.windows.WSAStartup(2, 2);
     }
     defer {
-        if (std.builtin.os.tag == .windows) {
+        if (builtin.os.tag == .windows) {
             std.os.windows.WSACleanup() catch unreachable;
         }
     }

@@ -7,6 +7,7 @@
 //! * `initial_delay_ms`
 
 const std = @import("std");
+const builtin = @import("builtin");
 const windows = std.os.windows;
 const testing = std.testing;
 const assert = std.debug.assert;
@@ -144,10 +145,10 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) !*
     if (stderr.supportsAnsiEscapeCodes()) {
         self.terminal = stderr;
         self.supports_ansi_escape_codes = true;
-    } else if (std.builtin.os.tag == .windows and stderr.isTty()) {
+    } else if (builtin.os.tag == .windows and stderr.isTty()) {
         self.is_windows_terminal = true;
         self.terminal = stderr;
-    } else if (std.builtin.os.tag != .windows) {
+    } else if (builtin.os.tag != .windows) {
         // we are in a "dumb" terminal like in acme or writing to a file
         self.terminal = stderr;
     }
@@ -200,7 +201,7 @@ fn refreshWithHeldLock(self: *Progress) void {
         if (self.supports_ansi_escape_codes) {
             end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{d}D", .{self.columns_written}) catch unreachable).len;
             end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
-        } else if (std.builtin.os.tag == .windows) winapi: {
+        } else if (builtin.os.tag == .windows) winapi: {
             std.debug.assert(self.is_windows_terminal);
 
             var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;

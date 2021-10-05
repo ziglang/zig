@@ -6,9 +6,9 @@ const Allocator = std.mem.Allocator;
 const Batch = std.event.Batch;
 const build_options = @import("build_options");
 
-const is_darwin = Target.current.isDarwin();
-const is_windows = Target.current.os.tag == .windows;
-const is_haiku = Target.current.os.tag == .haiku;
+const is_darwin = builtin.target.isDarwin();
+const is_windows = builtin.target.os.tag == .windows;
+const is_haiku = builtin.target.os.tag == .haiku;
 
 const log = std.log.scoped(.libc_installation);
 
@@ -219,7 +219,7 @@ pub const LibCInstallation = struct {
                 var batch = Batch(FindError!void, 2, .auto_async).init();
                 errdefer batch.wait() catch {};
                 batch.add(&async self.findNativeIncludeDirPosix(args));
-                switch (Target.current.os.tag) {
+                switch (builtin.target.os.tag) {
                     .freebsd, .netbsd, .openbsd, .dragonfly => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib"),
                     .solaris => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib/64"),
                     .linux => batch.add(&async self.findNativeCrtDirPosix(args)),

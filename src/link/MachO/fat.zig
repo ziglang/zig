@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const log = std.log.scoped(.archive);
 const macho = std.macho;
 const mem = std.mem;
@@ -23,7 +23,7 @@ fn readFatStruct(reader: anytype, comptime T: type) !T {
     // Fat structures (fat_header & fat_arch) are always written and read to/from
     // disk in big endian order.
     var res = try reader.readStruct(T);
-    if (native_endian != builtin.Endian.Big) {
+    if (native_endian != std.builtin.Endian.Big) {
         mem.bswapAllFields(T, &res);
     }
     return res;

@@ -292,7 +292,7 @@ pub const File = struct {
                     // make executable, so we don't have to close it.
                     return;
                 }
-                if (comptime std.Target.current.isDarwin() and std.Target.current.cpu.arch == .aarch64) {
+                if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
                     if (base.options.target.cpu.arch != .aarch64) return; // If we're not targeting aarch64, nothing to do.
                     // XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
                     // Any change to the binary will effectively invalidate the kernel's cache
@@ -711,7 +711,7 @@ pub fn determineMode(options: Options) fs.File.Mode {
     // with 0o755 permissions, but it works appropriately if the system is configured
     // more leniently. As another data point, C's fopen seems to open files with the
     // 666 mode.
-    const executable_mode = if (std.Target.current.os.tag == .windows) 0 else 0o777;
+    const executable_mode = if (builtin.target.os.tag == .windows) 0 else 0o777;
     switch (options.effectiveOutputMode()) {
         .Lib => return switch (options.link_mode) {
             .Dynamic => executable_mode,

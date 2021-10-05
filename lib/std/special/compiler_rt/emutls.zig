@@ -5,6 +5,7 @@
 //
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const abort = std.os.abort;
 const assert = std.debug.assert;
@@ -15,7 +16,7 @@ const expect = std.testing.expect;
 const gcc_word = usize;
 
 comptime {
-    assert(std.builtin.link_libc);
+    assert(builtin.link_libc);
 }
 
 /// public entrypoint for generated code using EmulatedTLS

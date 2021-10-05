@@ -1,7 +1,7 @@
 // zig run -O ReleaseFast --zig-lib-dir ../.. benchmark.zig
 
 const std = @import("../std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const mem = std.mem;
 const time = std.time;
 const Timer = time.Timer;

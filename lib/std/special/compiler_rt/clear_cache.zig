@@ -1,6 +1,7 @@
 const std = @import("std");
-const arch = std.builtin.cpu.arch;
-const os = std.builtin.os.tag;
+const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
+const os = builtin.os.tag;
 
 // Ported from llvm-project d32170dbd5b0d54436537b6b75beaf44324e0c28
 
@@ -156,7 +157,7 @@ pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
     }
 }
 
-const linkage = if (std.builtin.is_test) std.builtin.GlobalLinkage.Internal else std.builtin.GlobalLinkage.Weak;
+const linkage = if (builtin.is_test) std.builtin.GlobalLinkage.Internal else std.builtin.GlobalLinkage.Weak;
 
 fn exportIt() void {
     @export(clear_cache, .{ .name = "__clear_cache", .linkage = linkage });

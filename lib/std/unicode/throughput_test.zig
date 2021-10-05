@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = std.builtin;
 const time = std.time;
 const unicode = std.unicode;
 

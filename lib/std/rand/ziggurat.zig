@@ -1,14 +1,15 @@
-// Implements ZIGNOR [1].
-//
-// [1]: Jurgen A. Doornik (2005). [*An Improved Ziggurat Method to Generate Normal Random Samples*]
-// (https://www.doornik.com/research/ziggurat.pdf). Nuffield College, Oxford.
-//
-// rust/rand used as a reference;
-//
-// NOTE: This seems interesting but reference code is a bit hard to grok:
-// https://sbarral.github.io/etf.
+//! Implements ZIGNOR [1].
+//!
+//! [1]: Jurgen A. Doornik (2005). [*An Improved Ziggurat Method to Generate Normal Random Samples*]
+//! (https://www.doornik.com/research/ziggurat.pdf). Nuffield College, Oxford.
+//!
+//! rust/rand used as a reference;
+//!
+//! NOTE: This seems interesting but reference code is a bit hard to grok:
+//! https://sbarral.github.io/etf.
 
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const math = std.math;
 const Random = std.rand.Random;
 
@@ -126,7 +127,7 @@ fn norm_zero_case(random: *Random, u: f64) f64 {
     }
 }
 
-const please_windows_dont_oom = std.Target.current.os.tag == .windows;
+const please_windows_dont_oom = builtin.os.tag == .windows;
 
 test "normal dist sanity" {
     if (please_windows_dont_oom) return error.SkipZigTest;

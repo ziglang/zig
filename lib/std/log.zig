@@ -69,7 +69,7 @@
 //! ```
 
 const std = @import("std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const root = @import("root");
 
 pub const Level = enum {
@@ -170,7 +170,7 @@ pub fn defaultLog(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (std.Target.current.os.tag == .freestanding) {
+    if (builtin.os.tag == .freestanding) {
         // On freestanding one must provide a log function; we do not have
         // any I/O configured.
         return;

@@ -1,9 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
-const os_tag = std.Target.current.os.tag;
+const os_tag = builtin.os.tag;
 const arch = builtin.stage2_arch;
-const abi = std.Target.current.abi;
+const abi = builtin.abi;
 
 const is_gnu = abi.isGnu();
 const is_mingw = os_tag == .windows and is_gnu;

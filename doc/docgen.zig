@@ -1334,7 +1334,7 @@ fn genHtml(
                             if (mem.startsWith(u8, triple, "wasm32") or
                                 mem.startsWith(u8, triple, "riscv64-linux") or
                                 (mem.startsWith(u8, triple, "x86_64-linux") and
-                                std.Target.current.os.tag != .linux or std.Target.current.cpu.arch != .x86_64))
+                                builtin.os.tag != .linux or builtin.cpu.arch != .x86_64))
                             {
                                 // skip execution
                                 break :code_block;
@@ -1602,7 +1602,7 @@ fn genHtml(
                     Code.Id.Lib => {
                         const bin_basename = try std.zig.binNameAlloc(allocator, .{
                             .root_name = code.name,
-                            .target = std.Target.current,
+                            .target = builtin.target,
                             .output_mode = .Lib,
                         });
 

@@ -2,7 +2,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
 const meta = std.meta;
-const builtin = std.builtin;
 
 /// Describes how pointer types should be hashed.
 pub const HashStrategy = enum {
@@ -233,7 +232,7 @@ fn testHashDeepRecursive(key: anytype) u64 {
 
 test "typeContainsSlice" {
     comptime {
-        try testing.expect(!typeContainsSlice(meta.Tag(builtin.TypeInfo)));
+        try testing.expect(!typeContainsSlice(meta.Tag(std.builtin.TypeInfo)));
 
         try testing.expect(typeContainsSlice([]const u8));
         try testing.expect(!typeContainsSlice(u8));

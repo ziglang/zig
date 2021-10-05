@@ -1,4 +1,5 @@
 const std = @import("../../std.zig");
+const builtin = @import("builtin");
 const net = @import("net.zig");
 
 const os = std.os;
@@ -6,8 +7,8 @@ const fmt = std.fmt;
 const mem = std.mem;
 const time = std.time;
 const meta = std.meta;
-const native_os = std.Target.current.os;
-const native_endian = std.Target.current.cpu.arch.endian();
+const native_os = builtin.os;
+const native_endian = builtin.cpu.arch.endian();
 
 const Buffer = std.x.os.Buffer;
 

@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const build = std.build;
 const fs = std.fs;
 const Step = build.Step;
@@ -219,7 +220,7 @@ const OptionFileSourceArg = struct {
 };
 
 test "OptionsStep" {
-    if (std.builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

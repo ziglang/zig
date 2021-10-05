@@ -674,7 +674,7 @@ test "saturating subtraction" {
 
 test "saturating multiplication" {
     // TODO: once #9660 has been solved, remove this line
-    if (std.builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {

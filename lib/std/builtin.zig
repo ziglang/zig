@@ -1,26 +1,27 @@
 const builtin = @import("builtin");
 
-// These are all deprecated.
-pub const zig_version = builtin.zig_version;
-pub const zig_is_stage2 = builtin.zig_is_stage2;
-pub const output_mode = builtin.output_mode;
-pub const link_mode = builtin.link_mode;
-pub const is_test = builtin.is_test;
-pub const single_threaded = builtin.single_threaded;
-pub const abi = builtin.abi;
-pub const cpu = builtin.cpu;
-pub const os = builtin.os;
-pub const target = builtin.target;
-pub const object_format = builtin.object_format;
-pub const mode = builtin.mode;
-pub const link_libc = builtin.link_libc;
-pub const link_libcpp = builtin.link_libcpp;
-pub const have_error_return_tracing = builtin.have_error_return_tracing;
-pub const valgrind_support = builtin.valgrind_support;
-pub const position_independent_code = builtin.position_independent_code;
-pub const position_independent_executable = builtin.position_independent_executable;
-pub const strip_debug_info = builtin.strip_debug_info;
-pub const code_model = builtin.code_model;
+// TODO delete these after releasing 0.9.0
+
+pub const zig_version = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const zig_is_stage2 = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const output_mode = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const link_mode = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const is_test = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const single_threaded = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const abi = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const cpu = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const os = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const target = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const object_format = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const mode = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const link_libc = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const link_libcpp = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const have_error_return_tracing = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const valgrind_support = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const position_independent_code = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const position_independent_executable = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const strip_debug_info = @compileError("get this from @import(\"builtin\") instead of std.builtin");
+pub const code_model = @compileError("get this from @import(\"builtin\") instead of std.builtin");
 
 /// `explicit_subsystem` is missing when the subsystem is automatically detected,
 /// so Zig standard library has the subsystem detection logic here. This should generally be
@@ -694,7 +695,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
             @breakpoint();
         }
     }
-    switch (os.tag) {
+    switch (builtin.os.tag) {
         .freestanding => {
             while (true) {
                 @breakpoint();

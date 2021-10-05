@@ -1,5 +1,5 @@
 const std = @import("../std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const root = @import("root");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -9,7 +9,7 @@ const windows = os.windows;
 const maxInt = std.math.maxInt;
 const Thread = std.Thread;
 
-const is_windows = std.Target.current.os.tag == .windows;
+const is_windows = builtin.os.tag == .windows;
 
 pub const Loop = struct {
     next_tick_queue: std.atomic.Queue(anyframe),
@@ -191,7 +191,7 @@ pub const Loop = struct {
             self.fs_thread.join();
         };
 
-        if (!std.builtin.single_threaded)
+        if (!builtin.single_threaded)
             try self.delay_queue.init();
     }
 
@@ -825,7 +825,7 @@ pub const Loop = struct {
     }
 
     pub fn sleep(self: *Loop, nanoseconds: u64) void {
-        if (std.builtin.single_threaded)
+        if (builtin.single_threaded)
             @compileError("TODO: integrate timers with epoll/kevent/iocp for single-threaded");
 
         suspend {

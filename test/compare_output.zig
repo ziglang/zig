@@ -28,7 +28,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
 
     cases.addC("number literals",
         \\const std = @import("std");
-        \\const is_windows = std.Target.current.os.tag == .windows;
+        \\const builtin = @import("builtin");
+        \\const is_windows = builtin.os.tag == .windows;
         \\const c = @cImport({
         \\    if (is_windows) {
         \\        // See https://github.com/ziglang/zig/issues/515
@@ -207,7 +208,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
 
     cases.addC("casting between float and integer types",
         \\const std = @import("std");
-        \\const is_windows = std.Target.current.os.tag == .windows;
+        \\const builtin = @import("builtin");
+        \\const is_windows = builtin.os.tag == .windows;
         \\const c = @cImport({
         \\    if (is_windows) {
         \\        // See https://github.com/ziglang/zig/issues/515

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "namespace depends on compile var" {
@@ -8,7 +9,7 @@ test "namespace depends on compile var" {
         try expect(!some_namespace.a_bool);
     }
 }
-const some_namespace = switch (std.builtin.os.tag) {
+const some_namespace = switch (builtin.os.tag) {
     .linux => @import("namespace_depends_on_compile_var/a.zig"),
     else => @import("namespace_depends_on_compile_var/b.zig"),
 };

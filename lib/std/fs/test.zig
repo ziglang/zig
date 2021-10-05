@@ -1,6 +1,6 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const testing = std.testing;
-const builtin = std.builtin;
 const fs = std.fs;
 const mem = std.mem;
 const wasi = std.os.wasi;

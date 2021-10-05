@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
@@ -7,13 +8,13 @@ const meta = std.meta;
 const trait = meta.trait;
 const testing = std.testing;
 const Endian = std.builtin.Endian;
-const native_endian = std.Target.current.cpu.arch.endian();
+const native_endian = builtin.cpu.arch.endian();
 
 /// Compile time known minimum page size.
 /// https://github.com/ziglang/zig/issues/4082
-pub const page_size = switch (std.Target.current.cpu.arch) {
+pub const page_size = switch (builtin.cpu.arch) {
     .wasm32, .wasm64 => 64 * 1024,
-    .aarch64 => switch (std.Target.current.os.tag) {
+    .aarch64 => switch (builtin.os.tag) {
         .macos, .ios, .watchos, .tvos => 16 * 1024,
         else => 4 * 1024,
     },

@@ -1,7 +1,7 @@
 const std = @import("../std.zig");
 
 const testing = std.testing;
-const target = std.Target.current;
+const target = @import("builtin").target;
 const Ordering = std.atomic.Ordering;
 
 pub fn Atomic(comptime T: type) type {

@@ -1,5 +1,4 @@
 const std = @import("std.zig");
-const builtin = std.builtin;
 const debug = std.debug;
 const fs = std.fs;
 const io = std.io;
@@ -454,7 +453,7 @@ const LineNumberProgram = struct {
     }
 };
 
-fn readUnitLength(in_stream: anytype, endian: builtin.Endian, is_64: *bool) !u64 {
+fn readUnitLength(in_stream: anytype, endian: std.builtin.Endian, is_64: *bool) !u64 {
     const first_32_bits = try in_stream.readInt(u32, endian);
     is_64.* = (first_32_bits == 0xffffffff);
     if (is_64.*) {
@@ -475,7 +474,7 @@ fn readAllocBytes(allocator: *mem.Allocator, in_stream: anytype, size: usize) ![
 }
 
 // TODO the nosuspends here are workarounds
-fn readAddress(in_stream: anytype, endian: builtin.Endian, is_64: bool) !u64 {
+fn readAddress(in_stream: anytype, endian: std.builtin.Endian, is_64: bool) !u64 {
     return nosuspend if (is_64)
         try in_stream.readInt(u64, endian)
     else
@@ -488,12 +487,12 @@ fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: anytype, size: u
 }
 
 // TODO the nosuspends here are workarounds
-fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: anytype, endian: builtin.Endian, size: usize) !FormValue {
+fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: anytype, endian: std.builtin.Endian, size: usize) !FormValue {
     const block_len = try nosuspend in_stream.readVarInt(usize, endian, size);
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
-fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: anytype, signed: bool, endian: builtin.Endian, comptime size: i32) !FormValue {
+fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: anytype, signed: bool, endian: std.builtin.Endian, comptime size: i32) !FormValue {
     _ = allocator;
     // TODO: Please forgive me, I've worked around zig not properly spilling some intermediate values here.
     // `nosuspend` should be removed from all the function calls once it is fixed.
@@ -521,7 +520,7 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: anytype, signed:
 }
 
 // TODO the nosuspends here are workarounds
-fn parseFormValueRef(allocator: *mem.Allocator, in_stream: anytype, endian: builtin.Endian, size: i32) !FormValue {
+fn parseFormValueRef(allocator: *mem.Allocator, in_stream: anytype, endian: std.builtin.Endian, size: i32) !FormValue {
     _ = allocator;
     return FormValue{
         .Ref = switch (size) {
@@ -536,7 +535,7 @@ fn parseFormValueRef(allocator: *mem.Allocator, in_stream: anytype, endian: buil
 }
 
 // TODO the nosuspends here are workarounds
-fn parseFormValue(allocator: *mem.Allocator, in_stream: anytype, form_id: u64, endian: builtin.Endian, is_64: bool) anyerror!FormValue {
+fn parseFormValue(allocator: *mem.Allocator, in_stream: anytype, form_id: u64, endian: std.builtin.Endian, is_64: bool) anyerror!FormValue {
     return switch (form_id) {
         FORM.addr => FormValue{ .Address = try readAddress(in_stream, endian, @sizeOf(usize) == 8) },
         FORM.block1 => parseFormValueBlock(allocator, in_stream, endian, 1),
@@ -593,7 +592,7 @@ fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*con
 }
 
 pub const DwarfInfo = struct {
-    endian: builtin.Endian,
+    endian: std.builtin.Endian,
     // No memory is owned by the DwarfInfo
     debug_info: []const u8,
     debug_abbrev: []const u8,

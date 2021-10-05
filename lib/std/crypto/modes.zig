@@ -1,7 +1,6 @@
 // Based on Go stdlib implementation
 
 const std = @import("../std.zig");
-const builtin = std.builtin;
 const mem = std.mem;
 const debug = std.debug;
 
@@ -11,7 +10,7 @@ const debug = std.debug;
 ///
 /// Important: the counter mode doesn't provide authenticated encryption: the ciphertext can be trivially modified without this being detected.
 /// As a result, applications should generally never use it directly, but only in a construction that includes a MAC.
-pub fn ctr(comptime BlockCipher: anytype, block_cipher: BlockCipher, dst: []u8, src: []const u8, iv: [BlockCipher.block_length]u8, endian: builtin.Endian) void {
+pub fn ctr(comptime BlockCipher: anytype, block_cipher: BlockCipher, dst: []u8, src: []const u8, iv: [BlockCipher.block_length]u8, endian: std.builtin.Endian) void {
     debug.assert(dst.len >= src.len);
     const block_length = BlockCipher.block_length;
     var counter: [BlockCipher.block_length]u8 = undefined;

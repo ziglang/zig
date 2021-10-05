@@ -1,5 +1,5 @@
 const std = @import("std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const testing = std.testing;
 
 pub fn once(comptime f: fn () void) Once(f) {

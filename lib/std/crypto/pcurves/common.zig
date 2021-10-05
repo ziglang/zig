@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = std.builtin;
 const crypto = std.crypto;
 const debug = std.debug;
 const mem = std.mem;
@@ -51,7 +50,7 @@ pub fn Field(comptime params: FieldParams) type {
         };
 
         /// Reject non-canonical encodings of an element.
-        pub fn rejectNonCanonical(s_: [encoded_length]u8, endian: builtin.Endian) NonCanonicalError!void {
+        pub fn rejectNonCanonical(s_: [encoded_length]u8, endian: std.builtin.Endian) NonCanonicalError!void {
             var s = if (endian == .Little) s_ else orderSwap(s_);
             const field_order_s = comptime fos: {
                 var fos: [encoded_length]u8 = undefined;
@@ -71,7 +70,7 @@ pub fn Field(comptime params: FieldParams) type {
         }
 
         /// Unpack a field element.
-        pub fn fromBytes(s_: [encoded_length]u8, endian: builtin.Endian) NonCanonicalError!Fe {
+        pub fn fromBytes(s_: [encoded_length]u8, endian: std.builtin.Endian) NonCanonicalError!Fe {
             var s = if (endian == .Little) s_ else orderSwap(s_);
             try rejectNonCanonical(s, .Little);
             var limbs_z: NonMontgomeryDomainFieldElement = undefined;
@@ -82,7 +81,7 @@ pub fn Field(comptime params: FieldParams) type {
         }
 
         /// Pack a field element.
-        pub fn toBytes(fe: Fe, endian: builtin.Endian) [encoded_length]u8 {
+        pub fn toBytes(fe: Fe, endian: std.builtin.Endian) [encoded_length]u8 {
             var limbs_z: NonMontgomeryDomainFieldElement = undefined;
             fiat.fromMontgomery(&limbs_z, fe.limbs);
             var s: [encoded_length]u8 = undefined;

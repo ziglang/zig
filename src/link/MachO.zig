@@ -967,7 +967,7 @@ fn resolveSearchDir(
 
     if (fs.path.isAbsolute(dir)) {
         if (syslibroot) |root| {
-            const common_dir = if (std.Target.current.os.tag == .windows) blk: {
+            const common_dir = if (builtin.os.tag == .windows) blk: {
                 // We need to check for disk designator and strip it out from dir path so
                 // that we can concat dir with syslibroot.
                 // TODO we should backport this mechanism to 'MachO.Dylib.parseDependentLibs()'

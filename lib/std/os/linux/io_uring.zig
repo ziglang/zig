@@ -1,6 +1,6 @@
 const std = @import("../../std.zig");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
-const builtin = std.builtin;
 const mem = std.mem;
 const net = std.net;
 const os = std.os;

@@ -1,11 +1,12 @@
 const std = @import("../../std.zig");
+const builtin = @import("builtin");
 
 const os = std.os;
 const fmt = std.fmt;
 const mem = std.mem;
 const math = std.math;
 const testing = std.testing;
-const native_os = std.Target.current.os;
+const native_os = builtin.os;
 const have_ifnamesize = @hasDecl(os.system, "IFNAMESIZE");
 
 /// Resolves a network interface name into a scope/zone ID. It returns

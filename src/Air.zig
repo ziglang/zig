@@ -4,6 +4,7 @@
 //! gets its own `Air` instance.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const Module = @import("Module.zig");
@@ -484,7 +485,7 @@ pub const Inst = struct {
         // bigger than expected. Note that in Debug builds, Zig is allowed
         // to insert a secret field for safety checks.
         comptime {
-            if (std.builtin.mode != .Debug) {
+            if (builtin.mode != .Debug) {
                 assert(@sizeOf(Data) == 8);
             }
         }

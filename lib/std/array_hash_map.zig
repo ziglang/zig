@@ -9,7 +9,6 @@ const trait = meta.trait;
 const autoHash = std.hash.autoHash;
 const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
-const builtin = std.builtin;
 const hash_map = @This();
 
 /// An ArrayHashMap with default hash and equal functions.

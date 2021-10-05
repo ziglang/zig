@@ -1,4 +1,3 @@
-const builtin = std.builtin;
 const std = @import("std.zig");
 const io = std.io;
 const math = std.math;

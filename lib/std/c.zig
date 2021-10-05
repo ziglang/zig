@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const c = @This();
 const page_size = std.mem.page_size;
 const iovec = std.os.iovec;
@@ -20,7 +20,7 @@ pub const Tokenizer = tokenizer.Tokenizer;
 /// If linking gnu libc (glibc), the `ok` value will be true if the target
 /// version is greater than or equal to `glibc_version`.
 /// If linking a libc other than these, returns `false`.
-pub fn versionCheck(glibc_version: builtin.Version) type {
+pub fn versionCheck(glibc_version: std.builtin.Version) type {
     return struct {
         pub const ok = blk: {
             if (!builtin.link_libc) break :blk false;

@@ -8,6 +8,7 @@
 //! the logic needs stronger API guarantees.
 
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const StaticResetEvent = @This();
 const assert = std.debug.assert;
 const os = std.os;
@@ -18,7 +19,7 @@ const testing = std.testing;
 
 impl: Impl = .{},
 
-pub const Impl = if (std.builtin.single_threaded)
+pub const Impl = if (builtin.single_threaded)
     DebugEvent
 else
     AtomicEvent;
@@ -162,7 +163,7 @@ pub const AtomicEvent = struct {
         @atomicStore(u32, &ev.waiters, 0, .Monotonic);
     }
 
-    pub const Futex = switch (std.Target.current.os.tag) {
+    pub const Futex = switch (builtin.os.tag) {
         .windows => WindowsFutex,
         .linux => LinuxFutex,
         else => SpinFutex,
@@ -322,7 +323,7 @@ test "basic usage" {
     try testing.expectEqual(TimedWaitResult.event_set, event.timedWait(1));
 
     // test cross-thread signaling
-    if (std.builtin.single_threaded)
+    if (builtin.single_threaded)
         return;
 
     const Context = struct {

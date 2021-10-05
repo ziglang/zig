@@ -1,19 +1,18 @@
-//
-// Small Zig reimplementation of gcc's libssp.
-//
-// This library implements most of the builtins required by the stack smashing
-// protection as implemented by gcc&clang.
-const std = @import("std");
-const builtin = std.builtin;
+//!
+//! Small Zig reimplementation of gcc's libssp.
+//!
+//! This library implements most of the builtins required by the stack smashing
+//! protection as implemented by gcc&clang.
+//! Missing exports:
+//! - __gets_chk
+//! - __mempcpy_chk
+//! - __snprintf_chk
+//! - __sprintf_chk
+//! - __stpcpy_chk
+//! - __vsnprintf_chk
+//! - __vsprintf_chk
 
-// Missing exports:
-// - __gets_chk
-// - __mempcpy_chk
-// - __snprintf_chk
-// - __sprintf_chk
-// - __stpcpy_chk
-// - __vsnprintf_chk
-// - __vsprintf_chk
+const std = @import("std");
 
 extern fn strncpy(dest: [*:0]u8, src: [*:0]const u8, n: usize) callconv(.C) [*:0]u8;
 extern fn memset(dest: ?[*]u8, c: u8, n: usize) callconv(.C) ?[*]u8;
@@ -21,7 +20,7 @@ extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) call
 extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8;
 
 // Avoid dragging in the runtime safety mechanisms into this .o file.
-pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
     _ = msg;
     _ = error_return_trace;
     @setCold(true);

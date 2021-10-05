@@ -1,6 +1,7 @@
 const std = @import("std");
-const is_test = std.builtin.is_test;
-const native_endian = std.Target.current.cpu.arch.endian();
+const builtin = @import("builtin");
+const is_test = builtin.is_test;
+const native_endian = builtin.cpu.arch.endian();
 
 // Ported from
 // https://github.com/llvm/llvm-project/blob/llvmorg-9.0.0/compiler-rt/lib/builtins/muldi3.c

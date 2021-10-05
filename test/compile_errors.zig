@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const TestContext = @import("../src/test.zig").TestContext;
 
 pub fn addCases(ctx: *TestContext) !void {
@@ -2898,7 +2899,7 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:18: error: invalid operands to binary expression: 'error{A}' and 'error{B}'",
     });
 
-    if (std.Target.current.os.tag == .linux) {
+    if (builtin.os.tag == .linux) {
         ctx.testErrStage1("implicit dependency on libc",
             \\extern "c" fn exit(u8) void;
             \\export fn entry() void {
@@ -8834,9 +8835,10 @@ pub fn addCases(ctx: *TestContext) !void {
 
     ctx.objErrStage1("Issue #9165: windows tcp server compilation error",
         \\const std = @import("std");
+        \\const builtin = @import("builtin");
         \\pub const io_mode = .evented;
         \\pub fn main() !void {
-        \\    if (std.builtin.os.tag == .windows) {
+        \\    if (builtin.os.tag == .windows) {
         \\        _ = try (std.net.StreamServer.init(.{})).accept();
         \\    } else {
         \\        @compileError("Unsupported OS");

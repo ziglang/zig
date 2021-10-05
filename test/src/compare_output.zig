@@ -1,14 +1,13 @@
 // This is the implementation of the test harness.
 // For the actual test cases, see test/compare_output.zig.
 const std = @import("std");
-const builtin = std.builtin;
 const build = std.build;
 const ArrayList = std.ArrayList;
 const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;
 const warn = std.debug.warn;
-const Mode = builtin.Mode;
+const Mode = std.builtin.Mode;
 
 pub const CompareOutputContext = struct {
     b: *build.Builder,

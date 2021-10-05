@@ -1,5 +1,5 @@
 const std = @import("std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
@@ -62,7 +62,7 @@ pub const Builder = struct {
     build_root: []const u8,
     cache_root: []const u8,
     global_cache_root: []const u8,
-    release_mode: ?builtin.Mode,
+    release_mode: ?std.builtin.Mode,
     is_release: bool,
     override_lib_dir: ?[]const u8,
     vcpkg_root: VcpkgRoot,
@@ -633,18 +633,18 @@ pub const Builder = struct {
     }
 
     /// This provides the -Drelease option to the build user and does not give them the choice.
-    pub fn setPreferredReleaseMode(self: *Builder, mode: builtin.Mode) void {
+    pub fn setPreferredReleaseMode(self: *Builder, mode: std.builtin.Mode) void {
         if (self.release_mode != null) {
             @panic("setPreferredReleaseMode must be called before standardReleaseOptions and may not be called twice");
         }
         const description = self.fmt("Create a release build ({s})", .{@tagName(mode)});
         self.is_release = self.option(bool, "release", description) orelse false;
-        self.release_mode = if (self.is_release) mode else builtin.Mode.Debug;
+        self.release_mode = if (self.is_release) mode else std.builtin.Mode.Debug;
     }
 
     /// If you call this without first calling `setPreferredReleaseMode` then it gives the build user
     /// the choice of what kind of release.
-    pub fn standardReleaseOptions(self: *Builder) builtin.Mode {
+    pub fn standardReleaseOptions(self: *Builder) std.builtin.Mode {
         if (self.release_mode) |mode| return mode;
 
         const release_safe = self.option(bool, "release-safe", "Optimizations on and safety on") orelse false;
@@ -652,17 +652,17 @@ pub const Builder = struct {
         const release_small = self.option(bool, "release-small", "Size optimizations on and safety off") orelse false;
 
         const mode = if (release_safe and !release_fast and !release_small)
-            builtin.Mode.ReleaseSafe
+            std.builtin.Mode.ReleaseSafe
         else if (release_fast and !release_safe and !release_small)
-            builtin.Mode.ReleaseFast
+            std.builtin.Mode.ReleaseFast
         else if (release_small and !release_fast and !release_safe)
-            builtin.Mode.ReleaseSmall
+            std.builtin.Mode.ReleaseSmall
         else if (!release_fast and !release_safe and !release_small)
-            builtin.Mode.Debug
+            std.builtin.Mode.Debug
         else x: {
             warn("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)\n\n", .{});
             self.markInvalidUserInput();
-            break :x builtin.Mode.Debug;
+            break :x std.builtin.Mode.Debug;
         };
         self.is_release = mode != .Debug;
         self.release_mode = mode;
@@ -1290,7 +1290,7 @@ test "builder.findProgram compiles" {
 }
 
 /// Deprecated. Use `std.builtin.Version`.
-pub const Version = builtin.Version;
+pub const Version = std.builtin.Version;
 
 /// Deprecated. Use `std.zig.CrossTarget`.
 pub const Target = std.zig.CrossTarget;
@@ -1417,8 +1417,8 @@ pub const LibExeObjStep = struct {
     version_script: ?[]const u8 = null,
     out_filename: []const u8,
     linkage: ?Linkage = null,
-    version: ?Version,
-    build_mode: builtin.Mode,
+    version: ?std.builtin.Version,
+    build_mode: std.builtin.Mode,
     kind: Kind,
     major_only_filename: ?[]const u8,
     name_only_filename: ?[]const u8,
@@ -1447,8 +1447,8 @@ pub const LibExeObjStep = struct {
     filter: ?[]const u8,
     single_threaded: bool,
     test_evented_io: bool = false,
-    code_model: builtin.CodeModel = .default,
-    wasi_exec_model: ?builtin.WasiExecModel = null,
+    code_model: std.builtin.CodeModel = .default,
+    wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
     root_src: ?FileSource,
     out_h_filename: []const u8,
@@ -1550,7 +1550,7 @@ pub const LibExeObjStep = struct {
     };
 
     const SharedLibKind = union(enum) {
-        versioned: Version,
+        versioned: std.builtin.Version,
         unversioned: void,
     };
 
@@ -1585,7 +1585,7 @@ pub const LibExeObjStep = struct {
         root_src_raw: ?FileSource,
         kind: Kind,
         linkage: ?Linkage,
-        ver: ?Version,
+        ver: ?std.builtin.Version,
     ) *LibExeObjStep {
         const name = builder.dupe(name_raw);
         const root_src: ?FileSource = if (root_src_raw) |rsrc| rsrc.dupe(builder) else null;
@@ -1599,7 +1599,7 @@ pub const LibExeObjStep = struct {
             .builder = builder,
             .verbose_link = false,
             .verbose_cc = false,
-            .build_mode = builtin.Mode.Debug,
+            .build_mode = std.builtin.Mode.Debug,
             .linkage = linkage,
             .kind = kind,
             .root_src = root_src,
@@ -1988,7 +1988,7 @@ pub const LibExeObjStep = struct {
         self.verbose_cc = value;
     }
 
-    pub fn setBuildMode(self: *LibExeObjStep, mode: builtin.Mode) void {
+    pub fn setBuildMode(self: *LibExeObjStep, mode: std.builtin.Mode) void {
         self.build_mode = mode;
     }
 
@@ -2553,7 +2553,7 @@ pub const LibExeObjStep = struct {
 
                     const resolved_include_path = self.builder.pathFromRoot(include_path);
 
-                    const common_include_path = if (std.Target.current.os.tag == .windows and builder.sysroot != null and fs.path.isAbsolute(resolved_include_path)) blk: {
+                    const common_include_path = if (builtin.os.tag == .windows and builder.sysroot != null and fs.path.isAbsolute(resolved_include_path)) blk: {
                         // We need to check for disk designator and strip it out from dir path so
                         // that zig/clang can concat resolved_include_path with sysroot.
                         const disk_designator = fs.path.diskDesignatorWindows(resolved_include_path);
@@ -3237,7 +3237,7 @@ test "LibExeObjStep.addPackage" {
 test {
     // The only purpose of this test is to get all these untested functions
     // to be referenced to avoid regression so it is okay to skip some targets.
-    if (comptime std.Target.current.cpu.arch.ptrBitWidth() == 64) {
+    if (comptime builtin.cpu.arch.ptrBitWidth() == 64) {
         std.testing.refAllDecls(@This());
         std.testing.refAllDecls(Builder);
 

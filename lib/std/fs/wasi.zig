@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const os = std.os;
 const mem = std.mem;
 const math = std.math;
@@ -165,7 +166,7 @@ pub const PreopenList = struct {
 };
 
 test "extracting WASI preopens" {
-    if (std.builtin.os.tag != .wasi or std.builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag != .wasi or builtin.link_libc) return error.SkipZigTest;
 
     var preopens = PreopenList.init(std.testing.allocator);
     defer preopens.deinit();

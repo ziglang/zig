@@ -1,9 +1,10 @@
 const std = @import("../../std.zig");
+const builtin = @import("builtin");
 
 const os = std.os;
 const mem = std.mem;
 const testing = std.testing;
-const native_os = std.Target.current.os;
+const native_os = builtin.os;
 const linux = std.os.linux;
 
 /// POSIX `iovec`, or Windows `WSABUF`. The difference between the two are the ordering

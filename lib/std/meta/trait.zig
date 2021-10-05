@@ -1,5 +1,4 @@
 const std = @import("../std.zig");
-const builtin = std.builtin;
 const mem = std.mem;
 const debug = std.debug;
 const testing = std.testing;
@@ -98,7 +97,7 @@ test "std.meta.trait.hasField" {
     try testing.expect(!hasField("value")(u8));
 }
 
-pub fn is(comptime id: builtin.TypeId) TraitFn {
+pub fn is(comptime id: std.builtin.TypeId) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
             return id == @typeInfo(T);
@@ -115,7 +114,7 @@ test "std.meta.trait.is" {
     try testing.expect(!is(.Optional)(anyerror));
 }
 
-pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn {
+pub fn isPtrTo(comptime id: std.builtin.TypeId) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
             if (!comptime isSingleItemPtr(T)) return false;
@@ -131,7 +130,7 @@ test "std.meta.trait.isPtrTo" {
     try testing.expect(!isPtrTo(.Struct)(**struct {}));
 }
 
-pub fn isSliceOf(comptime id: builtin.TypeId) TraitFn {
+pub fn isSliceOf(comptime id: std.builtin.TypeId) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
             if (!comptime isSlice(T)) return false;

@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 
 const math = std.math;
 const print = std.debug.print;
@@ -322,7 +323,7 @@ pub const TmpDir = struct {
 };
 
 fn getCwdOrWasiPreopen() std.fs.Dir {
-    if (std.builtin.os.tag == .wasi and !std.builtin.link_libc) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var preopens = std.fs.wasi.PreopenList.init(allocator);
         defer preopens.deinit();
         preopens.populate() catch
@@ -464,7 +465,7 @@ test {
 
 /// Given a type, reference all the declarations inside, so that the semantic analyzer sees them.
 pub fn refAllDecls(comptime T: type) void {
-    if (!std.builtin.is_test) return;
+    if (!builtin.is_test) return;
     inline for (std.meta.declarations(T)) |decl| {
         _ = decl;
     }

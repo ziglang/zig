@@ -1,4 +1,4 @@
-const native_arch = @import("std").Target.current.cpu.arch;
+const native_arch = @import("builtin").cpu.arch;
 
 // Zig's own stack-probe routine (available only on x86 and x86_64)
 pub fn zig_probe_stack() callconv(.Naked) void {

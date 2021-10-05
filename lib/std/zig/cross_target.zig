@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Target = std.Target;
 const mem = std.mem;
@@ -329,7 +330,7 @@ pub const CrossTarget = struct {
                 // This works when doing `zig build` because Zig generates a build executable using
                 // native CPU model & features. However this will not be accurate otherwise, and
                 // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
-                return Target.current.cpu;
+                return builtin.cpu;
             },
             .baseline => {
                 var adjusted_baseline = Target.Cpu.baseline(self.getCpuArch());
@@ -340,7 +341,7 @@ pub const CrossTarget = struct {
                 // This works when doing `zig build` because Zig generates a build executable using
                 // native CPU model & features. However this will not be accurate otherwise, and
                 // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
-                return Target.current.cpu;
+                return builtin.cpu;
             } else {
                 var adjusted_baseline = Target.Cpu.baseline(self.getCpuArch());
                 self.updateCpuFeatures(&adjusted_baseline.features);
@@ -355,7 +356,7 @@ pub const CrossTarget = struct {
     }
 
     pub fn getCpuArch(self: CrossTarget) Target.Cpu.Arch {
-        return self.cpu_arch orelse Target.current.cpu.arch;
+        return self.cpu_arch orelse builtin.cpu.arch;
     }
 
     pub fn getCpuModel(self: CrossTarget) *const Target.Cpu.Model {
@@ -371,10 +372,10 @@ pub const CrossTarget = struct {
 
     /// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
     pub fn getOs(self: CrossTarget) Target.Os {
-        // `Target.current.os` works when doing `zig build` because Zig generates a build executable using
+        // `builtin.os` works when doing `zig build` because Zig generates a build executable using
         // native OS version range. However this will not be accurate otherwise, and
         // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
-        var adjusted_os = if (self.os_tag) |os_tag| os_tag.defaultVersionRange() else Target.current.os;
+        var adjusted_os = if (self.os_tag) |os_tag| os_tag.defaultVersionRange() else builtin.os;
 
         if (self.os_version_min) |min| switch (min) {
             .none => {},
@@ -403,7 +404,7 @@ pub const CrossTarget = struct {
     }
 
     pub fn getOsTag(self: CrossTarget) Target.Os.Tag {
-        return self.os_tag orelse Target.current.os.tag;
+        return self.os_tag orelse builtin.os.tag;
     }
 
     /// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
@@ -430,7 +431,7 @@ pub const CrossTarget = struct {
             // This works when doing `zig build` because Zig generates a build executable using
             // native CPU model & features. However this will not be accurate otherwise, and
             // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
-            return Target.current.abi;
+            return builtin.abi;
         }
 
         return Target.Abi.default(self.getCpuArch(), self.getOs());
@@ -607,12 +608,12 @@ pub const CrossTarget = struct {
     pub fn getExternalExecutor(self: CrossTarget) Executor {
         const cpu_arch = self.getCpuArch();
         const os_tag = self.getOsTag();
-        const os_match = os_tag == Target.current.os.tag;
+        const os_match = os_tag == builtin.os.tag;
 
         // If the OS and CPU arch match, the binary can be considered native.
         // TODO additionally match the CPU features. This `getExternalExecutor` function should
         // be moved to std.Target and match any chosen target against the native target.
-        if (os_match and cpu_arch == Target.current.cpu.arch) {
+        if (os_match and cpu_arch == builtin.cpu.arch) {
             // However, we also need to verify that the dynamic linker path is valid.
             if (self.os_tag == null) {
                 return .native;
@@ -664,7 +665,7 @@ pub const CrossTarget = struct {
                 // TODO loosen this check once upstream adds QEMU-based emulation
                 // layer for non-host architectures:
                 // https://github.com/darlinghq/darling/issues/863
-                if (cpu_arch != Target.current.cpu.arch) {
+                if (cpu_arch != builtin.cpu.arch) {
                     return .unavailable;
                 }
                 return Executor{ .darling = "darling" };
@@ -789,7 +790,7 @@ pub const CrossTarget = struct {
 };
 
 test "CrossTarget.parse" {
-    if (Target.current.isGnuLibC()) {
+    if (builtin.target.isGnuLibC()) {
         var cross_target = try CrossTarget.parse(.{});
         cross_target.setGnuLibCVersion(2, 1, 1);
 
@@ -800,7 +801,7 @@ test "CrossTarget.parse" {
         const triple = std.fmt.bufPrint(
             buf[0..],
             "native-native-{s}.2.1.1",
-            .{@tagName(std.Target.current.abi)},
+            .{@tagName(builtin.abi)},
         ) catch unreachable;
 
         try std.testing.expectEqualSlices(u8, triple, text);

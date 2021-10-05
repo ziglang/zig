@@ -3,7 +3,6 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const math = std.math;
-const builtin = std.builtin;
 
 pub fn binarySearch(
     comptime T: type,

@@ -1,13 +1,14 @@
-// Gimli is a 384-bit permutation designed to achieve high security with high
-// performance across a broad range of platforms, including 64-bit Intel/AMD
-// server CPUs, 64-bit and 32-bit ARM smartphone CPUs, 32-bit ARM
-// microcontrollers, 8-bit AVR microcontrollers, FPGAs, ASICs without
-// side-channel protection, and ASICs with side-channel protection.
-//
-// https://gimli.cr.yp.to/
-// https://csrc.nist.gov/CSRC/media/Projects/Lightweight-Cryptography/documents/round-1/spec-doc/gimli-spec.pdf
+//! Gimli is a 384-bit permutation designed to achieve high security with high
+//! performance across a broad range of platforms, including 64-bit Intel/AMD
+//! server CPUs, 64-bit and 32-bit ARM smartphone CPUs, 32-bit ARM
+//! microcontrollers, 8-bit AVR microcontrollers, FPGAs, ASICs without
+//! side-channel protection, and ASICs with side-channel protection.
+//!
+//! https://gimli.cr.yp.to/
+//! https://csrc.nist.gov/CSRC/media/Projects/Lightweight-Cryptography/documents/round-1/spec-doc/gimli-spec.pdf
 
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
 const debug = std.debug;
@@ -152,9 +153,9 @@ pub const State = struct {
         self.endianSwap();
     }
 
-    pub const permute = if (std.Target.current.cpu.arch == .x86_64) impl: {
+    pub const permute = if (builtin.cpu.arch == .x86_64) impl: {
         break :impl permute_vectorized;
-    } else if (std.builtin.mode == .ReleaseSmall) impl: {
+    } else if (builtin.mode == .ReleaseSmall) impl: {
         break :impl permute_small;
     } else impl: {
         break :impl permute_unrolled;

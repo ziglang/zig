@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
@@ -414,7 +415,7 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
         error.Unexpected => unreachable, // EFAULT: stack should be safe, EISDIR/ENOTDIR: constant, known good value
     };
 
-    const current_arch = Target.current.cpu.arch;
+    const current_arch = builtin.cpu.arch;
     switch (current_arch) {
         .aarch64, .aarch64_be, .aarch64_32 => {
             const model = switch (cpu_family) {

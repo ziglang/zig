@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 
 // clz - count leading zeroes
 // - clzXi2_generic for little endian
@@ -118,18 +118,18 @@ fn __clzsi2_arm32() callconv(.Naked) void {
 }
 
 pub const __clzsi2 = impl: {
-    switch (std.Target.current.cpu.arch) {
+    switch (builtin.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => {
             const use_thumb1 =
-                (std.Target.current.cpu.arch.isThumb() or
-                std.Target.arm.featureSetHas(std.Target.current.cpu.features, .noarm)) and
-                !std.Target.arm.featureSetHas(std.Target.current.cpu.features, .thumb2);
+                (builtin.cpu.arch.isThumb() or
+                std.Target.arm.featureSetHas(builtin.cpu.features, .noarm)) and
+                !std.Target.arm.featureSetHas(builtin.cpu.features, .thumb2);
 
             if (use_thumb1) {
                 break :impl __clzsi2_thumb1;
             }
             // From here on we're either targeting Thumb2 or ARM.
-            else if (!std.Target.current.cpu.arch.isThumb()) {
+            else if (!builtin.cpu.arch.isThumb()) {
                 break :impl __clzsi2_arm32;
             }
             // Use the generic implementation otherwise.
@@ -140,14 +140,14 @@ pub const __clzsi2 = impl: {
 };
 
 pub const __clzdi2 = impl: {
-    switch (std.Target.current.cpu.arch) {
+    switch (builtin.cpu.arch) {
         // TODO architecture optimised versions
         else => break :impl clzXi2_generic(i64),
     }
 };
 
 pub const __clzti2 = impl: {
-    switch (std.Target.current.cpu.arch) {
+    switch (builtin.cpu.arch) {
         // TODO architecture optimised versions
         else => break :impl clzXi2_generic(i128),
     }

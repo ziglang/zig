@@ -24,7 +24,7 @@ impl: Impl = .{},
 
 const Mutex = @This();
 const std = @import("../std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const os = std.os;
 const assert = std.debug.assert;
 const windows = os.windows;
@@ -160,7 +160,7 @@ pub const AtomicMutex = struct {
                 .unlocked => return,
                 else => {},
             }
-            switch (std.Target.current.os.tag) {
+            switch (builtin.os.tag) {
                 .linux => {
                     switch (linux.getErrno(linux.futex_wait(
                         @ptrCast(*const i32, &m.state),
@@ -182,7 +182,7 @@ pub const AtomicMutex = struct {
     fn unlockSlow(m: *AtomicMutex) void {
         @setCold(true);
 
-        switch (std.Target.current.os.tag) {
+        switch (builtin.os.tag) {
             .linux => {
                 switch (linux.getErrno(linux.futex_wake(
                     @ptrCast(*const i32, &m.state),

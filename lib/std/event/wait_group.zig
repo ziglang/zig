@@ -1,5 +1,5 @@
 const std = @import("../std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const Loop = std.event.Loop;
 
 /// A WaitGroup keeps track and waits for a group of async tasks to finish.

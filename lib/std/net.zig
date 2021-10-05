@@ -12,7 +12,7 @@ const native_endian = builtin.target.cpu.arch.endian();
 // first release to support them.
 pub const has_unix_sockets = @hasDecl(os.sockaddr, "un") and
     (builtin.target.os.tag != .windows or
-    std.Target.current.os.version_range.windows.isAtLeast(.win10_rs4) orelse false);
+    builtin.os.version_range.windows.isAtLeast(.win10_rs4) orelse false);
 
 pub const Address = extern union {
     any: os.sockaddr,
@@ -1623,7 +1623,7 @@ pub const Stream = struct {
     }
 
     pub fn read(self: Stream, buffer: []u8) ReadError!usize {
-        if (std.Target.current.os.tag == .windows) {
+        if (builtin.os.tag == .windows) {
             return os.windows.ReadFile(self.handle, buffer, null, io.default_mode);
         }
 
@@ -1638,7 +1638,7 @@ pub const Stream = struct {
     /// file system thread instead of non-blocking. It needs to be reworked to properly
     /// use non-blocking I/O.
     pub fn write(self: Stream, buffer: []const u8) WriteError!usize {
-        if (std.Target.current.os.tag == .windows) {
+        if (builtin.os.tag == .windows) {
             return os.windows.WriteFile(self.handle, buffer, null, io.default_mode);
         }
 

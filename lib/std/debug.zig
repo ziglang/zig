@@ -1,5 +1,5 @@
 const std = @import("std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const math = std.math;
 const mem = std.mem;
 const io = std.io;
@@ -16,8 +16,8 @@ const root = @import("root");
 const maxInt = std.math.maxInt;
 const File = std.fs.File;
 const windows = std.os.windows;
-const native_arch = std.Target.current.cpu.arch;
-const native_os = std.Target.current.os.tag;
+const native_arch = builtin.cpu.arch;
+const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
 
 pub const runtime_safety = switch (builtin.mode) {
@@ -150,7 +150,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
 /// capture that many stack frames exactly, and then look for the first address,
 /// chopping off the irrelevant frames and shifting so that the returned addresses pointer
 /// equals the passed in addresses pointer.
-pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace) void {
+pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackTrace) void {
     if (native_os == .windows) {
         const addrs = stack_trace.instruction_addresses;
         const u32_addrs_len = @intCast(u32, addrs.len);
@@ -194,7 +194,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
-pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
+pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
     nosuspend {
         const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
@@ -235,7 +235,7 @@ pub fn panic(comptime format: []const u8, args: anytype) noreturn {
 /// `panicExtra` is useful when you want to print out an `@errorReturnTrace`
 /// and also print out some values.
 pub fn panicExtra(
-    trace: ?*builtin.StackTrace,
+    trace: ?*std.builtin.StackTrace,
     comptime format: []const u8,
     args: anytype,
 ) noreturn {
@@ -253,7 +253,7 @@ pub fn panicExtra(
             break :blk &buf;
         },
     };
-    builtin.panic(msg, trace);
+    std.builtin.panic(msg, trace);
 }
 
 /// Non-zero whenever the program triggered a panic.
@@ -269,7 +269,7 @@ threadlocal var panic_stage: usize = 0;
 
 // `panicImpl` could be useful in implementing a custom panic handler which
 // calls the default handler (on supported platforms)
-pub fn panicImpl(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, msg: []const u8) noreturn {
+pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize, msg: []const u8) noreturn {
     @setCold(true);
 
     if (enable_segfault_handler) {
@@ -339,7 +339,7 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
 pub fn writeStackTrace(
-    stack_trace: builtin.StackTrace,
+    stack_trace: std.builtin.StackTrace,
     out_stream: anytype,
     allocator: *mem.Allocator,
     debug_info: *DebugInfo,
@@ -764,7 +764,7 @@ pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugI
         if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
         if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
 
-        const endian: builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
+        const endian: std.builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
             elf.ELFDATA2LSB => .Little,
             elf.ELFDATA2MSB => .Big,
             else => return error.InvalidElfEndian,
@@ -1002,7 +1002,7 @@ pub const DebugInfo = struct {
     }
 
     pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
-        if (comptime std.Target.current.isDarwin()) {
+        if (comptime builtin.target.isDarwin()) {
             return self.lookupModuleDyld(address);
         } else if (native_os == .windows) {
             return self.lookupModuleWin32(address);

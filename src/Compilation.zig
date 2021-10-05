@@ -937,8 +937,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         };
 
         const darwin_can_use_system_sdk = blk: {
-            if (comptime !std.Target.current.isDarwin()) break :blk false;
-            break :blk std.builtin.os.tag == .macos and options.target.isDarwin();
+            if (comptime !builtin.target.isDarwin()) break :blk false;
+            break :blk builtin.os.tag == .macos and options.target.isDarwin();
         };
 
         const sysroot = blk: {
@@ -3582,7 +3582,7 @@ fn detectLibCIncludeDirs(
     // native abi, fall back to using the system libc installation.
     // On windows, instead of the native (mingw) abi, we want to check
     // for the MSVC abi as a fallback.
-    const use_system_abi = if (std.Target.current.os.tag == .windows)
+    const use_system_abi = if (builtin.target.os.tag == .windows)
         target.abi == .msvc
     else
         is_native_abi;

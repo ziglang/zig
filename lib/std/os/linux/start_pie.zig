@@ -1,6 +1,6 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const elf = std.elf;
-const builtin = std.builtin;
 const assert = std.debug.assert;
 
 const R_AMD64_RELATIVE = 8;
