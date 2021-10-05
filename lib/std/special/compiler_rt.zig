@@ -28,6 +28,52 @@ comptime {
     const __extendhftf2 = @import("compiler_rt/extendXfYf2.zig").__extendhftf2;
     @export(__extendhftf2, .{ .name = "__extendhftf2", .linkage = linkage });
 
+    const __lesf2 = @import("compiler_rt/compareXf2.zig").__lesf2;
+    @export(__lesf2, .{ .name = "__lesf2", .linkage = linkage });
+    const __ledf2 = @import("compiler_rt/compareXf2.zig").__ledf2;
+    @export(__ledf2, .{ .name = "__ledf2", .linkage = linkage });
+    const __letf2 = @import("compiler_rt/compareXf2.zig").__letf2;
+    @export(__letf2, .{ .name = "__letf2", .linkage = linkage });
+
+    const __gesf2 = @import("compiler_rt/compareXf2.zig").__gesf2;
+    @export(__gesf2, .{ .name = "__gesf2", .linkage = linkage });
+    const __gedf2 = @import("compiler_rt/compareXf2.zig").__gedf2;
+    @export(__gedf2, .{ .name = "__gedf2", .linkage = linkage });
+    const __getf2 = @import("compiler_rt/compareXf2.zig").__getf2;
+    @export(__getf2, .{ .name = "__getf2", .linkage = linkage });
+
+    if (!is_test) {
+        @export(__lesf2, .{ .name = "__cmpsf2", .linkage = linkage });
+        @export(__ledf2, .{ .name = "__cmpdf2", .linkage = linkage });
+        @export(__letf2, .{ .name = "__cmptf2", .linkage = linkage });
+
+        const __eqsf2 = @import("compiler_rt/compareXf2.zig").__eqsf2;
+        @export(__eqsf2, .{ .name = "__eqsf2", .linkage = linkage });
+        const __eqdf2 = @import("compiler_rt/compareXf2.zig").__eqdf2;
+        @export(__eqdf2, .{ .name = "__eqdf2", .linkage = linkage });
+        @export(__letf2, .{ .name = "__eqtf2", .linkage = linkage });
+
+        const __ltsf2 = @import("compiler_rt/compareXf2.zig").__ltsf2;
+        @export(__ltsf2, .{ .name = "__ltsf2", .linkage = linkage });
+        const __ltdf2 = @import("compiler_rt/compareXf2.zig").__ltdf2;
+        @export(__ltdf2, .{ .name = "__ltdf2", .linkage = linkage });
+        @export(__letf2, .{ .name = "__lttf2", .linkage = linkage });
+
+        const __nesf2 = @import("compiler_rt/compareXf2.zig").__nesf2;
+        @export(__nesf2, .{ .name = "__nesf2", .linkage = linkage });
+        const __nedf2 = @import("compiler_rt/compareXf2.zig").__nedf2;
+        @export(__nedf2, .{ .name = "__nedf2", .linkage = linkage });
+        @export(__letf2, .{ .name = "__netf2", .linkage = linkage });
+
+        const __gtsf2 = @import("compiler_rt/compareXf2.zig").__gtsf2;
+        @export(__gtsf2, .{ .name = "__gtsf2", .linkage = linkage });
+        const __gtdf2 = @import("compiler_rt/compareXf2.zig").__gtdf2;
+        @export(__gtdf2, .{ .name = "__gtdf2", .linkage = linkage });
+        @export(__getf2, .{ .name = "__gttf2", .linkage = linkage });
+
+        @export(__extendhfsf2, .{ .name = "__gnu_h2f_ieee", .linkage = linkage });
+    }
+
     if (!builtin.zig_is_stage2) {
         switch (arch) {
             .i386,
@@ -45,59 +91,6 @@ comptime {
 
         // __clear_cache manages its own logic about whether to be exported or not.
         _ = @import("compiler_rt/clear_cache.zig").clear_cache;
-
-        const __lesf2 = @import("compiler_rt/compareXf2.zig").__lesf2;
-        @export(__lesf2, .{ .name = "__lesf2", .linkage = linkage });
-        const __ledf2 = @import("compiler_rt/compareXf2.zig").__ledf2;
-        @export(__ledf2, .{ .name = "__ledf2", .linkage = linkage });
-        const __letf2 = @import("compiler_rt/compareXf2.zig").__letf2;
-        @export(__letf2, .{ .name = "__letf2", .linkage = linkage });
-
-        const __gesf2 = @import("compiler_rt/compareXf2.zig").__gesf2;
-        @export(__gesf2, .{ .name = "__gesf2", .linkage = linkage });
-        const __gedf2 = @import("compiler_rt/compareXf2.zig").__gedf2;
-        @export(__gedf2, .{ .name = "__gedf2", .linkage = linkage });
-        const __getf2 = @import("compiler_rt/compareXf2.zig").__getf2;
-        @export(__getf2, .{ .name = "__getf2", .linkage = linkage });
-
-        if (!is_test) {
-            @export(__lesf2, .{ .name = "__cmpsf2", .linkage = linkage });
-            @export(__ledf2, .{ .name = "__cmpdf2", .linkage = linkage });
-            @export(__letf2, .{ .name = "__cmptf2", .linkage = linkage });
-
-            const __eqsf2 = @import("compiler_rt/compareXf2.zig").__eqsf2;
-            @export(__eqsf2, .{ .name = "__eqsf2", .linkage = linkage });
-            const __eqdf2 = @import("compiler_rt/compareXf2.zig").__eqdf2;
-            @export(__eqdf2, .{ .name = "__eqdf2", .linkage = linkage });
-            @export(__letf2, .{ .name = "__eqtf2", .linkage = linkage });
-
-            const __ltsf2 = @import("compiler_rt/compareXf2.zig").__ltsf2;
-            @export(__ltsf2, .{ .name = "__ltsf2", .linkage = linkage });
-            const __ltdf2 = @import("compiler_rt/compareXf2.zig").__ltdf2;
-            @export(__ltdf2, .{ .name = "__ltdf2", .linkage = linkage });
-            @export(__letf2, .{ .name = "__lttf2", .linkage = linkage });
-
-            const __nesf2 = @import("compiler_rt/compareXf2.zig").__nesf2;
-            @export(__nesf2, .{ .name = "__nesf2", .linkage = linkage });
-            const __nedf2 = @import("compiler_rt/compareXf2.zig").__nedf2;
-            @export(__nedf2, .{ .name = "__nedf2", .linkage = linkage });
-            @export(__letf2, .{ .name = "__netf2", .linkage = linkage });
-
-            const __gtsf2 = @import("compiler_rt/compareXf2.zig").__gtsf2;
-            @export(__gtsf2, .{ .name = "__gtsf2", .linkage = linkage });
-            const __gtdf2 = @import("compiler_rt/compareXf2.zig").__gtdf2;
-            @export(__gtdf2, .{ .name = "__gtdf2", .linkage = linkage });
-            @export(__getf2, .{ .name = "__gttf2", .linkage = linkage });
-
-            @export(@import("compiler_rt/extendXfYf2.zig").__extendhfsf2, .{
-                .name = "__gnu_h2f_ieee",
-                .linkage = linkage,
-            });
-            @export(@import("compiler_rt/truncXfYf2.zig").__truncsfhf2, .{
-                .name = "__gnu_f2h_ieee",
-                .linkage = linkage,
-            });
-        }
 
         const __unordsf2 = @import("compiler_rt/compareXf2.zig").__unordsf2;
         @export(__unordsf2, .{ .name = "__unordsf2", .linkage = linkage });
@@ -189,6 +182,9 @@ comptime {
 
         const __truncsfhf2 = @import("compiler_rt/truncXfYf2.zig").__truncsfhf2;
         @export(__truncsfhf2, .{ .name = "__truncsfhf2", .linkage = linkage });
+        if (!is_test) {
+            @export(__truncsfhf2, .{ .name = "__gnu_f2h_ieee", .linkage = linkage });
+        }
         const __truncdfhf2 = @import("compiler_rt/truncXfYf2.zig").__truncdfhf2;
         @export(__truncdfhf2, .{ .name = "__truncdfhf2", .linkage = linkage });
         const __trunctfhf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfhf2;

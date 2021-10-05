@@ -5,6 +5,7 @@ test {
     _ = @import("behavior/array.zig");
     _ = @import("behavior/atomics.zig");
     _ = @import("behavior/basic.zig");
+    _ = @import("behavior/bitcast.zig");
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/bugs/655.zig");
     _ = @import("behavior/bugs/1277.zig");
@@ -50,7 +51,7 @@ test {
         }
         _ = @import("behavior/await_struct.zig");
         _ = @import("behavior/bit_shifting.zig");
-        _ = @import("behavior/bitcast.zig");
+        _ = @import("behavior/bitcast_stage1.zig");
         _ = @import("behavior/bitreverse.zig");
         _ = @import("behavior/bugs/394.zig");
         _ = @import("behavior/bugs/421.zig");

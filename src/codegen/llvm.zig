@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Compilation = @import("../Compilation.zig");
@@ -6,6 +7,7 @@ const llvm = @import("llvm/bindings.zig");
 const link = @import("../link.zig");
 const log = std.log.scoped(.codegen);
 const math = std.math;
+const native_endian = builtin.cpu.arch.endian();
 
 const build_options = @import("build_options");
 const Module = @import("../Module.zig");
@@ -958,11 +960,20 @@ pub const DeclGen = struct {
                 return llvm_int;
             },
             .Float => {
+                const llvm_ty = try self.llvmType(tv.ty);
                 if (tv.ty.floatBits(self.module.getTarget()) <= 64) {
-                    const llvm_ty = try self.llvmType(tv.ty);
                     return llvm_ty.constReal(tv.val.toFloat(f64));
                 }
-                return self.todo("bitcast to f128 from an integer", .{});
+
+                var buf: [2]u64 = @bitCast([2]u64, tv.val.toFloat(f128));
+                // LLVM seems to require that the lower half of the f128 be placed first
+                // in the buffer.
+                if (native_endian == .Big) {
+                    std.mem.swap(u64, &buf[0], &buf[1]);
+                }
+
+                const int = self.context.intType(128).constIntOfArbitraryPrecision(buf.len, &buf);
+                return int.constBitCast(llvm_ty);
             },
             .Pointer => switch (tv.val.tag()) {
                 .decl_ref => {

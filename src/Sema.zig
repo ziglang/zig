@@ -5064,7 +5064,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     const dest_type = try sema.resolveType(block, dest_ty_src, extra.lhs);
     const operand = sema.resolveInst(extra.rhs);
-    return sema.bitcast(block, dest_type, operand, operand_src);
+    return sema.bitCast(block, dest_type, operand, operand_src);
 }
 
 fn zirFloatCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -11016,7 +11016,7 @@ fn coerce(
 
     const in_memory_result = coerceInMemoryAllowed(dest_type, inst_ty, false, target);
     if (in_memory_result == .ok) {
-        return sema.bitcast(block, dest_type, inst, inst_src);
+        return sema.bitCast(block, dest_type, inst, inst_src);
     }
 
     // undefined to anything
@@ -11439,18 +11439,20 @@ fn storePtrVal(
     }
 }
 
-fn bitcast(
+fn bitCast(
     sema: *Sema,
     block: *Block,
     dest_type: Type,
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
-        // Keep the comptime Value representation; take the new type.
-        return sema.addConstant(dest_type, val);
-    }
     // TODO validate the type size and other compile errors
+    if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
+        const target = sema.mod.getTarget();
+        const old_ty = sema.typeOf(inst);
+        const result_val = try val.bitCast(old_ty, dest_type, target, sema.gpa, sema.arena);
+        return sema.addConstant(dest_type, result_val);
+    }
     try sema.requireRuntimeBlock(block, inst_src);
     return block.addTyOp(.bitcast, dest_type, inst);
 }
@@ -11482,7 +11484,7 @@ fn coerceArrayPtrToMany(
         return sema.addConstant(dest_type, val);
     }
     try sema.requireRuntimeBlock(block, inst_src);
-    return sema.bitcast(block, dest_type, inst, inst_src);
+    return sema.bitCast(block, dest_type, inst, inst_src);
 }
 
 fn analyzeDeclVal(
@@ -11571,7 +11573,7 @@ fn analyzeRef(
     try sema.storePtr(block, src, alloc, operand);
 
     // TODO: Replace with sema.coerce when that supports adding pointer constness.
-    return sema.bitcast(block, ptr_type, alloc, src);
+    return sema.bitCast(block, ptr_type, alloc, src);
 }
 
 fn analyzeLoad(

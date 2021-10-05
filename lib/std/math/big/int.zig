@@ -10,6 +10,8 @@ const mem = std.mem;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const assert = std.debug.assert;
+const Endian = std.builtin.Endian;
+const Signedness = std.builtin.Signedness;
 
 const debug_safety = false;
 
@@ -328,7 +330,7 @@ pub const Mutable = struct {
     pub fn setTwosCompIntLimit(
         r: *Mutable,
         limit: TwosCompIntLimit,
-        signedness: std.builtin.Signedness,
+        signedness: Signedness,
         bit_count: usize,
     ) void {
         // Handle zero-bit types.
@@ -457,7 +459,7 @@ pub const Mutable = struct {
     ///
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
     /// r is `calcTwosCompLimbCount(bit_count)`.
-    pub fn addWrap(r: *Mutable, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) void {
+    pub fn addWrap(r: *Mutable, a: Const, b: Const, signedness: Signedness, bit_count: usize) void {
         const req_limbs = calcTwosCompLimbCount(bit_count);
 
         // Slice of the upper bits if they exist, these will be ignored and allows us to use addCarry to determine
@@ -493,7 +495,7 @@ pub const Mutable = struct {
     ///
     /// Assets the result fits in `r`. Upper bound on the number of limbs needed by
     /// r is `calcTwosCompLimbCount(bit_count)`.
-    pub fn addSat(r: *Mutable, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) void {
+    pub fn addSat(r: *Mutable, a: Const, b: Const, signedness: Signedness, bit_count: usize) void {
         const req_limbs = calcTwosCompLimbCount(bit_count);
 
         // Slice of the upper bits if they exist, these will be ignored and allows us to use addCarry to determine
@@ -595,7 +597,7 @@ pub const Mutable = struct {
     /// r, a and b may be aliases
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
     /// r is `calcTwosCompLimbCount(bit_count)`.
-    pub fn subWrap(r: *Mutable, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) void {
+    pub fn subWrap(r: *Mutable, a: Const, b: Const, signedness: Signedness, bit_count: usize) void {
         r.addWrap(a, b.negate(), signedness, bit_count);
     }
 
@@ -604,7 +606,7 @@ pub const Mutable = struct {
     ///
     /// Assets the result fits in `r`. Upper bound on the number of limbs needed by
     /// r is `calcTwosCompLimbCount(bit_count)`.
-    pub fn subSat(r: *Mutable, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) void {
+    pub fn subSat(r: *Mutable, a: Const, b: Const, signedness: Signedness, bit_count: usize) void {
         r.addSat(a, b.negate(), signedness, bit_count);
     }
 
@@ -680,7 +682,7 @@ pub const Mutable = struct {
         rma: *Mutable,
         a: Const,
         b: Const,
-        signedness: std.builtin.Signedness,
+        signedness: Signedness,
         bit_count: usize,
         limbs_buffer: []Limb,
         allocator: ?*Allocator,
@@ -721,7 +723,7 @@ pub const Mutable = struct {
         rma: *Mutable,
         a: Const,
         b: Const,
-        signedness: std.builtin.Signedness,
+        signedness: Signedness,
         bit_count: usize,
         allocator: ?*Allocator,
     ) void {
@@ -1284,7 +1286,7 @@ pub const Mutable = struct {
     ///
     /// Asserts `r` has enough storage to store the result.
     /// The upper bound is `calcTwosCompLimbCount(a.len)`.
-    pub fn truncate(r: *Mutable, a: Const, signedness: std.builtin.Signedness, bit_count: usize) void {
+    pub fn truncate(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
         const req_limbs = calcTwosCompLimbCount(bit_count);
 
         // Handle 0-bit integers.
@@ -1369,10 +1371,45 @@ pub const Mutable = struct {
     ///
     /// Asserts `r` has enough storage to store the result.
     /// The upper bound is `calcTwosCompLimbCount(a.len)`.
-    pub fn saturate(r: *Mutable, a: Const, signedness: std.builtin.Signedness, bit_count: usize) void {
+    pub fn saturate(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
         if (!a.fitsInTwosComp(signedness, bit_count)) {
             r.setTwosCompIntLimit(if (r.positive) .max else .min, signedness, bit_count);
         }
+    }
+
+    pub fn readTwosComplement(
+        x: *Mutable,
+        buffer: []const u8,
+        bit_count: usize,
+        endian: Endian,
+        signedness: Signedness,
+    ) void {
+        if (bit_count == 0) {
+            x.limbs[0] = 0;
+            x.len = 1;
+            x.positive = true;
+            return;
+        }
+        // zig fmt: off
+        switch (signedness) {
+            .signed => {
+                if (bit_count <=   8) return x.set(mem.readInt(  i8, buffer[0.. 1], endian));
+                if (bit_count <=  16) return x.set(mem.readInt( i16, buffer[0.. 2], endian));
+                if (bit_count <=  32) return x.set(mem.readInt( i32, buffer[0.. 4], endian));
+                if (bit_count <=  64) return x.set(mem.readInt( i64, buffer[0.. 8], endian));
+                if (bit_count <= 128) return x.set(mem.readInt(i128, buffer[0..16], endian));
+            },
+            .unsigned => {
+                if (bit_count <=   8) return x.set(mem.readInt(  u8, buffer[0.. 1], endian));
+                if (bit_count <=  16) return x.set(mem.readInt( u16, buffer[0.. 2], endian));
+                if (bit_count <=  32) return x.set(mem.readInt( u32, buffer[0.. 4], endian));
+                if (bit_count <=  64) return x.set(mem.readInt( u64, buffer[0.. 8], endian));
+                if (bit_count <= 128) return x.set(mem.readInt(u128, buffer[0..16], endian));
+            },
+        }
+        // zig fmt: on
+
+        @panic("TODO implement std lib big int readTwosComplement");
     }
 
     /// Normalize a possible sequence of leading zeros.
@@ -1485,7 +1522,7 @@ pub const Const = struct {
         return bits;
     }
 
-    pub fn fitsInTwosComp(self: Const, signedness: std.builtin.Signedness, bit_count: usize) bool {
+    pub fn fitsInTwosComp(self: Const, signedness: Signedness, bit_count: usize) bool {
         if (self.eqZero()) {
             return true;
         }
@@ -1729,6 +1766,29 @@ pub const Const = struct {
         const s = string[0..digits_len];
         mem.reverse(u8, s);
         return s.len;
+    }
+
+    /// Asserts that `buffer` and `bit_count` are large enough to store the value.
+    pub fn writeTwosComplement(x: Const, buffer: []u8, bit_count: usize, endian: Endian) void {
+        if (bit_count == 0) return;
+
+        // zig fmt: off
+        if (x.positive) {
+            if (bit_count <=   8) return mem.writeInt(  u8, buffer[0.. 1], x.to(  u8) catch unreachable, endian);
+            if (bit_count <=  16) return mem.writeInt( u16, buffer[0.. 2], x.to( u16) catch unreachable, endian);
+            if (bit_count <=  32) return mem.writeInt( u32, buffer[0.. 4], x.to( u32) catch unreachable, endian);
+            if (bit_count <=  64) return mem.writeInt( u64, buffer[0.. 8], x.to( u64) catch unreachable, endian);
+            if (bit_count <= 128) return mem.writeInt(u128, buffer[0..16], x.to(u128) catch unreachable, endian);
+        } else {
+            if (bit_count <=   8) return mem.writeInt(  i8, buffer[0.. 1], x.to(  i8) catch unreachable, endian);
+            if (bit_count <=  16) return mem.writeInt( i16, buffer[0.. 2], x.to( i16) catch unreachable, endian);
+            if (bit_count <=  32) return mem.writeInt( i32, buffer[0.. 4], x.to( i32) catch unreachable, endian);
+            if (bit_count <=  64) return mem.writeInt( i64, buffer[0.. 8], x.to( i64) catch unreachable, endian);
+            if (bit_count <= 128) return mem.writeInt(i128, buffer[0..16], x.to(i128) catch unreachable, endian);
+        }
+        // zig fmt: on
+
+        @panic("TODO implement std lib big int writeTwosComplement for larger than 128 bits");
     }
 
     /// Returns `math.Order.lt`, `math.Order.eq`, `math.Order.gt` if
@@ -1992,7 +2052,7 @@ pub const Managed = struct {
         return self.toConst().bitCountTwosComp();
     }
 
-    pub fn fitsInTwosComp(self: Managed, signedness: std.builtin.Signedness, bit_count: usize) bool {
+    pub fn fitsInTwosComp(self: Managed, signedness: Signedness, bit_count: usize) bool {
         return self.toConst().fitsInTwosComp(signedness, bit_count);
     }
 
@@ -2051,7 +2111,7 @@ pub const Managed = struct {
     pub fn setTwosCompIntLimit(
         r: *Managed,
         limit: TwosCompIntLimit,
-        signedness: std.builtin.Signedness,
+        signedness: Signedness,
         bit_count: usize,
     ) !void {
         try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
@@ -2164,7 +2224,7 @@ pub const Managed = struct {
     /// `r.ensureTwosCompCapacity` prior to calling `add`.
     ///
     /// Returns an error if memory could not be allocated.
-    pub fn addWrap(r: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) Allocator.Error!void {
+    pub fn addWrap(r: *Managed, a: Const, b: Const, signedness: Signedness, bit_count: usize) Allocator.Error!void {
         try r.ensureTwosCompCapacity(bit_count);
         var m = r.toMutable();
         m.addWrap(a, b, signedness, bit_count);
@@ -2177,7 +2237,7 @@ pub const Managed = struct {
     /// `r.ensureTwosCompCapacity` prior to calling `add`.
     ///
     /// Returns an error if memory could not be allocated.
-    pub fn addSat(r: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) Allocator.Error!void {
+    pub fn addSat(r: *Managed, a: Const, b: Const, signedness: Signedness, bit_count: usize) Allocator.Error!void {
         try r.ensureTwosCompCapacity(bit_count);
         var m = r.toMutable();
         m.addSat(a, b, signedness, bit_count);
@@ -2202,7 +2262,7 @@ pub const Managed = struct {
     /// `r.ensureTwosCompCapacity` prior to calling `add`.
     ///
     /// Returns an error if memory could not be allocated.
-    pub fn subWrap(r: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) Allocator.Error!void {
+    pub fn subWrap(r: *Managed, a: Const, b: Const, signedness: Signedness, bit_count: usize) Allocator.Error!void {
         try r.ensureTwosCompCapacity(bit_count);
         var m = r.toMutable();
         m.subWrap(a, b, signedness, bit_count);
@@ -2215,7 +2275,7 @@ pub const Managed = struct {
     /// `r.ensureTwosCompCapacity` prior to calling `add`.
     ///
     /// Returns an error if memory could not be allocated.
-    pub fn subSat(r: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) Allocator.Error!void {
+    pub fn subSat(r: *Managed, a: Const, b: Const, signedness: Signedness, bit_count: usize) Allocator.Error!void {
         try r.ensureTwosCompCapacity(bit_count);
         var m = r.toMutable();
         m.subSat(a, b, signedness, bit_count);
@@ -2259,7 +2319,7 @@ pub const Managed = struct {
     /// Returns an error if memory could not be allocated.
     ///
     /// rma's allocator is used for temporary storage to speed up the multiplication.
-    pub fn mulWrap(rma: *Managed, a: Const, b: Const, signedness: std.builtin.Signedness, bit_count: usize) !void {
+    pub fn mulWrap(rma: *Managed, a: Const, b: Const, signedness: Signedness, bit_count: usize) !void {
         var alias_count: usize = 0;
         if (rma.limbs.ptr == a.limbs.ptr)
             alias_count += 1;
@@ -2445,7 +2505,7 @@ pub const Managed = struct {
     }
 
     /// r = truncate(Int(signedness, bit_count), a)
-    pub fn truncate(r: *Managed, a: Const, signedness: std.builtin.Signedness, bit_count: usize) !void {
+    pub fn truncate(r: *Managed, a: Const, signedness: Signedness, bit_count: usize) !void {
         try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
         var m = r.toMutable();
         m.truncate(a, signedness, bit_count);
@@ -2453,7 +2513,7 @@ pub const Managed = struct {
     }
 
     /// r = saturate(Int(signedness, bit_count), a)
-    pub fn saturate(r: *Managed, a: Const, signedness: std.builtin.Signedness, bit_count: usize) !void {
+    pub fn saturate(r: *Managed, a: Const, signedness: Signedness, bit_count: usize) !void {
         try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
         var m = r.toMutable();
         m.saturate(a, signedness, bit_count);

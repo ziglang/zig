@@ -21,7 +21,7 @@ const GE = enum(i32) {
     const Unordered: GE = .Less;
 };
 
-pub fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
+pub inline fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
     @setRuntimeSafety(builtin.is_test);
 
     const bits = @typeInfo(T).Float.bits;
@@ -32,7 +32,8 @@ pub fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
     const exponentBits = std.math.floatExponentBits(T);
     const signBit = (@as(rep_t, 1) << (significandBits + exponentBits));
     const absMask = signBit - 1;
-    const infRep = @bitCast(rep_t, std.math.inf(T));
+    const infT = std.math.inf(T);
+    const infRep = @bitCast(rep_t, infT);
 
     const aInt = @bitCast(srep_t, a);
     const bInt = @bitCast(srep_t, b);
@@ -46,20 +47,18 @@ pub fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
     if ((aAbs | bAbs) == 0) return .Equal;
 
     // If at least one of a and b is positive, we get the same result comparing
-    // a and b as signed integers as we would with a fp_ting-point compare.
+    // a and b as signed integers as we would with a floating-point compare.
     if ((aInt & bInt) >= 0) {
         if (aInt < bInt) {
             return .Less;
         } else if (aInt == bInt) {
             return .Equal;
         } else return .Greater;
-    }
-
-    // Otherwise, both are negative, so we need to flip the sense of the
-    // comparison to get the correct result.  (This assumes a twos- or ones-
-    // complement integer representation; if integers are represented in a
-    // sign-magnitude representation, then this flip is incorrect).
-    else {
+    } else {
+        // Otherwise, both are negative, so we need to flip the sense of the
+        // comparison to get the correct result.  (This assumes a twos- or ones-
+        // complement integer representation; if integers are represented in a
+        // sign-magnitude representation, then this flip is incorrect).
         if (aInt > bInt) {
             return .Less;
         } else if (aInt == bInt) {
@@ -68,7 +67,7 @@ pub fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
     }
 }
 
-pub fn unordcmp(comptime T: type, a: T, b: T) i32 {
+pub inline fn unordcmp(comptime T: type, a: T, b: T) i32 {
     @setRuntimeSafety(builtin.is_test);
 
     const rep_t = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
@@ -89,12 +88,14 @@ pub fn unordcmp(comptime T: type, a: T, b: T) i32 {
 
 pub fn __lesf2(a: f32, b: f32) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
-    return @bitCast(i32, @call(.{ .modifier = .always_inline }, cmp, .{ f32, LE, a, b }));
+    const float = cmp(f32, LE, a, b);
+    return @bitCast(i32, float);
 }
 
 pub fn __gesf2(a: f32, b: f32) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
-    return @bitCast(i32, @call(.{ .modifier = .always_inline }, cmp, .{ f32, GE, a, b }));
+    const float = cmp(f32, GE, a, b);
+    return @bitCast(i32, float);
 }
 
 pub fn __eqsf2(a: f32, b: f32) callconv(.C) i32 {
@@ -117,12 +118,14 @@ pub fn __gtsf2(a: f32, b: f32) callconv(.C) i32 {
 
 pub fn __ledf2(a: f64, b: f64) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
-    return @bitCast(i32, @call(.{ .modifier = .always_inline }, cmp, .{ f64, LE, a, b }));
+    const float = cmp(f64, LE, a, b);
+    return @bitCast(i32, float);
 }
 
 pub fn __gedf2(a: f64, b: f64) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
-    return @bitCast(i32, @call(.{ .modifier = .always_inline }, cmp, .{ f64, GE, a, b }));
+    const float = cmp(f64, GE, a, b);
+    return @bitCast(i32, float);
 }
 
 pub fn __eqdf2(a: f64, b: f64) callconv(.C) i32 {
@@ -145,12 +148,14 @@ pub fn __gtdf2(a: f64, b: f64) callconv(.C) i32 {
 
 pub fn __letf2(a: f128, b: f128) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
-    return @bitCast(i32, @call(.{ .modifier = .always_inline }, cmp, .{ f128, LE, a, b }));
+    const float = cmp(f128, LE, a, b);
+    return @bitCast(i32, float);
 }
 
 pub fn __getf2(a: f128, b: f128) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
-    return @bitCast(i32, @call(.{ .modifier = .always_inline }, cmp, .{ f128, GE, a, b }));
+    const float = cmp(f128, GE, a, b);
+    return @bitCast(i32, float);
 }
 
 pub fn __eqtf2(a: f128, b: f128) callconv(.C) i32 {
@@ -173,17 +178,17 @@ pub fn __gttf2(a: f128, b: f128) callconv(.C) i32 {
 
 pub fn __unordsf2(a: f32, b: f32) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
-    return @call(.{ .modifier = .always_inline }, unordcmp, .{ f32, a, b });
+    return unordcmp(f32, a, b);
 }
 
 pub fn __unorddf2(a: f64, b: f64) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
-    return @call(.{ .modifier = .always_inline }, unordcmp, .{ f64, a, b });
+    return unordcmp(f64, a, b);
 }
 
 pub fn __unordtf2(a: f128, b: f128) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
-    return @call(.{ .modifier = .always_inline }, unordcmp, .{ f128, a, b });
+    return unordcmp(f128, a, b);
 }
 
 // ARM EABI intrinsics
