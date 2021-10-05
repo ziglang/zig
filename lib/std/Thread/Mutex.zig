@@ -1,8 +1,11 @@
 const std = @import("../std.zig");
-const target = std.Target.current;
 const assert = std.debug.assert;
 const testing = std.testing;
 const os = std.os;
+
+const builtin = @import("builtin");
+const target = builtin.target;
+const single_threaded = builtin.single_threaded;
 
 const SpinWait = @import("SpinWait.zig");
 const Atomic = std.atomic.Atomic;
@@ -29,7 +32,7 @@ pub const Held = struct {
     }
 };
 
-pub const Impl = if (std.builtin.single_threaded)
+pub const Impl = if (single_threaded)
     SerialImpl
 else if (target.os.tag == .windows)
     WindowsImpl
@@ -71,16 +74,6 @@ const WindowsImpl = struct {
 
     pub fn release(self: *Impl) void {
         os.windows.kernel32.ReleaseSRWLockExclusive(&self.srwlock);
-    }
-
-    pub fn unlock(m: *PthreadMutex) void {
-        switch (std.c.pthread_mutex_unlock(&m.pthread_mutex)) {
-            .SUCCESS => return,
-            .INVAL => unreachable,
-            .AGAIN => unreachable,
-            .PERM => unreachable,
-            else => unreachable,
-        }
     }
 };
 
@@ -200,7 +193,7 @@ const FutexImpl = struct {
 
 test "Mutex - basic" {
     var mutex = Mutex{};
-    
+
     // Test that tryAcquire() is mutually exclusive
     var held = mutex.tryAcquire() orelse return error.MutexTryAcquire;
     try testing.expectEqual(mutex.tryAcquire(), null);
@@ -214,7 +207,7 @@ test "Mutex - basic" {
 }
 
 test "Mutex - racy" {
-    if (std.builtin.single_threaded) return error.SkipZigTest;
+    if (single_threaded) return error.SkipZigTest;
 
     const num_threads = 4;
     const num_iters_per_thread = 100;

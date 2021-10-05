@@ -1,8 +1,11 @@
 const std = @import("../std.zig");
-const target = std.Target.current;
 const assert = std.debug.assert;
 const testing = std.testing;
 const os = std.os;
+
+const builtin = @import("builtin");
+const target = builtin.target;
+const single_threaded = builtin.single_threaded;
 
 const Atomic = std.atomic.Atomic;
 const Futex = std.Thread.Futex;
@@ -29,7 +32,7 @@ pub fn post(self: *Semaphore, count: u31) void {
 /// We dont use dispatch_semaphore_t or POSIX sem_t
 /// as those require constructors (which could be gotten around with using Once)
 /// as well as destructors (which aren't exposed by Semaphore so they would leak).
-pub const Impl = if (std.builtin.single_threaded)
+pub const Impl = if (single_threaded)
     SerialImpl
 else if (target.os.tag == .windows)
     WindowsImpl
@@ -193,7 +196,7 @@ const WindowsImpl = struct {
                     _ = once;
                     _ = param;
                     _ = ctx;
-                    
+
                     var handle: os.windows.HANDLE = undefined;
                     const access_mask = os.windows.GENERIC_READ | os.windows.GENERIC_WRITE;
                     if (os.windows.ntdll.NtCreateKeyedEvent(&handle, access_mask, null, 0) == .SUCCESS) {
@@ -509,7 +512,7 @@ test "Semaphore - basic" {
 }
 
 test "Semaphore - barrier/broadcast" {
-    if (std.builtin.single_threaded) return error.SkipZigTest;
+    if (single_threaded) return error.SkipZigTest;
 
     const num_threads = 4;
     const Context = struct {
@@ -534,7 +537,7 @@ test "Semaphore - barrier/broadcast" {
 }
 
 test "Semaphore - producer/consumer" {
-    if (std.builtin.single_threaded) return error.SkipZigTest;
+    if (single_threaded) return error.SkipZigTest;
 
     const num_threads = 4;
     const Context = struct {
@@ -561,7 +564,7 @@ test "Semaphore - producer/consumer" {
 
     var context = Context{};
     var threads: [num_threads]std.Thread = undefined;
-    for (threads) |*t, i| t.* = try std.Thread.spawn(.{}, Context.consumer, .{&context, i});
+    for (threads) |*t, i| t.* = try std.Thread.spawn(.{}, Context.consumer, .{ &context, i });
     defer for (threads) |t| t.join();
 
     context.producer();

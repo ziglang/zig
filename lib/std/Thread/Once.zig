@@ -1,9 +1,12 @@
 const std = @import("../std.zig");
-const target = std.Target.current;
 const assert = std.debug.assert;
 const testing = std.testing;
 const os = std.os;
 const c = std.c;
+
+const builtin = @import("builtin");
+const target = builtin.target;
+const single_threaded = builtin.single_threaded;
 
 const SpinWait = @import("SpinWait.zig");
 const Atomic = std.atomic.Atomic;
@@ -16,7 +19,7 @@ pub fn call(self: *Once, comptime f: fn () void) void {
     self.impl.call(f);
 }
 
-pub const Impl = if (std.builtin.single_threaded)
+pub const Impl = if (single_threaded)
     SerialImpl
 else if (target.os.tag == .windows)
     WindowsImpl
@@ -157,7 +160,7 @@ test "Once" {
         }
     };
 
-    if (std.builtin.single_threaded) {
+    if (single_threaded) {
         Context.call();
         Context.call();
     } else {

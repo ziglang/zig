@@ -1,7 +1,10 @@
 const std = @import("../std.zig");
-const target = std.Target.current;
 const assert = std.debug.assert;
 const os = std.os;
+
+const builtin = @import("builtin");
+const target = builtin.target;
+const single_threaded = builtin.single_threaded;
 
 const SpinWait = @import("SpinWait.zig");
 const Atomic = std.atomic.Atomic;
@@ -52,7 +55,7 @@ pub const Held = struct {
     }
 };
 
-pub const Impl = if (std.builtin.single_threaded)
+pub const Impl = if (single_threaded)
     SerialImpl
 else if (target.os.tag == .windows)
     WindowsImpl

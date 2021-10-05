@@ -52,7 +52,7 @@ pub fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
     return Impl.wake(ptr, num_waiters);
 }
 
-const Impl = if (std.builtin.single_threaded)
+const Impl = if (single_threaded)
     SerialImpl
 else if (target.os.tag == .windows)
     WindowsImpl

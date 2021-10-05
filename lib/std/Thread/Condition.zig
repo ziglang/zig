@@ -1,8 +1,11 @@
 const std = @import("../std.zig");
-const target = std.Target.current;
 const assert = std.debug.assert;
 const testing = std.testing;
 const os = std.os;
+
+const builtin = @import("builtin");
+const target = builtin.target;
+const single_threaded = builtin.single_threaded;
 
 const Atomic = std.atomic.Atomic;
 const Futex = std.Thread.Futex;
@@ -23,7 +26,7 @@ pub fn broadcast(self: *Condition) void {
     return self.impl.wake(true);
 }
 
-pub const Impl = if (std.builtin.single_threaded)
+pub const Impl = if (single_threaded)
     SerialImpl
 else if (target.os.tag == .windows)
     WindowsImpl
@@ -289,7 +292,7 @@ test "Condition - basic" {
 }
 
 test "Condition - wait/signal" {
-    if (std.builtin.single_threaded) return error.SkipZigTest;
+    if (single_threaded) return error.SkipZigTest;
 
     const Context = struct {
         lock: Mutex = .{},
@@ -327,7 +330,7 @@ test "Condition - wait/signal" {
 }
 
 test "Condition - producer / consumer" {
-    if (std.builtin.single_threaded) return error.SkipZigTest;
+    if (single_threaded) return error.SkipZigTest;
 
     const num_threads = 4;
     const Context = struct {
@@ -371,7 +374,7 @@ test "Condition - producer / consumer" {
     for ([_]bool{ true, false }) |do_broadcast| {
         var context = Context{};
         var threads: [num_threads]std.Thread = undefined;
-        for (threads) |*t| t.* = try std.Thread.spawn(.{}, Context.doRecv, .{&context, do_broadcast});
+        for (threads) |*t| t.* = try std.Thread.spawn(.{}, Context.doRecv, .{ &context, do_broadcast });
         defer for (threads) |t| t.join();
 
         var i: usize = num_threads;

@@ -115,7 +115,6 @@ test {
         _ = macho;
         _ = net;
         _ = os;
-        _ = once;
         _ = pdb;
         _ = process;
         _ = testing;
