@@ -656,6 +656,10 @@ export fn ceil(x: f64) f64 {
     return math.ceil(x);
 }
 
+export fn fmal(a: f128, b: f128, c: f128) f128 {
+    return math.fma(f128, a, b, c);
+}
+
 export fn fma(a: f64, b: f64, c: f64) f64 {
     return math.fma(f64, a, b, c);
 }

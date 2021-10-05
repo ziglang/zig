@@ -1,6 +1,7 @@
-// Ported from musl, which is licensed under the MIT license:
+// Ported from musl, which is MIT licensed:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
+// https://git.musl-libc.org/cgit/musl/tree/src/math/frexpl.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/frexpf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/frexp.c
 
@@ -8,14 +9,12 @@ const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
-fn frexp_result(comptime T: type) type {
+pub fn Frexp(comptime T: type) type {
     return struct {
         significand: T,
         exponent: i32,
     };
 }
-pub const frexp32_result = frexp_result(f32);
-pub const frexp64_result = frexp_result(f64);
 
 /// Breaks x into a normalized fraction and an integral power of two.
 /// f == frac * 2^exp, with |frac| in the interval [0.5, 1).
@@ -24,17 +23,20 @@ pub const frexp64_result = frexp_result(f64);
 ///  - frexp(+-0)   = +-0, 0
 ///  - frexp(+-inf) = +-inf, 0
 ///  - frexp(nan)   = nan, undefined
-pub fn frexp(x: anytype) frexp_result(@TypeOf(x)) {
+pub fn frexp(x: anytype) Frexp(@TypeOf(x)) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => frexp32(x),
         f64 => frexp64(x),
+        f128 => frexp128(x),
         else => @compileError("frexp not implemented for " ++ @typeName(T)),
     };
 }
 
-fn frexp32(x: f32) frexp32_result {
-    var result: frexp32_result = undefined;
+// TODO: unify all these implementations using generics
+
+fn frexp32(x: f32) Frexp(f32) {
+    var result: Frexp(f32) = undefined;
 
     var y = @bitCast(u32, x);
     const e = @intCast(i32, y >> 23) & 0xFF;
@@ -70,8 +72,8 @@ fn frexp32(x: f32) frexp32_result {
     return result;
 }
 
-fn frexp64(x: f64) frexp64_result {
-    var result: frexp64_result = undefined;
+fn frexp64(x: f64) Frexp(f64) {
+    var result: Frexp(f64) = undefined;
 
     var y = @bitCast(u64, x);
     const e = @intCast(i32, y >> 52) & 0x7FF;
@@ -107,7 +109,44 @@ fn frexp64(x: f64) frexp64_result {
     return result;
 }
 
-test "math.frexp" {
+fn frexp128(x: f128) Frexp(f128) {
+    var result: Frexp(f128) = undefined;
+
+    var y = @bitCast(u128, x);
+    const e = @intCast(i32, y >> 112) & 0x7FFF;
+
+    if (e == 0) {
+        if (x != 0) {
+            // subnormal
+            result = frexp128(x * 0x1.0p120);
+            result.exponent -= 120;
+        } else {
+            // frexp(+-0) = (+-0, 0)
+            result.significand = x;
+            result.exponent = 0;
+        }
+        return result;
+    } else if (e == 0x7FFF) {
+        // frexp(nan) = (nan, undefined)
+        result.significand = x;
+        result.exponent = undefined;
+
+        // frexp(+-inf) = (+-inf, 0)
+        if (math.isInf(x)) {
+            result.exponent = 0;
+        }
+
+        return result;
+    }
+
+    result.exponent = e - 0x3FFE;
+    y &= 0x8000FFFFFFFFFFFFFFFFFFFFFFFFFFFF;
+    y |= 0x3FFE0000000000000000000000000000;
+    result.significand = @bitCast(f128, y);
+    return result;
+}
+
+test "type dispatch" {
     const a = frexp(@as(f32, 1.3));
     const b = frexp32(1.3);
     try expect(a.significand == b.significand and a.exponent == b.exponent);
@@ -115,11 +154,15 @@ test "math.frexp" {
     const c = frexp(@as(f64, 1.3));
     const d = frexp64(1.3);
     try expect(c.significand == d.significand and c.exponent == d.exponent);
+
+    const e = frexp(@as(f128, 1.3));
+    const f = frexp128(1.3);
+    try expect(e.significand == f.significand and e.exponent == f.exponent);
 }
 
-test "math.frexp32" {
+test "32" {
     const epsilon = 0.000001;
-    var r: frexp32_result = undefined;
+    var r: Frexp(f32) = undefined;
 
     r = frexp32(1.3);
     try expect(math.approxEqAbs(f32, r.significand, 0.65, epsilon) and r.exponent == 1);
@@ -128,9 +171,9 @@ test "math.frexp32" {
     try expect(math.approxEqAbs(f32, r.significand, 0.609558, epsilon) and r.exponent == 7);
 }
 
-test "math.frexp64" {
+test "64" {
     const epsilon = 0.000001;
-    var r: frexp64_result = undefined;
+    var r: Frexp(f64) = undefined;
 
     r = frexp64(1.3);
     try expect(math.approxEqAbs(f64, r.significand, 0.65, epsilon) and r.exponent == 1);
@@ -139,8 +182,19 @@ test "math.frexp64" {
     try expect(math.approxEqAbs(f64, r.significand, 0.609558, epsilon) and r.exponent == 7);
 }
 
-test "math.frexp32.special" {
-    var r: frexp32_result = undefined;
+test "128" {
+    const epsilon = 0.000001;
+    var r: Frexp(f128) = undefined;
+
+    r = frexp128(1.3);
+    try expect(math.approxEqAbs(f128, r.significand, 0.65, epsilon) and r.exponent == 1);
+
+    r = frexp128(78.0234);
+    try expect(math.approxEqAbs(f128, r.significand, 0.609558, epsilon) and r.exponent == 7);
+}
+
+test "32 special" {
+    var r: Frexp(f32) = undefined;
 
     r = frexp32(0.0);
     try expect(r.significand == 0.0 and r.exponent == 0);
@@ -158,8 +212,8 @@ test "math.frexp32.special" {
     try expect(math.isNan(r.significand));
 }
 
-test "math.frexp64.special" {
-    var r: frexp64_result = undefined;
+test "64 special" {
+    var r: Frexp(f64) = undefined;
 
     r = frexp64(0.0);
     try expect(r.significand == 0.0 and r.exponent == 0);
@@ -174,5 +228,24 @@ test "math.frexp64.special" {
     try expect(math.isNegativeInf(r.significand) and r.exponent == 0);
 
     r = frexp64(math.nan(f64));
+    try expect(math.isNan(r.significand));
+}
+
+test "128 special" {
+    var r: Frexp(f128) = undefined;
+
+    r = frexp128(0.0);
+    try expect(r.significand == 0.0 and r.exponent == 0);
+
+    r = frexp128(-0.0);
+    try expect(r.significand == -0.0 and r.exponent == 0);
+
+    r = frexp128(math.inf(f128));
+    try expect(math.isPositiveInf(r.significand) and r.exponent == 0);
+
+    r = frexp128(-math.inf(f128));
+    try expect(math.isNegativeInf(r.significand) and r.exponent == 0);
+
+    r = frexp128(math.nan(f128));
     try expect(math.isNan(r.significand));
 }

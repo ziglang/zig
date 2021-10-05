@@ -1,6 +1,7 @@
-// Ported from musl, which is licensed under the MIT license:
+// Ported from musl, which is MIT licensed.
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
+// https://git.musl-libc.org/cgit/musl/tree/src/math/ilogbl.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/ilogbf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/ilogb.c
 
@@ -21,9 +22,12 @@ pub fn ilogb(x: anytype) i32 {
     return switch (T) {
         f32 => ilogb32(x),
         f64 => ilogb64(x),
+        f128 => ilogb128(x),
         else => @compileError("ilogb not implemented for " ++ @typeName(T)),
     };
 }
+
+// TODO: unify these implementations with generics
 
 // NOTE: Should these be exposed publicly?
 const fp_ilogbnan = -1 - @as(i32, maxInt(u32) >> 1);
@@ -100,12 +104,43 @@ fn ilogb64(x: f64) i32 {
     return e - 0x3FF;
 }
 
-test "math.ilogb" {
+fn ilogb128(x: f128) i32 {
+    var u = @bitCast(u128, x);
+    var e = @intCast(i32, (u >> 112) & 0x7FFF);
+
+    if (math.isNan(x)) {
+        return maxInt(i32);
+    }
+
+    if (e == 0) {
+        u <<= 16;
+        if (u == 0) {
+            math.raiseInvalid();
+            return fp_ilogb0;
+        }
+
+        // subnormal x
+        return ilogb128(x * 0x1p120) - 120;
+    }
+
+    if (e == 0x7FFF) {
+        math.raiseInvalid();
+        if (u << 16 != 0) {
+            return fp_ilogbnan;
+        } else {
+            return maxInt(i32);
+        }
+    }
+
+    return e - 0x3FFF;
+}
+
+test "type dispatch" {
     try expect(ilogb(@as(f32, 0.2)) == ilogb32(0.2));
     try expect(ilogb(@as(f64, 0.2)) == ilogb64(0.2));
 }
 
-test "math.ilogb32" {
+test "32" {
     try expect(ilogb32(0.0) == fp_ilogb0);
     try expect(ilogb32(0.5) == -1);
     try expect(ilogb32(0.8923) == -1);
@@ -114,7 +149,7 @@ test "math.ilogb32" {
     try expect(ilogb32(2398.23) == 11);
 }
 
-test "math.ilogb64" {
+test "64" {
     try expect(ilogb64(0.0) == fp_ilogb0);
     try expect(ilogb64(0.5) == -1);
     try expect(ilogb64(0.8923) == -1);
@@ -123,16 +158,32 @@ test "math.ilogb64" {
     try expect(ilogb64(2398.23) == 11);
 }
 
-test "math.ilogb32.special" {
+test "128" {
+    try expect(ilogb128(0.0) == fp_ilogb0);
+    try expect(ilogb128(0.5) == -1);
+    try expect(ilogb128(0.8923) == -1);
+    try expect(ilogb128(10.0) == 3);
+    try expect(ilogb128(-123984) == 16);
+    try expect(ilogb128(2398.23) == 11);
+}
+
+test "32 special" {
     try expect(ilogb32(math.inf(f32)) == maxInt(i32));
     try expect(ilogb32(-math.inf(f32)) == maxInt(i32));
     try expect(ilogb32(0.0) == minInt(i32));
     try expect(ilogb32(math.nan(f32)) == maxInt(i32));
 }
 
-test "math.ilogb64.special" {
+test "64 special" {
     try expect(ilogb64(math.inf(f64)) == maxInt(i32));
     try expect(ilogb64(-math.inf(f64)) == maxInt(i32));
     try expect(ilogb64(0.0) == minInt(i32));
     try expect(ilogb64(math.nan(f64)) == maxInt(i32));
+}
+
+test "128 special" {
+    try expect(ilogb128(math.inf(f128)) == maxInt(i32));
+    try expect(ilogb128(-math.inf(f128)) == maxInt(i32));
+    try expect(ilogb128(0.0) == minInt(i32));
+    try expect(ilogb128(math.nan(f128)) == maxInt(i32));
 }
