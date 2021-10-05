@@ -15,6 +15,10 @@ pub fn fma(comptime T: type, x: T, y: T, z: T) T {
         f32 => fma32(x, y, z),
         f64 => fma64(x, y, z),
         f128 => fma128(x, y, z),
+
+        // TODO this is not correct for some targets
+        c_longdouble => @floatCast(c_longdouble, fma128(x, y, z)),
+
         else => @compileError("fma not implemented for " ++ @typeName(T)),
     };
 }
