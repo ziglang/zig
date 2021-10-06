@@ -858,6 +858,19 @@ pub const Value = extern union {
                         return Value.initPayload(&buffer.base);
                     }
                 },
+                .enum_numbered => {
+                    const enum_obj = ty.castTag(.enum_numbered).?.data;
+                    if (enum_obj.values.count() != 0) {
+                        return enum_obj.values.keys()[field_index];
+                    } else {
+                        // Field index and integer values are the same.
+                        buffer.* = .{
+                            .base = .{ .tag = .int_u64 },
+                            .data = field_index,
+                        };
+                        return Value.initPayload(&buffer.base);
+                    }
+                },
                 .enum_simple => {
                     // Field index and integer values are the same.
                     buffer.* = .{

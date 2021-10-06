@@ -38,3 +38,7 @@ pub fn eql(a: TypedValue, b: TypedValue) bool {
 pub fn hash(tv: TypedValue, hasher: *std.hash.Wyhash) void {
     return tv.val.hash(tv.ty, hasher);
 }
+
+pub fn enumToInt(tv: TypedValue, buffer: *Value.Payload.U64) Value {
+    return tv.val.enumToInt(tv.ty, buffer);
+}

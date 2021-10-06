@@ -2695,10 +2695,9 @@ pub const Type = extern union {
             .enum_numbered => ty = self.castTag(.enum_numbered).?.data.tag_ty,
             .enum_simple => {
                 const enum_obj = self.castTag(.enum_simple).?.data;
-                return .{
-                    .signedness = .unsigned,
-                    .bits = smallestUnsignedBits(enum_obj.fields.count()),
-                };
+                const field_count = enum_obj.fields.count();
+                if (field_count == 0) return .{ .signedness = .unsigned, .bits = 0 };
+                return .{ .signedness = .unsigned, .bits = smallestUnsignedBits(field_count - 1) };
             },
 
             else => unreachable,

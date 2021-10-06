@@ -889,9 +889,9 @@ pub const DeclGen = struct {
             .Int => {
                 var bigint_space: Value.BigIntSpace = undefined;
                 const bigint = tv.val.toBigInt(&bigint_space);
-
-                const llvm_type = try self.llvmType(tv.ty);
-                if (bigint.eqZero()) return llvm_type.constNull();
+                const target = self.module.getTarget();
+                const int_info = tv.ty.intInfo(target);
+                const llvm_type = self.context.intType(int_info.bits);
 
                 const unsigned_val = if (bigint.limbs.len == 1)
                     llvm_type.constInt(bigint.limbs[0], .False)
@@ -903,15 +903,24 @@ pub const DeclGen = struct {
                 return unsigned_val;
             },
             .Enum => {
-                const llvm_type = try self.llvmType(tv.ty);
-                const uint: u64 = uint: {
-                    if (tv.val.castTag(.enum_field_index)) |payload| {
-                        break :uint payload.data;
-                    }
-                    break :uint tv.val.toUnsignedInt();
-                };
-                const llvm_int = llvm_type.constInt(uint, .False);
-                return llvm_int;
+                var int_buffer: Value.Payload.U64 = undefined;
+                const int_val = tv.enumToInt(&int_buffer);
+
+                var bigint_space: Value.BigIntSpace = undefined;
+                const bigint = int_val.toBigInt(&bigint_space);
+
+                const target = self.module.getTarget();
+                const int_info = tv.ty.intInfo(target);
+                const llvm_type = self.context.intType(int_info.bits);
+
+                const unsigned_val = if (bigint.limbs.len == 1)
+                    llvm_type.constInt(bigint.limbs[0], .False)
+                else
+                    llvm_type.constIntOfArbitraryPrecision(@intCast(c_uint, bigint.limbs.len), bigint.limbs.ptr);
+                if (!bigint.positive) {
+                    return llvm.constNeg(unsigned_val);
+                }
+                return unsigned_val;
             },
             .Float => {
                 const llvm_ty = try self.llvmType(tv.ty);

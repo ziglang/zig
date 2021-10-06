@@ -1644,7 +1644,10 @@ fn zirEnumDecl(
             // that points to this default value expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
             const tag_val = (try sema.resolveInstConst(block, src, tag_val_ref)).val;
-            enum_obj.values.putAssumeCapacityNoClobberContext(tag_val, {}, .{ .ty = enum_obj.tag_ty });
+            const copied_tag_val = try tag_val.copy(&new_decl_arena.allocator);
+            enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
+                .ty = enum_obj.tag_ty,
+            });
         } else if (any_values) {
             const tag_val = try Value.Tag.int_u64.create(&new_decl_arena.allocator, field_i);
             enum_obj.values.putAssumeCapacityNoClobberContext(tag_val, {}, .{ .ty = enum_obj.tag_ty });
