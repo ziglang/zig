@@ -2657,38 +2657,49 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the type is an integer.
+    /// Asserts the type is an integer or enum.
     pub fn intInfo(self: Type, target: Target) struct { signedness: std.builtin.Signedness, bits: u16 } {
-        return switch (self.tag()) {
-            .int_unsigned => .{
+        var ty = self;
+        while (true) switch (ty.tag()) {
+            .int_unsigned => return .{
                 .signedness = .unsigned,
-                .bits = self.castTag(.int_unsigned).?.data,
+                .bits = ty.castTag(.int_unsigned).?.data,
             },
-            .int_signed => .{
+            .int_signed => return .{
                 .signedness = .signed,
-                .bits = self.castTag(.int_signed).?.data,
+                .bits = ty.castTag(.int_signed).?.data,
             },
-            .u1 => .{ .signedness = .unsigned, .bits = 1 },
-            .u8 => .{ .signedness = .unsigned, .bits = 8 },
-            .i8 => .{ .signedness = .signed, .bits = 8 },
-            .u16 => .{ .signedness = .unsigned, .bits = 16 },
-            .i16 => .{ .signedness = .signed, .bits = 16 },
-            .u32 => .{ .signedness = .unsigned, .bits = 32 },
-            .i32 => .{ .signedness = .signed, .bits = 32 },
-            .u64 => .{ .signedness = .unsigned, .bits = 64 },
-            .i64 => .{ .signedness = .signed, .bits = 64 },
-            .u128 => .{ .signedness = .unsigned, .bits = 128 },
-            .i128 => .{ .signedness = .signed, .bits = 128 },
-            .usize => .{ .signedness = .unsigned, .bits = target.cpu.arch.ptrBitWidth() },
-            .isize => .{ .signedness = .signed, .bits = target.cpu.arch.ptrBitWidth() },
-            .c_short => .{ .signedness = .signed, .bits = CType.short.sizeInBits(target) },
-            .c_ushort => .{ .signedness = .unsigned, .bits = CType.ushort.sizeInBits(target) },
-            .c_int => .{ .signedness = .signed, .bits = CType.int.sizeInBits(target) },
-            .c_uint => .{ .signedness = .unsigned, .bits = CType.uint.sizeInBits(target) },
-            .c_long => .{ .signedness = .signed, .bits = CType.long.sizeInBits(target) },
-            .c_ulong => .{ .signedness = .unsigned, .bits = CType.ulong.sizeInBits(target) },
-            .c_longlong => .{ .signedness = .signed, .bits = CType.longlong.sizeInBits(target) },
-            .c_ulonglong => .{ .signedness = .unsigned, .bits = CType.ulonglong.sizeInBits(target) },
+            .u1 => return .{ .signedness = .unsigned, .bits = 1 },
+            .u8 => return .{ .signedness = .unsigned, .bits = 8 },
+            .i8 => return .{ .signedness = .signed, .bits = 8 },
+            .u16 => return .{ .signedness = .unsigned, .bits = 16 },
+            .i16 => return .{ .signedness = .signed, .bits = 16 },
+            .u32 => return .{ .signedness = .unsigned, .bits = 32 },
+            .i32 => return .{ .signedness = .signed, .bits = 32 },
+            .u64 => return .{ .signedness = .unsigned, .bits = 64 },
+            .i64 => return .{ .signedness = .signed, .bits = 64 },
+            .u128 => return .{ .signedness = .unsigned, .bits = 128 },
+            .i128 => return .{ .signedness = .signed, .bits = 128 },
+            .usize => return .{ .signedness = .unsigned, .bits = target.cpu.arch.ptrBitWidth() },
+            .isize => return .{ .signedness = .signed, .bits = target.cpu.arch.ptrBitWidth() },
+            .c_short => return .{ .signedness = .signed, .bits = CType.short.sizeInBits(target) },
+            .c_ushort => return .{ .signedness = .unsigned, .bits = CType.ushort.sizeInBits(target) },
+            .c_int => return .{ .signedness = .signed, .bits = CType.int.sizeInBits(target) },
+            .c_uint => return .{ .signedness = .unsigned, .bits = CType.uint.sizeInBits(target) },
+            .c_long => return .{ .signedness = .signed, .bits = CType.long.sizeInBits(target) },
+            .c_ulong => return .{ .signedness = .unsigned, .bits = CType.ulong.sizeInBits(target) },
+            .c_longlong => return .{ .signedness = .signed, .bits = CType.longlong.sizeInBits(target) },
+            .c_ulonglong => return .{ .signedness = .unsigned, .bits = CType.ulonglong.sizeInBits(target) },
+
+            .enum_full, .enum_nonexhaustive => ty = ty.cast(Payload.EnumFull).?.data.tag_ty,
+            .enum_numbered => ty = self.castTag(.enum_numbered).?.data.tag_ty,
+            .enum_simple => {
+                const enum_obj = self.castTag(.enum_simple).?.data;
+                return .{
+                    .signedness = .unsigned,
+                    .bits = smallestUnsignedBits(enum_obj.fields.count()),
+                };
+            },
 
             else => unreachable,
         };
@@ -3905,20 +3916,22 @@ pub const Type = extern union {
         return Type.initPayload(&type_payload.base);
     }
 
+    pub fn smallestUnsignedBits(max: u64) u16 {
+        if (max == 0) return 0;
+        const base = std.math.log2(max);
+        const upper = (@as(u64, 1) << @intCast(u6, base)) - 1;
+        return @intCast(u16, base + @boolToInt(upper < max));
+    }
+
     pub fn smallestUnsignedInt(arena: *Allocator, max: u64) !Type {
-        const bits = bits: {
-            if (max == 0) break :bits 0;
-            const base = std.math.log2(max);
-            const upper = (@as(u64, 1) << @intCast(u6, base)) - 1;
-            break :bits base + @boolToInt(upper < max);
-        };
-        return switch (@intCast(u16, bits)) {
+        const bits = smallestUnsignedBits(max);
+        return switch (bits) {
             1 => initTag(.u1),
             8 => initTag(.u8),
             16 => initTag(.u16),
             32 => initTag(.u32),
             64 => initTag(.u64),
-            else => |b| return Tag.int_unsigned.create(arena, b),
+            else => return Tag.int_unsigned.create(arena, bits),
         };
     }
 };

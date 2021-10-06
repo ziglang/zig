@@ -272,8 +272,11 @@ pub const Inst = struct {
         /// Uses the `ty_op` field.
         fpext,
         /// Returns an integer with a different type than the operand. The new type may have
-        /// fewer, the same, or more bits than the operand type. However, the instruction
+        /// fewer, the same, or more bits than the operand type. The new type may also
+        /// differ in signedness from the operand type. However, the instruction
         /// guarantees that the same integer value fits in both types.
+        /// The new type may also be an enum type, in which case the integer cast operates on
+        /// the integer tag type of the enum.
         /// See `trunc` for integer truncation.
         /// Uses the `ty_op` field.
         intcast,

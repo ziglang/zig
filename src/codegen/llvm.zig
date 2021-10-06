@@ -2381,8 +2381,11 @@ pub const FuncGen = struct {
                 .signed => return self.builder.buildSExt(operand, dest_llvm_ty, ""),
                 .unsigned => return self.builder.buildZExt(operand, dest_llvm_ty, ""),
             }
+        } else if (operand_info.bits > dest_info.bits) {
+            return self.builder.buildTrunc(operand, dest_llvm_ty, "");
+        } else {
+            return operand;
         }
-        return self.builder.buildTrunc(operand, dest_llvm_ty, "");
     }
 
     fn airTrunc(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

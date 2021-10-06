@@ -17,6 +17,15 @@ test "enum to int" {
     try shouldEqual(Number.Four, 4);
 }
 
+fn testIntToEnumEval(x: i32) !void {
+    try expect(@intToEnum(IntToEnumNumber, x) == IntToEnumNumber.Three);
+}
+const IntToEnumNumber = enum { Zero, One, Two, Three, Four };
+
+test "int to enum" {
+    try testIntToEnumEval(3);
+}
+
 const ValueCount1 = enum {
     I0,
 };

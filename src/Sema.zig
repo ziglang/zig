@@ -4312,7 +4312,8 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     try sema.requireRuntimeBlock(block, src);
-    return block.addTyOp(.bitcast, dest_ty, operand);
+    // TODO insert safety check to make sure the value matches an enum value
+    return block.addTyOp(.intcast, dest_ty, operand);
 }
 
 /// Pointer in, pointer out.
@@ -5050,6 +5051,7 @@ fn zirIntCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     }
 
     try sema.requireRuntimeBlock(block, operand_src);
+    // TODO insert safety check to make sure the value fits in the dest type
     return block.addTyOp(.intcast, dest_type, operand);
 }
 
