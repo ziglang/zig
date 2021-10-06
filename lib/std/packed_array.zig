@@ -408,7 +408,6 @@ test "PackedIo with ints" {
 }
 
 test "PackedArray init" {
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
     const Array = PackedArray(u3, 8);
     var packed_array = Array.init([_]u3{ 0, 1, 2, 3, 4, 5, 6, 7 });
     var i = @as(usize, 0);
@@ -416,7 +415,6 @@ test "PackedArray init" {
 }
 
 test "PackedArray initAllTo" {
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
     const Array = PackedArray(u3, 8);
     var packed_array = Array.initAllTo(5);
     var i = @as(usize, 0);
@@ -531,7 +529,6 @@ test "PackedSlice of Packed(Array/Slice)" {
 }
 
 test "PackedIntSlice accumulating bit offsets" {
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
     //bit_offset is u3, so standard debugging asserts should catch
     // anything
     {
@@ -559,8 +556,6 @@ test "PackedIntSlice accumulating bit offsets" {
 //@NOTE: As I do not have a big endian system to test this on,
 // big endian values were not tested
 test "Packed(Array/Slice) sliceCast" {
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
-
     const Array = PackedArray(u1, 16);
     var packed_array = Array.init([_]u1{ 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1 });
     const packed_slice_cast_2 = packed_array.sliceCast(u2);
@@ -601,8 +596,6 @@ test "Packed(Array/Slice) sliceCast" {
 }
 
 test "Packed(Array/Slice)Endian" {
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
-
     {
         const PackedArrayBe = PackedArrayEndian(u4, .Big, 8);
         var packed_array_be = PackedArrayBe.init([_]u4{ 0, 1, 2, 3, 4, 5, 6, 7 });
@@ -670,8 +663,6 @@ test "Packed(Array/Slice)Endian" {
 // after this one is not mapped and will cause a segfault if we
 // don't account for the bounds.
 test "PackedArray at end of available memory" {
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
-
     switch (builtin.target.os.tag) {
         .linux, .macos, .ios, .freebsd, .netbsd, .openbsd, .windows => {},
         else => return,
@@ -691,8 +682,6 @@ test "PackedArray at end of available memory" {
 }
 
 test "PackedSlice at end of available memory" {
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
-
     switch (builtin.target.os.tag) {
         .linux, .macos, .ios, .freebsd, .netbsd, .openbsd, .windows => {},
         else => return,
@@ -709,8 +698,6 @@ test "PackedSlice at end of available memory" {
 }
 
 test "PackedArray of packed struct" {
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
-
     const S = packed struct {
         three: u3,
         two: u2,
