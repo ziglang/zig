@@ -417,7 +417,7 @@ const WasmPageAllocator = struct {
     const FreeBlock = struct {
         data: []u128,
 
-        const Io = std.packed_int_array.PackedIntIo(u1, .Little);
+        const Io = std.packed_array.PackedIo(u1, .Little);
 
         fn totalPages(self: FreeBlock) usize {
             return self.data.len * 128;
