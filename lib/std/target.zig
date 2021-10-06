@@ -1712,6 +1712,13 @@ pub const Target = struct {
             else => ".X",
         };
     }
+
+    pub inline fn longDoubleIsF128(target: Target) bool {
+        return switch (target.cpu.arch) {
+            .riscv64, .aarch64, .aarch64_be, .aarch64_32, .s390x, .mips64, .mips64el => true,
+            else => false,
+        };
+    }
 };
 
 test {
