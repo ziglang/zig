@@ -3,67 +3,19 @@ const expect = std.testing.expect;
 const mem = std.mem;
 const Tag = std.meta.Tag;
 
-const Point = struct {
-    x: u64,
-    y: u64,
-};
-const Foo = union(enum) {
-    One: i32,
-    Two: Point,
-    Three: void,
-};
-const FooNoVoid = union(enum) {
-    One: i32,
-    Two: Point,
-};
-const Bar = enum {
-    A,
-    B,
-    C,
-    D,
-};
-
-fn returnAnInt(x: i32) Foo {
-    return Foo{ .One = x };
-}
-
-fn shouldBeEmpty(x: AnEnumWithPayload) void {
-    switch (x) {
-        AnEnumWithPayload.Empty => {},
-        else => unreachable,
-    }
-}
-
-fn shouldBeNotEmpty(x: AnEnumWithPayload) void {
-    switch (x) {
-        AnEnumWithPayload.Empty => unreachable,
-        else => {},
-    }
-}
-
-const AnEnumWithPayload = union(enum) {
-    Empty: void,
-    Full: i32,
-};
-
 const Number = enum { Zero, One, Two, Three, Four };
 
 fn shouldEqual(n: Number, expected: u3) !void {
     try expect(@enumToInt(n) == expected);
 }
 
-fn testEnumTagNameBare(n: anytype) []const u8 {
-    return @tagName(n);
+test "enum to int" {
+    try shouldEqual(Number.Zero, 0);
+    try shouldEqual(Number.One, 1);
+    try shouldEqual(Number.Two, 2);
+    try shouldEqual(Number.Three, 3);
+    try shouldEqual(Number.Four, 4);
 }
-
-const BareNumber = enum { One, Two, Three };
-
-const NonExhaustive = enum(u8) { A, B, _ };
-
-const AlignTestEnum = union(enum) {
-    A: [9]u8,
-    B: u64,
-};
 
 const ValueCount1 = enum {
     I0,
@@ -589,84 +541,6 @@ const ValueCount257 = enum {
     I255,
     I256,
 };
-
-const Small2 = enum(u2) { One, Two };
-const Small = enum(u2) { One, Two, Three, Four };
-
-const A = enum(u3) { One, Two, Three, Four, One2, Two2, Three2, Four2 };
-const B = enum(u3) { One3, Two3, Three3, Four3, One23, Two23, Three23, Four23 };
-const C = enum(u2) { One4, Two4, Three4, Four4 };
-
-const BitFieldOfEnums = packed struct {
-    a: A,
-    b: B,
-    c: C,
-};
-
-const bit_field_1 = BitFieldOfEnums{
-    .a = A.Two,
-    .b = B.Three3,
-    .c = C.Four4,
-};
-
-fn getA(data: *const BitFieldOfEnums) A {
-    return data.a;
-}
-
-fn getB(data: *const BitFieldOfEnums) B {
-    return data.b;
-}
-
-fn getC(data: *const BitFieldOfEnums) C {
-    return data.c;
-}
-
-const MultipleChoice = enum(u32) {
-    A = 20,
-    B = 40,
-    C = 60,
-    D = 1000,
-};
-
-const MultipleChoice2 = enum(u32) {
-    Unspecified1,
-    A = 20,
-    Unspecified2,
-    B = 40,
-    Unspecified3,
-    C = 60,
-    Unspecified4,
-    D = 1000,
-    Unspecified5,
-};
-
-const EnumWithOneMember = enum { Eof };
-
-fn doALoopThing(id: EnumWithOneMember) void {
-    while (true) {
-        if (id == EnumWithOneMember.Eof) {
-            break;
-        }
-        @compileError("above if condition should be comptime");
-    }
-}
-
-const State = enum { Start };
-
-const EnumWithTagValues = enum(u4) {
-    A = 1 << 0,
-    B = 1 << 1,
-    C = 1 << 2,
-    D = 1 << 3,
-};
-
-test "enum to int" {
-    try shouldEqual(Number.Zero, 0);
-    try shouldEqual(Number.One, 1);
-    try shouldEqual(Number.Two, 2);
-    try shouldEqual(Number.Three, 3);
-    try shouldEqual(Number.Four, 4);
-}
 
 test "enum sizes" {
     comptime {

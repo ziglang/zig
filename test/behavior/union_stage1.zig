@@ -770,6 +770,89 @@ test "union enum type gets a separate scope" {
     try S.doTheTest();
 }
 test "anytype union field: issue #9233" {
-    const Baz = union(enum) { bar: anytype };
-    _ = Baz;
+    const Quux = union(enum) { bar: anytype };
+    _ = Quux;
 }
+
+const Point = struct {
+    x: u64,
+    y: u64,
+};
+const TaggedFoo = union(enum) {
+    One: i32,
+    Two: Point,
+    Three: void,
+};
+const FooNoVoid = union(enum) {
+    One: i32,
+    Two: Point,
+};
+const Baz = enum { A, B, C, D };
+
+test "tagged union type" {
+    const foo1 = TaggedFoo{ .One = 13 };
+    const foo2 = TaggedFoo{
+        .Two = Point{
+            .x = 1234,
+            .y = 5678,
+        },
+    };
+    try expect(foo1.One == 13);
+    try expect(foo2.Two.x == 1234 and foo2.Two.y == 5678);
+    const baz = Baz.B;
+
+    try expect(baz == Baz.B);
+    try expect(@typeInfo(TaggedFoo).Union.fields.len == 3);
+    try expect(@typeInfo(Baz).Enum.fields.len == 4);
+    try expect(@sizeOf(TaggedFoo) == @sizeOf(FooNoVoid));
+    try expect(@sizeOf(Baz) == 1);
+}
+
+test "tagged union as return value" {
+    switch (returnAnInt(13)) {
+        TaggedFoo.One => |value| try expect(value == 13),
+        else => unreachable,
+    }
+}
+
+fn returnAnInt(x: i32) TaggedFoo {
+    return TaggedFoo{ .One = x };
+}
+
+test "constant tagged union with payload" {
+    var empty = TaggedUnionWithPayload{ .Empty = {} };
+    var full = TaggedUnionWithPayload{ .Full = 13 };
+    shouldBeEmpty(empty);
+    shouldBeNotEmpty(full);
+}
+
+fn shouldBeEmpty(x: TaggedUnionWithPayload) void {
+    switch (x) {
+        TaggedUnionWithPayload.Empty => {},
+        else => unreachable,
+    }
+}
+
+fn shouldBeNotEmpty(x: TaggedUnionWithPayload) void {
+    switch (x) {
+        TaggedUnionWithPayload.Empty => unreachable,
+        else => {},
+    }
+}
+
+const TaggedUnionWithPayload = union(enum) {
+    Empty: void,
+    Full: i32,
+};
+
+test "enum alignment" {
+    comptime {
+        try expect(@alignOf(AlignTestTaggedUnion) >= @alignOf([9]u8));
+        try expect(@alignOf(AlignTestTaggedUnion) >= @alignOf(u64));
+    }
+}
+
+const AlignTestTaggedUnion = union(enum) {
+    A: [9]u8,
+    B: u64,
+};

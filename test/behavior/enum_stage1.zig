@@ -100,81 +100,7 @@ test "single field non-exhaustive enum" {
     comptime try S.doTheTest(23);
 }
 
-test "enum type" {
-    const foo1 = Foo{ .One = 13 };
-    const foo2 = Foo{
-        .Two = Point{
-            .x = 1234,
-            .y = 5678,
-        },
-    };
-    try expect(foo1.One == 13);
-    try expect(foo2.Two.x == 1234 and foo2.Two.y == 5678);
-    const bar = Bar.B;
-
-    try expect(bar == Bar.B);
-    try expect(@typeInfo(Foo).Union.fields.len == 3);
-    try expect(@typeInfo(Bar).Enum.fields.len == 4);
-    try expect(@sizeOf(Foo) == @sizeOf(FooNoVoid));
-    try expect(@sizeOf(Bar) == 1);
-}
-
-test "enum as return value" {
-    switch (returnAnInt(13)) {
-        Foo.One => |value| try expect(value == 13),
-        else => unreachable,
-    }
-}
-
-const Point = struct {
-    x: u64,
-    y: u64,
-};
-const Foo = union(enum) {
-    One: i32,
-    Two: Point,
-    Three: void,
-};
-const FooNoVoid = union(enum) {
-    One: i32,
-    Two: Point,
-};
-const Bar = enum {
-    A,
-    B,
-    C,
-    D,
-};
-
-fn returnAnInt(x: i32) Foo {
-    return Foo{ .One = x };
-}
-
-test "constant enum with payload" {
-    var empty = AnEnumWithPayload{ .Empty = {} };
-    var full = AnEnumWithPayload{ .Full = 13 };
-    shouldBeEmpty(empty);
-    shouldBeNotEmpty(full);
-}
-
-fn shouldBeEmpty(x: AnEnumWithPayload) void {
-    switch (x) {
-        AnEnumWithPayload.Empty => {},
-        else => unreachable,
-    }
-}
-
-fn shouldBeNotEmpty(x: AnEnumWithPayload) void {
-    switch (x) {
-        AnEnumWithPayload.Empty => unreachable,
-        else => {},
-    }
-}
-
-const AnEnumWithPayload = union(enum) {
-    Empty: void,
-    Full: i32,
-};
+const Bar = enum { A, B, C, D };
 
 const Number = enum { Zero, One, Two, Three, Four };
 
@@ -207,18 +133,6 @@ fn testEnumTagNameBare(n: anytype) []const u8 {
 const BareNumber = enum { One, Two, Three };
 
 const NonExhaustive = enum(u8) { A, B, _ };
-
-test "enum alignment" {
-    comptime {
-        try expect(@alignOf(AlignTestEnum) >= @alignOf([9]u8));
-        try expect(@alignOf(AlignTestEnum) >= @alignOf(u64));
-    }
-}
-
-const AlignTestEnum = union(enum) {
-    A: [9]u8,
-    B: u64,
-};
 
 const ValueCount1 = enum {
     I0,
