@@ -32,7 +32,7 @@ pub inline fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
     const exponentBits = std.math.floatExponentBits(T);
     const signBit = (@as(rep_t, 1) << (significandBits + exponentBits));
     const absMask = signBit - 1;
-    const infT = std.math.inf(T);
+    const infT = comptime std.math.inf(T);
     const infRep = @bitCast(rep_t, infT);
 
     const aInt = @bitCast(srep_t, a);

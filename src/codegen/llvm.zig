@@ -643,67 +643,21 @@ pub const DeclGen = struct {
             llvm_fn.setUnnamedAddr(.True);
         }
 
+        if (self.module.comp.bin_file.options.skip_linker_dependencies) {
+            // The intent here is for compiler-rt and libc functions to not generate
+            // infinite recursion. For example, if we are compiling the memcpy function,
+            // and llvm detects that the body is equivalent to memcpy, it may replace the
+            // body of memcpy with a call to memcpy, which would then cause a stack
+            // overflow instead of performing memcpy.
+            self.addFnAttr(llvm_fn, "nobuiltin");
+        }
+
         // TODO: more attributes. see codegen.cpp `make_fn_llvm_value`.
         const target = self.module.getTarget();
-        switch (fn_info.cc) {
-            .Unspecified, .Inline, .Async => {
-                llvm_fn.setFunctionCallConv(.Fast);
-            },
-            .C => {
-                llvm_fn.setFunctionCallConv(.C);
-            },
-            .Naked => {
-                self.addFnAttr(llvm_fn, "naked");
-            },
-            .Stdcall => {
-                llvm_fn.setFunctionCallConv(.X86_StdCall);
-            },
-            .Fastcall => {
-                llvm_fn.setFunctionCallConv(.X86_FastCall);
-            },
-            .Vectorcall => {
-                switch (target.cpu.arch) {
-                    .i386, .x86_64 => {
-                        llvm_fn.setFunctionCallConv(.X86_VectorCall);
-                    },
-                    .aarch64, .aarch64_be, .aarch64_32 => {
-                        llvm_fn.setFunctionCallConv(.AArch64_VectorCall);
-                    },
-                    else => unreachable,
-                }
-            },
-            .Thiscall => {
-                llvm_fn.setFunctionCallConv(.X86_ThisCall);
-            },
-            .APCS => {
-                llvm_fn.setFunctionCallConv(.ARM_APCS);
-            },
-            .AAPCS => {
-                llvm_fn.setFunctionCallConv(.ARM_AAPCS);
-            },
-            .AAPCSVFP => {
-                llvm_fn.setFunctionCallConv(.ARM_AAPCS_VFP);
-            },
-            .Interrupt => {
-                switch (target.cpu.arch) {
-                    .i386, .x86_64 => {
-                        llvm_fn.setFunctionCallConv(.X86_INTR);
-                    },
-                    .avr => {
-                        llvm_fn.setFunctionCallConv(.AVR_INTR);
-                    },
-                    .msp430 => {
-                        llvm_fn.setFunctionCallConv(.MSP430_INTR);
-                    },
-                    else => unreachable,
-                }
-            },
-            .Signal => {
-                llvm_fn.setFunctionCallConv(.AVR_SIGNAL);
-            },
-            .SysV => {
-                llvm_fn.setFunctionCallConv(.X86_64_SysV);
-            },
+        if (fn_info.cc == .Naked) {
+            self.addFnAttr(llvm_fn, "naked");
+        } else {
+            llvm_fn.setFunctionCallConv(toLlvmCallConv(fn_info.cc, target));
         }
 
         // Function attributes that are independent of analysis results of the function body.
@@ -1445,6 +1399,7 @@ pub const FuncGen = struct {
         const zig_fn_type = self.air.typeOf(pl_op.operand);
         const return_type = zig_fn_type.fnReturnType();
         const llvm_fn = try self.resolveInst(pl_op.operand);
+        const target = self.dg.module.getTarget();
 
         const llvm_param_vals = try self.gpa.alloc(*const llvm.Value, args.len);
         defer self.gpa.free(llvm_param_vals);
@@ -1457,6 +1412,8 @@ pub const FuncGen = struct {
             llvm_fn,
             llvm_param_vals.ptr,
             @intCast(c_uint, args.len),
+            toLlvmCallConv(zig_fn_type.fnCallingConvention(), target),
+            .Auto,
             "",
         );
 
@@ -1489,13 +1446,10 @@ pub const FuncGen = struct {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const operand_ty = self.air.typeOf(bin_op.lhs);
+        var buffer: Type.Payload.Bits = undefined;
 
         const int_ty = switch (operand_ty.zigTypeTag()) {
-            .Enum => blk: {
-                var buffer: Type.Payload.Bits = undefined;
-                const int_ty = operand_ty.intTagType(&buffer);
-                break :blk int_ty;
-            },
+            .Enum => operand_ty.intTagType(&buffer),
             .Int, .Bool, .Pointer, .ErrorSet => operand_ty,
             .Float => {
                 const operation: llvm.RealPredicate = switch (op) {
@@ -1511,13 +1465,13 @@ pub const FuncGen = struct {
             else => unreachable,
         };
         const is_signed = int_ty.isSignedInt();
-        const operation = switch (op) {
+        const operation: llvm.IntPredicate = switch (op) {
             .eq => .EQ,
             .neq => .NE,
-            .lt => @as(llvm.IntPredicate, if (is_signed) .SLT else .ULT),
-            .lte => @as(llvm.IntPredicate, if (is_signed) .SLE else .ULE),
-            .gt => @as(llvm.IntPredicate, if (is_signed) .SGT else .UGT),
-            .gte => @as(llvm.IntPredicate, if (is_signed) .SGE else .UGE),
+            .lt => if (is_signed) llvm.IntPredicate.SLT else .ULT,
+            .lte => if (is_signed) llvm.IntPredicate.SLE else .ULE,
+            .gt => if (is_signed) llvm.IntPredicate.SGT else .UGT,
+            .gte => if (is_signed) llvm.IntPredicate.SGE else .UGE,
         };
         return self.builder.buildICmp(operation, lhs, rhs, "");
     }
@@ -1947,6 +1901,8 @@ pub const FuncGen = struct {
             asm_fn,
             llvm_param_values.ptr,
             @intCast(c_uint, llvm_param_values.len),
+            .C,
+            .Auto,
             "",
         );
     }
@@ -2561,7 +2517,7 @@ pub const FuncGen = struct {
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         _ = inst;
         const llvm_fn = self.getIntrinsic("llvm.debugtrap");
-        _ = self.builder.buildCall(llvm_fn, undefined, 0, "");
+        _ = self.builder.buildCall(llvm_fn, undefined, 0, .C, .Auto, "");
         return null;
     }
 
@@ -2818,7 +2774,7 @@ pub const FuncGen = struct {
         };
 
         const params = [_]*const llvm.Value{ operand, llvm_i1.constNull() };
-        const wrong_size_result = self.builder.buildCall(fn_val, &params, params.len, "");
+        const wrong_size_result = self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
         const result_ty = self.air.typeOfIndex(inst);
         const result_llvm_ty = try self.dg.llvmType(result_ty);
         const result_bits = result_ty.intInfo(target).bits;
@@ -3105,6 +3061,32 @@ fn toLlvmAtomicRmwBinOp(
         .Xor => .Xor,
         .Max => if (is_signed) llvm.AtomicRMWBinOp.Max else return .UMax,
         .Min => if (is_signed) llvm.AtomicRMWBinOp.Min else return .UMin,
+    };
+}
+
+fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) llvm.CallConv {
+    return switch (cc) {
+        .Unspecified, .Inline, .Async => .Fast,
+        .C, .Naked => .C,
+        .Stdcall => .X86_StdCall,
+        .Fastcall => .X86_FastCall,
+        .Vectorcall => return switch (target.cpu.arch) {
+            .i386, .x86_64 => .X86_VectorCall,
+            .aarch64, .aarch64_be, .aarch64_32 => .AArch64_VectorCall,
+            else => unreachable,
+        },
+        .Thiscall => .X86_ThisCall,
+        .APCS => .ARM_APCS,
+        .AAPCS => .ARM_AAPCS,
+        .AAPCSVFP => .ARM_AAPCS_VFP,
+        .Interrupt => return switch (target.cpu.arch) {
+            .i386, .x86_64 => .X86_INTR,
+            .avr => .AVR_INTR,
+            .msp430 => .MSP430_INTR,
+            else => unreachable,
+        },
+        .Signal => .AVR_SIGNAL,
+        .SysV => .X86_64_SysV,
     };
 }
 

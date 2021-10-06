@@ -359,22 +359,14 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
-    pub const buildCall = LLVMBuildCall;
-    extern fn LLVMBuildCall(
+    pub const buildCall = ZigLLVMBuildCall;
+    extern fn ZigLLVMBuildCall(
         *const Builder,
         Fn: *const Value,
         Args: [*]const *const Value,
         NumArgs: c_uint,
-        Name: [*:0]const u8,
-    ) *const Value;
-
-    pub const buildCall2 = LLVMBuildCall2;
-    extern fn LLVMBuildCall2(
-        *const Builder,
-        *const Type,
-        Fn: *const Value,
-        Args: [*]*const Value,
-        NumArgs: c_uint,
+        CC: CallConv,
+        attr: CallAttr,
         Name: [*:0]const u8,
     ) *const Value;
 
@@ -1182,6 +1174,14 @@ pub const CallConv = enum(c_uint) {
     AMDGPU_LS = 95,
     AMDGPU_ES = 96,
     AArch64_VectorCall = 97,
+};
+
+pub const CallAttr = enum(c_int) {
+    Auto,
+    NeverTail,
+    NeverInline,
+    AlwaysTail,
+    AlwaysInline,
 };
 
 pub const address_space = struct {
