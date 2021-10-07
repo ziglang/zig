@@ -355,6 +355,8 @@ const Writer = struct {
             .elem_val_node,
             => try self.writePlNodeBin(stream, inst),
 
+            .elem_ptr_imm => try self.writeElemPtrImm(stream, inst),
+
             .@"export" => try self.writePlNodeExport(stream, inst),
             .export_value => try self.writePlNodeExportValue(stream, inst),
 
@@ -364,8 +366,8 @@ const Writer = struct {
             .block_inline,
             .suspend_block,
             .loop,
-            .validate_struct_init_ptr,
-            .validate_array_init_ptr,
+            .validate_struct_init,
+            .validate_array_init,
             .c_import,
             => try self.writePlNodeBlock(stream, inst),
 
@@ -806,6 +808,15 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
         try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeElemPtrImm(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.ElemPtrImm, inst_data.payload_index).data;
+
+        try self.writeInstRef(stream, extra.ptr);
+        try stream.print(", {d}) ", .{extra.index});
         try self.writeSrc(stream, inst_data.src());
     }
 

@@ -1352,15 +1352,14 @@ fn arrayInitExprRlPtr(
     defer gpa.free(elem_ptr_list);
 
     for (elements) |elem_init, i| {
-        const index_inst = try gz.addInt(i);
-        const elem_ptr = try gz.addPlNode(.elem_ptr_node, elem_init, Zir.Inst.Bin{
-            .lhs = result_ptr,
-            .rhs = index_inst,
+        const elem_ptr = try gz.addPlNode(.elem_ptr_imm, elem_init, Zir.Inst.ElemPtrImm{
+            .ptr = result_ptr,
+            .index = @intCast(u32, i),
         });
         elem_ptr_list[i] = refToIndex(elem_ptr).?;
         _ = try expr(gz, scope, .{ .ptr = elem_ptr }, elem_init);
     }
-    _ = try gz.addPlNode(.validate_array_init_ptr, node, Zir.Inst.Block{
+    _ = try gz.addPlNode(.validate_array_init, node, Zir.Inst.Block{
         .body_len = @intCast(u32, elem_ptr_list.len),
     });
     try astgen.extra.appendSlice(gpa, elem_ptr_list);
@@ -1539,7 +1538,7 @@ fn structInitExprRlPtrInner(
         field_ptr_list[i] = refToIndex(field_ptr).?;
         _ = try expr(gz, scope, .{ .ptr = field_ptr }, field_init);
     }
-    _ = try gz.addPlNode(.validate_struct_init_ptr, node, Zir.Inst.Block{
+    _ = try gz.addPlNode(.validate_struct_init, node, Zir.Inst.Block{
         .body_len = @intCast(u32, field_ptr_list.len),
     });
     try astgen.extra.appendSlice(gpa, field_ptr_list);
@@ -2040,6 +2039,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .elem_ptr,
             .elem_val,
             .elem_ptr_node,
+            .elem_ptr_imm,
             .elem_val_node,
             .field_ptr,
             .field_val,
@@ -2246,8 +2246,8 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .store_to_block_ptr,
             .store_to_inferred_ptr,
             .resolve_inferred_alloc,
-            .validate_struct_init_ptr,
-            .validate_array_init_ptr,
+            .validate_struct_init,
+            .validate_array_init,
             .set_align_stack,
             .set_cold,
             .set_float_mode,

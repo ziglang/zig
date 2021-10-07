@@ -344,6 +344,11 @@ pub const Inst = struct {
         /// Same as `elem_ptr` except also stores a source location node.
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
         elem_ptr_node,
+        /// Same as `elem_ptr_node` except the index is stored immediately rather than
+        /// as a reference to another ZIR instruction.
+        /// Uses the `pl_node` union field. AST node is an element inside array initialization
+        /// syntax. Payload is `ElemPtrImm`.
+        elem_ptr_imm,
         /// Given an array, slice, or pointer, returns the element at the provided index.
         /// Uses the `bin` union field. Source location is implied to be the same
         /// as the previous instruction.
@@ -675,14 +680,14 @@ pub const Inst = struct {
         /// This instruction asserts that there is at least one field_ptr instruction,
         /// because it must use one of them to find out the struct type.
         /// Uses the `pl_node` field. Payload is `Block`.
-        validate_struct_init_ptr,
-        /// Given a set of `elem_ptr_node` instructions, assumes they are all part of an
+        validate_struct_init,
+        /// Given a set of `elem_ptr_imm` instructions, assumes they are all part of an
         /// array initialization expression, and emits a compile error if the number of
         /// elements does not match the array type.
-        /// This instruction asserts that there is at least one elem_ptr_node instruction,
+        /// This instruction asserts that there is at least one `elem_ptr_imm` instruction,
         /// because it must use one of them to find out the array type.
         /// Uses the `pl_node` field. Payload is `Block`.
-        validate_array_init_ptr,
+        validate_array_init,
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
@@ -1023,6 +1028,7 @@ pub const Inst = struct {
                 .elem_ptr,
                 .elem_val,
                 .elem_ptr_node,
+                .elem_ptr_imm,
                 .elem_val_node,
                 .ensure_result_used,
                 .ensure_result_non_error,
@@ -1114,8 +1120,8 @@ pub const Inst = struct {
                 .switch_block_ref_else_multi,
                 .switch_block_ref_under,
                 .switch_block_ref_under_multi,
-                .validate_struct_init_ptr,
-                .validate_array_init_ptr,
+                .validate_struct_init,
+                .validate_array_init,
                 .struct_init_empty,
                 .struct_init,
                 .struct_init_ref,
@@ -1291,6 +1297,7 @@ pub const Inst = struct {
                 .div = .pl_node,
                 .elem_ptr = .bin,
                 .elem_ptr_node = .pl_node,
+                .elem_ptr_imm = .pl_node,
                 .elem_val = .bin,
                 .elem_val_node = .pl_node,
                 .ensure_result_used = .un_node,
@@ -1377,8 +1384,8 @@ pub const Inst = struct {
                 .switch_capture_multi_ref = .switch_capture,
                 .switch_capture_else = .switch_capture,
                 .switch_capture_else_ref = .switch_capture,
-                .validate_struct_init_ptr = .pl_node,
-                .validate_array_init_ptr = .pl_node,
+                .validate_struct_init = .pl_node,
+                .validate_array_init = .pl_node,
                 .struct_init_empty = .un_node,
                 .field_type = .pl_node,
                 .field_type_ref = .pl_node,
@@ -2457,6 +2464,11 @@ pub const Inst = struct {
     pub const UnNode = struct {
         node: i32,
         operand: Ref,
+    };
+
+    pub const ElemPtrImm = struct {
+        ptr: Ref,
+        index: u32,
     };
 
     /// This form is supported when there are no ranges, and exactly 1 item per block.

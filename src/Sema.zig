@@ -479,6 +479,7 @@ pub fn analyzeBody(
             .load                         => try sema.zirLoad(block, inst),
             .elem_ptr                     => try sema.zirElemPtr(block, inst),
             .elem_ptr_node                => try sema.zirElemPtrNode(block, inst),
+            .elem_ptr_imm                 => try sema.zirElemPtrImm(block, inst),
             .elem_val                     => try sema.zirElemVal(block, inst),
             .elem_val_node                => try sema.zirElemValNode(block, inst),
             .elem_type                    => try sema.zirElemType(block, inst),
@@ -741,13 +742,13 @@ pub fn analyzeBody(
                 i += 1;
                 continue;
             },
-            .validate_struct_init_ptr => {
-                try sema.zirValidateStructInitPtr(block, inst);
+            .validate_struct_init => {
+                try sema.zirValidateStructInit(block, inst);
                 i += 1;
                 continue;
             },
-            .validate_array_init_ptr => {
-                try sema.zirValidateArrayInitPtr(block, inst);
+            .validate_array_init => {
+                try sema.zirValidateArrayInit(block, inst);
                 i += 1;
                 continue;
             },
@@ -2106,7 +2107,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     }
 }
 
-fn zirValidateStructInitPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+fn zirValidateStructInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2117,15 +2118,15 @@ fn zirValidateStructInitPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Co
     const field_ptr_data = sema.code.instructions.items(.data)[instrs[0]].pl_node;
     const field_ptr_extra = sema.code.extraData(Zir.Inst.Field, field_ptr_data.payload_index).data;
     const object_ptr = sema.resolveInst(field_ptr_extra.lhs);
-    const agg_ty = sema.typeOf(object_ptr).elemType();
+    const agg_ty = sema.typeOf(object_ptr).childType();
     switch (agg_ty.zigTypeTag()) {
-        .Struct => return sema.validateStructInitPtr(
+        .Struct => return sema.validateStructInit(
             block,
             agg_ty.castTag(.@"struct").?.data,
             init_src,
             instrs,
         ),
-        .Union => return sema.validateUnionInitPtr(
+        .Union => return sema.validateUnionInit(
             block,
             agg_ty.cast(Type.Payload.Union).?.data,
             init_src,
@@ -2136,7 +2137,7 @@ fn zirValidateStructInitPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Co
     }
 }
 
-fn validateUnionInitPtr(
+fn validateUnionInit(
     sema: *Sema,
     block: *Block,
     union_obj: *Module.Union,
@@ -2175,7 +2176,7 @@ fn validateUnionInitPtr(
     _ = try block.addBinOp(.set_union_tag, union_ptr, new_tag);
 }
 
-fn validateStructInitPtr(
+fn validateStructInit(
     sema: *Sema,
     block: *Block,
     struct_obj: *Module.Struct,
@@ -2239,10 +2240,22 @@ fn validateStructInitPtr(
     }
 }
 
-fn zirValidateArrayInitPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO implement Sema.zirValidateArrayInitPtr", .{});
+fn zirValidateArrayInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    const validate_inst = sema.code.instructions.items(.data)[inst].pl_node;
+    const init_src = validate_inst.src();
+    const validate_extra = sema.code.extraData(Zir.Inst.Block, validate_inst.payload_index);
+    const instrs = sema.code.extra[validate_extra.end..][0..validate_extra.data.body_len];
+    const elem_ptr_data = sema.code.instructions.items(.data)[instrs[0]].pl_node;
+    const elem_ptr_extra = sema.code.extraData(Zir.Inst.ElemPtrImm, elem_ptr_data.payload_index).data;
+    const array_ptr = sema.resolveInst(elem_ptr_extra.ptr);
+    const array_ty = sema.typeOf(array_ptr).childType();
+    const array_len = array_ty.arrayLen();
+
+    if (instrs.len != array_len) {
+        return sema.fail(block, init_src, "expected {d} array elements; found {d}", .{
+            array_len, instrs.len,
+        });
+    }
 }
 
 fn failWithBadFieldAccess(
@@ -5167,6 +5180,18 @@ fn zirElemPtrNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const array_ptr = sema.resolveInst(extra.lhs);
     const elem_index = sema.resolveInst(extra.rhs);
     return sema.elemPtr(block, src, array_ptr, elem_index, elem_index_src);
+}
+
+fn zirElemPtrImm(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(Zir.Inst.ElemPtrImm, inst_data.payload_index).data;
+    const array_ptr = sema.resolveInst(extra.ptr);
+    const elem_index = try sema.addIntUnsigned(Type.usize, extra.index);
+    return sema.elemPtr(block, src, array_ptr, elem_index, src);
 }
 
 fn zirSliceStart(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

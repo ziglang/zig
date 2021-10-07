@@ -4,6 +4,13 @@ const mem = std.mem;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
+test "array literal with inferred length" {
+    const hex_mult = [_]u16{ 4096, 256, 16, 1 };
+
+    try expect(hex_mult.len == 4);
+    try expect(hex_mult[1] == 256);
+}
+
 test "array with sentinels" {
     const S = struct {
         fn doTheTest(is_ct: bool) !void {
@@ -37,13 +44,6 @@ test "void arrays" {
     array[1] = array[2];
     try expect(@sizeOf(@TypeOf(array)) == 0);
     try expect(array.len == 4);
-}
-
-test "array literal" {
-    const hex_mult = [_]u16{ 4096, 256, 16, 1 };
-
-    try expect(hex_mult.len == 4);
-    try expect(hex_mult[1] == 256);
 }
 
 test "array dot len const expr" {
