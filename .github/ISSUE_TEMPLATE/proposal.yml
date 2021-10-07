@@ -12,5 +12,5 @@ body:
     attributes:
       label: Please do not file a proposal to change the language
       options:
-        - label: After clicking this box, please navigate away from this web page.
+        - label: "I understand, thank you. I will not submit a new proposal at this time"
           required: true
