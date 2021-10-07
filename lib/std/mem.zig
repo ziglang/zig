@@ -2143,6 +2143,7 @@ fn testWriteIntImpl() !void {
 /// Returns the smallest number in a slice. O(n).
 /// `slice` must not be empty.
 pub fn min(comptime T: type, slice: []const T) T {
+    assert(slice.len > 0);
     var best = slice[0];
     for (slice[1..]) |item| {
         best = math.min(best, item);
@@ -2151,12 +2152,15 @@ pub fn min(comptime T: type, slice: []const T) T {
 }
 
 test "mem.min" {
-    try testing.expect(min(u8, "abcdefg") == 'a');
+    try testing.expectEqual(min(u8, "abcdefg"), 'a');
+    try testing.expectEqual(min(u8, "bcdefga"), 'a');
+    try testing.expectEqual(min(u8, "a"), 'a');
 }
 
 /// Returns the largest number in a slice. O(n).
 /// `slice` must not be empty.
 pub fn max(comptime T: type, slice: []const T) T {
+    assert(slice.len > 0);
     var best = slice[0];
     for (slice[1..]) |item| {
         best = math.max(best, item);
@@ -2165,7 +2169,51 @@ pub fn max(comptime T: type, slice: []const T) T {
 }
 
 test "mem.max" {
-    try testing.expect(max(u8, "abcdefg") == 'g');
+    try testing.expectEqual(max(u8, "abcdefg"), 'g');
+    try testing.expectEqual(max(u8, "gabcdef"), 'g');
+    try testing.expectEqual(max(u8, "g"), 'g');
+}
+
+/// Returns the index of the smallest number in a slice. O(n).
+/// `slice` must not be empty.
+pub fn indexOfMin(comptime T: type, slice: []const T) usize {
+    assert(slice.len > 0);
+    var best = slice[0];
+    var index: usize = 0;
+    for (slice[1..]) |item, i| {
+        if (item < best) {
+            best = item;
+            index = i + 1;
+        }
+    }
+    return index;
+}
+
+test "mem.indexOfMin" {
+    try testing.expectEqual(indexOfMin(u8, "abcdefg"), 0);
+    try testing.expectEqual(indexOfMin(u8, "bcdefga"), 6);
+    try testing.expectEqual(indexOfMin(u8, "a"), 0);
+}
+
+/// Returns the index of the largest number in a slice. O(n).
+/// `slice` must not be empty.
+pub fn indexOfMax(comptime T: type, slice: []const T) usize {
+    assert(slice.len > 0);
+    var best = slice[0];
+    var index: usize = 0;
+    for (slice[1..]) |item, i| {
+        if (item > best) {
+            best = item;
+            index = i + 1;
+        }
+    }
+    return index;
+}
+
+test "mem.indexOfMax" {
+    try testing.expectEqual(indexOfMax(u8, "abcdefg"), 6);
+    try testing.expectEqual(indexOfMax(u8, "gabcdef"), 0);
+    try testing.expectEqual(indexOfMax(u8, "a"), 0);
 }
 
 pub fn swap(comptime T: type, a: *T, b: *T) void {
