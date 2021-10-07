@@ -41,6 +41,7 @@ pub const max_name_len = switch (target.os.tag) {
     .netbsd => 31,
     .freebsd => 15,
     .openbsd => 31,
+    .dragonfly => 1023,
     .solaris => 31,
     else => 0,
 };
@@ -130,6 +131,17 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
 
             std.c.pthread_set_name_np(self.getHandle(), name_with_terminator.ptr);
         },
+        .dragonfly => if (use_pthreads) {
+            const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
+            switch (err) {
+                .SUCCESS => return,
+                .INVAL => unreachable,
+                .FAULT => unreachable,
+                .NAMETOOLONG => unreachable, // already checked
+                .SRCH => unreachable,
+                else => |e| return os.unexpectedErrno(e),
+            }
+        },
         else => return error.Unsupported,
     }
 }
@@ -218,6 +230,16 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
 
             std.c.pthread_get_name_np(self.getHandle(), buffer.ptr, max_name_len + 1);
             return std.mem.sliceTo(buffer, 0);
+        },
+        .dragonfly => if (use_pthreads) {
+            const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
+            switch (err) {
+                .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                .INVAL => unreachable,
+                .FAULT => unreachable,
+                .SRCH => unreachable,
+                else => |e| return os.unexpectedErrno(e),
+            }
         },
         else => return error.Unsupported,
     }
