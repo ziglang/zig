@@ -43,3 +43,10 @@ test "array literal with explicit type" {
     try expect(hex_mult.len == 4);
     try expect(hex_mult[1] == 256);
 }
+
+test "array literal with inferred length" {
+    const hex_mult = [_]u16{ 4096, 256, 16, 1 };
+
+    try expect(hex_mult.len == 4);
+    try expect(hex_mult[1] == 256);
+}
