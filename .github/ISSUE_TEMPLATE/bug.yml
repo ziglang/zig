@@ -17,7 +17,7 @@ body:
     id: version
     attributes:
       label: Zig Version
-      description: The output of `zig version`:
+      description: "The output of `zig version`"
       placeholder: "0.9.0-dev.1275+ac52e0056"
     validations:
       required: true
