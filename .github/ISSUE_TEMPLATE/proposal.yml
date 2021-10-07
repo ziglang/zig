@@ -1,0 +1,16 @@
+name: Language Proposal
+description: Propose to improve the Zig language
+labels: ["proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for your interest in improving the Zig language. However, we are
+        not accepting new proposals to change the language at this time.
+  - type: checkboxes
+    id: trash
+    attributes:
+      label: Please do not file a proposal to change the language
+      options:
+        - label: After clicking this box, please navigate away from this web page.
+          required: true
