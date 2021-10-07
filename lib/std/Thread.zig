@@ -85,13 +85,12 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             defer file.close();
 
             try file.writer().writeAll(name);
+            return;
         },
         .windows => if (target.os.isAtLeast(.windows, .win10_rs1)) |res| {
             // SetThreadDescription is only available since version 1607, which is 10.0.14393.795
             // See https://en.wikipedia.org/wiki/Microsoft_Windows_SDK
-            if (!res) {
-                return error.Unsupported;
-            }
+            if (!res) return error.Unsupported;
 
             var name_buf_w: [max_name_len:0]u16 = undefined;
             const length = try std.unicode.utf8ToUtf16Le(&name_buf_w, name);
@@ -101,8 +100,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
                 self.getHandle(),
                 @ptrCast(os.windows.LPWSTR, &name_buf_w),
             );
-        } else {
-            return error.Unsupported;
+            return;
         },
         .macos, .ios, .watchos, .tvos => if (use_pthreads) {
             // There doesn't seem to be a way to set the name for an arbitrary thread, only the current one.
@@ -130,6 +128,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             // pthread_setname_np can return an error.
 
             std.c.pthread_set_name_np(self.getHandle(), name_with_terminator.ptr);
+            return;
         },
         .dragonfly => if (use_pthreads) {
             const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
@@ -142,8 +141,9 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
                 else => |e| return os.unexpectedErrno(e),
             }
         },
-        else => return error.Unsupported,
+        else => {},
     }
+    return error.Unsupported;
 }
 
 pub const GetNameError = error{
@@ -193,9 +193,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
         .windows => if (target.os.isAtLeast(.windows, .win10_rs1)) |res| {
             // GetThreadDescription is only available since version 1607, which is 10.0.14393.795
             // See https://en.wikipedia.org/wiki/Microsoft_Windows_SDK
-            if (!res) {
-                return error.Unsupported;
-            }
+            if (!res) return error.Unsupported;
 
             var name_w: os.windows.LPWSTR = undefined;
             try os.windows.GetThreadDescription(self.getHandle(), &name_w);
@@ -204,8 +202,6 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             const data_len = try std.unicode.utf16leToUtf8(buffer, std.mem.sliceTo(name_w, 0));
 
             return if (data_len >= 1) buffer[0..data_len] else null;
-        } else {
-            return error.Unsupported;
         },
         .macos, .ios, .watchos, .tvos => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
@@ -241,8 +237,9 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 else => |e| return os.unexpectedErrno(e),
             }
         },
-        else => return error.Unsupported,
+        else => {},
     }
+    return error.Unsupported;
 }
 
 /// Represents a unique ID per thread.
