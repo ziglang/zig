@@ -1,4 +1,4 @@
-//! An set of array and slice types that bit-pack elements. A normal [12]u3 takes up
+//! A set of array and slice types that bit-pack elements. A normal [12]u3 takes up
 //! 12 bytes of memory since u3's alignment is 1. PackedArray(u3, 12) only takes up
 //! 4 bytes of memory. Packed structs can also save space using PackedArray, but 
 //! unpacked structs will recieve no benefit.
