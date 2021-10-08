@@ -82,6 +82,9 @@ disable_c_depfile: bool,
 time_report: bool,
 stack_report: bool,
 unwind_tables: bool,
+test_evented_io: bool,
+debug_compiler_runtime_libs: bool,
+debug_compile_errors: bool,
 
 c_source_files: []const CSourceFile,
 clang_argv: []const []const u8,
@@ -138,8 +141,6 @@ mutex: std.Thread.Mutex = .{},
 
 test_filter: ?[]const u8,
 test_name_prefix: ?[]const u8,
-test_evented_io: bool,
-debug_compiler_runtime_libs: bool,
 
 emit_asm: ?EmitLoc,
 emit_llvm_ir: ?EmitLoc,
@@ -727,6 +728,7 @@ pub const InitOptions = struct {
     is_test: bool = false,
     test_evented_io: bool = false,
     debug_compiler_runtime_libs: bool = false,
+    debug_compile_errors: bool = false,
     /// Normally when you create a `Compilation`, Zig will automatically build
     /// and link in required dependencies, such as compiler-rt and libc. When
     /// building such dependencies themselves, this flag must be set to avoid
@@ -1471,6 +1473,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .test_name_prefix = options.test_name_prefix,
             .test_evented_io = options.test_evented_io,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
+            .debug_compile_errors = options.debug_compile_errors,
             .work_queue_wait_group = undefined,
             .astgen_wait_group = undefined,
         };

@@ -433,6 +433,7 @@ const usage_build_generic =
     \\  --verbose-cimport            Enable compiler debug output for C imports
     \\  --verbose-llvm-cpu-features  Enable compiler debug output for LLVM CPU features
     \\  --debug-log [scope]          Enable printing debug/info log messages for scope
+    \\  --debug-compile-errors       Crash with helpful diagnostics at the first compile error
     \\
 ;
 
@@ -549,6 +550,7 @@ fn buildOutputType(
     var single_threaded = false;
     var function_sections = false;
     var watch = false;
+    var debug_compile_errors = false;
     var verbose_link = std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
     var verbose_cc = std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
     var verbose_air = false;
@@ -1078,6 +1080,8 @@ fn buildOutputType(
                         linker_allow_shlib_undefined = false;
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
+                    } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
+                        debug_compile_errors = true;
                     } else if (mem.eql(u8, arg, "--verbose-link")) {
                         verbose_link = true;
                     } else if (mem.eql(u8, arg, "--verbose-cc")) {
@@ -2134,6 +2138,7 @@ fn buildOutputType(
         .disable_lld_caching = !have_enable_cache,
         .subsystem = subsystem,
         .wasi_exec_model = wasi_exec_model,
+        .debug_compile_errors = debug_compile_errors,
     }) catch |err| {
         fatal("unable to create compilation: {s}", .{@errorName(err)});
     };

@@ -151,7 +151,7 @@ fn writeFullyQualifiedDeclWithFile(decl: *Decl, stream: anytype) !void {
     try decl.renderFullyQualifiedDebugName(stream);
 }
 
-fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
+pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
     PanicSwitch.preDispatch();
     @setCold(true);
     const ret_addr = @returnAddress();

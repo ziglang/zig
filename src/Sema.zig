@@ -1213,6 +1213,15 @@ pub fn fail(
 fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
     @setCold(true);
 
+    if (crash_report.is_enabled and sema.mod.comp.debug_compile_errors) {
+        std.debug.print("compile error during Sema: {s}, src: {s}:{}\n", .{
+            err_msg.msg,
+            err_msg.src_loc.file_scope.sub_file_path,
+            err_msg.src_loc.lazy,
+        });
+        crash_report.compilerPanic("unexpected compile error occurred", null);
+    }
+
     const mod = sema.mod;
 
     {
