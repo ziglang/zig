@@ -6473,7 +6473,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         .never => {
             // Returning a value that cannot be an error; skip error defers.
             try genDefers(gz, defer_outer, scope, .normal_only);
-            _ = try gz.addUnNode(.ret_node, operand, node);
+            try gz.addRet(rl, operand, node);
             return Zir.Inst.Ref.unreachable_value;
         },
         .always => {

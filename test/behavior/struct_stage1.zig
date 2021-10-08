@@ -61,21 +61,6 @@ test "store member function in variable" {
     try expect(result == 1234);
 }
 
-test "return struct byval from function" {
-    const bar = makeBar2(1234, 5678);
-    try expect(bar.y == 5678);
-}
-const Bar = struct {
-    x: i32,
-    y: i32,
-};
-fn makeBar2(x: i32, y: i32) Bar {
-    return Bar{
-        .x = x,
-        .y = y,
-    };
-}
-
 test "empty struct method call" {
     const es = EmptyStruct{};
     try expect(es.method() == 1234);
