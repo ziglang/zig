@@ -183,3 +183,37 @@ test "@setEvalBranchQuota" {
         try expect(sum == 500500);
     }
 }
+
+test "constant struct with negation" {
+    try expect(vertices[0].x == @as(f32, -0.6));
+}
+const Vertex = struct {
+    x: f32,
+    y: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+};
+const vertices = [_]Vertex{
+    Vertex{
+        .x = -0.6,
+        .y = -0.4,
+        .r = 1.0,
+        .g = 0.0,
+        .b = 0.0,
+    },
+    Vertex{
+        .x = 0.6,
+        .y = -0.4,
+        .r = 0.0,
+        .g = 1.0,
+        .b = 0.0,
+    },
+    Vertex{
+        .x = 0.0,
+        .y = 0.6,
+        .r = 0.0,
+        .g = 0.0,
+        .b = 1.0,
+    },
+};

@@ -6639,9 +6639,9 @@ fn zirNegate(
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
-    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
-    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const src = inst_data.src();
+    const lhs_src = src;
+    const rhs_src = src; // TODO better source location
     const lhs = sema.resolveInst(.zero);
     const rhs = sema.resolveInst(inst_data.operand);
 
@@ -9909,7 +9909,8 @@ fn zirCDefine(
     const src: LazySrcLoc = .{ .node_offset = extra.node };
 
     const name = try sema.resolveConstString(block, src, extra.lhs);
-    if (sema.typeOf(extra.rhs).zigTypeTag() != .Void) {
+    const rhs = sema.resolveInst(extra.rhs);
+    if (sema.typeOf(rhs).zigTypeTag() != .Void) {
         const value = try sema.resolveConstString(block, src, extra.rhs);
         try block.c_import_buf.?.writer().print("#define {s} {s}\n", .{ name, value });
     } else {
@@ -12085,16 +12086,19 @@ fn resolvePeerTypes(
         const chosen_ty = sema.typeOf(chosen);
         if (candidate_ty.eql(chosen_ty))
             continue;
-        if (candidate_ty.zigTypeTag() == .NoReturn)
+        const candidate_ty_tag = candidate_ty.zigTypeTag();
+        const chosen_ty_tag = chosen_ty.zigTypeTag();
+
+        if (candidate_ty_tag == .NoReturn)
             continue;
-        if (chosen_ty.zigTypeTag() == .NoReturn) {
+        if (chosen_ty_tag == .NoReturn) {
             chosen = candidate;
             chosen_i = candidate_i + 1;
             continue;
         }
-        if (candidate_ty.zigTypeTag() == .Undefined)
+        if (candidate_ty_tag == .Undefined)
             continue;
-        if (chosen_ty.zigTypeTag() == .Undefined) {
+        if (chosen_ty_tag == .Undefined) {
             chosen = candidate;
             chosen_i = candidate_i + 1;
             continue;
@@ -12117,30 +12121,41 @@ fn resolvePeerTypes(
             continue;
         }
 
-        if (chosen_ty.zigTypeTag() == .ComptimeInt and candidate_ty.isInt()) {
+        if (chosen_ty_tag == .ComptimeInt and candidate_ty.isInt()) {
             chosen = candidate;
             chosen_i = candidate_i + 1;
             continue;
         }
 
-        if (chosen_ty.isInt() and candidate_ty.zigTypeTag() == .ComptimeInt) {
+        if (chosen_ty.isInt() and candidate_ty_tag == .ComptimeInt) {
             continue;
         }
 
-        if (chosen_ty.zigTypeTag() == .ComptimeFloat and candidate_ty.isRuntimeFloat()) {
+        if ((chosen_ty_tag == .ComptimeFloat or chosen_ty_tag == .ComptimeInt) and
+            candidate_ty.isRuntimeFloat())
+        {
+            chosen = candidate;
+            chosen_i = candidate_i + 1;
+            continue;
+        }
+        if (chosen_ty.isRuntimeFloat() and
+            (candidate_ty_tag == .ComptimeFloat or candidate_ty_tag == .ComptimeInt))
+        {
+            continue;
+        }
+
+        if (chosen_ty_tag == .Enum and candidate_ty_tag == .EnumLiteral) {
+            continue;
+        }
+        if (chosen_ty_tag == .EnumLiteral and candidate_ty_tag == .Enum) {
             chosen = candidate;
             chosen_i = candidate_i + 1;
             continue;
         }
 
-        if (chosen_ty.isRuntimeFloat() and candidate_ty.zigTypeTag() == .ComptimeFloat) {
+        if (chosen_ty_tag == .ComptimeFloat and candidate_ty_tag == .ComptimeInt)
             continue;
-        }
-
-        if (chosen_ty.zigTypeTag() == .Enum and candidate_ty.zigTypeTag() == .EnumLiteral) {
-            continue;
-        }
-        if (chosen_ty.zigTypeTag() == .EnumLiteral and candidate_ty.zigTypeTag() == .Enum) {
+        if (chosen_ty_tag == .ComptimeInt and candidate_ty_tag == .ComptimeFloat) {
             chosen = candidate;
             chosen_i = candidate_i + 1;
             continue;
