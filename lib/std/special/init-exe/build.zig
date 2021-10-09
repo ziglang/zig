@@ -28,6 +28,6 @@ pub fn build(b: *std.build.Builder) void {
     var exe_tests = b.addTest("src/main.zig");
     exe_tests.setBuildMode(mode);
 
-    const test_step = b.step("test", "Run exe tests");
+    const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&exe_tests.step);
 }
