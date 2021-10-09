@@ -2686,6 +2686,7 @@ pub const Inst = struct {
     /// 9. fields: { // for every fields_len
     ///        field_name: u32, // null terminated string index
     ///        field_type: Ref, // if corresponding bit is set
+    ///        - if none, means `anytype`.
     ///        align: Ref, // if corresponding bit is set
     ///        tag_value: Ref, // if corresponding bit is set
     ///    }
