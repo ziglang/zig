@@ -194,11 +194,14 @@ pub const Manifest = struct {
     /// of the files listed in the manifest.
     failed_file_index: ?usize = null,
 
+    /// most recent problematic timestamp
+    recent_problematic_timestamp: u96,
+
     /// Add a file as a dependency of process being cached. When `hit` is
     /// called, the file's contents will be checked to ensure that it matches
     /// the contents from previous times.
     ///
-    /// Max file size will be used to determine the amount of space to the file contents
+    /// Max file size will be used to determine the amount of space the file contents
     /// are allowed to take up in memory. If max_file_size is null, then the contents
     /// will not be loaded into memory.
     ///
@@ -377,13 +380,13 @@ pub const Manifest = struct {
             var iter = mem.tokenize(u8, line, " ");
             const size = iter.next() orelse return error.InvalidFormat;
             const inode = iter.next() orelse return error.InvalidFormat;
-            const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;
+            const mtime_str = iter.next() orelse return error.InvalidFormat;
             const digest_str = iter.next() orelse return error.InvalidFormat;
             const file_path = iter.rest();
 
-            cache_hash_file.stat.size = fmt.parseInt(u64, size, 10) catch return error.InvalidFormat;
-            cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, inode, 10) catch return error.InvalidFormat;
-            cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
+            cache_hash_file.stat.size = fmt.parseInt(u64, size, 16) catch return error.InvalidFormat;
+            cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, inode, 16) catch return error.InvalidFormat;
+            cache_hash_file.stat.mtime = fmt.parseInt(u64, mtime_str, 16) catch return error.InvalidFormat;
             _ = std.fmt.hexToBytes(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
 
             if (file_path.len == 0) {
@@ -421,7 +424,8 @@ pub const Manifest = struct {
 
                 cache_hash_file.stat = actual_stat;
 
-                if (isProblematicTimestamp(cache_hash_file.stat.mtime)) {
+                if (self.isProblematicTimestamp(cache_hash_file.stat.mtime)) {
+                    // The actual file has an unreliable timestamp, force it to be hashed
                     cache_hash_file.stat.mtime = 0;
                     cache_hash_file.stat.inode = 0;
                 }
@@ -491,7 +495,8 @@ pub const Manifest = struct {
 
         ch_file.stat = try file.stat();
 
-        if (isProblematicTimestamp(ch_file.stat.mtime)) {
+        if (self.isProblematicTimestamp(ch_file.stat.mtime)) {
+            // The actual file has an unreliable timestamp, force it to be hashed
             ch_file.stat.mtime = 0;
             ch_file.stat.inode = 0;
         }
@@ -526,7 +531,7 @@ pub const Manifest = struct {
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
-    /// calculated. This is useful for processes that don't know the all the files that
+    /// calculated. This is useful for processes that don't know all the files that
     /// are depended on ahead of time. For example, a source file that can import other files
     /// will need to be recompiled if the imported file is changed.
     pub fn addFilePostFetch(self: *Manifest, file_path: []const u8, max_file_size: usize) ![]const u8 {
@@ -685,6 +690,23 @@ pub const Manifest = struct {
         self.have_exclusive_lock = true;
     }
 
+    // Create/Write a file, close it, then grab its stat.mtime timestamp. 
+    fn isProblematicTimestamp(self: *Manifest, file_time: u96) !bool {
+        if (file_time < self.recent_problematic_timestamp)
+            return false;
+
+        var timestamp_file = try self.cache.manifest_dir.createFile("filetimestamp.tmp", .{
+            .read = true,
+            .truncate = false,
+        });
+        defer timestamp_file.close();
+        try timestamp_file.setEndPos(0);
+        
+        self.recent_problematic_timestamp = (try timestamp_file.stat()).mtime;
+        
+        return (file_time >= self.recent_problematic_timestamp);
+    }
+
     /// Obtain only the data needed to maintain a lock on the manifest file.
     /// The `Manifest` remains safe to deinit.
     /// Don't forget to call `writeManifest` before this!
@@ -747,35 +769,14 @@ fn hashFile(file: fs.File, bin_digest: *[Hasher.mac_length]u8) !void {
     hasher.final(bin_digest);
 }
 
-/// If the wall clock time, rounded to the same precision as the
-/// mtime, is equal to the mtime, then we cannot rely on this mtime
-/// yet. We will instead save an mtime value that indicates the hash
-/// must be unconditionally computed.
-/// This function recognizes the precision of mtime by looking at trailing
-/// zero bits of the seconds and nanoseconds.
-fn isProblematicTimestamp(fs_clock: i128) bool {
-    const wall_clock = std.time.nanoTimestamp();
-
-    // We have to break the nanoseconds into seconds and remainder nanoseconds
-    // to detect precision of seconds, because looking at the zero bits in base
-    // 2 would not detect precision of the seconds value.
-    const fs_sec = @intCast(i64, @divFloor(fs_clock, std.time.ns_per_s));
-    const fs_nsec = @intCast(i64, @mod(fs_clock, std.time.ns_per_s));
-    var wall_sec = @intCast(i64, @divFloor(wall_clock, std.time.ns_per_s));
-    var wall_nsec = @intCast(i64, @mod(wall_clock, std.time.ns_per_s));
-
-    // First make all the least significant zero bits in the fs_clock, also zero bits in the wall clock.
-    if (fs_nsec == 0) {
-        wall_nsec = 0;
-        if (fs_sec == 0) {
-            wall_sec = 0;
-        } else {
-            wall_sec &= @as(i64, -1) << @intCast(u6, @ctz(i64, fs_sec));
-        }
-    } else {
-        wall_nsec &= @as(i64, -1) << @intCast(u6, @ctz(i64, fs_nsec));
-    }
-    return wall_nsec == fs_nsec and wall_sec == fs_sec;
+// Create/Write a file, close it, then grab its stat.mtime timestamp. 
+fn testGetCurrentFileTimestamp() !u96 {
+    var timestamp_file = try fs.cwd().createFile("filetimestamp.tmp", .{ .truncate = true, });
+    timestamp_file.close();
+    
+    timestamp_file = try fs.cwd().openFile("filetimestamp.tmp", .{});
+    defer timestamp_file.close();
+    return (try timestamp_file.stat()).mtime;
 }
 
 test "cache file and then recall it" {
@@ -789,10 +790,11 @@ test "cache file and then recall it" {
     const temp_file = "test.txt";
     const temp_manifest_dir = "temp_manifest_dir";
 
-    const ts = std.time.nanoTimestamp();
     try cwd.writeFile(temp_file, "Hello, world!\n");
 
-    while (isProblematicTimestamp(ts)) {
+    // Wait for file timestamps to tick
+    const initial_time = testGetCurrentFileTimestamp();
+    while (testGetCurrentFileTimestamp() == initial_time) {
         std.time.sleep(1);
     }
 
@@ -844,18 +846,6 @@ test "cache file and then recall it" {
     try cwd.deleteFile(temp_file);
 }
 
-test "give problematic timestamp" {
-    var fs_clock = std.time.nanoTimestamp();
-    // to make it problematic, we make it only accurate to the second
-    fs_clock = @divTrunc(fs_clock, std.time.ns_per_s);
-    fs_clock *= std.time.ns_per_s;
-    try testing.expect(isProblematicTimestamp(fs_clock));
-}
-
-test "give nonproblematic timestamp" {
-    try testing.expect(!isProblematicTimestamp(std.time.nanoTimestamp() - std.time.ns_per_s));
-}
-
 test "check that changing a file makes cache fail" {
     if (builtin.os.tag == .wasi) {
         // https://github.com/ziglang/zig/issues/5437
@@ -871,10 +861,11 @@ test "check that changing a file makes cache fail" {
     try cwd.deleteTree(temp_manifest_dir);
     try cwd.deleteTree(temp_file);
 
-    const ts = std.time.nanoTimestamp();
     try cwd.writeFile(temp_file, original_temp_file_contents);
 
-    while (isProblematicTimestamp(ts)) {
+    // Wait for file timestamps to tick
+    const initial_time = testGetCurrentFileTimestamp();
+    while (testGetCurrentFileTimestamp() == initial_time) {
         std.time.sleep(1);
     }
 
@@ -988,11 +979,12 @@ test "Manifest with files added after initial hash work" {
     const temp_file2 = "cache_hash_post_file_test2.txt";
     const temp_manifest_dir = "cache_hash_post_file_manifest_dir";
 
-    const ts1 = std.time.nanoTimestamp();
     try cwd.writeFile(temp_file1, "Hello, world!\n");
     try cwd.writeFile(temp_file2, "Hello world the second!\n");
 
-    while (isProblematicTimestamp(ts1)) {
+    // Wait for file timestamps to tick
+    const initial_time = testGetCurrentFileTimestamp();
+    while (testGetCurrentFileTimestamp() == initial_time) {
         std.time.sleep(1);
     }
 
@@ -1037,10 +1029,11 @@ test "Manifest with files added after initial hash work" {
         try testing.expect(mem.eql(u8, &digest1, &digest2));
 
         // Modify the file added after initial hash
-        const ts2 = std.time.nanoTimestamp();
         try cwd.writeFile(temp_file2, "Hello world the second, updated\n");
 
-        while (isProblematicTimestamp(ts2)) {
+        // Wait for file timestamps to tick
+        const initial_time2 = testGetCurrentFileTimestamp();
+        while (testGetCurrentFileTimestamp() == initial_time2) {
             std.time.sleep(1);
         }
 

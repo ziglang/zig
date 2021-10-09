@@ -1748,8 +1748,11 @@ pub fn peb() *PEB {
 
 /// A FILETIME is a 64-bit value that represents the number of 100-nanosecond intervals that have
 /// elapsed since 12:00 A.M. January 1, 1601 in 2018's Coordinated Universal Time (Utc2018).
-/// This returns canonical Zig 'std' Utc2018, specified in 36.28 fixed-point.
-pub fn stdTimeFromFileTime(ft: FILETIME) u64 {
+/// This returns canonical Zig 'std' Utc2018, specified in 36.60 fixed-point.
+/// FILETIME values from prior to 2018 are offset by a slightly fuzzy number of leap seconds:
+/// Use convertUtcFuzzyToUtc2018(stdTimeFromFileTime(ft)))
+/// to make a best-estimate conversion using a compile-time table of past leap seconds.
+pub fn stdTimeFromFileTime(ft: FILETIME) u96 {
     // Fixed-point math. Move to the left for 60 bits of fraction.  
     const ft_68_60 = @as(u128, ft) << 60;
 
@@ -1757,11 +1760,20 @@ pub fn stdTimeFromFileTime(ft: FILETIME) u64 {
     // Fractional part remains in the 60 lowest bits.
     const st_68_60 = ft_68_60 / (std.time.ns_per_s / 100);
 
-    // Truncate to a reasonable range and precision (remove 32 bits on both ends) 
-    return @truncate(u64, st_68_60 >> 32);
+    // Add 50 ns (1/2 of a FILETIME tick unit) to be closer to the real value, this makes it easy to 
+    // convert the number back to a FILETIME (or nanoseconds) and get the expected value after
+    // simple truncation rounding.
+    const fifty_ns = (std.time.one_ns_in_std_time * 50);
+
+    // Truncate to a reasonable range (remove 32 high bits) 
+    return @truncate(u96, st_68_60) + fifty_ns;
 }
 
-pub fn fileTimeFromStdTime(st: u64) FILETIME {
+/// This converts canonical Zig std Utc2018 (specified in 36.60 fixed-point) into a Windows FILETIME.
+/// FILETIME values from prior to 2018 technically need to be offset by a slightly fuzzy number of 
+/// leap seconds: use fileTimeFromStdTime(convertUtc2018ToUtcFuzzy(st)) to make a best-estimate
+/// conversion using a compile-time table of past leap seconds.
+pub fn fileTimeFromStdTime(st: u96) FILETIME {
     const ft_68_60 = @as(u128, st) * (std.time.ns_per_s / 100);
 
     // Fixed-point math. Move to the right to remove 60 bits of fraction.  

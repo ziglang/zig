@@ -285,12 +285,12 @@ pub const File = struct {
         mode: Mode,
         kind: Kind,
 
-        /// Access time in Zig std Utc2018.
-        atime: u64,
-        /// Last modification time in Zig std Utc2018.
-        mtime: u64,
-        /// Creation time in Zig std Utc2018.
-        ctime: u64,
+        /// Access time in Zig std Utc2018 (see std.time.timestampNow())
+        atime: u96,
+        /// Last modification time in Zig std Utc2018 (see std.time.timestampNow())
+        mtime: u96,
+        /// Creation time in Zig std Utc2018 (see std.time.timestampNow())
+        ctime: u96,
     };
 
     pub const StatError = os.FStatError;
@@ -372,10 +372,10 @@ pub const File = struct {
     /// TODO: integrate with async I/O
     pub fn updateTimes(
         self: File,
-        /// access timestamp in Zig std Utc2018
-        atime: u64,
-        /// last modification timestamp in Zig std Utc2018
-        mtime: u64,
+        /// access timestamp in Zig std Utc2018 (see std.time.timestampNow())
+        atime: u96,
+        /// last modification timestamp in Zig std Utc2018 (see std.time.timestampNow())
+        mtime: u96,
     ) UpdateTimesError!void {
         if (builtin.os.tag == .windows) {
             const atime_ft = windows.fileTimeFromStdTime(atime);
@@ -383,14 +383,8 @@ pub const File = struct {
             return windows.SetFileTime(self.handle, null, &atime_ft, &mtime_ft);
         }
         const times = [2]os.timespec{
-            os.timespec{
-                .tv_sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) catch maxInt(isize),
-                .tv_nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) catch maxInt(isize),
-            },
-            os.timespec{
-                .tv_sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) catch maxInt(isize),
-                .tv_nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) catch maxInt(isize),
-            },
+            time.posixTimeFromStdTime(atime),
+            time.posixTimeFromStdTime(mtime),
         };
         try os.futimens(self.handle, &times);
     }

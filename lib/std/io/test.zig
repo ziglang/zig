@@ -170,8 +170,8 @@ test "updateTimes" {
     var stat_old = try file.stat();
     // Set atime and mtime to 5s before
     try file.updateTimes(
-        stat_old.atime - 5 * std.time.ns_per_s,
-        stat_old.mtime - 5 * std.time.ns_per_s,
+        stat_old.atime - std.time.stdTimeFromSeconds(5),
+        stat_old.mtime - std.time.stdTimeFromSeconds(5),
     );
     var stat_new = try file.stat();
     try expect(stat_new.atime < stat_old.atime);

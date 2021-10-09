@@ -1580,12 +1580,12 @@ test "timeout (after a relative time)" {
     const margin = 5;
     const ts = os.linux.kernel_timespec{ .tv_sec = 0, .tv_nsec = ms * 1000000 };
 
-    const started = std.time.milliTimestamp();
+    const started = std.time.milliMonotonic();
     const sqe = try ring.timeout(0x55555555, &ts, 0, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe.opcode);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     const cqe = try ring.copy_cqe();
-    const stopped = std.time.milliTimestamp();
+    const stopped = std.time.milliMonotonic();
 
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x55555555,

@@ -594,7 +594,7 @@ pub fn parseDebugInfo(self: *Object, allocator: *Allocator) !void {
     if (self.mtime == null) {
         self.mtime = mtime: {
             const stat = self.file.stat() catch break :mtime 0;
-            break :mtime @intCast(u64, @divFloor(stat.mtime, 1_000_000_000));
+            break :mtime std.time.secondsPartOfStdTime(stat.mtime);
         };
     }
 }
