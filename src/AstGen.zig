@@ -4155,6 +4155,8 @@ fn unionDeclInner(
             else
                 try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
             fields_data.appendAssumeCapacity(@enumToInt(field_type));
+        } else if (arg_inst == .none and !have_auto_enum) {
+            return astgen.failNode(member_node, "union field missing type", .{});
         }
         if (have_align) {
             const align_inst = try expr(&block_scope, &block_scope.base, .{ .ty = .u32_type }, member.ast.align_expr);
@@ -4165,6 +4167,20 @@ fn unionDeclInner(
                 return astgen.failNodeNotes(
                     node,
                     "explicitly valued tagged union missing integer tag type",
+                    .{},
+                    &[_]u32{
+                        try astgen.errNoteNode(
+                            member.ast.value_expr,
+                            "tag value specified here",
+                            .{},
+                        ),
+                    },
+                );
+            }
+            if (!have_auto_enum) {
+                return astgen.failNodeNotes(
+                    node,
+                    "explicitly valued tagged union requires inferred enum tag type",
                     .{},
                     &[_]u32{
                         try astgen.errNoteNode(
