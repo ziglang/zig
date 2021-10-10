@@ -103,7 +103,7 @@ pub fn milliMonotonic() u64 {
 /// POSIX: If CLOCK_TAI appears configured, use that. Then use a compile-time constant (always 37)
 /// to convert to Utc2018. However, CLOCK_TAI is often unconfigured (zero or 1 delta from
 /// CLOCK_REALTIME). If unconfigured, (or unavailable), make the assumption that there are no
-/// more UTC leap seconds after 2018.
+/// more UTC leap seconds after 2018. .wasi and darwin do not currently support CLOCK_TAI.
 ///                           !!!WARNING!!! 
 /// If a leap second is announced (WHY?!), the above assumption MUST be revisited.
 /// Non-Windows Zig code deployed into distributed systems that care about accurate 
@@ -148,6 +148,11 @@ const PosixTimestampImpl = struct {
             os.clock_gettime(os.CLOCK.REALTIME, &utc_ts) catch return error.UnsupportedClock;
 
             if (builtin.os.tag == .wasi) {
+                clock_id = os.CLOCK.REALTIME;
+                return;
+            }
+
+            if (comptime builtin.target.isDarwin()) {
                 clock_id = os.CLOCK.REALTIME;
                 return;
             }
@@ -303,6 +308,12 @@ pub fn nsPartOfStdTime(st: u96) u30 {
 
     // Shift out the fractional part.
     return @truncate(u30, ns >> 60);
+}
+
+pub fn reducePrecisionStdTime(st: u96) u64 {
+    // Zig std time in fixed-point 36.60
+    // Shift out 32 bits of fraction
+    return @truncate(u64, st >> 32);
 }
 
 /// This converts a POSIX timespec into canonical Zig 'std' time in Utc2018, specified 

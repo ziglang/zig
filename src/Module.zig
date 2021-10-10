@@ -1224,7 +1224,7 @@ pub const File = struct {
     /// Whether this is populated depends on `status`.
     stat_inode: std.fs.File.INode,
     /// Whether this is populated depends on `status`.
-    stat_mtime: u96,
+    stat_mtime64: u64,
     /// Whether this is populated or not depends on `tree_loaded`.
     tree: Ast,
     /// Whether this is populated or not depends on `zir_loaded`.
@@ -2273,7 +2273,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             };
             const unchanged_metadata =
                 stat.size == header.stat_size and
-                stat.mtime == header.stat_mtime and
+                std.time.reducePrecisionStdTime(stat.mtime) == header.stat_mtime64 and
                 stat.inode == header.stat_inode;
 
             if (!unchanged_metadata) {
@@ -2356,7 +2356,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             file.zir_loaded = true;
             file.stat_size = header.stat_size;
             file.stat_inode = header.stat_inode;
-            file.stat_mtime = header.stat_mtime;
+            file.stat_mtime64 = header.stat_mtime64;
             file.status = .success_zir;
             log.debug("AstGen cached success: {s}", .{file.sub_file_path});
 
@@ -2375,7 +2375,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         .parse_failure, .astgen_failure, .success_zir => {
             const unchanged_metadata =
                 stat.size == file.stat_size and
-                stat.mtime == file.stat_mtime and
+                std.time.reducePrecisionStdTime(stat.mtime) == file.stat_mtime64 and
                 stat.inode == file.stat_inode;
 
             if (unchanged_metadata) {
@@ -2439,7 +2439,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
 
     file.stat_size = stat.size;
     file.stat_inode = stat.inode;
-    file.stat_mtime = stat.mtime;
+    file.stat_mtime64 = std.time.reducePrecisionStdTime(stat.mtime);
     file.source = source;
     file.source_loaded = true;
 
@@ -2517,7 +2517,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
 
         .stat_size = stat.size,
         .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat_mtime64 = std.time.reducePrecisionStdTime(stat.mtime),
     };
     var iovecs = [_]std.os.iovec_const{
         .{
@@ -3247,7 +3247,7 @@ pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
         .zir_loaded = false,
         .stat_size = undefined,
         .stat_inode = undefined,
-        .stat_mtime = undefined,
+        .stat_mtime64 = undefined,
         .tree = undefined,
         .zir = undefined,
         .status = .never_loaded,
@@ -3316,7 +3316,7 @@ pub fn importFile(
         .zir_loaded = false,
         .stat_size = undefined,
         .stat_inode = undefined,
-        .stat_mtime = undefined,
+        .stat_mtime64 = undefined,
         .tree = undefined,
         .zir = undefined,
         .status = .never_loaded,

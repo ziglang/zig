@@ -46,7 +46,7 @@ pub const Header = extern struct {
 
     stat_inode: std.fs.File.INode,
     stat_size: u64,
-    stat_mtime: i128,
+    stat_mtime64: u64,
 };
 
 pub const ExtraIndex = enum(u32) {

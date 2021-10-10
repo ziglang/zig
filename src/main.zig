@@ -3252,7 +3252,7 @@ pub fn cmdFmt(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !voi
                 .source = source_code,
                 .stat_size = undefined,
                 .stat_inode = undefined,
-                .stat_mtime = undefined,
+                .stat_mtime64 = undefined,
                 .tree = tree,
                 .tree_loaded = true,
                 .zir = undefined,
@@ -3448,7 +3448,7 @@ fn fmtPathFile(
             .source = source_code,
             .stat_size = stat.size,
             .stat_inode = stat.inode,
-            .stat_mtime = stat.mtime,
+            .stat_mtime64 = std.time.reducePrecisionStdTime(stat.mtime),
             .tree = tree,
             .tree_loaded = true,
             .zir = undefined,
@@ -4039,7 +4039,7 @@ pub fn cmdAstCheck(
         .source = undefined,
         .stat_size = undefined,
         .stat_inode = undefined,
-        .stat_mtime = undefined,
+        .stat_mtime64 = undefined,
         .tree = undefined,
         .zir = undefined,
         .pkg = undefined,
@@ -4066,7 +4066,7 @@ pub fn cmdAstCheck(
         file.source_loaded = true;
         file.stat_size = stat.size;
         file.stat_inode = stat.inode;
-        file.stat_mtime = stat.mtime;
+        file.stat_mtime64 = std.time.reducePrecisionStdTime(stat.mtime);
     } else {
         const stdin = io.getStdIn();
         const source = readSourceFileToEndAlloc(arena, &stdin, null) catch |err| {
@@ -4190,7 +4190,7 @@ pub fn cmdChangelist(
         .source = undefined,
         .stat_size = stat.size,
         .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat_mtime64 = std.time.reducePrecisionStdTime(stat.mtime),
         .tree = undefined,
         .zir = undefined,
         .pkg = undefined,
