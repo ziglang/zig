@@ -1041,10 +1041,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("zig keywords in C code",
         \\struct comptime {
         \\    int defer;
+        \\    int null;
+        \\    int undefined;
         \\};
     , &[_][]const u8{
         \\pub const struct_comptime = extern struct {
         \\    @"defer": c_int,
+        \\    @"null": c_int,
+        \\    @"undefined": c_int
         \\};
         ,
         \\pub const @"comptime" = struct_comptime;
