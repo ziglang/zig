@@ -6540,7 +6540,7 @@ fn identifier(
     const ident_name = try astgen.identifierTokenString(ident_token);
 
     if (ident_name_raw[0] != '@') {
-        if (simple_types.get(ident_name)) |zir_const_ref| {
+        if (primitives.get(ident_name)) |zir_const_ref| {
             return rvalue(gz, rl, zir_const_ref, ident);
         }
 
@@ -8071,7 +8071,7 @@ fn calleeExpr(
     }
 }
 
-pub const simple_types = std.ComptimeStringMap(Zir.Inst.Ref, .{
+const primitives = std.ComptimeStringMap(Zir.Inst.Ref, .{
     .{ "anyerror", .anyerror_type },
     .{ "anyframe", .anyframe_type },
     .{ "bool", .bool_type },
@@ -10505,8 +10505,8 @@ fn nullTerminatedString(astgen: AstGen, index: usize) [*:0]const u8 {
     return @ptrCast([*:0]const u8, astgen.string_bytes.items.ptr) + index;
 }
 
-fn isPrimitive(name: []const u8) bool {
-    if (simple_types.get(name) != null) return true;
+pub fn isPrimitive(name: []const u8) bool {
+    if (primitives.get(name) != null) return true;
     if (name.len < 2) return false;
     const first_c = name[0];
     if (first_c != 'i' and first_c != 'u') return false;

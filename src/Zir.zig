@@ -1644,7 +1644,7 @@ pub const Inst = struct {
     /// be derived by subtracting `typed_value_map.len`.
     ///
     /// When adding a tag to this enum, consider adding a corresponding entry to
-    /// `simple_types` in astgen.
+    /// `primitives` in astgen.
     ///
     /// The tag type is specified so that it is safe to bitcast between `[]u32`
     /// and `[]Ref`.

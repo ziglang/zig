@@ -804,21 +804,8 @@ const Context = struct {
         return c.addTokenFmt(tag, "{s}", .{bytes});
     }
 
-    fn isZigPrimitiveType(name: []const u8) bool {
-        if (name.len > 1 and (name[0] == 'u' or name[0] == 'i')) {
-            for (name[1..]) |c| {
-                switch (c) {
-                    '0'...'9' => {},
-                    else => return false,
-                }
-            }
-            return true;
-        }
-        return @import("../AstGen.zig").simple_types.has(name);
-    }
-
     fn addIdentifier(c: *Context, bytes: []const u8) Allocator.Error!TokenIndex {
-        if (isZigPrimitiveType(bytes))
+        if (@import("../AstGen.zig").isPrimitive(bytes))
             return c.addTokenFmt(.identifier, "@\"{s}\"", .{bytes});
         return c.addTokenFmt(.identifier, "{s}", .{std.zig.fmtId(bytes)});
     }
