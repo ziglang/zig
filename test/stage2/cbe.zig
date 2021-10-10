@@ -571,6 +571,40 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
+        var case = ctx.exeFromCompiledC("unions", .{});
+
+        case.addError(
+            \\const U = union {
+            \\    a: u32,
+            \\    b
+            \\};
+        , &.{
+            ":3:5: error: union field missing type",
+        });
+
+        case.addError(
+            \\const E = enum { a, b };
+            \\const U = union(E) {
+            \\    a: u32 = 1,
+            \\    b: f32 = 2,
+            \\};
+        , &.{
+            ":2:11: error: explicitly valued tagged union requires inferred enum tag type",
+            ":3:14: note: tag value specified here",
+        });
+
+        case.addError(
+            \\const U = union(enum) {
+            \\    a: u32 = 1,
+            \\    b: f32 = 2,
+            \\};
+        , &.{
+            ":1:11: error: explicitly valued tagged union missing integer tag type",
+            ":2:14: note: tag value specified here",
+        });
+    }
+
+    {
         var case = ctx.exeFromCompiledC("enums", .{});
 
         case.addError(

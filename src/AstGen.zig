@@ -4134,7 +4134,7 @@ fn unionDeclInner(
         if (member.comptime_token) |comptime_token| {
             return astgen.failTok(comptime_token, "union fields cannot be marked comptime", .{});
         }
-        try fields_data.ensureUnusedCapacity(gpa, if (node_tags[member.ast.type_expr] != .@"anytype") 4 else 3);
+        try fields_data.ensureUnusedCapacity(gpa, 4);
 
         const field_name = try astgen.identAsString(member.ast.name_token);
         fields_data.appendAssumeCapacity(field_name);
@@ -4149,9 +4149,14 @@ fn unionDeclInner(
             (@as(u32, @boolToInt(have_value)) << 30) |
             (@as(u32, @boolToInt(unused)) << 31);
 
-        if (have_type and node_tags[member.ast.type_expr] != .@"anytype") {
-            const field_type = try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
+        if (have_type) {
+            const field_type: Zir.Inst.Ref = if (node_tags[member.ast.type_expr] == .@"anytype")
+                .none
+            else
+                try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
             fields_data.appendAssumeCapacity(@enumToInt(field_type));
+        } else if (arg_inst == .none and !have_auto_enum) {
+            return astgen.failNode(member_node, "union field missing type", .{});
         }
         if (have_align) {
             const align_inst = try expr(&block_scope, &block_scope.base, .{ .ty = .u32_type }, member.ast.align_expr);
@@ -4162,6 +4167,20 @@ fn unionDeclInner(
                 return astgen.failNodeNotes(
                     node,
                     "explicitly valued tagged union missing integer tag type",
+                    .{},
+                    &[_]u32{
+                        try astgen.errNoteNode(
+                            member.ast.value_expr,
+                            "tag value specified here",
+                            .{},
+                        ),
+                    },
+                );
+            }
+            if (!have_auto_enum) {
+                return astgen.failNodeNotes(
+                    node,
+                    "explicitly valued tagged union requires inferred enum tag type",
                     .{},
                     &[_]u32{
                         try astgen.errNoteNode(
