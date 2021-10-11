@@ -855,6 +855,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .shr      => try self.airShr(inst),
 
                     .alloc           => try self.airAlloc(inst),
+                    .ret_ptr         => try self.airRetPtr(inst),
                     .arg             => try self.airArg(inst),
                     .assembly        => try self.airAsm(inst),
                     .bitcast         => try self.airBitCast(inst),
@@ -883,6 +884,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .not             => try self.airNot(inst),
                     .ptrtoint        => try self.airPtrToInt(inst),
                     .ret             => try self.airRet(inst),
+                    .ret_load        => try self.airRetLoad(inst),
                     .store           => try self.airStore(inst),
                     .struct_field_ptr=> try self.airStructFieldPtr(inst),
                     .struct_field_val=> try self.airStructFieldVal(inst),
@@ -914,6 +916,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .slice_ptr       => try self.airSlicePtr(inst),
                     .slice_len       => try self.airSliceLen(inst),
 
+                    .array_elem_val      => try self.airArrayElemVal(inst),
                     .slice_elem_val      => try self.airSliceElemVal(inst),
                     .ptr_slice_elem_val  => try self.airPtrSliceElemVal(inst),
                     .ptr_elem_val        => try self.airPtrElemVal(inst),
@@ -1181,6 +1184,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
+            const stack_offset = try self.allocMemPtr(inst);
+            return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
+        }
+
+        fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
             const stack_offset = try self.allocMemPtr(inst);
             return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
         }
@@ -1553,6 +1561,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
             const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement slice_elem_val for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
+            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement array_elem_val for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
@@ -3211,6 +3227,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const operand = try self.resolveInst(un_op);
             try self.ret(operand);
             return self.finishAir(inst, .dead, .{ un_op, .none, .none });
+        }
+
+        fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
+            const un_op = self.air.instructions.items(.data)[inst].un_op;
+            const ptr = try self.resolveInst(un_op);
+            _ = ptr;
+            return self.fail("TODO implement airRetLoad for {}", .{self.target.cpu.arch});
+            //return self.finishAir(inst, .dead, .{ un_op, .none, .none });
         }
 
         fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {

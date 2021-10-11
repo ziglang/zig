@@ -72,9 +72,6 @@ const EmptyStruct = struct {
     }
 };
 
-test "return empty struct from fn" {
-    _ = testReturnEmptyStructFromFn();
-}
 const EmptyStruct2 = struct {};
 fn testReturnEmptyStructFromFn() EmptyStruct2 {
     return EmptyStruct2{};

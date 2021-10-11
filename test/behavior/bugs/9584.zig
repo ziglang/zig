@@ -57,4 +57,5 @@ test "bug 9584" {
         .x = flags,
     };
     try b(&x);
+    comptime if (@sizeOf(A) != 1) unreachable;
 }

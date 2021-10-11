@@ -15,7 +15,6 @@ test {
     _ = @import("behavior/bugs/4769_a.zig");
     _ = @import("behavior/bugs/4769_b.zig");
     _ = @import("behavior/bugs/6850.zig");
-    _ = @import("behavior/bugs/9584.zig");
     _ = @import("behavior/call.zig");
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/defer.zig");
@@ -104,6 +103,7 @@ test {
         _ = @import("behavior/bugs/7047.zig");
         _ = @import("behavior/bugs/7003.zig");
         _ = @import("behavior/bugs/7250.zig");
+        _ = @import("behavior/bugs/9584.zig");
         _ = @import("behavior/byteswap.zig");
         _ = @import("behavior/byval_arg_var.zig");
         _ = @import("behavior/call_stage1.zig");

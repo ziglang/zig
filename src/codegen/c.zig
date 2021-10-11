@@ -384,12 +384,6 @@ pub const DeclGen = struct {
                 }
             },
             .Fn => switch (val.tag()) {
-                .null_value, .zero => try writer.writeAll("NULL"),
-                .one => try writer.writeAll("1"),
-                .decl_ref => {
-                    const decl = val.castTag(.decl_ref).?.data;
-                    return dg.renderDeclValue(writer, ty, val, decl);
-                },
                 .function => {
                     const decl = val.castTag(.function).?.data.owner_decl;
                     return dg.renderDeclValue(writer, ty, val, decl);
@@ -1026,6 +1020,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .is_non_null_ptr => try airIsNull(f, inst, "!=", "[0]"),
 
             .alloc            => try airAlloc(f, inst),
+            .ret_ptr          => try airRetPtr(f, inst),
             .assembly         => try airAsm(f, inst),
             .block            => try airBlock(f, inst),
             .bitcast          => try airBitcast(f, inst),
@@ -1036,6 +1031,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .bool_to_int      => try airBoolToInt(f, inst),
             .load             => try airLoad(f, inst),
             .ret              => try airRet(f, inst),
+            .ret_load         => try airRetLoad(f, inst),
             .store            => try airStore(f, inst),
             .loop             => try airLoop(f, inst),
             .cond_br          => try airCondBr(f, inst),
@@ -1081,6 +1077,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .ptr_elem_ptr       => try airPtrElemPtr(f, inst),
             .slice_elem_val     => try airSliceElemVal(f, inst, "["),
             .ptr_slice_elem_val => try airSliceElemVal(f, inst, "[0]["),
+            .array_elem_val     => try airArrayElemVal(f, inst),
 
             .unwrap_errunion_payload     => try airUnwrapErrUnionPay(f, inst),
             .unwrap_errunion_err         => try airUnwrapErrUnionErr(f, inst),
@@ -1148,6 +1145,22 @@ fn airSliceElemVal(f: *Function, inst: Air.Inst.Index, prefix: []const u8) !CVal
     return local;
 }
 
+fn airArrayElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const array = try f.resolveInst(bin_op.lhs);
+    const index = try f.resolveInst(bin_op.rhs);
+    const writer = f.object.writer();
+    const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
+    try writer.writeAll(" = ");
+    try f.writeCValue(writer, array);
+    try writer.writeAll("[");
+    try f.writeCValue(writer, index);
+    try writer.writeAll("];\n");
+    return local;
+}
+
 fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
     const inst_ty = f.air.typeOfIndex(inst);
@@ -1156,6 +1169,18 @@ fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
     const elem_type = inst_ty.elemType();
     const mutability: Mutability = if (inst_ty.isConstPtr()) .Const else .Mut;
     const local = try f.allocLocal(elem_type, mutability);
+    try writer.writeAll(";\n");
+
+    return CValue{ .local_ref = local.local };
+}
+
+fn airRetPtr(f: *Function, inst: Air.Inst.Index) !CValue {
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+
+    // First line: the variable used as data storage.
+    const elem_type = inst_ty.elemType();
+    const local = try f.allocLocal(elem_type, .Mut);
     try writer.writeAll(";\n");
 
     return CValue{ .local_ref = local.local };
@@ -1209,6 +1234,21 @@ fn airRet(f: *Function, inst: Air.Inst.Index) !CValue {
     } else {
         try writer.writeAll("return;\n");
     }
+    return CValue.none;
+}
+
+fn airRetLoad(f: *Function, inst: Air.Inst.Index) !CValue {
+    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const writer = f.object.writer();
+    const ptr_ty = f.air.typeOf(un_op);
+    const ret_ty = ptr_ty.childType();
+    if (!ret_ty.hasCodeGenBits()) {
+        try writer.writeAll("return;\n");
+    }
+    const ptr = try f.resolveInst(un_op);
+    try writer.writeAll("return *");
+    try f.writeCValue(writer, ptr);
+    try writer.writeAll(";\n");
     return CValue.none;
 }
 
@@ -1559,7 +1599,12 @@ fn airCall(f: *Function, inst: Air.Inst.Index) !CValue {
     const pl_op = f.air.instructions.items(.data)[inst].pl_op;
     const extra = f.air.extraData(Air.Call, pl_op.payload);
     const args = @bitCast([]const Air.Inst.Ref, f.air.extra[extra.end..][0..extra.data.args_len]);
-    const fn_ty = f.air.typeOf(pl_op.operand);
+    const callee_ty = f.air.typeOf(pl_op.operand);
+    const fn_ty = switch (callee_ty.zigTypeTag()) {
+        .Fn => callee_ty,
+        .Pointer => callee_ty.childType(),
+        else => unreachable,
+    };
     const ret_ty = fn_ty.fnReturnType();
     const unused_result = f.liveness.isUnused(inst);
     const writer = f.object.writer();
@@ -1574,16 +1619,21 @@ fn airCall(f: *Function, inst: Air.Inst.Index) !CValue {
         try writer.writeAll(" = ");
     }
 
-    if (f.air.value(pl_op.operand)) |func_val| {
-        const fn_decl = if (func_val.castTag(.extern_fn)) |extern_fn|
-            extern_fn.data
-        else if (func_val.castTag(.function)) |func_payload|
-            func_payload.data.owner_decl
-        else
-            unreachable;
-
-        try f.object.dg.renderDeclName(fn_decl, writer);
-    } else {
+    callee: {
+        known: {
+            const fn_decl = fn_decl: {
+                const callee_val = f.air.value(pl_op.operand) orelse break :known;
+                break :fn_decl switch (callee_val.tag()) {
+                    .extern_fn => callee_val.castTag(.extern_fn).?.data,
+                    .function => callee_val.castTag(.function).?.data.owner_decl,
+                    .decl_ref => callee_val.castTag(.decl_ref).?.data,
+                    else => break :known,
+                };
+            };
+            try f.object.dg.renderDeclName(fn_decl, writer);
+            break :callee;
+        }
+        // Fall back to function pointer call.
         const callee = try f.resolveInst(pl_op.operand);
         try f.writeCValue(writer, callee);
     }

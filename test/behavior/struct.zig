@@ -144,3 +144,11 @@ fn makeBar2(x: i32, y: i32) Bar {
         .y = y,
     };
 }
+
+test "return empty struct from fn" {
+    _ = testReturnEmptyStructFromFn();
+}
+const EmptyStruct2 = struct {};
+fn testReturnEmptyStructFromFn() EmptyStruct2 {
+    return EmptyStruct2{};
+}

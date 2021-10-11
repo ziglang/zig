@@ -163,6 +163,18 @@ pub const Value = opaque {
 
     pub const deleteFunction = LLVMDeleteFunction;
     extern fn LLVMDeleteFunction(Fn: *const Value) void;
+
+    pub const addSretAttr = ZigLLVMAddSretAttr;
+    extern fn ZigLLVMAddSretAttr(fn_ref: *const Value, ArgNo: c_uint, type_val: *const Type) void;
+
+    pub const setCallSret = ZigLLVMSetCallSret;
+    extern fn ZigLLVMSetCallSret(Call: *const Value, return_type: *const Type) void;
+
+    pub const getParam = LLVMGetParam;
+    extern fn LLVMGetParam(Fn: *const Value, Index: c_uint) *const Value;
+
+    pub const setInitializer = LLVMSetInitializer;
+    extern fn LLVMSetInitializer(GlobalVar: *const Value, ConstantVal: *const Value) void;
 };
 
 pub const Type = opaque {
@@ -291,12 +303,6 @@ pub const VerifierFailureAction = enum(c_int) {
 
 pub const constNeg = LLVMConstNeg;
 extern fn LLVMConstNeg(ConstantVal: *const Value) *const Value;
-
-pub const setInitializer = LLVMSetInitializer;
-extern fn LLVMSetInitializer(GlobalVar: *const Value, ConstantVal: *const Value) void;
-
-pub const getParam = LLVMGetParam;
-extern fn LLVMGetParam(Fn: *const Value, Index: c_uint) *const Value;
 
 pub const getEnumAttributeKindForName = LLVMGetEnumAttributeKindForName;
 extern fn LLVMGetEnumAttributeKindForName(Name: [*]const u8, SLen: usize) c_uint;

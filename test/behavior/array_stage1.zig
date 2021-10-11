@@ -39,17 +39,6 @@ test "void arrays" {
     try expect(array.len == 4);
 }
 
-test "array dot len const expr" {
-    try expect(comptime x: {
-        break :x some_array.len == 4;
-    });
-}
-
-const ArrayDotLenConstExpr = struct {
-    y: [some_array.len]u8,
-};
-const some_array = [_]u8{ 0, 1, 2, 3 };
-
 test "nested arrays" {
     const array_of_strings = [_][]const u8{ "hello", "this", "is", "my", "thing" };
     for (array_of_strings) |s, i| {
@@ -74,24 +63,6 @@ test "set global var array via slice embedded in struct" {
     try expect(s_array[0].b == 1);
     try expect(s_array[1].b == 2);
     try expect(s_array[2].b == 3);
-}
-
-test "array literal with specified size" {
-    var array = [2]u8{
-        1,
-        2,
-    };
-    try expect(array[0] == 1);
-    try expect(array[1] == 2);
-}
-
-test "array len field" {
-    var arr = [4]u8{ 0, 0, 0, 0 };
-    var ptr = &arr;
-    try expect(arr.len == 4);
-    comptime try expect(arr.len == 4);
-    try expect(ptr.len == 4);
-    comptime try expect(ptr.len == 4);
 }
 
 test "single-item pointer to array indexing and slicing" {

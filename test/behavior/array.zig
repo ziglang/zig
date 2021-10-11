@@ -50,3 +50,29 @@ test "array literal with inferred length" {
     try expect(hex_mult.len == 4);
     try expect(hex_mult[1] == 256);
 }
+
+test "array dot len const expr" {
+    try expect(comptime x: {
+        break :x some_array.len == 4;
+    });
+}
+
+const ArrayDotLenConstExpr = struct {
+    y: [some_array.len]u8,
+};
+const some_array = [_]u8{ 0, 1, 2, 3 };
+
+test "array literal with specified size" {
+    var array = [2]u8{ 1, 2 };
+    try expect(array[0] == 1);
+    try expect(array[1] == 2);
+}
+
+test "array len field" {
+    var arr = [4]u8{ 0, 0, 0, 0 };
+    var ptr = &arr;
+    try expect(arr.len == 4);
+    comptime try expect(arr.len == 4);
+    try expect(ptr.len == 4);
+    comptime try expect(ptr.len == 4);
+}

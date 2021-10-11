@@ -785,7 +785,7 @@ pub const Struct = struct {
     /// The Decl that corresponds to the struct itself.
     owner_decl: *Decl,
     /// Set of field names in declaration order.
-    fields: std.StringArrayHashMapUnmanaged(Field),
+    fields: Fields,
     /// Represents the declarations inside this struct.
     namespace: Namespace,
     /// Offset from `owner_decl`, points to the struct AST node.
@@ -804,6 +804,8 @@ pub const Struct = struct {
     /// If true, definitely nonzero size at runtime. If false, resolving the fields
     /// is necessary to determine whether it has bits at runtime.
     known_has_bits: bool,
+
+    pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
     /// The `Type` and `Value` memory is owned by the arena of the Struct's owner_decl.
     pub const Field = struct {
@@ -935,7 +937,7 @@ pub const Union = struct {
     /// This will be set to the null type until status is `have_field_types`.
     tag_ty: Type,
     /// Set of field names in declaration order.
-    fields: std.StringArrayHashMapUnmanaged(Field),
+    fields: Fields,
     /// Represents the declarations inside this union.
     namespace: Namespace,
     /// Offset from `owner_decl`, points to the union decl AST node.
@@ -957,6 +959,8 @@ pub const Union = struct {
         ty: Type,
         abi_align: Value,
     };
+
+    pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
     pub fn getFullyQualifiedName(s: *Union, gpa: *Allocator) ![]u8 {
         return s.owner_decl.getFullyQualifiedName(gpa);
@@ -992,20 +996,87 @@ pub const Union = struct {
 
     pub fn mostAlignedField(u: Union, target: Target) u32 {
         assert(u.haveFieldTypes());
-        var most_alignment: u64 = 0;
+        var most_alignment: u32 = 0;
         var most_index: usize = undefined;
         for (u.fields.values()) |field, i| {
             if (!field.ty.hasCodeGenBits()) continue;
-            const field_align = if (field.abi_align.tag() == .abi_align_default)
-                field.ty.abiAlignment(target)
-            else
-                field.abi_align.toUnsignedInt();
+
+            const field_align = a: {
+                if (field.abi_align.tag() == .abi_align_default) {
+                    break :a field.ty.abiAlignment(target);
+                } else {
+                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                }
+            };
             if (field_align > most_alignment) {
                 most_alignment = field_align;
                 most_index = i;
             }
         }
         return @intCast(u32, most_index);
+    }
+
+    pub fn abiAlignment(u: Union, target: Target, have_tag: bool) u32 {
+        var max_align: u32 = 0;
+        if (have_tag) max_align = u.tag_ty.abiAlignment(target);
+        for (u.fields.values()) |field| {
+            if (!field.ty.hasCodeGenBits()) continue;
+
+            const field_align = a: {
+                if (field.abi_align.tag() == .abi_align_default) {
+                    break :a field.ty.abiAlignment(target);
+                } else {
+                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                }
+            };
+            max_align = @maximum(max_align, field_align);
+        }
+        assert(max_align != 0);
+        return max_align;
+    }
+
+    pub fn abiSize(u: Union, target: Target, have_tag: bool) u64 {
+        assert(u.haveFieldTypes());
+        const is_packed = u.layout == .Packed;
+        if (is_packed) @panic("TODO packed unions");
+
+        var payload_size: u64 = 0;
+        var payload_align: u32 = 0;
+        for (u.fields.values()) |field| {
+            if (!field.ty.hasCodeGenBits()) continue;
+
+            const field_align = a: {
+                if (field.abi_align.tag() == .abi_align_default) {
+                    break :a field.ty.abiAlignment(target);
+                } else {
+                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                }
+            };
+            payload_size = @maximum(payload_size, field.ty.abiSize(target));
+            payload_align = @maximum(payload_align, field_align);
+        }
+        if (!have_tag) {
+            return std.mem.alignForwardGeneric(u64, payload_size, payload_align);
+        }
+        // Put the tag before or after the payload depending on which one's
+        // alignment is greater.
+        const tag_size = u.tag_ty.abiSize(target);
+        const tag_align = u.tag_ty.abiAlignment(target);
+        var size: u64 = 0;
+        if (tag_align >= payload_align) {
+            // {Tag, Payload}
+            size += tag_size;
+            size = std.mem.alignForwardGeneric(u64, size, payload_align);
+            size += payload_size;
+            size = std.mem.alignForwardGeneric(u64, size, tag_align);
+        } else {
+            // {Payload, Tag}
+            size += payload_size;
+            size = std.mem.alignForwardGeneric(u64, size, tag_align);
+            size += tag_size;
+            size = std.mem.alignForwardGeneric(u64, size, payload_align);
+        }
+        return size;
     }
 };
 

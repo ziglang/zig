@@ -128,6 +128,7 @@ const Writer = struct {
             .bool_and,
             .bool_or,
             .store,
+            .array_elem_val,
             .slice_elem_val,
             .ptr_slice_elem_val,
             .ptr_elem_val,
@@ -150,6 +151,7 @@ const Writer = struct {
             .ptrtoint,
             .bool_to_int,
             .ret,
+            .ret_load,
             => try w.writeUnOp(s, inst),
 
             .breakpoint,
@@ -158,6 +160,7 @@ const Writer = struct {
 
             .const_ty,
             .alloc,
+            .ret_ptr,
             => try w.writeTy(s, inst),
 
             .not,

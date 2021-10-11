@@ -250,6 +250,7 @@ fn analyzeInst(
         .bool_and,
         .bool_or,
         .store,
+        .array_elem_val,
         .slice_elem_val,
         .ptr_slice_elem_val,
         .ptr_elem_val,
@@ -270,6 +271,7 @@ fn analyzeInst(
 
         .arg,
         .alloc,
+        .ret_ptr,
         .constant,
         .const_ty,
         .breakpoint,
@@ -322,6 +324,7 @@ fn analyzeInst(
         .ptrtoint,
         .bool_to_int,
         .ret,
+        .ret_load,
         => {
             const operand = inst_datas[inst].un_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ operand, .none, .none });

@@ -110,6 +110,10 @@ pub const Inst = struct {
         /// Allocates stack local memory.
         /// Uses the `ty` field.
         alloc,
+        /// If the function will pass the result by-ref, this instruction returns the
+        /// result pointer. Otherwise it is equivalent to `alloc`.
+        /// Uses the `ty` field.
+        ret_ptr,
         /// Inline assembly. Uses the `ty_pl` field. Payload is `Asm`.
         assembly,
         /// Bitwise AND. `&`.
@@ -160,6 +164,7 @@ pub const Inst = struct {
         /// Function call.
         /// Result type is the return type of the function being called.
         /// Uses the `pl_op` field with the `Call` payload. operand is the callee.
+        /// Triggers `resolveTypeLayout` on the return type of the callee.
         call,
         /// Count leading zeroes of an integer according to its representation in twos complement.
         /// Result type will always be an unsigned integer big enough to fit the answer.
@@ -257,7 +262,16 @@ pub const Inst = struct {
         /// Return a value from a function.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `un_op` field.
+        /// Triggers `resolveTypeLayout` on the return type.
         ret,
+        /// This instruction communicates that the function's result value is inside
+        /// the operand, which is a pointer. If the function will pass the result by-ref,
+        /// the pointer operand is a `ret_ptr` instruction. Otherwise, this instruction
+        /// is equivalent to a `load` on the operand, followed by a `ret` on the loaded value.
+        /// Result type is always noreturn; no instructions in a block follow this one.
+        /// Uses the `un_op` field.
+        /// Triggers `resolveTypeLayout` on the return type.
+        ret_load,
         /// Write a value to a pointer. LHS is pointer, RHS is value.
         /// Result type is always void.
         /// Uses the `bin_op` field.
@@ -341,6 +355,10 @@ pub const Inst = struct {
         /// Given a slice value, return the pointer.
         /// Uses the `ty_op` field.
         slice_ptr,
+        /// Given an array value and element index, return the element value at that index.
+        /// Result type is the element type of the array operand.
+        /// Uses the `bin_op` field.
+        array_elem_val,
         /// Given a slice value, and element index, return the element value at that index.
         /// Result type is the element type of the slice operand.
         /// Uses the `bin_op` field.
@@ -644,7 +662,9 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .const_ty => return Type.initTag(.type),
 
-        .alloc => return datas[inst].ty,
+        .alloc,
+        .ret_ptr,
+        => return datas[inst].ty,
 
         .assembly,
         .block,
@@ -690,6 +710,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .cond_br,
         .switch_br,
         .ret,
+        .ret_load,
         .unreach,
         => return Type.initTag(.noreturn),
 
@@ -714,10 +735,14 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .call => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand);
-            return callee_ty.fnReturnType();
+            switch (callee_ty.zigTypeTag()) {
+                .Fn => return callee_ty.fnReturnType(),
+                .Pointer => return callee_ty.childType().fnReturnType(),
+                else => unreachable,
+            }
         },
 
-        .slice_elem_val, .ptr_elem_val => {
+        .slice_elem_val, .ptr_elem_val, .array_elem_val => {
             const ptr_ty = air.typeOf(datas[inst].bin_op.lhs);
             return ptr_ty.elemType();
         },

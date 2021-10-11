@@ -1707,32 +1707,10 @@ pub const Type = extern union {
                 const int_tag_ty = self.intTagType(&buffer);
                 return int_tag_ty.abiAlignment(target);
             },
-            .union_tagged => {
-                const union_obj = self.castTag(.union_tagged).?.data;
-                var biggest: u32 = union_obj.tag_ty.abiAlignment(target);
-                for (union_obj.fields.values()) |field| {
-                    if (!field.ty.hasCodeGenBits()) continue;
-                    const field_align = field.ty.abiAlignment(target);
-                    if (field_align > biggest) {
-                        biggest = field_align;
-                    }
-                }
-                assert(biggest != 0);
-                return biggest;
-            },
-            .@"union" => {
-                const union_obj = self.castTag(.@"union").?.data;
-                var biggest: u32 = 0;
-                for (union_obj.fields.values()) |field| {
-                    if (!field.ty.hasCodeGenBits()) continue;
-                    const field_align = field.ty.abiAlignment(target);
-                    if (field_align > biggest) {
-                        biggest = field_align;
-                    }
-                }
-                assert(biggest != 0);
-                return biggest;
-            },
+            // TODO pass `true` for have_tag when unions have a safety tag
+            .@"union" => return self.castTag(.@"union").?.data.abiAlignment(target, false),
+            .union_tagged => return self.castTag(.union_tagged).?.data.abiAlignment(target, true),
+
             .c_void,
             .void,
             .type,
@@ -1790,6 +1768,7 @@ pub const Type = extern union {
                 const is_packed = s.layout == .Packed;
                 if (is_packed) @panic("TODO packed structs");
                 var size: u64 = 0;
+                var big_align: u32 = 0;
                 for (s.fields.values()) |field| {
                     if (!field.ty.hasCodeGenBits()) continue;
 
@@ -1797,12 +1776,14 @@ pub const Type = extern union {
                         if (field.abi_align.tag() == .abi_align_default) {
                             break :a field.ty.abiAlignment(target);
                         } else {
-                            break :a field.abi_align.toUnsignedInt();
+                            break :a @intCast(u32, field.abi_align.toUnsignedInt());
                         }
                     };
+                    big_align = @maximum(big_align, field_align);
                     size = std.mem.alignForwardGeneric(u64, size, field_align);
                     size += field.ty.abiSize(target);
                 }
+                size = std.mem.alignForwardGeneric(u64, size, big_align);
                 return size;
             },
             .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
@@ -1810,9 +1791,9 @@ pub const Type = extern union {
                 const int_tag_ty = self.intTagType(&buffer);
                 return int_tag_ty.abiSize(target);
             },
-            .@"union", .union_tagged => {
-                @panic("TODO abiSize unions");
-            },
+            // TODO pass `true` for have_tag when unions have a safety tag
+            .@"union" => return self.castTag(.@"union").?.data.abiSize(target, false),
+            .union_tagged => return self.castTag(.union_tagged).?.data.abiSize(target, true),
 
             .u1,
             .u8,
@@ -2550,6 +2531,11 @@ pub const Type = extern union {
         };
     }
 
+    pub fn unionFields(ty: Type) Module.Union.Fields {
+        const union_obj = ty.cast(Payload.Union).?.data;
+        return union_obj.fields;
+    }
+
     pub fn unionFieldType(ty: Type, enum_tag: Value) Type {
         const union_obj = ty.cast(Payload.Union).?.data;
         const index = union_obj.tag_ty.enumTagFieldIndex(enum_tag).?;
@@ -2657,7 +2643,7 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the type is an integer or enum.
+    /// Asserts the type is an integer, enum, or error set.
     pub fn intInfo(self: Type, target: Target) struct { signedness: std.builtin.Signedness, bits: u16 } {
         var ty = self;
         while (true) switch (ty.tag()) {
@@ -2698,6 +2684,11 @@ pub const Type = extern union {
                 const field_count = enum_obj.fields.count();
                 if (field_count == 0) return .{ .signedness = .unsigned, .bits = 0 };
                 return .{ .signedness = .unsigned, .bits = smallestUnsignedBits(field_count - 1) };
+            },
+
+            .error_set, .error_set_single, .anyerror, .error_set_inferred => {
+                // TODO revisit this when error sets support custom int types
+                return .{ .signedness = .unsigned, .bits = 16 };
             },
 
             else => unreachable,
@@ -3151,12 +3142,12 @@ pub const Type = extern union {
 
     /// Asserts the type is an enum or a union.
     /// TODO support unions
-    pub fn intTagType(self: Type, buffer: *Payload.Bits) Type {
-        switch (self.tag()) {
-            .enum_full, .enum_nonexhaustive => return self.cast(Payload.EnumFull).?.data.tag_ty,
-            .enum_numbered => return self.castTag(.enum_numbered).?.data.tag_ty,
+    pub fn intTagType(ty: Type, buffer: *Payload.Bits) Type {
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => return ty.cast(Payload.EnumFull).?.data.tag_ty,
+            .enum_numbered => return ty.castTag(.enum_numbered).?.data.tag_ty,
             .enum_simple => {
-                const enum_simple = self.castTag(.enum_simple).?.data;
+                const enum_simple = ty.castTag(.enum_simple).?.data;
                 const bits = std.math.log2_int_ceil(usize, enum_simple.fields.count());
                 buffer.* = .{
                     .base = .{ .tag = .int_unsigned },
@@ -3164,6 +3155,7 @@ pub const Type = extern union {
                 };
                 return Type.initPayload(&buffer.base);
             },
+            .union_tagged => return ty.castTag(.union_tagged).?.data.tag_ty.intTagType(buffer),
             else => unreachable,
         }
     }
@@ -3313,6 +3305,16 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             => @panic("TODO resolve std.builtin types"),
+            else => unreachable,
+        }
+    }
+
+    pub fn structFields(ty: Type) Module.Struct.Fields {
+        switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return struct_obj.fields;
+            },
             else => unreachable,
         }
     }
@@ -3815,7 +3817,7 @@ pub const Type = extern union {
                 bit_offset: u16 = 0,
                 host_size: u16 = 0,
                 @"allowzero": bool = false,
-                mutable: bool = true, // TODO change this to const, not mutable
+                mutable: bool = true, // TODO rename this to const, not mutable
                 @"volatile": bool = false,
                 size: std.builtin.TypeInfo.Pointer.Size = .One,
             };
