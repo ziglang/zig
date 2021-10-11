@@ -111,10 +111,7 @@ pub const Random = struct {
         var m: Large = @as(Large, x) * @as(Large, less_than);
         var l: Small = @truncate(Small, m);
         if (l < less_than) {
-            // TODO: workaround for https://github.com/ziglang/zig/issues/1770
-            // should be:
-            //   var t: Small = -%less_than;
-            var t: Small = @bitCast(Small, -%@bitCast(std.meta.Int(.signed, small_bits), @as(Small, less_than)));
+            var t: Small = -%less_than;
 
             if (t >= less_than) {
                 t -= less_than;

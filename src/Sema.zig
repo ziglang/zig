@@ -12629,8 +12629,10 @@ fn semaUnionFields(
             set.putAssumeCapacity(field_name, {});
         }
 
-        const field_ty: Type = if (field_type_ref == .none)
+        const field_ty: Type = if (!has_type)
             Type.initTag(.void)
+        else if (field_type_ref == .none)
+            Type.initTag(.noreturn)
         else
             // TODO: if we need to report an error here, use a source location
             // that points to this type expression rather than the union.
