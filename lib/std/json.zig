@@ -132,6 +132,69 @@ pub const Token = union(enum) {
     Null,
 };
 
+const AggregateContainerType = enum(u1) { object, array };
+
+// A LIFO bit-stack. Tracks which container-types have been entered during parse.
+fn AggregateContainerStack(comptime n: usize) type {
+    return struct {
+        const Self = @This();
+        const TypeInfo = std.builtin.TypeInfo;
+
+        const element_bitcount = 8 * @sizeOf(usize);
+        const element_count = n / element_bitcount;
+        const ElementType = @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .unsigned, .bits = element_bitcount } });
+        const ElementShiftAmountType = std.math.Log2Int(ElementType);
+
+        comptime {
+            std.debug.assert(n % element_bitcount == 0);
+        }
+
+        memory: [element_count]ElementType,
+        len: usize,
+
+        pub fn init(self: *Self) void {
+            self.memory = [_]ElementType{0} ** element_count;
+            self.len = 0;
+        }
+
+        pub fn push(self: *Self, ty: AggregateContainerType) ?void {
+            if (self.len >= n) {
+                return null;
+            }
+
+            const index = self.len / element_bitcount;
+            const sub_index = @intCast(ElementShiftAmountType, self.len % element_bitcount);
+            const clear_mask = ~(@as(ElementType, 1) << sub_index);
+            const set_bits = @as(ElementType, @enumToInt(ty)) << sub_index;
+
+            self.memory[index] &= clear_mask;
+            self.memory[index] |= set_bits;
+            self.len += 1;
+        }
+
+        pub fn peek(self: *Self) ?AggregateContainerType {
+            if (self.len == 0) {
+                return null;
+            }
+
+            const bit_to_extract = self.len - 1;
+            const index = bit_to_extract / element_bitcount;
+            const sub_index = @intCast(ElementShiftAmountType, bit_to_extract % element_bitcount);
+            const bit = @intCast(u1, (self.memory[index] >> sub_index) & 1);
+            return @intToEnum(AggregateContainerType, bit);
+        }
+
+        pub fn pop(self: *Self) ?AggregateContainerType {
+            if (self.peek()) |ty| {
+                self.len -= 1;
+                return ty;
+            }
+
+            return null;
+        }
+    };
+}
+
 /// A small streaming JSON parser. This accepts input one byte at a time and returns tokens as
 /// they are encountered. No copies or allocations are performed during parsing and the entire
 /// parsing state requires ~40-50 bytes of stack space.
@@ -140,6 +203,8 @@ pub const Token = union(enum) {
 ///
 /// For a non-byte based wrapper, consider using TokenStream instead.
 pub const StreamingParser = struct {
+    const default_max_nestings = 256;
+
     // Current state
     state: State,
     // How many bytes we have counted for the current token
@@ -160,14 +225,8 @@ pub const StreamingParser = struct {
     sequence_first_byte: u8 = undefined,
     // When in .Number states, is the number a (still) valid integer?
     number_is_integer: bool,
-
-    // Bit-stack for nested object/map literals (max 255 nestings).
-    stack: u256,
-    stack_used: u8,
-
-    const object_bit = 0;
-    const array_bit = 1;
-    const max_stack_size = maxInt(u8);
+    // Bit-stack for nested object/map literals (max 256 nestings).
+    stack: AggregateContainerStack(default_max_nestings),
 
     pub fn init() StreamingParser {
         var p: StreamingParser = undefined;
@@ -181,8 +240,7 @@ pub const StreamingParser = struct {
         // Set before ever read in main transition function
         p.after_string_state = undefined;
         p.after_value_state = .ValueEnd; // handle end of values normally
-        p.stack = 0;
-        p.stack_used = 0;
+        p.stack.init();
         p.complete = false;
         p.string_escapes = undefined;
         p.string_last_was_high_surrogate = undefined;
@@ -238,11 +296,15 @@ pub const StreamingParser = struct {
         NullLiteral2,
         NullLiteral3,
 
-        // Only call this function to generate array/object final state.
-        pub fn fromInt(x: anytype) State {
-            debug.assert(x == 0 or x == 1);
-            const T = std.meta.Tag(State);
-            return @intToEnum(State, @intCast(T, x));
+        // Given an aggregate container type, return the state which should be entered after
+        // processing a complete value type.
+        pub fn fromAggregateContainerType(ty: AggregateContainerType) State {
+            comptime {
+                std.debug.assert(@enumToInt(AggregateContainerType.object) == @enumToInt(State.ObjectSeparator));
+                std.debug.assert(@enumToInt(AggregateContainerType.array) == @enumToInt(State.ValueEnd));
+            }
+
+            return @intToEnum(State, @enumToInt(ty));
         }
     };
 
@@ -286,20 +348,14 @@ pub const StreamingParser = struct {
         switch (p.state) {
             .TopLevelBegin => switch (c) {
                 '{' => {
-                    p.stack <<= 1;
-                    p.stack |= object_bit;
-                    p.stack_used += 1;
-
+                    p.stack.push(.object) orelse return error.TooManyNestedItems;
                     p.state = .ValueBegin;
                     p.after_string_state = .ObjectSeparator;
 
                     token.* = Token.ObjectBegin;
                 },
                 '[' => {
-                    p.stack <<= 1;
-                    p.stack |= array_bit;
-                    p.stack_used += 1;
-
+                    p.stack.push(.array) orelse return error.TooManyNestedItems;
                     p.state = .ValueBegin;
                     p.after_string_state = .ValueEnd;
 
@@ -368,21 +424,17 @@ pub const StreamingParser = struct {
                 // NOTE: These are shared in ValueEnd as well, think we can reorder states to
                 // be a bit clearer and avoid this duplication.
                 '}' => {
-                    // unlikely
-                    if (p.stack & 1 != object_bit) {
+                    const last_type = p.stack.peek() orelse return error.TooManyClosingItems;
+
+                    if (last_type != .object) {
                         return error.UnexpectedClosingBrace;
                     }
-                    if (p.stack_used == 0) {
-                        return error.TooManyClosingItems;
-                    }
 
+                    _ = p.stack.pop();
                     p.state = .ValueBegin;
-                    p.after_string_state = State.fromInt(p.stack & 1);
+                    p.after_string_state = State.fromAggregateContainerType(last_type);
 
-                    p.stack >>= 1;
-                    p.stack_used -= 1;
-
-                    switch (p.stack_used) {
+                    switch (p.stack.len) {
                         0 => {
                             p.complete = true;
                             p.state = .TopLevelEnd;
@@ -395,20 +447,17 @@ pub const StreamingParser = struct {
                     token.* = Token.ObjectEnd;
                 },
                 ']' => {
-                    if (p.stack & 1 != array_bit) {
+                    const last_type = p.stack.peek() orelse return error.TooManyClosingItems;
+
+                    if (last_type != .array) {
                         return error.UnexpectedClosingBracket;
                     }
-                    if (p.stack_used == 0) {
-                        return error.TooManyClosingItems;
-                    }
 
+                    _ = p.stack.pop();
                     p.state = .ValueBegin;
-                    p.after_string_state = State.fromInt(p.stack & 1);
+                    p.after_string_state = State.fromAggregateContainerType(last_type);
 
-                    p.stack >>= 1;
-                    p.stack_used -= 1;
-
-                    switch (p.stack_used) {
+                    switch (p.stack.len) {
                         0 => {
                             p.complete = true;
                             p.state = .TopLevelEnd;
@@ -421,13 +470,7 @@ pub const StreamingParser = struct {
                     token.* = Token.ArrayEnd;
                 },
                 '{' => {
-                    if (p.stack_used == max_stack_size) {
-                        return error.TooManyNestedItems;
-                    }
-
-                    p.stack <<= 1;
-                    p.stack |= object_bit;
-                    p.stack_used += 1;
+                    p.stack.push(.object) orelse return error.TooManyNestedItems;
 
                     p.state = .ValueBegin;
                     p.after_string_state = .ObjectSeparator;
@@ -435,13 +478,7 @@ pub const StreamingParser = struct {
                     token.* = Token.ObjectBegin;
                 },
                 '[' => {
-                    if (p.stack_used == max_stack_size) {
-                        return error.TooManyNestedItems;
-                    }
-
-                    p.stack <<= 1;
-                    p.stack |= array_bit;
-                    p.stack_used += 1;
+                    p.stack.push(.array) orelse return error.TooManyNestedItems;
 
                     p.state = .ValueBegin;
                     p.after_string_state = .ValueEnd;
@@ -492,13 +529,7 @@ pub const StreamingParser = struct {
             // TODO: A bit of duplication here and in the following state, redo.
             .ValueBeginNoClosing => switch (c) {
                 '{' => {
-                    if (p.stack_used == max_stack_size) {
-                        return error.TooManyNestedItems;
-                    }
-
-                    p.stack <<= 1;
-                    p.stack |= object_bit;
-                    p.stack_used += 1;
+                    p.stack.push(.object) orelse return error.TooManyNestedItems;
 
                     p.state = .ValueBegin;
                     p.after_string_state = .ObjectSeparator;
@@ -506,13 +537,7 @@ pub const StreamingParser = struct {
                     token.* = Token.ObjectBegin;
                 },
                 '[' => {
-                    if (p.stack_used == max_stack_size) {
-                        return error.TooManyNestedItems;
-                    }
-
-                    p.stack <<= 1;
-                    p.stack |= array_bit;
-                    p.stack_used += 1;
+                    p.stack.push(.array) orelse return error.TooManyNestedItems;
 
                     p.state = .ValueBegin;
                     p.after_string_state = .ValueEnd;
@@ -562,24 +587,22 @@ pub const StreamingParser = struct {
 
             .ValueEnd => switch (c) {
                 ',' => {
-                    p.after_string_state = State.fromInt(p.stack & 1);
+                    const last_type = p.stack.peek() orelse unreachable;
+                    p.after_string_state = State.fromAggregateContainerType(last_type);
                     p.state = .ValueBeginNoClosing;
                 },
                 ']' => {
-                    if (p.stack & 1 != array_bit) {
+                    const last_type = p.stack.peek() orelse return error.TooManyClosingItems;
+
+                    if (last_type != .array) {
                         return error.UnexpectedClosingBracket;
                     }
-                    if (p.stack_used == 0) {
-                        return error.TooManyClosingItems;
-                    }
 
+                    _ = p.stack.pop();
                     p.state = .ValueEnd;
-                    p.after_string_state = State.fromInt(p.stack & 1);
+                    p.after_string_state = State.fromAggregateContainerType(last_type);
 
-                    p.stack >>= 1;
-                    p.stack_used -= 1;
-
-                    if (p.stack_used == 0) {
+                    if (p.stack.len == 0) {
                         p.complete = true;
                         p.state = .TopLevelEnd;
                     }
@@ -587,21 +610,17 @@ pub const StreamingParser = struct {
                     token.* = Token.ArrayEnd;
                 },
                 '}' => {
-                    // unlikely
-                    if (p.stack & 1 != object_bit) {
+                    const last_type = p.stack.peek() orelse return error.TooManyClosingItems;
+
+                    if (last_type != .object) {
                         return error.UnexpectedClosingBrace;
                     }
-                    if (p.stack_used == 0) {
-                        return error.TooManyClosingItems;
-                    }
 
+                    _ = p.stack.pop();
                     p.state = .ValueEnd;
-                    p.after_string_state = State.fromInt(p.stack & 1);
+                    p.after_string_state = State.fromAggregateContainerType(last_type);
 
-                    p.stack >>= 1;
-                    p.stack_used -= 1;
-
-                    if (p.stack_used == 0) {
+                    if (p.stack.len == 0) {
                         p.complete = true;
                         p.state = .TopLevelEnd;
                     }
@@ -1082,6 +1101,15 @@ pub const StreamingParser = struct {
     }
 };
 
+test "json.serialize issue #5959" {
+    var parser: StreamingParser = undefined;
+    // StreamingParser has multiple internal fields set to undefined. This causes issues when using
+    // expectEqual so these are zeroed. We are testing for equality here only because this is a
+    // known small test reproduction which hits the relevant LLVM issue.
+    std.mem.set(u8, @ptrCast([*]u8, &parser)[0..@sizeOf(StreamingParser)], 0);
+    try std.testing.expectEqual(parser, parser);
+}
+
 /// A small wrapper over a StreamingParser for full slices. Returns a stream of json Tokens.
 pub const TokenStream = struct {
     i: usize,
@@ -1100,8 +1128,8 @@ pub const TokenStream = struct {
         };
     }
 
-    fn stackUsed(self: *TokenStream) u8 {
-        return self.parser.stack_used + if (self.token != null) @as(u8, 1) else 0;
+    fn stackUsed(self: *TokenStream) usize {
+        return self.parser.stack.len + if (self.token != null) @as(usize, 1) else 0;
     }
 
     pub fn next(self: *TokenStream) Error!?Token {
@@ -1490,7 +1518,7 @@ test "skipValue" {
     try skipValue(&TokenStream.init("{\"foo\": \"bar\"}"));
 
     { // An absurd number of nestings
-        const nestings = 256;
+        const nestings = StreamingParser.default_max_nestings + 1;
 
         try testing.expectError(
             error.TooManyNestedItems,
@@ -1499,7 +1527,7 @@ test "skipValue" {
     }
 
     { // Would a number token cause problems in a deeply-nested array?
-        const nestings = 255;
+        const nestings = StreamingParser.default_max_nestings;
         const deeply_nested_array = "[" ** nestings ++ "0.118, 999, 881.99, 911.9, 725, 3" ++ "]" ** nestings;
 
         try skipValue(&TokenStream.init(deeply_nested_array));
