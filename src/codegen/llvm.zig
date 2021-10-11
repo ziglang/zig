@@ -1490,11 +1490,17 @@ pub const FuncGen = struct {
             break :blk ret_ptr;
         };
 
-        for (args) |arg, i| {
-            const param_ty = fn_info.param_types[i];
-            if (!param_ty.hasCodeGenBits()) continue;
+        if (fn_info.is_var_args) {
+            for (args) |arg| {
+                try llvm_args.append(try self.resolveInst(arg));
+            }
+        } else {
+            for (args) |arg, i| {
+                const param_ty = fn_info.param_types[i];
+                if (!param_ty.hasCodeGenBits()) continue;
 
-            try llvm_args.append(try self.resolveInst(arg));
+                try llvm_args.append(try self.resolveInst(arg));
+            }
         }
 
         const call = self.builder.buildCall(

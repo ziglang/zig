@@ -264,10 +264,10 @@ pub const Inst = struct {
         /// Uses the `un_op` field.
         /// Triggers `resolveTypeLayout` on the return type.
         ret,
-        /// This instruction communicates that the function's result value is inside
-        /// the operand, which is a pointer. If the function will pass the result by-ref,
-        /// the pointer operand is a `ret_ptr` instruction. Otherwise, this instruction
-        /// is equivalent to a `load` on the operand, followed by a `ret` on the loaded value.
+        /// This instruction communicates that the function's result value is pointed to by
+        /// the operand. If the function will pass the result by-ref, the operand is a
+        /// `ret_ptr` instruction. Otherwise, this instruction is equivalent to a `load`
+        /// on the operand, followed by a `ret` on the loaded value.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `un_op` field.
         /// Triggers `resolveTypeLayout` on the return type.
