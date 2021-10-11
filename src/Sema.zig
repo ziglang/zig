@@ -8919,6 +8919,9 @@ fn zirIsNonNullPtr(
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const ptr = sema.resolveInst(inst_data.operand);
+    if ((try sema.resolveMaybeUndefVal(block, src, ptr)) == null) {
+        return block.addUnOp(.is_non_null_ptr, ptr);
+    }
     const loaded = try sema.analyzeLoad(block, src, ptr, src);
     return sema.analyzeIsNull(block, src, loaded, true);
 }

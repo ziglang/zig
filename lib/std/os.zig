@@ -33,6 +33,7 @@ pub const netbsd = std.c;
 pub const openbsd = std.c;
 pub const solaris = std.c;
 pub const linux = @import("os/linux.zig");
+pub const plan9 = @import("os/plan9.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
 pub const windows = @import("os/windows.zig");

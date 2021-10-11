@@ -1826,10 +1826,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                     try self.register_manager.getReg(reg, null);
                     try self.genSetReg(arg_ty, reg, arg_mcv);
                 },
-                .stack_offset => {
+                .stack_offset => |off| {
                     // Here we need to emit instructions like this:
                     // mov     qword ptr [rsp + stack_offset], x
-                    return self.fail("TODO implement calling with parameters in memory", .{});
+                    try self.genSetStack(arg_ty, off, arg_mcv);
                 },
                 .ptr_stack_offset => {
                     return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
@@ -1987,9 +1987,10 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ptr = try self.resolveInst(un_op);
-    _ = ptr;
-    return self.fail("TODO implement airRetLoad for {}", .{self.target.cpu.arch});
-    //return self.finishAir(inst, .dead, .{ un_op, .none, .none });
+    // we can reuse self.ret_mcv because it just gets returned
+    try self.load(self.ret_mcv, ptr, self.air.typeOf(un_op));
+    try self.ret(self.ret_mcv);
+    return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
@@ -2487,8 +2488,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     const clobbers_len = @truncate(u5, extended.small >> 10);
     _ = clobbers_len; // TODO honor these
     const is_volatile = @truncate(u1, extended.small >> 15) != 0;
-    const outputs = @bitCast([]const Air.Inst.Ref, self.air.extra[air_extra.end..][0..outputs_len]);
-    const args = @bitCast([]const Air.Inst.Ref, self.air.extra[air_extra.end + outputs.len ..][0..args_len]);
+    const args = @bitCast([]const Air.Inst.Ref, self.air.extra[air_extra.end..][0..args_len]);
 
     if (outputs_len > 1) {
         return self.fail("TODO implement codegen for asm with more than 1 output", .{});
@@ -2591,16 +2591,12 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             break :result MCValue{ .none = {} };
         }
     };
-    if (outputs.len + args.len <= Liveness.bpi - 1) {
+    if (args.len <= Liveness.bpi - 1) {
         var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
-        std.mem.copy(Air.Inst.Ref, &buf, outputs);
-        std.mem.copy(Air.Inst.Ref, buf[outputs.len..], args);
+        std.mem.copy(Air.Inst.Ref, &buf, args);
         return self.finishAir(inst, result, buf);
     }
-    var bt = try self.iterateBigTomb(inst, outputs.len + args.len);
-    for (outputs) |output| {
-        bt.feed(output);
-    }
+    var bt = try self.iterateBigTomb(inst, args.len);
     for (args) |arg| {
         bt.feed(arg);
     }
@@ -3297,7 +3293,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 const param_size = @intCast(u32, ty.abiSize(self.target.*));
                 const pass_in_reg = switch (ty.zigTypeTag()) {
                     .Bool => true,
-                    .Int => param_size <= 8,
+                    .Int, .Enum => param_size <= 8,
                     .Pointer => ty.ptrSize() != .Slice,
                     .Optional => ty.isPtrLikeOptional(),
                     else => false,
