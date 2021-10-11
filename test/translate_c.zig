@@ -328,7 +328,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const LIGHTGRAY = @import("std").mem.zeroInit(CLITERAL(Color), .{ @as(c_int, 200), @as(c_int, 200), @as(c_int, 200), @as(c_int, 255) });
         ,
         \\pub const struct_boom_t = extern struct {
-        \\    i1: c_int,
+        \\    @"i1": c_int,
         \\};
         \\pub const boom_t = struct_boom_t;
         ,
@@ -1038,13 +1038,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const foo = "a string";
     });
 
-    cases.add("zig keywords in C code",
+    cases.add("zig keywords and primitives in C code",
         \\struct comptime {
         \\    int defer;
+        \\    int null;
         \\};
     , &[_][]const u8{
         \\pub const struct_comptime = extern struct {
         \\    @"defer": c_int,
+        \\    @"null": c_int,
         \\};
         ,
         \\pub const @"comptime" = struct_comptime;

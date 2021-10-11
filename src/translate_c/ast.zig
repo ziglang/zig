@@ -1994,7 +1994,7 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
     members[1] = 0;
 
     for (payload.fields) |field, i| {
-        const name_tok = try c.addTokenFmt(.identifier, "{s}", .{std.zig.fmtId(field.name)});
+        const name_tok = try c.addIdentifier(field.name);
         _ = try c.addToken(.colon, ":");
         const type_expr = try renderNode(c, field.type);
 
@@ -2074,7 +2074,7 @@ fn renderFieldAccess(c: *Context, lhs: NodeIndex, field_name: []const u8) !NodeI
         .main_token = try c.addToken(.period, "."),
         .data = .{
             .lhs = lhs,
-            .rhs = try c.addTokenFmt(.identifier, "{s}", .{std.zig.fmtId(field_name)}),
+            .rhs = try c.addIdentifier(field_name),
         },
     });
 }
