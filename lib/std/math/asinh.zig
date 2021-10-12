@@ -60,7 +60,7 @@ fn asinh32(x: f32) f32 {
 fn asinh64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
-    const s = u >> 63;
+    const s = e >> 63;
 
     var rx = @bitCast(f64, u & (maxInt(u64) >> 1)); // |x|
 
