@@ -3502,6 +3502,7 @@ pub fn importFile(
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
     const gop = try mod.import_table.getOrPut(gpa, resolved_path);
+    errdefer _ = mod.import_table.pop();
     if (gop.found_existing) return ImportFileResult{
         .file = gop.value_ptr.*,
         .is_new = false,
