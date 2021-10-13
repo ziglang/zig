@@ -1651,6 +1651,9 @@ pub const Value = extern union {
             .array => return val.castTag(.array).?.data[index],
             .slice => return val.castTag(.slice).?.data.ptr.elemValue(arena, index),
 
+            .decl_ref => return val.castTag(.decl_ref).?.data.val.elemValue(arena, index),
+            .decl_ref_mut => return val.castTag(.decl_ref_mut).?.data.decl.val.elemValue(arena, index),
+
             else => unreachable,
         }
     }

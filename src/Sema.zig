@@ -11048,11 +11048,16 @@ fn elemVal(
     switch (maybe_ptr_ty.zigTypeTag()) {
         .Pointer => switch (maybe_ptr_ty.ptrSize()) {
             .Slice => {
-                if (try sema.resolveDefinedValue(block, src, array_maybe_ptr)) |slice_val| {
-                    _ = slice_val;
-                    return sema.fail(block, src, "TODO implement Sema for elemVal for comptime known slice", .{});
-                }
-                try sema.requireRuntimeBlock(block, src);
+                const maybe_slice_val = try sema.resolveDefinedValue(block, array_ptr_src, array_maybe_ptr);
+                const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
+                const runtime_src = if (maybe_slice_val) |slice_val| rs: {
+                    const index_val = maybe_index_val orelse break :rs elem_index_src;
+                    const index = @intCast(usize, index_val.toUnsignedInt());
+                    const elem_val = try slice_val.elemValue(sema.arena, index);
+                    return sema.addConstant(maybe_ptr_ty.elemType2(), elem_val);
+                } else array_ptr_src;
+
+                try sema.requireRuntimeBlock(block, runtime_src);
                 return block.addBinOp(.slice_elem_val, array_maybe_ptr, elem_index);
             },
             .Many, .C => {

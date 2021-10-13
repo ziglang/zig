@@ -2448,6 +2448,7 @@ pub const Type = extern union {
     /// For ?[*]T,  returns T.
     /// For *T,     returns T.
     /// For [*]T,   returns T.
+    /// For []T,    returns T.
     pub fn elemType2(ty: Type) Type {
         return switch (ty.tag()) {
             .vector => ty.castTag(.vector).?.data.elem_type,
