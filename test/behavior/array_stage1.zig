@@ -4,33 +4,6 @@ const mem = std.mem;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "array with sentinels" {
-    const S = struct {
-        fn doTheTest(is_ct: bool) !void {
-            if (is_ct) {
-                var zero_sized: [0:0xde]u8 = [_:0xde]u8{};
-                // Disabled at runtime because of
-                // https://github.com/ziglang/zig/issues/4372
-                try expectEqual(@as(u8, 0xde), zero_sized[0]);
-                var reinterpreted = @ptrCast(*[1]u8, &zero_sized);
-                try expectEqual(@as(u8, 0xde), reinterpreted[0]);
-            }
-            var arr: [3:0x55]u8 = undefined;
-            // Make sure the sentinel pointer is pointing after the last element
-            if (!is_ct) {
-                const sentinel_ptr = @ptrToInt(&arr[3]);
-                const last_elem_ptr = @ptrToInt(&arr[2]);
-                try expectEqual(@as(usize, 1), sentinel_ptr - last_elem_ptr);
-            }
-            // Make sure the sentinel is writeable
-            arr[3] = 0x55;
-        }
-    };
-
-    try S.doTheTest(false);
-    comptime try S.doTheTest(true);
-}
-
 test "void arrays" {
     var array: [4]void = undefined;
     array[0] = void{};

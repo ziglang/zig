@@ -194,7 +194,7 @@ pub const Type = opaque {
     extern fn LLVMConstReal(RealTy: *const Type, N: f64) *const Value;
 
     pub const constArray = LLVMConstArray;
-    extern fn LLVMConstArray(ElementTy: *const Type, ConstantVals: [*]*const Value, Length: c_uint) *const Value;
+    extern fn LLVMConstArray(ElementTy: *const Type, ConstantVals: [*]const *const Value, Length: c_uint) *const Value;
 
     pub const constNamedStruct = LLVMConstNamedStruct;
     extern fn LLVMConstNamedStruct(

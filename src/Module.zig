@@ -1885,6 +1885,55 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
+
+            .node_offset_array_type_len => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.ArrayType = switch (node_tags[parent_node]) {
+                    .array_type => tree.arrayType(parent_node),
+                    .array_type_sentinel => tree.arrayTypeSentinel(parent_node),
+                    else => unreachable,
+                };
+                const node = full.ast.elem_count;
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[node];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
+            .node_offset_array_type_sentinel => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.ArrayType = switch (node_tags[parent_node]) {
+                    .array_type => tree.arrayType(parent_node),
+                    .array_type_sentinel => tree.arrayTypeSentinel(parent_node),
+                    else => unreachable,
+                };
+                const node = full.ast.sentinel;
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[node];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
+            .node_offset_array_type_elem => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.ArrayType = switch (node_tags[parent_node]) {
+                    .array_type => tree.arrayType(parent_node),
+                    .array_type_sentinel => tree.arrayTypeSentinel(parent_node),
+                    else => unreachable,
+                };
+                const node = full.ast.elem_type;
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[node];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
         }
     }
 
@@ -2085,6 +2134,24 @@ pub const LazySrcLoc = union(enum) {
     /// expression AST node. Next, navigate to the string literal of the `extern "foo"`.
     /// The Decl is determined contextually.
     node_offset_lib_name: i32,
+    /// The source location points to the len expression of an `[N:S]T`
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
+    /// to the len expression.
+    /// The Decl is determined contextually.
+    node_offset_array_type_len: i32,
+    /// The source location points to the sentinel expression of an `[N:S]T`
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
+    /// to the sentinel expression.
+    /// The Decl is determined contextually.
+    node_offset_array_type_sentinel: i32,
+    /// The source location points to the elem expression of an `[N:S]T`
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
+    /// to the elem expression.
+    /// The Decl is determined contextually.
+    node_offset_array_type_elem: i32,
 
     /// Upgrade to a `SrcLoc` based on the `Decl` provided.
     pub fn toSrcLoc(lazy: LazySrcLoc, decl: *Decl) SrcLoc {
@@ -2130,6 +2197,9 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_fn_type_ret_ty,
             .node_offset_anyframe_type,
             .node_offset_lib_name,
+            .node_offset_array_type_len,
+            .node_offset_array_type_sentinel,
+            .node_offset_array_type_elem,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,
@@ -4123,36 +4193,6 @@ pub fn optionalType(arena: *Allocator, child_type: Type) Allocator.Error!Type {
         ),
         else => return Type.Tag.optional.create(arena, child_type),
     }
-}
-
-pub fn arrayType(
-    arena: *Allocator,
-    len: u64,
-    sentinel: ?Value,
-    elem_type: Type,
-) Allocator.Error!Type {
-    if (elem_type.eql(Type.initTag(.u8))) {
-        if (sentinel) |some| {
-            if (some.eql(Value.initTag(.zero), elem_type)) {
-                return Type.Tag.array_u8_sentinel_0.create(arena, len);
-            }
-        } else {
-            return Type.Tag.array_u8.create(arena, len);
-        }
-    }
-
-    if (sentinel) |some| {
-        return Type.Tag.array_sentinel.create(arena, .{
-            .len = len,
-            .sentinel = some,
-            .elem_type = elem_type,
-        });
-    }
-
-    return Type.Tag.array.create(arena, .{
-        .len = len,
-        .elem_type = elem_type,
-    });
 }
 
 pub fn errorUnionType(

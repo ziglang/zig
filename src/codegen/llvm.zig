@@ -1031,54 +1031,60 @@ pub const DeclGen = struct {
                 },
                 else => |tag| return self.todo("implement const of pointer type '{}' ({})", .{ tv.ty, tag }),
             },
-            .Array => {
-                const gpa = self.gpa;
-                if (tv.val.castTag(.bytes)) |payload| {
-                    const zero_sentinel = if (tv.ty.sentinel()) |sentinel| blk: {
-                        if (sentinel.tag() == .zero) break :blk true;
-                        return self.todo("handle other sentinel values", .{});
-                    } else false;
-
+            .Array => switch (tv.val.tag()) {
+                .bytes => {
+                    const bytes = tv.val.castTag(.bytes).?.data;
                     return self.context.constString(
-                        payload.data.ptr,
-                        @intCast(c_uint, payload.data.len),
-                        llvm.Bool.fromBool(!zero_sentinel),
+                        bytes.ptr,
+                        @intCast(c_uint, bytes.len),
+                        .True, // don't null terminate. bytes has the sentinel, if any.
                     );
-                }
-                if (tv.val.castTag(.array)) |payload| {
+                },
+                .array => {
+                    const elem_vals = tv.val.castTag(.array).?.data;
                     const elem_ty = tv.ty.elemType();
-                    const elem_vals = payload.data;
-                    const sento = tv.ty.sentinel();
-                    const llvm_elems = try gpa.alloc(*const llvm.Value, elem_vals.len + @boolToInt(sento != null));
+                    const gpa = self.gpa;
+                    const llvm_elems = try gpa.alloc(*const llvm.Value, elem_vals.len);
                     defer gpa.free(llvm_elems);
                     for (elem_vals) |elem_val, i| {
                         llvm_elems[i] = try self.genTypedValue(.{ .ty = elem_ty, .val = elem_val });
                     }
-                    if (sento) |sent| llvm_elems[elem_vals.len] = try self.genTypedValue(.{ .ty = elem_ty, .val = sent });
                     const llvm_elem_ty = try self.llvmType(elem_ty);
                     return llvm_elem_ty.constArray(
                         llvm_elems.ptr,
                         @intCast(c_uint, llvm_elems.len),
                     );
-                }
-                if (tv.val.castTag(.repeated)) |payload| {
-                    const val = payload.data;
+                },
+                .repeated => {
+                    const val = tv.val.castTag(.repeated).?.data;
                     const elem_ty = tv.ty.elemType();
+                    const sentinel = tv.ty.sentinel();
                     const len = tv.ty.arrayLen();
-
-                    const llvm_elems = try gpa.alloc(*const llvm.Value, len);
+                    const len_including_sent = len + @boolToInt(sentinel != null);
+                    const gpa = self.gpa;
+                    const llvm_elems = try gpa.alloc(*const llvm.Value, len_including_sent);
                     defer gpa.free(llvm_elems);
-                    var i: u64 = 0;
-                    while (i < len) : (i += 1) {
-                        llvm_elems[i] = try self.genTypedValue(.{ .ty = elem_ty, .val = val });
+                    for (llvm_elems[0..len]) |*elem| {
+                        elem.* = try self.genTypedValue(.{ .ty = elem_ty, .val = val });
+                    }
+                    if (sentinel) |sent| {
+                        llvm_elems[len] = try self.genTypedValue(.{ .ty = elem_ty, .val = sent });
                     }
                     const llvm_elem_ty = try self.llvmType(elem_ty);
                     return llvm_elem_ty.constArray(
                         llvm_elems.ptr,
                         @intCast(c_uint, llvm_elems.len),
                     );
-                }
-                return self.todo("handle more array values", .{});
+                },
+                .empty_array_sentinel => {
+                    const elem_ty = tv.ty.elemType();
+                    const sent_val = tv.ty.sentinel().?;
+                    const sentinel = try self.genTypedValue(.{ .ty = elem_ty, .val = sent_val });
+                    const llvm_elems: [1]*const llvm.Value = .{sentinel};
+                    const llvm_elem_ty = try self.llvmType(elem_ty);
+                    return llvm_elem_ty.constArray(&llvm_elems, llvm_elems.len);
+                },
+                else => unreachable,
             },
             .Optional => {
                 var buf: Type.Payload.ElemType = undefined;

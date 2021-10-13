@@ -1235,7 +1235,15 @@ fn arrayInitExpr(
                     };
                 } else {
                     const sentinel = try comptimeExpr(gz, scope, .{ .ty = elem_type }, array_type.ast.sentinel);
-                    const array_type_inst = try gz.addArrayTypeSentinel(len_inst, elem_type, sentinel);
+                    const array_type_inst = try gz.addPlNode(
+                        .array_type_sentinel,
+                        array_init.ast.type_expr,
+                        Zir.Inst.ArrayTypeSentinel{
+                            .len = len_inst,
+                            .elem_type = elem_type,
+                            .sentinel = sentinel,
+                        },
+                    );
                     break :inst .{
                         .array = array_type_inst,
                         .elem = elem_type,
@@ -1425,7 +1433,15 @@ fn structInitExpr(
                     break :blk try gz.addBin(.array_type, .zero_usize, elem_type);
                 } else blk: {
                     const sentinel = try comptimeExpr(gz, scope, .{ .ty = elem_type }, array_type.ast.sentinel);
-                    break :blk try gz.addArrayTypeSentinel(.zero_usize, elem_type, sentinel);
+                    break :blk try gz.addPlNode(
+                        .array_type_sentinel,
+                        struct_init.ast.type_expr,
+                        Zir.Inst.ArrayTypeSentinel{
+                            .len = .zero_usize,
+                            .elem_type = elem_type,
+                            .sentinel = sentinel,
+                        },
+                    );
                 };
                 const result = try gz.addUnNode(.struct_init_empty, array_type_inst, node);
                 return rvalue(gz, rl, result, node);
@@ -2976,11 +2992,15 @@ fn arrayTypeSentinel(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.I
     {
         return astgen.failNode(len_node, "unable to infer array size", .{});
     }
-    const len = try expr(gz, scope, .{ .coerced_ty = .usize_type }, len_node);
+    const len = try reachableExpr(gz, scope, .{ .coerced_ty = .usize_type }, len_node, node);
     const elem_type = try typeExpr(gz, scope, extra.elem_type);
-    const sentinel = try expr(gz, scope, .{ .coerced_ty = elem_type }, extra.sentinel);
+    const sentinel = try reachableExpr(gz, scope, .{ .coerced_ty = elem_type }, extra.sentinel, node);
 
-    const result = try gz.addArrayTypeSentinel(len, elem_type, sentinel);
+    const result = try gz.addPlNode(.array_type_sentinel, node, Zir.Inst.ArrayTypeSentinel{
+        .len = len,
+        .elem_type = elem_type,
+        .sentinel = sentinel,
+    });
     return rvalue(gz, rl, result, node);
 }
 
@@ -10014,32 +10034,6 @@ const GenZir = struct {
         });
         gz.instructions.appendAssumeCapacity(new_index);
         astgen.appendRefsAssumeCapacity(operands);
-        return indexToRef(new_index);
-    }
-
-    fn addArrayTypeSentinel(
-        gz: *GenZir,
-        len: Zir.Inst.Ref,
-        sentinel: Zir.Inst.Ref,
-        elem_type: Zir.Inst.Ref,
-    ) !Zir.Inst.Ref {
-        const gpa = gz.astgen.gpa;
-        try gz.instructions.ensureUnusedCapacity(gpa, 1);
-        try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-
-        const payload_index = try gz.astgen.addExtra(Zir.Inst.ArrayTypeSentinel{
-            .sentinel = sentinel,
-            .elem_type = elem_type,
-        });
-        const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
-        gz.astgen.instructions.appendAssumeCapacity(.{
-            .tag = .array_type_sentinel,
-            .data = .{ .array_type_sentinel = .{
-                .len = len,
-                .payload_index = payload_index,
-            } },
-        });
-        gz.instructions.appendAssumeCapacity(new_index);
         return indexToRef(new_index);
     }
 

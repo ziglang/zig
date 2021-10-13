@@ -1468,7 +1468,19 @@ pub const Type = extern union {
             // TODO lazy types
             .array, .vector => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
             .array_u8 => self.arrayLen() != 0,
-            .array_sentinel, .single_const_pointer, .single_mut_pointer, .many_const_pointer, .many_mut_pointer, .c_const_pointer, .c_mut_pointer, .const_slice, .mut_slice, .pointer => self.elemType().hasCodeGenBits(),
+
+            .array_sentinel,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .pointer,
+            => self.childType().hasCodeGenBits(),
+
             .int_signed, .int_unsigned => self.cast(Payload.Bits).?.data != 0,
 
             .error_union => {
@@ -2560,16 +2572,20 @@ pub const Type = extern union {
     }
 
     /// Asserts the type is an array or vector.
-    pub fn arrayLen(self: Type) u64 {
-        return switch (self.tag()) {
-            .vector => self.castTag(.vector).?.data.len,
-            .array => self.castTag(.array).?.data.len,
-            .array_sentinel => self.castTag(.array_sentinel).?.data.len,
-            .array_u8 => self.castTag(.array_u8).?.data,
-            .array_u8_sentinel_0 => self.castTag(.array_u8_sentinel_0).?.data,
+    pub fn arrayLen(ty: Type) u64 {
+        return switch (ty.tag()) {
+            .vector => ty.castTag(.vector).?.data.len,
+            .array => ty.castTag(.array).?.data.len,
+            .array_sentinel => ty.castTag(.array_sentinel).?.data.len,
+            .array_u8 => ty.castTag(.array_u8).?.data,
+            .array_u8_sentinel_0 => ty.castTag(.array_u8_sentinel_0).?.data,
 
             else => unreachable,
         };
+    }
+
+    pub fn arrayLenIncludingSentinel(ty: Type) u64 {
+        return ty.arrayLen() + @boolToInt(ty.sentinel() != null);
     }
 
     /// Asserts the type is an array, pointer or vector.
@@ -3882,9 +3898,11 @@ pub const Type = extern union {
         };
     };
 
+    pub const @"u8" = initTag(.u8);
     pub const @"bool" = initTag(.bool);
     pub const @"usize" = initTag(.usize);
     pub const @"comptime_int" = initTag(.comptime_int);
+    pub const @"void" = initTag(.void);
 
     pub fn ptr(arena: *Allocator, d: Payload.Pointer.Data) !Type {
         assert(d.host_size == 0 or d.bit_offset < d.host_size * 8);
@@ -3915,6 +3933,36 @@ pub const Type = extern union {
             .data = d.pointee_type,
         };
         return Type.initPayload(&type_payload.base);
+    }
+
+    pub fn array(
+        arena: *Allocator,
+        len: u64,
+        sent: ?Value,
+        elem_type: Type,
+    ) Allocator.Error!Type {
+        if (elem_type.eql(Type.u8)) {
+            if (sent) |some| {
+                if (some.eql(Value.initTag(.zero), elem_type)) {
+                    return Tag.array_u8_sentinel_0.create(arena, len);
+                }
+            } else {
+                return Tag.array_u8.create(arena, len);
+            }
+        }
+
+        if (sent) |some| {
+            return Tag.array_sentinel.create(arena, .{
+                .len = len,
+                .sentinel = some,
+                .elem_type = elem_type,
+            });
+        }
+
+        return Tag.array.create(arena, .{
+            .len = len,
+            .elem_type = elem_type,
+        });
     }
 
     pub fn smallestUnsignedBits(max: u64) u16 {
