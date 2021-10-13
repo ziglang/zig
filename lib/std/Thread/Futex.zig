@@ -92,6 +92,7 @@ const SerialImpl = struct {
     }
 };
 
+// Uses WaitOnAddress functions introduced in Windows 8.1+ 
 const WindowsImpl = struct {
     const windows = std.os.windows;
 
@@ -171,6 +172,15 @@ const LinuxImpl = struct {
     }
 };
 
+// Uses the __ulock_* functions which act as futexes 
+// and were introduced in Darwin XNU xnu-3789.1.3 which corresponds to the following OS versions:
+//   https://github.com/apple/darwin-xnu/commit/0ddccd81c4c52959b3387974b11a19e152977ea3#diff-08f993cc40af475663274687b7c326cc6c3031e0db3ac8de7b24624610616be6
+//   https://www.theiphonewiki.com/wiki/Kernel
+//
+// - macOS: 10.12
+// - iOS: 10.0 Beta
+// - tvOS: 10.0 Beta
+// - watchOS: 3.0 Beta
 const DarwinImpl = struct {
     const darwin = std.os.darwin;
 
@@ -178,27 +188,43 @@ const DarwinImpl = struct {
         // Darwin XNU 7195.50.7.100.1 introduced __ulock_wait2 and migrated code paths (notably pthread_cond_t) towards it:
         // https://github.com/apple/darwin-xnu/commit/d4061fb0260b3ed486147341b72468f836ed6c8f#diff-08f993cc40af475663274687b7c326cc6c3031e0db3ac8de7b24624610616be6
         //
-        // This XNU version appears to correspond to 11.0.1:
-        // https://kernelshaman.blogspot.com/2021/01/building-xnu-for-macos-big-sur-1101.html
+        // This XNU version appears to correspond to the following OS versions:
+        //   https://www.theiphonewiki.com/wiki/Kernel
+        //   https://kernelshaman.blogspot.com/2021/01/building-xnu-for-macos-big-sur-1101.html
+        //
+        // - macOS: 11.0.1
+        // - iOS: 14.3 Beta
+        // - tvOS/audioOS 14.3 Beta
+        // - watchOS: 7.2 Beta 
         //
         // ulock_wait() uses 32-bit micro-second timeouts where 0 = INFINITE or no-timeout
         // ulock_wait2() uses 64-bit nano-second timeouts (with the same convention)
+        const use_ulock_wait2 = target.os.version_range.semver.isAtLeast(switch (target.os.tag) {
+            .macos => .{ .major = 11, .minor = 0, .patch = 1 },
+            .ios => .{ .major = 14, .minor = 3, },
+            .tvos => .{ .major = 13, .minor = 3 },
+            .watchos => .{ .major = 7, .minor = 2 }, 
+            else => false,
+        }) orelse false;
+
+        // Zero value for timeout is used to wait indefinitely (until __ulock_wake).
         var timeout_ns: u64 = 0;
         if (timeout) |timeout_value| {
             // This should be checked by the caller.
             assert(timeout_value != 0);
             timeout_ns = timeout_value;
         }
-        const addr = @ptrCast(*const c_void, ptr);
-        const flags = darwin.UL_COMPARE_AND_WAIT | darwin.ULF_NO_ERRNO;
+
         // If we're using `__ulock_wait` and `timeout` is too big to fit inside a `u32` count of
         // micro-seconds (around 70min), we'll request a shorter timeout. This is fine (users
         // should handle spurious wakeups), but we need to remember that we did so, so that
         // we don't return `TimedOut` incorrectly. If that happens, we set this variable to
-        // true so that we we know to ignore the ETIMEDOUT result.
+        // true so that we know to ignore the ETIMEDOUT result.
         var timeout_overflowed = false;
         const status = blk: {
-            if (target.os.version_range.semver.max.major >= 11) {
+            const addr = @ptrCast(*const c_void, ptr);
+            const flags = darwin.UL_COMPARE_AND_WAIT | darwin.ULF_NO_ERRNO;
+            if (use_ulock_wait2) {
                 break :blk darwin.__ulock_wait2(flags, addr, expect, timeout_ns, 0);
             } else {
                 const timeout_us = std.math.cast(u32, timeout_ns / std.time.ns_per_us) catch overflow: {
@@ -209,13 +235,18 @@ const DarwinImpl = struct {
             }
         };
 
-        if (status >= 0) return;
+        if (status >= 0) {
+            return;
+        }
+
         switch (@intToEnum(std.os.E, -status)) {
+            // Spurious wakeups are allowed
             .INTR => {},
             // Address of the futex is paged out. This is unlikely, but possible in theory, and
             // pthread/libdispatch on darwin bother to handle it. In this case we'll return
             // without waiting, but the caller should retry anyway.
             .FAULT => {},
+            // Only timeout if the timeout_ns didn't overflow
             .TIMEDOUT => if (!timeout_overflowed) return error.TimedOut,
             else => unreachable,
         }
@@ -223,6 +254,8 @@ const DarwinImpl = struct {
 
     fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
         var flags: u32 = darwin.UL_COMPARE_AND_WAIT | darwin.ULF_NO_ERRNO;
+
+        // Wakes up more threads than necessary at worst.
         if (num_waiters > 1) {
             flags |= darwin.ULF_WAKE_ALL;
         }
@@ -231,7 +264,10 @@ const DarwinImpl = struct {
             const addr = @ptrCast(*const c_void, ptr);
             const status = darwin.__ulock_wake(flags, addr, 0);
 
-            if (status >= 0) return;
+            if (status >= 0) {
+                return;
+            }
+            
             switch (@intToEnum(std.os.E, -status)) {
                 .INTR => continue, // spurious wake()
                 .FAULT => continue, // address of the lock was paged out
