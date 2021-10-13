@@ -1340,29 +1340,50 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const pointee_ty = try sema.resolveType(block, src, bin_inst.lhs);
     const ptr = sema.resolveInst(bin_inst.rhs);
 
-    // Create a runtime bitcast instruction with exactly the type the pointer wants.
     const ptr_ty = try Type.ptr(sema.arena, .{
         .pointee_type = pointee_ty,
         .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
     });
-    try sema.requireRuntimeBlock(block, src);
-    const bitcasted_ptr = try block.addTyOp(.bitcast, ptr_ty, ptr);
 
     if (Air.refToIndex(ptr)) |ptr_inst| {
         if (sema.air_instructions.items(.tag)[ptr_inst] == .constant) {
             const air_datas = sema.air_instructions.items(.data);
             const ptr_val = sema.air_values.items[air_datas[ptr_inst].ty_pl.payload];
-            if (ptr_val.castTag(.inferred_alloc)) |inferred_alloc| {
-                // Add the stored instruction to the set we will use to resolve peer types
-                // for the inferred allocation.
-                // This instruction will not make it to codegen; it is only to participate
-                // in the `stored_inst_list` of the `inferred_alloc`.
-                const operand = try block.addTyOp(.bitcast, pointee_ty, .void_value);
-                try inferred_alloc.data.stored_inst_list.append(sema.arena, operand);
+            switch (ptr_val.tag()) {
+                .inferred_alloc => {
+                    const inferred_alloc = &ptr_val.castTag(.inferred_alloc).?.data;
+                    // Add the stored instruction to the set we will use to resolve peer types
+                    // for the inferred allocation.
+                    // This instruction will not make it to codegen; it is only to participate
+                    // in the `stored_inst_list` of the `inferred_alloc`.
+                    const operand = try block.addTyOp(.bitcast, pointee_ty, .void_value);
+                    try inferred_alloc.stored_inst_list.append(sema.arena, operand);
+                },
+                .inferred_alloc_comptime => {
+                    const iac = ptr_val.castTag(.inferred_alloc_comptime).?;
+                    // There will be only one coerce_result_ptr because we are running at comptime.
+                    // The alloc will turn into a Decl.
+                    var anon_decl = try block.startAnonDecl();
+                    defer anon_decl.deinit();
+                    iac.data = try anon_decl.finish(
+                        try pointee_ty.copy(anon_decl.arena()),
+                        Value.undef,
+                    );
+                    return sema.addConstant(
+                        ptr_ty,
+                        try Value.Tag.decl_ref_mut.create(sema.arena, .{
+                            .decl = iac.data,
+                            .runtime_index = block.runtime_index,
+                        }),
+                    );
+                },
+                .decl_ref_mut => return sema.addConstant(ptr_ty, ptr_val),
+                else => {},
             }
         }
     }
-
+    try sema.requireRuntimeBlock(block, src);
+    const bitcasted_ptr = try block.addTyOp(.bitcast, ptr_ty, ptr);
     return bitcasted_ptr;
 }
 
@@ -1996,6 +2017,9 @@ fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const var_decl_src = inst_data.src();
     const var_type = try sema.resolveType(block, ty_src, inst_data.operand);
+    if (block.is_comptime) {
+        return sema.analyzeComptimeAlloc(block, var_type);
+    }
     const ptr_type = try Type.ptr(sema.arena, .{
         .pointee_type = var_type,
         .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
@@ -13418,9 +13442,10 @@ fn analyzeComptimeAlloc(
     defer anon_decl.deinit();
     const decl = try anon_decl.finish(
         try var_type.copy(anon_decl.arena()),
-        // AstGen guarantees there will be a store before the first load, so we put a value
-        // here indicating there is no valid value.
-        Value.initTag(.unreachable_value),
+        // There will be stores before the first load, but they may be to sub-elements or
+        // sub-fields. So we need to initialize with undef to allow the mechanism to expand
+        // into fields/elements and have those overridden with stored values.
+        Value.undef,
     );
     try sema.mod.declareDeclDependency(sema.owner_decl, decl);
     return sema.addConstant(ptr_type, try Value.Tag.decl_ref_mut.create(sema.arena, .{
