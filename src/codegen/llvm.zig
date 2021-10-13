@@ -448,8 +448,6 @@ pub const Object = struct {
             .args = args.toOwnedSlice(),
             .arg_index = 0,
             .func_inst_table = .{},
-            .entry_block = entry_block,
-            .latest_alloca_inst = null,
             .llvm_func = llvm_func,
             .blocks = .{},
             .single_threaded = module.comp.bin_file.options.single_threaded,
@@ -1284,11 +1282,6 @@ pub const FuncGen = struct {
     /// it omits 0-bit types.
     args: []*const llvm.Value,
     arg_index: usize,
-
-    entry_block: *const llvm.BasicBlock,
-    /// This fields stores the last alloca instruction, such that we can append
-    /// more alloca instructions to the top of the function.
-    latest_alloca_inst: ?*const llvm.Value,
 
     llvm_func: *const llvm.Value,
 
@@ -2658,26 +2651,19 @@ pub const FuncGen = struct {
 
     /// Use this instead of builder.buildAlloca, because this function makes sure to
     /// put the alloca instruction at the top of the function!
-    fn buildAlloca(self: *FuncGen, t: *const llvm.Type) *const llvm.Value {
+    fn buildAlloca(self: *FuncGen, llvm_ty: *const llvm.Type) *const llvm.Value {
         const prev_block = self.builder.getInsertBlock();
-        defer self.builder.positionBuilderAtEnd(prev_block);
 
-        if (self.latest_alloca_inst) |latest_alloc| {
-            // builder.positionBuilder adds it before the instruction,
-            // but we want to put it after the last alloca instruction.
-            self.builder.positionBuilder(self.entry_block, latest_alloc.getNextInstruction().?);
+        const entry_block = self.llvm_func.getFirstBasicBlock().?;
+        if (entry_block.getFirstInstruction()) |first_inst| {
+            self.builder.positionBuilder(entry_block, first_inst);
         } else {
-            // There might have been other instructions emitted before the
-            // first alloca has been generated. However the alloca should still
-            // be first in the function.
-            if (self.entry_block.getFirstInstruction()) |first_inst| {
-                self.builder.positionBuilder(self.entry_block, first_inst);
-            }
+            self.builder.positionBuilderAtEnd(entry_block);
         }
 
-        const val = self.builder.buildAlloca(t, "");
-        self.latest_alloca_inst = val;
-        return val;
+        const alloca = self.builder.buildAlloca(llvm_ty, "");
+        self.builder.positionBuilderAtEnd(prev_block);
+        return alloca;
     }
 
     fn airStore(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
