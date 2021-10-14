@@ -1458,7 +1458,7 @@ pub const Type = extern union {
                 }
             },
             .union_tagged => {
-                const union_obj = self.castTag(.@"union").?.data;
+                const union_obj = self.castTag(.union_tagged).?.data;
                 if (union_obj.tag_ty.hasCodeGenBits()) {
                     return true;
                 }
@@ -1470,7 +1470,6 @@ pub const Type = extern union {
                 }
             },
 
-            // TODO lazy types
             .array, .vector => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
             .array_u8 => self.arrayLen() != 0,
 

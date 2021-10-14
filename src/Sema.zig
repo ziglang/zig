@@ -10186,7 +10186,7 @@ fn validateVarType(
     is_extern: bool,
 ) CompileError!void {
     var ty = var_ty;
-    const ok: bool = while (true) switch (ty.zigTypeTag()) {
+    while (true) switch (ty.zigTypeTag()) {
         .Bool,
         .Int,
         .Float,
@@ -10194,7 +10194,7 @@ fn validateVarType(
         .Enum,
         .Frame,
         .AnyFrame,
-        => break true,
+        => return,
 
         .BoundFn,
         .ComptimeFloat,
@@ -10205,14 +10205,14 @@ fn validateVarType(
         .Void,
         .Undefined,
         .Null,
-        => break false,
+        => break,
 
         .Pointer => {
             const elem_ty = ty.childType();
             if (elem_ty.zigTypeTag() == .Opaque) return;
             ty = elem_ty;
         },
-        .Opaque => break is_extern,
+        .Opaque => if (is_extern) return else break,
 
         .Optional => {
             var buf: Type.Payload.ElemType = undefined;
@@ -10223,15 +10223,17 @@ fn validateVarType(
 
         .ErrorUnion => ty = ty.errorUnionPayload(),
 
-        .Fn => @panic("TODO fn validateVarType"),
-        .Struct, .Union => {
+        .Fn, .Struct, .Union => {
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
-            break !resolved_ty.requiresComptime();
+            if (resolved_ty.requiresComptime()) {
+                break;
+            } else {
+                return;
+            }
         },
     } else unreachable; // TODO should not need else unreachable
-    if (!ok) {
-        return sema.fail(block, src, "variable of type '{}' must be const or comptime", .{var_ty});
-    }
+
+    return sema.fail(block, src, "variable of type '{}' must be const or comptime", .{var_ty});
 }
 
 pub const PanicId = enum {
@@ -11273,7 +11275,12 @@ fn coerce(
 
     const in_memory_result = coerceInMemoryAllowed(dest_type, inst_ty, false, target);
     if (in_memory_result == .ok) {
-        return sema.bitCast(block, dest_type, inst, inst_src);
+        if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
+            // Keep the comptime Value representation; take the new type.
+            return sema.addConstant(dest_type, val);
+        }
+        try sema.requireRuntimeBlock(block, inst_src);
+        return block.addTyOp(.bitcast, dest_type, inst);
     }
 
     // undefined to anything
