@@ -110,7 +110,7 @@ this information and more in the `--help` menu.
 To quickly test a change to a file in the standard library, you can run zig test and specify a custom lib directory with the follow command-line argument.
 
 ```bash
-./build/zig test lib/std/fmt.zig --zig-lib-dir lib
+./build/zig test lib/std/fmt.zig --zig-lib-dir lib --main-pkg-path lib/std
 ```
 
 #### Testing Non-Native Architectures with QEMU
