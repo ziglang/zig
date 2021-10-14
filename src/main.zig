@@ -434,6 +434,7 @@ const usage_build_generic =
     \\  --verbose-llvm-cpu-features  Enable compiler debug output for LLVM CPU features
     \\  --debug-log [scope]          Enable printing debug/info log messages for scope
     \\  --debug-compile-errors       Crash with helpful diagnostics at the first compile error
+    \\  --debug-link-snapshot        Enable dumping of the linker's state in JSON format
     \\
 ;
 
@@ -632,6 +633,7 @@ fn buildOutputType(
     var major_subsystem_version: ?u32 = null;
     var minor_subsystem_version: ?u32 = null;
     var wasi_exec_model: ?std.builtin.WasiExecModel = null;
+    var enable_link_snapshots: bool = false;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -928,6 +930,12 @@ fn buildOutputType(
                             std.log.warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
                         } else {
                             try log_scopes.append(gpa, args[i]);
+                        }
+                    } else if (mem.eql(u8, arg, "--debug-link-snapshot")) {
+                        if (!build_options.enable_link_snapshots) {
+                            std.log.warn("Zig was compiled without linker snapshots enabled (-Dlink-snapshot). --debug-link-snapshot has no effect.", .{});
+                        } else {
+                            enable_link_snapshots = true;
                         }
                     } else if (mem.eql(u8, arg, "-fcompiler-rt")) {
                         want_compiler_rt = true;
@@ -2139,6 +2147,7 @@ fn buildOutputType(
         .subsystem = subsystem,
         .wasi_exec_model = wasi_exec_model,
         .debug_compile_errors = debug_compile_errors,
+        .enable_link_snapshots = enable_link_snapshots,
     }) catch |err| {
         fatal("unable to create compilation: {s}", .{@errorName(err)});
     };
