@@ -5,22 +5,6 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 const mem = std.mem;
 const builtin = @import("builtin");
 
-test "slicing" {
-    var array: [20]i32 = undefined;
-
-    array[5] = 1234;
-
-    var slice = array[5..10];
-
-    if (slice.len != 5) unreachable;
-
-    const ptr = &slice[0];
-    if (ptr.* != 1234) unreachable;
-
-    var slice_rest = array[10..];
-    if (slice_rest.len != 10) unreachable;
-}
-
 test "constant equal function pointers" {
     const alias = emptyFn;
     try expect(comptime x: {
@@ -228,15 +212,6 @@ test "opaque types" {
     try expect(*OpaqueA != *OpaqueB);
     try expect(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
     try expect(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
-}
-
-test "variable is allowed to be a pointer to an opaque type" {
-    var x: i32 = 1234;
-    _ = hereIsAnOpaqueType(@ptrCast(*OpaqueA, &x));
-}
-fn hereIsAnOpaqueType(ptr: *OpaqueA) *OpaqueA {
-    var a = ptr;
-    return a;
 }
 
 test "comptime if inside runtime while which unconditionally breaks" {

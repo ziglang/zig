@@ -708,7 +708,9 @@ pub const Decl = struct {
                 return ty.castTag(.empty_struct).?.data;
             },
             .@"opaque" => {
-                @panic("TODO opaque types");
+                const opaque_obj = ty.cast(Type.Payload.Opaque).?.data;
+                assert(opaque_obj.owner_decl == decl);
+                return &opaque_obj.namespace;
             },
             .@"union", .union_tagged => {
                 const union_obj = ty.cast(Type.Payload.Union).?.data;
@@ -1077,6 +1079,27 @@ pub const Union = struct {
             size = std.mem.alignForwardGeneric(u64, size, payload_align);
         }
         return size;
+    }
+};
+
+pub const Opaque = struct {
+    /// The Decl that corresponds to the opaque itself.
+    owner_decl: *Decl,
+    /// Represents the declarations inside this opaque.
+    namespace: Namespace,
+    /// Offset from `owner_decl`, points to the opaque decl AST node.
+    node_offset: i32,
+
+    pub fn srcLoc(self: Opaque) SrcLoc {
+        return .{
+            .file_scope = self.owner_decl.getFileScope(),
+            .parent_decl_node = self.owner_decl.src_node,
+            .lazy = .{ .node_offset = self.node_offset },
+        };
+    }
+
+    pub fn getFullyQualifiedName(s: *Opaque, gpa: *Allocator) ![:0]u8 {
+        return s.owner_decl.getFullyQualifiedName(gpa);
     }
 };
 

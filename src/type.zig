@@ -571,6 +571,11 @@ pub const Type = extern union {
                 }
                 return a.tag() == b.tag();
             },
+            .Opaque => {
+                const opaque_obj_a = a.castTag(.@"opaque").?.data;
+                const opaque_obj_b = b.castTag(.@"opaque").?.data;
+                return opaque_obj_a == opaque_obj_b;
+            },
             .Union => {
                 if (a.cast(Payload.Union)) |a_payload| {
                     if (b.cast(Payload.Union)) |b_payload| {
@@ -611,7 +616,6 @@ pub const Type = extern union {
                 return false;
             },
             .Float => return a.tag() == b.tag(),
-            .Opaque,
             .BoundFn,
             .Frame,
             => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
@@ -1408,6 +1412,7 @@ pub const Type = extern union {
             .extern_options,
             .@"anyframe",
             .anyframe_T,
+            .@"opaque",
             => true,
 
             .function => !self.castTag(.function).?.data.is_generic,
@@ -1499,7 +1504,6 @@ pub const Type = extern union {
             .enum_literal,
             .empty_struct,
             .empty_struct_literal,
-            .@"opaque",
             .type_info,
             .bound_fn,
             => false,
@@ -3097,7 +3101,7 @@ pub const Type = extern union {
             .enum_full => &self.castTag(.enum_full).?.data.namespace,
             .enum_nonexhaustive => &self.castTag(.enum_nonexhaustive).?.data.namespace,
             .empty_struct => self.castTag(.empty_struct).?.data,
-            .@"opaque" => &self.castTag(.@"opaque").?.data,
+            .@"opaque" => &self.castTag(.@"opaque").?.data.namespace,
             .@"union" => &self.castTag(.@"union").?.data.namespace,
             .union_tagged => &self.castTag(.union_tagged).?.data.namespace,
 
@@ -3870,7 +3874,7 @@ pub const Type = extern union {
 
         pub const Opaque = struct {
             base: Payload = .{ .tag = .@"opaque" },
-            data: Module.Namespace,
+            data: *Module.Opaque,
         };
 
         pub const Struct = struct {
@@ -3904,6 +3908,7 @@ pub const Type = extern union {
     pub const @"usize" = initTag(.usize);
     pub const @"comptime_int" = initTag(.comptime_int);
     pub const @"void" = initTag(.void);
+    pub const @"type" = initTag(.type);
 
     pub fn ptr(arena: *Allocator, d: Payload.Pointer.Data) !Type {
         assert(d.host_size == 0 or d.bit_offset < d.host_size * 8);

@@ -957,7 +957,7 @@ fn zirExtended(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .struct_decl        => return sema.zirStructDecl(        block, extended, inst),
         .enum_decl          => return sema.zirEnumDecl(          block, extended),
         .union_decl         => return sema.zirUnionDecl(         block, extended, inst),
-        .opaque_decl        => return sema.zirOpaqueDecl(        block, extended, inst),
+        .opaque_decl        => return sema.zirOpaqueDecl(        block, extended),
         .ret_ptr            => return sema.zirRetPtr(            block, extended),
         .ret_type           => return sema.zirRetType(           block, extended),
         .this               => return sema.zirThis(              block, extended),
@@ -1432,7 +1432,7 @@ fn zirStructDecl(
     const struct_val = try Value.Tag.ty.create(&new_decl_arena.allocator, struct_ty);
     const type_name = try sema.createTypeName(block, small.name_strategy);
     const new_decl = try sema.mod.createAnonymousDeclNamed(block, .{
-        .ty = Type.initTag(.type),
+        .ty = Type.type,
         .val = struct_val,
     }, type_name);
     new_decl.owns_tv = true;
@@ -1541,7 +1541,7 @@ fn zirEnumDecl(
     const enum_val = try Value.Tag.ty.create(&new_decl_arena.allocator, enum_ty);
     const type_name = try sema.createTypeName(block, small.name_strategy);
     const new_decl = try mod.createAnonymousDeclNamed(block, .{
-        .ty = Type.initTag(.type),
+        .ty = Type.type,
         .val = enum_val,
     }, type_name);
     new_decl.owns_tv = true;
@@ -1731,7 +1731,7 @@ fn zirUnionDecl(
     const union_val = try Value.Tag.ty.create(&new_decl_arena.allocator, union_ty);
     const type_name = try sema.createTypeName(block, small.name_strategy);
     const new_decl = try sema.mod.createAnonymousDeclNamed(block, .{
-        .ty = Type.initTag(.type),
+        .ty = Type.type,
         .val = union_val,
     }, type_name);
     new_decl.owns_tv = true;
@@ -1764,14 +1764,63 @@ fn zirOpaqueDecl(
     sema: *Sema,
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
-    inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
-    _ = extended;
-    _ = inst;
-    return sema.fail(block, sema.src, "TODO implement zirOpaqueDecl", .{});
+    const mod = sema.mod;
+    const gpa = sema.gpa;
+    const small = @bitCast(Zir.Inst.OpaqueDecl.Small, extended.small);
+    var extra_index: usize = extended.operand;
+
+    const src: LazySrcLoc = if (small.has_src_node) blk: {
+        const node_offset = @bitCast(i32, sema.code.extra[extra_index]);
+        extra_index += 1;
+        break :blk .{ .node_offset = node_offset };
+    } else sema.src;
+
+    const decls_len = if (small.has_decls_len) blk: {
+        const decls_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
+
+    var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+    errdefer new_decl_arena.deinit();
+
+    const opaque_obj = try new_decl_arena.allocator.create(Module.Opaque);
+    const opaque_ty_payload = try new_decl_arena.allocator.create(Type.Payload.Opaque);
+    opaque_ty_payload.* = .{
+        .base = .{ .tag = .@"opaque" },
+        .data = opaque_obj,
+    };
+    const opaque_ty = Type.initPayload(&opaque_ty_payload.base);
+    const opaque_val = try Value.Tag.ty.create(&new_decl_arena.allocator, opaque_ty);
+    const type_name = try sema.createTypeName(block, small.name_strategy);
+    const new_decl = try mod.createAnonymousDeclNamed(block, .{
+        .ty = Type.type,
+        .val = opaque_val,
+    }, type_name);
+    new_decl.owns_tv = true;
+    errdefer mod.abortAnonDecl(new_decl);
+
+    opaque_obj.* = .{
+        .owner_decl = new_decl,
+        .node_offset = src.node_offset,
+        .namespace = .{
+            .parent = block.namespace,
+            .ty = opaque_ty,
+            .file_scope = block.getFileScope(),
+        },
+    };
+    std.log.scoped(.module).debug("create opaque {*} owned by {*} ({s})", .{
+        &opaque_obj.namespace, new_decl, new_decl.name,
+    });
+
+    extra_index = try mod.scanNamespace(&opaque_obj.namespace, extra_index, decls_len, new_decl);
+
+    try new_decl.finalizeNewArena(&new_decl_arena);
+    return sema.analyzeDeclVal(block, src, new_decl);
 }
 
 fn zirErrorSetDecl(
@@ -1797,7 +1846,7 @@ fn zirErrorSetDecl(
     const error_set_val = try Value.Tag.ty.create(&new_decl_arena.allocator, error_set_ty);
     const type_name = try sema.createTypeName(block, name_strategy);
     const new_decl = try sema.mod.createAnonymousDeclNamed(block, .{
-        .ty = Type.initTag(.type),
+        .ty = Type.type,
         .val = error_set_val,
     }, type_name);
     new_decl.owns_tv = true;
@@ -4278,7 +4327,7 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         .names_len = @intCast(u32, new_names.len),
     };
     const error_set_ty = try Type.Tag.error_set.create(sema.arena, new_error_set);
-    return sema.addConstant(Type.initTag(.type), try Value.Tag.ty.create(sema.arena, error_set_ty));
+    return sema.addConstant(Type.type, try Value.Tag.ty.create(sema.arena, error_set_ty));
 }
 
 fn zirEnumLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -10158,6 +10207,11 @@ fn validateVarType(
         .Null,
         => break false,
 
+        .Pointer => {
+            const elem_ty = ty.childType();
+            if (elem_ty.zigTypeTag() == .Opaque) return;
+            ty = elem_ty;
+        },
         .Opaque => break is_extern,
 
         .Optional => {
@@ -10165,7 +10219,8 @@ fn validateVarType(
             const child_ty = ty.optionalChild(&buf);
             return validateVarType(sema, block, src, child_ty, is_extern);
         },
-        .Pointer, .Array, .Vector => ty = ty.elemType(),
+        .Array, .Vector => ty = ty.elemType(),
+
         .ErrorUnion => ty = ty.errorUnionPayload(),
 
         .Fn => @panic("TODO fn validateVarType"),
@@ -12978,7 +13033,7 @@ fn generateUnionTagTypeNumbered(
     const enum_val = try Value.Tag.ty.create(&new_decl_arena.allocator, enum_ty);
     // TODO better type name
     const new_decl = try mod.createAnonymousDecl(block, .{
-        .ty = Type.initTag(.type),
+        .ty = Type.type,
         .val = enum_val,
     });
     new_decl.owns_tv = true;
@@ -13014,7 +13069,7 @@ fn generateUnionTagTypeSimple(sema: *Sema, block: *Block, fields_len: u32) !Type
     const enum_val = try Value.Tag.ty.create(&new_decl_arena.allocator, enum_ty);
     // TODO better type name
     const new_decl = try mod.createAnonymousDecl(block, .{
-        .ty = Type.initTag(.type),
+        .ty = Type.type,
         .val = enum_val,
     });
     new_decl.owns_tv = true;

@@ -758,10 +758,26 @@ pub const DeclGen = struct {
                     };
                     return dg.context.structType(&fields, fields.len, .False);
                 } else {
-                    const elem_type = try dg.llvmType(t.elemType());
                     const llvm_addrspace = dg.llvmAddressSpace(t.ptrAddressSpace());
-                    return elem_type.pointerType(llvm_addrspace);
+                    const llvm_elem_ty = try dg.llvmType(t.childType());
+                    return llvm_elem_ty.pointerType(llvm_addrspace);
                 }
+            },
+            .Opaque => {
+                const gop = try dg.object.type_map.getOrPut(gpa, t);
+                if (gop.found_existing) return gop.value_ptr.*;
+
+                // The Type memory is ephemeral; since we want to store a longer-lived
+                // reference, we need to copy it here.
+                gop.key_ptr.* = try t.copy(&dg.object.type_map_arena.allocator);
+
+                const opaque_obj = t.castTag(.@"opaque").?.data;
+                const name = try opaque_obj.getFullyQualifiedName(gpa);
+                defer gpa.free(name);
+
+                const llvm_struct_ty = dg.context.structCreateNamed(name);
+                gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
+                return llvm_struct_ty;
             },
             .Array => {
                 const elem_type = try dg.llvmType(t.elemType());
@@ -896,7 +912,6 @@ pub const DeclGen = struct {
 
             .BoundFn => @panic("TODO remove BoundFn from the language"),
 
-            .Opaque,
             .Frame,
             .AnyFrame,
             .Vector,

@@ -4,6 +4,22 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
+test "slicing" {
+    var array: [20]i32 = undefined;
+
+    array[5] = 1234;
+
+    var slice = array[5..10];
+
+    if (slice.len != 5) unreachable;
+
+    const ptr = &slice[0];
+    if (ptr.* != 1234) unreachable;
+
+    var slice_rest = array[10..];
+    if (slice_rest.len != 10) unreachable;
+}
+
 const x = @intToPtr([*]i32, 0x1000)[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {

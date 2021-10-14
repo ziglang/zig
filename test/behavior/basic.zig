@@ -188,3 +188,15 @@ fn testMemcpyMemset() !void {
     try expect(bar[11] == 'A');
     try expect(bar[19] == 'A');
 }
+
+const OpaqueA = opaque {};
+const OpaqueB = opaque {};
+
+test "variable is allowed to be a pointer to an opaque type" {
+    var x: i32 = 1234;
+    _ = hereIsAnOpaqueType(@ptrCast(*OpaqueA, &x));
+}
+fn hereIsAnOpaqueType(ptr: *OpaqueA) *OpaqueA {
+    var a = ptr;
+    return a;
+}

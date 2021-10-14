@@ -34,6 +34,17 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
     };
     var result = [1]Class{.none} ** 8;
     switch (ty.zigTypeTag()) {
+        .Pointer => switch (ty.ptrSize()) {
+            .Slice => {
+                result[0] = .integer;
+                result[1] = .integer;
+                return result;
+            },
+            else => {
+                result[0] = .integer;
+                return result;
+            },
+        },
         .Int, .Enum, .ErrorSet => {
             const bits = ty.intInfo(target).bits;
             if (bits <= 64) {
