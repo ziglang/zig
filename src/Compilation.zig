@@ -757,6 +757,8 @@ pub const InitOptions = struct {
     subsystem: ?std.Target.SubSystem = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
+    /// (Zig compiler development) Enable dumping linker's state as JSON.
+    enable_link_snapshots: bool = false,
 };
 
 fn addPackageTableToCacheHash(
@@ -1438,6 +1440,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .is_test = options.is_test,
             .wasi_exec_model = wasi_exec_model,
             .use_stage1 = use_stage1,
+            .enable_link_snapshots = options.enable_link_snapshots,
         });
         errdefer bin_file.destroy();
         comp.* = .{

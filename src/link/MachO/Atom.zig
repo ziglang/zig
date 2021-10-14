@@ -345,15 +345,9 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                     const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
                     const sect = seg.sections.items[sect_id];
                     const match = (try context.macho_file.getMatchingSection(sect)) orelse unreachable;
-                    const sym_name = try std.fmt.allocPrint(context.allocator, "{s}_{s}_{s}", .{
-                        context.object.name,
-                        commands.segmentName(sect),
-                        commands.sectionName(sect),
-                    });
-                    defer context.allocator.free(sym_name);
                     const local_sym_index = @intCast(u32, context.macho_file.locals.items.len);
                     try context.macho_file.locals.append(context.allocator, .{
-                        .n_strx = try context.macho_file.makeString(sym_name),
+                        .n_strx = 0,
                         .n_type = macho.N_SECT,
                         .n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(match).? + 1),
                         .n_desc = 0,

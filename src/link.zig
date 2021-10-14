@@ -126,6 +126,9 @@ pub const Options = struct {
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: std.builtin.WasiExecModel = undefined,
 
+    /// (Zig compiler development) Enable dumping of linker's state as JSON.
+    enable_link_snapshots: bool = false,
+
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }

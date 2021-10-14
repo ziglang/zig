@@ -205,6 +205,7 @@ pub fn build(b: *Builder) !void {
     }
 
     const enable_logging = b.option(bool, "log", "Whether to enable logging") orelse false;
+    const enable_link_snapshots = b.option(bool, "link-snapshot", "Whether to enable linker state snapshots") orelse false;
 
     const opt_version_string = b.option([]const u8, "version-string", "Override Zig version string. Default is to find out with git.");
     const version = if (opt_version_string) |version| version else v: {
@@ -261,6 +262,7 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(std.SemanticVersion, "semver", semver);
 
     exe_options.addOption(bool, "enable_logging", enable_logging);
+    exe_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     exe_options.addOption(bool, "enable_tracy", tracy != null);
     exe_options.addOption(bool, "is_stage1", is_stage1);
     exe_options.addOption(bool, "omit_stage2", omit_stage2);
@@ -301,6 +303,7 @@ pub fn build(b: *Builder) !void {
     test_stage2.addOptions("build_options", test_stage2_options);
 
     test_stage2_options.addOption(bool, "enable_logging", enable_logging);
+    test_stage2_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     test_stage2_options.addOption(bool, "skip_non_native", skip_non_native);
     test_stage2_options.addOption(bool, "skip_compile_errors", skip_compile_errors);
     test_stage2_options.addOption(bool, "is_stage1", is_stage1);
