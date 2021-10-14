@@ -20,6 +20,47 @@ test "slicing" {
     if (slice_rest.len != 10) unreachable;
 }
 
+test "slicing zero length array" {
+    const s1 = ""[0..];
+    const s2 = ([_]u32{})[0..];
+    try expect(s1.len == 0);
+    try expect(s2.len == 0);
+    try expect(mem.eql(u8, s1, ""));
+    try expect(mem.eql(u32, s2, &[_]u32{}));
+}
+
+test "slice string literal has correct type" {
+    comptime {
+        try expect(@TypeOf("aoeu"[0..]) == *const [4:0]u8);
+        const array = [_]i32{ 1, 2, 3, 4 };
+        try expect(@TypeOf(array[0..]) == *const [4]i32);
+    }
+    var runtime_zero: usize = 0;
+    comptime try expect(@TypeOf("aoeu"[runtime_zero..]) == [:0]const u8);
+    const array = [_]i32{ 1, 2, 3, 4 };
+    comptime try expect(@TypeOf(array[runtime_zero..]) == []const i32);
+}
+
+test "generic malloc free" {
+    const a = memAlloc(u8, 10) catch unreachable;
+    memFree(u8, a);
+}
+var some_mem: [100]u8 = undefined;
+fn memAlloc(comptime T: type, n: usize) anyerror![]T {
+    return @ptrCast([*]T, &some_mem[0])[0..n];
+}
+fn memFree(comptime T: type, memory: []T) void {
+    _ = memory;
+}
+
+test "result location zero sized array inside struct field implicit cast to slice" {
+    const E = struct {
+        entries: []u32,
+    };
+    var foo = E{ .entries = &[_]u32{} };
+    try expect(foo.entries.len == 0);
+}
+
 const x = @intToPtr([*]i32, 0x1000)[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
