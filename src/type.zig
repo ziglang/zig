@@ -1579,7 +1579,7 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts that hasCodeGenBits() is true.
+    /// Returns 0 for 0-bit types.
     pub fn abiAlignment(self: Type, target: Target) u32 {
         return switch (self.tag()) {
             .u1,
@@ -1667,6 +1667,7 @@ pub const Type = extern union {
 
             .int_signed, .int_unsigned => {
                 const bits: u16 = self.cast(Payload.Bits).?.data;
+                if (bits == 0) return 0;
                 if (bits <= 8) return 1;
                 if (bits <= 16) return 2;
                 if (bits <= 32) return 4;
@@ -1699,23 +1700,27 @@ pub const Type = extern union {
             },
 
             .@"struct" => {
-                // TODO take into account field alignment
-                // also make this possible to fail, and lazy
-                // I think we need to move all the functions from type.zig which can
-                // fail into Sema.
-                // Probably will need to introduce multi-stage struct resolution just
-                // like we have in stage1.
-                const struct_obj = self.castTag(.@"struct").?.data;
-                var biggest: u32 = 0;
-                for (struct_obj.fields.values()) |field| {
-                    if (!field.ty.hasCodeGenBits()) continue;
-                    const field_align = field.ty.abiAlignment(target);
-                    if (field_align > biggest) {
-                        return field_align;
-                    }
+                const fields = self.structFields();
+                if (self.castTag(.@"struct")) |payload| {
+                    const struct_obj = payload.data;
+                    assert(struct_obj.status == .have_layout);
+                    const is_packed = struct_obj.layout == .Packed;
+                    if (is_packed) @panic("TODO packed structs");
                 }
-                assert(biggest != 0);
-                return biggest;
+                var big_align: u32 = 0;
+                for (fields.values()) |field| {
+                    if (!field.ty.hasCodeGenBits()) continue;
+
+                    const field_align = a: {
+                        if (field.abi_align.tag() == .abi_align_default) {
+                            break :a field.ty.abiAlignment(target);
+                        } else {
+                            break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                        }
+                    };
+                    big_align = @maximum(big_align, field_align);
+                }
+                return big_align;
             },
             .enum_full, .enum_nonexhaustive, .enum_simple, .enum_numbered => {
                 var buffer: Payload.Bits = undefined;
@@ -1726,8 +1731,12 @@ pub const Type = extern union {
             .@"union" => return self.castTag(.@"union").?.data.abiAlignment(target, false),
             .union_tagged => return self.castTag(.union_tagged).?.data.abiAlignment(target, true),
 
-            .c_void,
+            .empty_struct,
             .void,
+            => return 0,
+
+            .empty_struct_literal,
+            .c_void,
             .type,
             .comptime_int,
             .comptime_float,
@@ -1735,8 +1744,6 @@ pub const Type = extern union {
             .@"null",
             .@"undefined",
             .enum_literal,
-            .empty_struct,
-            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
             .@"opaque",
@@ -1758,7 +1765,6 @@ pub const Type = extern union {
             .fn_ccc_void_no_args => unreachable, // represents machine code; not a pointer
             .function => unreachable, // represents machine code; not a pointer
             .c_void => unreachable,
-            .void => unreachable,
             .type => unreachable,
             .comptime_int => unreachable,
             .comptime_float => unreachable,
@@ -1767,7 +1773,6 @@ pub const Type = extern union {
             .@"undefined" => unreachable,
             .enum_literal => unreachable,
             .single_const_pointer_to_comptime_int => unreachable,
-            .empty_struct => unreachable,
             .empty_struct_literal => unreachable,
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
@@ -1777,14 +1782,19 @@ pub const Type = extern union {
             .type_info => unreachable,
             .bound_fn => unreachable,
 
+            .empty_struct, .void => 0,
+
             .@"struct" => {
-                const s = self.castTag(.@"struct").?.data;
-                assert(s.status == .have_layout);
-                const is_packed = s.layout == .Packed;
-                if (is_packed) @panic("TODO packed structs");
+                const fields = self.structFields();
+                if (self.castTag(.@"struct")) |payload| {
+                    const struct_obj = payload.data;
+                    assert(struct_obj.status == .have_layout);
+                    const is_packed = struct_obj.layout == .Packed;
+                    if (is_packed) @panic("TODO packed structs");
+                }
                 var size: u64 = 0;
                 var big_align: u32 = 0;
-                for (s.fields.values()) |field| {
+                for (fields.values()) |field| {
                     if (!field.ty.hasCodeGenBits()) continue;
 
                     const field_align = a: {
@@ -1829,7 +1839,7 @@ pub const Type = extern union {
             .array_u8_sentinel_0 => self.castTag(.array_u8_sentinel_0).?.data + 1,
             .array, .vector => {
                 const payload = self.cast(Payload.Array).?.data;
-                const elem_size = std.math.max(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
+                const elem_size = @maximum(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
                 return payload.len * elem_size;
             },
             .array_sentinel => {
@@ -3331,6 +3341,7 @@ pub const Type = extern union {
 
     pub fn structFields(ty: Type) Module.Struct.Fields {
         switch (ty.tag()) {
+            .empty_struct => return .{},
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 return struct_obj.fields;
@@ -3345,6 +3356,7 @@ pub const Type = extern union {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 return struct_obj.fields.count();
             },
+            .empty_struct => return 0,
             else => unreachable,
         }
     }

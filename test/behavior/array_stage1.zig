@@ -4,14 +4,6 @@ const mem = std.mem;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "void arrays" {
-    var array: [4]void = undefined;
-    array[0] = void{};
-    array[1] = array[2];
-    try expect(@sizeOf(@TypeOf(array)) == 0);
-    try expect(array.len == 4);
-}
-
 test "nested arrays" {
     const array_of_strings = [_][]const u8{ "hello", "this", "is", "my", "thing" };
     for (array_of_strings) |s, i| {

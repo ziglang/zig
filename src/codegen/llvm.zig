@@ -1863,14 +1863,16 @@ pub const FuncGen = struct {
     }
 
     fn airPtrElemPtr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+        const lhs_ty = self.air.typeOf(bin_op.lhs);
+        if (!lhs_ty.hasCodeGenBits()) return null;
+
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        if (self.air.typeOf(bin_op.lhs).isSinglePointer()) {
+        if (lhs_ty.isSinglePointer()) {
             // If this is a single-item pointer to an array, we need another index in the GEP.
             const indices: [2]*const llvm.Value = .{ self.context.intType(32).constNull(), rhs };
             return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");

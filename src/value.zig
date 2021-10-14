@@ -1399,6 +1399,7 @@ pub const Value = extern union {
 
         switch (zig_ty_tag) {
             .BoundFn => unreachable, // TODO remove this from the language
+            .Opaque => unreachable, // Cannot hash opaque types
 
             .Void,
             .NoReturn,
@@ -1451,10 +1452,22 @@ pub const Value = extern union {
                 else => unreachable,
             },
             .Array, .Vector => {
-                @panic("TODO implement hashing array/vector values");
+                const len = ty.arrayLen();
+                const elem_ty = ty.childType();
+                var index: usize = 0;
+                var elem_value_buf: ElemValueBuffer = undefined;
+                while (index < len) : (index += 1) {
+                    const elem_val = val.elemValueBuffer(index, &elem_value_buf);
+                    elem_val.hash(elem_ty, hasher);
+                }
             },
             .Struct => {
-                @panic("TODO implement hashing struct values");
+                const fields = ty.structFields().values();
+                if (fields.len == 0) return;
+                const field_values = val.castTag(.@"struct").?.data;
+                for (field_values) |field_val, i| {
+                    field_val.hash(fields[i].ty, hasher);
+                }
             },
             .Optional => {
                 if (val.castTag(.opt_payload)) |payload| {
@@ -1486,7 +1499,7 @@ pub const Value = extern union {
                 }
             },
             .Union => {
-                const union_obj = val.castTag(.@"union").?.data;
+                const union_obj = val.cast(Payload.Union).?.data;
                 if (ty.unionTagType()) |tag_ty| {
                     union_obj.tag.hash(tag_ty, hasher);
                 }
@@ -1495,9 +1508,6 @@ pub const Value = extern union {
             },
             .Fn => {
                 @panic("TODO implement hashing function values");
-            },
-            .Opaque => {
-                @panic("TODO implement hashing opaque values");
             },
             .Frame => {
                 @panic("TODO implement hashing frame values");
@@ -1633,7 +1643,22 @@ pub const Value = extern union {
 
     /// Asserts the value is a single-item pointer to an array, or an array,
     /// or an unknown-length pointer, and returns the element value at the index.
-    pub fn elemValue(val: Value, arena: *Allocator, index: usize) error{OutOfMemory}!Value {
+    pub fn elemValue(val: Value, arena: *Allocator, index: usize) !Value {
+        return elemValueAdvanced(val, index, arena, undefined);
+    }
+
+    pub const ElemValueBuffer = Payload.U64;
+
+    pub fn elemValueBuffer(val: Value, index: usize, buffer: *ElemValueBuffer) Value {
+        return elemValueAdvanced(val, index, null, buffer) catch unreachable;
+    }
+
+    pub fn elemValueAdvanced(
+        val: Value,
+        index: usize,
+        arena: ?*Allocator,
+        buffer: *ElemValueBuffer,
+    ) error{OutOfMemory}!Value {
         switch (val.tag()) {
             .empty_array => unreachable, // out of bounds array index
             .empty_struct_value => unreachable, // out of bounds array index
@@ -1643,16 +1668,27 @@ pub const Value = extern union {
                 return val.castTag(.empty_array_sentinel).?.data;
             },
 
-            .bytes => return Tag.int_u64.create(arena, val.castTag(.bytes).?.data[index]),
+            .bytes => {
+                const byte = val.castTag(.bytes).?.data[index];
+                if (arena) |a| {
+                    return Tag.int_u64.create(a, byte);
+                } else {
+                    buffer.* = .{
+                        .base = .{ .tag = .int_u64 },
+                        .data = byte,
+                    };
+                    return initPayload(&buffer.base);
+                }
+            },
 
             // No matter the index; all the elements are the same!
             .repeated => return val.castTag(.repeated).?.data,
 
             .array => return val.castTag(.array).?.data[index],
-            .slice => return val.castTag(.slice).?.data.ptr.elemValue(arena, index),
+            .slice => return val.castTag(.slice).?.data.ptr.elemValueAdvanced(index, arena, buffer),
 
-            .decl_ref => return val.castTag(.decl_ref).?.data.val.elemValue(arena, index),
-            .decl_ref_mut => return val.castTag(.decl_ref_mut).?.data.decl.val.elemValue(arena, index),
+            .decl_ref => return val.castTag(.decl_ref).?.data.val.elemValueAdvanced(index, arena, buffer),
+            .decl_ref_mut => return val.castTag(.decl_ref_mut).?.data.decl.val.elemValueAdvanced(index, arena, buffer),
 
             else => unreachable,
         }
