@@ -5601,7 +5601,9 @@ pub fn sendfile(
                 hdtr = &hdtr_data;
             }
 
-            const adjusted_count = @minimum(in_len, @as(u63, max_count));
+            const adjusted_count_temporary = @minimum(in_len, @as(u63, max_count));
+            // TODO we should not need this int cast; improve the return type of `@minimum`
+            const adjusted_count = @intCast(u63, adjusted_count_temporary);
 
             while (true) {
                 var sbytes: off_t = adjusted_count;
@@ -5655,7 +5657,9 @@ pub fn sendfile(
     rw: {
         var buf: [8 * 4096]u8 = undefined;
         // Here we match BSD behavior, making a zero count value send as many bytes as possible.
-        const adjusted_count = if (in_len == 0) buf.len else @minimum(buf.len, in_len);
+        const adjusted_count_tmp = if (in_len == 0) buf.len else @minimum(buf.len, in_len);
+        // TODO we should not need this cast; improve return type of @minimum
+        const adjusted_count = @intCast(usize, adjusted_count_tmp);
         const amt_read = try pread(in_fd, buf[0..adjusted_count], in_offset);
         if (amt_read == 0) {
             if (in_len == 0) {
