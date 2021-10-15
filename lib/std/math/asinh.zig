@@ -60,7 +60,7 @@ fn asinh32(x: f32) f32 {
 fn asinh64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
-    const s = u >> 63;
+    const s = e >> 63;
 
     var rx = @bitCast(f64, u & (maxInt(u64) >> 1)); // |x|
 
@@ -97,6 +97,7 @@ test "math.asinh32" {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, asinh32(0.0), 0.0, epsilon));
+    try expect(math.approxEqAbs(f32, asinh32(-0.2), -0.198690, epsilon));
     try expect(math.approxEqAbs(f32, asinh32(0.2), 0.198690, epsilon));
     try expect(math.approxEqAbs(f32, asinh32(0.8923), 0.803133, epsilon));
     try expect(math.approxEqAbs(f32, asinh32(1.5), 1.194763, epsilon));
@@ -109,6 +110,7 @@ test "math.asinh64" {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, asinh64(0.0), 0.0, epsilon));
+    try expect(math.approxEqAbs(f64, asinh64(-0.2), -0.198690, epsilon));
     try expect(math.approxEqAbs(f64, asinh64(0.2), 0.198690, epsilon));
     try expect(math.approxEqAbs(f64, asinh64(0.8923), 0.803133, epsilon));
     try expect(math.approxEqAbs(f64, asinh64(1.5), 1.194763, epsilon));
