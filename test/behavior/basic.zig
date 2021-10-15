@@ -411,3 +411,38 @@ test "use of declaration with same name as primitive" {
     const c: @"u8" = 300;
     try expect(c == 300);
 }
+
+fn emptyFn() void {}
+
+test "constant equal function pointers" {
+    const alias = emptyFn;
+    try expect(comptime x: {
+        break :x emptyFn == alias;
+    });
+}
+
+test "multiline string literal is null terminated" {
+    const s1 =
+        \\one
+        \\two)
+        \\three
+    ;
+    const s2 = "one\ntwo)\nthree";
+    try expect(std.cstr.cmp(s1, s2) == 0);
+}
+
+test "self reference through fn ptr field" {
+    const S = struct {
+        const A = struct {
+            f: fn (A) u8,
+        };
+
+        fn foo(a: A) u8 {
+            _ = a;
+            return 12;
+        }
+    };
+    var a: S.A = undefined;
+    a.f = S.foo;
+    try expect(a.f(a) == 12);
+}

@@ -2341,10 +2341,33 @@ pub const FuncGen = struct {
     }
 
     fn airWrapOptional(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
-        return self.todo("implement llvm codegen for 'airWrapOptional'", .{});
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const non_null_bit = self.context.intType(1).constAllOnes();
+        if (!operand_ty.hasCodeGenBits()) return non_null_bit;
+        const operand = try self.resolveInst(ty_op.operand);
+        const optional_ty = self.air.typeOfIndex(inst);
+        if (optional_ty.isPtrLikeOptional()) return operand;
+        const llvm_optional_ty = try self.dg.llvmType(optional_ty);
+        if (isByRef(optional_ty)) {
+            const optional_ptr = self.buildAlloca(llvm_optional_ty);
+            const payload_ptr = self.builder.buildStructGEP(optional_ptr, 0, "");
+            var buf: Type.Payload.ElemType = undefined;
+            const payload_ty = operand_ty.optionalChild(&buf);
+            var ptr_ty_payload: Type.Payload.ElemType = .{
+                .base = .{ .tag = .single_mut_pointer },
+                .data = payload_ty,
+            };
+            const payload_ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+            self.store(payload_ptr, payload_ptr_ty, operand, .NotAtomic);
+            const non_null_ptr = self.builder.buildStructGEP(optional_ptr, 1, "");
+            _ = self.builder.buildStore(non_null_bit, non_null_ptr);
+            return optional_ptr;
+        }
+        const partial = self.builder.buildInsertValue(llvm_optional_ty.getUndef(), operand, 0, "");
+        return self.builder.buildInsertValue(partial, non_null_bit, 1, "");
     }
 
     fn airWrapErrUnionPayload(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

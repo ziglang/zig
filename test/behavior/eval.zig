@@ -217,3 +217,154 @@ const vertices = [_]Vertex{
         .b = 1.0,
     },
 };
+
+test "statically initialized list" {
+    try expect(static_point_list[0].x == 1);
+    try expect(static_point_list[0].y == 2);
+    try expect(static_point_list[1].x == 3);
+    try expect(static_point_list[1].y == 4);
+}
+const Point = struct {
+    x: i32,
+    y: i32,
+};
+const static_point_list = [_]Point{
+    makePoint(1, 2),
+    makePoint(3, 4),
+};
+fn makePoint(x: i32, y: i32) Point {
+    return Point{
+        .x = x,
+        .y = y,
+    };
+}
+
+test "statically initialized array literal" {
+    const y: [4]u8 = st_init_arr_lit_x;
+    try expect(y[3] == 4);
+}
+const st_init_arr_lit_x = [_]u8{ 1, 2, 3, 4 };
+
+const CmdFn = struct {
+    name: []const u8,
+    func: fn (i32) i32,
+};
+
+const cmd_fns = [_]CmdFn{
+    CmdFn{
+        .name = "one",
+        .func = one,
+    },
+    CmdFn{
+        .name = "two",
+        .func = two,
+    },
+    CmdFn{
+        .name = "three",
+        .func = three,
+    },
+};
+fn one(value: i32) i32 {
+    return value + 1;
+}
+fn two(value: i32) i32 {
+    return value + 2;
+}
+fn three(value: i32) i32 {
+    return value + 3;
+}
+
+fn performFn(comptime prefix_char: u8, start_value: i32) i32 {
+    var result: i32 = start_value;
+    comptime var i = 0;
+    inline while (i < cmd_fns.len) : (i += 1) {
+        if (cmd_fns[i].name[0] == prefix_char) {
+            result = cmd_fns[i].func(result);
+        }
+    }
+    return result;
+}
+
+test "comptime iterate over fn ptr list" {
+    try expect(performFn('t', 1) == 6);
+    try expect(performFn('o', 0) == 1);
+    try expect(performFn('w', 99) == 99);
+}
+
+test "create global array with for loop" {
+    try expect(global_array[5] == 5 * 5);
+    try expect(global_array[9] == 9 * 9);
+}
+
+const global_array = x: {
+    var result: [10]usize = undefined;
+    for (result) |*item, index| {
+        item.* = index * index;
+    }
+    break :x result;
+};
+
+fn generateTable(comptime T: type) [1010]T {
+    var res: [1010]T = undefined;
+    var i: usize = 0;
+    while (i < 1010) : (i += 1) {
+        res[i] = @intCast(T, i);
+    }
+    return res;
+}
+
+fn doesAlotT(comptime T: type, value: usize) T {
+    @setEvalBranchQuota(5000);
+    const table = comptime blk: {
+        break :blk generateTable(T);
+    };
+    return table[value];
+}
+
+test "@setEvalBranchQuota at same scope as generic function call" {
+    try expect(doesAlotT(u32, 2) == 2);
+}
+
+pub const Info = struct {
+    version: u8,
+};
+
+pub const diamond_info = Info{ .version = 0 };
+
+test "comptime modification of const struct field" {
+    comptime {
+        var res = diamond_info;
+        res.version = 1;
+        try expect(diamond_info.version == 0);
+        try expect(res.version == 1);
+    }
+}
+
+test "refer to the type of a generic function" {
+    const Func = fn (type) void;
+    const f: Func = doNothingWithType;
+    f(i32);
+}
+
+fn doNothingWithType(comptime T: type) void {
+    _ = T;
+}
+
+test "zero extend from u0 to u1" {
+    var zero_u0: u0 = 0;
+    var zero_u1: u1 = zero_u0;
+    try expect(zero_u1 == 0);
+}
+
+test "return 0 from function that has u0 return type" {
+    const S = struct {
+        fn foo_zero() u0 {
+            return 0;
+        }
+    };
+    comptime {
+        if (S.foo_zero() != 0) {
+            @compileError("test failed");
+        }
+    }
+}

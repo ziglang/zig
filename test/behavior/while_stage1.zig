@@ -1,24 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "continue and break" {
-    try runContinueAndBreakTest();
-    try expect(continue_and_break_counter == 8);
-}
-var continue_and_break_counter: i32 = 0;
-fn runContinueAndBreakTest() !void {
-    var i: i32 = 0;
-    while (true) {
-        continue_and_break_counter += 2;
-        i += 1;
-        if (i < 4) {
-            continue;
-        }
-        break;
-    }
-    try expect(i == 4);
-}
-
 test "return with implicit cast from while loop" {
     returnWithImplicitCastFromWhileLoopTest() catch unreachable;
 }
@@ -26,29 +8,6 @@ fn returnWithImplicitCastFromWhileLoopTest() anyerror!void {
     while (true) {
         return;
     }
-}
-
-test "while with optional as condition" {
-    numbers_left = 10;
-    var sum: i32 = 0;
-    while (getNumberOrNull()) |value| {
-        sum += value;
-    }
-    try expect(sum == 45);
-}
-
-test "while with optional as condition with else" {
-    numbers_left = 10;
-    var sum: i32 = 0;
-    var got_else: i32 = 0;
-    while (getNumberOrNull()) |value| {
-        sum += value;
-        try expect(got_else == 0);
-    } else {
-        got_else += 1;
-    }
-    try expect(sum == 45);
-    try expect(got_else == 1);
 }
 
 test "while with error union condition" {
@@ -79,20 +38,6 @@ fn getNumberOrNull() ?i32 {
     };
 }
 
-test "while on optional with else result follow else prong" {
-    const result = while (returnNull()) |value| {
-        break value;
-    } else @as(i32, 2);
-    try expect(result == 2);
-}
-
-test "while on optional with else result follow break prong" {
-    const result = while (returnOptional(10)) |value| {
-        break value;
-    } else @as(i32, 2);
-    try expect(result == 10);
-}
-
 test "while on error union with else result follow else prong" {
     const result = while (returnError()) |value| {
         break value;
@@ -104,20 +49,6 @@ test "while on error union with else result follow break prong" {
     const result = while (returnSuccess(10)) |value| {
         break value;
     } else |_| @as(i32, 2);
-    try expect(result == 10);
-}
-
-test "while on bool with else result follow else prong" {
-    const result = while (returnFalse()) {
-        break @as(i32, 10);
-    } else @as(i32, 2);
-    try expect(result == 2);
-}
-
-test "while on bool with else result follow break prong" {
-    const result = while (returnTrue()) {
-        break @as(i32, 10);
-    } else @as(i32, 2);
     try expect(result == 10);
 }
 

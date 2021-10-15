@@ -7,13 +7,6 @@ const builtin = @import("builtin");
 
 fn emptyFn() void {}
 
-test "constant equal function pointers" {
-    const alias = emptyFn;
-    try expect(comptime x: {
-        break :x emptyFn == alias;
-    });
-}
-
 const addr1 = @ptrCast(*const u8, emptyFn);
 test "comptime cast fn to ptr" {
     const addr2 = @ptrCast(*const u8, emptyFn);
@@ -35,17 +28,7 @@ test "string escapes" {
     try expectEqualStrings("\u{1234}\u{069}\u{1}", "\xe1\x88\xb4\x69\x01");
 }
 
-test "multiline string literal is null terminated" {
-    const s1 =
-        \\one
-        \\two)
-        \\three
-    ;
-    const s2 = "one\ntwo)\nthree";
-    try expect(std.cstr.cmp(s1, s2) == 0);
-}
-
-test "explicit cast maybe pointers" {
+test "explicit cast optional pointers" {
     const a: ?*i32 = undefined;
     const b: ?*f32 = @ptrCast(?*f32, a);
     _ = b;
@@ -159,41 +142,12 @@ export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion) void {
     }
 }
 
-test "self reference through fn ptr field" {
-    const S = struct {
-        const A = struct {
-            f: fn (A) u8,
-        };
-
-        fn foo(a: A) u8 {
-            _ = a;
-            return 12;
-        }
-    };
-    var a: S.A = undefined;
-    a.f = S.foo;
-    try expect(a.f(a) == 12);
-}
-
 test "thread local variable" {
     const S = struct {
         threadlocal var t: i32 = 1234;
     };
     S.t += 1;
     try expect(S.t == 1235);
-}
-
-test "nested optional field in struct" {
-    const S2 = struct {
-        y: u8,
-    };
-    const S1 = struct {
-        x: ?S2,
-    };
-    var s = S1{
-        .x = S2{ .y = 127 },
-    };
-    try expect(s.x.?.y == 127);
 }
 
 fn maybe(x: bool) anyerror!?u32 {

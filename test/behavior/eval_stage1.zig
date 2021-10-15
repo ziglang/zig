@@ -2,27 +2,6 @@ const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-test "statically initialized list" {
-    try expect(static_point_list[0].x == 1);
-    try expect(static_point_list[0].y == 2);
-    try expect(static_point_list[1].x == 3);
-    try expect(static_point_list[1].y == 4);
-}
-const Point = struct {
-    x: i32,
-    y: i32,
-};
-const static_point_list = [_]Point{
-    makePoint(1, 2),
-    makePoint(3, 4),
-};
-fn makePoint(x: i32, y: i32) Point {
-    return Point{
-        .x = x,
-        .y = y,
-    };
-}
-
 test "static eval list init" {
     try expect(static_vec3.data[2] == 1.0);
     try expect(vec3(0.0, 0.0, 3.0).data[2] == 3.0);
@@ -54,27 +33,6 @@ var st_init_str_foo = StInitStrFoo{
     .y = true,
 };
 
-test "statically initialized array literal" {
-    const y: [4]u8 = st_init_arr_lit_x;
-    try expect(y[3] == 4);
-}
-const st_init_arr_lit_x = [_]u8{
-    1,
-    2,
-    3,
-    4,
-};
-
-test "const slice" {
-    comptime {
-        const a = "1234567890";
-        try expect(a.len == 10);
-        const b = a[1..2];
-        try expect(b.len == 1);
-        try expect(b[0] == '2');
-    }
-}
-
 test "inlined loop has array literal with elided runtime scope on first iteration but not second iteration" {
     var runtime = [1]i32{3};
     comptime var i: usize = 0;
@@ -85,52 +43,6 @@ test "inlined loop has array literal with elided runtime scope on first iteratio
     comptime {
         try expect(i == 2);
     }
-}
-
-const CmdFn = struct {
-    name: []const u8,
-    func: fn (i32) i32,
-};
-
-const cmd_fns = [_]CmdFn{
-    CmdFn{
-        .name = "one",
-        .func = one,
-    },
-    CmdFn{
-        .name = "two",
-        .func = two,
-    },
-    CmdFn{
-        .name = "three",
-        .func = three,
-    },
-};
-fn one(value: i32) i32 {
-    return value + 1;
-}
-fn two(value: i32) i32 {
-    return value + 2;
-}
-fn three(value: i32) i32 {
-    return value + 3;
-}
-
-fn performFn(comptime prefix_char: u8, start_value: i32) i32 {
-    var result: i32 = start_value;
-    comptime var i = 0;
-    inline while (i < cmd_fns.len) : (i += 1) {
-        if (cmd_fns[i].name[0] == prefix_char) {
-            result = cmd_fns[i].func(result);
-        }
-    }
-    return result;
-}
-
-test "comptime iterate over fn ptr list" {
-    try expect(performFn('t', 1) == 6);
-    try expect(performFn('o', 0) == 1);
-    try expect(performFn('w', 99) == 99);
 }
 
 test "eval @setFloatMode at compile-time" {
@@ -204,19 +116,6 @@ const Foo = struct {
 var foo_contents = Foo{ .name = "a" };
 const foo_ref = &foo_contents;
 
-test "create global array with for loop" {
-    try expect(global_array[5] == 5 * 5);
-    try expect(global_array[9] == 9 * 9);
-}
-
-const global_array = x: {
-    var result: [10]usize = undefined;
-    for (result) |*item, index| {
-        item.* = index * index;
-    }
-    break :x result;
-};
-
 const hi1 = "hi";
 const hi2 = hi1;
 test "const global shares pointer with other same one" {
@@ -262,13 +161,6 @@ test "string literal used as comptime slice is memoized" {
     comptime try expect(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
 }
 
-test "comptime slice of undefined pointer of length 0" {
-    const slice1 = @as([*]i32, undefined)[0..0];
-    try expect(slice1.len == 0);
-    const slice2 = @as([*]i32, undefined)[100..100];
-    try expect(slice2.len == 0);
-}
-
 fn copyWithPartialInline(s: []u32, b: []u8) void {
     comptime var i: usize = 0;
     inline while (i < 4) : (i += 1) {
@@ -308,44 +200,6 @@ fn increment(value: *i32) void {
     value.* += 1;
 }
 
-fn generateTable(comptime T: type) [1010]T {
-    var res: [1010]T = undefined;
-    var i: usize = 0;
-    while (i < 1010) : (i += 1) {
-        res[i] = @intCast(T, i);
-    }
-    return res;
-}
-
-fn doesAlotT(comptime T: type, value: usize) T {
-    @setEvalBranchQuota(5000);
-    const table = comptime blk: {
-        break :blk generateTable(T);
-    };
-    return table[value];
-}
-
-test "@setEvalBranchQuota at same scope as generic function call" {
-    try expect(doesAlotT(u32, 2) == 2);
-}
-
-test "comptime slice of slice preserves comptime var" {
-    comptime {
-        var buff: [10]u8 = undefined;
-        buff[0..][0..][0] = 1;
-        try expect(buff[0..][0..][0] == 1);
-    }
-}
-
-test "comptime slice of pointer preserves comptime var" {
-    comptime {
-        var buff: [10]u8 = undefined;
-        var a = @ptrCast([*]u8, &buff);
-        a[0..1][0] = 1;
-        try expect(buff[0..][0..][0] == 1);
-    }
-}
-
 const SingleFieldStruct = struct {
     x: i32,
 
@@ -359,15 +213,6 @@ test "const ptr to comptime mutable data is not memoized" {
         try expect(foo.read_x() == 1);
         foo.x = 2;
         try expect(foo.read_x() == 2);
-    }
-}
-
-test "array concat of slices gives slice" {
-    comptime {
-        var a: []const u8 = "aoeu";
-        var b: []const u8 = "asdf";
-        const c = a ++ b;
-        try expect(std.mem.eql(u8, c, "aoeuasdf"));
     }
 }
 
@@ -399,43 +244,6 @@ test "runtime 128 bit integer division" {
     var b: u128 = 10000000000000000000;
     var c = a / b;
     try expect(c == 15231399999);
-}
-
-pub const Info = struct {
-    version: u8,
-};
-
-pub const diamond_info = Info{ .version = 0 };
-
-test "comptime modification of const struct field" {
-    comptime {
-        var res = diamond_info;
-        res.version = 1;
-        try expect(diamond_info.version == 0);
-        try expect(res.version == 1);
-    }
-}
-
-test "slice of type" {
-    comptime {
-        var types_array = [_]type{ i32, f64, type };
-        for (types_array) |T, i| {
-            switch (i) {
-                0 => try expect(T == i32),
-                1 => try expect(T == f64),
-                2 => try expect(T == type),
-                else => unreachable,
-            }
-        }
-        for (types_array[0..]) |T, i| {
-            switch (i) {
-                0 => try expect(T == i32),
-                1 => try expect(T == f64),
-                2 => try expect(T == type),
-                else => unreachable,
-            }
-        }
-    }
 }
 
 const Wrapper = struct {
@@ -502,53 +310,10 @@ test "inline for with same type but different values" {
     try expect(res == 5);
 }
 
-test "refer to the type of a generic function" {
-    const Func = fn (type) void;
-    const f: Func = doNothingWithType;
-    f(i32);
-}
-
-fn doNothingWithType(comptime T: type) void {
-    _ = T;
-}
-
-test "zero extend from u0 to u1" {
-    var zero_u0: u0 = 0;
-    var zero_u1: u1 = zero_u0;
-    try expect(zero_u1 == 0);
-}
-
 test "bit shift a u1" {
     var x: u1 = 1;
     var y = x << 0;
     try expect(y == 1);
-}
-
-test "comptime pointer cast array and then slice" {
-    const array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
-
-    const ptrA: [*]const u8 = @ptrCast([*]const u8, &array);
-    const sliceA: []const u8 = ptrA[0..2];
-
-    const ptrB: [*]const u8 = &array;
-    const sliceB: []const u8 = ptrB[0..2];
-
-    try expect(sliceA[1] == 2);
-    try expect(sliceB[1] == 2);
-}
-
-test "slice bounds in comptime concatenation" {
-    const bs = comptime blk: {
-        const b = "........1........";
-        break :blk b[8..9];
-    };
-    const str = "" ++ bs;
-    try expect(str.len == 1);
-    try expect(std.mem.eql(u8, str, "1"));
-
-    const str2 = bs ++ "";
-    try expect(str2.len == 1);
-    try expect(std.mem.eql(u8, str2, "1"));
 }
 
 test "comptime bitwise operators" {
@@ -599,19 +364,6 @@ test "comptime assign int to optional int" {
         x = 2;
         x.? *= 10;
         try expectEqual(20, x.?);
-    }
-}
-
-test "return 0 from function that has u0 return type" {
-    const S = struct {
-        fn foo_zero() u0 {
-            return 0;
-        }
-    };
-    comptime {
-        if (S.foo_zero() != 0) {
-            @compileError("test failed");
-        }
     }
 }
 

@@ -83,21 +83,6 @@ fn test_cmp_optional_non_optional() !void {
     };
 }
 
-test "passing an optional integer as a parameter" {
-    const S = struct {
-        fn entry() bool {
-            var x: i32 = 1234;
-            return foo(x);
-        }
-
-        fn foo(x: ?i32) bool {
-            return x.? == 1234;
-        }
-    };
-    try expect(S.entry());
-    comptime try expect(S.entry());
-}
-
 test "unwrap function call with optional pointer return value" {
     const S = struct {
         fn entry() !void {
@@ -137,25 +122,6 @@ test "nested orelse" {
     };
     try S.entry();
     comptime try S.entry();
-}
-
-test "self-referential struct through a slice of optional" {
-    const S = struct {
-        const Node = struct {
-            children: []?Node,
-            data: ?u8,
-
-            fn new() Node {
-                return Node{
-                    .children = undefined,
-                    .data = null,
-                };
-            }
-        };
-    };
-
-    var n = S.Node.new();
-    try expect(n.data == null);
 }
 
 test "assigning to an unwrapped optional field in an inline loop" {

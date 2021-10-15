@@ -20,6 +20,23 @@ test "slicing" {
     if (slice_rest.len != 10) unreachable;
 }
 
+test "const slice" {
+    comptime {
+        const a = "1234567890";
+        try expect(a.len == 10);
+        const b = a[1..2];
+        try expect(b.len == 1);
+        try expect(b[0] == '2');
+    }
+}
+
+test "comptime slice of undefined pointer of length 0" {
+    const slice1 = @as([*]i32, undefined)[0..0];
+    try expect(slice1.len == 0);
+    const slice2 = @as([*]i32, undefined)[100..100];
+    try expect(slice2.len == 0);
+}
+
 test "slicing zero length array" {
     const s1 = ""[0..];
     const s2 = ([_]u32{})[0..];
@@ -388,4 +405,79 @@ test "type coercion of pointer to anon struct literal to pointer to slice" {
     };
     // try S.doTheTest();
     comptime try S.doTheTest();
+}
+
+test "comptime slice of slice preserves comptime var" {
+    comptime {
+        var buff: [10]u8 = undefined;
+        buff[0..][0..][0] = 1;
+        try expect(buff[0..][0..][0] == 1);
+    }
+}
+
+test "comptime slice of pointer preserves comptime var" {
+    comptime {
+        var buff: [10]u8 = undefined;
+        var a = @ptrCast([*]u8, &buff);
+        a[0..1][0] = 1;
+        try expect(buff[0..][0..][0] == 1);
+    }
+}
+
+test "array concat of slices gives slice" {
+    comptime {
+        var a: []const u8 = "aoeu";
+        var b: []const u8 = "asdf";
+        const c = a ++ b;
+        try expect(std.mem.eql(u8, c, "aoeuasdf"));
+    }
+}
+
+test "slice of type" {
+    comptime {
+        var types_array = [_]type{ i32, f64, type };
+        for (types_array) |T, i| {
+            switch (i) {
+                0 => try expect(T == i32),
+                1 => try expect(T == f64),
+                2 => try expect(T == type),
+                else => unreachable,
+            }
+        }
+        for (types_array[0..]) |T, i| {
+            switch (i) {
+                0 => try expect(T == i32),
+                1 => try expect(T == f64),
+                2 => try expect(T == type),
+                else => unreachable,
+            }
+        }
+    }
+}
+
+test "comptime pointer cast array and then slice" {
+    const array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
+
+    const ptrA: [*]const u8 = @ptrCast([*]const u8, &array);
+    const sliceA: []const u8 = ptrA[0..2];
+
+    const ptrB: [*]const u8 = &array;
+    const sliceB: []const u8 = ptrB[0..2];
+
+    try expect(sliceA[1] == 2);
+    try expect(sliceB[1] == 2);
+}
+
+test "slice bounds in comptime concatenation" {
+    const bs = comptime blk: {
+        const b = "........1........";
+        break :blk b[8..9];
+    };
+    const str = "" ++ bs;
+    try expect(str.len == 1);
+    try expect(std.mem.eql(u8, str, "1"));
+
+    const str2 = bs ++ "";
+    try expect(str2.len == 1);
+    try expect(std.mem.eql(u8, str2, "1"));
 }
