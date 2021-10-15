@@ -8869,6 +8869,14 @@ pub fn addCases(ctx: *TestContext) !void {
         "error: invalid operands to binary expression: 'f32' and 'f32'",
     });
 
+    ctx.objErrStage1("saturating shl does not allow negative rhs",
+        \\pub fn main() !void {
+        \\    _ = @as(i32, 1) <<| @as(i32, -2);
+        \\}
+    , &[_][]const u8{
+        "error: shift by negative value -2",
+    });
+
     ctx.objErrStage1("undeclared identifier in unanalyzed branch",
         \\export fn a() void {
         \\    if (false) {
