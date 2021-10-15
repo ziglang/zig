@@ -1626,6 +1626,14 @@ pub const Value = extern union {
         };
     }
 
+    pub fn slicePtr(val: Value) Value {
+        return switch (val.tag()) {
+            .slice => val.castTag(.slice).?.data.ptr,
+            .decl_ref, .decl_ref_mut => val,
+            else => unreachable,
+        };
+    }
+
     pub fn sliceLen(val: Value) u64 {
         return switch (val.tag()) {
             .slice => val.castTag(.slice).?.data.len.toUnsignedInt(),
@@ -2042,63 +2050,27 @@ pub const Value = extern union {
     }
 
     /// Supports both floats and ints; handles undefined.
-    pub fn numberMax(lhs: Value, rhs: Value, arena: *Allocator) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+    pub fn numberMax(lhs: Value, rhs: Value) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return undef;
+        if (lhs.isNan()) return rhs;
+        if (rhs.isNan()) return lhs;
 
-        // TODO is this a performance issue? maybe we should try the operation without
-        // resorting to BigInt first.
-        var lhs_space: Value.BigIntSpace = undefined;
-        var rhs_space: Value.BigIntSpace = undefined;
-        const lhs_bigint = lhs.toBigInt(&lhs_space);
-        const rhs_bigint = rhs.toBigInt(&rhs_space);
-        const limbs = try arena.alloc(
-            std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
-        );
-        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-
-        switch (lhs_bigint.order(rhs_bigint)) {
-            .lt => result_bigint.copy(rhs_bigint),
-            .gt, .eq => result_bigint.copy(lhs_bigint),
-        }
-
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
-        }
+        return switch (order(lhs, rhs)) {
+            .lt => rhs,
+            .gt, .eq => lhs,
+        };
     }
 
     /// Supports both floats and ints; handles undefined.
-    pub fn numberMin(lhs: Value, rhs: Value, arena: *Allocator) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+    pub fn numberMin(lhs: Value, rhs: Value) !Value {
+        if (lhs.isUndef() or rhs.isUndef()) return undef;
+        if (lhs.isNan()) return rhs;
+        if (rhs.isNan()) return lhs;
 
-        // TODO is this a performance issue? maybe we should try the operation without
-        // resorting to BigInt first.
-        var lhs_space: Value.BigIntSpace = undefined;
-        var rhs_space: Value.BigIntSpace = undefined;
-        const lhs_bigint = lhs.toBigInt(&lhs_space);
-        const rhs_bigint = rhs.toBigInt(&rhs_space);
-        const limbs = try arena.alloc(
-            std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
-        );
-        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-
-        switch (lhs_bigint.order(rhs_bigint)) {
-            .lt => result_bigint.copy(lhs_bigint),
-            .gt, .eq => result_bigint.copy(rhs_bigint),
-        }
-
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
-        }
+        return switch (order(lhs, rhs)) {
+            .lt => lhs,
+            .gt, .eq => rhs,
+        };
     }
 
     /// operands must be integers; handles undefined. 
@@ -2325,6 +2297,17 @@ pub const Value = extern union {
         } else {
             return Value.Tag.int_big_negative.create(allocator, result_limbs);
         }
+    }
+
+    /// Returns true if the value is a floating point type and is NaN. Returns false otherwise.
+    pub fn isNan(val: Value) bool {
+        return switch (val.tag()) {
+            .float_16 => std.math.isNan(val.castTag(.float_16).?.data),
+            .float_32 => std.math.isNan(val.castTag(.float_32).?.data),
+            .float_64 => std.math.isNan(val.castTag(.float_64).?.data),
+            .float_128 => std.math.isNan(val.castTag(.float_128).?.data),
+            else => false,
+        };
     }
 
     pub fn floatRem(lhs: Value, rhs: Value, allocator: *Allocator) !Value {

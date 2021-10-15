@@ -24,6 +24,7 @@ test {
     _ = @import("behavior/generics.zig");
     _ = @import("behavior/if.zig");
     _ = @import("behavior/math.zig");
+    _ = @import("behavior/maximum_minimum.zig");
     _ = @import("behavior/member_func.zig");
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/pointers.zig");
@@ -130,7 +131,6 @@ test {
         _ = @import("behavior/inttoptr.zig");
         _ = @import("behavior/ir_block_deps.zig");
         _ = @import("behavior/math_stage1.zig");
-        _ = @import("behavior/maximum_minimum.zig");
         _ = @import("behavior/merge_error_sets.zig");
         _ = @import("behavior/misc.zig");
         _ = @import("behavior/muladd.zig");

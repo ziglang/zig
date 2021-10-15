@@ -264,6 +264,8 @@ fn analyzeInst(
         .atomic_store_release,
         .atomic_store_seq_cst,
         .set_union_tag,
+        .min,
+        .max,
         => {
             const o = inst_datas[inst].bin_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.lhs, o.rhs, .none });

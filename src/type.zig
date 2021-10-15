@@ -2517,6 +2517,14 @@ pub const Type = extern union {
         };
     }
 
+    /// For vectors, returns the element type. Otherwise returns self.
+    pub fn scalarType(ty: Type) Type {
+        return switch (ty.zigTypeTag()) {
+            .Vector => ty.childType(),
+            else => ty,
+        };
+    }
+
     /// Asserts that the type is an optional.
     /// Resulting `Type` will have inner memory referencing `buf`.
     pub fn optionalChild(self: Type, buf: *Payload.ElemType) Type {
@@ -4012,6 +4020,13 @@ pub const Type = extern union {
         }
 
         return Tag.array.create(arena, .{
+            .len = len,
+            .elem_type = elem_type,
+        });
+    }
+
+    pub fn vector(arena: *Allocator, len: u64, elem_type: Type) Allocator.Error!Type {
+        return Tag.vector.create(arena, .{
             .len = len,
             .elem_type = elem_type,
         });

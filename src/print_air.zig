@@ -138,6 +138,8 @@ const Writer = struct {
             .shl_sat,
             .shr,
             .set_union_tag,
+            .min,
+            .max,
             => try w.writeBinOp(s, inst),
 
             .is_null,

@@ -8,8 +8,8 @@ const Vector = std.meta.Vector;
 test "@maximum" {
     const S = struct {
         fn doTheTest() !void {
-            try expectEqual(@as(i32, 10), @maximum(@as(i32, -3), @as(i32, 10)));
-            try expectEqual(@as(f32, 3.2), @maximum(@as(f32, 3.2), @as(f32, 0.68)));
+            try expect(@as(i32, 10) == @maximum(@as(i32, -3), @as(i32, 10)));
+            try expect(@as(f32, 3.2) == @maximum(@as(f32, 3.2), @as(f32, 0.68)));
 
             var a: Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
             var b: Vector(4, i32) = [4]i32{ 1, 2147483647, 3, 4 };
@@ -34,8 +34,8 @@ test "@maximum" {
 test "@minimum" {
     const S = struct {
         fn doTheTest() !void {
-            try expectEqual(@as(i32, -3), @minimum(@as(i32, -3), @as(i32, 10)));
-            try expectEqual(@as(f32, 0.68), @minimum(@as(f32, 3.2), @as(f32, 0.68)));
+            try expect(@as(i32, -3) == @minimum(@as(i32, -3), @as(i32, 10)));
+            try expect(@as(f32, 0.68) == @minimum(@as(f32, 3.2), @as(f32, 0.68)));
 
             var a: Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
             var b: Vector(4, i32) = [4]i32{ 1, 2147483647, 3, 4 };

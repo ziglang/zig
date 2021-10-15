@@ -754,7 +754,7 @@ pub const DeclGen = struct {
 
                     const fields: [2]*const llvm.Type = .{
                         try dg.llvmType(ptr_type),
-                        try dg.llvmType(Type.initTag(.usize)),
+                        try dg.llvmType(Type.usize),
                     };
                     return dg.context.structType(&fields, fields.len, .False);
                 } else {
@@ -780,9 +780,13 @@ pub const DeclGen = struct {
                 return llvm_struct_ty;
             },
             .Array => {
-                const elem_type = try dg.llvmType(t.elemType());
+                const elem_type = try dg.llvmType(t.childType());
                 const total_len = t.arrayLen() + @boolToInt(t.sentinel() != null);
                 return elem_type.arrayType(@intCast(c_uint, total_len));
+            },
+            .Vector => {
+                const elem_type = try dg.llvmType(t.childType());
+                return elem_type.vectorType(@intCast(c_uint, t.arrayLen()));
             },
             .Optional => {
                 var buf: Type.Payload.ElemType = undefined;
@@ -966,7 +970,6 @@ pub const DeclGen = struct {
 
             .Frame,
             .AnyFrame,
-            .Vector,
             => return dg.todo("implement llvmType for type '{}'", .{t}),
         }
     }
@@ -1062,7 +1065,7 @@ pub const DeclGen = struct {
                     return self.context.constStruct(&fields, fields.len, .False);
                 },
                 .int_u64 => {
-                    const llvm_usize = try self.llvmType(Type.initTag(.usize));
+                    const llvm_usize = try self.llvmType(Type.usize);
                     const llvm_int = llvm_usize.constInt(tv.val.toUnsignedInt(), .False);
                     return llvm_int.constIntToPtr(try self.llvmType(tv.ty));
                 },
@@ -1295,7 +1298,7 @@ pub const DeclGen = struct {
                     .val = tv.val,
                 }),
                 try self.genTypedValue(.{
-                    .ty = Type.initTag(.usize),
+                    .ty = Type.usize,
                     .val = Value.initPayload(&slice_len.base),
                 }),
             };
@@ -1470,6 +1473,8 @@ pub const FuncGen = struct {
                 .shl       => try self.airShl(inst),
                 .shl_sat   => try self.airShlSat(inst),
                 .shl_exact => try self.airShlExact(inst),
+                .min       => try self.airMin(inst),
+                .max       => try self.airMax(inst),
 
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
@@ -2356,6 +2361,32 @@ pub const FuncGen = struct {
         return self.todo("implement llvm codegen for 'airWrapErrUnionErr'", .{});
     }
 
+    fn airMin(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const scalar_ty = self.air.typeOfIndex(inst).scalarType();
+
+        if (scalar_ty.isAnyFloat()) return self.builder.buildMinNum(lhs, rhs, "");
+        if (scalar_ty.isSignedInt()) return self.builder.buildSMin(lhs, rhs, "");
+        return self.builder.buildUMin(lhs, rhs, "");
+    }
+
+    fn airMax(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const scalar_ty = self.air.typeOfIndex(inst).scalarType();
+
+        if (scalar_ty.isAnyFloat()) return self.builder.buildMaxNum(lhs, rhs, "");
+        if (scalar_ty.isSignedInt()) return self.builder.buildSMax(lhs, rhs, "");
+        return self.builder.buildUMax(lhs, rhs, "");
+    }
+
     fn airAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
@@ -2705,15 +2736,48 @@ pub const FuncGen = struct {
     }
 
     fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.air.typeOf(ty_op.operand);
         const inst_ty = self.air.typeOfIndex(inst);
-        const dest_type = try self.dg.llvmType(inst_ty);
+        const llvm_dest_ty = try self.dg.llvmType(inst_ty);
 
-        return self.builder.buildBitCast(operand, dest_type, "");
+        // TODO look into pulling this logic out into a different AIR instruction than bitcast
+        if (operand_ty.zigTypeTag() == .Vector and inst_ty.zigTypeTag() == .Array) {
+            const target = self.dg.module.getTarget();
+            const elem_ty = operand_ty.childType();
+            if (!isByRef(inst_ty)) {
+                return self.dg.todo("implement bitcast vector to non-ref array", .{});
+            }
+            const array_ptr = self.buildAlloca(llvm_dest_ty);
+            const bitcast_ok = elem_ty.bitSize(target) == elem_ty.abiSize(target) * 8;
+            if (bitcast_ok) {
+                const llvm_vector_ty = try self.dg.llvmType(operand_ty);
+                const casted_ptr = self.builder.buildBitCast(array_ptr, llvm_vector_ty.pointerType(0), "");
+                _ = self.builder.buildStore(operand, casted_ptr);
+            } else {
+                // If the ABI size of the element type is not evenly divisible by size in bits;
+                // a simple bitcast will not work, and we fall back to extractelement.
+                const llvm_usize = try self.dg.llvmType(Type.usize);
+                const llvm_u32 = self.context.intType(32);
+                const zero = llvm_usize.constNull();
+                const vector_len = operand_ty.arrayLen();
+                var i: u64 = 0;
+                while (i < vector_len) : (i += 1) {
+                    const index_usize = llvm_usize.constInt(i, .False);
+                    const index_u32 = llvm_u32.constInt(i, .False);
+                    const indexes: [2]*const llvm.Value = .{ zero, index_usize };
+                    const elem_ptr = self.builder.buildInBoundsGEP(array_ptr, &indexes, indexes.len, "");
+                    const elem = self.builder.buildExtractElement(operand, index_u32, "");
+                    _ = self.builder.buildStore(elem, elem_ptr);
+                }
+            }
+            return array_ptr;
+        }
+
+        return self.builder.buildBitCast(operand, llvm_dest_ty, "");
     }
 
     fn airBoolToInt(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -2906,7 +2970,7 @@ pub const FuncGen = struct {
         }
 
         // It's a pointer but we need to treat it as an int.
-        const usize_llvm_ty = try self.dg.llvmType(Type.initTag(.usize));
+        const usize_llvm_ty = try self.dg.llvmType(Type.usize);
         const casted_ptr = self.builder.buildBitCast(ptr, usize_llvm_ty.pointerType(0), "");
         const casted_operand = self.builder.buildPtrToInt(operand, usize_llvm_ty, "");
         const uncasted_result = self.builder.buildAtomicRmw(

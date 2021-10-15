@@ -107,6 +107,18 @@ pub const Inst = struct {
         /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
         /// Uses the `bin_op` field.
         ptr_sub,
+        /// Given two operands which can be floats, integers, or vectors, returns the
+        /// greater of the operands. For vectors it operates element-wise.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        max,
+        /// Given two operands which can be floats, integers, or vectors, returns the
+        /// lesser of the operands. For vectors it operates element-wise.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        min,
         /// Allocates stack local memory.
         /// Uses the `ty` field.
         alloc,
@@ -640,6 +652,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .shl,
         .shl_exact,
         .shl_sat,
+        .min,
+        .max,
         => return air.typeOf(datas[inst].bin_op.lhs),
 
         .cmp_lt,

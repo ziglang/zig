@@ -989,6 +989,9 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .mul_sat => try airSatOp(f, inst, "muls_"),
             .shl_sat => try airSatOp(f, inst, "shls_"),
 
+            .min => try airMinMax(f, inst, "<"),
+            .max => try airMinMax(f, inst, ">"),
+
             .cmp_eq  => try airBinOp(f, inst, " == "),
             .cmp_gt  => try airBinOp(f, inst, " > "),
             .cmp_gte => try airBinOp(f, inst, " >= "),
@@ -1589,6 +1592,31 @@ fn airBinOp(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValue
     try writer.writeAll(" = ");
     try f.writeCValue(writer, lhs);
     try writer.print("{s}", .{operator});
+    try f.writeCValue(writer, rhs);
+    try writer.writeAll(";\n");
+
+    return local;
+}
+
+fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const lhs = try f.resolveInst(bin_op.lhs);
+    const rhs = try f.resolveInst(bin_op.rhs);
+
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+
+    // (lhs <> rhs) ? lhs : rhs
+    try writer.writeAll(" = (");
+    try f.writeCValue(writer, lhs);
+    try writer.print("{s}", .{operator});
+    try f.writeCValue(writer, rhs);
+    try writer.writeAll(") ");
+    try f.writeCValue(writer, lhs);
+    try writer.writeAll(" : ");
     try f.writeCValue(writer, rhs);
     try writer.writeAll(";\n");
 

@@ -212,6 +212,9 @@ pub const Type = opaque {
     pub const arrayType = LLVMArrayType;
     extern fn LLVMArrayType(ElementType: *const Type, ElementCount: c_uint) *const Type;
 
+    pub const vectorType = LLVMVectorType;
+    extern fn LLVMVectorType(ElementType: *const Type, ElementCount: c_uint) *const Type;
+
     pub const structSetBody = LLVMStructSetBody;
     extern fn LLVMStructSetBody(
         StructTy: *const Type,
@@ -553,6 +556,14 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
+    pub const buildExtractElement = LLVMBuildExtractElement;
+    extern fn LLVMBuildExtractElement(
+        *const Builder,
+        VecVal: *const Value,
+        Index: *const Value,
+        Name: [*:0]const u8,
+    ) *const Value;
+
     pub const buildPtrToInt = LLVMBuildPtrToInt;
     extern fn LLVMBuildPtrToInt(
         *const Builder,
@@ -700,6 +711,24 @@ pub const Builder = opaque {
         Size: *const Value,
         is_volatile: bool,
     ) *const Value;
+
+    pub const buildMaxNum = ZigLLVMBuildMaxNum;
+    extern fn ZigLLVMBuildMaxNum(builder: *const Builder, LHS: *const Value, RHS: *const Value, name: [*:0]const u8) *const Value;
+
+    pub const buildMinNum = ZigLLVMBuildMinNum;
+    extern fn ZigLLVMBuildMinNum(builder: *const Builder, LHS: *const Value, RHS: *const Value, name: [*:0]const u8) *const Value;
+
+    pub const buildUMax = ZigLLVMBuildUMax;
+    extern fn ZigLLVMBuildUMax(builder: *const Builder, LHS: *const Value, RHS: *const Value, name: [*:0]const u8) *const Value;
+
+    pub const buildUMin = ZigLLVMBuildUMin;
+    extern fn ZigLLVMBuildUMin(builder: *const Builder, LHS: *const Value, RHS: *const Value, name: [*:0]const u8) *const Value;
+
+    pub const buildSMax = ZigLLVMBuildSMax;
+    extern fn ZigLLVMBuildSMax(builder: *const Builder, LHS: *const Value, RHS: *const Value, name: [*:0]const u8) *const Value;
+
+    pub const buildSMin = ZigLLVMBuildSMin;
+    extern fn ZigLLVMBuildSMin(builder: *const Builder, LHS: *const Value, RHS: *const Value, name: [*:0]const u8) *const Value;
 };
 
 pub const IntPredicate = enum(c_uint) {

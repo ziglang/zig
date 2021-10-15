@@ -906,9 +906,6 @@ pub const Inst = struct {
         /// Implements the `@fieldParentPtr` builtin.
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
-        /// Implements the `@maximum` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`
-        maximum,
         /// Implements the `@memcpy` builtin.
         /// Uses the `pl_node` union field with payload `Memcpy`.
         memcpy,
@@ -918,6 +915,9 @@ pub const Inst = struct {
         /// Implements the `@minimum` builtin.
         /// Uses the `pl_node` union field with payload `Bin`
         minimum,
+        /// Implements the `@maximum` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`
+        maximum,
         /// Implements the `@asyncCall` builtin.
         /// Uses the `pl_node` union field with payload `AsyncCall`.
         builtin_async_call,
