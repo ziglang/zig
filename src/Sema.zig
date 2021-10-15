@@ -6502,13 +6502,13 @@ fn zirShl(
         if (rhs_val.compareWithZero(.eq)) {
             return sema.addConstant(lhs_ty, lhs_val);
         }
-        const val = try lhs_val.shl(rhs_val, sema.arena);
-        switch (air_tag) {
+        const val = switch (air_tag) {
             .shl_exact => return sema.fail(block, lhs_src, "TODO implement Sema for comptime shl_exact", .{}),
-            .shl_sat => return sema.fail(block, lhs_src, "TODO implement Sema for comptime shl_sat", .{}),
-            .shl => {},
+            .shl_sat => try lhs_val.shlSat(rhs_val, lhs_ty, sema.arena, sema.mod.getTarget()),
+            .shl => try lhs_val.shl(rhs_val, sema.arena),
             else => unreachable,
-        }
+        };
+
         return sema.addConstant(lhs_ty, val);
     } else rs: {
         if (maybe_rhs_val) |rhs_val| {
