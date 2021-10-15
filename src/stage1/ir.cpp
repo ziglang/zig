@@ -10407,6 +10407,14 @@ static Stage1AirInst *ir_analyze_bin_op_math(IrAnalyze *ira, Stage1ZirInstBinOp 
                     return ira->codegen->invalid_inst_gen;
                 }
             }
+        } else if (op_id == IrBinOpShlSat) {
+            if (op2_val->data.x_bigint.is_negative) {
+                Buf *val_buf = buf_alloc();
+                bigint_append_buf(val_buf, &op2_val->data.x_bigint, 10);
+                ir_add_error(ira, casted_op2,
+                    buf_sprintf("shift by negative value %s", buf_ptr(val_buf)));
+                return ira->codegen->invalid_inst_gen;
+            }
         }
 
         return ir_analyze_math_op(ira, instruction->base.scope, instruction->base.source_node, resolved_type, op1_val, op_id, op2_val);
