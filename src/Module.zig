@@ -964,7 +964,7 @@ pub const Union = struct {
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
-    pub fn getFullyQualifiedName(s: *Union, gpa: *Allocator) ![]u8 {
+    pub fn getFullyQualifiedName(s: *Union, gpa: *Allocator) ![:0]u8 {
         return s.owner_decl.getFullyQualifiedName(gpa);
     }
 
@@ -988,7 +988,7 @@ pub const Union = struct {
         };
     }
 
-    pub fn onlyTagHasCodegenBits(u: Union) bool {
+    pub fn hasAllZeroBitFieldTypes(u: Union) bool {
         assert(u.haveFieldTypes());
         for (u.fields.values()) |field| {
             if (field.ty.hasCodeGenBits()) return false;
@@ -1038,13 +1038,32 @@ pub const Union = struct {
     }
 
     pub fn abiSize(u: Union, target: Target, have_tag: bool) u64 {
-        assert(u.haveFieldTypes());
+        return u.getLayout(target, have_tag).abi_size;
+    }
+
+    pub const Layout = struct {
+        abi_size: u64,
+        abi_align: u32,
+        most_aligned_field: u32,
+        most_aligned_field_size: u64,
+        biggest_field: u32,
+        payload_size: u64,
+        payload_align: u32,
+        tag_align: u32,
+        tag_size: u64,
+    };
+
+    pub fn getLayout(u: Union, target: Target, have_tag: bool) Layout {
+        assert(u.status == .have_layout);
         const is_packed = u.layout == .Packed;
         if (is_packed) @panic("TODO packed unions");
 
+        var most_aligned_field: usize = undefined;
+        var most_aligned_field_size: u64 = undefined;
+        var biggest_field: usize = undefined;
         var payload_size: u64 = 0;
         var payload_align: u32 = 0;
-        for (u.fields.values()) |field| {
+        for (u.fields.values()) |field, i| {
             if (!field.ty.hasCodeGenBits()) continue;
 
             const field_align = a: {
@@ -1054,12 +1073,28 @@ pub const Union = struct {
                     break :a @intCast(u32, field.abi_align.toUnsignedInt());
                 }
             };
-            payload_size = @maximum(payload_size, field.ty.abiSize(target));
-            payload_align = @maximum(payload_align, field_align);
+            const field_size = field.ty.abiSize(target);
+            if (field_size > payload_size) {
+                payload_size = field_size;
+                biggest_field = i;
+            }
+            if (field_align > payload_align) {
+                payload_align = field_align;
+                most_aligned_field = i;
+                most_aligned_field_size = field_size;
+            }
         }
-        if (!have_tag) {
-            return std.mem.alignForwardGeneric(u64, payload_size, payload_align);
-        }
+        if (!have_tag) return .{
+            .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
+            .abi_align = payload_align,
+            .most_aligned_field = @intCast(u32, most_aligned_field),
+            .most_aligned_field_size = most_aligned_field_size,
+            .biggest_field = @intCast(u32, biggest_field),
+            .payload_size = payload_size,
+            .payload_align = payload_align,
+            .tag_align = 0,
+            .tag_size = 0,
+        };
         // Put the tag before or after the payload depending on which one's
         // alignment is greater.
         const tag_size = u.tag_ty.abiSize(target);
@@ -1078,7 +1113,17 @@ pub const Union = struct {
             size += tag_size;
             size = std.mem.alignForwardGeneric(u64, size, payload_align);
         }
-        return size;
+        return .{
+            .abi_size = size,
+            .abi_align = @maximum(tag_align, payload_align),
+            .most_aligned_field = @intCast(u32, most_aligned_field),
+            .most_aligned_field_size = most_aligned_field_size,
+            .biggest_field = @intCast(u32, biggest_field),
+            .payload_size = payload_size,
+            .payload_align = payload_align,
+            .tag_align = tag_align,
+            .tag_size = tag_size,
+        };
     }
 };
 

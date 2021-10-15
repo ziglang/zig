@@ -220,6 +220,9 @@ pub const Type = opaque {
         Packed: Bool,
     ) void;
 
+    pub const structGetTypeAtIndex = LLVMStructGetTypeAtIndex;
+    extern fn LLVMStructGetTypeAtIndex(StructTy: *const Type, i: c_uint) *const Type;
+
     pub const getTypeKind = LLVMGetTypeKind;
     extern fn LLVMGetTypeKind(Ty: *const Type) TypeKind;
 };

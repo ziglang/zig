@@ -1238,7 +1238,6 @@ pub const Type = extern union {
             .fn_void_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
-            .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .anyerror_void_error_union,
             .empty_struct_literal,
@@ -1249,8 +1248,14 @@ pub const Type = extern union {
             .error_set_inferred,
             .@"opaque",
             .generic_poison,
+            .array_u8,
+            .array_u8_sentinel_0,
+            .int_signed,
+            .int_unsigned,
+            .enum_simple,
             => false,
 
+            .single_const_pointer_to_comptime_int,
             .type,
             .comptime_int,
             .comptime_float,
@@ -1263,8 +1268,6 @@ pub const Type = extern union {
             .inferred_alloc_const => unreachable,
             .bound_fn => unreachable,
 
-            .array_u8,
-            .array_u8_sentinel_0,
             .array,
             .array_sentinel,
             .vector,
@@ -1277,17 +1280,21 @@ pub const Type = extern union {
             .c_mut_pointer,
             .const_slice,
             .mut_slice,
-            .int_signed,
-            .int_unsigned,
+            => return requiresComptime(childType(ty)),
+
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            => {
+                var buf: Payload.ElemType = undefined;
+                return requiresComptime(optionalChild(ty, &buf));
+            },
+
             .error_union,
             .anyframe_T,
             .@"struct",
             .@"union",
             .union_tagged,
-            .enum_simple,
             .enum_numbered,
             .enum_full,
             .enum_nonexhaustive,
@@ -2568,6 +2575,24 @@ pub const Type = extern union {
         return union_obj.fields.values()[index].ty;
     }
 
+    pub fn unionHasAllZeroBitFieldTypes(ty: Type) bool {
+        return ty.cast(Payload.Union).?.data.hasAllZeroBitFieldTypes();
+    }
+
+    pub fn unionGetLayout(ty: Type, target: Target) Module.Union.Layout {
+        switch (ty.tag()) {
+            .@"union" => {
+                const union_obj = ty.castTag(.@"union").?.data;
+                return union_obj.getLayout(target, false);
+            },
+            .union_tagged => {
+                const union_obj = ty.castTag(.union_tagged).?.data;
+                return union_obj.getLayout(target, true);
+            },
+            else => unreachable,
+        }
+    }
+
     /// Asserts that the type is an error union.
     pub fn errorUnionPayload(self: Type) Type {
         return switch (self.tag()) {
@@ -3361,17 +3386,26 @@ pub const Type = extern union {
         }
     }
 
+    /// Supports structs and unions.
     pub fn structFieldType(ty: Type, index: usize) Type {
         switch (ty.tag()) {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 return struct_obj.fields.values()[index].ty;
             },
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
+                return union_obj.fields.values()[index].ty;
+            },
             else => unreachable,
         }
     }
 
     pub fn declSrcLoc(ty: Type) Module.SrcLoc {
+        return declSrcLocOrNull(ty).?;
+    }
+
+    pub fn declSrcLocOrNull(ty: Type) ?Module.SrcLoc {
         switch (ty.tag()) {
             .enum_full, .enum_nonexhaustive => {
                 const enum_full = ty.cast(Payload.EnumFull).?.data;
@@ -3404,8 +3438,9 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .type_info,
-            => @panic("TODO resolve std.builtin types"),
-            else => unreachable,
+            => unreachable, // needed to call resolveTypeFields first
+
+            else => return null,
         }
     }
 

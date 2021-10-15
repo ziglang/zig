@@ -848,27 +848,79 @@ pub const DeclGen = struct {
                 return llvm_struct_ty;
             },
             .Union => {
-                const union_obj = t.castTag(.@"union").?.data;
-                assert(union_obj.haveFieldTypes());
+                const gop = try dg.object.type_map.getOrPut(gpa, t);
+                if (gop.found_existing) return gop.value_ptr.*;
 
-                const enum_tag_ty = union_obj.tag_ty;
-                const enum_tag_llvm_ty = try dg.llvmType(enum_tag_ty);
+                // The Type memory is ephemeral; since we want to store a longer-lived
+                // reference, we need to copy it here.
+                gop.key_ptr.* = try t.copy(&dg.object.type_map_arena.allocator);
 
-                if (union_obj.onlyTagHasCodegenBits()) {
-                    return enum_tag_llvm_ty;
-                }
-
+                const union_obj = t.cast(Type.Payload.Union).?.data;
                 const target = dg.module.getTarget();
-                const most_aligned_field_index = union_obj.mostAlignedField(target);
-                const most_aligned_field = union_obj.fields.values()[most_aligned_field_index];
-                // TODO handle when the most aligned field is different than the
-                // biggest sized field.
+                if (t.unionTagType()) |enum_tag_ty| {
+                    const enum_tag_llvm_ty = try dg.llvmType(enum_tag_ty);
+                    const layout = union_obj.getLayout(target, true);
 
-                const llvm_fields = [_]*const llvm.Type{
-                    try dg.llvmType(most_aligned_field.ty),
-                    enum_tag_llvm_ty,
-                };
-                return dg.context.structType(&llvm_fields, llvm_fields.len, .False);
+                    if (layout.payload_size == 0) {
+                        gop.value_ptr.* = enum_tag_llvm_ty;
+                        return enum_tag_llvm_ty;
+                    }
+
+                    const name = try union_obj.getFullyQualifiedName(gpa);
+                    defer gpa.free(name);
+
+                    const llvm_union_ty = dg.context.structCreateNamed(name);
+                    gop.value_ptr.* = llvm_union_ty; // must be done before any recursive calls
+
+                    const aligned_field = union_obj.fields.values()[layout.most_aligned_field];
+                    const llvm_aligned_field_ty = try dg.llvmType(aligned_field.ty);
+
+                    const llvm_payload_ty = t: {
+                        if (layout.most_aligned_field_size == layout.payload_size) {
+                            break :t llvm_aligned_field_ty;
+                        }
+                        const padding_len = @intCast(c_uint, layout.payload_size - layout.most_aligned_field_size);
+                        const fields: [2]*const llvm.Type = .{
+                            llvm_aligned_field_ty,
+                            dg.context.intType(8).arrayType(padding_len),
+                        };
+                        break :t dg.context.structType(&fields, fields.len, .False);
+                    };
+
+                    if (layout.tag_size == 0) {
+                        var llvm_fields: [1]*const llvm.Type = .{llvm_payload_ty};
+                        llvm_union_ty.structSetBody(&llvm_fields, llvm_fields.len, .False);
+                        return llvm_union_ty;
+                    }
+
+                    // Put the tag before or after the payload depending on which one's
+                    // alignment is greater.
+                    var llvm_fields: [2]*const llvm.Type = undefined;
+                    if (layout.tag_align >= layout.payload_align) {
+                        llvm_fields[0] = enum_tag_llvm_ty;
+                        llvm_fields[1] = llvm_payload_ty;
+                    } else {
+                        llvm_fields[0] = llvm_payload_ty;
+                        llvm_fields[1] = enum_tag_llvm_ty;
+                    }
+                    llvm_union_ty.structSetBody(&llvm_fields, llvm_fields.len, .False);
+                    return llvm_union_ty;
+                }
+                // Untagged union
+                const layout = union_obj.getLayout(target, false);
+
+                const name = try union_obj.getFullyQualifiedName(gpa);
+                defer gpa.free(name);
+
+                const llvm_union_ty = dg.context.structCreateNamed(name);
+                gop.value_ptr.* = llvm_union_ty; // must be done before any recursive calls
+
+                const big_field = union_obj.fields.values()[layout.biggest_field];
+                const llvm_big_field_ty = try dg.llvmType(big_field.ty);
+
+                var llvm_fields: [1]*const llvm.Type = .{llvm_big_field_ty};
+                llvm_union_ty.structSetBody(&llvm_fields, llvm_fields.len, .False);
+                return llvm_union_ty;
             },
             .Fn => {
                 const fn_info = t.fnInfo();
@@ -983,36 +1035,8 @@ pub const DeclGen = struct {
                 return int.constBitCast(llvm_ty);
             },
             .Pointer => switch (tv.val.tag()) {
-                .decl_ref => {
-                    if (tv.ty.isSlice()) {
-                        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                        const ptr_ty = tv.ty.slicePtrFieldType(&buf);
-                        var slice_len: Value.Payload.U64 = .{
-                            .base = .{ .tag = .int_u64 },
-                            .data = tv.val.sliceLen(),
-                        };
-                        const fields: [2]*const llvm.Value = .{
-                            try self.genTypedValue(.{
-                                .ty = ptr_ty,
-                                .val = tv.val,
-                            }),
-                            try self.genTypedValue(.{
-                                .ty = Type.initTag(.usize),
-                                .val = Value.initPayload(&slice_len.base),
-                            }),
-                        };
-                        return self.context.constStruct(&fields, fields.len, .False);
-                    } else {
-                        const decl = tv.val.castTag(.decl_ref).?.data;
-                        decl.alive = true;
-                        const llvm_type = try self.llvmType(tv.ty);
-                        const llvm_val = if (decl.ty.zigTypeTag() == .Fn)
-                            try self.resolveLlvmFunction(decl)
-                        else
-                            try self.resolveGlobalDecl(decl);
-                        return llvm_val.constBitCast(llvm_type);
-                    }
-                },
+                .decl_ref_mut => return lowerDeclRefValue(self, tv, tv.val.castTag(.decl_ref_mut).?.data.decl),
+                .decl_ref => return lowerDeclRefValue(self, tv, tv.val.castTag(.decl_ref).?.data),
                 .variable => {
                     const decl = tv.val.castTag(.variable).?.data.owner_decl;
                     decl.alive = true;
@@ -1192,6 +1216,49 @@ pub const DeclGen = struct {
                     @intCast(c_uint, llvm_fields.items.len),
                 );
             },
+            .Union => {
+                const llvm_union_ty = try self.llvmType(tv.ty);
+                const tag_and_val = tv.val.castTag(.@"union").?.data;
+
+                const target = self.module.getTarget();
+                const layout = tv.ty.unionGetLayout(target);
+
+                if (layout.payload_size == 0) {
+                    return genTypedValue(self, .{ .ty = tv.ty.unionTagType().?, .val = tag_and_val.tag });
+                }
+                const field_ty = tv.ty.unionFieldType(tag_and_val.tag);
+                const payload = p: {
+                    const field = try genTypedValue(self, .{ .ty = field_ty, .val = tag_and_val.val });
+                    const field_size = field_ty.abiSize(target);
+                    if (field_size == layout.payload_size) {
+                        break :p field;
+                    }
+                    const padding_len = @intCast(c_uint, layout.payload_size - field_size);
+                    const fields: [2]*const llvm.Value = .{
+                        field, self.context.intType(8).arrayType(padding_len).getUndef(),
+                    };
+                    break :p self.context.constStruct(&fields, fields.len, .False);
+                };
+                if (layout.tag_size == 0) {
+                    const llvm_payload_ty = llvm_union_ty.structGetTypeAtIndex(0);
+                    const fields: [1]*const llvm.Value = .{payload.constBitCast(llvm_payload_ty)};
+                    return llvm_union_ty.constNamedStruct(&fields, fields.len);
+                }
+                const llvm_tag_value = try genTypedValue(self, .{
+                    .ty = tv.ty.unionTagType().?,
+                    .val = tag_and_val.tag,
+                });
+                var fields: [2]*const llvm.Value = undefined;
+                if (layout.tag_align >= layout.payload_align) {
+                    fields[0] = llvm_tag_value;
+                    fields[1] = payload.constBitCast(llvm_union_ty.structGetTypeAtIndex(1));
+                } else {
+                    fields[0] = payload.constBitCast(llvm_union_ty.structGetTypeAtIndex(0));
+                    fields[1] = llvm_tag_value;
+                }
+                return llvm_union_ty.constNamedStruct(&fields, fields.len);
+            },
+
             .ComptimeInt => unreachable,
             .ComptimeFloat => unreachable,
             .Type => unreachable,
@@ -1203,12 +1270,45 @@ pub const DeclGen = struct {
             .BoundFn => unreachable,
             .Opaque => unreachable,
 
-            .Union,
             .Frame,
             .AnyFrame,
             .Vector,
             => return self.todo("implement const of type '{}'", .{tv.ty}),
         }
+    }
+
+    fn lowerDeclRefValue(
+        self: *DeclGen,
+        tv: TypedValue,
+        decl: *Module.Decl,
+    ) Error!*const llvm.Value {
+        if (tv.ty.isSlice()) {
+            var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+            const ptr_ty = tv.ty.slicePtrFieldType(&buf);
+            var slice_len: Value.Payload.U64 = .{
+                .base = .{ .tag = .int_u64 },
+                .data = tv.val.sliceLen(),
+            };
+            const fields: [2]*const llvm.Value = .{
+                try self.genTypedValue(.{
+                    .ty = ptr_ty,
+                    .val = tv.val,
+                }),
+                try self.genTypedValue(.{
+                    .ty = Type.initTag(.usize),
+                    .val = Value.initPayload(&slice_len.base),
+                }),
+            };
+            return self.context.constStruct(&fields, fields.len, .False);
+        }
+
+        decl.alive = true;
+        const llvm_type = try self.llvmType(tv.ty);
+        const llvm_val = if (decl.ty.zigTypeTag() == .Fn)
+            try self.resolveLlvmFunction(decl)
+        else
+            try self.resolveGlobalDecl(decl);
+        return llvm_val.constBitCast(llvm_type);
     }
 
     fn addAttr(dg: DeclGen, val: *const llvm.Value, index: llvm.AttributeIndex, name: []const u8) void {
@@ -2917,25 +3017,45 @@ pub const FuncGen = struct {
 
     fn airSetUnionTag(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const un_ty = self.air.typeOf(bin_op.lhs).childType();
+        const target = self.dg.module.getTarget();
+        const layout = un_ty.unionGetLayout(target);
+        if (layout.tag_size == 0) return null;
         const union_ptr = try self.resolveInst(bin_op.lhs);
-        // TODO handle when onlyTagHasCodegenBits() == true
         const new_tag = try self.resolveInst(bin_op.rhs);
-        const tag_field_ptr = self.builder.buildStructGEP(union_ptr, 1, "");
-
+        if (layout.payload_size == 0) {
+            _ = self.builder.buildStore(new_tag, union_ptr);
+            return null;
+        }
+        const tag_index = @boolToInt(layout.tag_align < layout.payload_align);
+        const tag_field_ptr = self.builder.buildStructGEP(union_ptr, tag_index, "");
         _ = self.builder.buildStore(new_tag, tag_field_ptr);
         return null;
     }
 
     fn airGetUnionTag(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const un_ty = self.air.typeOf(ty_op.operand);
-        const un = try self.resolveInst(ty_op.operand);
-
-        _ = un_ty; // TODO handle when onlyTagHasCodegenBits() == true and other union forms
-        return self.builder.buildExtractValue(un, 1, "");
+        const target = self.dg.module.getTarget();
+        const layout = un_ty.unionGetLayout(target);
+        if (layout.tag_size == 0) return null;
+        const union_handle = try self.resolveInst(ty_op.operand);
+        if (isByRef(un_ty)) {
+            if (layout.payload_size == 0) {
+                return self.builder.buildLoad(union_handle, "");
+            }
+            const tag_index = @boolToInt(layout.tag_align < layout.payload_align);
+            const tag_field_ptr = self.builder.buildStructGEP(union_handle, tag_index, "");
+            return self.builder.buildLoad(tag_field_ptr, "");
+        } else {
+            if (layout.payload_size == 0) {
+                return union_handle;
+            }
+            const tag_index = @boolToInt(layout.tag_align < layout.payload_align);
+            return self.builder.buildExtractValue(union_handle, tag_index, "");
+        }
     }
 
     fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, prefix: [*:0]const u8) !?*const llvm.Value {
@@ -3004,7 +3124,10 @@ pub const FuncGen = struct {
         if (!field.ty.hasCodeGenBits()) {
             return null;
         }
-        const union_field_ptr = self.builder.buildStructGEP(union_ptr, 0, "");
+        const target = self.dg.module.getTarget();
+        const layout = union_ty.unionGetLayout(target);
+        const payload_index = @boolToInt(layout.tag_align >= layout.payload_align);
+        const union_field_ptr = self.builder.buildStructGEP(union_ptr, payload_index, "");
         return self.builder.buildBitCast(union_field_ptr, result_llvm_ty, "");
     }
 
