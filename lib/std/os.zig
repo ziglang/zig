@@ -5439,7 +5439,9 @@ pub fn sendfile(
             }
 
             // Here we match BSD behavior, making a zero count value send as many bytes as possible.
-            const adjusted_count = if (in_len == 0) max_count else @minimum(in_len, @as(size_t, max_count));
+            const adjusted_count_tmp = if (in_len == 0) max_count else @minimum(in_len, @as(size_t, max_count));
+            // TODO we should not need this cast; improve return type of @minimum
+            const adjusted_count = @intCast(usize, adjusted_count_tmp);
 
             const sendfile_sym = if (builtin.link_libc)
                 system.sendfile64
