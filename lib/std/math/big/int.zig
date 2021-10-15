@@ -18,18 +18,12 @@ const debug_safety = false;
 /// Returns the number of limbs needed to store `scalar`, which must be a
 /// primitive integer value.
 pub fn calcLimbLen(scalar: anytype) usize {
-    const T = @TypeOf(scalar);
-    switch (@typeInfo(T)) {
-        .Int => |info| {
-            const UT = if (info.signedness == .signed) std.meta.Int(.unsigned, info.bits - 1) else T;
-            return @sizeOf(UT) / @sizeOf(Limb);
-        },
-        .ComptimeInt => {
-            const w_value = if (scalar < 0) -scalar else scalar;
-            return @divFloor(math.log2(w_value), limb_bits) + 1;
-        },
-        else => @compileError("parameter must be a primitive integer type"),
+    if (scalar == 0) {
+        return 1;
     }
+
+    const w_value = std.math.absCast(scalar);
+    return @divFloor(@intCast(Limb, math.log2(w_value)), limb_bits) + 1;
 }
 
 pub fn calcToStringLimbsBufferLen(a_len: usize, base: u8) usize {
@@ -218,26 +212,22 @@ pub const Mutable = struct {
     /// needs to be to store a specific value.
     pub fn set(self: *Mutable, value: anytype) void {
         const T = @TypeOf(value);
+        const needed_limbs = calcLimbLen(value);
+        assert(needed_limbs <= self.limbs.len); // value too big
+
+        self.len = needed_limbs;
+        self.positive = value >= 0;
 
         switch (@typeInfo(T)) {
             .Int => |info| {
-                const UT = if (info.signedness == .signed) std.meta.Int(.unsigned, info.bits - 1) else T;
-
-                const needed_limbs = @sizeOf(UT) / @sizeOf(Limb);
-                assert(needed_limbs <= self.limbs.len); // value too big
-                self.len = 0;
-                self.positive = value >= 0;
-
-                var w_value: UT = if (value < 0) @intCast(UT, -value) else @intCast(UT, value);
+                var w_value = std.math.absCast(value);
 
                 if (info.bits <= limb_bits) {
-                    self.limbs[0] = @as(Limb, w_value);
-                    self.len += 1;
+                    self.limbs[0] = w_value;
                 } else {
                     var i: usize = 0;
                     while (w_value != 0) : (i += 1) {
                         self.limbs[i] = @truncate(Limb, w_value);
-                        self.len += 1;
 
                         // TODO: shift == 64 at compile-time fails. Fails on u128 limbs.
                         w_value >>= limb_bits / 2;
@@ -246,13 +236,7 @@ pub const Mutable = struct {
                 }
             },
             .ComptimeInt => {
-                comptime var w_value = if (value < 0) -value else value;
-
-                const req_limbs = @divFloor(math.log2(w_value), limb_bits) + 1;
-                assert(req_limbs <= self.limbs.len); // value too big
-
-                self.len = req_limbs;
-                self.positive = value >= 0;
+                comptime var w_value = std.math.absCast(value);
 
                 if (w_value <= maxInt(Limb)) {
                     self.limbs[0] = w_value;

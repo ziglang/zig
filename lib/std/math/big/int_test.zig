@@ -61,6 +61,13 @@ test "big.int sub-limb to" {
     try testing.expect((try a.to(u8)) == 10);
 }
 
+test "big.int set negative minimum" {
+    var a = try Managed.initSet(testing.allocator, @as(i64, minInt(i64)));
+    defer a.deinit();
+
+    try testing.expect((try a.to(i64)) == minInt(i64));
+}
+
 test "big.int to target too small error" {
     var a = try Managed.initSet(testing.allocator, 0xffffffff);
     defer a.deinit();
