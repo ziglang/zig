@@ -8869,9 +8869,20 @@ pub fn addCases(ctx: *TestContext) !void {
         "error: invalid operands to binary expression: 'f32' and 'f32'",
     });
 
-    ctx.objErrStage1("saturating shl does not allow negative rhs",
+    ctx.objErrStage1("saturating shl does not allow negative rhs at comptime",
         \\pub fn main() !void {
         \\    _ = @as(i32, 1) <<| @as(i32, -2);
+        \\}
+    , &[_][]const u8{
+        "error: shift by negative value -2",
+    });
+
+    ctx.objErrStage1("saturating shl assign does not allow negative rhs at comptime",
+        \\pub fn main() !void {
+        \\    comptime {
+        \\      var x = @as(i32, 1);
+        \\      x <<|= @as(i32, -2);
+        \\  }
         \\}
     , &[_][]const u8{
         "error: shift by negative value -2",
