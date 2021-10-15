@@ -1773,6 +1773,92 @@ test "big.int shift-left negative" {
     try testing.expect((try a.to(i32)) == -10 >> 1232);
 }
 
+test "big.int sat shift-left simple unsigned" {
+    var a = try Managed.initSet(testing.allocator, 0xffff);
+    defer a.deinit();
+    try a.shiftLeftSat(a, 16, .unsigned, 21);
+
+    try testing.expect((try a.to(u64)) == 0x1fffff);
+}
+
+test "big.int sat shift-left simple unsigned no sat" {
+    var a = try Managed.initSet(testing.allocator, 1);
+    defer a.deinit();
+    try a.shiftLeftSat(a, 16, .unsigned, 21);
+
+    try testing.expect((try a.to(u64)) == 0x10000);
+}
+
+test "big.int sat shift-left multi unsigned" {
+    var a = try Managed.initSet(testing.allocator, 16);
+    defer a.deinit();
+    try a.shiftLeftSat(a, @bitSizeOf(DoubleLimb) - 3, .unsigned, @bitSizeOf(DoubleLimb) - 1);
+
+    try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb) >> 1);
+}
+
+test "big.int sat shift-left unsigned shift > bitcount" {
+    var a = try Managed.initSet(testing.allocator, 1);
+    defer a.deinit();
+    try a.shiftLeftSat(a, 10, .unsigned, 10);
+
+    try testing.expect((try a.to(u10)) == maxInt(u10));
+}
+
+test "big.int sat shift-left unsigned zero" {
+    var a = try Managed.initSet(testing.allocator, 0);
+    defer a.deinit();
+    try a.shiftLeftSat(a, 1, .unsigned, 0);
+
+    try testing.expect((try a.to(u64)) == 0);
+}
+
+test "big.int sat shift-left unsigned negative" {
+    var a = try Managed.initSet(testing.allocator, -100);
+    defer a.deinit();
+    try a.shiftLeftSat(a, 0, .unsigned, 0);
+
+    try testing.expect((try a.to(u64)) == 0);
+}
+
+test "big.int sat shift-left signed simple negative" {
+    var a = try Managed.initSet(testing.allocator, -100);
+    defer a.deinit();
+    try a.shiftLeftSat(a, 3, .signed, 10);
+
+    try testing.expect((try a.to(i10)) == minInt(i10));
+}
+
+test "big.int sat shift-left signed simple positive" {
+    var a = try Managed.initSet(testing.allocator, 100);
+    defer a.deinit();
+    try a.shiftLeftSat(a, 3, .signed, 10);
+
+    try testing.expect((try a.to(i10)) == maxInt(i10));
+}
+
+test "big.int sat shift-left signed multi positive" {
+    const x = 1;
+    const shift = @bitSizeOf(SignedDoubleLimb) - 1;
+
+    var a = try Managed.initSet(testing.allocator, x);
+    defer a.deinit();
+    try a.shiftLeftSat(a, shift, .signed, @bitSizeOf(SignedDoubleLimb));
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == @as(SignedDoubleLimb, x) <<| shift);
+}
+
+test "big.int sat shift-left signed multi negative" {
+    const x = -1;
+    const shift = @bitSizeOf(SignedDoubleLimb) - 1;
+
+    var a = try Managed.initSet(testing.allocator, x);
+    defer a.deinit();
+    try a.shiftLeftSat(a, shift, .signed, @bitSizeOf(SignedDoubleLimb));
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == @as(SignedDoubleLimb, x) <<| shift);
+}
+
 test "big.int bitwise and simple" {
     var a = try Managed.initSet(testing.allocator, 0xffffffff11111111);
     defer a.deinit();
