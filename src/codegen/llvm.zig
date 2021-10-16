@@ -498,21 +498,21 @@ pub const Object = struct {
     ) !void {
         // If the module does not already have the function, we ignore this function call
         // because we call `updateDeclExports` at the end of `updateFunc` and `updateDecl`.
-        const llvm_fn = self.decl_map.get(decl) orelse return;
-        const is_extern = decl.val.tag() == .extern_fn;
+        const llvm_global = self.decl_map.get(decl) orelse return;
+        const is_extern = decl.isExtern();
         if (is_extern) {
-            llvm_fn.setValueName(decl.name);
-            llvm_fn.setUnnamedAddr(.False);
-            llvm_fn.setLinkage(.External);
+            llvm_global.setValueName(decl.name);
+            llvm_global.setUnnamedAddr(.False);
+            llvm_global.setLinkage(.External);
         } else if (exports.len != 0) {
             const exp_name = exports[0].options.name;
-            llvm_fn.setValueName2(exp_name.ptr, exp_name.len);
-            llvm_fn.setUnnamedAddr(.False);
+            llvm_global.setValueName2(exp_name.ptr, exp_name.len);
+            llvm_global.setUnnamedAddr(.False);
             switch (exports[0].options.linkage) {
                 .Internal => unreachable,
-                .Strong => llvm_fn.setLinkage(.External),
-                .Weak => llvm_fn.setLinkage(.WeakODR),
-                .LinkOnce => llvm_fn.setLinkage(.LinkOnceODR),
+                .Strong => llvm_global.setLinkage(.External),
+                .Weak => llvm_global.setLinkage(.WeakODR),
+                .LinkOnce => llvm_global.setLinkage(.LinkOnceODR),
             }
             // If a Decl is exported more than one time (which is rare),
             // we add aliases for all but the first export.
@@ -525,9 +525,9 @@ pub const Object = struct {
                 defer module.gpa.free(exp_name_z);
 
                 if (self.llvm_module.getNamedGlobalAlias(exp_name_z.ptr, exp_name_z.len)) |alias| {
-                    alias.setAliasee(llvm_fn);
+                    alias.setAliasee(llvm_global);
                 } else {
-                    const alias = self.llvm_module.addAlias(llvm_fn.typeOf(), llvm_fn, exp_name_z);
+                    const alias = self.llvm_module.addAlias(llvm_global.typeOf(), llvm_global, exp_name_z);
                     switch (exp.options.linkage) {
                         .Internal => alias.setLinkage(.Internal),
                         .Strong => alias.setLinkage(.External),
@@ -545,9 +545,9 @@ pub const Object = struct {
         } else {
             const fqn = try decl.getFullyQualifiedName(module.gpa);
             defer module.gpa.free(fqn);
-            llvm_fn.setValueName2(fqn.ptr, fqn.len);
-            llvm_fn.setLinkage(.Internal);
-            llvm_fn.setUnnamedAddr(.True);
+            llvm_global.setValueName2(fqn.ptr, fqn.len);
+            llvm_global.setLinkage(.Internal);
+            llvm_global.setUnnamedAddr(.True);
         }
     }
 
@@ -598,9 +598,10 @@ pub const DeclGen = struct {
                 global.setGlobalConstant(.True);
                 break :init_val decl.val;
             };
-
-            const llvm_init = try self.genTypedValue(.{ .ty = decl.ty, .val = init_val });
-            global.setInitializer(llvm_init);
+            if (init_val.tag() != .unreachable_value) {
+                const llvm_init = try self.genTypedValue(.{ .ty = decl.ty, .val = init_val });
+                global.setInitializer(llvm_init);
+            }
         }
     }
 
@@ -704,6 +705,13 @@ pub const DeclGen = struct {
         const llvm_addrspace = dg.llvmAddressSpace(decl.@"addrspace");
         const llvm_global = dg.object.llvm_module.addGlobalInAddressSpace(llvm_type, fqn, llvm_addrspace);
         gop.value_ptr.* = llvm_global;
+
+        const is_extern = decl.val.tag() == .unreachable_value;
+        if (!is_extern) {
+            llvm_global.setLinkage(.Internal);
+            llvm_global.setUnnamedAddr(.True);
+        }
+
         return llvm_global;
     }
 
@@ -2431,10 +2439,33 @@ pub const FuncGen = struct {
     }
 
     fn airWrapErrUnionPayload(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
-        return self.todo("implement llvm codegen for 'airWrapErrUnionPayload'", .{});
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const payload_ty = self.air.typeOf(ty_op.operand);
+        const operand = try self.resolveInst(ty_op.operand);
+        if (!payload_ty.hasCodeGenBits()) {
+            return operand;
+        }
+        const inst_ty = self.air.typeOfIndex(inst);
+        const ok_err_code = self.context.intType(16).constNull();
+        const err_un_llvm_ty = try self.dg.llvmType(inst_ty);
+        if (isByRef(inst_ty)) {
+            const result_ptr = self.buildAlloca(err_un_llvm_ty);
+            const err_ptr = self.builder.buildStructGEP(result_ptr, 0, "");
+            _ = self.builder.buildStore(ok_err_code, err_ptr);
+            const payload_ptr = self.builder.buildStructGEP(result_ptr, 1, "");
+            var ptr_ty_payload: Type.Payload.ElemType = .{
+                .base = .{ .tag = .single_mut_pointer },
+                .data = payload_ty,
+            };
+            const payload_ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+            self.store(payload_ptr, payload_ptr_ty, operand, .NotAtomic);
+            return result_ptr;
+        }
+
+        const partial = self.builder.buildInsertValue(err_un_llvm_ty.getUndef(), ok_err_code, 0, "");
+        return self.builder.buildInsertValue(partial, operand, 1, "");
     }
 
     fn airWrapErrUnionErr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

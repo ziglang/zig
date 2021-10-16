@@ -754,6 +754,15 @@ pub const Decl = struct {
     fn removeDependency(decl: *Decl, other: *Decl) void {
         assert(decl.dependencies.swapRemove(other));
     }
+
+    pub fn isExtern(decl: Decl) bool {
+        assert(decl.has_tv);
+        return switch (decl.val.tag()) {
+            .extern_fn => true,
+            .variable => decl.val.castTag(.variable).?.data.init.tag() == .unreachable_value,
+            else => false,
+        };
+    }
 };
 
 /// This state is attached to every Decl when Module emit_h is non-null.

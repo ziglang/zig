@@ -3020,8 +3020,9 @@ pub fn analyzeExport(
     const mod = sema.mod;
 
     try mod.ensureDeclAnalyzed(exported_decl);
+    // TODO run the same checks as we do for C ABI struct fields
     switch (exported_decl.ty.zigTypeTag()) {
-        .Fn => {},
+        .Fn, .Int, .Struct, .Array, .Float => {},
         else => return sema.fail(block, src, "unable to export type '{}'", .{exported_decl.ty}),
     }
 
