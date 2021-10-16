@@ -313,6 +313,12 @@ pub const VerifierFailureAction = enum(c_int) {
 pub const constNeg = LLVMConstNeg;
 extern fn LLVMConstNeg(ConstantVal: *const Value) *const Value;
 
+pub const constVector = LLVMConstVector;
+extern fn LLVMConstVector(
+    ScalarConstantVals: [*]*const Value,
+    Size: c_uint,
+) *const Value;
+
 pub const getEnumAttributeKindForName = LLVMGetEnumAttributeKindForName;
 extern fn LLVMGetEnumAttributeKindForName(Name: [*]const u8, SLen: usize) c_uint;
 

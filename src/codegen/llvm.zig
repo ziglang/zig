@@ -1279,6 +1279,66 @@ pub const DeclGen = struct {
                 }
                 return llvm_union_ty.constNamedStruct(&fields, fields.len);
             },
+            .Vector => switch (tv.val.tag()) {
+                .bytes => {
+                    // Note, sentinel is not stored even if the type has a sentinel.
+                    const bytes = tv.val.castTag(.bytes).?.data;
+                    const vector_len = tv.ty.arrayLen();
+                    assert(vector_len == bytes.len or vector_len + 1 == bytes.len);
+
+                    const elem_ty = tv.ty.elemType();
+                    const llvm_elems = try self.gpa.alloc(*const llvm.Value, vector_len);
+                    defer self.gpa.free(llvm_elems);
+                    for (llvm_elems) |*elem, i| {
+                        var byte_payload: Value.Payload.U64 = .{
+                            .base = .{ .tag = .int_u64 },
+                            .data = bytes[i],
+                        };
+
+                        elem.* = try self.genTypedValue(.{
+                            .ty = elem_ty,
+                            .val = Value.initPayload(&byte_payload.base),
+                        });
+                    }
+                    return llvm.constVector(
+                        llvm_elems.ptr,
+                        @intCast(c_uint, llvm_elems.len),
+                    );
+                },
+                .array => {
+                    // Note, sentinel is not stored even if the type has a sentinel.
+                    // The value includes the sentinel in those cases.
+                    const elem_vals = tv.val.castTag(.array).?.data;
+                    const vector_len = tv.ty.arrayLen();
+                    assert(vector_len == elem_vals.len or vector_len + 1 == elem_vals.len);
+                    const elem_ty = tv.ty.elemType();
+                    const llvm_elems = try self.gpa.alloc(*const llvm.Value, vector_len);
+                    defer self.gpa.free(llvm_elems);
+                    for (llvm_elems) |*elem, i| {
+                        elem.* = try self.genTypedValue(.{ .ty = elem_ty, .val = elem_vals[i] });
+                    }
+                    return llvm.constVector(
+                        llvm_elems.ptr,
+                        @intCast(c_uint, llvm_elems.len),
+                    );
+                },
+                .repeated => {
+                    // Note, sentinel is not stored even if the type has a sentinel.
+                    const val = tv.val.castTag(.repeated).?.data;
+                    const elem_ty = tv.ty.elemType();
+                    const len = tv.ty.arrayLen();
+                    const llvm_elems = try self.gpa.alloc(*const llvm.Value, len);
+                    defer self.gpa.free(llvm_elems);
+                    for (llvm_elems) |*elem| {
+                        elem.* = try self.genTypedValue(.{ .ty = elem_ty, .val = val });
+                    }
+                    return llvm.constVector(
+                        llvm_elems.ptr,
+                        @intCast(c_uint, llvm_elems.len),
+                    );
+                },
+                else => unreachable,
+            },
 
             .ComptimeInt => unreachable,
             .ComptimeFloat => unreachable,
@@ -1293,7 +1353,6 @@ pub const DeclGen = struct {
 
             .Frame,
             .AnyFrame,
-            .Vector,
             => return self.todo("implement const of type '{}'", .{tv.ty}),
         }
     }
