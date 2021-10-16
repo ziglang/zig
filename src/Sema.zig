@@ -8271,12 +8271,13 @@ fn zirBoolNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     const bool_type = Type.initTag(.bool);
     const operand = try sema.coerce(block, bool_type, uncasted_operand, operand_src);
-    if (try sema.resolveDefinedValue(block, operand_src, operand)) |val| {
-        if (val.toBool()) {
-            return Air.Inst.Ref.bool_false;
-        } else {
-            return Air.Inst.Ref.bool_true;
-        }
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        return if (val.isUndef())
+            sema.addConstUndef(bool_type)
+        else if (val.toBool())
+            Air.Inst.Ref.bool_false
+        else
+            Air.Inst.Ref.bool_true;
     }
     try sema.requireRuntimeBlock(block, src);
     return block.addTyOp(.not, bool_type, operand);
