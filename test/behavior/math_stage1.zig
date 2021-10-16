@@ -219,20 +219,6 @@ const DivResult = struct {
     remainder: u64,
 };
 
-test "binary not" {
-    try expect(comptime x: {
-        break :x ~@as(u16, 0b1010101010101010) == 0b0101010101010101;
-    });
-    try expect(comptime x: {
-        break :x ~@as(u64, 2147483647) == 18446744071562067968;
-    });
-    try testBinaryNot(0b1010101010101010);
-}
-
-fn testBinaryNot(x: u16) !void {
-    try expect(~x == 0b0101010101010101);
-}
-
 test "small int addition" {
     var x: u2 = 0;
     try expect(x == 0);

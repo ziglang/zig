@@ -2081,6 +2081,32 @@ pub const Value = extern union {
         };
     }
 
+    /// operands must be integers; handles undefined.
+    pub fn bitwiseNot(val: Value, ty: Type, arena: *Allocator, target: Target) !Value {
+        if (val.isUndef()) return Value.initTag(.undef);
+
+        const info = ty.intInfo(target);
+
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var val_space: Value.BigIntSpace = undefined;
+        const val_bigint = val.toBigInt(&val_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcTwosCompLimbCount(info.bits),
+        );
+
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.bitNotWrap(val_bigint, info.signedness, info.bits);
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        if (result_bigint.positive) {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        }
+    }
+
     /// operands must be integers; handles undefined. 
     pub fn bitwiseAnd(lhs: Value, rhs: Value, arena: *Allocator) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);

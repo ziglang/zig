@@ -6627,8 +6627,42 @@ fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const tracy = trace(@src());
     defer tracy.end();
 
-    _ = inst;
-    return sema.fail(block, sema.src, "TODO implement zirBitNot", .{});
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const operand_src = src; // TODO put this on the operand, not the '~'
+
+    const operand = sema.resolveInst(inst_data.operand);
+    const operand_type = sema.typeOf(operand);
+    const scalar_type = operand_type.scalarType();
+
+    if (scalar_type.zigTypeTag() != .Int) {
+        return sema.fail(block, src, "unable to perform binary not operation on type '{}'", .{operand_type});
+    }
+
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        const target = sema.mod.getTarget();
+        if (val.isUndef()) {
+            return sema.addConstUndef(scalar_type);
+        } else if (operand_type.zigTypeTag() == .Vector) {
+            const vec_len = operand_type.arrayLen();
+            var elem_val_buf: Value.ElemValueBuffer = undefined;
+            const elems = try sema.arena.alloc(Value, vec_len);
+            for (elems) |*elem, i| {
+                const elem_val = val.elemValueBuffer(i, &elem_val_buf);
+                elem.* = try elem_val.bitwiseNot(scalar_type, sema.arena, target);
+            }
+            return sema.addConstant(
+                operand_type,
+                try Value.Tag.array.create(sema.arena, elems),
+            );
+        } else {
+            const result_val = try val.bitwiseNot(scalar_type, sema.arena, target);
+            return sema.addConstant(scalar_type, result_val);
+        }
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    return block.addTyOp(.not, operand_type, operand);
 }
 
 fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
