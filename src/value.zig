@@ -1365,12 +1365,20 @@ pub const Value = extern union {
                     const b_field_index = b.castTag(.enum_field_index).?.data;
                     return a_field_index == b_field_index;
                 },
+                .opt_payload => {
+                    const a_payload = a.castTag(.opt_payload).?.data;
+                    const b_payload = b.castTag(.opt_payload).?.data;
+                    var buffer: Type.Payload.ElemType = undefined;
+                    return eql(a_payload, b_payload, ty.optionalChild(&buffer));
+                },
                 .elem_ptr => @panic("TODO: Implement more pointer eql cases"),
                 .field_ptr => @panic("TODO: Implement more pointer eql cases"),
                 .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
                 .opt_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
                 else => {},
             }
+        } else if (a_tag == .null_value or b_tag == .null_value) {
+            return false;
         }
 
         if (a.pointerDecl()) |a_decl| {

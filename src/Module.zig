@@ -4249,20 +4249,6 @@ pub fn errNoteNonLazy(
     };
 }
 
-pub fn optionalType(arena: *Allocator, child_type: Type) Allocator.Error!Type {
-    switch (child_type.tag()) {
-        .single_const_pointer => return Type.Tag.optional_single_const_pointer.create(
-            arena,
-            child_type.elemType(),
-        ),
-        .single_mut_pointer => return Type.Tag.optional_single_mut_pointer.create(
-            arena,
-            child_type.elemType(),
-        ),
-        else => return Type.Tag.optional.create(arena, child_type),
-    }
-}
-
 pub fn errorUnionType(
     arena: *Allocator,
     error_set: Type,

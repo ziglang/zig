@@ -1430,7 +1430,7 @@ pub const FuncGen = struct {
 
     /// This stores the LLVM values used in a function, such that they can be referred to
     /// in other instructions. This table is cleared before every function is generated.
-    func_inst_table: std.AutoHashMapUnmanaged(Air.Inst.Index, *const llvm.Value),
+    func_inst_table: std.AutoHashMapUnmanaged(Air.Inst.Ref, *const llvm.Value),
 
     /// If the return type isByRef, this is the result pointer. Otherwise null.
     ret_ptr: ?*const llvm.Value,
@@ -1472,23 +1472,27 @@ pub const FuncGen = struct {
     }
 
     fn resolveInst(self: *FuncGen, inst: Air.Inst.Ref) !*const llvm.Value {
-        if (self.air.value(inst)) |val| {
-            const ty = self.air.typeOf(inst);
-            const llvm_val = try self.dg.genTypedValue(.{ .ty = ty, .val = val });
-            if (!isByRef(ty)) return llvm_val;
+        const gop = try self.func_inst_table.getOrPut(self.dg.gpa, inst);
+        if (gop.found_existing) return gop.value_ptr.*;
 
-            // We have an LLVM value but we need to create a global constant and
-            // set the value as its initializer, and then return a pointer to the global.
-            const target = self.dg.module.getTarget();
-            const global = self.dg.object.llvm_module.addGlobal(llvm_val.typeOf(), "");
-            global.setInitializer(llvm_val);
-            global.setLinkage(.Private);
-            global.setGlobalConstant(.True);
-            global.setAlignment(ty.abiAlignment(target));
-            return global;
+        const val = self.air.value(inst).?;
+        const ty = self.air.typeOf(inst);
+        const llvm_val = try self.dg.genTypedValue(.{ .ty = ty, .val = val });
+        if (!isByRef(ty)) {
+            gop.value_ptr.* = llvm_val;
+            return llvm_val;
         }
-        const inst_index = Air.refToIndex(inst).?;
-        return self.func_inst_table.get(inst_index).?;
+
+        // We have an LLVM value but we need to create a global constant and
+        // set the value as its initializer, and then return a pointer to the global.
+        const target = self.dg.module.getTarget();
+        const global = self.dg.object.llvm_module.addGlobal(llvm_val.typeOf(), "");
+        global.setInitializer(llvm_val);
+        global.setLinkage(.Private);
+        global.setGlobalConstant(.True);
+        global.setAlignment(ty.abiAlignment(target));
+        gop.value_ptr.* = global;
+        return global;
     }
 
     fn genBody(self: *FuncGen, body: []const Air.Inst.Index) Error!void {
@@ -1528,10 +1532,11 @@ pub const FuncGen = struct {
                 .cmp_lte => try self.airCmp(inst, .lte),
                 .cmp_neq => try self.airCmp(inst, .neq),
 
-                .is_non_null     => try self.airIsNonNull(inst, false),
-                .is_non_null_ptr => try self.airIsNonNull(inst, true),
-                .is_null         => try self.airIsNull(inst, false),
-                .is_null_ptr     => try self.airIsNull(inst, true),
+                .is_non_null     => try self.airIsNonNull(inst, false, false, .NE),
+                .is_non_null_ptr => try self.airIsNonNull(inst, true , false, .NE),
+                .is_null         => try self.airIsNonNull(inst, false, true , .EQ),
+                .is_null_ptr     => try self.airIsNonNull(inst, true , true , .EQ),
+
                 .is_non_err      => try self.airIsErr(inst, .EQ, false),
                 .is_non_err_ptr  => try self.airIsErr(inst, .EQ, true),
                 .is_err          => try self.airIsErr(inst, .NE, false),
@@ -1618,7 +1623,10 @@ pub const FuncGen = struct {
                 },
                 // zig fmt: on
             };
-            if (opt_value) |val| try self.func_inst_table.putNoClobber(self.gpa, inst, val);
+            if (opt_value) |val| {
+                const ref = Air.indexToRef(inst);
+                try self.func_inst_table.putNoClobber(self.gpa, ref, val);
+            }
         }
     }
 
@@ -1722,8 +1730,7 @@ pub const FuncGen = struct {
     }
 
     fn airCmp(self: *FuncGen, inst: Air.Inst.Index, op: math.CompareOperator) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -1733,7 +1740,7 @@ pub const FuncGen = struct {
 
         const int_ty = switch (operand_ty.zigTypeTag()) {
             .Enum => operand_ty.intTagType(&buffer),
-            .Int, .Bool, .Pointer, .ErrorSet => operand_ty,
+            .Int, .Bool, .Pointer, .Optional, .ErrorSet => operand_ty,
             .Float => {
                 const operation: llvm.RealPredicate = switch (op) {
                     .eq => .OEQ,
@@ -2227,45 +2234,57 @@ pub const FuncGen = struct {
         );
     }
 
-    fn airIsNonNull(self: *FuncGen, inst: Air.Inst.Index, operand_is_ptr: bool) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+    fn airIsNonNull(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        operand_is_ptr: bool,
+        invert: bool,
+        pred: llvm.IntPredicate,
+    ) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
 
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const operand = try self.resolveInst(un_op);
-
-        if (operand_is_ptr) {
-            const operand_ty = self.air.typeOf(un_op).elemType();
-            if (operand_ty.isPtrLikeOptional()) {
-                const operand_llvm_ty = try self.dg.llvmType(operand_ty);
-                const loaded = self.builder.buildLoad(operand, "");
-                return self.builder.buildICmp(.NE, loaded, operand_llvm_ty.constNull(), "");
+        const operand_ty = self.air.typeOf(un_op);
+        const optional_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
+        var buf: Type.Payload.ElemType = undefined;
+        const payload_ty = optional_ty.optionalChild(&buf);
+        if (!payload_ty.hasCodeGenBits()) {
+            if (invert) {
+                return self.builder.buildNot(operand, "");
+            } else {
+                return operand;
             }
+        }
+        if (optional_ty.isPtrLikeOptional()) {
+            const optional_llvm_ty = try self.dg.llvmType(optional_ty);
+            const loaded = if (operand_is_ptr) self.builder.buildLoad(operand, "") else operand;
+            return self.builder.buildICmp(pred, loaded, optional_llvm_ty.constNull(), "");
+        }
 
+        if (operand_is_ptr or isByRef(optional_ty)) {
             const index_type = self.context.intType(32);
 
-            var indices: [2]*const llvm.Value = .{
+            const indices: [2]*const llvm.Value = .{
                 index_type.constNull(),
                 index_type.constInt(1, .False),
             };
 
-            return self.builder.buildLoad(self.builder.buildInBoundsGEP(operand, &indices, indices.len, ""), "");
+            const field_ptr = self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
+            const non_null_bit = self.builder.buildLoad(field_ptr, "");
+            if (invert) {
+                return self.builder.buildNot(non_null_bit, "");
+            } else {
+                return non_null_bit;
+            }
         }
 
-        const operand_ty = self.air.typeOf(un_op);
-        if (operand_ty.isPtrLikeOptional()) {
-            const operand_llvm_ty = try self.dg.llvmType(operand_ty);
-            return self.builder.buildICmp(.NE, operand, operand_llvm_ty.constNull(), "");
+        const non_null_bit = self.builder.buildExtractValue(operand, 1, "");
+        if (invert) {
+            return self.builder.buildNot(non_null_bit, "");
+        } else {
+            return non_null_bit;
         }
-
-        return self.builder.buildExtractValue(operand, 1, "");
-    }
-
-    fn airIsNull(self: *FuncGen, inst: Air.Inst.Index, operand_is_ptr: bool) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
-
-        return self.builder.buildNot((try self.airIsNonNull(inst, operand_is_ptr)).?, "");
     }
 
     fn airIsErr(

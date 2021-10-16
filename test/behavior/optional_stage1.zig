@@ -3,27 +3,6 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "equality compare nullable pointers" {
-    try testNullPtrsEql();
-    comptime try testNullPtrsEql();
-}
-
-fn testNullPtrsEql() !void {
-    var number: i32 = 1234;
-
-    var x: ?*i32 = null;
-    var y: ?*i32 = null;
-    try expect(x == y);
-    y = &number;
-    try expect(x != y);
-    try expect(x != &number);
-    try expect(&number != x);
-    x = &number;
-    try expect(x == y);
-    try expect(x == &number);
-    try expect(&number == x);
-}
-
 test "address of unwrap optional" {
     const S = struct {
         const Foo = struct {
@@ -141,14 +120,6 @@ test "coerce an anon struct literal to optional struct" {
     };
     try S.doTheTest();
     comptime try S.doTheTest();
-}
-
-test "optional with void type" {
-    const Foo = struct {
-        x: ?void,
-    };
-    var x = Foo{ .x = null };
-    try expect(x.x == null);
 }
 
 test "0-bit child type coerced to optional return ptr result location" {

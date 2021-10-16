@@ -4108,7 +4108,7 @@ fn zirOptionalType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const child_type = try sema.resolveType(block, src, inst_data.operand);
-    const opt_type = try Module.optionalType(sema.arena, child_type);
+    const opt_type = try Type.optional(sema.arena, child_type);
 
     return sema.addType(opt_type);
 }
@@ -9675,7 +9675,7 @@ fn zirCmpxchg(
         return sema.fail(block, failure_order_src, "failure atomic ordering must not be Release or AcqRel", .{});
     }
 
-    const result_ty = try Module.optionalType(sema.arena, elem_ty);
+    const result_ty = try Type.optional(sema.arena, elem_ty);
 
     // special case zero bit types
     if ((try sema.typeHasOnePossibleValue(block, elem_ty_src, elem_ty)) != null) {
@@ -10517,7 +10517,7 @@ fn panicWithMsg(
         .@"addrspace" = target_util.defaultAddressSpace(mod.getTarget(), .global_constant), // TODO might need a place that is more dynamic
     });
     const null_stack_trace = try sema.addConstant(
-        try Module.optionalType(arena, ptr_stack_trace_ty),
+        try Type.optional(arena, ptr_stack_trace_ty),
         Value.initTag(.null_value),
     );
     const args = try arena.create([2]Air.Inst.Ref);
@@ -12797,6 +12797,7 @@ fn resolvePeerTypes(
     const target = sema.mod.getTarget();
 
     var chosen = instructions[0];
+    var any_are_null = false;
     var chosen_i: usize = 0;
     for (instructions[1..]) |candidate, candidate_i| {
         const candidate_ty = sema.typeOf(candidate);
@@ -12878,6 +12879,44 @@ fn resolvePeerTypes(
             continue;
         }
 
+        if (chosen_ty_tag == .Null) {
+            any_are_null = true;
+            chosen = candidate;
+            chosen_i = candidate_i + 1;
+            continue;
+        }
+        if (candidate_ty_tag == .Null) {
+            any_are_null = true;
+            continue;
+        }
+
+        if (chosen_ty_tag == .Optional) {
+            var opt_child_buf: Type.Payload.ElemType = undefined;
+            const opt_child_ty = chosen_ty.optionalChild(&opt_child_buf);
+            if (coerceInMemoryAllowed(opt_child_ty, candidate_ty, false, target) == .ok) {
+                continue;
+            }
+            if (coerceInMemoryAllowed(candidate_ty, opt_child_ty, false, target) == .ok) {
+                any_are_null = true;
+                chosen = candidate;
+                chosen_i = candidate_i + 1;
+                continue;
+            }
+        }
+        if (candidate_ty_tag == .Optional) {
+            var opt_child_buf: Type.Payload.ElemType = undefined;
+            const opt_child_ty = candidate_ty.optionalChild(&opt_child_buf);
+            if (coerceInMemoryAllowed(opt_child_ty, chosen_ty, false, target) == .ok) {
+                chosen = candidate;
+                chosen_i = candidate_i + 1;
+                continue;
+            }
+            if (coerceInMemoryAllowed(chosen_ty, opt_child_ty, false, target) == .ok) {
+                any_are_null = true;
+                continue;
+            }
+        }
+
         // At this point, we hit a compile error. We need to recover
         // the source locations.
         const chosen_src = candidate_srcs.resolve(
@@ -12906,7 +12945,16 @@ fn resolvePeerTypes(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    return sema.typeOf(chosen);
+    const chosen_ty = sema.typeOf(chosen);
+
+    if (any_are_null) {
+        switch (chosen_ty.zigTypeTag()) {
+            .Null, .Optional => return chosen_ty,
+            else => return Type.optional(sema.arena, chosen_ty),
+        }
+    }
+
+    return chosen_ty;
 }
 
 pub fn resolveTypeLayout(
