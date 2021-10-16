@@ -22,6 +22,7 @@ test {
     _ = @import("behavior/eval.zig");
     _ = @import("behavior/for.zig");
     _ = @import("behavior/generics.zig");
+    _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/if.zig");
     _ = @import("behavior/math.zig");
     _ = @import("behavior/maximum_minimum.zig");
@@ -124,7 +125,6 @@ test {
         _ = @import("behavior/fn_delegation.zig");
         _ = @import("behavior/for_stage1.zig");
         _ = @import("behavior/generics_stage1.zig");
-        _ = @import("behavior/hasdecl.zig");
         _ = @import("behavior/hasfield.zig");
         _ = @import("behavior/if_stage1.zig");
         _ = @import("behavior/import.zig");
