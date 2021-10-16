@@ -825,7 +825,7 @@ pub const Mutable = struct {
     ///
     /// Asserts there is enough memory to fit the result. The upper bound Limb count is
     /// r is `calcTwosCompLimbCount(bit_count)`.
-    pub fn shiftLeftSat(r: *Mutable, a: Const, shift: usize, signedness: std.builtin.Signedness, bit_count: usize) void {
+    pub fn shiftLeftSat(r: *Mutable, a: Const, shift: usize, signedness: Signedness, bit_count: usize) void {
         // Special case: When the argument is negative, but the result is supposed to be unsigned,
         // return 0 in all cases.
         if (!a.positive and signedness == .unsigned) {
@@ -904,6 +904,17 @@ pub const Mutable = struct {
         llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
         r.normalize(a.limbs.len - (shift / limb_bits));
         r.positive = a.positive;
+    }
+
+    /// r = ~a under 2s complement wrapping semantics.
+    /// r may alias with a.
+    ///
+    /// Assets that r has enough limbs to store the result. The upper bound Limb count is
+    /// r is `calcTwosCompLimbCount(bit_count)`.
+    pub fn bitNotWrap(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
+        r.copy(a.negate());
+        const negative_one = Const{ .limbs = &.{1}, .positive = false };
+        r.addWrap(r.toConst(), negative_one, signedness, bit_count);
     }
 
     /// r = a | b under 2s complement semantics.
@@ -2455,7 +2466,7 @@ pub const Managed = struct {
     }
 
     /// r = a <<| shift with 2s-complement saturating semantics.
-    pub fn shiftLeftSat(r: *Managed, a: Managed, shift: usize, signedness: std.builtin.Signedness, bit_count: usize) !void {
+    pub fn shiftLeftSat(r: *Managed, a: Managed, shift: usize, signedness: Signedness, bit_count: usize) !void {
         try r.ensureTwosCompCapacity(bit_count);
         var m = r.toMutable();
         m.shiftLeftSat(a.toConst(), shift, signedness, bit_count);
@@ -2473,6 +2484,14 @@ pub const Managed = struct {
         try r.ensureCapacity(a.len() - (shift / limb_bits));
         var m = r.toMutable();
         m.shiftRight(a.toConst(), shift);
+        r.setMetadata(m.positive, m.len);
+    }
+
+    /// r = ~a under 2s-complement wrapping semantics.
+    pub fn bitNotWrap(r: *Managed, a: Managed, signedness: Signedness, bit_count: usize) !void {
+        try r.ensureTwosCompCapacity(bit_count);
+        var m = r.toMutable();
+        m.bitNotWrap(a.toConst(), signedness, bit_count);
         r.setMetadata(m.positive, m.len);
     }
 
