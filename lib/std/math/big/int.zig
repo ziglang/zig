@@ -18,18 +18,12 @@ const debug_safety = false;
 /// Returns the number of limbs needed to store `scalar`, which must be a
 /// primitive integer value.
 pub fn calcLimbLen(scalar: anytype) usize {
-    const T = @TypeOf(scalar);
-    switch (@typeInfo(T)) {
-        .Int => |info| {
-            const UT = if (info.signedness == .signed) std.meta.Int(.unsigned, info.bits - 1) else T;
-            return @sizeOf(UT) / @sizeOf(Limb);
-        },
-        .ComptimeInt => {
-            const w_value = if (scalar < 0) -scalar else scalar;
-            return @divFloor(math.log2(w_value), limb_bits) + 1;
-        },
-        else => @compileError("parameter must be a primitive integer type"),
+    if (scalar == 0) {
+        return 1;
     }
+
+    const w_value = std.math.absCast(scalar);
+    return @divFloor(@intCast(Limb, math.log2(w_value)), limb_bits) + 1;
 }
 
 pub fn calcToStringLimbsBufferLen(a_len: usize, base: u8) usize {
@@ -218,26 +212,22 @@ pub const Mutable = struct {
     /// needs to be to store a specific value.
     pub fn set(self: *Mutable, value: anytype) void {
         const T = @TypeOf(value);
+        const needed_limbs = calcLimbLen(value);
+        assert(needed_limbs <= self.limbs.len); // value too big
+
+        self.len = needed_limbs;
+        self.positive = value >= 0;
 
         switch (@typeInfo(T)) {
             .Int => |info| {
-                const UT = if (info.signedness == .signed) std.meta.Int(.unsigned, info.bits - 1) else T;
-
-                const needed_limbs = @sizeOf(UT) / @sizeOf(Limb);
-                assert(needed_limbs <= self.limbs.len); // value too big
-                self.len = 0;
-                self.positive = value >= 0;
-
-                var w_value: UT = if (value < 0) @intCast(UT, -value) else @intCast(UT, value);
+                var w_value = std.math.absCast(value);
 
                 if (info.bits <= limb_bits) {
-                    self.limbs[0] = @as(Limb, w_value);
-                    self.len += 1;
+                    self.limbs[0] = w_value;
                 } else {
                     var i: usize = 0;
                     while (w_value != 0) : (i += 1) {
                         self.limbs[i] = @truncate(Limb, w_value);
-                        self.len += 1;
 
                         // TODO: shift == 64 at compile-time fails. Fails on u128 limbs.
                         w_value >>= limb_bits / 2;
@@ -246,13 +236,7 @@ pub const Mutable = struct {
                 }
             },
             .ComptimeInt => {
-                comptime var w_value = if (value < 0) -value else value;
-
-                const req_limbs = @divFloor(math.log2(w_value), limb_bits) + 1;
-                assert(req_limbs <= self.limbs.len); // value too big
-
-                self.len = req_limbs;
-                self.positive = value >= 0;
+                comptime var w_value = std.math.absCast(value);
 
                 if (w_value <= maxInt(Limb)) {
                     self.limbs[0] = w_value;
@@ -832,6 +816,75 @@ pub const Mutable = struct {
     pub fn shiftLeft(r: *Mutable, a: Const, shift: usize) void {
         llshl(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
         r.normalize(a.limbs.len + (shift / limb_bits) + 1);
+        r.positive = a.positive;
+    }
+
+    /// r = a <<| shift with 2s-complement saturating semantics.
+    ///
+    /// r and a may alias.
+    ///
+    /// Asserts there is enough memory to fit the result. The upper bound Limb count is
+    /// r is `calcTwosCompLimbCount(bit_count)`.
+    pub fn shiftLeftSat(r: *Mutable, a: Const, shift: usize, signedness: std.builtin.Signedness, bit_count: usize) void {
+        // Special case: When the argument is negative, but the result is supposed to be unsigned,
+        // return 0 in all cases.
+        if (!a.positive and signedness == .unsigned) {
+            r.set(0);
+            return;
+        }
+
+        // Check whether the shift is going to overflow. This is the case
+        // when (in 2s complement) any bit above `bit_count - shift` is set in the unshifted value.
+        // Note, the sign bit is not counted here.
+
+        // Handle shifts larger than the target type. This also deals with
+        // 0-bit integers.
+        if (bit_count <= shift) {
+            // In this case, there is only no overflow if `a` is zero.
+            if (a.eqZero()) {
+                r.set(0);
+            } else {
+                r.setTwosCompIntLimit(if (a.positive) .max else .min, signedness, bit_count);
+            }
+            return;
+        }
+
+        const checkbit = bit_count - shift - @boolToInt(signedness == .signed);
+        // If `checkbit` and more significant bits are zero, no overflow will take place.
+
+        if (checkbit >= a.limbs.len * limb_bits) {
+            // `checkbit` is outside the range of a, so definitely no overflow will take place. We
+            // can defer to a normal shift.
+            // Note that if `a` is normalized (which we assume), this checks for set bits in the upper limbs.
+
+            // Note, in this case r should already have enough limbs required to perform the normal shift.
+            // In this case the shift of the most significant limb may still overflow.
+            r.shiftLeft(a, shift);
+            return;
+        } else if (checkbit < (a.limbs.len - 1) * limb_bits) {
+            // `checkbit` is not in the most significant limb. If `a` is normalized the most significant
+            // limb will not be zero, so in this case we need to saturate. Note that `a.limbs.len` must be
+            // at least one according to normalization rules.
+
+            r.setTwosCompIntLimit(if (a.positive) .max else .min, signedness, bit_count);
+            return;
+        }
+
+        // Generate a mask with the bits to check in the most signficant limb. We'll need to check
+        // all bits with equal or more significance than checkbit.
+        // const msb = @truncate(Log2Limb, checkbit);
+        // const checkmask = (@as(Limb, 1) << msb) -% 1;
+
+        if (a.limbs[a.limbs.len - 1] >> @truncate(Log2Limb, checkbit) != 0) {
+            // Need to saturate.
+            r.setTwosCompIntLimit(if (a.positive) .max else .min, signedness, bit_count);
+            return;
+        }
+
+        // This shift should not be able to overflow, so invoke llshl and normalize manually
+        // to avoid the extra required limb.
+        llshl(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
+        r.normalize(a.limbs.len + (shift / limb_bits));
         r.positive = a.positive;
     }
 
@@ -2401,6 +2454,14 @@ pub const Managed = struct {
         r.setMetadata(m.positive, m.len);
     }
 
+    /// r = a <<| shift with 2s-complement saturating semantics.
+    pub fn shiftLeftSat(r: *Managed, a: Managed, shift: usize, signedness: std.builtin.Signedness, bit_count: usize) !void {
+        try r.ensureTwosCompCapacity(bit_count);
+        var m = r.toMutable();
+        m.shiftLeftSat(a.toConst(), shift, signedness, bit_count);
+        r.setMetadata(m.positive, m.len);
+    }
+
     /// r = a >> shift
     pub fn shiftRight(r: *Managed, a: Managed, shift: usize) !void {
         if (a.len() <= shift / limb_bits) {
@@ -2949,10 +3010,18 @@ fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
 fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
     @setRuntimeSafety(debug_safety);
     assert(a.len >= 1);
-    assert(r.len >= a.len + (shift / limb_bits) + 1);
+
+    const interior_limb_shift = @truncate(Log2Limb, shift);
+
+    // We only need the extra limb if the shift of the last element overflows.
+    // This is useful for the implementation of `shiftLeftSat`.
+    if (a[a.len - 1] << interior_limb_shift >> interior_limb_shift != a[a.len - 1]) {
+        assert(r.len >= a.len + (shift / limb_bits) + 1);
+    } else {
+        assert(r.len >= a.len + (shift / limb_bits));
+    }
 
     const limb_shift = shift / limb_bits + 1;
-    const interior_limb_shift = @intCast(Log2Limb, shift % limb_bits);
 
     var carry: Limb = 0;
     var i: usize = 0;
@@ -2979,7 +3048,7 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
     assert(r.len >= a.len - (shift / limb_bits));
 
     const limb_shift = shift / limb_bits;
-    const interior_limb_shift = @intCast(Log2Limb, shift % limb_bits);
+    const interior_limb_shift = @truncate(Log2Limb, shift);
 
     var carry: Limb = 0;
     var i: usize = 0;

@@ -146,7 +146,6 @@ test {
         {
             // Checklist for getting saturating_arithmetic.zig passing for stage2:
             // * add __muloti4 to compiler-rt
-            // * implement comptime saturating shift-left
             _ = @import("behavior/saturating_arithmetic.zig");
         }
         _ = @import("behavior/shuffle.zig");
