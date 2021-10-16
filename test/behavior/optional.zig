@@ -36,3 +36,11 @@ test "self-referential struct through a slice of optional" {
     var n = S.Node.new();
     try expect(n.data == null);
 }
+
+pub const EmptyStruct = struct {};
+
+test "optional pointer to size zero struct" {
+    var e = EmptyStruct{};
+    var o: ?*EmptyStruct = &e;
+    try expect(o != null);
+}

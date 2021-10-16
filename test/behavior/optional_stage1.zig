@@ -3,14 +3,6 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-pub const EmptyStruct = struct {};
-
-test "optional pointer to size zero struct" {
-    var e = EmptyStruct{};
-    var o: ?*EmptyStruct = &e;
-    try expect(o != null);
-}
-
 test "equality compare nullable pointers" {
     try testNullPtrsEql();
     comptime try testNullPtrsEql();

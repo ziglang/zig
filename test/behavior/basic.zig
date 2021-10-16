@@ -246,7 +246,7 @@ fn testTakeAddressOfParameter(f: f32) !void {
 }
 
 test "pointer to void return type" {
-    testPointerToVoidReturnType() catch unreachable;
+    try testPointerToVoidReturnType();
 }
 fn testPointerToVoidReturnType() anyerror!void {
     const a = testPointerToVoidReturnType2();

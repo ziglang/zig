@@ -1420,6 +1420,15 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .@"opaque",
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .pointer,
             => true,
 
             .function => !self.castTag(.function).?.data.is_generic,
@@ -1480,17 +1489,7 @@ pub const Type = extern union {
             .array, .vector => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
             .array_u8 => self.arrayLen() != 0,
 
-            .array_sentinel,
-            .single_const_pointer,
-            .single_mut_pointer,
-            .many_const_pointer,
-            .many_mut_pointer,
-            .c_const_pointer,
-            .c_mut_pointer,
-            .const_slice,
-            .mut_slice,
-            .pointer,
-            => self.childType().hasCodeGenBits(),
+            .array_sentinel => self.childType().hasCodeGenBits(),
 
             .int_signed, .int_unsigned => self.cast(Payload.Bits).?.data != 0,
 
@@ -2370,7 +2369,7 @@ pub const Type = extern union {
             .optional => {
                 var buf: Payload.ElemType = undefined;
                 const child_type = self.optionalChild(&buf);
-                // optionals of zero sized pointers behave like bools
+                // optionals of zero sized types behave like bools, not pointers
                 if (!child_type.hasCodeGenBits()) return false;
                 if (child_type.zigTypeTag() != .Pointer) return false;
 
