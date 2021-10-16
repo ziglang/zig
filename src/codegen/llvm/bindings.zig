@@ -567,6 +567,15 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
+    pub const buildInsertElement = LLVMBuildInsertElement;
+    extern fn LLVMBuildInsertElement(
+        *const Builder,
+        VecVal: *const Value,
+        EltVal: *const Value,
+        Index: *const Value,
+        Name: [*:0]const u8,
+    ) *const Value;
+
     pub const buildPtrToInt = LLVMBuildPtrToInt;
     extern fn LLVMBuildPtrToInt(
         *const Builder,

@@ -2889,6 +2889,43 @@ pub const FuncGen = struct {
                 }
             }
             return array_ptr;
+        } else if (operand_ty.zigTypeTag() == .Array and inst_ty.zigTypeTag() == .Vector) {
+            const target = self.dg.module.getTarget();
+            const elem_ty = operand_ty.childType();
+            const llvm_vector_ty = try self.dg.llvmType(inst_ty);
+            if (!isByRef(operand_ty)) {
+                return self.dg.todo("implement bitcast non-ref array to vector", .{});
+            }
+
+            const bitcast_ok = elem_ty.bitSize(target) == elem_ty.abiSize(target) * 8;
+            if (bitcast_ok) {
+                const llvm_vector_ptr_ty = llvm_vector_ty.pointerType(0);
+                const casted_ptr = self.builder.buildBitCast(operand, llvm_vector_ptr_ty, "");
+                const vector = self.builder.buildLoad(casted_ptr, "");
+                // The array is aligned to the element's alignment, while the vector might have a completely
+                // different alignment. This means we need to enforce the alignment of this load.
+                vector.setAlignment(elem_ty.abiAlignment(target));
+                return vector;
+            } else {
+                // If the ABI size of the element type is not evenly divisible by size in bits;
+                // a simple bitcast will not work, and we fall back to extractelement.
+                const llvm_usize = try self.dg.llvmType(Type.usize);
+                const llvm_u32 = self.context.intType(32);
+                const zero = llvm_usize.constNull();
+                const vector_len = operand_ty.arrayLen();
+                var vector = llvm_vector_ty.getUndef();
+                var i: u64 = 0;
+                while (i < vector_len) : (i += 1) {
+                    const index_usize = llvm_usize.constInt(i, .False);
+                    const index_u32 = llvm_u32.constInt(i, .False);
+                    const indexes: [2]*const llvm.Value = .{ zero, index_usize };
+                    const elem_ptr = self.builder.buildInBoundsGEP(operand, &indexes, indexes.len, "");
+                    const elem = self.builder.buildLoad(elem_ptr, "");
+                    vector = self.builder.buildInsertElement(vector, elem, index_u32, "");
+                }
+
+                return vector;
+            }
         }
 
         return self.builder.buildBitCast(operand, llvm_dest_ty, "");

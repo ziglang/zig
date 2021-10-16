@@ -11653,7 +11653,11 @@ fn coerce(
             else => {},
         },
         .Array => switch (inst_ty.zigTypeTag()) {
-            .Vector => return sema.coerceVectorToArray(block, dest_ty, dest_ty_src, inst, inst_src),
+            .Vector => return sema.coerceVectorInMemory(block, dest_ty, dest_ty_src, inst, inst_src),
+            else => {},
+        },
+        .Vector => switch (inst_ty.zigTypeTag()) {
+            .Array => return sema.coerceVectorInMemory(block, dest_ty, dest_ty_src, inst, inst_src),
             else => {},
         },
         else => {},
@@ -12237,46 +12241,49 @@ fn coerceEnumToUnion(
     return sema.failWithOwnedErrorMsg(msg);
 }
 
-fn coerceVectorToArray(
+// Coerces vectors/arrays which have the same in-memory layout. This can be used for
+// both coercing from and to vectors.
+fn coerceVectorInMemory(
     sema: *Sema,
     block: *Block,
-    array_ty: Type,
-    array_ty_src: LazySrcLoc,
-    vector: Air.Inst.Ref,
-    vector_src: LazySrcLoc,
+    dest_ty: Type,
+    dest_ty_src: LazySrcLoc,
+    inst: Air.Inst.Ref,
+    inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
-    const vector_ty = sema.typeOf(vector);
-    const array_len = array_ty.arrayLen();
-    const vector_len = vector_ty.arrayLen();
-    if (array_len != vector_len) {
+    const inst_ty = sema.typeOf(inst);
+    const inst_len = inst_ty.arrayLen();
+    const dest_len = dest_ty.arrayLen();
+
+    if (dest_len != inst_len) {
         const msg = msg: {
-            const msg = try sema.errMsg(block, vector_src, "expected {}, found {}", .{
-                array_ty, vector_ty,
+            const msg = try sema.errMsg(block, inst_src, "expected {}, found {}", .{
+                dest_ty, inst_ty,
             });
             errdefer msg.destroy(sema.gpa);
-            try sema.errNote(block, array_ty_src, msg, "array has length {d}", .{array_len});
-            try sema.errNote(block, vector_src, msg, "vector has length {d}", .{vector_len});
+            try sema.errNote(block, dest_ty_src, msg, "destination has length {d}", .{dest_len});
+            try sema.errNote(block, inst_src, msg, "source has length {d}", .{inst_len});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
     }
 
     const target = sema.mod.getTarget();
-    const array_elem_ty = array_ty.childType();
-    const vector_elem_ty = vector_ty.childType();
-    const in_memory_result = coerceInMemoryAllowed(array_elem_ty, vector_elem_ty, false, target);
+    const dest_elem_ty = dest_ty.childType();
+    const inst_elem_ty = inst_ty.childType();
+    const in_memory_result = coerceInMemoryAllowed(dest_elem_ty, inst_elem_ty, false, target);
     if (in_memory_result != .ok) {
         // TODO recursive error notes for coerceInMemoryAllowed failure
-        return sema.fail(block, vector_src, "expected {}, found {}", .{ array_ty, vector_ty });
+        return sema.fail(block, inst_src, "expected {}, found {}", .{ dest_ty, inst_ty });
     }
 
-    if (try sema.resolveMaybeUndefVal(block, vector_src, vector)) |vector_val| {
+    if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |inst_val| {
         // These types share the same comptime value representation.
-        return sema.addConstant(array_ty, vector_val);
+        return sema.addConstant(dest_ty, inst_val);
     }
 
-    try sema.requireRuntimeBlock(block, vector_src);
-    return block.addTyOp(.bitcast, array_ty, vector);
+    try sema.requireRuntimeBlock(block, inst_src);
+    return block.addTyOp(.bitcast, dest_ty, inst);
 }
 
 fn coerceErrSetToAnyError(
