@@ -4225,7 +4225,7 @@ fn zirErrorToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const op = sema.resolveInst(inst_data.operand);
-    const op_coerced = try sema.coerce(block, Type.initTag(.anyerror), op, operand_src);
+    const op_coerced = try sema.coerce(block, Type.anyerror, op, operand_src);
     const result_ty = Type.initTag(.u16);
 
     if (try sema.resolveMaybeUndefVal(block, src, op_coerced)) |val| {
@@ -4263,7 +4263,7 @@ fn zirIntToError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             .base = .{ .tag = .@"error" },
             .data = .{ .name = sema.mod.error_name_list.items[@intCast(usize, int)] },
         };
-        return sema.addConstant(Type.initTag(.anyerror), Value.initPayload(&payload.base));
+        return sema.addConstant(Type.anyerror, Value.initPayload(&payload.base));
     }
     try sema.requireRuntimeBlock(block, src);
     if (block.wantSafety()) {
@@ -4271,7 +4271,7 @@ fn zirIntToError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         // const is_gt_max = @panic("TODO get max errors in compilation");
         // try sema.addSafetyCheck(block, is_gt_max, .invalid_error_code);
     }
-    return block.addTyOp(.bitcast, Type.initTag(.anyerror), op);
+    return block.addTyOp(.bitcast, Type.anyerror, op);
 }
 
 fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -11605,6 +11605,15 @@ fn coerce(
             // T to E!T or E to E!T
             return sema.wrapErrorUnion(block, dest_ty, inst, inst_src);
         },
+        .ErrorSet => {
+            // Coercion to `anyerror`.
+            // TODO If the dest type tag is not `anyerror` it still could
+            // resolve to anyerror. `dest_ty` needs to have inferred error set resolution
+            // happen before this check.
+            if (dest_ty.tag() == .anyerror and inst_ty.zigTypeTag() == .ErrorSet) {
+                return sema.coerceErrSetToAnyError(block, inst, inst_src);
+            }
+        },
         .Union => switch (inst_ty.zigTypeTag()) {
             .Enum, .EnumLiteral => return sema.coerceEnumToUnion(block, dest_ty, dest_ty_src, inst, inst_src),
             else => {},
@@ -12234,6 +12243,20 @@ fn coerceVectorToArray(
 
     try sema.requireRuntimeBlock(block, vector_src);
     return block.addTyOp(.bitcast, array_ty, vector);
+}
+
+fn coerceErrSetToAnyError(
+    sema: *Sema,
+    block: *Block,
+    err_set: Air.Inst.Ref,
+    err_set_src: LazySrcLoc,
+) !Air.Inst.Ref {
+    if (try sema.resolveDefinedValue(block, err_set_src, err_set)) |err_set_val| {
+        // Same representation works.
+        return sema.addConstant(Type.anyerror, err_set_val);
+    }
+    try sema.requireRuntimeBlock(block, err_set_src);
+    return block.addTyOp(.bitcast, Type.anyerror, err_set);
 }
 
 fn analyzeDeclVal(

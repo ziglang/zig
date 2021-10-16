@@ -3962,6 +3962,7 @@ pub const Type = extern union {
     pub const @"comptime_int" = initTag(.comptime_int);
     pub const @"void" = initTag(.void);
     pub const @"type" = initTag(.type);
+    pub const @"anyerror" = initTag(.anyerror);
 
     pub fn ptr(arena: *Allocator, d: Payload.Pointer.Data) !Type {
         assert(d.host_size == 0 or d.bit_offset < d.host_size * 8);

@@ -30,6 +30,7 @@ test {
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
+    _ = @import("behavior/error.zig");
     _ = @import("behavior/eval.zig");
     _ = @import("behavior/for.zig");
     _ = @import("behavior/generics.zig");
@@ -116,7 +117,7 @@ test {
         _ = @import("behavior/const_slice_child.zig");
         _ = @import("behavior/defer_stage1.zig");
         _ = @import("behavior/enum_stage1.zig");
-        _ = @import("behavior/error.zig");
+        _ = @import("behavior/error_stage1.zig");
         _ = @import("behavior/eval_stage1.zig");
         _ = @import("behavior/field_parent_ptr.zig");
         _ = @import("behavior/floatop.zig");
