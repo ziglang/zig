@@ -842,6 +842,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .slice_ptr       => try self.airSlicePtr(inst),
                     .slice_len       => try self.airSliceLen(inst),
 
+                    .ptr_slice_len_ptr => try self.airPtrSliceLenPtr(inst),
+                    .ptr_slice_ptr_ptr => try self.airPtrSlicePtrPtr(inst),
+
                     .array_elem_val      => try self.airArrayElemVal(inst),
                     .slice_elem_val      => try self.airSliceElemVal(inst),
                     .ptr_slice_elem_val  => try self.airPtrSliceElemVal(inst),
@@ -1494,6 +1497,22 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const ty_op = self.air.instructions.items(.data)[inst].ty_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement slice_len for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
+        fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement ptr_slice_len_ptr for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
+        fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement ptr_slice_ptr_ptr for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
         }

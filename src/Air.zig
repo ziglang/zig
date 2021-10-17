@@ -367,6 +367,12 @@ pub const Inst = struct {
         /// Given a slice value, return the pointer.
         /// Uses the `ty_op` field.
         slice_ptr,
+        /// Given a pointer to a slice, return a pointer to the length of the slice.
+        /// Uses the `ty_op` field.
+        ptr_slice_len_ptr,
+        /// Given a pointer to a slice, return a pointer to the pointer of the slice.
+        /// Uses the `ty_op` field.
+        ptr_slice_ptr_ptr,
         /// Given an array value and element index, return the element value at that index.
         /// Result type is the element type of the array operand.
         /// Uses the `bin_op` field.
@@ -707,6 +713,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .wrap_errunion_payload,
         .wrap_errunion_err,
         .slice_ptr,
+        .ptr_slice_len_ptr,
+        .ptr_slice_ptr_ptr,
         .struct_field_ptr_index_0,
         .struct_field_ptr_index_1,
         .struct_field_ptr_index_2,

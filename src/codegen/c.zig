@@ -1075,6 +1075,9 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .slice_ptr        => try airSliceField(f, inst, ".ptr;\n"),
             .slice_len        => try airSliceField(f, inst, ".len;\n"),
 
+            .ptr_slice_len_ptr => try airPtrSliceFieldPtr(f, inst, ".len;\n"),
+            .ptr_slice_ptr_ptr => try airPtrSliceFieldPtr(f, inst, ".ptr;\n"),
+
             .ptr_elem_val       => try airPtrElemVal(f, inst, "["),
             .ptr_ptr_elem_val   => try airPtrElemVal(f, inst, "[0]["),
             .ptr_elem_ptr       => try airPtrElemPtr(f, inst),
@@ -1112,6 +1115,21 @@ fn airSliceField(f: *Function, inst: Air.Inst.Index, suffix: []const u8) !CValue
     try f.writeCValue(writer, operand);
     try writer.writeAll(suffix);
     return local;
+}
+
+fn airPtrSliceFieldPtr(f: *Function, inst: Air.Inst.Index, suffix: []const u8) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const operand = try f.resolveInst(ty_op.operand);
+    const writer = f.object.writer();
+
+    _ = writer;
+    _ = operand;
+    _ = suffix;
+
+    return f.fail("TODO: C backend: airPtrSliceFieldPtr", .{});
 }
 
 fn airPtrElemVal(f: *Function, inst: Air.Inst.Index, prefix: []const u8) !CValue {

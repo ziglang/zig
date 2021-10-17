@@ -1709,6 +1709,10 @@ pub const FuncGen = struct {
                 .assembly       => try self.airAssembly(inst),
                 .slice_ptr      => try self.airSliceField(inst, 0),
                 .slice_len      => try self.airSliceField(inst, 1),
+
+                .ptr_slice_ptr_ptr => try self.airPtrSliceFieldPtr(inst, 0),
+                .ptr_slice_len_ptr => try self.airPtrSliceFieldPtr(inst, 1),
+
                 .array_to_slice => try self.airArrayToSlice(inst),
                 .float_to_int   => try self.airFloatToInt(inst),
                 .int_to_float   => try self.airIntToFloat(inst),
@@ -2089,6 +2093,15 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         return self.builder.buildExtractValue(operand, index, "");
+    }
+
+    fn airPtrSliceFieldPtr(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const slice_ptr = try self.resolveInst(ty_op.operand);
+
+        return self.builder.buildStructGEP(slice_ptr, index, "");
     }
 
     fn airSliceElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
