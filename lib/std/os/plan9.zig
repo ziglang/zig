@@ -60,8 +60,8 @@ pub const SYS = enum(usize) {
     _NSEC = 53,
 };
 
-pub fn pwrite(fd: usize, buf: [*]const u8, count: usize, offset: usize) void {
-    syscall_bits.syscall4(.PWRITE, fd, @ptrToInt(buf), count, offset);
+pub fn pwrite(fd: usize, buf: [*]const u8, count: usize, offset: usize) usize {
+    return syscall_bits.syscall4(.PWRITE, fd, @ptrToInt(buf), count, offset);
 }
 
 pub fn exits(status: ?[*:0]const u8) void {

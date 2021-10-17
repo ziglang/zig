@@ -2,8 +2,8 @@ const plan9 = @import("../plan9.zig");
 // TODO get ret from inline asm
 // TODO better inline asm
 
-pub fn syscall4(sys: plan9.SYS, arg0: usize, arg1: usize, arg2: usize, arg3: usize) void {
-    asm volatile (
+pub fn syscall4(sys: plan9.SYS, arg0: usize, arg1: usize, arg2: usize, arg3: usize) usize {
+    return asm volatile (
         \\push %%r11
         \\push %%r10
         \\push %%r9
@@ -15,7 +15,8 @@ pub fn syscall4(sys: plan9.SYS, arg0: usize, arg1: usize, arg2: usize, arg3: usi
         \\pop %%r11
         \\pop %%r11
         \\pop %%r11
-        :
+        : [ret] "={rax}" (-> usize),
+          // :
         : [arg0] "{r8}" (arg0),
           [arg1] "{r9}" (arg1),
           [arg2] "{r10}" (arg2),
