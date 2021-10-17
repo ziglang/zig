@@ -626,6 +626,10 @@ pub const SYS = enum(usize) {
     faccessat2 = Linux + 439,
     process_madvise = Linux + 440,
     epoll_pwait2 = Linux + 441,
+    mount_setattr = Linux + 442,
+    landlock_create_ruleset = Linux + 444,
+    landlock_add_rule = Linux + 445,
+    landlock_restrict_self = Linux + 446,
 
     _,
 };
