@@ -6413,10 +6413,21 @@ fn validateSwitchNoRange(
 fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    _ = extra;
-    const src = inst_data.src();
+    const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const container_type = try sema.resolveType(block, lhs_src, extra.lhs);
+    const field_name = try sema.resolveConstString(block, rhs_src, extra.rhs);
 
-    return sema.fail(block, src, "TODO implement zirHasField", .{});
+    const has_field = switch (container_type.zigTypeTag()) {
+        .Struct => container_type.structFields().contains(field_name),
+        .Union => container_type.unionFields().contains(field_name),
+        .Enum => container_type.enumFields().contains(field_name),
+        else => return sema.fail(block, lhs_src, "expected struct, enum, or union, found '{}'", .{container_type}),
+    };
+    if (has_field) {
+        return Air.Inst.Ref.bool_true;
+    }
+    return Air.Inst.Ref.bool_false;
 }
 
 fn zirHasDecl(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

@@ -3252,14 +3252,11 @@ pub const Type = extern union {
         };
     }
 
-    pub fn enumFieldCount(ty: Type) usize {
-        switch (ty.tag()) {
-            .enum_full, .enum_nonexhaustive => {
-                const enum_full = ty.cast(Payload.EnumFull).?.data;
-                return enum_full.fields.count();
-            },
-            .enum_simple => return ty.castTag(.enum_simple).?.data.fields.count(),
-            .enum_numbered => return ty.castTag(.enum_numbered).?.data.fields.count(),
+    pub fn enumFields(ty: Type) Module.EnumFull.NameMap {
+        return switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => ty.cast(Payload.EnumFull).?.data.fields,
+            .enum_simple => ty.castTag(.enum_simple).?.data.fields,
+            .enum_numbered => ty.castTag(.enum_numbered).?.data.fields,
             .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
@@ -3270,65 +3267,20 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             => @panic("TODO resolve std.builtin types"),
-
             else => unreachable,
-        }
+        };
+    }
+
+    pub fn enumFieldCount(ty: Type) usize {
+        return ty.enumFields().count();
     }
 
     pub fn enumFieldName(ty: Type, field_index: usize) []const u8 {
-        switch (ty.tag()) {
-            .enum_full, .enum_nonexhaustive => {
-                const enum_full = ty.cast(Payload.EnumFull).?.data;
-                return enum_full.fields.keys()[field_index];
-            },
-            .enum_simple => {
-                const enum_simple = ty.castTag(.enum_simple).?.data;
-                return enum_simple.fields.keys()[field_index];
-            },
-            .enum_numbered => {
-                const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                return enum_numbered.fields.keys()[field_index];
-            },
-            .atomic_order,
-            .atomic_rmw_op,
-            .calling_convention,
-            .address_space,
-            .float_mode,
-            .reduce_op,
-            .call_options,
-            .export_options,
-            .extern_options,
-            => @panic("TODO resolve std.builtin types"),
-            else => unreachable,
-        }
+        return ty.enumFields().keys()[field_index];
     }
 
     pub fn enumFieldIndex(ty: Type, field_name: []const u8) ?usize {
-        switch (ty.tag()) {
-            .enum_full, .enum_nonexhaustive => {
-                const enum_full = ty.cast(Payload.EnumFull).?.data;
-                return enum_full.fields.getIndex(field_name);
-            },
-            .enum_simple => {
-                const enum_simple = ty.castTag(.enum_simple).?.data;
-                return enum_simple.fields.getIndex(field_name);
-            },
-            .enum_numbered => {
-                const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                return enum_numbered.fields.getIndex(field_name);
-            },
-            .atomic_order,
-            .atomic_rmw_op,
-            .calling_convention,
-            .address_space,
-            .float_mode,
-            .reduce_op,
-            .call_options,
-            .export_options,
-            .extern_options,
-            => @panic("TODO resolve std.builtin types"),
-            else => unreachable,
-        }
+        return ty.enumFields().getIndex(field_name);
     }
 
     /// Asserts `ty` is an enum. `enum_tag` can either be `enum_field_index` or
