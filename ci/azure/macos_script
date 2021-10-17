@@ -39,7 +39,8 @@ cmake .. \
   -DCMAKE_BUILD_TYPE=Release \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
-  -DZIG_STATIC=ON
+  -DZIG_STATIC=ON \
+  -DZIG_OMIT_STAGE2=ON
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
 # so that installation and testing do not get affected by them.
