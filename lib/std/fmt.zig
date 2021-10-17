@@ -295,21 +295,21 @@ pub fn format(
         }
 
         // Parse the width parameter
-        options.width = init: {
-            if (comptime parser.maybe('[')) {
-                const arg_name = comptime parser.until(']');
+        options.width = comptime init: {
+            if (parser.maybe('[')) {
+                const arg_name = parser.until(']');
 
-                if (!comptime parser.maybe(']')) {
+                if (!parser.maybe(']')) {
                     @compileError("Expected closing ]");
                 }
 
-                const index = comptime meta.fieldIndex(ArgsType, arg_name) orelse
+                const index = meta.fieldIndex(ArgsType, arg_name) orelse
                     @compileError("No argument with name '" ++ arg_name ++ "'");
-                const arg_index = comptime arg_state.nextArg(index);
+                const arg_index = arg_state.nextArg(index);
 
                 break :init @field(args, fields_info[arg_index].name);
             } else {
-                break :init comptime parser.number();
+                break :init parser.number();
             }
         };
 
@@ -321,21 +321,21 @@ pub fn format(
         }
 
         // Parse the precision parameter
-        options.precision = init: {
-            if (comptime parser.maybe('[')) {
-                const arg_name = comptime parser.until(']');
+        options.precision = comptime init: {
+            if (parser.maybe('[')) {
+                const arg_name = parser.until(']');
 
-                if (!comptime parser.maybe(']')) {
+                if (!parser.maybe(']')) {
                     @compileError("Expected closing ]");
                 }
 
-                const arg_i = comptime meta.fieldIndex(ArgsType, arg_name) orelse
+                const arg_i = meta.fieldIndex(ArgsType, arg_name) orelse
                     @compileError("No argument with name '" ++ arg_name ++ "'");
-                const arg_to_use = comptime arg_state.nextArg(arg_i);
+                const arg_to_use = arg_state.nextArg(arg_i);
 
                 break :init @field(args, fields_info[arg_to_use].name);
             } else {
-                break :init comptime parser.number();
+                break :init parser.number();
             }
         };
 
@@ -2576,6 +2576,8 @@ test "runtime width specifier" {
     var width: usize = 9;
     try expectFmt("~~hello~~", "{s:~^[1]}", .{ "hello", width });
     try expectFmt("~~hello~~", "{s:~^[width]}", .{ .string = "hello", .width = width });
+    try expectFmt("    hello", "{s:[1]}", .{ "hello", width });
+    try expectFmt("42     hello", "{d} {s:[2]}", .{ 42, "hello", width });
 }
 
 test "runtime precision specifier" {
