@@ -2301,8 +2301,7 @@ pub const FuncGen = struct {
         op: llvm.IntPredicate,
         operand_is_ptr: bool,
     ) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const operand = try self.resolveInst(un_op);
@@ -2363,22 +2362,16 @@ pub const FuncGen = struct {
         inst: Air.Inst.Index,
         operand_is_ptr: bool,
     ) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const err_union_ty = self.air.typeOf(ty_op.operand);
         const payload_ty = err_union_ty.errorUnionPayload();
-
-        if (!payload_ty.hasCodeGenBits()) {
-            return null;
-        }
-
-        if (operand_is_ptr) {
+        if (!payload_ty.hasCodeGenBits()) return null;
+        if (operand_is_ptr or isByRef(payload_ty)) {
             return self.builder.buildStructGEP(operand, 1, "");
         }
-
         return self.builder.buildExtractValue(operand, 1, "");
     }
 
@@ -2400,7 +2393,7 @@ pub const FuncGen = struct {
             return self.builder.buildLoad(operand, "");
         }
 
-        if (operand_is_ptr) {
+        if (operand_is_ptr or isByRef(payload_ty)) {
             const err_field_ptr = self.builder.buildStructGEP(operand, 0, "");
             return self.builder.buildLoad(err_field_ptr, "");
         }
@@ -2469,10 +2462,35 @@ pub const FuncGen = struct {
     }
 
     fn airWrapErrUnionErr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
-        return self.todo("implement llvm codegen for 'airWrapErrUnionErr'", .{});
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const err_un_ty = self.air.typeOfIndex(inst);
+        const payload_ty = err_un_ty.errorUnionPayload();
+        const operand = try self.resolveInst(ty_op.operand);
+        if (!payload_ty.hasCodeGenBits()) {
+            return operand;
+        }
+        const err_un_llvm_ty = try self.dg.llvmType(err_un_ty);
+        if (isByRef(err_un_ty)) {
+            const result_ptr = self.buildAlloca(err_un_llvm_ty);
+            const err_ptr = self.builder.buildStructGEP(result_ptr, 0, "");
+            _ = self.builder.buildStore(operand, err_ptr);
+            const payload_ptr = self.builder.buildStructGEP(result_ptr, 1, "");
+            var ptr_ty_payload: Type.Payload.ElemType = .{
+                .base = .{ .tag = .single_mut_pointer },
+                .data = payload_ty,
+            };
+            const payload_ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+            // TODO store undef to payload_ptr
+            _ = payload_ptr;
+            _ = payload_ptr_ty;
+            return result_ptr;
+        }
+
+        const partial = self.builder.buildInsertValue(err_un_llvm_ty.getUndef(), operand, 0, "");
+        // TODO set payload bytes to undef
+        return partial;
     }
 
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

@@ -782,6 +782,10 @@ pub const ErrorSet = struct {
     /// The length is given by `names_len`.
     names_ptr: [*]const []const u8,
 
+    pub fn names(self: ErrorSet) []const []const u8 {
+        return self.names_ptr[0..self.names_len];
+    }
+
     pub fn srcLoc(self: ErrorSet) SrcLoc {
         return .{
             .file_scope = self.owner_decl.getFileScope(),

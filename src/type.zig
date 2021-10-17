@@ -2619,6 +2619,17 @@ pub const Type = extern union {
         };
     }
 
+    /// Returns true if it is an error set that includes anyerror, false otherwise.
+    /// Note that the result may be a false negative if the type did not get error set
+    /// resolution prior to this call.
+    pub fn isAnyError(ty: Type) bool {
+        return switch (ty.tag()) {
+            .anyerror => true,
+            .error_set_inferred => ty.castTag(.error_set_inferred).?.data.is_anyerror,
+            else => false,
+        };
+    }
+
     /// Asserts the type is an array or vector.
     pub fn arrayLen(ty: Type) u64 {
         return switch (ty.tag()) {
@@ -3871,10 +3882,39 @@ pub const Type = extern union {
             pub const base_tag = Tag.error_set_inferred;
 
             base: Payload = Payload{ .tag = base_tag },
-            data: struct {
+            data: Data,
+
+            pub const Data = struct {
                 func: *Module.Fn,
+                /// Direct additions to the inferred error set via `return error.Foo;`.
                 map: std.StringHashMapUnmanaged(void),
-            },
+                /// Other functions with inferred error sets which this error set includes.
+                functions: std.AutoHashMapUnmanaged(*Module.Fn, void),
+                is_anyerror: bool,
+
+                pub fn addErrorSet(self: *Data, gpa: *Allocator, err_set_ty: Type) !void {
+                    switch (err_set_ty.tag()) {
+                        .error_set => {
+                            const names = err_set_ty.castTag(.error_set).?.data.names();
+                            for (names) |name| {
+                                try self.map.put(gpa, name, {});
+                            }
+                        },
+                        .error_set_single => {
+                            const name = err_set_ty.castTag(.error_set_single).?.data;
+                            try self.map.put(gpa, name, {});
+                        },
+                        .error_set_inferred => {
+                            const func = err_set_ty.castTag(.error_set_inferred).?.data.func;
+                            try self.functions.put(gpa, func, {});
+                        },
+                        .anyerror => {
+                            self.is_anyerror = true;
+                        },
+                        else => unreachable,
+                    }
+                }
+            };
         };
 
         pub const Pointer = struct {

@@ -31,3 +31,21 @@ test "empty error union" {
     const x = error{} || error{};
     _ = x;
 }
+
+pub fn foo() anyerror!i32 {
+    const x = try bar();
+    return x + 1;
+}
+
+pub fn bar() anyerror!i32 {
+    return 13;
+}
+
+pub fn baz() anyerror!i32 {
+    const y = foo() catch 1234;
+    return y + 1;
+}
+
+test "error wrapping" {
+    try expect((baz() catch unreachable) == 15);
+}

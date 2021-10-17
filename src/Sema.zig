@@ -4845,6 +4845,8 @@ fn funcCommon(
             const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, .{
                 .func = new_func,
                 .map = .{},
+                .functions = .{},
+                .is_anyerror = false,
             });
             break :blk try Type.Tag.error_union.create(sema.arena, .{
                 .error_set = error_set_ty,
@@ -8466,19 +8468,13 @@ fn zirRetErrValue(
     const err_name = inst_data.get(sema.code);
     const src = inst_data.src();
 
-    // Add the error tag to the inferred error set of the in-scope function.
-    if (sema.fn_ret_ty.zigTypeTag() == .ErrorUnion) {
-        if (sema.fn_ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
-            _ = try payload.data.map.getOrPut(sema.gpa, err_name);
-        }
-    }
     // Return the error code from the function.
     const kv = try sema.mod.getErrorValue(err_name);
     const result_inst = try sema.addConstant(
         try Type.Tag.error_set_single.create(sema.arena, kv.key),
         try Value.Tag.@"error".create(sema.arena, .{ .name = kv.key }),
     );
-    return sema.analyzeRet(block, result_inst, src, true);
+    return sema.analyzeRet(block, result_inst, src);
 }
 
 fn zirRetCoerce(
@@ -8493,7 +8489,7 @@ fn zirRetCoerce(
     const operand = sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
-    return sema.analyzeRet(block, operand, src, true);
+    return sema.analyzeRet(block, operand, src);
 }
 
 fn zirRetNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
@@ -8504,11 +8500,7 @@ fn zirRetNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir
     const operand = sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
-    // TODO: we pass false here for the `need_coercion` boolean, but I'm pretty sure we need
-    // to remove this parameter entirely. Observe the problem by looking at the incorrect compile
-    // error that occurs when a behavior test case being executed at comptime fails, e.g.
-    // `test { comptime foo(); } fn foo() { try expect(false); }`
-    return sema.analyzeRet(block, operand, src, false);
+    return sema.analyzeRet(block, operand, src);
 }
 
 fn zirRetLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
@@ -8521,7 +8513,7 @@ fn zirRetLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir
 
     if (block.is_comptime or block.inlining != null) {
         const operand = try sema.analyzeLoad(block, src, ret_ptr, src);
-        return sema.analyzeRet(block, operand, src, false);
+        return sema.analyzeRet(block, operand, src);
     }
     try sema.requireRuntimeBlock(block, src);
     _ = try block.addUnOp(.ret_load, ret_ptr);
@@ -8533,12 +8525,25 @@ fn analyzeRet(
     block: *Block,
     uncasted_operand: Air.Inst.Ref,
     src: LazySrcLoc,
-    need_coercion: bool,
 ) CompileError!Zir.Inst.Index {
-    const operand = if (!need_coercion)
-        uncasted_operand
-    else
-        try sema.coerce(block, sema.fn_ret_ty, uncasted_operand, src);
+    // Special case for returning an error to an inferred error set; we need to
+    // add the error tag to the inferred error set of the in-scope function, so
+    // that the coercion below works correctly.
+    if (sema.fn_ret_ty.zigTypeTag() == .ErrorUnion) {
+        if (sema.fn_ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
+            const op_ty = sema.typeOf(uncasted_operand);
+            switch (op_ty.zigTypeTag()) {
+                .ErrorSet => {
+                    try payload.data.addErrorSet(sema.gpa, op_ty);
+                },
+                .ErrorUnion => {
+                    try payload.data.addErrorSet(sema.gpa, op_ty.errorUnionSet());
+                },
+                else => {},
+            }
+        }
+    }
+    const operand = try sema.coerce(block, sema.fn_ret_ty, uncasted_operand, src);
 
     if (block.inlining) |inlining| {
         if (block.is_comptime) {
@@ -11605,14 +11610,30 @@ fn coerce(
             // T to E!T or E to E!T
             return sema.wrapErrorUnion(block, dest_ty, inst, inst_src);
         },
-        .ErrorSet => {
-            // Coercion to `anyerror`.
-            // TODO If the dest type tag is not `anyerror` it still could
-            // resolve to anyerror. `dest_ty` needs to have inferred error set resolution
-            // happen before this check.
-            if (dest_ty.tag() == .anyerror and inst_ty.zigTypeTag() == .ErrorSet) {
-                return sema.coerceErrSetToAnyError(block, inst, inst_src);
-            }
+        .ErrorSet => switch (inst_ty.zigTypeTag()) {
+            .ErrorSet => {
+                // Coercion to `anyerror`. Note that this check can return false positives
+                // in case the error sets did not get resolved.
+                if (dest_ty.isAnyError()) {
+                    return sema.coerceCompatibleErrorSets(block, inst, inst_src);
+                }
+                // If both are inferred error sets of functions, and
+                // the dest includes the source function, the coercion is OK.
+                // This check is important because it works without forcing a full resolution
+                // of inferred error sets.
+                if (inst_ty.castTag(.error_set_inferred)) |src_payload| {
+                    if (dest_ty.castTag(.error_set_inferred)) |dst_payload| {
+                        const src_func = src_payload.data.func;
+                        const dst_func = dst_payload.data.func;
+
+                        if (src_func == dst_func or dst_payload.data.functions.contains(src_func)) {
+                            return sema.coerceCompatibleErrorSets(block, inst, inst_src);
+                        }
+                    }
+                }
+                // TODO full error set resolution and compare sets by names.
+            },
+            else => {},
         },
         .Union => switch (inst_ty.zigTypeTag()) {
             .Enum, .EnumLiteral => return sema.coerceEnumToUnion(block, dest_ty, dest_ty_src, inst, inst_src),
@@ -12245,7 +12266,7 @@ fn coerceVectorToArray(
     return block.addTyOp(.bitcast, array_ty, vector);
 }
 
-fn coerceErrSetToAnyError(
+fn coerceCompatibleErrorSets(
     sema: *Sema,
     block: *Block,
     err_set: Air.Inst.Ref,
