@@ -2573,12 +2573,14 @@ pub const Type = extern union {
 
     pub fn unionFields(ty: Type) Module.Union.Fields {
         const union_obj = ty.cast(Payload.Union).?.data;
+        assert(union_obj.haveFieldTypes());
         return union_obj.fields;
     }
 
     pub fn unionFieldType(ty: Type, enum_tag: Value) Type {
         const union_obj = ty.cast(Payload.Union).?.data;
         const index = union_obj.tag_ty.enumTagFieldIndex(enum_tag).?;
+        assert(union_obj.haveFieldTypes());
         return union_obj.fields.values()[index].ty;
     }
 
@@ -3376,6 +3378,7 @@ pub const Type = extern union {
             .empty_struct => return .{},
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
+                assert(struct_obj.haveFieldTypes());
                 return struct_obj.fields;
             },
             else => unreachable,
