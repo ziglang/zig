@@ -1693,15 +1693,15 @@ pub const Type = extern union {
             },
 
             .error_union => {
-                const payload = self.castTag(.error_union).?.data;
-                if (!payload.error_set.hasCodeGenBits()) {
-                    return payload.payload.abiAlignment(target);
-                } else if (!payload.payload.hasCodeGenBits()) {
-                    return payload.error_set.abiAlignment(target);
+                const data = self.castTag(.error_union).?.data;
+                if (!data.error_set.hasCodeGenBits()) {
+                    return data.payload.abiAlignment(target);
+                } else if (!data.payload.hasCodeGenBits()) {
+                    return data.error_set.abiAlignment(target);
                 }
-                return std.math.max(
-                    payload.payload.abiAlignment(target),
-                    payload.error_set.abiAlignment(target),
+                return @maximum(
+                    data.payload.abiAlignment(target),
+                    data.error_set.abiAlignment(target),
                 );
             },
 
@@ -1942,15 +1942,25 @@ pub const Type = extern union {
             },
 
             .error_union => {
-                const payload = self.castTag(.error_union).?.data;
-                if (!payload.error_set.hasCodeGenBits() and !payload.payload.hasCodeGenBits()) {
+                const data = self.castTag(.error_union).?.data;
+                if (!data.error_set.hasCodeGenBits() and !data.payload.hasCodeGenBits()) {
                     return 0;
-                } else if (!payload.error_set.hasCodeGenBits()) {
-                    return payload.payload.abiSize(target);
-                } else if (!payload.payload.hasCodeGenBits()) {
-                    return payload.error_set.abiSize(target);
+                } else if (!data.error_set.hasCodeGenBits()) {
+                    return data.payload.abiSize(target);
+                } else if (!data.payload.hasCodeGenBits()) {
+                    return data.error_set.abiSize(target);
                 }
-                std.debug.panic("TODO abiSize error union {}", .{self});
+                const code_align = abiAlignment(data.error_set, target);
+                const payload_align = abiAlignment(data.payload, target);
+                const big_align = @maximum(code_align, payload_align);
+                const payload_size = abiSize(data.payload, target);
+
+                var size: u64 = 0;
+                size += abiSize(data.error_set, target);
+                size = std.mem.alignForwardGeneric(u64, size, payload_align);
+                size += payload_size;
+                size = std.mem.alignForwardGeneric(u64, size, big_align);
+                return size;
             },
         };
     }

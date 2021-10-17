@@ -4,52 +4,14 @@ const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
-pub fn foo() anyerror!i32 {
-    const x = try bar();
-    return x + 1;
-}
-
-pub fn bar() anyerror!i32 {
-    return 13;
-}
-
-pub fn baz() anyerror!i32 {
-    const y = foo() catch 1234;
-    return y + 1;
-}
-
-test "error wrapping" {
-    try expect((baz() catch unreachable) == 15);
-}
-
-fn gimmeItBroke() []const u8 {
-    return @errorName(error.ItBroke);
+fn gimmeItBroke() anyerror {
+    return error.ItBroke;
 }
 
 test "@errorName" {
     try expect(mem.eql(u8, @errorName(error.AnError), "AnError"));
     try expect(mem.eql(u8, @errorName(error.ALongerErrorName), "ALongerErrorName"));
-}
-
-test "unwrap simple value from error" {
-    const i = unwrapSimpleValueFromErrorDo() catch unreachable;
-    try expect(i == 13);
-}
-fn unwrapSimpleValueFromErrorDo() anyerror!isize {
-    return 13;
-}
-
-test "error return in assignment" {
-    doErrReturnInAssignment() catch unreachable;
-}
-
-fn doErrReturnInAssignment() anyerror!void {
-    var x: i32 = undefined;
-    x = try makeANonErr();
-}
-
-fn makeANonErr() anyerror!i32 {
-    return 1;
+    try expect(mem.eql(u8, @errorName(gimmeItBroke()), "ItBroke"));
 }
 
 test "error union type " {
@@ -113,12 +75,6 @@ fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) !void {
     if (x) |v| try expect(v == 1234) else |err| {
         _ = err;
         @compileError("bad");
-    }
-}
-
-test "syntax: optional operator in front of error union operator" {
-    comptime {
-        try expect(?(anyerror!i32) == ?(anyerror!i32));
     }
 }
 
@@ -268,20 +224,6 @@ test "nested error union function call in optional unwrap" {
     }
 }
 
-test "widen cast integer payload of error union function call" {
-    const S = struct {
-        fn errorable() !u64 {
-            var x = @as(u64, try number());
-            return x;
-        }
-
-        fn number() anyerror!u32 {
-            return 1234;
-        }
-    };
-    try expect((try S.errorable()) == 1234);
-}
-
 test "return function call to error set from error union function" {
     const S = struct {
         fn errorable() anyerror!i32 {
@@ -307,12 +249,6 @@ test "optional error set is the same size as error set" {
     comptime try expect(S.returnsOptErrSet() == null);
 }
 
-test "debug info for optional error set" {
-    const SomeError = error{Hello};
-    var a_local_variable: ?SomeError = null;
-    _ = a_local_variable;
-}
-
 test "nested catch" {
     const S = struct {
         fn entry() !void {
@@ -333,25 +269,6 @@ test "nested catch" {
     };
     try S.entry();
     comptime try S.entry();
-}
-
-test "implicit cast to optional to error union to return result loc" {
-    const S = struct {
-        fn entry() !void {
-            var x: Foo = undefined;
-            if (func(&x)) |opt| {
-                try expect(opt != null);
-            } else |_| @panic("expected non error");
-        }
-        fn func(f: *Foo) anyerror!?*Foo {
-            return f;
-        }
-        const Foo = struct {
-            field: i32,
-        };
-    };
-    try S.entry();
-    //comptime S.entry(); TODO
 }
 
 test "function pointer with return type that is error union with payload which is pointer of parent struct" {

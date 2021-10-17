@@ -1804,14 +1804,16 @@ pub const FuncGen = struct {
 
         const raw_llvm_ty = try self.dg.llvmType(inst_ty);
 
-        // If the zig tag type is a function, this represents an actual function body; not
-        // a pointer to it. LLVM IR allows the call instruction to use function bodies instead
-        // of function pointers, however the phi makes it a runtime value and therefore
-        // the LLVM type has to be wrapped in a pointer.
-        const llvm_ty = if (inst_ty.zigTypeTag() == .Fn)
-            raw_llvm_ty.pointerType(0)
-        else
-            raw_llvm_ty;
+        const llvm_ty = ty: {
+            // If the zig tag type is a function, this represents an actual function body; not
+            // a pointer to it. LLVM IR allows the call instruction to use function bodies instead
+            // of function pointers, however the phi makes it a runtime value and therefore
+            // the LLVM type has to be wrapped in a pointer.
+            if (inst_ty.zigTypeTag() == .Fn or isByRef(inst_ty)) {
+                break :ty raw_llvm_ty.pointerType(0);
+            }
+            break :ty raw_llvm_ty;
+        };
 
         const phi_node = self.builder.buildPhi(llvm_ty, "");
         phi_node.addIncoming(
@@ -2315,7 +2317,7 @@ pub const FuncGen = struct {
             return self.builder.buildICmp(op, loaded, zero, "");
         }
 
-        if (operand_is_ptr) {
+        if (operand_is_ptr or isByRef(err_union_ty)) {
             const err_field_ptr = self.builder.buildStructGEP(operand, 0, "");
             const loaded = self.builder.buildLoad(err_field_ptr, "");
             return self.builder.buildICmp(op, loaded, zero, "");
