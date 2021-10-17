@@ -5119,16 +5119,10 @@ fn zirFieldVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
-    const lhs_src: LazySrcLoc = src; // TODO
     const extra = sema.code.extraData(Zir.Inst.Field, inst_data.payload_index).data;
     const field_name = sema.code.nullTerminatedString(extra.field_name_start);
     const object = sema.resolveInst(extra.lhs);
-    if (sema.typeOf(object).isSinglePointer()) {
-        const result_ptr = try sema.fieldPtr(block, src, object, field_name, field_name_src);
-        return sema.analyzeLoad(block, src, result_ptr, lhs_src);
-    } else {
-        return sema.fieldVal(block, src, object, field_name, field_name_src);
-    }
+    return sema.fieldVal(block, src, object, field_name, field_name_src);
 }
 
 fn zirFieldPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -10688,12 +10682,22 @@ fn fieldVal(
     const object_src = src; // TODO better source location
     const object_ty = sema.typeOf(object);
 
-    switch (object_ty.zigTypeTag()) {
+    // Zig allows dereferencing a single pointer during field lookup. Note that
+    // we don't actually need to generate the dereference some field lookups, like the
+    // length of arrays and other comptime operations.
+    const is_pointer_to = object_ty.isSinglePointer();
+
+    const inner_ty = if (is_pointer_to)
+        object_ty.childType()
+    else
+        object_ty;
+
+    switch (inner_ty.zigTypeTag()) {
         .Array => {
             if (mem.eql(u8, field_name, "len")) {
                 return sema.addConstant(
                     Type.initTag(.comptime_int),
-                    try Value.Tag.int_u64.create(arena, object_ty.arrayLen()),
+                    try Value.Tag.int_u64.create(arena, inner_ty.arrayLen()),
                 );
             } else {
                 return sema.fail(
@@ -10704,75 +10708,60 @@ fn fieldVal(
                 );
             }
         },
-        .Pointer => switch (object_ty.ptrSize()) {
-            .Slice => {
-                if (mem.eql(u8, field_name, "ptr")) {
-                    const buf = try arena.create(Type.SlicePtrFieldTypeBuffer);
-                    const result_ty = object_ty.slicePtrFieldType(buf);
-                    if (try sema.resolveMaybeUndefVal(block, object_src, object)) |val| {
-                        if (val.isUndef()) return sema.addConstUndef(result_ty);
-                        return sema.addConstant(result_ty, val.slicePtr());
-                    }
-                    try sema.requireRuntimeBlock(block, src);
-                    return block.addTyOp(.slice_ptr, result_ty, object);
-                } else if (mem.eql(u8, field_name, "len")) {
-                    const result_ty = Type.usize;
-                    if (try sema.resolveMaybeUndefVal(block, object_src, object)) |val| {
-                        if (val.isUndef()) return sema.addConstUndef(result_ty);
-                        return sema.addConstant(
-                            result_ty,
-                            try Value.Tag.int_u64.create(arena, val.sliceLen()),
-                        );
-                    }
-                    try sema.requireRuntimeBlock(block, src);
-                    return block.addTyOp(.slice_len, result_ty, object);
-                } else {
-                    return sema.fail(
-                        block,
-                        field_name_src,
-                        "no member named '{s}' in '{}'",
-                        .{ field_name, object_ty },
+        .Pointer => if (inner_ty.isSlice()) {
+            if (mem.eql(u8, field_name, "ptr")) {
+                const slice = if (is_pointer_to)
+                    try sema.analyzeLoad(block, src, object, object_src)
+                else
+                    object;
+
+                const buf = try arena.create(Type.SlicePtrFieldTypeBuffer);
+                const result_ty = inner_ty.slicePtrFieldType(buf);
+
+                if (try sema.resolveMaybeUndefVal(block, object_src, slice)) |val| {
+                    if (val.isUndef()) return sema.addConstUndef(result_ty);
+                    return sema.addConstant(result_ty, val.slicePtr());
+                }
+                try sema.requireRuntimeBlock(block, src);
+                return block.addTyOp(.slice_ptr, result_ty, slice);
+            } else if (mem.eql(u8, field_name, "len")) {
+                const slice = if (is_pointer_to)
+                    try sema.analyzeLoad(block, src, object, object_src)
+                else
+                    object;
+
+                const result_ty = Type.usize;
+
+                if (try sema.resolveMaybeUndefVal(block, object_src, slice)) |val| {
+                    if (val.isUndef()) return sema.addConstUndef(result_ty);
+                    return sema.addConstant(
+                        result_ty,
+                        try Value.Tag.int_u64.create(arena, val.sliceLen()),
                     );
                 }
-            },
-            .One => {
-                const ptr_child = object_ty.elemType();
-                switch (ptr_child.zigTypeTag()) {
-                    .Array => {
-                        if (mem.eql(u8, field_name, "len")) {
-                            return sema.addConstant(
-                                Type.initTag(.comptime_int),
-                                try Value.Tag.int_u64.create(arena, ptr_child.arrayLen()),
-                            );
-                        } else {
-                            return sema.fail(
-                                block,
-                                field_name_src,
-                                "no member named '{s}' in '{}'",
-                                .{ field_name, object_ty },
-                            );
-                        }
-                    },
-                    .Struct => {
-                        const struct_ptr_deref = try sema.analyzeLoad(block, src, object, object_src);
-                        return sema.unionFieldVal(block, src, struct_ptr_deref, field_name, field_name_src, ptr_child);
-                    },
-                    .Union => {
-                        const union_ptr_deref = try sema.analyzeLoad(block, src, object, object_src);
-                        return sema.unionFieldVal(block, src, union_ptr_deref, field_name, field_name_src, ptr_child);
-                    },
-                    else => {},
-                }
-            },
-            .Many, .C => {},
+                try sema.requireRuntimeBlock(block, src);
+                return block.addTyOp(.slice_len, result_ty, slice);
+            } else {
+                return sema.fail(
+                    block,
+                    field_name_src,
+                    "no member named '{s}' in '{}'",
+                    .{ field_name, object_ty },
+                );
+            }
         },
         .Type => {
-            const val = (try sema.resolveDefinedValue(block, object_src, object)).?;
+            const dereffed_type = if (is_pointer_to)
+                try sema.analyzeLoad(block, src, object, object_src)
+            else
+                object;
+
+            const val = (try sema.resolveDefinedValue(block, object_src, dereffed_type)).?;
             var to_type_buffer: Value.ToTypeBuffer = undefined;
             const child_type = val.toType(&to_type_buffer);
+
             switch (child_type.zigTypeTag()) {
                 .ErrorSet => {
-                    // TODO resolve inferred error sets
                     const name: []const u8 = if (child_type.castTag(.error_set)) |payload| blk: {
                         const error_set = payload.data;
                         // TODO this is O(N). I'm putting off solving this until we solve inferred
@@ -10842,8 +10831,20 @@ fn fieldVal(
                 else => return sema.fail(block, src, "type '{}' has no members", .{child_type}),
             }
         },
-        .Struct => return sema.structFieldVal(block, src, object, field_name, field_name_src, object_ty),
-        .Union => return sema.unionFieldVal(block, src, object, field_name, field_name_src, object_ty),
+        .Struct => if (is_pointer_to) {
+            // Avoid loading the entire struct by fetching a pointer and loading that
+            const field_ptr = try sema.structFieldPtr(block, src, object, field_name, field_name_src, inner_ty);
+            return sema.analyzeLoad(block, src, field_ptr, object_src);
+        } else {
+            return sema.structFieldVal(block, src, object, field_name, field_name_src, inner_ty);
+        },
+        .Union => if (is_pointer_to) {
+            // Avoid loading the entire union by fetching a pointer and loading that
+            const field_ptr = try sema.unionFieldPtr(block, src, object, field_name, field_name_src, inner_ty);
+            return sema.analyzeLoad(block, src, field_ptr, object_src);
+        } else {
+            return sema.unionFieldVal(block, src, object, field_name, field_name_src, inner_ty);
+        },
         else => {},
     }
     return sema.fail(block, src, "type '{}' does not support field access", .{object_ty});
@@ -10866,14 +10867,25 @@ fn fieldPtr(
         .Pointer => object_ptr_ty.elemType(),
         else => return sema.fail(block, object_ptr_src, "expected pointer, found '{}'", .{object_ptr_ty}),
     };
-    switch (object_ty.zigTypeTag()) {
+
+    // Zig allows dereferencing a single pointer during field lookup. Note that
+    // we don't actually need to generate the dereference some field lookups, like the
+    // length of arrays and other comptime operations.
+    const is_pointer_to = object_ty.isSinglePointer();
+
+    const inner_ty = if (is_pointer_to)
+        object_ty.childType()
+    else
+        object_ty;
+
+    switch (inner_ty.zigTypeTag()) {
         .Array => {
             if (mem.eql(u8, field_name, "len")) {
                 var anon_decl = try block.startAnonDecl();
                 defer anon_decl.deinit();
                 return sema.analyzeDeclRef(try anon_decl.finish(
                     Type.initTag(.comptime_int),
-                    try Value.Tag.int_u64.create(anon_decl.arena(), object_ty.arrayLen()),
+                    try Value.Tag.int_u64.create(anon_decl.arena(), inner_ty.arrayLen()),
                 ));
             } else {
                 return sema.fail(
@@ -10884,77 +10896,49 @@ fn fieldPtr(
                 );
             }
         },
-        .Pointer => switch (object_ty.ptrSize()) {
-            .Slice => {
-                // Here for the ptr and len fields what we need to do is the situation
-                // when a temporary has its address taken, e.g. `&a[c..d].len`.
-                // This value may be known at compile-time or runtime. In the former
-                // case, it should create an anonymous Decl and return a decl_ref to it.
-                // In the latter case, it should add an `alloc` instruction, store
-                // the runtime value to it, and then return the `alloc`.
-                // In both cases the pointer should be const.
-                if (mem.eql(u8, field_name, "ptr")) {
-                    return sema.fail(
-                        block,
-                        field_name_src,
-                        "TODO: implement reference to 'ptr' field of slice '{}'",
-                        .{object_ty},
-                    );
-                } else if (mem.eql(u8, field_name, "len")) {
-                    return sema.fail(
-                        block,
-                        field_name_src,
-                        "TODO: implement reference to 'len' field of slice '{}'",
-                        .{object_ty},
-                    );
-                } else {
-                    return sema.fail(
-                        block,
-                        field_name_src,
-                        "no member named '{s}' in '{}'",
-                        .{ field_name, object_ty },
-                    );
-                }
-            },
-            .One => {
-                const ptr_child = object_ty.elemType();
-                switch (ptr_child.zigTypeTag()) {
-                    .Array => {
-                        if (mem.eql(u8, field_name, "len")) {
-                            var anon_decl = try block.startAnonDecl();
-                            defer anon_decl.deinit();
-                            return sema.analyzeDeclRef(try anon_decl.finish(
-                                Type.initTag(.comptime_int),
-                                try Value.Tag.int_u64.create(anon_decl.arena(), ptr_child.arrayLen()),
-                            ));
-                        } else {
-                            return sema.fail(
-                                block,
-                                field_name_src,
-                                "no member named '{s}' in '{}'",
-                                .{ field_name, object_ty },
-                            );
-                        }
-                    },
-                    .Struct => {
-                        const struct_ptr_deref = try sema.analyzeLoad(block, src, object_ptr, object_ptr_src);
-                        return sema.structFieldPtr(block, src, struct_ptr_deref, field_name, field_name_src, ptr_child);
-                    },
-                    .Union => {
-                        const union_ptr_deref = try sema.analyzeLoad(block, src, object_ptr, object_ptr_src);
-                        return sema.unionFieldPtr(block, src, union_ptr_deref, field_name, field_name_src, ptr_child);
-                    },
-                    else => {},
-                }
-            },
-            .Many, .C => {},
+        .Pointer => if (inner_ty.isSlice()) {
+            // Here for the ptr and len fields what we need to do is the situation
+            // when a temporary has its address taken, e.g. `&a[c..d].len`.
+            // This value may be known at compile-time or runtime. In the former
+            // case, it should create an anonymous Decl and return a decl_ref to it.
+            // In the latter case, it should add an `alloc` instruction, store
+            // the runtime value to it, and then return the `alloc`.
+            // In both cases the pointer should be const.
+            if (mem.eql(u8, field_name, "ptr")) {
+                return sema.fail(
+                    block,
+                    field_name_src,
+                    "TODO: implement reference to 'ptr' field of slice '{}'",
+                    .{inner_ty},
+                );
+            } else if (mem.eql(u8, field_name, "len")) {
+                return sema.fail(
+                    block,
+                    field_name_src,
+                    "TODO: implement reference to 'len' field of slice '{}'",
+                    .{inner_ty},
+                );
+            } else {
+                return sema.fail(
+                    block,
+                    field_name_src,
+                    "no member named '{s}' in '{}'",
+                    .{ field_name, object_ty },
+                );
+            }
         },
         .Type => {
             _ = try sema.resolveConstValue(block, object_ptr_src, object_ptr);
             const result = try sema.analyzeLoad(block, src, object_ptr, object_ptr_src);
-            const val = (sema.resolveDefinedValue(block, src, result) catch unreachable).?;
+            const inner = if (is_pointer_to)
+                try sema.analyzeLoad(block, src, result, object_ptr_src)
+            else
+                result;
+
+            const val = (sema.resolveDefinedValue(block, src, inner) catch unreachable).?;
             var to_type_buffer: Value.ToTypeBuffer = undefined;
             const child_type = val.toType(&to_type_buffer);
+
             switch (child_type.zigTypeTag()) {
                 .ErrorSet => {
                     // TODO resolve inferred error sets
@@ -11033,8 +11017,20 @@ fn fieldPtr(
                 else => return sema.fail(block, src, "type '{}' has no members", .{child_type}),
             }
         },
-        .Struct => return sema.structFieldPtr(block, src, object_ptr, field_name, field_name_src, object_ty),
-        .Union => return sema.unionFieldPtr(block, src, object_ptr, field_name, field_name_src, object_ty),
+        .Struct => {
+            const inner_ptr = if (is_pointer_to)
+                try sema.analyzeLoad(block, src, object_ptr, object_ptr_src)
+            else
+                object_ptr;
+            return sema.structFieldPtr(block, src, inner_ptr, field_name, field_name_src, inner_ty);
+        },
+        .Union => {
+            const inner_ptr = if (is_pointer_to)
+                try sema.analyzeLoad(block, src, object_ptr, object_ptr_src)
+            else
+                object_ptr;
+            return sema.unionFieldPtr(block, src, inner_ptr, field_name, field_name_src, inner_ty);
+        },
         else => {},
     }
     return sema.fail(block, src, "type '{}' does not support field access", .{object_ty});
