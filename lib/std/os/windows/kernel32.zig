@@ -231,7 +231,7 @@ pub extern "kernel32" fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) callconv(WINA
 pub extern "kernel32" fn GetSystemTimeAsFileTime(*FILETIME) callconv(WINAPI) void;
 pub extern "kernel32" fn GetSystemTimePreciseAsFileTime(*FILETIME) callconv(WINAPI) void;
 pub extern "kernel32" fn FileTimeToSystemTime(*const FILETIME, *SYSTEMTIME) BOOL;
-pub extern "kernel32" fn SystemTimeToFileTime (*const SYSTEMTIME, *FILETIME) BOOL;
+pub extern "kernel32" fn SystemTimeToFileTime(*const SYSTEMTIME, *FILETIME) BOOL;
 
 pub extern "kernel32" fn GetThreadTimes(HANDLE, *FILETIME, *FILETIME, *FILETIME, *FILETIME) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn GetProcessTimes(HANDLE, *FILETIME, *FILETIME, *FILETIME, *FILETIME) callconv(WINAPI) BOOL;

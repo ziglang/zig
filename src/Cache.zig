@@ -712,7 +712,7 @@ pub const Manifest = struct {
         self.have_exclusive_lock = true;
     }
 
-    // Create/Write a file, close it, then grab its stat.mtime timestamp. 
+    // Create/Write a file, close it, then grab its stat.mtime timestamp.
     fn isProblematicTimestamp(self: *Manifest, file_time: FileTimeCache) !bool {
 
         // PERF: Check if the file_time is prior to the most recent problematic timestamp
@@ -726,10 +726,10 @@ pub const Manifest = struct {
         });
         defer timestamp_file.close();
         try timestamp_file.setEndPos(0);
-        
-        self.recent_problematic_timestamp = 
+
+        self.recent_problematic_timestamp =
             mtimeToFileTimeCache((try timestamp_file.stat()).mtime);
-        
+
         return (file_time >= self.recent_problematic_timestamp);
     }
 
@@ -758,7 +758,7 @@ pub const Manifest = struct {
     }
 };
 
-// Reduce precision to ~4ns (by 32 bits) to save space. Without this, there's a lot of irrelevent 
+// Reduce precision to ~4ns (by 32 bits) to save space. Without this, there's a lot of irrelevent
 // bits saved in the manifest files. It is just wasted time encoding and decoding.
 fn mtimeToFileTimeCache(file_time: u96) FileTimeCache {
     return @intCast(FileTimeCache, file_time >> PrecisionReduction);
@@ -801,11 +801,13 @@ fn hashFile(file: fs.File, bin_digest: *[Hasher.mac_length]u8) !void {
     hasher.final(bin_digest);
 }
 
-// Create/Write a file, close it, then grab its stat.mtime timestamp. 
+// Create/Write a file, close it, then grab its stat.mtime timestamp.
 fn testGetCurrentFileTimestamp() !FileTimeCache {
-    var timestamp_file = try fs.cwd().createFile("filetimestamp.tmp", .{ .truncate = true, });
+    var timestamp_file = try fs.cwd().createFile("filetimestamp.tmp", .{
+        .truncate = true,
+    });
     timestamp_file.close();
-    
+
     timestamp_file = try fs.cwd().openFile("filetimestamp.tmp", .{});
     defer timestamp_file.close();
 

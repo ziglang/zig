@@ -1753,19 +1753,19 @@ pub fn peb() *PEB {
 /// Use convertUtcFuzzyToUtc2018(stdTimeFromFileTime(ft)))
 /// to make a best-estimate conversion using a compile-time table of past leap seconds.
 pub fn stdTimeFromFileTime(ft: FILETIME) u96 {
-    // Fixed-point math. Move to the left for 60 bits of fraction.  
+    // Fixed-point math. Move to the left for 60 bits of fraction.
     const ft_68_60 = @as(u128, ft) << 60;
 
     // Convert from 100ns units to seconds. 10_000_000 100ns units per second.
     // Fractional part remains in the 60 lowest bits.
     const st_68_60 = ft_68_60 / (std.time.ns_per_s / 100);
 
-    // Add 50 ns (1/2 of a FILETIME tick unit) to be closer to the real value, this makes it easy to 
+    // Add 50 ns (1/2 of a FILETIME tick unit) to be closer to the real value, this makes it easy to
     // convert the number back to a FILETIME (or nanoseconds) and get the expected value after
     // simple truncation rounding.
     const fifty_ns = (std.time.one_ns_in_std_time * 50);
 
-    // Truncate to a reasonable range (remove 32 high bits) 
+    // Truncate to a reasonable range (remove 32 high bits)
     return @truncate(u96, st_68_60) + fifty_ns;
 }
 
@@ -1776,7 +1776,7 @@ pub fn stdTimeFromFileTime(ft: FILETIME) u96 {
 pub fn fileTimeFromStdTime(st: u96) FILETIME {
     const ft_68_60 = @as(u128, st) * (std.time.ns_per_s / 100);
 
-    // Fixed-point math. Move to the right to remove 60 bits of fraction.  
+    // Fixed-point math. Move to the right to remove 60 bits of fraction.
     return @truncate(u64, ft_68_60 >> 60);
 }
 
@@ -2695,7 +2695,6 @@ pub const WIN32_FIND_DATAW = extern struct {
     cFileName: [260]u16,
     cAlternateFileName: [14]u16,
 };
-
 
 /// A FILETIME is a 64-bit value that represents the number of 100-nanosecond intervals that have 
 /// elapsed since 12:00 A.M. January 1, 1601 in 2018's Coordinated Universal Time (Utc2018).

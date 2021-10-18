@@ -1,6 +1,10 @@
-//! Epoch reference times in terms of their difference from
-//! UTC 1970-01-01 in seconds. Assumes no leap seconds occured
-//! in UTC (which is false).
+//! Epoch reference times in terms of their difference (in seconds) from 1970-01-01 "The Unix Epoch"
+//! These pretend that leap seconds don't exist in UTC (which is not actually true).
+//! UTC was created in 1972 (2 years after the Unix Epoch 'started'). 
+//! There were 27 (or 37 depending on your definition) leap seconds since then. 
+//! Those leap seconds are not reflected in the Unix Epoch. 
+//! Those leap seconds actually happened in real UTC, but in the Unix Epoch you must pretend that 
+//! they never happened. Each new leap second births a new "Unix Epoch".
 const std = @import("../std.zig");
 const testing = std.testing;
 const math = std.math;

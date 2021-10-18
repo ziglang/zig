@@ -1,78 +1,95 @@
 //! This file contains:
-//! 1. Epoch reference times in terms of their difference (in seconds, assuming no leap seconds) 
-//!    from 1601-01-01T00:00:00 in 2018's UTC. Leap seconds are real, so the actual start
-//!    of the Utc2018 Epoch is represented as "1601-01-01T00:00:27"
-//!    Practically, this means that:
-//!    On Windows: Zig can use FILETIME for accurate time
-//!    Other Plaforms: If no leap seconds occur after 2018, Zig is able to use any measure of
-//!    "UTC" (with epoch offset as listed below).
+//! 1. Epoch reference times
 //! 2. Tables of past leap seconds
 //! 3. Leap Second conversion functions
-
+//!
 //! Jan 1 1601 is significant in that it's the beginning of the first 400-year Gregorian 
 //! calendar cycle.
 //! TAI uses SI seconds, and explicitly has no leap seconds.
 //! Assume there are exactly 86,400 SI seconds in each day (even before TAI or UTC existed).
 //! The Utc2018 epoch explictly has no leap seconds.
-//! Some of the other epochs jump when a leap second occurs (eg. UTC)
-//! Some of the other epochs no longer jump when a leap second occurs, 
-//! but have a few embedded (forever constant) leap seconds.
-
+//!
 //! For converting Utc2018 <==> UTC, make the following assumptions:
 //! 1. Between 1601 and 1972, UTC wasn't defined, so assume UT1.
-//! 2. At the beginning of 1972, UTC was synchronized to TAI - 10 seconds.
+//! 2. At the beginning of 1972, UTC was created and defined to be TAI - 10 seconds.
 //! 3. Leap seconds between 1972 and 2017 brought UTC = TAI - 37 seconds.
 //! 4. After 2018, there are no declared UTC leap seconds:
 //!    * UTC = TAI - 37 seconds and there are exactly 86,400 seconds in each day.
 
+// Epoch reference times in terms of their difference (in seconds, assuming no leap seconds)
+// from 1601-01-01T00:00:00 in 2018's UTC. Leap seconds are real, so the actual start
+// of the Utc2018 Epoch is represented as "1601-01-01T00:00:27"
+// Practically, this means that:
+// On Windows: Zig can use FILETIME for accurate time
+// Other Plaforms: If no leap seconds occur after 2018, Zig is able to use any measure of
+// "UTC" (with epoch offset as listed below).
+pub const epoch = struct {
+    // zig fmt: off
 
-/// Jan 01, 0001 AD
-pub const clr     = -50491296000;
-/// Utc2018 = TAI + utc2018.tai
-pub const tai = -37;
-/// Jan 01, 1601 AD
-pub const windows = 0;
-/// Nov 17, 1858 AD
-pub const openvms = 8137756800;
-/// Jan 01, 1900 AD
-pub const zos     = 9435484800;
-/// Dec 31, 1967 AD
-pub const pickos  = 11581228800;
-/// Jan 01, 1970 AD
-pub const posix   = 11644473600; 
-/// Jan 01, 1978 AD
-pub const amiga   = 11896934400;
-/// Jan 01, 1980 AD
-pub const dos     = 11960006400;
-/// Jan 06, 1980 AD
-pub const gps     = 11960438400;
-/// Jan 01, 2001 AD
-pub const ios     = 12622780800;
+    /// Jan 01, 0001 AD (future leap second behavior unknown)
+    pub const clr     = -50491296000;
+    
+    /// Jan 01, 1601 AD (future leap seconds do not change this value)
+    pub const windows = 0;
+    
+    /// Nov 17, 1858 AD (future leap second behavior unknown)
+    pub const openvms = 8137756800;
+    
+    /// Jan 01, 1900 AD (MUST be updated if a future leap second is declared)
+    pub const zos     = 9435484800;
+    
+    /// Dec 31, 1967 AD (future leap second behavior unknown)
+    pub const pickos  = 11581228800;
+    
+    /// Jan 01, 1970 AD (MUST be updated if a future leap second is declared)
+    pub const posix   = 11644473600; 
+    
+    /// Jan 01, 1978 AD (future leap second behavior unknown)
+    pub const amiga   = 11896934400;
+    
+    /// Jan 01, 1980 AD (future leap second behavior unknown)
+    pub const dos     = 11960006400;
+    
+    /// Jan 06, 1980 AD (future leap seconds do not change this value)
+    pub const gps     = 11960438400;
+    
+    /// Jan 01, 2001 AD (future leap second behavior unknown)
+    pub const ios     = 12622780800;
 
-pub const unix = posix;
-pub const android = posix;
-pub const os2 = dos;
-pub const bios = dos;
-pub const vfat = dos;
-pub const ntfs = windows;
-pub const ntp = zos;
-pub const jbase = pickos;
-pub const aros = amiga;
-pub const morphos = amiga;
-pub const brew = gps;
-pub const atsc = gps;
-pub const go = clr;
+    // zig fmt: on
 
+    pub const unix = posix;
+    pub const android = posix;
+    pub const os2 = dos;
+    pub const bios = dos;
+    pub const vfat = dos;
+    pub const ntfs = windows;
+    pub const ntp = zos;
+    pub const jbase = pickos;
+    pub const aros = amiga;
+    pub const morphos = amiga;
+    pub const brew = gps;
+    pub const atsc = gps;
+    pub const go = clr;
+};
+
+/// Utc2018 = TAI + utc2018.tai_offset
+pub const tai_offset = 37;
+
+// A point in time used for converting between "Fuzzy" UTC and Utc2018
 const UtcTimeConversionPoint = struct {
-    str: []const u8,        // Stringified UTC time of leap second (ends in :60)
-    str_after: []const u8,  // Stringified UTC time right after leap second (ends in T00:00:00)
+    str: []const u8, // Stringified UTC time of leap second (ends in T23:59:60)
+    str_after: []const u8, // Stringified UTC time right after leap second (ends in T00:00:00)
     utc_fuzzy: u36,
     utc_2018: u36,
     offset: u8,
 };
 
-// Table of all leap seconds. Useful for converting between "Fuzzy" UTC and Utc2018.
+/// Table of all known leap seconds. Useful for converting between "Fuzzy" UTC and Utc2018.
+/// This is also useful when converting Utc2018 or "Fuzzy" UTC timestamps into a CalendarTime.
 pub const leap_seconds = [_]UtcTimeConversionPoint{
+
+    // zig fmt: off
     .{
         // First item isn't actually a leap second, just the start of the Utc2018 Epoch
         .str       = "1601-01-01T00:00:27", // January 1st 1601
@@ -270,6 +287,7 @@ pub const leap_seconds = [_]UtcTimeConversionPoint{
         .utc_2018  = 11644473600 + 1483228800 - 1,
         .offset    = 0,
     },
+    // zig fmt: on
 };
 
 /// Say you find a file with a UTC timestamp from the 1990's...
@@ -281,7 +299,6 @@ pub const leap_seconds = [_]UtcTimeConversionPoint{
 /// was written to disk? Or did the computer even have NTP enabled?
 /// Timestamps prior to UTC's creation (1972-01-01T00:00:00) are more ambiguous.
 pub fn convertUtcFuzzyToUtc2018(st: u96) u96 {
-
     const fuzzy_sec = st >> 60;
     const fraction = @truncate(u60, st);
 
@@ -296,7 +313,6 @@ pub fn convertUtcFuzzyToUtc2018(st: u96) u96 {
 }
 
 pub fn convertUtc2018ToUtcFuzzy(st: u96) u96 {
-
     const seconds = st >> 60;
     const fraction = @truncate(u60, st);
 
@@ -309,4 +325,3 @@ pub fn convertUtc2018ToUtcFuzzy(st: u96) u96 {
             return 0;
     }
 }
-

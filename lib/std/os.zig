@@ -4847,15 +4847,15 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
 
                 ft_now -= leap_seconds_since_2018_in_ft;
             }
-            
+
             tp.* = .{
-                .tv_sec =  @intCast(i64, ft_now / ft_per_s) + std.time.epoch.windows,
+                .tv_sec = @intCast(i64, ft_now / ft_per_s) + std.time.epoch.windows,
                 .tv_nsec = @intCast(c_long, ft_now % ft_per_s) * 100,
             };
             return;
         } else {
             // TODO POSIX implementation of CLOCK.MONOTONIC on Windows.
-            // Consider using std.time.Clock.read(.monotonic) instead
+            // Consider using std.time.Instant.now() instead
             return error.UnsupportedClock;
         }
     }
