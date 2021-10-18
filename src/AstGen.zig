@@ -1691,9 +1691,9 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     return Zir.Inst.Ref.unreachable_value;
                 }
                 block_gz.break_count += 1;
-                const prev_rvalue_rl_count = block_gz.rvalue_rl_count;
                 const operand = try expr(parent_gz, parent_scope, block_gz.break_result_loc, rhs);
-                const have_store_to_block = block_gz.rvalue_rl_count != prev_rvalue_rl_count;
+                // if list grew as much as rvalue_rl_count, then a break inside operand already saved the store_to_block_ptr
+                const have_store_to_block = block_gz.rvalue_rl_count > block_gz.labeled_store_to_block_ptr_list.items.len;
 
                 const br = try parent_gz.addBreak(.@"break", block_inst, operand);
 
