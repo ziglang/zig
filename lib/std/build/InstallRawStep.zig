@@ -356,20 +356,25 @@ fn detectFormat(filename: []const u8) RawFormat {
     return .bin;
 }
 
-pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, format: ?RawFormat) *InstallRawStep {
+pub const CreateOptions = struct {
+    format: ?RawFormat = null,
+    dest_dir: ?InstallDir = null,
+};
+
+pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, options: CreateOptions) *InstallRawStep {
     const self = builder.allocator.create(InstallRawStep) catch unreachable;
     self.* = InstallRawStep{
         .step = Step.init(.install_raw, builder.fmt("install raw binary {s}", .{artifact.step.name}), builder.allocator, make),
         .builder = builder,
         .artifact = artifact,
-        .dest_dir = switch (artifact.kind) {
+        .dest_dir = if (options.dest_dir) |d| d else switch (artifact.kind) {
             .obj => unreachable,
             .@"test" => unreachable,
             .exe => .bin,
             .lib => unreachable,
         },
         .dest_filename = dest_filename,
-        .format = format orelse detectFormat(dest_filename),
+        .format = if (options.format) |f| f else detectFormat(dest_filename),
         .output_file = std.build.GeneratedFile{ .step = &self.step },
     };
     self.step.dependOn(&artifact.step);
