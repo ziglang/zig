@@ -210,8 +210,8 @@ pub const Inst = struct {
         /// `[N]T` syntax. No source location provided.
         /// Uses the `bin` union field. lhs is length, rhs is element type.
         array_type,
-        /// `[N:S]T` syntax. No source location provided.
-        /// Uses the `array_type_sentinel` field.
+        /// `[N:S]T` syntax. Source location is the array type expression node.
+        /// Uses the `pl_node` union field. Payload is `ArrayTypeSentinel`.
         array_type_sentinel,
         /// `@Vector` builtin.
         /// Uses the `pl_node` union field with `Bin` payload.
@@ -906,9 +906,6 @@ pub const Inst = struct {
         /// Implements the `@fieldParentPtr` builtin.
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
-        /// Implements the `@maximum` builtin.
-        /// Uses the `pl_node` union field with payload `Bin`
-        maximum,
         /// Implements the `@memcpy` builtin.
         /// Uses the `pl_node` union field with payload `Memcpy`.
         memcpy,
@@ -918,6 +915,9 @@ pub const Inst = struct {
         /// Implements the `@minimum` builtin.
         /// Uses the `pl_node` union field with payload `Bin`
         minimum,
+        /// Implements the `@maximum` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`
+        maximum,
         /// Implements the `@asyncCall` builtin.
         /// Uses the `pl_node` union field with payload `AsyncCall`.
         builtin_async_call,
@@ -1256,7 +1256,7 @@ pub const Inst = struct {
                 .array_cat = .pl_node,
                 .array_mul = .pl_node,
                 .array_type = .bin,
-                .array_type_sentinel = .array_type_sentinel,
+                .array_type_sentinel = .pl_node,
                 .vector_type = .pl_node,
                 .elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
@@ -2137,11 +2137,6 @@ pub const Inst = struct {
         node: i32,
         int: u64,
         float: f64,
-        array_type_sentinel: struct {
-            len: Ref,
-            /// index into extra, points to an `ArrayTypeSentinel`
-            payload_index: u32,
-        },
         ptr_type_simple: struct {
             is_allowzero: bool,
             is_mutable: bool,
@@ -2245,7 +2240,6 @@ pub const Inst = struct {
             node,
             int,
             float,
-            array_type_sentinel,
             ptr_type_simple,
             ptr_type,
             int_type,
@@ -2427,6 +2421,7 @@ pub const Inst = struct {
     };
 
     pub const ArrayTypeSentinel = struct {
+        len: Ref,
         sentinel: Ref,
         elem_type: Ref,
     };

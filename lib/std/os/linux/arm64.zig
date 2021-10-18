@@ -407,6 +407,10 @@ pub const SYS = enum(usize) {
     faccessat2 = 439,
     process_madvise = 440,
     epoll_pwait2 = 441,
+    mount_setattr = 442,
+    landlock_create_ruleset = 444,
+    landlock_add_rule = 445,
+    landlock_restrict_self = 446,
 
     _,
 };

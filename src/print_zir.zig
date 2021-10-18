@@ -542,14 +542,15 @@ const Writer = struct {
         stream: anytype,
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].array_type_sentinel;
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Zir.Inst.ArrayTypeSentinel, inst_data.payload_index).data;
-        try self.writeInstRef(stream, inst_data.len);
+        try self.writeInstRef(stream, extra.len);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.sentinel);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.elem_type);
-        try stream.writeAll(")");
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
     }
 
     fn writePtrTypeSimple(

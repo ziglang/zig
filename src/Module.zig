@@ -55,11 +55,17 @@ decl_exports: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
 /// is performing the export of another Decl.
 /// This table owns the Export memory.
 export_owners: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
-/// The set of all the files in the Module. We keep track of this in order to iterate
-/// over it and check which source files have been modified on the file system when
+/// The set of all the Zig source files in the Module. We keep track of this in order
+/// to iterate over it and check which source files have been modified on the file system when
 /// an update is requested, as well as to cache `@import` results.
 /// Keys are fully resolved file paths. This table owns the keys and values.
 import_table: std.StringArrayHashMapUnmanaged(*File) = .{},
+/// The set of all the files which have been loaded with `@embedFile` in the Module.
+/// We keep track of this in order to iterate over it and check which files have been
+/// modified on the file system when an update is requested, as well as to cache
+/// `@embedFile` results.
+/// Keys are fully resolved file paths. This table owns the keys and values.
+embed_table: std.StringHashMapUnmanaged(*EmbedFile) = .{},
 
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
@@ -87,6 +93,8 @@ compile_log_decls: std.AutoArrayHashMapUnmanaged(*Decl, i32) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .{},
+/// The ErrorMsg memory is owned by the `EmbedFile`, using Module's general purpose allocator.
+failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Export`, using Module's general purpose allocator.
 failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
@@ -708,7 +716,9 @@ pub const Decl = struct {
                 return ty.castTag(.empty_struct).?.data;
             },
             .@"opaque" => {
-                @panic("TODO opaque types");
+                const opaque_obj = ty.cast(Type.Payload.Opaque).?.data;
+                assert(opaque_obj.owner_decl == decl);
+                return &opaque_obj.namespace;
             },
             .@"union", .union_tagged => {
                 const union_obj = ty.cast(Type.Payload.Union).?.data;
@@ -752,6 +762,15 @@ pub const Decl = struct {
     fn removeDependency(decl: *Decl, other: *Decl) void {
         assert(decl.dependencies.swapRemove(other));
     }
+
+    pub fn isExtern(decl: Decl) bool {
+        assert(decl.has_tv);
+        return switch (decl.val.tag()) {
+            .extern_fn => true,
+            .variable => decl.val.castTag(.variable).?.data.init.tag() == .unreachable_value,
+            else => false,
+        };
+    }
 };
 
 /// This state is attached to every Decl when Module emit_h is non-null.
@@ -771,6 +790,10 @@ pub const ErrorSet = struct {
     /// The length is given by `names_len`.
     names_ptr: [*]const []const u8,
 
+    pub fn names(self: ErrorSet) []const []const u8 {
+        return self.names_ptr[0..self.names_len];
+    }
+
     pub fn srcLoc(self: ErrorSet) SrcLoc {
         return .{
             .file_scope = self.owner_decl.getFileScope(),
@@ -785,7 +808,7 @@ pub const Struct = struct {
     /// The Decl that corresponds to the struct itself.
     owner_decl: *Decl,
     /// Set of field names in declaration order.
-    fields: std.StringArrayHashMapUnmanaged(Field),
+    fields: Fields,
     /// Represents the declarations inside this struct.
     namespace: Namespace,
     /// Offset from `owner_decl`, points to the struct AST node.
@@ -804,6 +827,8 @@ pub const Struct = struct {
     /// If true, definitely nonzero size at runtime. If false, resolving the fields
     /// is necessary to determine whether it has bits at runtime.
     known_has_bits: bool,
+
+    pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
     /// The `Type` and `Value` memory is owned by the arena of the Struct's owner_decl.
     pub const Field = struct {
@@ -851,9 +876,11 @@ pub const EnumSimple = struct {
     /// The Decl that corresponds to the enum itself.
     owner_decl: *Decl,
     /// Set of field names in declaration order.
-    fields: std.StringArrayHashMapUnmanaged(void),
+    fields: NameMap,
     /// Offset from `owner_decl`, points to the enum decl AST node.
     node_offset: i32,
+
+    pub const NameMap = EnumFull.NameMap;
 
     pub fn srcLoc(self: EnumSimple) SrcLoc {
         return .{
@@ -935,7 +962,7 @@ pub const Union = struct {
     /// This will be set to the null type until status is `have_field_types`.
     tag_ty: Type,
     /// Set of field names in declaration order.
-    fields: std.StringArrayHashMapUnmanaged(Field),
+    fields: Fields,
     /// Represents the declarations inside this union.
     namespace: Namespace,
     /// Offset from `owner_decl`, points to the union decl AST node.
@@ -958,7 +985,9 @@ pub const Union = struct {
         abi_align: Value,
     };
 
-    pub fn getFullyQualifiedName(s: *Union, gpa: *Allocator) ![]u8 {
+    pub const Fields = std.StringArrayHashMapUnmanaged(Field);
+
+    pub fn getFullyQualifiedName(s: *Union, gpa: *Allocator) ![:0]u8 {
         return s.owner_decl.getFullyQualifiedName(gpa);
     }
 
@@ -982,7 +1011,7 @@ pub const Union = struct {
         };
     }
 
-    pub fn onlyTagHasCodegenBits(u: Union) bool {
+    pub fn hasAllZeroBitFieldTypes(u: Union) bool {
         assert(u.haveFieldTypes());
         for (u.fields.values()) |field| {
             if (field.ty.hasCodeGenBits()) return false;
@@ -992,20 +1021,153 @@ pub const Union = struct {
 
     pub fn mostAlignedField(u: Union, target: Target) u32 {
         assert(u.haveFieldTypes());
-        var most_alignment: u64 = 0;
+        var most_alignment: u32 = 0;
         var most_index: usize = undefined;
         for (u.fields.values()) |field, i| {
             if (!field.ty.hasCodeGenBits()) continue;
-            const field_align = if (field.abi_align.tag() == .abi_align_default)
-                field.ty.abiAlignment(target)
-            else
-                field.abi_align.toUnsignedInt();
+
+            const field_align = a: {
+                if (field.abi_align.tag() == .abi_align_default) {
+                    break :a field.ty.abiAlignment(target);
+                } else {
+                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                }
+            };
             if (field_align > most_alignment) {
                 most_alignment = field_align;
                 most_index = i;
             }
         }
         return @intCast(u32, most_index);
+    }
+
+    pub fn abiAlignment(u: Union, target: Target, have_tag: bool) u32 {
+        var max_align: u32 = 0;
+        if (have_tag) max_align = u.tag_ty.abiAlignment(target);
+        for (u.fields.values()) |field| {
+            if (!field.ty.hasCodeGenBits()) continue;
+
+            const field_align = a: {
+                if (field.abi_align.tag() == .abi_align_default) {
+                    break :a field.ty.abiAlignment(target);
+                } else {
+                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                }
+            };
+            max_align = @maximum(max_align, field_align);
+        }
+        assert(max_align != 0);
+        return max_align;
+    }
+
+    pub fn abiSize(u: Union, target: Target, have_tag: bool) u64 {
+        return u.getLayout(target, have_tag).abi_size;
+    }
+
+    pub const Layout = struct {
+        abi_size: u64,
+        abi_align: u32,
+        most_aligned_field: u32,
+        most_aligned_field_size: u64,
+        biggest_field: u32,
+        payload_size: u64,
+        payload_align: u32,
+        tag_align: u32,
+        tag_size: u64,
+    };
+
+    pub fn getLayout(u: Union, target: Target, have_tag: bool) Layout {
+        assert(u.status == .have_layout);
+        const is_packed = u.layout == .Packed;
+        if (is_packed) @panic("TODO packed unions");
+
+        var most_aligned_field: usize = undefined;
+        var most_aligned_field_size: u64 = undefined;
+        var biggest_field: usize = undefined;
+        var payload_size: u64 = 0;
+        var payload_align: u32 = 0;
+        for (u.fields.values()) |field, i| {
+            if (!field.ty.hasCodeGenBits()) continue;
+
+            const field_align = a: {
+                if (field.abi_align.tag() == .abi_align_default) {
+                    break :a field.ty.abiAlignment(target);
+                } else {
+                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                }
+            };
+            const field_size = field.ty.abiSize(target);
+            if (field_size > payload_size) {
+                payload_size = field_size;
+                biggest_field = i;
+            }
+            if (field_align > payload_align) {
+                payload_align = field_align;
+                most_aligned_field = i;
+                most_aligned_field_size = field_size;
+            }
+        }
+        if (!have_tag) return .{
+            .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
+            .abi_align = payload_align,
+            .most_aligned_field = @intCast(u32, most_aligned_field),
+            .most_aligned_field_size = most_aligned_field_size,
+            .biggest_field = @intCast(u32, biggest_field),
+            .payload_size = payload_size,
+            .payload_align = payload_align,
+            .tag_align = 0,
+            .tag_size = 0,
+        };
+        // Put the tag before or after the payload depending on which one's
+        // alignment is greater.
+        const tag_size = u.tag_ty.abiSize(target);
+        const tag_align = u.tag_ty.abiAlignment(target);
+        var size: u64 = 0;
+        if (tag_align >= payload_align) {
+            // {Tag, Payload}
+            size += tag_size;
+            size = std.mem.alignForwardGeneric(u64, size, payload_align);
+            size += payload_size;
+            size = std.mem.alignForwardGeneric(u64, size, tag_align);
+        } else {
+            // {Payload, Tag}
+            size += payload_size;
+            size = std.mem.alignForwardGeneric(u64, size, tag_align);
+            size += tag_size;
+            size = std.mem.alignForwardGeneric(u64, size, payload_align);
+        }
+        return .{
+            .abi_size = size,
+            .abi_align = @maximum(tag_align, payload_align),
+            .most_aligned_field = @intCast(u32, most_aligned_field),
+            .most_aligned_field_size = most_aligned_field_size,
+            .biggest_field = @intCast(u32, biggest_field),
+            .payload_size = payload_size,
+            .payload_align = payload_align,
+            .tag_align = tag_align,
+            .tag_size = tag_size,
+        };
+    }
+};
+
+pub const Opaque = struct {
+    /// The Decl that corresponds to the opaque itself.
+    owner_decl: *Decl,
+    /// Represents the declarations inside this opaque.
+    namespace: Namespace,
+    /// Offset from `owner_decl`, points to the opaque decl AST node.
+    node_offset: i32,
+
+    pub fn srcLoc(self: Opaque) SrcLoc {
+        return .{
+            .file_scope = self.owner_decl.getFileScope(),
+            .parent_decl_node = self.owner_decl.src_node,
+            .lazy = .{ .node_offset = self.node_offset },
+        };
+    }
+
+    pub fn getFullyQualifiedName(s: *Opaque, gpa: *Allocator) ![:0]u8 {
+        return s.owner_decl.getFullyQualifiedName(gpa);
     }
 };
 
@@ -1380,6 +1542,23 @@ pub const File = struct {
             else => true,
         };
     }
+};
+
+/// Represents the contents of a file loaded with `@embedFile`.
+pub const EmbedFile = struct {
+    /// Relative to the owning package's root_src_dir.
+    /// Memory is stored in gpa, owned by EmbedFile.
+    sub_file_path: []const u8,
+    bytes: [:0]const u8,
+    stat_size: u64,
+    stat_inode: std.fs.File.INode,
+    stat_mtime: i128,
+    /// Package that this file is a part of, managed externally.
+    pkg: *Package,
+    /// The Decl that was created from the `@embedFile` to own this resource.
+    /// This is how zig knows what other Decl objects to invalidate if the file
+    /// changes on disk.
+    owner_decl: *Decl,
 };
 
 /// This struct holds data necessary to construct API-facing `AllErrors.Message`.
@@ -1814,6 +1993,55 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
+
+            .node_offset_array_type_len => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.ArrayType = switch (node_tags[parent_node]) {
+                    .array_type => tree.arrayType(parent_node),
+                    .array_type_sentinel => tree.arrayTypeSentinel(parent_node),
+                    else => unreachable,
+                };
+                const node = full.ast.elem_count;
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[node];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
+            .node_offset_array_type_sentinel => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.ArrayType = switch (node_tags[parent_node]) {
+                    .array_type => tree.arrayType(parent_node),
+                    .array_type_sentinel => tree.arrayTypeSentinel(parent_node),
+                    else => unreachable,
+                };
+                const node = full.ast.sentinel;
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[node];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
+            .node_offset_array_type_elem => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.ArrayType = switch (node_tags[parent_node]) {
+                    .array_type => tree.arrayType(parent_node),
+                    .array_type_sentinel => tree.arrayTypeSentinel(parent_node),
+                    else => unreachable,
+                };
+                const node = full.ast.elem_type;
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[node];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
         }
     }
 
@@ -2014,6 +2242,24 @@ pub const LazySrcLoc = union(enum) {
     /// expression AST node. Next, navigate to the string literal of the `extern "foo"`.
     /// The Decl is determined contextually.
     node_offset_lib_name: i32,
+    /// The source location points to the len expression of an `[N:S]T`
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
+    /// to the len expression.
+    /// The Decl is determined contextually.
+    node_offset_array_type_len: i32,
+    /// The source location points to the sentinel expression of an `[N:S]T`
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
+    /// to the sentinel expression.
+    /// The Decl is determined contextually.
+    node_offset_array_type_sentinel: i32,
+    /// The source location points to the elem expression of an `[N:S]T`
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
+    /// to the elem expression.
+    /// The Decl is determined contextually.
+    node_offset_array_type_elem: i32,
 
     /// Upgrade to a `SrcLoc` based on the `Decl` provided.
     pub fn toSrcLoc(lazy: LazySrcLoc, decl: *Decl) SrcLoc {
@@ -2059,6 +2305,9 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_fn_type_ret_ty,
             .node_offset_anyframe_type,
             .node_offset_lib_name,
+            .node_offset_array_type_len,
+            .node_offset_array_type_sentinel,
+            .node_offset_array_type_elem,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,
@@ -2141,6 +2390,11 @@ pub fn deinit(mod: *Module) void {
         if (value) |msg| msg.destroy(gpa);
     }
     mod.failed_files.deinit(gpa);
+
+    for (mod.failed_embed_files.values()) |msg| {
+        msg.destroy(gpa);
+    }
+    mod.failed_embed_files.deinit(gpa);
 
     for (mod.failed_exports.values()) |value| {
         value.destroy(gpa);
@@ -2838,6 +3092,32 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
     }
 }
 
+pub fn updateEmbedFile(mod: *Module, embed_file: *EmbedFile) SemaError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    // TODO we can potentially relax this if we store some more information along
+    // with decl dependency edges
+    for (embed_file.owner_decl.dependants.keys()) |dep| {
+        switch (dep.analysis) {
+            .unreferenced => unreachable,
+            .in_progress => continue, // already doing analysis, ok
+            .outdated => continue, // already queued for update
+
+            .file_failure,
+            .dependency_failure,
+            .sema_failure,
+            .sema_failure_retryable,
+            .codegen_failure,
+            .codegen_failure_retryable,
+            .complete,
+            => if (dep.generation != mod.generation) {
+                try mod.markOutdatedDecl(dep);
+            },
+        }
+    }
+}
+
 pub fn semaPkg(mod: *Module, pkg: *Package) !void {
     const file = (try mod.importPkg(pkg)).file;
     return mod.semaFile(file);
@@ -3327,6 +3607,84 @@ pub fn importFile(
         .file = new_file,
         .is_new = true,
     };
+}
+
+pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*EmbedFile {
+    const gpa = mod.gpa;
+
+    // The resolved path is used as the key in the table, to detect if
+    // a file refers to the same as another, despite different relative paths.
+    const cur_pkg_dir_path = cur_file.pkg.root_src_directory.path orelse ".";
+    const resolved_path = try std.fs.path.resolve(gpa, &[_][]const u8{
+        cur_pkg_dir_path, cur_file.sub_file_path, "..", rel_file_path,
+    });
+    var keep_resolved_path = false;
+    defer if (!keep_resolved_path) gpa.free(resolved_path);
+
+    const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
+    if (gop.found_existing) return gop.value_ptr.*;
+    keep_resolved_path = true; // It's now owned by embed_table.
+
+    const new_file = try gpa.create(EmbedFile);
+    errdefer gpa.destroy(new_file);
+
+    const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
+    defer gpa.free(resolved_root_path);
+
+    if (!mem.startsWith(u8, resolved_path, resolved_root_path)) {
+        return error.ImportOutsidePkgPath;
+    }
+    // +1 for the directory separator here.
+    const sub_file_path = try gpa.dupe(u8, resolved_path[resolved_root_path.len + 1 ..]);
+    errdefer gpa.free(sub_file_path);
+
+    var file = try cur_file.pkg.root_src_directory.handle.openFile(sub_file_path, .{});
+    defer file.close();
+
+    const stat = try file.stat();
+    const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), stat.size, 1, 0);
+
+    log.debug("new embedFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, rel_file_path={s}", .{
+        resolved_root_path, resolved_path, sub_file_path, rel_file_path,
+    });
+
+    gop.value_ptr.* = new_file;
+    new_file.* = .{
+        .sub_file_path = sub_file_path,
+        .bytes = bytes,
+        .stat_size = stat.size,
+        .stat_inode = stat.inode,
+        .stat_mtime = stat.mtime,
+        .pkg = cur_file.pkg,
+        .owner_decl = undefined, // Set by Sema immediately after this function returns.
+    };
+    return new_file;
+}
+
+pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
+    var file = try embed_file.pkg.root_src_directory.handle.openFile(embed_file.sub_file_path, .{});
+    defer file.close();
+
+    const stat = try file.stat();
+
+    const unchanged_metadata =
+        stat.size == embed_file.stat_size and
+        stat.mtime == embed_file.stat_mtime and
+        stat.inode == embed_file.stat_inode;
+
+    if (unchanged_metadata) return;
+
+    const gpa = mod.gpa;
+    const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), stat.size, 1, 0);
+    gpa.free(embed_file.bytes);
+    embed_file.bytes = bytes;
+    embed_file.stat_size = stat.size;
+    embed_file.stat_mtime = stat.mtime;
+    embed_file.stat_inode = stat.inode;
+
+    const lock = mod.comp.mutex.acquire();
+    defer lock.release();
+    try mod.comp.work_queue.writeItem(.{ .update_embed_file = embed_file });
 }
 
 pub fn scanNamespace(
@@ -4038,50 +4396,6 @@ pub fn errNoteNonLazy(
         .src_loc = src_loc,
         .msg = msg,
     };
-}
-
-pub fn optionalType(arena: *Allocator, child_type: Type) Allocator.Error!Type {
-    switch (child_type.tag()) {
-        .single_const_pointer => return Type.Tag.optional_single_const_pointer.create(
-            arena,
-            child_type.elemType(),
-        ),
-        .single_mut_pointer => return Type.Tag.optional_single_mut_pointer.create(
-            arena,
-            child_type.elemType(),
-        ),
-        else => return Type.Tag.optional.create(arena, child_type),
-    }
-}
-
-pub fn arrayType(
-    arena: *Allocator,
-    len: u64,
-    sentinel: ?Value,
-    elem_type: Type,
-) Allocator.Error!Type {
-    if (elem_type.eql(Type.initTag(.u8))) {
-        if (sentinel) |some| {
-            if (some.eql(Value.initTag(.zero), elem_type)) {
-                return Type.Tag.array_u8_sentinel_0.create(arena, len);
-            }
-        } else {
-            return Type.Tag.array_u8.create(arena, len);
-        }
-    }
-
-    if (sentinel) |some| {
-        return Type.Tag.array_sentinel.create(arena, .{
-            .len = len,
-            .sentinel = some,
-            .elem_type = elem_type,
-        });
-    }
-
-    return Type.Tag.array.create(arena, .{
-        .len = len,
-        .elem_type = elem_type,
-    });
 }
 
 pub fn errorUnionType(

@@ -4,52 +4,6 @@ const mem = std.mem;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "array with sentinels" {
-    const S = struct {
-        fn doTheTest(is_ct: bool) !void {
-            if (is_ct) {
-                var zero_sized: [0:0xde]u8 = [_:0xde]u8{};
-                // Disabled at runtime because of
-                // https://github.com/ziglang/zig/issues/4372
-                try expectEqual(@as(u8, 0xde), zero_sized[0]);
-                var reinterpreted = @ptrCast(*[1]u8, &zero_sized);
-                try expectEqual(@as(u8, 0xde), reinterpreted[0]);
-            }
-            var arr: [3:0x55]u8 = undefined;
-            // Make sure the sentinel pointer is pointing after the last element
-            if (!is_ct) {
-                const sentinel_ptr = @ptrToInt(&arr[3]);
-                const last_elem_ptr = @ptrToInt(&arr[2]);
-                try expectEqual(@as(usize, 1), sentinel_ptr - last_elem_ptr);
-            }
-            // Make sure the sentinel is writeable
-            arr[3] = 0x55;
-        }
-    };
-
-    try S.doTheTest(false);
-    comptime try S.doTheTest(true);
-}
-
-test "void arrays" {
-    var array: [4]void = undefined;
-    array[0] = void{};
-    array[1] = array[2];
-    try expect(@sizeOf(@TypeOf(array)) == 0);
-    try expect(array.len == 4);
-}
-
-test "array dot len const expr" {
-    try expect(comptime x: {
-        break :x some_array.len == 4;
-    });
-}
-
-const ArrayDotLenConstExpr = struct {
-    y: [some_array.len]u8,
-};
-const some_array = [_]u8{ 0, 1, 2, 3 };
-
 test "nested arrays" {
     const array_of_strings = [_][]const u8{ "hello", "this", "is", "my", "thing" };
     for (array_of_strings) |s, i| {
@@ -74,24 +28,6 @@ test "set global var array via slice embedded in struct" {
     try expect(s_array[0].b == 1);
     try expect(s_array[1].b == 2);
     try expect(s_array[2].b == 3);
-}
-
-test "array literal with specified size" {
-    var array = [2]u8{
-        1,
-        2,
-    };
-    try expect(array[0] == 1);
-    try expect(array[1] == 2);
-}
-
-test "array len field" {
-    var arr = [4]u8{ 0, 0, 0, 0 };
-    var ptr = &arr;
-    try expect(arr.len == 4);
-    comptime try expect(arr.len == 4);
-    try expect(ptr.len == 4);
-    comptime try expect(ptr.len == 4);
 }
 
 test "single-item pointer to array indexing and slicing" {

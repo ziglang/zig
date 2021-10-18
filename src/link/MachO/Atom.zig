@@ -5,7 +5,7 @@ const build_options = @import("build_options");
 const aarch64 = @import("../../arch/aarch64/bits.zig");
 const assert = std.debug.assert;
 const commands = @import("commands.zig");
-const log = std.log.scoped(.text_block);
+const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
@@ -54,10 +54,10 @@ rebases: std.ArrayListUnmanaged(u64) = .{},
 /// List of offsets contained within this atom that will be dynamically bound
 /// by the dynamic loader and contain pointers to resolved (at load time) extern
 /// symbols (aka proxies aka imports)
-bindings: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
+bindings: std.ArrayListUnmanaged(Binding) = .{},
 
 /// List of lazy bindings
-lazy_bindings: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
+lazy_bindings: std.ArrayListUnmanaged(Binding) = .{},
 
 /// List of data-in-code entries. This is currently specific to x86_64 only.
 dices: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
@@ -83,25 +83,15 @@ dbg_info_len: u32,
 
 dirty: bool = true,
 
+pub const Binding = struct {
+    n_strx: u32,
+    offset: u64,
+};
+
 pub const SymbolAtOffset = struct {
     local_sym_index: u32,
     offset: u64,
     stab: ?Stab = null,
-
-    pub fn format(
-        self: SymbolAtOffset,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
-        try std.fmt.format(writer, "{{ {d}: .offset = {d}", .{ self.local_sym_index, self.offset });
-        if (self.stab) |stab| {
-            try std.fmt.format(writer, ", .stab = {any}", .{stab});
-        }
-        try std.fmt.format(writer, " }}", .{});
-    }
 };
 
 pub const Stab = union(enum) {
@@ -171,411 +161,26 @@ pub const Stab = union(enum) {
 };
 
 pub const Relocation = struct {
+    pub const Target = union(enum) {
+        local: u32,
+        global: u32,
+    };
+
     /// Offset within the atom's code buffer.
     /// Note relocation size can be inferred by relocation's kind.
     offset: u32,
 
-    where: enum {
-        local,
-        undef,
-    },
+    target: Target,
 
-    where_index: u32,
+    addend: i64,
 
-    payload: union(enum) {
-        unsigned: Unsigned,
-        branch: Branch,
-        page: Page,
-        page_off: PageOff,
-        pointer_to_got: PointerToGot,
-        signed: Signed,
-        load: Load,
-    },
+    subtractor: ?u32,
 
-    const ResolveArgs = struct {
-        block: *Atom,
-        offset: u32,
-        source_addr: u64,
-        target_addr: u64,
-        macho_file: *MachO,
-    };
+    pcrel: bool,
 
-    pub const Unsigned = struct {
-        subtractor: ?u32,
+    length: u2,
 
-        /// Addend embedded directly in the relocation slot
-        addend: i64,
-
-        /// Extracted from r_length:
-        /// => 3 implies true
-        /// => 2 implies false
-        /// => * is unreachable
-        is_64bit: bool,
-
-        pub fn resolve(self: Unsigned, args: ResolveArgs) !void {
-            const result = blk: {
-                if (self.subtractor) |subtractor| {
-                    const sym = args.macho_file.locals.items[subtractor];
-                    break :blk @intCast(i64, args.target_addr) - @intCast(i64, sym.n_value) + self.addend;
-                } else {
-                    break :blk @intCast(i64, args.target_addr) + self.addend;
-                }
-            };
-
-            if (self.is_64bit) {
-                mem.writeIntLittle(u64, args.block.code.items[args.offset..][0..8], @bitCast(u64, result));
-            } else {
-                mem.writeIntLittle(u32, args.block.code.items[args.offset..][0..4], @truncate(u32, @bitCast(u64, result)));
-            }
-        }
-
-        pub fn format(self: Unsigned, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-            _ = fmt;
-            _ = options;
-            try std.fmt.format(writer, "Unsigned {{ ", .{});
-            if (self.subtractor) |sub| {
-                try std.fmt.format(writer, ".subtractor = {}, ", .{sub});
-            }
-            try std.fmt.format(writer, ".addend = {}, ", .{self.addend});
-            const length: usize = if (self.is_64bit) 8 else 4;
-            try std.fmt.format(writer, ".length = {}, ", .{length});
-            try std.fmt.format(writer, "}}", .{});
-        }
-    };
-
-    pub const Branch = struct {
-        arch: Arch,
-
-        pub fn resolve(self: Branch, args: ResolveArgs) !void {
-            switch (self.arch) {
-                .aarch64 => {
-                    const displacement = math.cast(
-                        i28,
-                        @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr),
-                    ) catch |err| switch (err) {
-                        error.Overflow => {
-                            log.err("jump too big to encode as i28 displacement value", .{});
-                            log.err("  (target - source) = displacement => 0x{x} - 0x{x} = 0x{x}", .{
-                                args.target_addr,
-                                args.source_addr,
-                                @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr),
-                            });
-                            log.err("  TODO implement branch islands to extend jump distance for arm64", .{});
-                            return error.TODOImplementBranchIslands;
-                        },
-                    };
-                    const code = args.block.code.items[args.offset..][0..4];
-                    var inst = aarch64.Instruction{
-                        .unconditional_branch_immediate = mem.bytesToValue(meta.TagPayload(
-                            aarch64.Instruction,
-                            aarch64.Instruction.unconditional_branch_immediate,
-                        ), code),
-                    };
-                    inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement >> 2));
-                    mem.writeIntLittle(u32, code, inst.toU32());
-                },
-                .x86_64 => {
-                    const displacement = try math.cast(
-                        i32,
-                        @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr) - 4,
-                    );
-                    mem.writeIntLittle(u32, args.block.code.items[args.offset..][0..4], @bitCast(u32, displacement));
-                },
-                else => return error.UnsupportedCpuArchitecture,
-            }
-        }
-
-        pub fn format(self: Branch, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-            _ = self;
-            _ = fmt;
-            _ = options;
-            try std.fmt.format(writer, "Branch {{}}", .{});
-        }
-    };
-
-    pub const Page = struct {
-        kind: enum {
-            page,
-            got,
-            tlvp,
-        },
-        addend: u32 = 0,
-
-        pub fn resolve(self: Page, args: ResolveArgs) !void {
-            const target_addr = args.target_addr + self.addend;
-            const source_page = @intCast(i32, args.source_addr >> 12);
-            const target_page = @intCast(i32, target_addr >> 12);
-            const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
-
-            const code = args.block.code.items[args.offset..][0..4];
-            var inst = aarch64.Instruction{
-                .pc_relative_address = mem.bytesToValue(meta.TagPayload(
-                    aarch64.Instruction,
-                    aarch64.Instruction.pc_relative_address,
-                ), code),
-            };
-            inst.pc_relative_address.immhi = @truncate(u19, pages >> 2);
-            inst.pc_relative_address.immlo = @truncate(u2, pages);
-
-            mem.writeIntLittle(u32, code, inst.toU32());
-        }
-
-        pub fn format(self: Page, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-            _ = fmt;
-            _ = options;
-            try std.fmt.format(writer, "Page {{ ", .{});
-            switch (self.kind) {
-                .page => {},
-                .got => {
-                    try std.fmt.format(writer, ".got, ", .{});
-                },
-                .tlvp => {
-                    try std.fmt.format(writer, ".tlvp", .{});
-                },
-            }
-            try std.fmt.format(writer, ".addend = {}, ", .{self.addend});
-            try std.fmt.format(writer, "}}", .{});
-        }
-    };
-
-    pub const PageOff = struct {
-        kind: enum {
-            page,
-            got,
-            tlvp,
-        },
-        addend: u32 = 0,
-        op_kind: ?OpKind = null,
-
-        pub const OpKind = enum {
-            arithmetic,
-            load,
-        };
-
-        pub fn resolve(self: PageOff, args: ResolveArgs) !void {
-            const code = args.block.code.items[args.offset..][0..4];
-
-            switch (self.kind) {
-                .page => {
-                    const target_addr = args.target_addr + self.addend;
-                    const narrowed = @truncate(u12, target_addr);
-
-                    const op_kind = self.op_kind orelse unreachable;
-                    var inst: aarch64.Instruction = blk: {
-                        switch (op_kind) {
-                            .arithmetic => {
-                                break :blk .{
-                                    .add_subtract_immediate = mem.bytesToValue(meta.TagPayload(
-                                        aarch64.Instruction,
-                                        aarch64.Instruction.add_subtract_immediate,
-                                    ), code),
-                                };
-                            },
-                            .load => {
-                                break :blk .{
-                                    .load_store_register = mem.bytesToValue(meta.TagPayload(
-                                        aarch64.Instruction,
-                                        aarch64.Instruction.load_store_register,
-                                    ), code),
-                                };
-                            },
-                        }
-                    };
-
-                    if (op_kind == .arithmetic) {
-                        inst.add_subtract_immediate.imm12 = narrowed;
-                    } else {
-                        const offset: u12 = blk: {
-                            if (inst.load_store_register.size == 0) {
-                                if (inst.load_store_register.v == 1) {
-                                    // 128-bit SIMD is scaled by 16.
-                                    break :blk try math.divExact(u12, narrowed, 16);
-                                }
-                                // Otherwise, 8-bit SIMD or ldrb.
-                                break :blk narrowed;
-                            } else {
-                                const denom: u4 = try math.powi(u4, 2, inst.load_store_register.size);
-                                break :blk try math.divExact(u12, narrowed, denom);
-                            }
-                        };
-                        inst.load_store_register.offset = offset;
-                    }
-
-                    mem.writeIntLittle(u32, code, inst.toU32());
-                },
-                .got => {
-                    const narrowed = @truncate(u12, args.target_addr);
-                    var inst: aarch64.Instruction = .{
-                        .load_store_register = mem.bytesToValue(meta.TagPayload(
-                            aarch64.Instruction,
-                            aarch64.Instruction.load_store_register,
-                        ), code),
-                    };
-                    const offset = try math.divExact(u12, narrowed, 8);
-                    inst.load_store_register.offset = offset;
-                    mem.writeIntLittle(u32, code, inst.toU32());
-                },
-                .tlvp => {
-                    const RegInfo = struct {
-                        rd: u5,
-                        rn: u5,
-                        size: u1,
-                    };
-                    const reg_info: RegInfo = blk: {
-                        if (isArithmeticOp(code)) {
-                            const inst = mem.bytesToValue(meta.TagPayload(
-                                aarch64.Instruction,
-                                aarch64.Instruction.add_subtract_immediate,
-                            ), code);
-                            break :blk .{
-                                .rd = inst.rd,
-                                .rn = inst.rn,
-                                .size = inst.sf,
-                            };
-                        } else {
-                            const inst = mem.bytesToValue(meta.TagPayload(
-                                aarch64.Instruction,
-                                aarch64.Instruction.load_store_register,
-                            ), code);
-                            break :blk .{
-                                .rd = inst.rt,
-                                .rn = inst.rn,
-                                .size = @truncate(u1, inst.size),
-                            };
-                        }
-                    };
-                    const narrowed = @truncate(u12, args.target_addr);
-                    var inst = aarch64.Instruction{
-                        .add_subtract_immediate = .{
-                            .rd = reg_info.rd,
-                            .rn = reg_info.rn,
-                            .imm12 = narrowed,
-                            .sh = 0,
-                            .s = 0,
-                            .op = 0,
-                            .sf = reg_info.size,
-                        },
-                    };
-                    mem.writeIntLittle(u32, code, inst.toU32());
-                },
-            }
-        }
-
-        pub fn format(self: PageOff, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-            _ = fmt;
-            _ = options;
-            try std.fmt.format(writer, "PageOff {{ ", .{});
-            switch (self.kind) {
-                .page => {},
-                .got => {
-                    try std.fmt.format(writer, ".got, ", .{});
-                },
-                .tlvp => {
-                    try std.fmt.format(writer, ".tlvp, ", .{});
-                },
-            }
-            try std.fmt.format(writer, ".addend = {}, ", .{self.addend});
-            try std.fmt.format(writer, ".op_kind = {s}, ", .{self.op_kind});
-            try std.fmt.format(writer, "}}", .{});
-        }
-    };
-
-    pub const PointerToGot = struct {
-        pub fn resolve(_: PointerToGot, args: ResolveArgs) !void {
-            const result = try math.cast(i32, @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr));
-            mem.writeIntLittle(u32, args.block.code.items[args.offset..][0..4], @bitCast(u32, result));
-        }
-
-        pub fn format(self: PointerToGot, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-            _ = self;
-            _ = fmt;
-            _ = options;
-            try std.fmt.format(writer, "PointerToGot {{}}", .{});
-        }
-    };
-
-    pub const Signed = struct {
-        addend: i64,
-        correction: u3,
-
-        pub fn resolve(self: Signed, args: ResolveArgs) !void {
-            const target_addr = @intCast(i64, args.target_addr) + self.addend;
-            const displacement = try math.cast(
-                i32,
-                target_addr - @intCast(i64, args.source_addr + self.correction + 4),
-            );
-            mem.writeIntLittle(u32, args.block.code.items[args.offset..][0..4], @bitCast(u32, displacement));
-        }
-
-        pub fn format(self: Signed, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-            _ = fmt;
-            _ = options;
-            try std.fmt.format(writer, "Signed {{ ", .{});
-            try std.fmt.format(writer, ".addend = {}, ", .{self.addend});
-            try std.fmt.format(writer, ".correction = {}, ", .{self.correction});
-            try std.fmt.format(writer, "}}", .{});
-        }
-    };
-
-    pub const Load = struct {
-        kind: enum {
-            got,
-            tlvp,
-        },
-        addend: i32 = 0,
-
-        pub fn resolve(self: Load, args: ResolveArgs) !void {
-            if (self.kind == .tlvp) {
-                // We need to rewrite the opcode from movq to leaq.
-                args.block.code.items[args.offset - 2] = 0x8d;
-            }
-            const displacement = try math.cast(
-                i32,
-                @intCast(i64, args.target_addr) - @intCast(i64, args.source_addr) - 4 + self.addend,
-            );
-            mem.writeIntLittle(u32, args.block.code.items[args.offset..][0..4], @bitCast(u32, displacement));
-        }
-
-        pub fn format(self: Load, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-            _ = fmt;
-            _ = options;
-            try std.fmt.format(writer, "Load {{ ", .{});
-            try std.fmt.format(writer, "{s}, ", .{self.kind});
-            try std.fmt.format(writer, ".addend = {}, ", .{self.addend});
-            try std.fmt.format(writer, "}}", .{});
-        }
-    };
-
-    pub fn resolve(self: Relocation, args: ResolveArgs) !void {
-        switch (self.payload) {
-            .unsigned => |unsigned| try unsigned.resolve(args),
-            .branch => |branch| try branch.resolve(args),
-            .page => |page| try page.resolve(args),
-            .page_off => |page_off| try page_off.resolve(args),
-            .pointer_to_got => |pointer_to_got| try pointer_to_got.resolve(args),
-            .signed => |signed| try signed.resolve(args),
-            .load => |load| try load.resolve(args),
-        }
-    }
-
-    pub fn format(self: Relocation, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        try std.fmt.format(writer, "Relocation {{ ", .{});
-        try std.fmt.format(writer, ".offset = {}, ", .{self.offset});
-        try std.fmt.format(writer, ".where = {}, ", .{self.where});
-        try std.fmt.format(writer, ".where_index = {d}, ", .{self.where_index});
-
-        switch (self.payload) {
-            .unsigned => |unsigned| try unsigned.format(fmt, options, writer),
-            .branch => |branch| try branch.format(fmt, options, writer),
-            .page => |page| try page.format(fmt, options, writer),
-            .page_off => |page_off| try page_off.format(fmt, options, writer),
-            .pointer_to_got => |pointer_to_got| try pointer_to_got.format(fmt, options, writer),
-            .signed => |signed| try signed.format(fmt, options, writer),
-            .load => |load| try load.format(fmt, options, writer),
-        }
-
-        try std.fmt.format(writer, "}}", .{});
-    }
+    @"type": u4,
 };
 
 pub const empty = Atom{
@@ -641,526 +246,367 @@ pub fn freeListEligible(self: Atom, macho_file: MachO) bool {
 
 const RelocContext = struct {
     base_addr: u64 = 0,
-    base_offset: u64 = 0,
     allocator: *Allocator,
     object: *Object,
     macho_file: *MachO,
 };
 
-fn initRelocFromObject(rel: macho.relocation_info, context: RelocContext) !Relocation {
-    var parsed_rel = Relocation{
-        .offset = @intCast(u32, @intCast(u64, rel.r_address) - context.base_offset),
-        .where = undefined,
-        .where_index = undefined,
-        .payload = undefined,
-    };
-
-    if (rel.r_extern == 0) {
-        const sect_id = @intCast(u16, rel.r_symbolnum - 1);
-
-        const local_sym_index = context.object.sections_as_symbols.get(sect_id) orelse blk: {
-            const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
-            const sect = seg.sections.items[sect_id];
-            const match = (try context.macho_file.getMatchingSection(sect)) orelse unreachable;
-            const local_sym_index = @intCast(u32, context.macho_file.locals.items.len);
-            try context.macho_file.locals.append(context.allocator, .{
-                .n_strx = 0,
-                .n_type = macho.N_SECT,
-                .n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(match).? + 1),
-                .n_desc = 0,
-                .n_value = 0,
-            });
-            try context.object.sections_as_symbols.putNoClobber(context.allocator, sect_id, local_sym_index);
-            break :blk local_sym_index;
-        };
-
-        parsed_rel.where = .local;
-        parsed_rel.where_index = local_sym_index;
-    } else {
-        const sym = context.object.symtab.items[rel.r_symbolnum];
-        const sym_name = context.object.getString(sym.n_strx);
-
-        if (MachO.symbolIsSect(sym) and !MachO.symbolIsExt(sym)) {
-            const where_index = context.object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
-            parsed_rel.where = .local;
-            parsed_rel.where_index = where_index;
-        } else {
-            const n_strx = context.macho_file.strtab_dir.getKeyAdapted(@as([]const u8, sym_name), StringIndexAdapter{
-                .bytes = &context.macho_file.strtab,
-            }) orelse unreachable;
-            const resolv = context.macho_file.symbol_resolver.get(n_strx) orelse unreachable;
-            switch (resolv.where) {
-                .global => {
-                    parsed_rel.where = .local;
-                    parsed_rel.where_index = resolv.local_sym_index;
-                },
-                .undef => {
-                    parsed_rel.where = .undef;
-                    parsed_rel.where_index = resolv.where_index;
-                },
-            }
-        }
-    }
-
-    return parsed_rel;
-}
-
 pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocContext) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const filtered_relocs = filterRelocs(relocs, context.base_offset, context.base_offset + self.size);
-    var it = RelocIterator{
-        .buffer = filtered_relocs,
-    };
-
-    var addend: u32 = 0;
-    var subtractor: ?u32 = null;
     const arch = context.macho_file.base.options.target.cpu.arch;
+    var addend: i64 = 0;
+    var subtractor: ?u32 = null;
 
-    while (it.next()) |rel| {
-        if (isAddend(rel, arch)) {
-            // Addend is not a relocation with effect on the TextBlock, so
-            // parse it and carry on.
-            assert(addend == 0); // Oh no, addend was not reset!
-            addend = rel.r_symbolnum;
-
-            // Verify ADDEND is followed by a PAGE21 or PAGEOFF12.
-            const next = @intToEnum(macho.reloc_type_arm64, it.peek().r_type);
-            switch (next) {
-                .ARM64_RELOC_PAGE21, .ARM64_RELOC_PAGEOFF12 => {},
-                else => {
-                    log.err("unexpected relocation type: expected PAGE21 or PAGEOFF12, found {s}", .{next});
-                    return error.UnexpectedRelocationType;
+    for (relocs) |rel, i| {
+        blk: {
+            switch (arch) {
+                .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, rel.r_type)) {
+                    .ARM64_RELOC_ADDEND => {
+                        assert(addend == 0);
+                        addend = rel.r_symbolnum;
+                        // Verify that it's followed by ARM64_RELOC_PAGE21 or ARM64_RELOC_PAGEOFF12.
+                        if (relocs.len <= i + 1) {
+                            log.err("no relocation after ARM64_RELOC_ADDEND", .{});
+                            return error.UnexpectedRelocationType;
+                        }
+                        const next = @intToEnum(macho.reloc_type_arm64, relocs[i + 1].r_type);
+                        switch (next) {
+                            .ARM64_RELOC_PAGE21, .ARM64_RELOC_PAGEOFF12 => {},
+                            else => {
+                                log.err("unexpected relocation type after ARM64_RELOC_ADDEND", .{});
+                                log.err("  expected ARM64_RELOC_PAGE21 or ARM64_RELOC_PAGEOFF12", .{});
+                                log.err("  found {s}", .{next});
+                                return error.UnexpectedRelocationType;
+                            },
+                        }
+                        continue;
+                    },
+                    .ARM64_RELOC_SUBTRACTOR => {},
+                    else => break :blk,
                 },
+                .x86_64 => switch (@intToEnum(macho.reloc_type_x86_64, rel.r_type)) {
+                    .X86_64_RELOC_SUBTRACTOR => {},
+                    else => break :blk,
+                },
+                else => unreachable,
             }
-            continue;
-        }
 
-        if (isSubtractor(rel, arch)) {
-            // Subtractor is not a relocation with effect on the TextBlock, so
-            // parse it and carry on.
-            assert(subtractor == null); // Oh no, subtractor was not reset!
-            assert(rel.r_extern == 1);
+            assert(subtractor == null);
             const sym = context.object.symtab.items[rel.r_symbolnum];
-            const sym_name = context.object.getString(sym.n_strx);
-
             if (MachO.symbolIsSect(sym) and !MachO.symbolIsExt(sym)) {
-                const where_index = context.object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
-                subtractor = where_index;
+                subtractor = context.object.symbol_mapping.get(rel.r_symbolnum).?;
             } else {
-                const n_strx = context.macho_file.strtab_dir.getKeyAdapted(@as([]const u8, sym_name), StringIndexAdapter{
-                    .bytes = &context.macho_file.strtab,
-                }) orelse unreachable;
-                const resolv = context.macho_file.symbol_resolver.get(n_strx) orelse unreachable;
+                const sym_name = context.object.getString(sym.n_strx);
+                const n_strx = context.macho_file.strtab_dir.getKeyAdapted(
+                    @as([]const u8, sym_name),
+                    StringIndexAdapter{
+                        .bytes = &context.macho_file.strtab,
+                    },
+                ).?;
+                const resolv = context.macho_file.symbol_resolver.get(n_strx).?;
                 assert(resolv.where == .global);
                 subtractor = resolv.local_sym_index;
             }
-
-            // Verify SUBTRACTOR is followed by UNSIGNED.
+            // Verify that *_SUBTRACTOR is followed by *_UNSIGNED.
+            if (relocs.len <= i + 1) {
+                log.err("no relocation after *_RELOC_SUBTRACTOR", .{});
+                return error.UnexpectedRelocationType;
+            }
             switch (arch) {
-                .aarch64 => {
-                    const next = @intToEnum(macho.reloc_type_arm64, it.peek().r_type);
-                    if (next != .ARM64_RELOC_UNSIGNED) {
-                        log.err("unexpected relocation type: expected UNSIGNED, found {s}", .{next});
+                .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, relocs[i + 1].r_type)) {
+                    .ARM64_RELOC_UNSIGNED => {},
+                    else => {
+                        log.err("unexpected relocation type after ARM64_RELOC_ADDEND", .{});
+                        log.err("  expected ARM64_RELOC_UNSIGNED", .{});
+                        log.err("  found {s}", .{@intToEnum(macho.reloc_type_arm64, relocs[i + 1].r_type)});
                         return error.UnexpectedRelocationType;
-                    }
+                    },
                 },
-                .x86_64 => {
-                    const next = @intToEnum(macho.reloc_type_x86_64, it.peek().r_type);
-                    if (next != .X86_64_RELOC_UNSIGNED) {
-                        log.err("unexpected relocation type: expected UNSIGNED, found {s}", .{next});
+                .x86_64 => switch (@intToEnum(macho.reloc_type_x86_64, relocs[i + 1].r_type)) {
+                    .X86_64_RELOC_UNSIGNED => {},
+                    else => {
+                        log.err("unexpected relocation type after X86_64_RELOC_ADDEND", .{});
+                        log.err("  expected X86_64_RELOC_UNSIGNED", .{});
+                        log.err("  found {s}", .{@intToEnum(macho.reloc_type_x86_64, relocs[i + 1].r_type)});
                         return error.UnexpectedRelocationType;
-                    }
+                    },
                 },
                 else => unreachable,
             }
             continue;
         }
 
-        var parsed_rel = try initRelocFromObject(rel, context);
+        const target = target: {
+            if (rel.r_extern == 0) {
+                const sect_id = @intCast(u16, rel.r_symbolnum - 1);
+                const local_sym_index = context.object.sections_as_symbols.get(sect_id) orelse blk: {
+                    const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+                    const sect = seg.sections.items[sect_id];
+                    const match = (try context.macho_file.getMatchingSection(sect)) orelse unreachable;
+                    const sym_name = try std.fmt.allocPrint(context.allocator, "{s}_{s}_{s}", .{
+                        context.object.name,
+                        commands.segmentName(sect),
+                        commands.sectionName(sect),
+                    });
+                    defer context.allocator.free(sym_name);
+                    const local_sym_index = @intCast(u32, context.macho_file.locals.items.len);
+                    try context.macho_file.locals.append(context.allocator, .{
+                        .n_strx = try context.macho_file.makeString(sym_name),
+                        .n_type = macho.N_SECT,
+                        .n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(match).? + 1),
+                        .n_desc = 0,
+                        .n_value = 0,
+                    });
+                    try context.object.sections_as_symbols.putNoClobber(context.allocator, sect_id, local_sym_index);
+                    break :blk local_sym_index;
+                };
+                break :target Relocation.Target{ .local = local_sym_index };
+            }
+
+            const sym = context.object.symtab.items[rel.r_symbolnum];
+            const sym_name = context.object.getString(sym.n_strx);
+
+            if (MachO.symbolIsSect(sym) and !MachO.symbolIsExt(sym)) {
+                const sym_index = context.object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
+                break :target Relocation.Target{ .local = sym_index };
+            }
+
+            const n_strx = context.macho_file.strtab_dir.getKeyAdapted(
+                @as([]const u8, sym_name),
+                StringIndexAdapter{
+                    .bytes = &context.macho_file.strtab,
+                },
+            ) orelse unreachable;
+            break :target Relocation.Target{ .global = n_strx };
+        };
+        const offset = @intCast(u32, rel.r_address);
 
         switch (arch) {
             .aarch64 => {
-                const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
-                switch (rel_type) {
-                    .ARM64_RELOC_ADDEND => unreachable,
-                    .ARM64_RELOC_SUBTRACTOR => unreachable,
+                switch (@intToEnum(macho.reloc_type_arm64, rel.r_type)) {
                     .ARM64_RELOC_BRANCH26 => {
-                        self.parseBranch(rel, &parsed_rel, context);
+                        // TODO rewrite relocation
+                        try addStub(target, context);
+                    },
+                    .ARM64_RELOC_GOT_LOAD_PAGE21, .ARM64_RELOC_GOT_LOAD_PAGEOFF12 => {
+                        // TODO rewrite relocation
+                        try addGotEntry(target, context);
                     },
                     .ARM64_RELOC_UNSIGNED => {
-                        self.parseUnsigned(rel, &parsed_rel, subtractor, context);
-                        subtractor = null;
+                        assert(rel.r_extern == 1);
+                        addend = if (rel.r_length == 3)
+                            mem.readIntLittle(i64, self.code.items[offset..][0..8])
+                        else
+                            mem.readIntLittle(i32, self.code.items[offset..][0..4]);
+                        try self.addPtrBindingOrRebase(rel, target, context);
                     },
-                    .ARM64_RELOC_PAGE21,
-                    .ARM64_RELOC_GOT_LOAD_PAGE21,
-                    .ARM64_RELOC_TLVP_LOAD_PAGE21,
-                    => {
-                        self.parsePage(rel, &parsed_rel, addend);
-                        if (rel_type == .ARM64_RELOC_PAGE21)
-                            addend = 0;
-                    },
-                    .ARM64_RELOC_PAGEOFF12,
-                    .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
-                    .ARM64_RELOC_TLVP_LOAD_PAGEOFF12,
-                    => {
-                        self.parsePageOff(rel, &parsed_rel, addend);
-                        if (rel_type == .ARM64_RELOC_PAGEOFF12)
-                            addend = 0;
-                    },
-                    .ARM64_RELOC_POINTER_TO_GOT => {
-                        self.parsePointerToGot(rel, &parsed_rel);
-                    },
+                    else => {},
                 }
             },
             .x86_64 => {
-                switch (@intToEnum(macho.reloc_type_x86_64, rel.r_type)) {
-                    .X86_64_RELOC_SUBTRACTOR => unreachable,
+                const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
+                switch (rel_type) {
                     .X86_64_RELOC_BRANCH => {
-                        self.parseBranch(rel, &parsed_rel, context);
+                        // TODO rewrite relocation
+                        try addStub(target, context);
+                    },
+                    .X86_64_RELOC_GOT, .X86_64_RELOC_GOT_LOAD => {
+                        // TODO rewrite relocation
+                        try addGotEntry(target, context);
+                        addend = mem.readIntLittle(i32, self.code.items[offset..][0..4]);
                     },
                     .X86_64_RELOC_UNSIGNED => {
-                        self.parseUnsigned(rel, &parsed_rel, subtractor, context);
-                        subtractor = null;
+                        addend = if (rel.r_length == 3)
+                            mem.readIntLittle(i64, self.code.items[offset..][0..8])
+                        else
+                            mem.readIntLittle(i32, self.code.items[offset..][0..4]);
+                        if (rel.r_extern == 0) {
+                            const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+                            const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
+                            addend -= @intCast(i64, target_sect_base_addr);
+                        }
+                        try self.addPtrBindingOrRebase(rel, target, context);
                     },
                     .X86_64_RELOC_SIGNED,
                     .X86_64_RELOC_SIGNED_1,
                     .X86_64_RELOC_SIGNED_2,
                     .X86_64_RELOC_SIGNED_4,
                     => {
-                        self.parseSigned(rel, &parsed_rel, context);
+                        const correction: u3 = switch (rel_type) {
+                            .X86_64_RELOC_SIGNED => 0,
+                            .X86_64_RELOC_SIGNED_1 => 1,
+                            .X86_64_RELOC_SIGNED_2 => 2,
+                            .X86_64_RELOC_SIGNED_4 => 4,
+                            else => unreachable,
+                        };
+                        addend = mem.readIntLittle(i32, self.code.items[offset..][0..4]) + correction;
+                        if (rel.r_extern == 0) {
+                            const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+                            const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
+                            addend += @intCast(i64, context.base_addr + offset + correction + 4) -
+                                @intCast(i64, target_sect_base_addr);
+                        }
                     },
-                    .X86_64_RELOC_GOT_LOAD,
-                    .X86_64_RELOC_GOT,
-                    .X86_64_RELOC_TLV,
-                    => {
-                        self.parseLoad(rel, &parsed_rel);
-                    },
+                    else => {},
                 }
             },
             else => unreachable,
         }
 
-        try self.relocs.append(context.allocator, parsed_rel);
-
-        const is_via_got = switch (parsed_rel.payload) {
-            .pointer_to_got => true,
-            .load => |load| load.kind == .got,
-            .page => |page| page.kind == .got,
-            .page_off => |page_off| page_off.kind == .got,
-            else => false,
-        };
-
-        if (is_via_got) blk: {
-            const key = MachO.GotIndirectionKey{
-                .where = switch (parsed_rel.where) {
-                    .local => .local,
-                    .undef => .undef,
-                },
-                .where_index = parsed_rel.where_index,
-            };
-            if (context.macho_file.got_entries_map.contains(key)) break :blk;
-
-            const atom = try context.macho_file.createGotAtom(key);
-            try context.macho_file.got_entries_map.putNoClobber(context.macho_file.base.allocator, key, atom);
-            const match = MachO.MatchingSection{
-                .seg = context.macho_file.data_const_segment_cmd_index.?,
-                .sect = context.macho_file.got_section_index.?,
-            };
-
-            if (!context.object.start_atoms.contains(match)) {
-                try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
-            }
-
-            if (context.object.end_atoms.getPtr(match)) |last| {
-                last.*.next = atom;
-                atom.prev = last.*;
-                last.* = atom;
-            } else {
-                try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
-            }
-        } else if (parsed_rel.payload == .unsigned) {
-            switch (parsed_rel.where) {
-                .undef => {
-                    try self.bindings.append(context.allocator, .{
-                        .local_sym_index = parsed_rel.where_index,
-                        .offset = parsed_rel.offset,
-                    });
-                },
-                .local => {
-                    const source_sym = context.macho_file.locals.items[self.local_sym_index];
-                    const match = context.macho_file.section_ordinals.keys()[source_sym.n_sect - 1];
-                    const seg = context.macho_file.load_commands.items[match.seg].Segment;
-                    const sect = seg.sections.items[match.sect];
-                    const sect_type = commands.sectionType(sect);
-
-                    const should_rebase = rebase: {
-                        if (!parsed_rel.payload.unsigned.is_64bit) break :rebase false;
-
-                        // TODO actually, a check similar to what dyld is doing, that is, verifying
-                        // that the segment is writable should be enough here.
-                        const is_right_segment = blk: {
-                            if (context.macho_file.data_segment_cmd_index) |idx| {
-                                if (match.seg == idx) {
-                                    break :blk true;
-                                }
-                            }
-                            if (context.macho_file.data_const_segment_cmd_index) |idx| {
-                                if (match.seg == idx) {
-                                    break :blk true;
-                                }
-                            }
-                            break :blk false;
-                        };
-
-                        if (!is_right_segment) break :rebase false;
-                        if (sect_type != macho.S_LITERAL_POINTERS and
-                            sect_type != macho.S_REGULAR and
-                            sect_type != macho.S_MOD_INIT_FUNC_POINTERS and
-                            sect_type != macho.S_MOD_TERM_FUNC_POINTERS)
-                        {
-                            break :rebase false;
-                        }
-
-                        break :rebase true;
-                    };
-
-                    if (should_rebase) {
-                        try self.rebases.append(context.allocator, parsed_rel.offset);
-                    }
-                },
-            }
-        } else if (parsed_rel.payload == .branch) blk: {
-            if (parsed_rel.where != .undef) break :blk;
-            if (context.macho_file.stubs_map.contains(parsed_rel.where_index)) break :blk;
-
-            // TODO clean this up!
-            const stub_helper_atom = atom: {
-                const atom = try context.macho_file.createStubHelperAtom();
-                const match = MachO.MatchingSection{
-                    .seg = context.macho_file.text_segment_cmd_index.?,
-                    .sect = context.macho_file.stub_helper_section_index.?,
-                };
-                if (!context.object.start_atoms.contains(match)) {
-                    try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
-                }
-                if (context.object.end_atoms.getPtr(match)) |last| {
-                    last.*.next = atom;
-                    atom.prev = last.*;
-                    last.* = atom;
-                } else {
-                    try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
-                }
-                break :atom atom;
-            };
-            const laptr_atom = atom: {
-                const atom = try context.macho_file.createLazyPointerAtom(
-                    stub_helper_atom.local_sym_index,
-                    parsed_rel.where_index,
-                );
-                const match = MachO.MatchingSection{
-                    .seg = context.macho_file.data_segment_cmd_index.?,
-                    .sect = context.macho_file.la_symbol_ptr_section_index.?,
-                };
-                if (!context.object.start_atoms.contains(match)) {
-                    try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
-                }
-                if (context.object.end_atoms.getPtr(match)) |last| {
-                    last.*.next = atom;
-                    atom.prev = last.*;
-                    last.* = atom;
-                } else {
-                    try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
-                }
-                break :atom atom;
-            };
-            {
-                const atom = try context.macho_file.createStubAtom(laptr_atom.local_sym_index);
-                const match = MachO.MatchingSection{
-                    .seg = context.macho_file.text_segment_cmd_index.?,
-                    .sect = context.macho_file.stubs_section_index.?,
-                };
-                if (!context.object.start_atoms.contains(match)) {
-                    try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
-                }
-                if (context.object.end_atoms.getPtr(match)) |last| {
-                    last.*.next = atom;
-                    atom.prev = last.*;
-                    last.* = atom;
-                } else {
-                    try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
-                }
-                try context.macho_file.stubs_map.putNoClobber(context.allocator, parsed_rel.where_index, atom);
-            }
-        }
-    }
-}
-
-fn isAddend(rel: macho.relocation_info, arch: Arch) bool {
-    if (arch != .aarch64) return false;
-    return @intToEnum(macho.reloc_type_arm64, rel.r_type) == .ARM64_RELOC_ADDEND;
-}
-
-fn isSubtractor(rel: macho.relocation_info, arch: Arch) bool {
-    return switch (arch) {
-        .aarch64 => @intToEnum(macho.reloc_type_arm64, rel.r_type) == .ARM64_RELOC_SUBTRACTOR,
-        .x86_64 => @intToEnum(macho.reloc_type_x86_64, rel.r_type) == .X86_64_RELOC_SUBTRACTOR,
-        else => unreachable,
-    };
-}
-
-fn parseUnsigned(
-    self: Atom,
-    rel: macho.relocation_info,
-    out: *Relocation,
-    subtractor: ?u32,
-    context: RelocContext,
-) void {
-    assert(rel.r_pcrel == 0);
-
-    const is_64bit: bool = switch (rel.r_length) {
-        3 => true,
-        2 => false,
-        else => unreachable,
-    };
-
-    var addend: i64 = if (is_64bit)
-        mem.readIntLittle(i64, self.code.items[out.offset..][0..8])
-    else
-        mem.readIntLittle(i32, self.code.items[out.offset..][0..4]);
-
-    if (rel.r_extern == 0) {
-        const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
-        const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
-        addend -= @intCast(i64, target_sect_base_addr);
-    }
-
-    out.payload = .{
-        .unsigned = .{
+        try self.relocs.append(context.allocator, .{
+            .offset = offset,
+            .target = target,
+            .addend = addend,
             .subtractor = subtractor,
-            .is_64bit = is_64bit,
-            .addend = addend,
-        },
-    };
-}
+            .pcrel = rel.r_pcrel == 1,
+            .length = rel.r_length,
+            .@"type" = rel.r_type,
+        });
 
-fn parseBranch(self: Atom, rel: macho.relocation_info, out: *Relocation, context: RelocContext) void {
-    _ = self;
-    assert(rel.r_pcrel == 1);
-    assert(rel.r_length == 2);
-
-    out.payload = .{
-        .branch = .{
-            .arch = context.macho_file.base.options.target.cpu.arch,
-        },
-    };
-}
-
-fn parsePage(self: Atom, rel: macho.relocation_info, out: *Relocation, addend: u32) void {
-    _ = self;
-    assert(rel.r_pcrel == 1);
-    assert(rel.r_length == 2);
-
-    out.payload = .{
-        .page = .{
-            .kind = switch (@intToEnum(macho.reloc_type_arm64, rel.r_type)) {
-                .ARM64_RELOC_PAGE21 => .page,
-                .ARM64_RELOC_GOT_LOAD_PAGE21 => .got,
-                .ARM64_RELOC_TLVP_LOAD_PAGE21 => .tlvp,
-                else => unreachable,
-            },
-            .addend = addend,
-        },
-    };
-}
-
-fn parsePageOff(self: Atom, rel: macho.relocation_info, out: *Relocation, addend: u32) void {
-    assert(rel.r_pcrel == 0);
-    assert(rel.r_length == 2);
-
-    const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
-    const op_kind: ?Relocation.PageOff.OpKind = blk: {
-        if (rel_type != .ARM64_RELOC_PAGEOFF12) break :blk null;
-        const op_kind: Relocation.PageOff.OpKind = if (isArithmeticOp(self.code.items[out.offset..][0..4]))
-            .arithmetic
-        else
-            .load;
-        break :blk op_kind;
-    };
-
-    out.payload = .{
-        .page_off = .{
-            .kind = switch (rel_type) {
-                .ARM64_RELOC_PAGEOFF12 => .page,
-                .ARM64_RELOC_GOT_LOAD_PAGEOFF12 => .got,
-                .ARM64_RELOC_TLVP_LOAD_PAGEOFF12 => .tlvp,
-                else => unreachable,
-            },
-            .addend = addend,
-            .op_kind = op_kind,
-        },
-    };
-}
-
-fn parsePointerToGot(self: Atom, rel: macho.relocation_info, out: *Relocation) void {
-    _ = self;
-    assert(rel.r_pcrel == 1);
-    assert(rel.r_length == 2);
-
-    out.payload = .{
-        .pointer_to_got = .{},
-    };
-}
-
-fn parseSigned(self: Atom, rel: macho.relocation_info, out: *Relocation, context: RelocContext) void {
-    assert(rel.r_pcrel == 1);
-    assert(rel.r_length == 2);
-
-    const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
-    const correction: u3 = switch (rel_type) {
-        .X86_64_RELOC_SIGNED => 0,
-        .X86_64_RELOC_SIGNED_1 => 1,
-        .X86_64_RELOC_SIGNED_2 => 2,
-        .X86_64_RELOC_SIGNED_4 => 4,
-        else => unreachable,
-    };
-    var addend: i64 = mem.readIntLittle(i32, self.code.items[out.offset..][0..4]) + correction;
-
-    if (rel.r_extern == 0) {
-        const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
-        const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
-        addend += @intCast(i64, context.base_addr + out.offset + correction + 4) - @intCast(i64, target_sect_base_addr);
+        addend = 0;
+        subtractor = null;
     }
-
-    out.payload = .{
-        .signed = .{
-            .correction = correction,
-            .addend = addend,
-        },
-    };
 }
 
-fn parseLoad(self: Atom, rel: macho.relocation_info, out: *Relocation) void {
-    assert(rel.r_pcrel == 1);
-    assert(rel.r_length == 2);
-
-    const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
-    const addend: i32 = if (rel_type == .X86_64_RELOC_GOT)
-        mem.readIntLittle(i32, self.code.items[out.offset..][0..4])
-    else
-        0;
-
-    out.payload = .{
-        .load = .{
-            .kind = switch (rel_type) {
-                .X86_64_RELOC_GOT_LOAD, .X86_64_RELOC_GOT => .got,
-                .X86_64_RELOC_TLV => .tlvp,
-                else => unreachable,
-            },
-            .addend = addend,
+fn addPtrBindingOrRebase(
+    self: *Atom,
+    rel: macho.relocation_info,
+    target: Relocation.Target,
+    context: RelocContext,
+) !void {
+    switch (target) {
+        .global => |n_strx| {
+            try self.bindings.append(context.allocator, .{
+                .n_strx = n_strx,
+                .offset = @intCast(u32, rel.r_address),
+            });
         },
+        .local => {
+            const source_sym = context.macho_file.locals.items[self.local_sym_index];
+            const match = context.macho_file.section_ordinals.keys()[source_sym.n_sect - 1];
+            const seg = context.macho_file.load_commands.items[match.seg].Segment;
+            const sect = seg.sections.items[match.sect];
+            const sect_type = commands.sectionType(sect);
+
+            const should_rebase = rebase: {
+                if (rel.r_length != 3) break :rebase false;
+
+                // TODO actually, a check similar to what dyld is doing, that is, verifying
+                // that the segment is writable should be enough here.
+                const is_right_segment = blk: {
+                    if (context.macho_file.data_segment_cmd_index) |idx| {
+                        if (match.seg == idx) {
+                            break :blk true;
+                        }
+                    }
+                    if (context.macho_file.data_const_segment_cmd_index) |idx| {
+                        if (match.seg == idx) {
+                            break :blk true;
+                        }
+                    }
+                    break :blk false;
+                };
+
+                if (!is_right_segment) break :rebase false;
+                if (sect_type != macho.S_LITERAL_POINTERS and
+                    sect_type != macho.S_REGULAR and
+                    sect_type != macho.S_MOD_INIT_FUNC_POINTERS and
+                    sect_type != macho.S_MOD_TERM_FUNC_POINTERS)
+                {
+                    break :rebase false;
+                }
+
+                break :rebase true;
+            };
+
+            if (should_rebase) {
+                try self.rebases.append(context.allocator, @intCast(u32, rel.r_address));
+            }
+        },
+    }
+}
+
+fn addGotEntry(target: Relocation.Target, context: RelocContext) !void {
+    if (context.macho_file.got_entries_map.contains(target)) return;
+    const atom = try context.macho_file.createGotAtom(target);
+    try context.macho_file.got_entries_map.putNoClobber(context.macho_file.base.allocator, target, atom);
+    const match = MachO.MatchingSection{
+        .seg = context.macho_file.data_const_segment_cmd_index.?,
+        .sect = context.macho_file.got_section_index.?,
     };
+    if (!context.object.start_atoms.contains(match)) {
+        try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
+    }
+    if (context.object.end_atoms.getPtr(match)) |last| {
+        last.*.next = atom;
+        atom.prev = last.*;
+        last.* = atom;
+    } else {
+        try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
+    }
+}
+
+fn addStub(target: Relocation.Target, context: RelocContext) !void {
+    if (target != .global) return;
+    if (context.macho_file.stubs_map.contains(target.global)) return;
+    // TODO clean this up!
+    const stub_helper_atom = atom: {
+        const atom = try context.macho_file.createStubHelperAtom();
+        const match = MachO.MatchingSection{
+            .seg = context.macho_file.text_segment_cmd_index.?,
+            .sect = context.macho_file.stub_helper_section_index.?,
+        };
+        if (!context.object.start_atoms.contains(match)) {
+            try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
+        }
+        if (context.object.end_atoms.getPtr(match)) |last| {
+            last.*.next = atom;
+            atom.prev = last.*;
+            last.* = atom;
+        } else {
+            try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
+        }
+        break :atom atom;
+    };
+    const laptr_atom = atom: {
+        const atom = try context.macho_file.createLazyPointerAtom(
+            stub_helper_atom.local_sym_index,
+            target.global,
+        );
+        const match = MachO.MatchingSection{
+            .seg = context.macho_file.data_segment_cmd_index.?,
+            .sect = context.macho_file.la_symbol_ptr_section_index.?,
+        };
+        if (!context.object.start_atoms.contains(match)) {
+            try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
+        }
+        if (context.object.end_atoms.getPtr(match)) |last| {
+            last.*.next = atom;
+            atom.prev = last.*;
+            last.* = atom;
+        } else {
+            try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
+        }
+        break :atom atom;
+    };
+    const atom = try context.macho_file.createStubAtom(laptr_atom.local_sym_index);
+    const match = MachO.MatchingSection{
+        .seg = context.macho_file.text_segment_cmd_index.?,
+        .sect = context.macho_file.stubs_section_index.?,
+    };
+    if (!context.object.start_atoms.contains(match)) {
+        try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
+    }
+    if (context.object.end_atoms.getPtr(match)) |last| {
+        last.*.next = atom;
+        atom.prev = last.*;
+        last.* = atom;
+    } else {
+        try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
+    }
+    try context.macho_file.stubs_map.putNoClobber(context.allocator, target.global, atom);
 }
 
 pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
@@ -1169,42 +615,42 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
 
     for (self.relocs.items) |rel| {
         log.debug("relocating {}", .{rel});
-
+        const arch = macho_file.base.options.target.cpu.arch;
         const source_addr = blk: {
             const sym = macho_file.locals.items[self.local_sym_index];
             break :blk sym.n_value + rel.offset;
         };
         const target_addr = blk: {
-            const is_via_got = switch (rel.payload) {
-                .pointer_to_got => true,
-                .page => |page| page.kind == .got,
-                .page_off => |page_off| page_off.kind == .got,
-                .load => |load| load.kind == .got,
-                else => false,
+            const is_via_got = got: {
+                switch (arch) {
+                    .aarch64 => break :got switch (@intToEnum(macho.reloc_type_arm64, rel.@"type")) {
+                        .ARM64_RELOC_GOT_LOAD_PAGE21, .ARM64_RELOC_GOT_LOAD_PAGEOFF12 => true,
+                        else => false,
+                    },
+                    .x86_64 => break :got switch (@intToEnum(macho.reloc_type_x86_64, rel.@"type")) {
+                        .X86_64_RELOC_GOT, .X86_64_RELOC_GOT_LOAD => true,
+                        else => false,
+                    },
+                    else => unreachable,
+                }
             };
 
             if (is_via_got) {
-                const atom = macho_file.got_entries_map.get(.{
-                    .where = switch (rel.where) {
-                        .local => .local,
-                        .undef => .undef,
-                    },
-                    .where_index = rel.where_index,
-                }) orelse {
-                    const sym = switch (rel.where) {
-                        .local => macho_file.locals.items[rel.where_index],
-                        .undef => macho_file.undefs.items[rel.where_index],
+                const atom = macho_file.got_entries_map.get(rel.target) orelse {
+                    const n_strx = switch (rel.target) {
+                        .local => |sym_index| macho_file.locals.items[sym_index].n_strx,
+                        .global => |n_strx| n_strx,
                     };
-                    log.err("expected GOT entry for symbol '{s}'", .{macho_file.getString(sym.n_strx)});
+                    log.err("expected GOT entry for symbol '{s}'", .{macho_file.getString(n_strx)});
                     log.err("  this is an internal linker error", .{});
                     return error.FailedToResolveRelocationTarget;
                 };
                 break :blk macho_file.locals.items[atom.local_sym_index].n_value;
             }
 
-            switch (rel.where) {
-                .local => {
-                    const sym = macho_file.locals.items[rel.where_index];
+            switch (rel.target) {
+                .local => |sym_index| {
+                    const sym = macho_file.locals.items[sym_index];
                     const is_tlv = is_tlv: {
                         const source_sym = macho_file.locals.items[self.local_sym_index];
                         const match = macho_file.section_ordinals.keys()[source_sym.n_sect - 1];
@@ -1233,28 +679,23 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                         };
                         break :blk sym.n_value - base_address;
                     }
-
                     break :blk sym.n_value;
                 },
-                .undef => {
-                    const atom = macho_file.stubs_map.get(rel.where_index) orelse {
-                        // TODO this is required for incremental when we don't have every symbol
-                        // resolved when creating relocations. In this case, we will insert a branch
-                        // reloc to an undef symbol which may happen to be defined within the binary.
-                        // Then, the undef we point at will be a null symbol (free symbol) which we
-                        // should remove/repurpose. To circumvent this (for now), we check if the symbol
-                        // we point to is garbage, and if so we fall back to symbol resolver to find by name.
-                        const n_strx = macho_file.undefs.items[rel.where_index].n_strx;
-                        if (macho_file.symbol_resolver.get(n_strx)) |resolv| inner: {
-                            if (resolv.where != .global) break :inner;
-                            break :blk macho_file.globals.items[resolv.where_index].n_value;
-                        }
-
-                        // TODO verify in TextBlock that the symbol is indeed dynamically bound.
-                        break :blk 0; // Dynamically bound by dyld.
-                    };
-
-                    break :blk macho_file.locals.items[atom.local_sym_index].n_value;
+                .global => |n_strx| {
+                    // TODO Still trying to figure out how to possibly use stubs for local symbol indirection with
+                    // branching instructions. If it is not possible, then the best course of action is to
+                    // resurrect the former approach of defering creating synthethic atoms in __got and __la_symbol_ptr
+                    // sections until we resolve the relocations.
+                    const resolv = macho_file.symbol_resolver.get(n_strx).?;
+                    switch (resolv.where) {
+                        .global => break :blk macho_file.globals.items[resolv.where_index].n_value,
+                        .undef => {
+                            break :blk if (macho_file.stubs_map.get(n_strx)) |atom|
+                                macho_file.locals.items[atom.local_sym_index].n_value
+                            else
+                                0;
+                        },
+                    }
                 },
             }
         };
@@ -1262,67 +703,248 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
         log.debug("  | source_addr = 0x{x}", .{source_addr});
         log.debug("  | target_addr = 0x{x}", .{target_addr});
 
-        try rel.resolve(.{
-            .block = self,
-            .offset = rel.offset,
-            .source_addr = source_addr,
-            .target_addr = target_addr,
-            .macho_file = macho_file,
-        });
-    }
-}
+        switch (arch) {
+            .aarch64 => {
+                switch (@intToEnum(macho.reloc_type_arm64, rel.@"type")) {
+                    .ARM64_RELOC_BRANCH26 => {
+                        const displacement = math.cast(
+                            i28,
+                            @intCast(i64, target_addr) - @intCast(i64, source_addr),
+                        ) catch |err| switch (err) {
+                            error.Overflow => {
+                                log.err("jump too big to encode as i28 displacement value", .{});
+                                log.err("  (target - source) = displacement => 0x{x} - 0x{x} = 0x{x}", .{
+                                    target_addr,
+                                    source_addr,
+                                    @intCast(i64, target_addr) - @intCast(i64, source_addr),
+                                });
+                                log.err("  TODO implement branch islands to extend jump distance for arm64", .{});
+                                return error.TODOImplementBranchIslands;
+                            },
+                        };
+                        const code = self.code.items[rel.offset..][0..4];
+                        var inst = aarch64.Instruction{
+                            .unconditional_branch_immediate = mem.bytesToValue(meta.TagPayload(
+                                aarch64.Instruction,
+                                aarch64.Instruction.unconditional_branch_immediate,
+                            ), code),
+                        };
+                        inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement >> 2));
+                        mem.writeIntLittle(u32, code, inst.toU32());
+                    },
+                    .ARM64_RELOC_PAGE21,
+                    .ARM64_RELOC_GOT_LOAD_PAGE21,
+                    .ARM64_RELOC_TLVP_LOAD_PAGE21,
+                    => {
+                        const actual_target_addr = @intCast(i64, target_addr) + rel.addend;
+                        const source_page = @intCast(i32, source_addr >> 12);
+                        const target_page = @intCast(i32, actual_target_addr >> 12);
+                        const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
+                        const code = self.code.items[rel.offset..][0..4];
+                        var inst = aarch64.Instruction{
+                            .pc_relative_address = mem.bytesToValue(meta.TagPayload(
+                                aarch64.Instruction,
+                                aarch64.Instruction.pc_relative_address,
+                            ), code),
+                        };
+                        inst.pc_relative_address.immhi = @truncate(u19, pages >> 2);
+                        inst.pc_relative_address.immlo = @truncate(u2, pages);
+                        mem.writeIntLittle(u32, code, inst.toU32());
+                    },
+                    .ARM64_RELOC_PAGEOFF12 => {
+                        const code = self.code.items[rel.offset..][0..4];
+                        const actual_target_addr = @intCast(i64, target_addr) + rel.addend;
+                        const narrowed = @truncate(u12, @intCast(u64, actual_target_addr));
+                        if (isArithmeticOp(self.code.items[rel.offset..][0..4])) {
+                            var inst = aarch64.Instruction{
+                                .add_subtract_immediate = mem.bytesToValue(meta.TagPayload(
+                                    aarch64.Instruction,
+                                    aarch64.Instruction.add_subtract_immediate,
+                                ), code),
+                            };
+                            inst.add_subtract_immediate.imm12 = narrowed;
+                            mem.writeIntLittle(u32, code, inst.toU32());
+                        } else {
+                            var inst = aarch64.Instruction{
+                                .load_store_register = mem.bytesToValue(meta.TagPayload(
+                                    aarch64.Instruction,
+                                    aarch64.Instruction.load_store_register,
+                                ), code),
+                            };
+                            const offset: u12 = blk: {
+                                if (inst.load_store_register.size == 0) {
+                                    if (inst.load_store_register.v == 1) {
+                                        // 128-bit SIMD is scaled by 16.
+                                        break :blk try math.divExact(u12, narrowed, 16);
+                                    }
+                                    // Otherwise, 8-bit SIMD or ldrb.
+                                    break :blk narrowed;
+                                } else {
+                                    const denom: u4 = try math.powi(u4, 2, inst.load_store_register.size);
+                                    break :blk try math.divExact(u12, narrowed, denom);
+                                }
+                            };
+                            inst.load_store_register.offset = offset;
+                            mem.writeIntLittle(u32, code, inst.toU32());
+                        }
+                    },
+                    .ARM64_RELOC_GOT_LOAD_PAGEOFF12 => {
+                        const code = self.code.items[rel.offset..][0..4];
+                        const actual_target_addr = @intCast(i64, target_addr) + rel.addend;
+                        const narrowed = @truncate(u12, @intCast(u64, actual_target_addr));
+                        var inst: aarch64.Instruction = .{
+                            .load_store_register = mem.bytesToValue(meta.TagPayload(
+                                aarch64.Instruction,
+                                aarch64.Instruction.load_store_register,
+                            ), code),
+                        };
+                        const offset = try math.divExact(u12, narrowed, 8);
+                        inst.load_store_register.offset = offset;
+                        mem.writeIntLittle(u32, code, inst.toU32());
+                    },
+                    .ARM64_RELOC_TLVP_LOAD_PAGEOFF12 => {
+                        const code = self.code.items[rel.offset..][0..4];
+                        const RegInfo = struct {
+                            rd: u5,
+                            rn: u5,
+                            size: u1,
+                        };
+                        const reg_info: RegInfo = blk: {
+                            if (isArithmeticOp(code)) {
+                                const inst = mem.bytesToValue(meta.TagPayload(
+                                    aarch64.Instruction,
+                                    aarch64.Instruction.add_subtract_immediate,
+                                ), code);
+                                break :blk .{
+                                    .rd = inst.rd,
+                                    .rn = inst.rn,
+                                    .size = inst.sf,
+                                };
+                            } else {
+                                const inst = mem.bytesToValue(meta.TagPayload(
+                                    aarch64.Instruction,
+                                    aarch64.Instruction.load_store_register,
+                                ), code);
+                                break :blk .{
+                                    .rd = inst.rt,
+                                    .rn = inst.rn,
+                                    .size = @truncate(u1, inst.size),
+                                };
+                            }
+                        };
+                        const actual_target_addr = @intCast(i64, target_addr) + rel.addend;
+                        const narrowed = @truncate(u12, @intCast(u64, actual_target_addr));
+                        var inst = aarch64.Instruction{
+                            .add_subtract_immediate = .{
+                                .rd = reg_info.rd,
+                                .rn = reg_info.rn,
+                                .imm12 = narrowed,
+                                .sh = 0,
+                                .s = 0,
+                                .op = 0,
+                                .sf = reg_info.size,
+                            },
+                        };
+                        mem.writeIntLittle(u32, code, inst.toU32());
+                    },
+                    .ARM64_RELOC_POINTER_TO_GOT => {
+                        const result = try math.cast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr));
+                        mem.writeIntLittle(u32, self.code.items[rel.offset..][0..4], @bitCast(u32, result));
+                    },
+                    .ARM64_RELOC_UNSIGNED => {
+                        const result = blk: {
+                            if (rel.subtractor) |subtractor| {
+                                const sym = macho_file.locals.items[subtractor];
+                                break :blk @intCast(i64, target_addr) - @intCast(i64, sym.n_value) + rel.addend;
+                            } else {
+                                break :blk @intCast(i64, target_addr) + rel.addend;
+                            }
+                        };
 
-pub fn format(self: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-    _ = fmt;
-    _ = options;
-    try std.fmt.format(writer, "TextBlock {{ ", .{});
-    try std.fmt.format(writer, ".local_sym_index = {d}, ", .{self.local_sym_index});
-    try std.fmt.format(writer, ".aliases = {any}, ", .{self.aliases.items});
-    try std.fmt.format(writer, ".contained = {any}, ", .{self.contained.items});
-    try std.fmt.format(writer, ".code = {*}, ", .{self.code.items});
-    try std.fmt.format(writer, ".size = {d}, ", .{self.size});
-    try std.fmt.format(writer, ".alignment = {d}, ", .{self.alignment});
-    try std.fmt.format(writer, ".relocs = {any}, ", .{self.relocs.items});
-    try std.fmt.format(writer, ".rebases = {any}, ", .{self.rebases.items});
-    try std.fmt.format(writer, ".bindings = {any}, ", .{self.bindings.items});
-    try std.fmt.format(writer, ".dices = {any}, ", .{self.dices.items});
-    if (self.stab) |stab| {
-        try std.fmt.format(writer, ".stab = {any}, ", .{stab});
-    }
-    try std.fmt.format(writer, "}}", .{});
-}
+                        if (rel.length == 3) {
+                            mem.writeIntLittle(u64, self.code.items[rel.offset..][0..8], @bitCast(u64, result));
+                        } else {
+                            mem.writeIntLittle(
+                                u32,
+                                self.code.items[rel.offset..][0..4],
+                                @truncate(u32, @bitCast(u64, result)),
+                            );
+                        }
+                    },
+                    .ARM64_RELOC_SUBTRACTOR => unreachable,
+                    .ARM64_RELOC_ADDEND => unreachable,
+                }
+            },
+            .x86_64 => {
+                switch (@intToEnum(macho.reloc_type_x86_64, rel.@"type")) {
+                    .X86_64_RELOC_BRANCH => {
+                        const displacement = try math.cast(
+                            i32,
+                            @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4,
+                        );
+                        mem.writeIntLittle(u32, self.code.items[rel.offset..][0..4], @bitCast(u32, displacement));
+                    },
+                    .X86_64_RELOC_GOT, .X86_64_RELOC_GOT_LOAD => {
+                        const displacement = try math.cast(
+                            i32,
+                            @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4 + rel.addend,
+                        );
+                        mem.writeIntLittle(u32, self.code.items[rel.offset..][0..4], @bitCast(u32, displacement));
+                    },
+                    .X86_64_RELOC_TLV => {
+                        // We need to rewrite the opcode from movq to leaq.
+                        self.code.items[rel.offset - 2] = 0x8d;
+                        const displacement = try math.cast(
+                            i32,
+                            @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4 + rel.addend,
+                        );
+                        mem.writeIntLittle(u32, self.code.items[rel.offset..][0..4], @bitCast(u32, displacement));
+                    },
+                    .X86_64_RELOC_SIGNED,
+                    .X86_64_RELOC_SIGNED_1,
+                    .X86_64_RELOC_SIGNED_2,
+                    .X86_64_RELOC_SIGNED_4,
+                    => {
+                        const correction: u3 = switch (@intToEnum(macho.reloc_type_x86_64, rel.@"type")) {
+                            .X86_64_RELOC_SIGNED => 0,
+                            .X86_64_RELOC_SIGNED_1 => 1,
+                            .X86_64_RELOC_SIGNED_2 => 2,
+                            .X86_64_RELOC_SIGNED_4 => 4,
+                            else => unreachable,
+                        };
+                        const actual_target_addr = @intCast(i64, target_addr) + rel.addend;
+                        const displacement = try math.cast(
+                            i32,
+                            actual_target_addr - @intCast(i64, source_addr + correction + 4),
+                        );
+                        mem.writeIntLittle(u32, self.code.items[rel.offset..][0..4], @bitCast(u32, displacement));
+                    },
+                    .X86_64_RELOC_UNSIGNED => {
+                        const result = blk: {
+                            if (rel.subtractor) |subtractor| {
+                                const sym = macho_file.locals.items[subtractor];
+                                break :blk @intCast(i64, target_addr) - @intCast(i64, sym.n_value) + rel.addend;
+                            } else {
+                                break :blk @intCast(i64, target_addr) + rel.addend;
+                            }
+                        };
 
-const RelocIterator = struct {
-    buffer: []const macho.relocation_info,
-    index: i32 = -1,
-
-    pub fn next(self: *RelocIterator) ?macho.relocation_info {
-        self.index += 1;
-        if (self.index < self.buffer.len) {
-            return self.buffer[@intCast(u32, self.index)];
+                        if (rel.length == 3) {
+                            mem.writeIntLittle(u64, self.code.items[rel.offset..][0..8], @bitCast(u64, result));
+                        } else {
+                            mem.writeIntLittle(
+                                u32,
+                                self.code.items[rel.offset..][0..4],
+                                @truncate(u32, @bitCast(u64, result)),
+                            );
+                        }
+                    },
+                    .X86_64_RELOC_SUBTRACTOR => unreachable,
+                }
+            },
+            else => unreachable,
         }
-        return null;
     }
-
-    pub fn peek(self: RelocIterator) macho.relocation_info {
-        assert(self.index + 1 < self.buffer.len);
-        return self.buffer[@intCast(u32, self.index + 1)];
-    }
-};
-
-fn filterRelocs(relocs: []macho.relocation_info, start_addr: u64, end_addr: u64) []macho.relocation_info {
-    const Predicate = struct {
-        addr: u64,
-
-        pub fn predicate(self: @This(), rel: macho.relocation_info) bool {
-            return rel.r_address < self.addr;
-        }
-    };
-
-    const start = MachO.findFirst(macho.relocation_info, relocs, 0, Predicate{ .addr = end_addr });
-    const end = MachO.findFirst(macho.relocation_info, relocs, start, Predicate{ .addr = start_addr });
-
-    return relocs[start..end];
 }
 
 inline fn isArithmeticOp(inst: *const [4]u8) bool {

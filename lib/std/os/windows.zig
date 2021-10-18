@@ -670,7 +670,7 @@ pub const CreateSymbolicLinkError = error{
 /// Needs either:
 /// - `SeCreateSymbolicLinkPrivilege` privilege
 /// or
-/// - Developper mode on Windows 10
+/// - Developer mode on Windows 10
 /// otherwise fails with `error.AccessDenied`. In which case `sym_link_path` may still
 /// be created on the file system but will lack reparse processing data applied to it.
 pub fn CreateSymbolicLink(

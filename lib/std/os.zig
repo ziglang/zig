@@ -1,18 +1,18 @@
-// This file contains thin wrappers around OS-specific APIs, with these
-// specific goals in mind:
-// * Convert "errno"-style error codes into Zig errors.
-// * When null-terminated byte buffers are required, provide APIs which accept
-//   slices as well as APIs which accept null-terminated byte buffers. Same goes
-//   for UTF-16LE encoding.
-// * Where operating systems share APIs, e.g. POSIX, these thin wrappers provide
-//   cross platform abstracting.
-// * When there exists a corresponding libc function and linking libc, the libc
-//   implementation is used. Exceptions are made for known buggy areas of libc.
-//   On Linux libc can be side-stepped by using `std.os.linux` directly.
-// * For Windows, this file represents the API that libc would provide for
-//   Windows. For thin wrappers around Windows-specific APIs, see `std.os.windows`.
-// Note: The Zig standard library does not support POSIX thread cancellation, and
-// in general EINTR is handled by trying again.
+//! This file contains thin wrappers around OS-specific APIs, with these
+//! specific goals in mind:
+//! * Convert "errno"-style error codes into Zig errors.
+//! * When null-terminated byte buffers are required, provide APIs which accept
+//!   slices as well as APIs which accept null-terminated byte buffers. Same goes
+//!   for UTF-16LE encoding.
+//! * Where operating systems share APIs, e.g. POSIX, these thin wrappers provide
+//!   cross platform abstracting.
+//! * When there exists a corresponding libc function and linking libc, the libc
+//!   implementation is used. Exceptions are made for known buggy areas of libc.
+//!   On Linux libc can be side-stepped by using `std.os.linux` directly.
+//! * For Windows, this file represents the API that libc would provide for
+//!   Windows. For thin wrappers around Windows-specific APIs, see `std.os.windows`.
+//! Note: The Zig standard library does not support POSIX thread cancellation, and
+//! in general EINTR is handled by trying again.
 
 const root = @import("root");
 const std = @import("std.zig");
@@ -492,7 +492,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
         .macos, .ios, .watchos, .tvos => math.maxInt(i32),
         else => math.maxInt(isize),
     };
-    const adjusted_len = math.min(max_count, buf.len);
+    const adjusted_len = @minimum(max_count, buf.len);
 
     while (true) {
         const rc = system.read(fd, buf.ptr, adjusted_len);
@@ -621,7 +621,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
         .macos, .ios, .watchos, .tvos => math.maxInt(i32),
         else => math.maxInt(isize),
     };
-    const adjusted_len = math.min(max_count, buf.len);
+    const adjusted_len = @minimum(max_count, buf.len);
 
     const pread_sym = if (builtin.os.tag == .linux and builtin.link_libc)
         system.pread64
@@ -873,7 +873,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
         .macos, .ios, .watchos, .tvos => math.maxInt(i32),
         else => math.maxInt(isize),
     };
-    const adjusted_len = math.min(max_count, bytes.len);
+    const adjusted_len = @minimum(max_count, bytes.len);
 
     while (true) {
         const rc = system.write(fd, bytes.ptr, adjusted_len);
@@ -1029,7 +1029,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
         .macos, .ios, .watchos, .tvos => math.maxInt(i32),
         else => math.maxInt(isize),
     };
-    const adjusted_len = math.min(max_count, bytes.len);
+    const adjusted_len = @minimum(max_count, bytes.len);
 
     const pwrite_sym = if (builtin.os.tag == .linux and builtin.link_libc)
         system.pwrite64
@@ -5460,7 +5460,9 @@ pub fn sendfile(
             }
 
             // Here we match BSD behavior, making a zero count value send as many bytes as possible.
-            const adjusted_count = if (in_len == 0) max_count else math.min(in_len, @as(size_t, max_count));
+            const adjusted_count_tmp = if (in_len == 0) max_count else @minimum(in_len, @as(size_t, max_count));
+            // TODO we should not need this cast; improve return type of @minimum
+            const adjusted_count = @intCast(usize, adjusted_count_tmp);
 
             const sendfile_sym = if (builtin.link_libc)
                 system.sendfile64
@@ -5543,7 +5545,7 @@ pub fn sendfile(
                 hdtr = &hdtr_data;
             }
 
-            const adjusted_count = math.min(in_len, max_count);
+            const adjusted_count = @minimum(in_len, max_count);
 
             while (true) {
                 var sbytes: off_t = undefined;
@@ -5622,7 +5624,9 @@ pub fn sendfile(
                 hdtr = &hdtr_data;
             }
 
-            const adjusted_count = math.min(in_len, @as(u63, max_count));
+            const adjusted_count_temporary = @minimum(in_len, @as(u63, max_count));
+            // TODO we should not need this int cast; improve the return type of `@minimum`
+            const adjusted_count = @intCast(u63, adjusted_count_temporary);
 
             while (true) {
                 var sbytes: off_t = adjusted_count;
@@ -5676,7 +5680,9 @@ pub fn sendfile(
     rw: {
         var buf: [8 * 4096]u8 = undefined;
         // Here we match BSD behavior, making a zero count value send as many bytes as possible.
-        const adjusted_count = if (in_len == 0) buf.len else math.min(buf.len, in_len);
+        const adjusted_count_tmp = if (in_len == 0) buf.len else @minimum(buf.len, in_len);
+        // TODO we should not need this cast; improve return type of @minimum
+        const adjusted_count = @intCast(usize, adjusted_count_tmp);
         const amt_read = try pread(in_fd, buf[0..adjusted_count], in_offset);
         if (amt_read == 0) {
             if (in_len == 0) {
@@ -5777,7 +5783,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
     }
 
     var buf: [8 * 4096]u8 = undefined;
-    const adjusted_count = math.min(buf.len, len);
+    const adjusted_count = @minimum(buf.len, len);
     const amt_read = try pread(fd_in, buf[0..adjusted_count], off_in);
     // TODO without @as the line below fails to compile for wasm32-wasi:
     // error: integer value 0 cannot be coerced to type 'os.PWriteError!usize'
@@ -5940,7 +5946,7 @@ pub fn dn_expand(
     const end = msg.ptr + msg.len;
     if (p == end or exp_dn.len == 0) return error.InvalidDnsPacket;
     var dest = exp_dn.ptr;
-    const dend = dest + std.math.min(exp_dn.len, 254);
+    const dend = dest + @minimum(exp_dn.len, 254);
     // detect reference loop using an iteration counter
     var i: usize = 0;
     while (i < msg.len) : (i += 2) {

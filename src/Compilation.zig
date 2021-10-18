@@ -55,6 +55,10 @@ c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
 /// since the last compilation, as well as scan for `@import` and queue up
 /// additional jobs corresponding to those new files.
 astgen_work_queue: std.fifo.LinearFifo(*Module.File, .Dynamic),
+/// These jobs are to inspect the file system stat() and if the embedded file has changed
+/// on disk, mark the corresponding Decl outdated and queue up an `analyze_decl`
+/// task for it.
+embed_file_work_queue: std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic),
 
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
@@ -181,6 +185,10 @@ const Job = union(enum) {
     /// It may have already be analyzed, or it may have been determined
     /// to be outdated; in this case perform semantic analysis again.
     analyze_decl: *Module.Decl,
+    /// The file that was loaded with `@embedFile` has changed on disk
+    /// and has been re-loaded into memory. All Decls that depend on it
+    /// need to be re-analyzed.
+    update_embed_file: *Module.EmbedFile,
     /// The source file containing the Decl has been updated, and so the
     /// Decl may need its line number information updated in the debug info.
     update_line_number: *Module.Decl,
@@ -1447,6 +1455,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
             .astgen_work_queue = std.fifo.LinearFifo(*Module.File, .Dynamic).init(gpa),
+            .embed_file_work_queue = std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
             .use_clang = use_clang,
             .clang_argv = options.clang_argv,
@@ -1632,6 +1641,7 @@ pub fn destroy(self: *Compilation) void {
     self.work_queue.deinit();
     self.c_object_work_queue.deinit();
     self.astgen_work_queue.deinit();
+    self.embed_file_work_queue.deinit();
 
     {
         var it = self.crt_files.iterator();
@@ -1747,6 +1757,16 @@ pub fn update(self: *Compilation) !void {
         }
 
         if (!use_stage1) {
+            // Put a work item in for checking if any files used with `@embedFile` changed.
+            {
+                try self.embed_file_work_queue.ensureUnusedCapacity(module.embed_table.count());
+                var it = module.embed_table.iterator();
+                while (it.next()) |entry| {
+                    const embed_file = entry.value_ptr.*;
+                    self.embed_file_work_queue.writeItemAssumeCapacity(embed_file);
+                }
+            }
+
             try self.work_queue.writeItem(.{ .analyze_pkg = std_pkg });
             if (self.bin_file.options.is_test) {
                 try self.work_queue.writeItem(.{ .analyze_pkg = module.main_pkg });
@@ -1870,6 +1890,7 @@ pub fn totalErrorCount(self: *Compilation) usize {
 
     if (self.bin_file.options.module) |module| {
         total += module.failed_exports.count();
+        total += module.failed_embed_files.count();
 
         {
             var it = module.failed_files.iterator();
@@ -1964,6 +1985,13 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                     assert(tree.errors.len == 0);
                     try AllErrors.addZir(&arena.allocator, &errors, entry.key_ptr.*);
                 }
+            }
+        }
+        {
+            var it = module.failed_embed_files.iterator();
+            while (it.next()) |entry| {
+                const msg = entry.value_ptr.*;
+                try AllErrors.add(module, &arena, &errors, msg.*);
             }
         }
         {
@@ -2065,6 +2093,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     var c_obj_prog_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
     defer c_obj_prog_node.end();
 
+    var embed_file_prog_node = main_progress_node.start("Detect @embedFile updates", self.embed_file_work_queue.count);
+    defer embed_file_prog_node.end();
+
     self.work_queue_wait_group.reset();
     defer self.work_queue_wait_group.wait();
 
@@ -2076,6 +2107,13 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             self.astgen_wait_group.start();
             try self.thread_pool.spawn(workerAstGenFile, .{
                 self, file, &zir_prog_node, &self.astgen_wait_group, .root,
+            });
+        }
+
+        while (self.embed_file_work_queue.readItem()) |embed_file| {
+            self.astgen_wait_group.start();
+            try self.thread_pool.spawn(workerCheckEmbedFile, .{
+                self, embed_file, &embed_file_prog_node, &self.astgen_wait_group,
             });
         }
 
@@ -2256,6 +2294,15 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = self.bin_file.options.module.?;
             module.ensureDeclAnalyzed(decl) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => continue,
+            };
+        },
+        .update_embed_file => |embed_file| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+            const module = self.bin_file.options.module.?;
+            module.updateEmbedFile(embed_file) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => continue,
             };
@@ -2542,6 +2589,29 @@ fn workerAstGenFile(
     }
 }
 
+fn workerCheckEmbedFile(
+    comp: *Compilation,
+    embed_file: *Module.EmbedFile,
+    prog_node: *std.Progress.Node,
+    wg: *WaitGroup,
+) void {
+    defer wg.finish();
+
+    var child_prog_node = prog_node.start(embed_file.sub_file_path, 0);
+    child_prog_node.activate();
+    defer child_prog_node.end();
+
+    const mod = comp.bin_file.options.module.?;
+    mod.detectEmbedFileUpdate(embed_file) catch |err| {
+        comp.reportRetryableEmbedFileError(embed_file, err) catch |oom| switch (oom) {
+            // Swallowing this error is OK because it's implied to be OOM when
+            // there is a missing `failed_embed_files` error message.
+            error.OutOfMemory => {},
+        };
+        return;
+    };
+}
+
 pub fn obtainCObjectCacheManifest(comp: *const Compilation) Cache.Manifest {
     var man = comp.cache_parent.obtain();
 
@@ -2787,6 +2857,36 @@ fn reportRetryableAstGenError(
         const lock = comp.mutex.acquire();
         defer lock.release();
         try mod.failed_files.putNoClobber(gpa, file, err_msg);
+    }
+}
+
+fn reportRetryableEmbedFileError(
+    comp: *Compilation,
+    embed_file: *Module.EmbedFile,
+    err: anyerror,
+) error{OutOfMemory}!void {
+    const mod = comp.bin_file.options.module.?;
+    const gpa = mod.gpa;
+
+    const src_loc: Module.SrcLoc = embed_file.owner_decl.srcLoc();
+
+    const err_msg = if (embed_file.pkg.root_src_directory.path) |dir_path|
+        try Module.ErrorMsg.create(
+            gpa,
+            src_loc,
+            "unable to load '{s}" ++ std.fs.path.sep_str ++ "{s}': {s}",
+            .{ dir_path, embed_file.sub_file_path, @errorName(err) },
+        )
+    else
+        try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{s}': {s}", .{
+            embed_file.sub_file_path, @errorName(err),
+        });
+    errdefer err_msg.destroy(gpa);
+
+    {
+        const lock = comp.mutex.acquire();
+        defer lock.release();
+        try mod.failed_embed_files.putNoClobber(gpa, embed_file, err_msg);
     }
 }
 

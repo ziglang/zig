@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 const os_tag = builtin.os.tag;
-const arch = builtin.stage2_arch;
+const arch = builtin.cpu.arch;
 const abi = builtin.abi;
 
 const is_gnu = abi.isGnu();
