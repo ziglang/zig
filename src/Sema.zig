@@ -1968,44 +1968,38 @@ fn zirIndexablePtrLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const array = sema.resolveInst(inst_data.operand);
-    const array_ty = sema.typeOf(array);
+    const object = sema.resolveInst(inst_data.operand);
+    const object_ty = sema.typeOf(object);
 
-    if (array_ty.isSlice()) {
-        return sema.analyzeSliceLen(block, src, array);
+    const is_pointer_to = object_ty.isSinglePointer();
+
+    const array_ty = if (is_pointer_to)
+        object_ty.childType()
+    else
+        object_ty;
+
+    if (!array_ty.isIndexable()) {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                src,
+                "type '{}' does not support indexing",
+                .{array_ty},
+            );
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(
+                block,
+                src,
+                msg,
+                "for loop operand must be an array, slice, tuple, or vector",
+                .{},
+            );
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
-    if (array_ty.isSinglePointer()) {
-        const elem_ty = array_ty.elemType();
-        if (elem_ty.isSlice()) {
-            const slice_inst = try sema.analyzeLoad(block, src, array, src);
-            return sema.analyzeSliceLen(block, src, slice_inst);
-        }
-        if (!elem_ty.isIndexable()) {
-            const msg = msg: {
-                const msg = try sema.errMsg(
-                    block,
-                    src,
-                    "type '{}' does not support indexing",
-                    .{elem_ty},
-                );
-                errdefer msg.destroy(sema.gpa);
-                try sema.errNote(
-                    block,
-                    src,
-                    msg,
-                    "for loop operand must be an array, slice, tuple, or vector",
-                    .{},
-                );
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(msg);
-        }
-        const result_ptr = try sema.fieldPtr(block, src, array, "len", src);
-        return sema.analyzeLoad(block, src, result_ptr, src);
-    }
-
-    return sema.fail(block, src, "TODO implement Sema.zirIndexablePtrLen", .{});
+    return sema.fieldVal(block, src, object, "len", src);
 }
 
 fn zirAllocExtended(
@@ -10847,7 +10841,7 @@ fn fieldVal(
         },
         else => {},
     }
-    return sema.fail(block, src, "type '{}' does not support field access", .{object_ty});
+    return sema.fail(block, src, "type '{}' does not support field access (fieldVal, {}.{s})", .{object_ty, object_ty, field_name});
 }
 
 fn fieldPtr(
@@ -11058,7 +11052,7 @@ fn fieldPtr(
         },
         else => {},
     }
-    return sema.fail(block, src, "type '{}' does not support field access", .{object_ty});
+    return sema.fail(block, src, "type '{}' does not support field access (fieldPtr, {}.{s})", .{object_ty, object_ptr_ty, field_name});
 }
 
 fn fieldCallBind(
