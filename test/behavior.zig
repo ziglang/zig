@@ -35,6 +35,7 @@ test {
     _ = @import("behavior/for.zig");
     _ = @import("behavior/generics.zig");
     _ = @import("behavior/hasdecl.zig");
+    _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/if.zig");
     _ = @import("behavior/math.zig");
     _ = @import("behavior/maximum_minimum.zig");
@@ -43,8 +44,8 @@ test {
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/pub_enum.zig");
-    _ = @import("behavior/slice.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
+    _ = @import("behavior/slice.zig");
     _ = @import("behavior/struct.zig");
     _ = @import("behavior/switch.zig");
     _ = @import("behavior/this.zig");
@@ -123,11 +124,10 @@ test {
         _ = @import("behavior/field_parent_ptr.zig");
         _ = @import("behavior/floatop.zig");
         _ = @import("behavior/fn.zig");
-        _ = @import("behavior/fn_in_struct_in_comptime.zig");
         _ = @import("behavior/fn_delegation.zig");
+        _ = @import("behavior/fn_in_struct_in_comptime.zig");
         _ = @import("behavior/for_stage1.zig");
         _ = @import("behavior/generics_stage1.zig");
-        _ = @import("behavior/hasfield.zig");
         _ = @import("behavior/if_stage1.zig");
         _ = @import("behavior/import.zig");
         _ = @import("behavior/incomplete_struct_param_tld.zig");
@@ -150,17 +150,17 @@ test {
             // * add __muloti4 to compiler-rt
             _ = @import("behavior/saturating_arithmetic.zig");
         }
-        _ = @import("behavior/shuffle.zig");
         _ = @import("behavior/select.zig");
+        _ = @import("behavior/shuffle.zig");
         _ = @import("behavior/sizeof_and_typeof_stage1.zig");
-        _ = @import("behavior/slice_stage1.zig");
         _ = @import("behavior/slice_sentinel_comptime.zig");
-        _ = @import("behavior/struct_stage1.zig");
+        _ = @import("behavior/slice_stage1.zig");
         _ = @import("behavior/struct_contains_null_ptr_itself.zig");
         _ = @import("behavior/struct_contains_slice_of_itself.zig");
-        _ = @import("behavior/switch_stage1.zig");
+        _ = @import("behavior/struct_stage1.zig");
         _ = @import("behavior/switch_prong_err_enum.zig");
         _ = @import("behavior/switch_prong_implicit_cast.zig");
+        _ = @import("behavior/switch_stage1.zig");
         _ = @import("behavior/truncate.zig");
         _ = @import("behavior/try.zig");
         _ = @import("behavior/tuple.zig");

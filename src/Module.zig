@@ -876,9 +876,11 @@ pub const EnumSimple = struct {
     /// The Decl that corresponds to the enum itself.
     owner_decl: *Decl,
     /// Set of field names in declaration order.
-    fields: std.StringArrayHashMapUnmanaged(void),
+    fields: NameMap,
     /// Offset from `owner_decl`, points to the enum decl AST node.
     node_offset: i32,
+
+    pub const NameMap = EnumFull.NameMap;
 
     pub fn srcLoc(self: EnumSimple) SrcLoc {
         return .{
