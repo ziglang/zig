@@ -6467,6 +6467,45 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     return sema.addConstant(file_root_decl.ty, file_root_decl.val);
 }
 
+fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const mod = sema.mod;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const name = try sema.resolveConstString(block, src, inst_data.operand);
+
+    const embed_file = mod.embedFile(block.getFileScope(), name) catch |err| switch (err) {
+        error.ImportOutsidePkgPath => {
+            return sema.fail(block, src, "embed of file outside package path: '{s}'", .{name});
+        },
+        else => {
+            // TODO: these errors are file system errors; make sure an update() will
+            // retry this and not cache the file system error, which may be transient.
+            return sema.fail(block, src, "unable to open '{s}': {s}", .{ name, @errorName(err) });
+        },
+    };
+
+    var anon_decl = try block.startAnonDecl();
+    defer anon_decl.deinit();
+
+    const bytes_including_null = embed_file.bytes[0 .. embed_file.bytes.len + 1];
+
+    // TODO instead of using `Value.Tag.bytes`, create a new value tag for pointing at
+    // a `*Module.EmbedFile`. The purpose of this would be:
+    // - If only the length is read and the bytes are not inspected by comptime code,
+    //   there can be an optimization where the codegen backend does a copy_file_range
+    //   into the final binary, and never loads the data into memory.
+    // - When a Decl is destroyed, it can free the `*Module.EmbedFile`.
+    embed_file.owner_decl = try anon_decl.finish(
+        try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), embed_file.bytes.len),
+        try Value.Tag.bytes.create(anon_decl.arena(), bytes_including_null),
+    );
+
+    return sema.analyzeDeclRef(embed_file.owner_decl);
+}
+
 fn zirRetErrValueCode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     _ = block;
     _ = inst;
@@ -9018,12 +9057,6 @@ fn zirBoolToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         return bool_ints[@boolToInt(val.toBool())];
     }
     return block.addUnOp(.bool_to_int, operand);
-}
-
-fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirEmbedFile", .{});
 }
 
 fn zirErrorName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

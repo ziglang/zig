@@ -55,11 +55,17 @@ decl_exports: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
 /// is performing the export of another Decl.
 /// This table owns the Export memory.
 export_owners: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
-/// The set of all the files in the Module. We keep track of this in order to iterate
-/// over it and check which source files have been modified on the file system when
+/// The set of all the Zig source files in the Module. We keep track of this in order
+/// to iterate over it and check which source files have been modified on the file system when
 /// an update is requested, as well as to cache `@import` results.
 /// Keys are fully resolved file paths. This table owns the keys and values.
 import_table: std.StringArrayHashMapUnmanaged(*File) = .{},
+/// The set of all the files which have been loaded with `@embedFile` in the Module.
+/// We keep track of this in order to iterate over it and check which files have been
+/// modified on the file system when an update is requested, as well as to cache
+/// `@embedFile` results.
+/// Keys are fully resolved file paths. This table owns the keys and values.
+embed_table: std.StringHashMapUnmanaged(*EmbedFile) = .{},
 
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
@@ -87,6 +93,8 @@ compile_log_decls: std.AutoArrayHashMapUnmanaged(*Decl, i32) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .{},
+/// The ErrorMsg memory is owned by the `EmbedFile`, using Module's general purpose allocator.
+failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Export`, using Module's general purpose allocator.
 failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
@@ -1534,6 +1542,23 @@ pub const File = struct {
     }
 };
 
+/// Represents the contents of a file loaded with `@embedFile`.
+pub const EmbedFile = struct {
+    /// Relative to the owning package's root_src_dir.
+    /// Memory is stored in gpa, owned by EmbedFile.
+    sub_file_path: []const u8,
+    bytes: [:0]const u8,
+    stat_size: u64,
+    stat_inode: std.fs.File.INode,
+    stat_mtime: i128,
+    /// Package that this file is a part of, managed externally.
+    pkg: *Package,
+    /// The Decl that was created from the `@embedFile` to own this resource.
+    /// This is how zig knows what other Decl objects to invalidate if the file
+    /// changes on disk.
+    owner_decl: *Decl,
+};
+
 /// This struct holds data necessary to construct API-facing `AllErrors.Message`.
 /// Its memory is managed with the general purpose allocator so that they
 /// can be created and destroyed in response to incremental updates.
@@ -2364,6 +2389,11 @@ pub fn deinit(mod: *Module) void {
     }
     mod.failed_files.deinit(gpa);
 
+    for (mod.failed_embed_files.values()) |msg| {
+        msg.destroy(gpa);
+    }
+    mod.failed_embed_files.deinit(gpa);
+
     for (mod.failed_exports.values()) |value| {
         value.destroy(gpa);
     }
@@ -3060,6 +3090,32 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
     }
 }
 
+pub fn updateEmbedFile(mod: *Module, embed_file: *EmbedFile) SemaError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    // TODO we can potentially relax this if we store some more information along
+    // with decl dependency edges
+    for (embed_file.owner_decl.dependants.keys()) |dep| {
+        switch (dep.analysis) {
+            .unreferenced => unreachable,
+            .in_progress => continue, // already doing analysis, ok
+            .outdated => continue, // already queued for update
+
+            .file_failure,
+            .dependency_failure,
+            .sema_failure,
+            .sema_failure_retryable,
+            .codegen_failure,
+            .codegen_failure_retryable,
+            .complete,
+            => if (dep.generation != mod.generation) {
+                try mod.markOutdatedDecl(dep);
+            },
+        }
+    }
+}
+
 pub fn semaPkg(mod: *Module, pkg: *Package) !void {
     const file = (try mod.importPkg(pkg)).file;
     return mod.semaFile(file);
@@ -3549,6 +3605,84 @@ pub fn importFile(
         .file = new_file,
         .is_new = true,
     };
+}
+
+pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*EmbedFile {
+    const gpa = mod.gpa;
+
+    // The resolved path is used as the key in the table, to detect if
+    // a file refers to the same as another, despite different relative paths.
+    const cur_pkg_dir_path = cur_file.pkg.root_src_directory.path orelse ".";
+    const resolved_path = try std.fs.path.resolve(gpa, &[_][]const u8{
+        cur_pkg_dir_path, cur_file.sub_file_path, "..", rel_file_path,
+    });
+    var keep_resolved_path = false;
+    defer if (!keep_resolved_path) gpa.free(resolved_path);
+
+    const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
+    if (gop.found_existing) return gop.value_ptr.*;
+    keep_resolved_path = true; // It's now owned by embed_table.
+
+    const new_file = try gpa.create(EmbedFile);
+    errdefer gpa.destroy(new_file);
+
+    const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
+    defer gpa.free(resolved_root_path);
+
+    if (!mem.startsWith(u8, resolved_path, resolved_root_path)) {
+        return error.ImportOutsidePkgPath;
+    }
+    // +1 for the directory separator here.
+    const sub_file_path = try gpa.dupe(u8, resolved_path[resolved_root_path.len + 1 ..]);
+    errdefer gpa.free(sub_file_path);
+
+    var file = try cur_file.pkg.root_src_directory.handle.openFile(sub_file_path, .{});
+    defer file.close();
+
+    const stat = try file.stat();
+    const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), stat.size, 1, 0);
+
+    log.debug("new embedFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, rel_file_path={s}", .{
+        resolved_root_path, resolved_path, sub_file_path, rel_file_path,
+    });
+
+    gop.value_ptr.* = new_file;
+    new_file.* = .{
+        .sub_file_path = sub_file_path,
+        .bytes = bytes,
+        .stat_size = stat.size,
+        .stat_inode = stat.inode,
+        .stat_mtime = stat.mtime,
+        .pkg = cur_file.pkg,
+        .owner_decl = undefined, // Set by Sema immediately after this function returns.
+    };
+    return new_file;
+}
+
+pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
+    var file = try embed_file.pkg.root_src_directory.handle.openFile(embed_file.sub_file_path, .{});
+    defer file.close();
+
+    const stat = try file.stat();
+
+    const unchanged_metadata =
+        stat.size == embed_file.stat_size and
+        stat.mtime == embed_file.stat_mtime and
+        stat.inode == embed_file.stat_inode;
+
+    if (unchanged_metadata) return;
+
+    const gpa = mod.gpa;
+    const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), stat.size, 1, 0);
+    gpa.free(embed_file.bytes);
+    embed_file.bytes = bytes;
+    embed_file.stat_size = stat.size;
+    embed_file.stat_mtime = stat.mtime;
+    embed_file.stat_inode = stat.inode;
+
+    const lock = mod.comp.mutex.acquire();
+    defer lock.release();
+    try mod.comp.work_queue.writeItem(.{ .update_embed_file = embed_file });
 }
 
 pub fn scanNamespace(
