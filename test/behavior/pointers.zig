@@ -44,3 +44,17 @@ test "double pointer parsing" {
 fn PtrOf(comptime T: type) type {
     return *T;
 }
+
+test "implicit cast single item pointer to C pointer and back" {
+    var y: u8 = 11;
+    var x: [*c]u8 = &y;
+    var z: *u8 = x;
+    z.* += 1;
+    try expect(y == 12);
+}
+
+test "initialize const optional C pointer to null" {
+    const a: ?[*c]i32 = null;
+    try expect(a == null);
+    comptime try expect(a == null);
+}

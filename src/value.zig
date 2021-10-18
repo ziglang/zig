@@ -2824,6 +2824,7 @@ pub const Value = extern union {
     pub const negative_one: Value = .{ .ptr_otherwise = &negative_one_payload.base };
     pub const undef = initTag(.undef);
     pub const @"void" = initTag(.void_value);
+    pub const @"null" = initTag(.null_value);
 };
 
 var negative_one_payload: Value.Payload.I64 = .{

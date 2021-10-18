@@ -4731,7 +4731,7 @@ fn zirFunc(
         body_inst,
         ret_ty_body,
         cc,
-        Value.initTag(.null_value),
+        Value.@"null",
         false,
         inferred_error_set,
         false,
@@ -8105,7 +8105,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // return_type: ?type,
             field_values[4] = try Value.Tag.ty.create(sema.arena, ty.fnReturnType());
             // args: []const FnArg,
-            field_values[5] = Value.initTag(.null_value); // TODO
+            field_values[5] = Value.@"null"; // TODO
 
             return sema.addConstant(
                 type_info_ty,
@@ -8163,7 +8163,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // is_allowzero: bool,
             field_values[5] = if (info.@"allowzero") Value.initTag(.bool_true) else Value.initTag(.bool_false);
             // sentinel: anytype,
-            field_values[6] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.initTag(.null_value);
+            field_values[6] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.@"null";
 
             return sema.addConstant(
                 type_info_ty,
@@ -8181,7 +8181,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // child: type,
             field_values[1] = try Value.Tag.ty.create(sema.arena, info.elem_type);
             // sentinel: anytype,
-            field_values[2] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.initTag(.null_value);
+            field_values[2] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.@"null";
 
             return sema.addConstant(
                 type_info_ty,
@@ -9753,7 +9753,7 @@ fn zirCmpxchg(
 
     // special case zero bit types
     if ((try sema.typeHasOnePossibleValue(block, elem_ty_src, elem_ty)) != null) {
-        return sema.addConstant(result_ty, Value.initTag(.null_value));
+        return sema.addConstant(result_ty, Value.@"null");
     }
 
     const runtime_src = if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| rs: {
@@ -9767,7 +9767,7 @@ fn zirCmpxchg(
                 const stored_val = (try ptr_val.pointerDeref(sema.arena)) orelse break :rs ptr_src;
                 const result_val = if (stored_val.eql(expected_val, elem_ty)) blk: {
                     try sema.storePtr(block, src, ptr, new_value);
-                    break :blk Value.initTag(.null_value);
+                    break :blk Value.@"null";
                 } else try Value.Tag.opt_payload.create(sema.arena, stored_val);
 
                 return sema.addConstant(result_ty, result_val);
@@ -10225,7 +10225,7 @@ fn zirVarExtended(
     //    extra_index += 1;
     //    const align_tv = try sema.resolveInstConst(block, align_src, align_ref);
     //    break :blk align_tv.val;
-    //} else Value.initTag(.null_value);
+    //} else Value.@"null";
 
     const uncasted_init: Air.Inst.Ref = if (small.has_init) blk: {
         const init_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
@@ -10307,7 +10307,7 @@ fn zirFuncExtended(
         extra_index += 1;
         const align_tv = try sema.resolveInstConst(block, align_src, align_ref);
         break :blk align_tv.val;
-    } else Value.initTag(.null_value);
+    } else Value.@"null";
 
     const ret_ty_body = sema.code.extra[extra_index..][0..extra.data.ret_body_len];
     extra_index += ret_ty_body.len;
@@ -10592,7 +10592,7 @@ fn panicWithMsg(
     });
     const null_stack_trace = try sema.addConstant(
         try Type.optional(arena, ptr_stack_trace_ty),
-        Value.initTag(.null_value),
+        Value.@"null",
     );
     const args = try arena.create([2]Air.Inst.Ref);
     args.* = .{ msg_inst, null_stack_trace };
@@ -11544,7 +11544,7 @@ fn coerce(
         .Optional => {
             // null to ?T
             if (inst_ty.zigTypeTag() == .Null) {
-                return sema.addConstant(dest_ty, Value.initTag(.null_value));
+                return sema.addConstant(dest_ty, Value.@"null");
             }
 
             // T to ?T
@@ -11603,6 +11603,13 @@ fn coerce(
                         }
                     },
                     .One => {},
+                }
+            }
+
+            // coercion to C pointer
+            if (dest_ty.ptrSize() == .C) {
+                if (inst_ty.zigTypeTag() == .Null) {
+                    return sema.addConstant(dest_ty, Value.@"null");
                 }
             }
         },
@@ -13806,7 +13813,7 @@ fn typeHasOnePossibleValue(
         .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
         .void => return Value.void,
         .noreturn => return Value.initTag(.unreachable_value),
-        .@"null" => return Value.initTag(.null_value),
+        .@"null" => return Value.@"null",
         .@"undefined" => return Value.initTag(.undef),
 
         .int_unsigned, .int_signed => {
