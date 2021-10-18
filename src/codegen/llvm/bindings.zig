@@ -313,6 +313,12 @@ pub const VerifierFailureAction = enum(c_int) {
 pub const constNeg = LLVMConstNeg;
 extern fn LLVMConstNeg(ConstantVal: *const Value) *const Value;
 
+pub const constVector = LLVMConstVector;
+extern fn LLVMConstVector(
+    ScalarConstantVals: [*]*const Value,
+    Size: c_uint,
+) *const Value;
+
 pub const getEnumAttributeKindForName = LLVMGetEnumAttributeKindForName;
 extern fn LLVMGetEnumAttributeKindForName(Name: [*]const u8, SLen: usize) c_uint;
 
@@ -563,6 +569,15 @@ pub const Builder = opaque {
     extern fn LLVMBuildExtractElement(
         *const Builder,
         VecVal: *const Value,
+        Index: *const Value,
+        Name: [*:0]const u8,
+    ) *const Value;
+
+    pub const buildInsertElement = LLVMBuildInsertElement;
+    extern fn LLVMBuildInsertElement(
+        *const Builder,
+        VecVal: *const Value,
+        EltVal: *const Value,
         Index: *const Value,
         Name: [*:0]const u8,
     ) *const Value;

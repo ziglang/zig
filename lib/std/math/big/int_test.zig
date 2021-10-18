@@ -1866,6 +1866,42 @@ test "big.int sat shift-left signed multi negative" {
     try testing.expect((try a.to(SignedDoubleLimb)) == @as(SignedDoubleLimb, x) <<| shift);
 }
 
+test "big.int bitNotWrap unsigned simple" {
+    var a = try Managed.initSet(testing.allocator, 123);
+    defer a.deinit();
+
+    try a.bitNotWrap(a, .unsigned, 10);
+
+    try testing.expect((try a.to(u10)) == ~@as(u10, 123));
+}
+
+test "big.int bitNotWrap unsigned multi" {
+    var a = try Managed.initSet(testing.allocator, 0);
+    defer a.deinit();
+
+    try a.bitNotWrap(a, .unsigned, @bitSizeOf(DoubleLimb));
+
+    try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb));
+}
+
+test "big.int bitNotWrap signed simple" {
+    var a = try Managed.initSet(testing.allocator, -456);
+    defer a.deinit();
+
+    try a.bitNotWrap(a, .signed, 11);
+
+    try testing.expect((try a.to(i11)) == ~@as(i11, -456));
+}
+
+test "big.int bitNotWrap signed multi" {
+    var a = try Managed.initSet(testing.allocator, 0);
+    defer a.deinit();
+
+    try a.bitNotWrap(a, .signed, @bitSizeOf(SignedDoubleLimb));
+
+    try testing.expect((try a.to(SignedDoubleLimb)) == -1);
+}
+
 test "big.int bitwise and simple" {
     var a = try Managed.initSet(testing.allocator, 0xffffffff11111111);
     defer a.deinit();
