@@ -43,6 +43,7 @@ pub const Builder = struct {
     verbose_llvm_cpu_features: bool,
     /// The purpose of executing the command is for a human to read compile errors from the terminal
     prominent_compile_errors: bool,
+    dump: bool,
     color: enum { auto, on, off } = .auto,
     invalid_user_input: bool,
     zig_exe: []const u8,
@@ -158,6 +159,7 @@ pub const Builder = struct {
             .verbose_cimport = false,
             .verbose_llvm_cpu_features = false,
             .prominent_compile_errors = false,
+            .dump = false,
             .invalid_user_input = false,
             .allocator = allocator,
             .user_input_options = UserInputOptionsMap.init(allocator),
@@ -467,7 +469,7 @@ pub const Builder = struct {
 
         s.loop_flag = false;
 
-        try s.make();
+        try s.make(self.dump);
     }
 
     fn getTopLevelStepByName(self: *Builder, name: []const u8) !*Step {
@@ -1642,6 +1644,7 @@ pub const LibExeObjStep = struct {
             .output_h_path_source = GeneratedFile{ .step = &self.step },
             .output_pdb_path_source = GeneratedFile{ .step = &self.step },
         };
+        self.step.dumpFn = dump;
         self.computeOutFileNames();
         if (root_src) |rs| rs.addStepDependencies(&self.step);
         return self;
@@ -2759,6 +2762,16 @@ pub const LibExeObjStep = struct {
             try doAtomicSymLinks(builder.allocator, self.getOutputSource().getPath(builder), self.major_only_filename.?, self.name_only_filename.?);
         }
     }
+
+    fn dump(step: *Step, writer: fs.File.Writer) !void {
+        const self = @fieldParentPtr(LibExeObjStep, "step", step);
+        try writer.print("libexeobj_name={s}\n", .{self.name});
+        try writer.print("out_filename={s}\n", .{self.out_filename});
+        if (self.root_src) |root_src| switch (root_src) {
+            .path => |path| try writer.print("root_src=path:{s}\n", .{path}),
+            .generated => |gen| try writer.print("root_src=generated:{s}\n", .{gen.path}),
+        };
+    }
 };
 
 pub const InstallArtifactStep = struct {
@@ -3013,6 +3026,7 @@ pub const Step = struct {
     dependencies: ArrayList(*Step),
     loop_flag: bool,
     done_flag: bool,
+    dumpFn: ?fn(self: *Step, writer: fs.File.Writer) anyerror!void = null,
 
     pub const Id = enum {
         top_level,
@@ -3046,10 +3060,14 @@ pub const Step = struct {
         return init(id, name, allocator, makeNoOp);
     }
 
-    pub fn make(self: *Step) !void {
+    pub fn make(self: *Step, dump_only: bool) !void {
         if (self.done_flag) return;
 
-        try self.makeFn(self);
+        if (dump_only) {
+            try self.dump();
+        } else {
+            try self.makeFn(self);
+        }
         self.done_flag = true;
     }
 
@@ -3066,6 +3084,18 @@ pub const Step = struct {
             return @fieldParentPtr(T, "step", step);
         }
         return null;
+    }
+
+    pub fn dump(self: *Step) !void {
+        const writer = std.io.getStdOut().writer();
+        try writer.print("addr={*}\n", .{self});
+        try writer.print("id={s}\n", .{@tagName(self.id)});
+        try writer.print("name={s}\n", .{self.name});
+        for (self.dependencies.items) |dep| {
+            try writer.print("dependsOn={*}\n", .{dep});
+        }
+        if (self.dumpFn) |dumpFn| try dumpFn(self, writer);
+        try writer.writeAll("\n");
     }
 };
 

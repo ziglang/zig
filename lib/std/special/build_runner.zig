@@ -154,6 +154,8 @@ pub fn main() !void {
                 builder.verbose_llvm_cpu_features = true;
             } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
                 builder.prominent_compile_errors = true;
+            } else if (mem.eql(u8, arg, "--dump")) {
+                builder.dump = true;
             } else if (mem.eql(u8, arg, "--")) {
                 builder.args = argsRest(args, arg_idx);
                 break;
@@ -230,6 +232,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  --verbose                    Print commands before executing them
         \\  --color [auto|off|on]        Enable or disable colored error messages
         \\  --prominent-compile-errors   Output compile errors formatted for a human to read
+        \\  --dump                       Instead of building, dump each step that would be executed
         \\
         \\Project-Specific Options:
         \\
