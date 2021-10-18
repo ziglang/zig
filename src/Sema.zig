@@ -6413,21 +6413,33 @@ fn validateSwitchNoRange(
 fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const container_type = try sema.resolveType(block, lhs_src, extra.lhs);
-    const field_name = try sema.resolveConstString(block, rhs_src, extra.rhs);
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const unresolved_ty = try sema.resolveType(block, ty_src, extra.lhs);
+    const field_name = try sema.resolveConstString(block, name_src, extra.rhs);
+    const ty = try sema.resolveTypeFields(block, ty_src, unresolved_ty);
 
-    const has_field = switch (container_type.zigTypeTag()) {
-        .Struct => container_type.structFields().contains(field_name),
-        .Union => container_type.unionFields().contains(field_name),
-        .Enum => container_type.enumFields().contains(field_name),
-        else => return sema.fail(block, lhs_src, "expected struct, enum, or union, found '{}'", .{container_type}),
+    const has_field = hf: {
+        if (ty.isSlice()) {
+            if (mem.eql(u8, field_name, "ptr")) break :hf true;
+            if (mem.eql(u8, field_name, "len")) break :hf true;
+            break :hf false;
+        }
+        break :hf switch (ty.zigTypeTag()) {
+            .Struct => ty.structFields().contains(field_name),
+            .Union => ty.unionFields().contains(field_name),
+            .Enum => ty.enumFields().contains(field_name),
+            .Array => mem.eql(u8, field_name, "len"),
+            else => return sema.fail(block, ty_src, "type '{}' does not support '@hasField'", .{
+                ty,
+            }),
+        };
     };
     if (has_field) {
         return Air.Inst.Ref.bool_true;
+    } else {
+        return Air.Inst.Ref.bool_false;
     }
-    return Air.Inst.Ref.bool_false;
 }
 
 fn zirHasDecl(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

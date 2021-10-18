@@ -128,7 +128,6 @@ test {
         _ = @import("behavior/fn_in_struct_in_comptime.zig");
         _ = @import("behavior/for_stage1.zig");
         _ = @import("behavior/generics_stage1.zig");
-        _ = @import("behavior/hasfield_stage1.zig");
         _ = @import("behavior/if_stage1.zig");
         _ = @import("behavior/import.zig");
         _ = @import("behavior/incomplete_struct_param_tld.zig");
