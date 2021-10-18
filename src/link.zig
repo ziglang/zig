@@ -192,12 +192,16 @@ pub const File = struct {
     /// rewriting it. A malicious file is detected as incremental link failure
     /// and does not cause Illegal Behavior. This operation is not atomic.
     pub fn openPath(allocator: *Allocator, options: Options) !*File {
+        if (options.object_format == .macho) {
+            return &(try MachO.openPath(allocator, options)).base;
+        }
+
         const use_stage1 = build_options.is_stage1 and options.use_stage1;
         if (use_stage1 or options.emit == null) {
             return switch (options.object_format) {
                 .coff => &(try Coff.createEmpty(allocator, options)).base,
                 .elf => &(try Elf.createEmpty(allocator, options)).base,
-                .macho => &(try MachO.createEmpty(allocator, options)).base,
+                .macho => unreachable,
                 .wasm => &(try Wasm.createEmpty(allocator, options)).base,
                 .plan9 => return &(try Plan9.createEmpty(allocator, options)).base,
                 .c => unreachable, // Reported error earlier.
@@ -215,7 +219,7 @@ pub const File = struct {
                 return switch (options.object_format) {
                     .coff => &(try Coff.createEmpty(allocator, options)).base,
                     .elf => &(try Elf.createEmpty(allocator, options)).base,
-                    .macho => &(try MachO.createEmpty(allocator, options)).base,
+                    .macho => unreachable,
                     .plan9 => &(try Plan9.createEmpty(allocator, options)).base,
                     .wasm => &(try Wasm.createEmpty(allocator, options)).base,
                     .c => unreachable, // Reported error earlier.
@@ -235,7 +239,7 @@ pub const File = struct {
         const file: *File = switch (options.object_format) {
             .coff => &(try Coff.openPath(allocator, sub_path, options)).base,
             .elf => &(try Elf.openPath(allocator, sub_path, options)).base,
-            .macho => &(try MachO.openPath(allocator, sub_path, options)).base,
+            .macho => unreachable,
             .plan9 => &(try Plan9.openPath(allocator, sub_path, options)).base,
             .wasm => &(try Wasm.openPath(allocator, sub_path, options)).base,
             .c => &(try C.openPath(allocator, sub_path, options)).base,
@@ -576,7 +580,11 @@ pub const File = struct {
                 const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
                 break :blk full_obj_path;
             }
-            try base.flushModule(comp);
+            if (base.options.object_format == .macho) {
+                try base.cast(MachO).?.flushObject(comp);
+            } else {
+                try base.flushModule(comp);
+            }
             const obj_basename = base.intermediary_basename.?;
             const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
             break :blk full_obj_path;

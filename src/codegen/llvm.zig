@@ -527,19 +527,11 @@ pub const Object = struct {
                 if (self.llvm_module.getNamedGlobalAlias(exp_name_z.ptr, exp_name_z.len)) |alias| {
                     alias.setAliasee(llvm_global);
                 } else {
-                    const alias = self.llvm_module.addAlias(llvm_global.typeOf(), llvm_global, exp_name_z);
-                    switch (exp.options.linkage) {
-                        .Internal => alias.setLinkage(.Internal),
-                        .Strong => alias.setLinkage(.External),
-                        .Weak => {
-                            if (is_extern) {
-                                alias.setLinkage(.ExternalWeak);
-                            } else {
-                                alias.setLinkage(.WeakODR);
-                            }
-                        },
-                        .LinkOnce => alias.setLinkage(.LinkOnceODR),
-                    }
+                    _ = self.llvm_module.addAlias(
+                        llvm_global.typeOf(),
+                        llvm_global,
+                        exp_name_z,
+                    );
                 }
             }
         } else {
