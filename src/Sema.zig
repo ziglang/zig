@@ -1179,6 +1179,18 @@ fn failWithModRemNegative(sema: *Sema, block: *Block, src: LazySrcLoc, lhs_ty: T
     return sema.fail(block, src, "remainder division with '{}' and '{}': signed integers and floats must use @rem or @mod", .{ lhs_ty, rhs_ty });
 }
 
+fn failWithErrorSetCodeMissing(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    dest_err_set_ty: Type,
+    src_err_set_ty: Type,
+) CompileError {
+    return sema.fail(block, src, "expected type '{}', found type '{}'", .{
+        dest_err_set_ty, src_err_set_ty,
+    });
+}
+
 /// We don't return a pointer to the new error note because the pointer
 /// becomes invalid when you add another one.
 fn errNote(
@@ -12858,47 +12870,30 @@ fn wrapErrorUnion(
         }
         switch (dest_err_set_ty.tag()) {
             .anyerror => {},
-            .error_set_single => {
+            .error_set_single => ok: {
                 const expected_name = val.castTag(.@"error").?.data.name;
                 const n = dest_err_set_ty.castTag(.error_set_single).?.data;
-                if (!mem.eql(u8, expected_name, n)) {
-                    return sema.fail(
-                        block,
-                        inst_src,
-                        "expected type '{}', found type '{}'",
-                        .{ dest_err_set_ty, inst_ty },
-                    );
-                }
+                if (mem.eql(u8, expected_name, n)) break :ok;
+                return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
             },
-            .error_set => {
+            .error_set => ok: {
                 const expected_name = val.castTag(.@"error").?.data.name;
                 const error_set = dest_err_set_ty.castTag(.error_set).?.data;
                 const names = error_set.names_ptr[0..error_set.names_len];
                 // TODO this is O(N). I'm putting off solving this until we solve inferred
                 // error sets at the same time.
-                const found = for (names) |name| {
-                    if (mem.eql(u8, expected_name, name)) break true;
-                } else false;
-                if (!found) {
-                    return sema.fail(
-                        block,
-                        inst_src,
-                        "expected type '{}', found type '{}'",
-                        .{ dest_err_set_ty, inst_ty },
-                    );
+                for (names) |name| {
+                    if (mem.eql(u8, expected_name, name)) break :ok;
                 }
+                return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
             },
-            .error_set_inferred => {
+            .error_set_inferred => ok: {
+                const err_set_payload = dest_err_set_ty.castTag(.error_set_inferred).?.data;
+                if (err_set_payload.is_anyerror) break :ok;
                 const expected_name = val.castTag(.@"error").?.data.name;
-                const map = &dest_err_set_ty.castTag(.error_set_inferred).?.data.map;
-                if (!map.contains(expected_name)) {
-                    return sema.fail(
-                        block,
-                        inst_src,
-                        "expected type '{}', found type '{}'",
-                        .{ dest_err_set_ty, inst_ty },
-                    );
-                }
+                if (err_set_payload.map.contains(expected_name)) break :ok;
+                // TODO error set resolution here before emitting a compile error
+                return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
             },
             else => unreachable,
         }

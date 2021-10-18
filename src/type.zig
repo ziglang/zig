@@ -3869,6 +3869,11 @@ pub const Type = extern union {
                         .error_set_inferred => {
                             const func = err_set_ty.castTag(.error_set_inferred).?.data.func;
                             try self.functions.put(gpa, func, {});
+                            var it = func.owner_decl.ty.fnReturnType().errorUnionSet()
+                                .castTag(.error_set_inferred).?.data.map.iterator();
+                            while (it.next()) |entry| {
+                                try self.map.put(gpa, entry.key_ptr.*, {});
+                            }
                         },
                         .anyerror => {
                             self.is_anyerror = true;
