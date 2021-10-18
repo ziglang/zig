@@ -39,6 +39,7 @@ test {
     _ = @import("behavior/math.zig");
     _ = @import("behavior/maximum_minimum.zig");
     _ = @import("behavior/member_func.zig");
+    _ = @import("behavior/null.zig");
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/pub_enum.zig");
@@ -137,7 +138,7 @@ test {
         _ = @import("behavior/misc.zig");
         _ = @import("behavior/muladd.zig");
         _ = @import("behavior/namespace_depends_on_compile_var.zig");
-        _ = @import("behavior/null.zig");
+        _ = @import("behavior/null_stage1.zig");
         _ = @import("behavior/optional_stage1.zig");
         _ = @import("behavior/pointers_stage1.zig");
         _ = @import("behavior/popcount.zig");

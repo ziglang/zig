@@ -1085,6 +1085,26 @@ pub const DeclGen = struct {
                     const llvm_int = llvm_usize.constInt(tv.val.toUnsignedInt(), .False);
                     return llvm_int.constIntToPtr(try self.llvmType(tv.ty));
                 },
+                .field_ptr => {
+                    const field_ptr = tv.val.castTag(.field_ptr).?.data;
+                    const parent_ptr = try self.lowerParentPtr(field_ptr.container_ptr);
+                    const llvm_u32 = self.context.intType(32);
+                    const indices: [2]*const llvm.Value = .{
+                        llvm_u32.constInt(0, .False),
+                        llvm_u32.constInt(field_ptr.field_index, .False),
+                    };
+                    return parent_ptr.constInBoundsGEP(&indices, indices.len);
+                },
+                .elem_ptr => {
+                    const elem_ptr = tv.val.castTag(.elem_ptr).?.data;
+                    const parent_ptr = try self.lowerParentPtr(elem_ptr.array_ptr);
+                    const llvm_usize = try self.llvmType(Type.usize);
+                    const indices: [2]*const llvm.Value = .{
+                        llvm_usize.constInt(0, .False),
+                        llvm_usize.constInt(elem_ptr.index, .False),
+                    };
+                    return parent_ptr.constInBoundsGEP(&indices, indices.len);
+                },
                 else => |tag| return self.todo("implement const of pointer type '{}' ({})", .{ tv.ty, tag }),
             },
             .Array => switch (tv.val.tag()) {
@@ -1298,6 +1318,68 @@ pub const DeclGen = struct {
         }
     }
 
+    const ParentPtr = struct {
+        ty: Type,
+        llvm_ptr: *const llvm.Value,
+    };
+
+    fn lowerParentPtrDecl(
+        dg: *DeclGen,
+        ptr_val: Value,
+        decl: *Module.Decl,
+    ) Error!ParentPtr {
+        var ptr_ty_payload: Type.Payload.ElemType = .{
+            .base = .{ .tag = .single_mut_pointer },
+            .data = decl.ty,
+        };
+        const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+        const llvm_ptr = try dg.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl);
+        return ParentPtr{
+            .llvm_ptr = llvm_ptr,
+            .ty = decl.ty,
+        };
+    }
+
+    fn lowerParentPtr(dg: *DeclGen, ptr_val: Value) Error!*const llvm.Value {
+        switch (ptr_val.tag()) {
+            .decl_ref_mut => {
+                const decl = ptr_val.castTag(.decl_ref_mut).?.data.decl;
+                return (try dg.lowerParentPtrDecl(ptr_val, decl)).llvm_ptr;
+            },
+            .decl_ref => {
+                const decl = ptr_val.castTag(.decl_ref).?.data;
+                return (try dg.lowerParentPtrDecl(ptr_val, decl)).llvm_ptr;
+            },
+            .variable => {
+                const decl = ptr_val.castTag(.variable).?.data.owner_decl;
+                return (try dg.lowerParentPtrDecl(ptr_val, decl)).llvm_ptr;
+            },
+            .field_ptr => {
+                const field_ptr = ptr_val.castTag(.field_ptr).?.data;
+                const parent_ptr = try dg.lowerParentPtr(field_ptr.container_ptr);
+                const llvm_u32 = dg.context.intType(32);
+                const indices: [2]*const llvm.Value = .{
+                    llvm_u32.constInt(0, .False),
+                    llvm_u32.constInt(field_ptr.field_index, .False),
+                };
+                return parent_ptr.constInBoundsGEP(&indices, indices.len);
+            },
+            .elem_ptr => {
+                const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
+                const parent_ptr = try dg.lowerParentPtr(elem_ptr.array_ptr);
+                const llvm_usize = try dg.llvmType(Type.usize);
+                const indices: [2]*const llvm.Value = .{
+                    llvm_usize.constInt(0, .False),
+                    llvm_usize.constInt(elem_ptr.index, .False),
+                };
+                return parent_ptr.constInBoundsGEP(&indices, indices.len);
+            },
+            .opt_payload_ptr => return dg.todo("implement lowerParentPtr for optional payload", .{}),
+            .eu_payload_ptr => return dg.todo("implement lowerParentPtr for error union payload", .{}),
+            else => unreachable,
+        }
+    }
+
     fn lowerDeclRefValue(
         self: *DeclGen,
         tv: TypedValue,
@@ -1323,11 +1405,12 @@ pub const DeclGen = struct {
             return self.context.constStruct(&fields, fields.len, .False);
         }
 
-        decl.alive = true;
         const llvm_type = try self.llvmType(tv.ty);
         if (!tv.ty.childType().hasCodeGenBits()) {
             return self.lowerPtrToVoid(tv.ty);
         }
+
+        decl.alive = true;
 
         const llvm_val = if (decl.ty.zigTypeTag() == .Fn)
             try self.resolveLlvmFunction(decl)
