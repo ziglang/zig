@@ -10897,27 +10897,52 @@ fn fieldPtr(
             }
         },
         .Pointer => if (inner_ty.isSlice()) {
-            // Here for the ptr and len fields what we need to do is the situation
-            // when a temporary has its address taken, e.g. `&a[c..d].len`.
-            // This value may be known at compile-time or runtime. In the former
-            // case, it should create an anonymous Decl and return a decl_ref to it.
-            // In the latter case, it should add an `alloc` instruction, store
-            // the runtime value to it, and then return the `alloc`.
-            // In both cases the pointer should be const.
+            const inner_ptr = if (is_pointer_to)
+                try sema.analyzeLoad(block, src, object_ptr, object_ptr_src)
+            else
+                object_ptr;
+
             if (mem.eql(u8, field_name, "ptr")) {
-                return sema.fail(
-                    block,
-                    field_name_src,
-                    "TODO: implement reference to 'ptr' field of slice '{}'",
-                    .{inner_ty},
-                );
+                const buf = try sema.arena.create(Type.SlicePtrFieldTypeBuffer);
+                const slice_ptr_ty = inner_ty.slicePtrFieldType(buf);
+
+                if (try sema.resolveDefinedValue(block, object_ptr_src, inner_ptr)) |val| {
+                    var anon_decl = try block.startAnonDecl();
+                    defer anon_decl.deinit();
+
+                    return sema.analyzeDeclRef(try anon_decl.finish(
+                        try slice_ptr_ty.copy(anon_decl.arena()),
+                        try val.slicePtr().copy(anon_decl.arena()),
+                    ));
+                }
+                try sema.requireRuntimeBlock(block, src);
+
+                const result_ty = try Type.ptr(sema.arena, .{
+                    .pointee_type = slice_ptr_ty,
+                    .mutable = object_ptr_ty.ptrIsMutable(),
+                    .@"addrspace" = object_ptr_ty.ptrAddressSpace(),
+                });
+
+                return block.addTyOp(.ptr_slice_ptr_ptr, result_ty, inner_ptr);
             } else if (mem.eql(u8, field_name, "len")) {
-                return sema.fail(
-                    block,
-                    field_name_src,
-                    "TODO: implement reference to 'len' field of slice '{}'",
-                    .{inner_ty},
-                );
+                if (try sema.resolveDefinedValue(block, object_ptr_src, inner_ptr)) |val| {
+                    var anon_decl = try block.startAnonDecl();
+                    defer anon_decl.deinit();
+
+                    return sema.analyzeDeclRef(try anon_decl.finish(
+                        Type.usize,
+                        try Value.Tag.int_u64.create(anon_decl.arena(), val.sliceLen()),
+                    ));
+                }
+                try sema.requireRuntimeBlock(block, src);
+
+                const result_ty = try Type.ptr(sema.arena, .{
+                    .pointee_type = Type.usize,
+                    .mutable = object_ptr_ty.ptrIsMutable(),
+                    .@"addrspace" = object_ptr_ty.ptrAddressSpace(),
+                });
+
+                return block.addTyOp(.ptr_slice_len_ptr, result_ty, inner_ptr);
             } else {
                 return sema.fail(
                     block,
