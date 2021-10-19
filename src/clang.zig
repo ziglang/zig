@@ -536,6 +536,9 @@ pub const FunctionDecl = opaque {
     pub const isInlineSpecified = ZigClangFunctionDecl_isInlineSpecified;
     extern fn ZigClangFunctionDecl_isInlineSpecified(*const FunctionDecl) bool;
 
+    pub const hasAlwaysInlineAttr = ZigClangFunctionDecl_hasAlwaysInlineAttr;
+    extern fn ZigClangFunctionDecl_hasAlwaysInlineAttr(*const FunctionDecl) bool;
+
     pub const isDefined = ZigClangFunctionDecl_isDefined;
     extern fn ZigClangFunctionDecl_isDefined(*const FunctionDecl) bool;
 
