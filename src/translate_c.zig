@@ -575,12 +575,14 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     const fn_decl_loc = fn_decl.getLocation();
     const has_body = fn_decl.hasBody();
     const storage_class = fn_decl.getStorageClass();
+    const is_always_inline = has_body and fn_decl.hasAlwaysInlineAttr();
     var decl_ctx = FnDeclContext{
         .fn_name = fn_name,
         .has_body = has_body,
         .storage_class = storage_class,
+        .is_always_inline = is_always_inline,
         .is_export = switch (storage_class) {
-            .None => has_body and !fn_decl.isInlineSpecified(),
+            .None => has_body and !is_always_inline and !fn_decl.isInlineSpecified(),
             .Extern, .Static => false,
             .PrivateExtern => return failDecl(c, fn_decl_loc, fn_name, "unsupported storage class: private extern", .{}),
             .Auto => unreachable, // Not legal on functions
@@ -615,6 +617,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
                 decl_ctx.has_body = false;
                 decl_ctx.storage_class = .Extern;
                 decl_ctx.is_export = false;
+                decl_ctx.is_always_inline = false;
                 try warn(c, &c.global_scope.base, fn_decl_loc, "TODO unable to translate variadic function, demoted to extern", .{});
             }
             break :blk transFnProto(c, fn_decl, fn_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
@@ -653,6 +656,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
         const param_name = param.name orelse {
             proto_node.data.is_extern = true;
             proto_node.data.is_export = false;
+            proto_node.data.is_inline = false;
             try warn(c, &c.global_scope.base, fn_decl_loc, "function {s} parameter has no name, demoted to extern", .{fn_name});
             return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
         };
@@ -685,6 +689,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
         => {
             proto_node.data.is_extern = true;
             proto_node.data.is_export = false;
+            proto_node.data.is_inline = false;
             try warn(c, &c.global_scope.base, fn_decl_loc, "unable to translate function, demoted to extern", .{});
             return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
         },
@@ -704,6 +709,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
             => {
                 proto_node.data.is_extern = true;
                 proto_node.data.is_export = false;
+                proto_node.data.is_inline = false;
                 try warn(c, &c.global_scope.base, fn_decl_loc, "unable to create a return value for function, demoted to extern", .{});
                 return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
             },
@@ -974,6 +980,7 @@ fn buildFlexibleArrayFn(
             .is_pub = true,
             .is_extern = false,
             .is_export = false,
+            .is_inline = false,
             .is_var_args = false,
             .name = field_name,
             .linksection_string = null,
@@ -4807,6 +4814,7 @@ const FnDeclContext = struct {
     fn_name: []const u8,
     has_body: bool,
     storage_class: clang.StorageClass,
+    is_always_inline: bool,
     is_export: bool,
 };
 
@@ -4857,7 +4865,7 @@ fn transFnNoProto(
     is_pub: bool,
 ) !*ast.Payload.Func {
     const cc = try transCC(c, fn_ty, source_loc);
-    const is_var_args = if (fn_decl_context) |ctx| (!ctx.is_export and ctx.storage_class != .Static) else true;
+    const is_var_args = if (fn_decl_context) |ctx| (!ctx.is_export and ctx.storage_class != .Static and !ctx.is_always_inline) else true;
     return finishTransFnProto(c, null, null, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
 }
 
@@ -4874,9 +4882,9 @@ fn finishTransFnProto(
 ) !*ast.Payload.Func {
     const is_export = if (fn_decl_context) |ctx| ctx.is_export else false;
     const is_extern = if (fn_decl_context) |ctx| !ctx.has_body else false;
+    const is_inline = if (fn_decl_context) |ctx| ctx.is_always_inline else false;
     const scope = &c.global_scope.base;
 
-    // TODO check for always_inline attribute
     // TODO check for align attribute
 
     var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
@@ -4920,7 +4928,7 @@ fn finishTransFnProto(
 
     const alignment = if (fn_decl) |decl| zigAlignment(decl.getAlignedAttribute(c.clang_context)) else null;
 
-    const explicit_callconv = if ((is_export or is_extern) and cc == .C) null else cc;
+    const explicit_callconv = if ((is_inline or is_export or is_extern) and cc == .C) null else cc;
 
     const return_type_node = blk: {
         if (fn_ty.getNoReturnAttr()) {
@@ -4949,6 +4957,7 @@ fn finishTransFnProto(
             .is_pub = is_pub,
             .is_extern = is_extern,
             .is_export = is_export,
+            .is_inline = is_inline,
             .is_var_args = is_var_args,
             .name = name,
             .linksection_string = linksection_string,
