@@ -193,9 +193,6 @@ pub const ResultLoc = union(enum) {
     /// The expression must generate a pointer rather than a value. For example, the left hand side
     /// of an assignment uses this kind of result location.
     ref,
-    /// The callee will accept a ref, but it is not necessary, and the `ResultLoc`
-    /// may be treated as `none` instead.
-    none_or_ref,
     /// The expression will be coerced into this type, but it will be evaluated as an rvalue.
     ty: Zir.Inst.Ref,
     /// Same as `ty` but it is guaranteed that Sema will additionally perform the coercion,
@@ -231,7 +228,7 @@ pub const ResultLoc = union(enum) {
     fn strategy(rl: ResultLoc, block_scope: *GenZir) Strategy {
         switch (rl) {
             // In this branch there will not be any store_to_block_ptr instructions.
-            .discard, .none, .none_or_ref, .ty, .coerced_ty, .ref => return .{
+            .discard, .none, .ty, .coerced_ty, .ref => return .{
                 .tag = .break_operand,
                 .elide_store_to_block_ptr_instructions = false,
             },
@@ -727,7 +724,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
                 .start = start,
             });
             switch (rl) {
-                .ref, .none_or_ref => return result,
+                .ref => return result,
                 else => {
                     const dereffed = try gz.addUnNode(.load, result, node);
                     return rvalue(gz, rl, dereffed, node);
@@ -745,7 +742,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
                 .end = end,
             });
             switch (rl) {
-                .ref, .none_or_ref => return result,
+                .ref => return result,
                 else => {
                     const dereffed = try gz.addUnNode(.load, result, node);
                     return rvalue(gz, rl, dereffed, node);
@@ -765,7 +762,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
                 .sentinel = sentinel,
             });
             switch (rl) {
-                .ref, .none_or_ref => return result,
+                .ref => return result,
                 else => {
                     const dereffed = try gz.addUnNode(.load, result, node);
                     return rvalue(gz, rl, dereffed, node);
@@ -776,7 +773,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
         .deref => {
             const lhs = try expr(gz, scope, .none, node_datas[node].lhs);
             switch (rl) {
-                .ref, .none_or_ref => return lhs,
+                .ref => return lhs,
                 else => {
                     const result = try gz.addUnNode(.load, lhs, node);
                     return rvalue(gz, rl, result, node);
@@ -1273,7 +1270,7 @@ fn arrayInitExpr(
                 return arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon_ref);
             }
         },
-        .none, .none_or_ref => {
+        .none => {
             if (types.array != .none) {
                 return arrayInitExprRlTy(gz, scope, node, array_init.ast.elements, types.elem, .array_init);
             } else {
@@ -1475,7 +1472,7 @@ fn structInitExpr(
                 return structInitExprRlNone(gz, scope, node, struct_init, .struct_init_anon_ref);
             }
         },
-        .none, .none_or_ref => {
+        .none => {
             if (struct_init.ast.type_expr != 0) {
                 const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
                 return structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init);
@@ -5133,7 +5130,7 @@ fn fieldAccess(
     if (rl == .ref) {
         return addFieldAccess(.field_ptr, gz, scope, .ref, node);
     } else {
-        const access = try addFieldAccess(.field_val, gz, scope, .none_or_ref, node);
+        const access = try addFieldAccess(.field_val, gz, scope, .none, node);
         return rvalue(gz, rl, access, node);
     }
 }
@@ -5178,7 +5175,7 @@ fn arrayAccess(
         ),
         else => return rvalue(gz, rl, try gz.addBin(
             .elem_val,
-            try expr(gz, scope, .none_or_ref, node_datas[node].lhs),
+            try expr(gz, scope, .none, node_datas[node].lhs),
             try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
         ), node),
     }
@@ -6664,7 +6661,7 @@ fn identifier(
                 );
 
                 switch (rl) {
-                    .ref, .none_or_ref => return ptr_inst,
+                    .ref => return ptr_inst,
                     else => {
                         const loaded = try gz.addUnNode(.load, ptr_inst, ident);
                         return rvalue(gz, rl, loaded, ident);
@@ -6700,7 +6697,7 @@ fn identifier(
     // Decl references happen by name rather than ZIR index so that when unrelated
     // decls are modified, ZIR code containing references to them can be unmodified.
     switch (rl) {
-        .ref, .none_or_ref => return gz.addStrTok(.decl_ref, name_str_index, ident_token),
+        .ref => return gz.addStrTok(.decl_ref, name_str_index, ident_token),
         else => {
             const result = try gz.addStrTok(.decl_val, name_str_index, ident_token);
             return rvalue(gz, rl, result, ident);
@@ -7105,7 +7102,7 @@ fn as(
 ) InnerError!Zir.Inst.Ref {
     const dest_type = try typeExpr(gz, scope, lhs);
     switch (rl) {
-        .none, .none_or_ref, .discard, .ref, .ty, .coerced_ty => {
+        .none, .discard, .ref, .ty, .coerced_ty => {
             const result = try reachableExpr(gz, scope, .{ .ty = dest_type }, rhs, node);
             return rvalue(gz, rl, result, node);
         },
@@ -7128,7 +7125,7 @@ fn unionInit(
     const union_type = try typeExpr(gz, scope, params[0]);
     const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
     switch (rl) {
-        .none, .none_or_ref, .discard, .ref, .ty, .coerced_ty, .inferred_ptr => {
+        .none, .discard, .ref, .ty, .coerced_ty, .inferred_ptr => {
             _ = try gz.addPlNode(.field_type_ref, params[1], Zir.Inst.FieldTypeRef{
                 .container_type = union_type,
                 .field_name = field_name,
@@ -7192,7 +7189,7 @@ fn bitCast(
     const astgen = gz.astgen;
     const dest_type = try typeExpr(gz, scope, lhs);
     switch (rl) {
-        .none, .none_or_ref, .discard, .ty, .coerced_ty => {
+        .none, .discard, .ty, .coerced_ty => {
             const operand = try expr(gz, scope, .none, rhs);
             const result = try gz.addPlNode(.bitcast, node, Zir.Inst.Bin{
                 .lhs = dest_type,
@@ -8799,7 +8796,7 @@ fn rvalue(
 ) InnerError!Zir.Inst.Ref {
     if (gz.endsWithNoReturn()) return result;
     switch (rl) {
-        .none, .none_or_ref, .coerced_ty => return result,
+        .none, .coerced_ty => return result,
         .discard => {
             // Emit a compile error for discarding error values.
             _ = try gz.addUnNode(.ensure_result_non_error, result, src_node);
@@ -9561,9 +9558,7 @@ const GenZir = struct {
                 gz.rl_ty_inst = ty_inst;
                 gz.break_result_loc = parent_rl;
             },
-            .none_or_ref => {
-                gz.break_result_loc = .ref;
-            },
+
             .discard, .none, .ptr, .ref => {
                 gz.break_result_loc = parent_rl;
             },
