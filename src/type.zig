@@ -3096,6 +3096,14 @@ pub const Type = extern union {
                 }
                 return Value.initTag(.empty_struct_value);
             },
+            .enum_numbered => {
+                const enum_numbered = ty.castTag(.enum_numbered).?.data;
+                if (enum_numbered.fields.count() == 1) {
+                    return enum_numbered.values.keys()[0];
+                } else {
+                    return null;
+                }
+            },
             .enum_full => {
                 const enum_full = ty.castTag(.enum_full).?.data;
                 if (enum_full.fields.count() == 1) {
@@ -3112,8 +3120,14 @@ pub const Type = extern union {
                     return null;
                 }
             },
-            .enum_nonexhaustive => ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty,
-            .enum_numbered => ty = ty.castTag(.enum_numbered).?.data.tag_ty,
+            .enum_nonexhaustive => {
+                const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
+                if (tag_ty.cast(Type.Payload.Bits).?.data == 0) {
+                    return Value.initTag(.zero);
+                } else {
+                    return null;
+                }
+            },
             .@"union" => {
                 return null; // TODO
             },
@@ -3137,8 +3151,8 @@ pub const Type = extern union {
             .vector, .array, .array_u8 => {
                 if (ty.arrayLen() == 0)
                     return Value.initTag(.empty_array);
-                ty = ty.elemType();
-                continue;
+                _ = ty.elemType().onePossibleValue() orelse return null;
+                return Value.initTag(.the_only_possible_value);
             },
 
             .inferred_alloc_const => unreachable,

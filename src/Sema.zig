@@ -13835,7 +13835,14 @@ fn typeHasOnePossibleValue(
                 return null;
             }
         },
-        .enum_nonexhaustive => ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty,
+        .enum_nonexhaustive => {
+            const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
+            if (tag_ty.cast(Type.Payload.Bits).?.data == 0) {
+                return Value.initTag(.zero);
+            } else {
+                return null;
+            }
+        },
         .@"union" => {
             return null; // TODO
         },
@@ -13859,8 +13866,8 @@ fn typeHasOnePossibleValue(
         .vector, .array, .array_u8 => {
             if (ty.arrayLen() == 0)
                 return Value.initTag(.empty_array);
-            ty = ty.elemType();
-            continue;
+            _ = (try sema.typeHasOnePossibleValue(block, src, ty.elemType())) orelse return null;
+            return Value.initTag(.the_only_possible_value);
         },
 
         .inferred_alloc_const => unreachable,
