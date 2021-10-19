@@ -4912,7 +4912,7 @@ fn tryExpr(
         .ref => .ref,
         else => .none,
     };
-    const err_ops = switch (rl) {
+    const err_ops = switch (operand_rl) {
         // zig fmt: off
         .ref => [3]Zir.Inst.Tag{ .is_non_err_ptr, .err_union_code_ptr, .err_union_payload_unsafe_ptr },
         else => [3]Zir.Inst.Tag{ .is_non_err,     .err_union_code,     .err_union_payload_unsafe },

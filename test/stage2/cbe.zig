@@ -501,6 +501,19 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return 69 - i;
             \\}
         , "");
+        case.addCompareOutput(
+            \\const E = error{e};
+            \\const S = struct { x: u32 };
+            \\fn f() E!u32 {
+            \\    const x = (try @as(E!S, S{ .x = 1 })).x;
+            \\    return x;
+            \\}
+            \\pub export fn main() c_int {
+            \\    const x = f() catch @as(u32, 0);
+            \\    if (x != 1) unreachable;
+            \\    return 0;
+            \\}
+        , "");
     }
 
     {
