@@ -2808,14 +2808,16 @@ fn maybeBlockify(c: *Context, scope: *Scope, stmt: *const clang.Stmt) TransError
         .NullStmtClass,
         .WhileStmtClass,
         => return transStmt(c, scope, stmt, .unused),
-        else => {
-            var block_scope = try Scope.Block.init(c, scope, false);
-            defer block_scope.deinit();
-            const result = try transStmt(c, &block_scope.base, stmt, .unused);
-            try block_scope.statements.append(result);
-            return block_scope.complete(c);
-        },
+        else => return blockify(c, scope, stmt),
     }
+}
+
+fn blockify(c: *Context, scope: *Scope, stmt: *const clang.Stmt) TransError!Node {
+    var block_scope = try Scope.Block.init(c, scope, false);
+    defer block_scope.deinit();
+    const result = try transStmt(c, &block_scope.base, stmt, .unused);
+    try block_scope.statements.append(result);
+    return block_scope.complete(c);
 }
 
 fn transIfStmt(
@@ -2835,9 +2837,21 @@ fn transIfStmt(
     const cond_expr = @ptrCast(*const clang.Expr, stmt.getCond());
     const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
 
-    const then_body = try maybeBlockify(c, scope, stmt.getThen());
+    const then_stmt = stmt.getThen();
+    const else_stmt = stmt.getElse();
+    const then_class = then_stmt.getStmtClass();
+    // block needed to keep else statement from attaching to inner while
+    const must_blockify = (else_stmt != null) and switch (then_class) {
+        .DoStmtClass, .ForStmtClass, .WhileStmtClass => true,
+        else => false,
+    };
 
-    const else_body = if (stmt.getElse()) |expr|
+    const then_body = if (must_blockify)
+        try blockify(c, scope, then_stmt)
+    else
+        try maybeBlockify(c, scope, then_stmt);
+
+    const else_body = if (else_stmt) |expr|
         try maybeBlockify(c, scope, expr)
     else
         null;
