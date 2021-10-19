@@ -2316,7 +2316,7 @@ fn validateStructInit(
         const field_ptr_extra = sema.code.extraData(Zir.Inst.Field, field_ptr_data.payload_index).data;
         const field_name = sema.code.nullTerminatedString(field_ptr_extra.field_name_start);
         const field_index = struct_obj.fields.getIndex(field_name) orelse
-            return sema.failWithBadFieldAccess(block, struct_obj, field_src, field_name);
+            return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
         if (found_fields[field_index] != 0) {
             const other_field_ptr = found_fields[field_index];
             const other_field_ptr_data = sema.code.instructions.items(.data)[other_field_ptr].pl_node;
@@ -2378,7 +2378,32 @@ fn zirValidateArrayInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compil
     }
 }
 
-fn failWithBadFieldAccess(
+fn failWithBadMemberAccess(
+    sema: *Sema,
+    block: *Block,
+    agg_ty: Type,
+    field_src: LazySrcLoc,
+    field_name: []const u8,
+) CompileError {
+    const kw_name = switch (agg_ty.zigTypeTag()) {
+        .Union => "union",
+        .Struct => "struct",
+        .Opaque => "opaque",
+        .Enum => "enum",
+        else => unreachable,
+    };
+    const msg = msg: {
+        const msg = try sema.errMsg(block, field_src, "{s} '{}' has no member named '{s}'", .{
+            kw_name, agg_ty, field_name,
+        });
+        errdefer msg.destroy(sema.gpa);
+        try sema.addDeclaredHereNote(msg, agg_ty);
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(msg);
+}
+
+fn failWithBadStructFieldAccess(
     sema: *Sema,
     block: *Block,
     struct_obj: *Module.Struct,
@@ -8828,7 +8853,7 @@ fn zirStructInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: bool)
             const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index).data;
             const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
             const field_index = struct_obj.fields.getIndex(field_name) orelse
-                return sema.failWithBadFieldAccess(block, struct_obj, field_src, field_name);
+                return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
             if (found_fields[field_index] != 0) {
                 const other_field_type = found_fields[field_index];
                 const other_field_type_data = zir_datas[other_field_type].pl_node;
@@ -9037,7 +9062,7 @@ fn zirFieldType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         .Struct => {
             const struct_obj = resolved_ty.castTag(.@"struct").?.data;
             const field = struct_obj.fields.get(field_name) orelse
-                return sema.failWithBadFieldAccess(block, struct_obj, src, field_name);
+                return sema.failWithBadStructFieldAccess(block, struct_obj, src, field_name);
             return sema.addType(field.ty);
         },
         .Union => {
@@ -10859,7 +10884,7 @@ fn fieldVal(
         },
         else => {},
     }
-    return sema.fail(block, src, "type '{}' does not support field access (fieldVal, {}.{s})", .{object_ty, object_ty, field_name});
+    return sema.fail(block, src, "type '{}' does not support field access (fieldVal, {}.{s})", .{ object_ty, object_ty, field_name });
 }
 
 fn fieldPtr(
@@ -11001,22 +11026,24 @@ fn fieldPtr(
                         try Value.Tag.@"error".create(anon_decl.arena(), .{ .name = name }),
                     ));
                 },
-                .Struct, .Opaque, .Union => {
+                .Union => {
                     if (child_type.getNamespace()) |namespace| {
                         if (try sema.namespaceLookupRef(block, src, namespace, field_name)) |inst| {
                             return inst;
                         }
                     }
-                    // TODO add note: declared here
-                    const kw_name = switch (child_type.zigTypeTag()) {
-                        .Struct => "struct",
-                        .Opaque => "opaque",
-                        .Union => "union",
-                        else => unreachable,
-                    };
-                    return sema.fail(block, src, "{s} '{}' has no member named '{s}'", .{
-                        kw_name, child_type, field_name,
-                    });
+                    if (child_type.unionTagType()) |enum_ty| {
+                        if (enum_ty.enumFieldIndex(field_name)) |field_index| {
+                            const field_index_u32 = @intCast(u32, field_index);
+                            var anon_decl = try block.startAnonDecl();
+                            defer anon_decl.deinit();
+                            return sema.analyzeDeclRef(try anon_decl.finish(
+                                try enum_ty.copy(anon_decl.arena()),
+                                try Value.Tag.enum_field_index.create(anon_decl.arena(), field_index_u32),
+                            ));
+                        }
+                    }
+                    return sema.failWithBadMemberAccess(block, child_type, field_name_src, field_name);
                 },
                 .Enum => {
                     if (child_type.getNamespace()) |namespace| {
@@ -11025,23 +11052,7 @@ fn fieldPtr(
                         }
                     }
                     const field_index = child_type.enumFieldIndex(field_name) orelse {
-                        const msg = msg: {
-                            const msg = try sema.errMsg(
-                                block,
-                                src,
-                                "enum '{}' has no member named '{s}'",
-                                .{ child_type, field_name },
-                            );
-                            errdefer msg.destroy(sema.gpa);
-                            try sema.mod.errNoteNonLazy(
-                                child_type.declSrcLoc(),
-                                msg,
-                                "enum declared here",
-                                .{},
-                            );
-                            break :msg msg;
-                        };
-                        return sema.failWithOwnedErrorMsg(msg);
+                        return sema.failWithBadMemberAccess(block, child_type, field_name_src, field_name);
                     };
                     const field_index_u32 = @intCast(u32, field_index);
                     var anon_decl = try block.startAnonDecl();
@@ -11050,6 +11061,14 @@ fn fieldPtr(
                         try child_type.copy(anon_decl.arena()),
                         try Value.Tag.enum_field_index.create(anon_decl.arena(), field_index_u32),
                     ));
+                },
+                .Struct, .Opaque => {
+                    if (child_type.getNamespace()) |namespace| {
+                        if (try sema.namespaceLookupRef(block, src, namespace, field_name)) |inst| {
+                            return inst;
+                        }
+                    }
+                    return sema.failWithBadMemberAccess(block, child_type, field_name_src, field_name);
                 },
                 else => return sema.fail(block, src, "type '{}' has no members", .{child_type}),
             }
@@ -11070,7 +11089,7 @@ fn fieldPtr(
         },
         else => {},
     }
-    return sema.fail(block, src, "type '{}' does not support field access (fieldPtr, {}.{s})", .{object_ty, object_ptr_ty, field_name});
+    return sema.fail(block, src, "type '{}' does not support field access (fieldPtr, {}.{s})", .{ object_ty, object_ptr_ty, field_name });
 }
 
 fn fieldCallBind(
@@ -11242,7 +11261,7 @@ fn structFieldPtr(
     const struct_obj = struct_ty.castTag(.@"struct").?.data;
 
     const field_index_big = struct_obj.fields.getIndex(field_name) orelse
-        return sema.failWithBadFieldAccess(block, struct_obj, field_name_src, field_name);
+        return sema.failWithBadStructFieldAccess(block, struct_obj, field_name_src, field_name);
     const field_index = @intCast(u32, field_index_big);
     const field = struct_obj.fields.values()[field_index];
     const ptr_field_ty = try Type.ptr(arena, .{
@@ -11279,10 +11298,9 @@ fn structFieldVal(
     const struct_ty = try sema.resolveTypeFields(block, src, unresolved_struct_ty);
     const struct_obj = struct_ty.castTag(.@"struct").?.data;
 
-    const field_index_big = struct_obj.fields.getIndex(field_name) orelse
-        return sema.failWithBadFieldAccess(block, struct_obj, field_name_src, field_name);
-    const field_index = @intCast(u32, field_index_big);
-
+    const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
+        return sema.failWithBadStructFieldAccess(block, struct_obj, field_name_src, field_name);
+    const field_index = @intCast(u32, field_index_usize);
     const field = struct_obj.fields.values()[field_index];
 
     if (try sema.resolveMaybeUndefVal(block, src, struct_byval)) |struct_val| {
@@ -13167,6 +13185,10 @@ pub fn resolveTypeLayout(
                 try sema.resolveTypeLayout(block, src, field.ty);
             }
             union_obj.status = .have_layout;
+        },
+        .Array => {
+            const elem_ty = ty.childType();
+            return sema.resolveTypeLayout(block, src, elem_ty);
         },
         else => {},
     }

@@ -1261,6 +1261,10 @@ pub const DeclGen = struct {
                 }
                 const field_ty = tv.ty.unionFieldType(tag_and_val.tag);
                 const payload = p: {
+                    if (!field_ty.hasCodeGenBits()) {
+                        const padding_len = @intCast(c_uint, layout.payload_size);
+                        break :p self.context.intType(8).arrayType(padding_len).getUndef();
+                    }
                     const field = try genTypedValue(self, .{ .ty = field_ty, .val = tag_and_val.val });
                     const field_size = field_ty.abiSize(target);
                     if (field_size == layout.payload_size) {
