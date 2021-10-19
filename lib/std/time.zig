@@ -115,8 +115,9 @@ pub fn milliMonotonic() u64 {
 /// Consider letting the International Telecommunications Union know exactly what you think 
 /// of leap seconds. As of 2021, they are considering removing them going forward.
 ///
-/// This returns ticks since Zig's Utc2018 Epoch: 00:00:00 Jan. 1, 1601 in 2018's UTC (00:00:27 
-/// Jan. 1, 1601 TAI). These timestamps don't jump around with leap seconds, like UTC does.
+/// This returns ticks since Zig's Utc2018 Epoch: 1601-01-01T00:00:00 in 2018's UTC assuming no
+/// leap seconds. However, Leap seconds are real, so the actual start of the Utc2018 Epoch is
+/// represented as "1601-01-01T00:00:27". These timestamps don't jump around on leap seconds.
 /// This handles errors by returning zero.
 /// These are the same timestamps used by std.fs.File.Stat
 /// See `std.os.clock_gettime` for a POSIX timestamp.
@@ -140,6 +141,12 @@ pub fn timestampNow() u96 {
 /// than having a CalendarTime stop working partway through the year 3777.
 pub const max_st = 0xFFEF7E9FF_FFFFFFFFFFFFFFF;
 pub const max_seconds = 0xFFEF7E9FF;
+
+// Fixed-Point multipler to turn nanoseconds into 36.60 StdTime
+const ns_scale_st_36_60: u96 = (1 << 60) / ns_per_s;
+
+// Fixed-Point multipler to turn FILETIME units into 36.60 StdTime
+const filetime_scale_st_36_60: u96 = (1 << 60) / (ns_per_s / 100);
 
 const TimestampImpl = if (is_windows) WindowsTimestampImpl else PosixTimestampImpl;
 
@@ -217,18 +224,15 @@ const PosixTimestampImpl = struct {
         os.clock_gettime(clock_id, &ts) catch return 0;
 
         // Convert to Utc2018 seconds
-        const seconds = @intCast(u128, ts.tv_sec) + utc2018.epoch.posix - clock_offset;
+        const seconds = @intCast(u96, ts.tv_sec) + utc2018.epoch.posix - clock_offset;
 
         // Fixed-point math. Move to the left for 60 bits of fraction.
-        const seconds_68_60 = seconds << 60;
-        const ns_68_60 = @intCast(u128, ts.tv_nsec) << 60;
+        const seconds_36_60 = seconds << 60;
 
         // Convert from 1ns units to seconds.
         // Fractional part remains in the 60 lowest bits.
-        const st_68_60 = seconds_68_60 + (ns_68_60 / ns_per_s);
-
-        // Truncate to a reasonable range (remove 32 bits off the top)
-        return @truncate(u96, st_68_60);
+        const st_36_60 = seconds_36_60 + (@intCast(u96, ts.tv_nsec) * ns_scale_st_36_60);
+        return st_36_60;
     }
 };
 
@@ -242,15 +246,11 @@ const WindowsTimestampImpl = struct {
         var ft: os.windows.FILETIME = undefined;
         os.windows.kernel32.GetSystemTimePreciseAsFileTime(&ft);
 
-        // Fixed-point math. Move to the left for 60 bits of fraction.
-        const ft_68_60 = @as(u128, ft) << 60;
-
+        // Fixed-point math. Scales to 60 bits of fraction.
         // Convert from 100ns units to seconds. 10_000_000 100ns units per second.
         // Fractional part remains in the 60 lowest bits.
-        const st_68_60 = ft_68_60 / (ns_per_s / 100);
-
-        // Truncate to a reasonable range (remove 32 bits off the top)
-        return @truncate(u96, st_68_60);
+        const st_36_60 = @as(u96, ft) * filetime_scale_st_36_60;
+        return st_36_60;
     }
 };
 
@@ -576,16 +576,68 @@ pub const Instant = struct {
             return std.math.order(self.native_ticks, other.native_ticks);
         }
 
-        return if (self.native_ticks.tv_sec < other.native_ticks.tv_sec)
-            std.math.Order.lt
-        else if (self.native_ticks.tv_sec > other.native_ticks.tv_sec)
-            std.math.Order.gt
-        else if (self.native_ticks.tv_nsec < other.native_ticks.tv_nsec)
-            std.math.Order.lt
-        else if (self.native_ticks.tv_nsec > other.native_ticks.tv_nsec)
-            std.math.Order.gt
-        else
-            std.math.Order.eq;
+        var ord = std.math.order(self.native_ticks.tv_sec, other.native_ticks.tv_sec);
+        if (ord == .eq)
+            ord = std.math.order(self.native_ticks.tv_nsec, other.native_ticks.tv_nsec);
+        return ord;
+    }
+
+    const zero_tick: NativeTicks = if (is_darwin or is_windows) 0 else .{
+        .tv_sec = 0,
+        .tv_nsec = 0,
+    };
+    const instant_zero = Instant{
+        .native_ticks = zero_tick,
+    };
+
+    // This is used to implement Instant.asStdTime().
+    // This represents the std time at a hypothetical Instant{ZeroTick}.
+    var base_std_time: u96 = 0;
+    var base_std_time_valid = false;
+
+    // The two Instants are averaged to become slightly more accurate.
+    // avg_instant.sinceAssumeEarlier(Instant{ZeroTick}) is subtracted from the std timestamp to
+    // become base_std_time
+    fn getBaseStdTime() void {
+        var best_delta_ns = ns_per_day;
+        var best_st = 0;
+        var best_ns_sinze_zero = 0;
+        while (true) {
+            // Grab two Instant.now() with a std timestamp in-between.
+            const instant_1 = Instant.now();
+            const st = timestampNow();
+            const instant_2 = Instant.now();
+
+            const instant_1_ns_since_zero = instant_1.sinceAssumeEarlier(instant_zero);
+            const instant_2_ns_since_zero = instant_2.sinceAssumeEarlier(instant_zero);
+
+            if (instant_1_ns_since_zero > instant_2_ns_since_zero)
+                continue; // Try again, non-monotonic behavior
+
+            const delta_ns = instant_2_ns_since_zero - instant_1_ns_since_zero;
+            if (delta_ns < (best_delta_ns / 2)) {
+                best_delta_ns = delta_ns;
+                best_st = st;
+                best_ns_sinze_zero = instant_1_ns_since_zero + (delta_ns / 2);
+                continue; // Found a much better delta, try again
+            }
+
+            return best_st - (best_ns_sinze_zero * ns_scale_st_36_60);
+        }
+    }
+
+    /// Returns the Instant converted to zig StdTime in Utc2018.
+    /// The first time this is called, this may take up to a few microseconds to establish the 
+    /// congruence between Instant's NativeTicks and StdTime via timestampNow().
+    pub fn asStdTime(self: Instant) u96 {
+        if (!base_std_time_valid) {
+            base_std_time = getBaseStdTime();
+            // TODO: Add a Zig idiomatic fence to ensure the above occurs first.
+            base_std_time_valid = true;
+        }
+
+        const st_since_base = self.sinceAssumeEarlier(instant_zero) * ns_scale_st_36_60;
+        return base_std_time + st_since_base;
     }
 
     /// Returns the duration in nanoseconds since the earlier Instant to this Instant.
@@ -656,10 +708,6 @@ pub const CpuTime = enum {
 
     // measure thread/process/computer cpu time in nanoseconds
     pub fn read(self: CpuTime) Error!u64 {
-        // windows: GetThreadTimes/GetProcessTimes
-        // posix: clock_gettime(CLOCK_[THREAD|PROCESS]_CPUTIME_ID)
-        _ = self;
-
         return if (is_windows) switch (self) {
             .thread => readWindowsCpuTime("GetThreadTimes", "GetCurrentThread"),
             .process => readWindowsCpuTime("GetProcessTimes", "GetCurrentProcess"),
