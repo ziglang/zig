@@ -3438,3 +3438,17 @@ test "LibExeObjStep.addPackage" {
     const dupe = exe.packages.items[0];
     try std.testing.expectEqualStrings(pkg_top.name, dupe.name);
 }
+
+/// This exit code from either "zig build" or the build_runner indicates
+/// the "full reason" for a build failure has already been reported to stderr.
+/// This will prevent 'zig` from piling on errors to the ones reported by the
+/// build_runner.
+pub const fail_fully_reported_exit_code = 0x3f;
+
+/// Print an error message to stderr and exit with a special exit
+/// code that notifies the invoking process that the build error
+/// has already been fully reported to stderr.
+pub fn fatalFullReport(comptime error_fmt: []const u8, args: anytype) noreturn {
+    std.log.err(error_fmt, args);
+    std.os.exit(fail_fully_reported_exit_code);
+}

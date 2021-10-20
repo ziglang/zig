@@ -3616,7 +3616,9 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .Exited => |code| {
                 if (code == 0) return cleanExit();
 
-                if (prominent_compile_errors) {
+                if (code == std.build.fail_fully_reported_exit_code) {
+                    process.exit(std.build.fail_fully_reported_exit_code);
+                } else if (prominent_compile_errors) {
                     fatal("the build command failed with exit code {d}", .{code});
                 } else {
                     const cmd = try std.mem.join(arena, " ", child_argv);
