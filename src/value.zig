@@ -116,7 +116,7 @@ pub const Value = extern union {
         decl_ref_mut,
         /// Pointer to a specific element of an array.
         elem_ptr,
-        /// Pointer to a specific field of a struct.
+        /// Pointer to a specific field of a struct or union.
         field_ptr,
         /// A slice of u8 whose memory is managed externally.
         bytes,

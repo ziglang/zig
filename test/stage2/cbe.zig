@@ -852,7 +852,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = E.d;
             \\}
         , &.{
-            ":3:10: error: enum 'tmp.E' has no member named 'd'",
+            ":3:11: error: enum 'tmp.E' has no member named 'd'",
             ":1:11: note: enum declared here",
         });
 

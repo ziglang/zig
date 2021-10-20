@@ -550,18 +550,9 @@ pub fn analyzeBody(
             .slice_sentinel               => try sema.zirSliceSentinel(block, inst),
             .slice_start                  => try sema.zirSliceStart(block, inst),
             .str                          => try sema.zirStr(block, inst),
-            .switch_block                 => try sema.zirSwitchBlock(block, inst, false, .none),
-            .switch_block_multi           => try sema.zirSwitchBlockMulti(block, inst, false, .none),
-            .switch_block_else            => try sema.zirSwitchBlock(block, inst, false, .@"else"),
-            .switch_block_else_multi      => try sema.zirSwitchBlockMulti(block, inst, false, .@"else"),
-            .switch_block_under           => try sema.zirSwitchBlock(block, inst, false, .under),
-            .switch_block_under_multi     => try sema.zirSwitchBlockMulti(block, inst, false, .under),
-            .switch_block_ref             => try sema.zirSwitchBlock(block, inst, true, .none),
-            .switch_block_ref_multi       => try sema.zirSwitchBlockMulti(block, inst, true, .none),
-            .switch_block_ref_else        => try sema.zirSwitchBlock(block, inst, true, .@"else"),
-            .switch_block_ref_else_multi  => try sema.zirSwitchBlockMulti(block, inst, true, .@"else"),
-            .switch_block_ref_under       => try sema.zirSwitchBlock(block, inst, true, .under),
-            .switch_block_ref_under_multi => try sema.zirSwitchBlockMulti(block, inst, true, .under),
+            .switch_block                 => try sema.zirSwitchBlock(block, inst),
+            .switch_cond                  => try sema.zirSwitchCond(block, inst, false),
+            .switch_cond_ref              => try sema.zirSwitchCond(block, inst, true),
             .switch_capture               => try sema.zirSwitchCapture(block, inst, false, false),
             .switch_capture_ref           => try sema.zirSwitchCapture(block, inst, false, true),
             .switch_capture_multi         => try sema.zirSwitchCapture(block, inst, true, false),
@@ -5433,11 +5424,80 @@ fn zirSwitchCapture(
     const zir_datas = sema.code.instructions.items(.data);
     const capture_info = zir_datas[inst].switch_capture;
     const switch_info = zir_datas[capture_info.switch_inst].pl_node;
-    const src = switch_info.src();
+    const switch_extra = sema.code.extraData(Zir.Inst.SwitchBlock, switch_info.payload_index);
+    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = switch_info.src_node };
+    const switch_src = switch_info.src();
+    const operand_is_ref = switch_extra.data.bits.is_ref;
+    const cond_inst = Zir.refToIndex(switch_extra.data.operand).?;
+    const cond_info = sema.code.instructions.items(.data)[cond_inst].un_node;
+    const operand_ptr = sema.resolveInst(cond_info.operand);
+    const operand_ptr_ty = sema.typeOf(operand_ptr);
+    const operand_ty = if (operand_is_ref) operand_ptr_ty.childType() else operand_ptr_ty;
 
-    _ = is_ref;
-    _ = is_multi;
-    return sema.fail(block, src, "TODO implement Sema for zirSwitchCapture", .{});
+    if (is_multi) {
+        return sema.fail(block, switch_src, "TODO implement Sema for switch capture multi", .{});
+    }
+    const scalar_prong = switch_extra.data.getScalarProng(sema.code, switch_extra.end, capture_info.prong_index);
+    const item = sema.resolveInst(scalar_prong.item);
+    // Previous switch validation ensured this will succeed
+    const item_val = sema.resolveConstValue(block, .unneeded, item) catch unreachable;
+
+    switch (operand_ty.zigTypeTag()) {
+        .Union => {
+            const union_obj = operand_ty.cast(Type.Payload.Union).?.data;
+            const enum_ty = union_obj.tag_ty;
+
+            const field_index_usize = enum_ty.enumTagFieldIndex(item_val).?;
+            const field_index = @intCast(u32, field_index_usize);
+            const field = union_obj.fields.values()[field_index];
+
+            // TODO handle multiple union tags which have compatible types
+
+            if (is_ref) {
+                assert(operand_is_ref);
+
+                const field_ty_ptr = try Type.ptr(sema.arena, .{
+                    .pointee_type = field.ty,
+                    .@"addrspace" = .generic,
+                    .mutable = operand_ptr_ty.ptrIsMutable(),
+                });
+
+                if (try sema.resolveDefinedValue(block, operand_src, operand_ptr)) |op_ptr_val| {
+                    return sema.addConstant(
+                        field_ty_ptr,
+                        try Value.Tag.field_ptr.create(sema.arena, .{
+                            .container_ptr = op_ptr_val,
+                            .field_index = field_index,
+                        }),
+                    );
+                }
+                try sema.requireRuntimeBlock(block, operand_src);
+                return block.addStructFieldPtr(operand_ptr, field_index, field.ty);
+            }
+
+            const operand = if (operand_is_ref)
+                try sema.analyzeLoad(block, operand_src, operand_ptr, operand_src)
+            else
+                operand_ptr;
+
+            if (try sema.resolveDefinedValue(block, operand_src, operand)) |operand_val| {
+                return sema.addConstant(
+                    field.ty,
+                    operand_val.castTag(.@"union").?.data.val,
+                );
+            }
+            try sema.requireRuntimeBlock(block, operand_src);
+            return block.addStructFieldVal(operand, field_index, field.ty);
+        },
+        .ErrorSet => {
+            return sema.fail(block, operand_src, "TODO implement Sema for zirSwitchCapture for error sets", .{});
+        },
+        else => {
+            return sema.fail(block, operand_src, "switch on type '{}' provides no capture value", .{
+                operand_ty,
+            });
+        },
+    }
 }
 
 fn zirSwitchCaptureElse(
@@ -5452,96 +5512,108 @@ fn zirSwitchCaptureElse(
     const zir_datas = sema.code.instructions.items(.data);
     const capture_info = zir_datas[inst].switch_capture;
     const switch_info = zir_datas[capture_info.switch_inst].pl_node;
+    const switch_extra = sema.code.extraData(Zir.Inst.SwitchBlock, switch_info.payload_index).data;
     const src = switch_info.src();
+    const operand_is_ref = switch_extra.bits.is_ref;
+    assert(!is_ref or operand_is_ref);
 
-    _ = is_ref;
     return sema.fail(block, src, "TODO implement Sema for zirSwitchCaptureElse", .{});
 }
 
-fn zirSwitchBlock(
+fn zirSwitchCond(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
     is_ref: bool,
-    special_prong: Zir.SpecialProng,
 ) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const operand_ptr = sema.resolveInst(inst_data.operand);
+    const operand = if (is_ref) try sema.analyzeLoad(block, src, operand_ptr, src) else operand_ptr;
+    const operand_ty = sema.typeOf(operand);
+
+    switch (operand_ty.zigTypeTag()) {
+        .Type,
+        .Void,
+        .Bool,
+        .Int,
+        .Float,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .EnumLiteral,
+        .Pointer,
+        .Fn,
+        .ErrorSet,
+        .Enum,
+        => {
+            if ((try sema.typeHasOnePossibleValue(block, src, operand_ty))) |opv| {
+                return sema.addConstant(operand_ty, opv);
+            }
+            return operand;
+        },
+
+        .Union => {
+            const enum_ty = operand_ty.unionTagType() orelse {
+                const msg = msg: {
+                    const msg = try sema.errMsg(block, src, "switch on untagged union", .{});
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.addDeclaredHereNote(msg, operand_ty);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(msg);
+            };
+            return sema.unionToTag(block, enum_ty, operand, src);
+        },
+
+        .ErrorUnion,
+        .NoReturn,
+        .Array,
+        .Struct,
+        .Undefined,
+        .Null,
+        .Optional,
+        .BoundFn,
+        .Opaque,
+        .Vector,
+        .Frame,
+        .AnyFrame,
+        => return sema.fail(block, src, "switch on type '{}'", .{operand_ty}),
+    }
+}
+
+fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = inst_data.src_node };
+    const src_node_offset = inst_data.src_node;
+    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = src_node_offset };
+    const special_prong_src: LazySrcLoc = .{ .node_offset_switch_special_prong = src_node_offset };
     const extra = sema.code.extraData(Zir.Inst.SwitchBlock, inst_data.payload_index);
 
     const operand_ptr = sema.resolveInst(extra.data.operand);
-    const operand = if (is_ref)
+    const operand = if (extra.data.bits.is_ref)
         try sema.analyzeLoad(block, src, operand_ptr, operand_src)
     else
         operand_ptr;
 
-    return sema.analyzeSwitch(
-        block,
-        operand,
-        extra.end,
-        special_prong,
-        extra.data.cases_len,
-        0,
-        inst,
-        inst_data.src_node,
-    );
-}
+    var header_extra_index: usize = extra.end;
 
-fn zirSwitchBlockMulti(
-    sema: *Sema,
-    block: *Block,
-    inst: Zir.Inst.Index,
-    is_ref: bool,
-    special_prong: Zir.SpecialProng,
-) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const scalar_cases_len = extra.data.bits.scalar_cases_len;
+    const multi_cases_len = if (extra.data.bits.has_multi_cases) blk: {
+        const multi_cases_len = sema.code.extra[header_extra_index];
+        header_extra_index += 1;
+        break :blk multi_cases_len;
+    } else 0;
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = inst_data.src_node };
-    const extra = sema.code.extraData(Zir.Inst.SwitchBlockMulti, inst_data.payload_index);
-
-    const operand_ptr = sema.resolveInst(extra.data.operand);
-    const operand = if (is_ref)
-        try sema.analyzeLoad(block, src, operand_ptr, operand_src)
-    else
-        operand_ptr;
-
-    return sema.analyzeSwitch(
-        block,
-        operand,
-        extra.end,
-        special_prong,
-        extra.data.scalar_cases_len,
-        extra.data.multi_cases_len,
-        inst,
-        inst_data.src_node,
-    );
-}
-
-fn analyzeSwitch(
-    sema: *Sema,
-    block: *Block,
-    operand: Air.Inst.Ref,
-    extra_end: usize,
-    special_prong: Zir.SpecialProng,
-    scalar_cases_len: usize,
-    multi_cases_len: usize,
-    switch_inst: Zir.Inst.Index,
-    src_node_offset: i32,
-) CompileError!Air.Inst.Ref {
-    const gpa = sema.gpa;
-
+    const special_prong = extra.data.bits.specialProng();
     const special: struct { body: []const Zir.Inst.Index, end: usize } = switch (special_prong) {
-        .none => .{ .body = &.{}, .end = extra_end },
+        .none => .{ .body = &.{}, .end = header_extra_index },
         .under, .@"else" => blk: {
-            const body_len = sema.code.extra[extra_end];
-            const extra_body_start = extra_end + 1;
+            const body_len = sema.code.extra[header_extra_index];
+            const extra_body_start = header_extra_index + 1;
             break :blk .{
                 .body = sema.code.extra[extra_body_start..][0..body_len],
                 .end = extra_body_start + body_len,
@@ -5549,9 +5621,6 @@ fn analyzeSwitch(
         },
     };
 
-    const src: LazySrcLoc = .{ .node_offset = src_node_offset };
-    const special_prong_src: LazySrcLoc = .{ .node_offset_switch_special_prong = src_node_offset };
-    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = src_node_offset };
     const operand_ty = sema.typeOf(operand);
 
     // Validate usage of '_' prongs.
@@ -5945,7 +6014,7 @@ fn analyzeSwitch(
         .data = undefined,
     });
     var label: Block.Label = .{
-        .zir_block = switch_inst,
+        .zir_block = inst,
         .merges = .{
             .results = .{},
             .br_list = .{},
@@ -8934,8 +9003,9 @@ fn zirStructInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: bool)
         const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_type_data.src_node };
         const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index).data;
         const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
-        const field_index = union_obj.fields.getIndex(field_name) orelse
+        const field_index_usize = union_obj.fields.getIndex(field_name) orelse
             return sema.failWithBadUnionFieldAccess(block, union_obj, field_src, field_name);
+        const field_index = @intCast(u32, field_index_usize);
 
         if (is_ref) {
             return sema.fail(block, src, "TODO: Sema.zirStructInit is_ref=true union", .{});
@@ -8943,12 +9013,10 @@ fn zirStructInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: bool)
 
         const init_inst = sema.resolveInst(item.data.init);
         if (try sema.resolveMaybeUndefVal(block, field_src, init_inst)) |val| {
+            const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
             return sema.addConstant(
                 resolved_ty,
-                try Value.Tag.@"union".create(sema.arena, .{
-                    .tag = try Value.Tag.int_u64.create(sema.arena, field_index),
-                    .val = val,
-                }),
+                try Value.Tag.@"union".create(sema.arena, .{ .tag = tag_val, .val = val }),
             );
         }
         return sema.fail(block, src, "TODO: Sema.zirStructInit for runtime-known union values", .{});
@@ -9152,8 +9220,8 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     const type_info = try sema.coerce(block, type_info_ty, uncasted_operand, operand_src);
     const val = try sema.resolveConstValue(block, operand_src, type_info);
     const union_val = val.cast(Value.Payload.Union).?.data;
-    const TypeInfoTag = std.meta.Tag(std.builtin.TypeInfo);
-    const tag_index = @intCast(std.meta.Tag(TypeInfoTag), union_val.tag.toUnsignedInt());
+    const tag_ty = type_info_ty.unionTagType().?;
+    const tag_index = tag_ty.enumTagFieldIndex(union_val.tag).?;
     switch (@intToEnum(std.builtin.TypeId, tag_index)) {
         .Type => return Air.Inst.Ref.type_type,
         .Void => return Air.Inst.Ref.void_type,
@@ -10819,10 +10887,39 @@ fn fieldVal(
                         try Value.Tag.@"error".create(arena, .{ .name = name }),
                     );
                 },
-                .Struct, .Opaque, .Union => {
+                .Union => {
                     if (child_type.getNamespace()) |namespace| {
-                        if (try sema.namespaceLookupRef(block, src, namespace, field_name)) |inst| {
-                            return sema.analyzeLoad(block, src, inst, src);
+                        if (try sema.namespaceLookupVal(block, src, namespace, field_name)) |inst| {
+                            return inst;
+                        }
+                    }
+                    if (child_type.unionTagType()) |enum_ty| {
+                        if (enum_ty.enumFieldIndex(field_name)) |field_index_usize| {
+                            const field_index = @intCast(u32, field_index_usize);
+                            return sema.addConstant(
+                                enum_ty,
+                                try Value.Tag.enum_field_index.create(sema.arena, field_index),
+                            );
+                        }
+                    }
+                    return sema.failWithBadMemberAccess(block, child_type, field_name_src, field_name);
+                },
+                .Enum => {
+                    if (child_type.getNamespace()) |namespace| {
+                        if (try sema.namespaceLookupVal(block, src, namespace, field_name)) |inst| {
+                            return inst;
+                        }
+                    }
+                    const field_index_usize = child_type.enumFieldIndex(field_name) orelse
+                        return sema.failWithBadMemberAccess(block, child_type, field_name_src, field_name);
+                    const field_index = @intCast(u32, field_index_usize);
+                    const enum_val = try Value.Tag.enum_field_index.create(arena, field_index);
+                    return sema.addConstant(try child_type.copy(arena), enum_val);
+                },
+                .Struct, .Opaque => {
+                    if (child_type.getNamespace()) |namespace| {
+                        if (try sema.namespaceLookupVal(block, src, namespace, field_name)) |inst| {
+                            return inst;
                         }
                     }
                     // TODO add note: declared here
@@ -10835,35 +10932,6 @@ fn fieldVal(
                     return sema.fail(block, src, "{s} '{}' has no member named '{s}'", .{
                         kw_name, child_type, field_name,
                     });
-                },
-                .Enum => {
-                    if (child_type.getNamespace()) |namespace| {
-                        if (try sema.namespaceLookupRef(block, src, namespace, field_name)) |inst| {
-                            return sema.analyzeLoad(block, src, inst, src);
-                        }
-                    }
-                    const field_index = child_type.enumFieldIndex(field_name) orelse {
-                        const msg = msg: {
-                            const msg = try sema.errMsg(
-                                block,
-                                src,
-                                "enum '{}' has no member named '{s}'",
-                                .{ child_type, field_name },
-                            );
-                            errdefer msg.destroy(sema.gpa);
-                            try sema.mod.errNoteNonLazy(
-                                child_type.declSrcLoc(),
-                                msg,
-                                "enum declared here",
-                                .{},
-                            );
-                            break :msg msg;
-                        };
-                        return sema.failWithOwnedErrorMsg(msg);
-                    };
-                    const field_index_u32 = @intCast(u32, field_index);
-                    const enum_val = try Value.Tag.enum_field_index.create(arena, field_index_u32);
-                    return sema.addConstant(try child_type.copy(arena), enum_val);
                 },
                 else => return sema.fail(block, src, "type '{}' has no members", .{child_type}),
             }
@@ -11244,6 +11312,17 @@ fn namespaceLookupRef(
     return try sema.analyzeDeclRef(decl);
 }
 
+fn namespaceLookupVal(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    namespace: *Namespace,
+    decl_name: []const u8,
+) CompileError!?Air.Inst.Ref {
+    const decl = (try sema.namespaceLookup(block, src, namespace, decl_name)) orelse return null;
+    return try sema.analyzeDeclVal(block, src, decl);
+}
+
 fn structFieldPtr(
     sema: *Sema,
     block: *Block,
@@ -11370,10 +11449,9 @@ fn unionFieldVal(
     const union_ty = try sema.resolveTypeFields(block, src, unresolved_union_ty);
     const union_obj = union_ty.cast(Type.Payload.Union).?.data;
 
-    const field_index_big = union_obj.fields.getIndex(field_name) orelse
+    const field_index_usize = union_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadUnionFieldAccess(block, union_obj, field_name_src, field_name);
-    const field_index = @intCast(u32, field_index_big);
-
+    const field_index = @intCast(u32, field_index_usize);
     const field = union_obj.fields.values()[field_index];
 
     if (try sema.resolveMaybeUndefVal(block, src, union_byval)) |union_val| {
@@ -12960,15 +13038,18 @@ fn wrapErrorUnion(
 fn unionToTag(
     sema: *Sema,
     block: *Block,
-    dest_ty: Type,
+    enum_ty: Type,
     un: Air.Inst.Ref,
     un_src: LazySrcLoc,
 ) !Air.Inst.Ref {
+    if ((try sema.typeHasOnePossibleValue(block, un_src, enum_ty))) |opv| {
+        return sema.addConstant(enum_ty, opv);
+    }
     if (try sema.resolveMaybeUndefVal(block, un_src, un)) |un_val| {
-        return sema.addConstant(dest_ty, un_val.unionTag());
+        return sema.addConstant(enum_ty, un_val.unionTag());
     }
     try sema.requireRuntimeBlock(block, un_src);
-    return block.addTyOp(.get_union_tag, dest_ty, un);
+    return block.addTyOp(.get_union_tag, enum_ty, un);
 }
 
 fn resolvePeerTypes(
