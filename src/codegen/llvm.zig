@@ -1261,6 +1261,10 @@ pub const DeclGen = struct {
                 }
                 const field_ty = tv.ty.unionFieldType(tag_and_val.tag);
                 const payload = p: {
+                    if (!field_ty.hasCodeGenBits()) {
+                        const padding_len = @intCast(c_uint, layout.payload_size);
+                        break :p self.context.intType(8).arrayType(padding_len).getUndef();
+                    }
                     const field = try genTypedValue(self, .{ .ty = field_ty, .val = tag_and_val.val });
                     const field_size = field_ty.abiSize(target);
                     if (field_size == layout.payload_size) {
@@ -1709,6 +1713,10 @@ pub const FuncGen = struct {
                 .assembly       => try self.airAssembly(inst),
                 .slice_ptr      => try self.airSliceField(inst, 0),
                 .slice_len      => try self.airSliceField(inst, 1),
+
+                .ptr_slice_ptr_ptr => try self.airPtrSliceFieldPtr(inst, 0),
+                .ptr_slice_len_ptr => try self.airPtrSliceFieldPtr(inst, 1),
+
                 .array_to_slice => try self.airArrayToSlice(inst),
                 .float_to_int   => try self.airFloatToInt(inst),
                 .int_to_float   => try self.airIntToFloat(inst),
@@ -2091,6 +2099,15 @@ pub const FuncGen = struct {
         return self.builder.buildExtractValue(operand, index, "");
     }
 
+    fn airPtrSliceFieldPtr(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const slice_ptr = try self.resolveInst(ty_op.operand);
+
+        return self.builder.buildStructGEP(slice_ptr, index, "");
+    }
+
     fn airSliceElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const slice_ty = self.air.typeOf(bin_op.lhs);
@@ -2223,17 +2240,34 @@ pub const FuncGen = struct {
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
         const struct_ty = self.air.typeOf(struct_field.struct_operand);
         const struct_llvm_val = try self.resolveInst(struct_field.struct_operand);
-        const field_index = llvmFieldIndex(struct_ty, struct_field.field_index);
-        if (isByRef(struct_ty)) {
-            const field_ptr = self.builder.buildStructGEP(struct_llvm_val, field_index, "");
-            const field_ty = struct_ty.structFieldType(struct_field.field_index);
-            if (isByRef(field_ty)) {
-                return field_ptr;
-            } else {
-                return self.builder.buildLoad(field_ptr, "");
-            }
+        const field_index = struct_field.field_index;
+        const field_ty = struct_ty.structFieldType(field_index);
+        if (!field_ty.hasCodeGenBits()) {
+            return null;
+        }
+
+        assert(isByRef(struct_ty));
+
+        const field_ptr = switch (struct_ty.zigTypeTag()) {
+            .Struct => blk: {
+                const llvm_field_index = llvmFieldIndex(struct_ty, field_index);
+                break :blk self.builder.buildStructGEP(struct_llvm_val, llvm_field_index, "");
+            },
+            .Union => blk: {
+                const llvm_field_ty = try self.dg.llvmType(field_ty);
+                const target = self.dg.module.getTarget();
+                const layout = struct_ty.unionGetLayout(target);
+                const payload_index = @boolToInt(layout.tag_align >= layout.payload_align);
+                const union_field_ptr = self.builder.buildStructGEP(struct_llvm_val, payload_index, "");
+                break :blk self.builder.buildBitCast(union_field_ptr, llvm_field_ty.pointerType(0), "");
+            },
+            else => unreachable,
+        };
+
+        if (isByRef(field_ty)) {
+            return field_ptr;
         } else {
-            return self.builder.buildExtractValue(struct_llvm_val, field_index, "");
+            return self.builder.buildLoad(field_ptr, "");
         }
     }
 

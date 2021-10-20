@@ -300,6 +300,8 @@ fn analyzeInst(
         .wrap_errunion_err,
         .slice_ptr,
         .slice_len,
+        .ptr_slice_len_ptr,
+        .ptr_slice_ptr_ptr,
         .struct_field_ptr_index_0,
         .struct_field_ptr_index_1,
         .struct_field_ptr_index_2,

@@ -86,6 +86,8 @@ pub const Value = extern union {
         one,
         void_value,
         unreachable_value,
+        /// The only possible value for a particular type, which is stored externally.
+        the_only_possible_value,
         null_value,
         bool_true,
         bool_false,
@@ -226,6 +228,7 @@ pub const Value = extern union {
                 .one,
                 .void_value,
                 .unreachable_value,
+                .the_only_possible_value,
                 .empty_struct_value,
                 .empty_array,
                 .null_value,
@@ -415,6 +418,7 @@ pub const Value = extern union {
             .one,
             .void_value,
             .unreachable_value,
+            .the_only_possible_value,
             .empty_array,
             .null_value,
             .bool_true,
@@ -664,6 +668,7 @@ pub const Value = extern union {
             .one => return out_stream.writeAll("1"),
             .void_value => return out_stream.writeAll("{}"),
             .unreachable_value => return out_stream.writeAll("unreachable"),
+            .the_only_possible_value => return out_stream.writeAll("(the only possible value)"),
             .bool_true => return out_stream.writeAll("true"),
             .bool_false => return out_stream.writeAll("false"),
             .ty => return val.castTag(.ty).?.data.format("", options, out_stream),
@@ -755,6 +760,7 @@ pub const Value = extern union {
                 const decl_val = try decl.value();
                 return decl_val.toAllocatedBytes(decl.ty, allocator);
             },
+            .the_only_possible_value => return &[_]u8{},
             else => unreachable,
         }
     }
@@ -847,53 +853,63 @@ pub const Value = extern union {
                 // TODO should `@intToEnum` do this `@intCast` for you?
                 return @intToEnum(E, @intCast(@typeInfo(E).Enum.tag_type, field_index));
             },
+            .the_only_possible_value => {
+                const fields = std.meta.fields(E);
+                assert(fields.len == 1);
+                return @intToEnum(E, fields[0].value);
+            },
             else => unreachable,
         }
     }
 
     pub fn enumToInt(val: Value, ty: Type, buffer: *Payload.U64) Value {
-        if (val.castTag(.enum_field_index)) |enum_field_payload| {
-            const field_index = enum_field_payload.data;
-            switch (ty.tag()) {
-                .enum_full, .enum_nonexhaustive => {
-                    const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
-                    if (enum_full.values.count() != 0) {
-                        return enum_full.values.keys()[field_index];
-                    } else {
-                        // Field index and integer values are the same.
-                        buffer.* = .{
-                            .base = .{ .tag = .int_u64 },
-                            .data = field_index,
-                        };
-                        return Value.initPayload(&buffer.base);
-                    }
-                },
-                .enum_numbered => {
-                    const enum_obj = ty.castTag(.enum_numbered).?.data;
-                    if (enum_obj.values.count() != 0) {
-                        return enum_obj.values.keys()[field_index];
-                    } else {
-                        // Field index and integer values are the same.
-                        buffer.* = .{
-                            .base = .{ .tag = .int_u64 },
-                            .data = field_index,
-                        };
-                        return Value.initPayload(&buffer.base);
-                    }
-                },
-                .enum_simple => {
+        const field_index = switch (val.tag()) {
+            .enum_field_index => val.castTag(.enum_field_index).?.data,
+            .the_only_possible_value => blk: {
+                assert(ty.enumFieldCount() == 1);
+                break :blk 0;
+            },
+            // Assume it is already an integer and return it directly.
+            else => return val,
+        };
+
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
+                if (enum_full.values.count() != 0) {
+                    return enum_full.values.keys()[field_index];
+                } else {
                     // Field index and integer values are the same.
                     buffer.* = .{
                         .base = .{ .tag = .int_u64 },
                         .data = field_index,
                     };
                     return Value.initPayload(&buffer.base);
-                },
-                else => unreachable,
-            }
+                }
+            },
+            .enum_numbered => {
+                const enum_obj = ty.castTag(.enum_numbered).?.data;
+                if (enum_obj.values.count() != 0) {
+                    return enum_obj.values.keys()[field_index];
+                } else {
+                    // Field index and integer values are the same.
+                    buffer.* = .{
+                        .base = .{ .tag = .int_u64 },
+                        .data = field_index,
+                    };
+                    return Value.initPayload(&buffer.base);
+                }
+            },
+            .enum_simple => {
+                // Field index and integer values are the same.
+                buffer.* = .{
+                    .base = .{ .tag = .int_u64 },
+                    .data = field_index,
+                };
+                return Value.initPayload(&buffer.base);
+            },
+            else => unreachable,
         }
-        // Assume it is already an integer and return it directly.
-        return val;
     }
 
     /// Asserts the value is an integer.
@@ -901,6 +917,7 @@ pub const Value = extern union {
         switch (self.tag()) {
             .zero,
             .bool_false,
+            .the_only_possible_value, // i0, u0
             => return BigIntMutable.init(&space.limbs, 0).toConst(),
 
             .one,
@@ -922,6 +939,7 @@ pub const Value = extern union {
         switch (self.tag()) {
             .zero,
             .bool_false,
+            .the_only_possible_value, // i0, u0
             => return 0,
 
             .one,
@@ -943,6 +961,7 @@ pub const Value = extern union {
         switch (self.tag()) {
             .zero,
             .bool_false,
+            .the_only_possible_value, // i0, u0
             => return 0,
 
             .one,
@@ -1124,6 +1143,11 @@ pub const Value = extern union {
                 @panic("TODO implement int_big_negative Value clz");
             },
 
+            .the_only_possible_value => {
+                assert(ty_bits == 0);
+                return ty_bits;
+            },
+
             else => unreachable,
         }
     }
@@ -1134,6 +1158,7 @@ pub const Value = extern union {
         switch (self.tag()) {
             .zero,
             .bool_false,
+            .the_only_possible_value,
             => return 0,
 
             .one,
@@ -1213,6 +1238,11 @@ pub const Value = extern union {
                 else => unreachable,
             },
 
+            .the_only_possible_value => {
+                assert(ty.intInfo(target).bits == 0);
+                return true;
+            },
+
             else => unreachable,
         }
     }
@@ -1251,7 +1281,7 @@ pub const Value = extern union {
     /// Asserts the value is numeric
     pub fn isZero(self: Value) bool {
         return switch (self.tag()) {
-            .zero => true,
+            .zero, .the_only_possible_value => true,
             .one => false,
 
             .int_u64 => self.castTag(.int_u64).?.data == 0,
@@ -1272,6 +1302,7 @@ pub const Value = extern union {
         return switch (lhs.tag()) {
             .zero,
             .bool_false,
+            .the_only_possible_value,
             => .eq,
 
             .one,
@@ -1354,7 +1385,7 @@ pub const Value = extern union {
         assert(b_tag != .undef);
         if (a_tag == b_tag) {
             switch (a_tag) {
-                .void_value, .null_value => return true,
+                .void_value, .null_value, .the_only_possible_value => return true,
                 .enum_literal => {
                     const a_name = a.castTag(.enum_literal).?.data;
                     const b_name = b.castTag(.enum_literal).?.data;
@@ -1706,6 +1737,9 @@ pub const Value = extern union {
             .decl_ref => return val.castTag(.decl_ref).?.data.val.elemValueAdvanced(index, arena, buffer),
             .decl_ref_mut => return val.castTag(.decl_ref_mut).?.data.decl.val.elemValueAdvanced(index, arena, buffer),
 
+            // The child type of arrays which have only one possible value need to have only one possible value itself.
+            .the_only_possible_value => return val,
+
             else => unreachable,
         }
     }
@@ -1722,6 +1756,8 @@ pub const Value = extern union {
                 // TODO assert the tag is correct
                 return payload.val;
             },
+            // Structs which have only one possible value need to consist of members which have only one possible value.
+            .the_only_possible_value => return val,
 
             else => unreachable,
         }
@@ -1820,6 +1856,7 @@ pub const Value = extern union {
     pub fn intToFloat(val: Value, allocator: *Allocator, dest_ty: Type, target: Target) !Value {
         switch (val.tag()) {
             .undef, .zero, .one => return val,
+            .the_only_possible_value => return Value.initTag(.zero), // for i0, u0
             .int_u64 => {
                 return intToFloatInner(val.castTag(.int_u64).?.data, allocator, dest_ty, target);
             },
