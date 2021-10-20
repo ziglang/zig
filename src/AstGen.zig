@@ -3850,6 +3850,7 @@ fn structDeclInner(
     astgen.extra.appendSliceAssumeCapacity(block_scope.instructions.items);
     astgen.extra.appendSliceAssumeCapacity(fields_slice);
 
+    try gz.addNamespaceCaptures(&namespace);
     return indexToRef(decl_inst);
 }
 
@@ -3993,6 +3994,7 @@ fn unionDeclInner(
     astgen.extra.appendSliceAssumeCapacity(block_scope.instructions.items);
     astgen.extra.appendSliceAssumeCapacity(fields_slice);
 
+    try gz.addNamespaceCaptures(&namespace);
     return indexToRef(decl_inst);
 }
 
@@ -4234,6 +4236,7 @@ fn containerDecl(
             astgen.extra.appendSliceAssumeCapacity(block_scope.instructions.items);
             astgen.extra.appendSliceAssumeCapacity(fields_slice);
 
+            try gz.addNamespaceCaptures(&namespace);
             return rvalue(gz, rl, indexToRef(decl_inst), node);
         },
         .keyword_opaque => {
@@ -4268,6 +4271,7 @@ fn containerDecl(
             try astgen.extra.ensureUnusedCapacity(gpa, decls_slice.len);
             astgen.extra.appendSliceAssumeCapacity(decls_slice);
 
+            try gz.addNamespaceCaptures(&namespace);
             return rvalue(gz, rl, indexToRef(decl_inst), node);
         },
         else => unreachable,
@@ -6108,9 +6112,15 @@ fn tunnelThroughClosure(
     // already has one for this value.
     const gop = try ns.?.captures.getOrPut(gpa, refToIndex(value).?);
     if (!gop.found_existing) {
-        // Make a new capture for this value
-        const capture_ref = try ns.?.declaring_gz.?.addUnTok(.closure_capture, value, token);
-        gop.value_ptr.* = refToIndex(capture_ref).?;
+        // Make a new capture for this value but don't add it to the declaring_gz yet
+        try gz.astgen.instructions.append(gz.astgen.gpa, .{
+            .tag = .closure_capture,
+            .data = .{ .un_tok = .{
+                .operand = value,
+                .src_tok = ns.?.declaring_gz.?.tokenIndexToRelative(token),
+            } },
+        });
+        gop.value_ptr.* = @intCast(Zir.Inst.Index, gz.astgen.instructions.len - 1);
     }
 
     // Add an instruction to get the value from the closure into
@@ -8736,7 +8746,7 @@ const Scope = struct {
 
         /// Map from the raw captured value to the instruction
         /// ref of the capture for decls in this namespace
-        captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
+        captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
 
         pub fn deinit(self: *Namespace, gpa: *Allocator) void {
             self.decls.deinit(gpa);
@@ -9874,6 +9884,15 @@ const GenZir = struct {
             .ptr => |ret_ptr| _ = try gz.addUnNode(.ret_load, ret_ptr, node),
             .ty => _ = try gz.addUnNode(.ret_node, operand, node),
             else => unreachable,
+        }
+    }
+
+    fn addNamespaceCaptures(gz: *GenZir, namespace: *Scope.Namespace) !void {
+        if (namespace.captures.count() > 0) {
+            try gz.instructions.ensureUnusedCapacity(gz.astgen.gpa, namespace.captures.count());
+            for (namespace.captures.values()) |capture| {
+                gz.instructions.appendAssumeCapacity(capture);
+            }
         }
     }
 };
