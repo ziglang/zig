@@ -230,6 +230,7 @@ test "OptionsStep" {
         "test",
         "test",
         "test",
+        &[_][:0]const u8{},
     );
     defer builder.destroy();
 

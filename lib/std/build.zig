@@ -60,7 +60,9 @@ pub const Builder = struct {
     libc_file: ?[]const u8 = null,
     installed_files: ArrayList(InstalledFile),
     build_root: []const u8,
+    cache_root_cmdline: []const u8,
     cache_root: []const u8,
+    build_args: []const [:0]const u8,
     global_cache_root: []const u8,
     release_mode: ?std.builtin.Mode,
     is_release: bool,
@@ -138,6 +140,7 @@ pub const Builder = struct {
         build_root: []const u8,
         cache_root: []const u8,
         global_cache_root: []const u8,
+        build_args: []const [:0]const u8,
     ) !*Builder {
         const env_map = try allocator.create(BufMap);
         env_map.* = try process.getEnvMap(allocator);
@@ -146,7 +149,9 @@ pub const Builder = struct {
         self.* = Builder{
             .zig_exe = zig_exe,
             .build_root = build_root,
+            .cache_root_cmdline = cache_root,
             .cache_root = try fs.path.relative(allocator, build_root, cache_root),
+            .build_args = build_args,
             .global_cache_root = global_cache_root,
             .verbose = false,
             .verbose_tokenize = false,
@@ -315,6 +320,29 @@ pub const Builder = struct {
         assert(argv.len >= 1);
         const run_step = RunStep.create(self, self.fmt("run {s}", .{argv[0]}));
         run_step.addArgs(argv);
+        return run_step;
+    }
+
+    pub const BuildStepOptions = struct {
+        step_name: ?[]const u8 = null,
+        cache_dir: ?[]const u8 = null,
+    };
+
+    /// Creates a RunStep that will execute a "zig build" command.  It will populate
+    /// the build file and cache directories based on the current build environment.
+    /// To access the command-line arguments that were passed to the current build,
+    /// see the `build_args` field.
+    pub fn addBuild(self: *Builder, build_file: FileSource, options: BuildStepOptions) *RunStep {
+        const run_step = RunStep.create(
+            self,
+            options.step_name orelse @as([]const u8, self.fmt("zig build {s}", .{build_file.getDisplayName()})),
+        );
+        run_step.addArg(self.zig_exe);
+        run_step.addArg("build");
+        run_step.addArg("--build-file");
+        run_step.addFileSourceArg(build_file);
+        run_step.addArg("--cache-dir");
+        run_step.addArg(options.cache_dir orelse self.cache_root_cmdline);
         return run_step;
     }
 
@@ -1284,6 +1312,7 @@ test "builder.findProgram compiles" {
         "zig-cache",
         "zig-cache",
         "zig-cache",
+        &[_][:0]const u8{},
     );
     defer builder.destroy();
     _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
@@ -3167,6 +3196,7 @@ test "Builder.dupePkg()" {
         "test",
         "test",
         "test",
+        &[_][:0]const u8{},
     );
     defer builder.destroy();
 
@@ -3212,6 +3242,7 @@ test "LibExeObjStep.addPackage" {
         "test",
         "test",
         "test",
+        &[_][:0]const u8{},
     );
     defer builder.destroy();
 

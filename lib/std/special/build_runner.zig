@@ -47,6 +47,7 @@ pub fn main() !void {
         build_root,
         cache_root,
         global_cache_root,
+        args[arg_idx..],
     );
     defer builder.destroy();
 
