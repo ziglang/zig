@@ -9362,7 +9362,7 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const dest_info = dest_ty.intInfo(target);
 
     if (src_info.bits == 0 or dest_info.bits == 0) {
-        return sema.addConstant(dest_ty, Value.initTag(.zero));
+        return sema.addConstant(dest_ty, Value.zero);
     }
 
     if (!src_is_comptime_int) {
@@ -10884,7 +10884,7 @@ fn fieldVal(
         },
         else => {},
     }
-    return sema.fail(block, src, "type '{}' does not support field access (fieldVal, {}.{s})", .{ object_ty, object_ty, field_name });
+    return sema.fail(block, src, "type '{}' does not support field access", .{object_ty});
 }
 
 fn fieldPtr(
@@ -13742,10 +13742,9 @@ fn typeHasOnePossibleValue(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    starting_type: Type,
+    ty: Type,
 ) CompileError!?Value {
-    var ty = starting_type;
-    while (true) switch (ty.tag()) {
+    switch (ty.tag()) {
         .f16,
         .f32,
         .f64,
@@ -13839,7 +13838,7 @@ fn typeHasOnePossibleValue(
             const enum_obj = resolved_ty.castTag(.enum_numbered).?.data;
             if (enum_obj.fields.count() == 1) {
                 if (enum_obj.values.count() == 0) {
-                    return Value.initTag(.zero); // auto-numbered
+                    return Value.zero; // auto-numbered
                 } else {
                     return enum_obj.values.keys()[0];
                 }
@@ -13852,7 +13851,7 @@ fn typeHasOnePossibleValue(
             const enum_obj = resolved_ty.castTag(.enum_full).?.data;
             if (enum_obj.fields.count() == 1) {
                 if (enum_obj.values.count() == 0) {
-                    return Value.initTag(.zero); // auto-numbered
+                    return Value.zero; // auto-numbered
                 } else {
                     return enum_obj.values.keys()[0];
                 }
@@ -13864,15 +13863,15 @@ fn typeHasOnePossibleValue(
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const enum_simple = resolved_ty.castTag(.enum_simple).?.data;
             if (enum_simple.fields.count() == 1) {
-                return Value.initTag(.zero);
+                return Value.zero;
             } else {
                 return null;
             }
         },
         .enum_nonexhaustive => {
             const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
-            if (tag_ty.cast(Type.Payload.Bits).?.data == 0) {
-                return Value.initTag(.zero);
+            if (!tag_ty.hasCodeGenBits()) {
+                return Value.zero;
             } else {
                 return null;
             }
@@ -13892,7 +13891,7 @@ fn typeHasOnePossibleValue(
 
         .int_unsigned, .int_signed => {
             if (ty.cast(Type.Payload.Bits).?.data == 0) {
-                return Value.initTag(.zero);
+                return Value.zero;
             } else {
                 return null;
             }
@@ -13900,14 +13899,16 @@ fn typeHasOnePossibleValue(
         .vector, .array, .array_u8 => {
             if (ty.arrayLen() == 0)
                 return Value.initTag(.empty_array);
-            _ = (try sema.typeHasOnePossibleValue(block, src, ty.elemType())) orelse return null;
-            return Value.initTag(.the_only_possible_value);
+            if ((try sema.typeHasOnePossibleValue(block, src, ty.elemType())) != null) {
+                return Value.initTag(.the_only_possible_value);
+            }
+            return null;
         },
 
         .inferred_alloc_const => unreachable,
         .inferred_alloc_mut => unreachable,
         .generic_poison => return error.GenericPoison,
-    };
+    }
 }
 
 fn getAstTree(sema: *Sema, block: *Block) CompileError!*const std.zig.Ast {

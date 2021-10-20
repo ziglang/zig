@@ -2676,7 +2676,7 @@ pub const Type = extern union {
 
             .pointer => return self.castTag(.pointer).?.data.sentinel,
             .array_sentinel => return self.castTag(.array_sentinel).?.data.sentinel,
-            .array_u8_sentinel_0 => return Value.initTag(.zero),
+            .array_u8_sentinel_0 => return Value.zero,
 
             else => unreachable,
         };
@@ -3115,15 +3115,15 @@ pub const Type = extern union {
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 if (enum_simple.fields.count() == 1) {
-                    return Value.initTag(.zero);
+                    return Value.zero;
                 } else {
                     return null;
                 }
             },
             .enum_nonexhaustive => {
                 const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
-                if (tag_ty.cast(Type.Payload.Bits).?.data == 0) {
-                    return Value.initTag(.zero);
+                if (!tag_ty.hasCodeGenBits()) {
+                    return Value.zero;
                 } else {
                     return null;
                 }
@@ -3143,7 +3143,7 @@ pub const Type = extern union {
 
             .int_unsigned, .int_signed => {
                 if (ty.cast(Payload.Bits).?.data == 0) {
-                    return Value.initTag(.zero);
+                    return Value.zero;
                 } else {
                     return null;
                 }
@@ -3151,8 +3151,9 @@ pub const Type = extern union {
             .vector, .array, .array_u8 => {
                 if (ty.arrayLen() == 0)
                     return Value.initTag(.empty_array);
-                _ = ty.elemType().onePossibleValue() orelse return null;
-                return Value.initTag(.the_only_possible_value);
+                if (ty.elemType().onePossibleValue() != null)
+                    return Value.initTag(.the_only_possible_value);
+                return null;
             },
 
             .inferred_alloc_const => unreachable,
@@ -3193,7 +3194,7 @@ pub const Type = extern union {
         const info = self.intInfo(target);
 
         if (info.signedness == .unsigned) {
-            return Value.initTag(.zero);
+            return Value.zero;
         }
 
         if (info.bits <= 6) {
@@ -4027,7 +4028,7 @@ pub const Type = extern union {
     ) Allocator.Error!Type {
         if (elem_type.eql(Type.u8)) {
             if (sent) |some| {
-                if (some.eql(Value.initTag(.zero), elem_type)) {
+                if (some.eql(Value.zero, elem_type)) {
                     return Tag.array_u8_sentinel_0.create(arena, len);
                 }
             } else {
