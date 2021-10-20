@@ -178,6 +178,9 @@ pub const Value = opaque {
 
     pub const setInitializer = LLVMSetInitializer;
     extern fn LLVMSetInitializer(GlobalVar: *const Value, ConstantVal: *const Value) void;
+
+    pub const addCase = LLVMAddCase;
+    extern fn LLVMAddCase(Switch: *const Value, OnVal: *const Value, Dest: *const BasicBlock) void;
 };
 
 pub const Type = opaque {
@@ -553,6 +556,9 @@ pub const Builder = opaque {
 
     pub const buildCondBr = LLVMBuildCondBr;
     extern fn LLVMBuildCondBr(*const Builder, If: *const Value, Then: *const BasicBlock, Else: *const BasicBlock) *const Value;
+
+    pub const buildSwitch = LLVMBuildSwitch;
+    extern fn LLVMBuildSwitch(*const Builder, V: *const Value, Else: *const BasicBlock, NumCases: c_uint) *const Value;
 
     pub const buildPhi = LLVMBuildPhi;
     extern fn LLVMBuildPhi(*const Builder, Ty: *const Type, Name: [*:0]const u8) *const Value;

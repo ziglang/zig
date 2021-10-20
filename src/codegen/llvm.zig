@@ -1993,23 +1993,55 @@ pub const FuncGen = struct {
 
         const then_block = self.context.appendBasicBlock(self.llvm_func, "Then");
         const else_block = self.context.appendBasicBlock(self.llvm_func, "Else");
-        {
-            const prev_block = self.builder.getInsertBlock();
-            defer self.builder.positionBuilderAtEnd(prev_block);
-
-            self.builder.positionBuilderAtEnd(then_block);
-            try self.genBody(then_body);
-
-            self.builder.positionBuilderAtEnd(else_block);
-            try self.genBody(else_body);
-        }
         _ = self.builder.buildCondBr(cond, then_block, else_block);
+
+        self.builder.positionBuilderAtEnd(then_block);
+        try self.genBody(then_body);
+
+        self.builder.positionBuilderAtEnd(else_block);
+        try self.genBody(else_body);
+
+        // No need to reset the insert cursor since this instruction is noreturn.
         return null;
     }
 
     fn airSwitchBr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        _ = inst;
-        return self.todo("implement llvm codegen for switch_br", .{});
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const cond = try self.resolveInst(pl_op.operand);
+        const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
+        const else_block = self.context.appendBasicBlock(self.llvm_func, "Else");
+        const llvm_switch = self.builder.buildSwitch(cond, else_block, switch_br.data.cases_len);
+
+        var extra_index: usize = switch_br.end;
+        var case_i: u32 = 0;
+
+        while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+            const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+            const items = @bitCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
+            const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
+            extra_index = case.end + case.data.items_len + case_body.len;
+
+            const case_block = self.context.appendBasicBlock(self.llvm_func, "Case");
+
+            for (items) |item| {
+                const llvm_item = try self.resolveInst(item);
+                llvm_switch.addCase(llvm_item, case_block);
+            }
+
+            self.builder.positionBuilderAtEnd(case_block);
+            try self.genBody(case_body);
+        }
+
+        self.builder.positionBuilderAtEnd(else_block);
+        const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
+        if (else_body.len != 0) {
+            try self.genBody(else_body);
+        } else {
+            _ = self.builder.buildUnreachable();
+        }
+
+        // No need to reset the insert cursor since this instruction is noreturn.
+        return null;
     }
 
     fn airLoop(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
