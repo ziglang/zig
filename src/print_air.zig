@@ -370,9 +370,52 @@ const Writer = struct {
     }
 
     fn writeAssembly(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        _ = w;
-        _ = inst;
-        try s.writeAll("TODO");
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const air_asm = w.air.extraData(Air.Asm, ty_pl.payload);
+        const zir = w.zir;
+        const extended = zir.instructions.items(.data)[air_asm.data.zir_index].extended;
+        const zir_extra = zir.extraData(Zir.Inst.Asm, extended.operand);
+        const asm_source = zir.nullTerminatedString(zir_extra.data.asm_source);
+        const outputs_len = @truncate(u5, extended.small);
+        const args_len = @truncate(u5, extended.small >> 5);
+        const clobbers_len = @truncate(u5, extended.small >> 10);
+        const args = @bitCast([]const Air.Inst.Ref, w.air.extra[air_asm.end..][0..args_len]);
+
+        var extra_i: usize = zir_extra.end;
+        const output_constraint: ?[]const u8 = out: {
+            var i: usize = 0;
+            while (i < outputs_len) : (i += 1) {
+                const output = zir.extraData(Zir.Inst.Asm.Output, extra_i);
+                extra_i = output.end;
+                break :out zir.nullTerminatedString(output.data.constraint);
+            }
+            break :out null;
+        };
+
+        try s.print("\"{s}\"", .{asm_source});
+
+        if (output_constraint) |constraint| {
+            const ret_ty = w.air.typeOfIndex(inst);
+            try s.print(", {s} -> {}", .{ constraint, ret_ty });
+        }
+
+        for (args) |arg| {
+            const input = zir.extraData(Zir.Inst.Asm.Input, extra_i);
+            extra_i = input.end;
+            const constraint = zir.nullTerminatedString(input.data.constraint);
+
+            try s.print(", {s} = (", .{constraint});
+            try w.writeOperand(s, inst, 0, arg);
+            try s.writeByte(')');
+        }
+
+        const clobbers = zir.extra[extra_i..][0..clobbers_len];
+        for (clobbers) |clobber_index| {
+            const clobber = zir.nullTerminatedString(clobber_index);
+            try s.writeAll(", ~{");
+            try s.writeAll(clobber);
+            try s.writeAll("}");
+        }
     }
 
     fn writeDbgStmt(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

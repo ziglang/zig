@@ -2331,17 +2331,19 @@ pub const FuncGen = struct {
         const air_asm = self.air.extraData(Air.Asm, ty_pl.payload);
         const zir = self.dg.decl.getFileScope().zir;
         const extended = zir.instructions.items(.data)[air_asm.data.zir_index].extended;
-        const zir_extra = zir.extraData(Zir.Inst.Asm, extended.operand);
-        const asm_source = zir.nullTerminatedString(zir_extra.data.asm_source);
-        const outputs_len = @truncate(u5, extended.small);
-        const args_len = @truncate(u5, extended.small >> 5);
-        const clobbers_len = @truncate(u5, extended.small >> 10);
         const is_volatile = @truncate(u1, extended.small >> 15) != 0;
-        const outputs = @bitCast([]const Air.Inst.Ref, self.air.extra[air_asm.end..][0..outputs_len]);
-        const args = @bitCast([]const Air.Inst.Ref, self.air.extra[air_asm.end + outputs.len ..][0..args_len]);
+        if (!is_volatile and self.liveness.isUnused(inst)) {
+            return null;
+        }
+        const outputs_len = @truncate(u5, extended.small);
         if (outputs_len > 1) {
             return self.todo("implement llvm codegen for asm with more than 1 output", .{});
         }
+        const args_len = @truncate(u5, extended.small >> 5);
+        const clobbers_len = @truncate(u5, extended.small >> 10);
+        const zir_extra = zir.extraData(Zir.Inst.Asm, extended.operand);
+        const asm_source = zir.nullTerminatedString(zir_extra.data.asm_source);
+        const args = @bitCast([]const Air.Inst.Ref, self.air.extra[air_asm.end..][0..args_len]);
 
         var extra_i: usize = zir_extra.end;
         const output_constraint: ?[]const u8 = out: {
@@ -2354,10 +2356,6 @@ pub const FuncGen = struct {
             break :out null;
         };
 
-        if (!is_volatile and self.liveness.isUnused(inst)) {
-            return null;
-        }
-
         var llvm_constraints: std.ArrayListUnmanaged(u8) = .{};
         defer llvm_constraints.deinit(self.gpa);
 
@@ -2365,7 +2363,7 @@ pub const FuncGen = struct {
         defer arena_allocator.deinit();
         const arena = &arena_allocator.allocator;
 
-        const llvm_params_len = args.len + @boolToInt(output_constraint != null);
+        const llvm_params_len = args.len;
         const llvm_param_types = try arena.alloc(*const llvm.Type, llvm_params_len);
         const llvm_param_values = try arena.alloc(*const llvm.Value, llvm_params_len);
 
@@ -2377,7 +2375,8 @@ pub const FuncGen = struct {
             if (total_i != 0) {
                 llvm_constraints.appendAssumeCapacity(',');
             }
-            llvm_constraints.appendSliceAssumeCapacity(constraint);
+            llvm_constraints.appendAssumeCapacity('=');
+            llvm_constraints.appendSliceAssumeCapacity(constraint[1..]);
 
             total_i += 1;
         }
