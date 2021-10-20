@@ -368,3 +368,25 @@ test "return 0 from function that has u0 return type" {
         }
     }
 }
+
+test "statically initialized struct" {
+    st_init_str_foo.x += 1;
+    try expect(st_init_str_foo.x == 14);
+}
+const StInitStrFoo = struct {
+    x: i32,
+    y: bool,
+};
+var st_init_str_foo = StInitStrFoo{
+    .x = 13,
+    .y = true,
+};
+
+test "inline for with same type but different values" {
+    var res: usize = 0;
+    inline for ([_]type{ [2]u8, [1]u8, [2]u8 }) |T| {
+        var a: T = undefined;
+        res += a.len;
+    }
+    try expect(res == 5);
+}

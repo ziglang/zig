@@ -5735,7 +5735,8 @@ fn forExpr(
     const len = try parent_gz.addUnNode(.indexable_ptr_len, array_ptr, for_full.ast.cond_expr);
 
     const index_ptr = blk: {
-        const index_ptr = try parent_gz.addUnNode(.alloc, .usize_type, node);
+        const alloc_tag: Zir.Inst.Tag = if (is_inline) .alloc_comptime else .alloc;
+        const index_ptr = try parent_gz.addUnNode(alloc_tag, .usize_type, node);
         // initialize to zero
         _ = try parent_gz.addBin(.store, index_ptr, .zero_usize);
         break :blk index_ptr;

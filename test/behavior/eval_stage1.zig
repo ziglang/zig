@@ -12,26 +12,9 @@ pub const Vec3 = struct {
 };
 pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
     return Vec3{
-        .data = [_]f32{
-            x,
-            y,
-            z,
-        },
+        .data = [_]f32{ x, y, z },
     };
 }
-
-test "statically initialized struct" {
-    st_init_str_foo.x += 1;
-    try expect(st_init_str_foo.x == 14);
-}
-const StInitStrFoo = struct {
-    x: i32,
-    y: bool,
-};
-var st_init_str_foo = StInitStrFoo{
-    .x = 13,
-    .y = true,
-};
 
 test "inlined loop has array literal with elided runtime scope on first iteration but not second iteration" {
     var runtime = [1]i32{3};
@@ -299,15 +282,6 @@ fn testVarInsideInlineLoop(args: anytype) !void {
         if (i == 0) try expect(x);
         if (i == 1) try expect(x == 42);
     }
-}
-
-test "inline for with same type but different values" {
-    var res: usize = 0;
-    inline for ([_]type{ [2]u8, [1]u8, [2]u8 }) |T| {
-        var a: T = undefined;
-        res += a.len;
-    }
-    try expect(res == 5);
 }
 
 test "bit shift a u1" {
