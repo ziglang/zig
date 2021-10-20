@@ -300,7 +300,7 @@ pub const Block = struct {
                         .ty = ty,
                         .payload = try block.sema.addExtra(Air.StructField{
                             .struct_operand = struct_ptr,
-                            .field_index = @intCast(u32, field_index),
+                            .field_index = field_index,
                         }),
                     } },
                 });
@@ -311,6 +311,24 @@ pub const Block = struct {
             .data = .{ .ty_op = .{
                 .ty = ty,
                 .operand = struct_ptr,
+            } },
+        });
+    }
+
+    pub fn addStructFieldVal(
+        block: *Block,
+        struct_val: Air.Inst.Ref,
+        field_index: u32,
+        field_ty: Type,
+    ) !Air.Inst.Ref {
+        return block.addInst(.{
+            .tag = .struct_field_val,
+            .data = .{ .ty_pl = .{
+                .ty = try block.sema.addType(field_ty),
+                .payload = try block.sema.addExtra(Air.StructField{
+                    .struct_operand = struct_val,
+                    .field_index = field_index,
+                }),
             } },
         });
     }
@@ -11261,8 +11279,10 @@ fn structFieldVal(
     const struct_ty = try sema.resolveTypeFields(block, src, unresolved_struct_ty);
     const struct_obj = struct_ty.castTag(.@"struct").?.data;
 
-    const field_index = struct_obj.fields.getIndex(field_name) orelse
+    const field_index_big = struct_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadFieldAccess(block, struct_obj, field_name_src, field_name);
+    const field_index = @intCast(u32, field_index_big);
+
     const field = struct_obj.fields.values()[field_index];
 
     if (try sema.resolveMaybeUndefVal(block, src, struct_byval)) |struct_val| {
@@ -11273,16 +11293,7 @@ fn structFieldVal(
     }
 
     try sema.requireRuntimeBlock(block, src);
-    return block.addInst(.{
-        .tag = .struct_field_val,
-        .data = .{ .ty_pl = .{
-            .ty = try sema.addType(field.ty),
-            .payload = try sema.addExtra(Air.StructField{
-                .struct_operand = struct_byval,
-                .field_index = @intCast(u32, field_index),
-            }),
-        } },
-    });
+    return block.addStructFieldVal(struct_byval, field_index, field.ty);
 }
 
 fn unionFieldPtr(
@@ -11341,8 +11352,9 @@ fn unionFieldVal(
     const union_ty = try sema.resolveTypeFields(block, src, unresolved_union_ty);
     const union_obj = union_ty.cast(Type.Payload.Union).?.data;
 
-    const field_index = union_obj.fields.getIndex(field_name) orelse
+    const field_index_big = union_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadUnionFieldAccess(block, union_obj, field_name_src, field_name);
+    const field_index = @intCast(u32, field_index_big);
 
     const field = union_obj.fields.values()[field_index];
 
@@ -11355,7 +11367,7 @@ fn unionFieldVal(
     }
 
     try sema.requireRuntimeBlock(block, src);
-    return sema.fail(block, src, "TODO implement runtime union field access", .{});
+    return block.addStructFieldVal(union_byval, field_index, field.ty);
 }
 
 fn elemPtr(

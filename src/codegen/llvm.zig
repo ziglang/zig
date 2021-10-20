@@ -2236,17 +2236,34 @@ pub const FuncGen = struct {
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
         const struct_ty = self.air.typeOf(struct_field.struct_operand);
         const struct_llvm_val = try self.resolveInst(struct_field.struct_operand);
-        const field_index = llvmFieldIndex(struct_ty, struct_field.field_index);
-        if (isByRef(struct_ty)) {
-            const field_ptr = self.builder.buildStructGEP(struct_llvm_val, field_index, "");
-            const field_ty = struct_ty.structFieldType(struct_field.field_index);
-            if (isByRef(field_ty)) {
-                return field_ptr;
-            } else {
-                return self.builder.buildLoad(field_ptr, "");
-            }
+        const field_index = struct_field.field_index;
+        const field_ty = struct_ty.structFieldType(field_index);
+        if (!field_ty.hasCodeGenBits()) {
+            return null;
+        }
+
+        assert(isByRef(struct_ty));
+
+        const field_ptr = switch (struct_ty.zigTypeTag()) {
+            .Struct => blk: {
+                const llvm_field_index = llvmFieldIndex(struct_ty, field_index);
+                break :blk self.builder.buildStructGEP(struct_llvm_val, llvm_field_index, "");
+            },
+            .Union => blk: {
+                const llvm_field_ty = try self.dg.llvmType(field_ty);
+                const target = self.dg.module.getTarget();
+                const layout = struct_ty.unionGetLayout(target);
+                const payload_index = @boolToInt(layout.tag_align >= layout.payload_align);
+                const union_field_ptr = self.builder.buildStructGEP(struct_llvm_val, payload_index, "");
+                break :blk self.builder.buildBitCast(union_field_ptr, llvm_field_ty.pointerType(0), "");
+            },
+            else => unreachable,
+        };
+
+        if (isByRef(field_ty)) {
+            return field_ptr;
         } else {
-            return self.builder.buildExtractValue(struct_llvm_val, field_index, "");
+            return self.builder.buildLoad(field_ptr, "");
         }
     }
 
