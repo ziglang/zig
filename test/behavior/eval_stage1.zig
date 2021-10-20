@@ -114,20 +114,8 @@ test "float literal at compile time not lossy" {
     try expect(9007199254740992.0 + 1.0 == 9007199254740993.0);
 }
 
-test "f32 at compile time is lossy" {
-    try expect(@as(f32, 1 << 24) + 1 == 1 << 24);
-}
-
-test "f64 at compile time is lossy" {
-    try expect(@as(f64, 1 << 53) + 1 == 1 << 53);
-}
-
 test "f128 at compile time is lossy" {
     try expect(@as(f128, 10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
-}
-
-test {
-    comptime try expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
 }
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {

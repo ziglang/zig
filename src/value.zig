@@ -1853,17 +1853,26 @@ pub const Value = extern union {
         };
     }
 
-    pub fn intToFloat(val: Value, allocator: *Allocator, dest_ty: Type, target: Target) !Value {
+    pub fn intToFloat(val: Value, arena: *Allocator, dest_ty: Type, target: Target) !Value {
         switch (val.tag()) {
             .undef, .zero, .one => return val,
             .the_only_possible_value => return Value.initTag(.zero), // for i0, u0
             .int_u64 => {
-                return intToFloatInner(val.castTag(.int_u64).?.data, allocator, dest_ty, target);
+                return intToFloatInner(val.castTag(.int_u64).?.data, arena, dest_ty, target);
             },
             .int_i64 => {
-                return intToFloatInner(val.castTag(.int_i64).?.data, allocator, dest_ty, target);
+                return intToFloatInner(val.castTag(.int_i64).?.data, arena, dest_ty, target);
             },
-            .int_big_positive, .int_big_negative => @panic("big int to float"),
+            .int_big_positive => {
+                const limbs = val.castTag(.int_big_positive).?.data;
+                const float = bigIntToFloat(limbs, true);
+                return floatToValue(float, arena, dest_ty, target);
+            },
+            .int_big_negative => {
+                const limbs = val.castTag(.int_big_negative).?.data;
+                const float = bigIntToFloat(limbs, false);
+                return floatToValue(float, arena, dest_ty, target);
+            },
             else => unreachable,
         }
     }
@@ -1874,6 +1883,16 @@ pub const Value = extern union {
             32 => return Value.Tag.float_32.create(arena, @intToFloat(f32, x)),
             64 => return Value.Tag.float_64.create(arena, @intToFloat(f64, x)),
             128 => return Value.Tag.float_128.create(arena, @intToFloat(f128, x)),
+            else => unreachable,
+        }
+    }
+
+    fn floatToValue(float: f128, arena: *Allocator, dest_ty: Type, target: Target) !Value {
+        switch (dest_ty.floatBits(target)) {
+            16 => return Value.Tag.float_16.create(arena, @floatCast(f16, float)),
+            32 => return Value.Tag.float_32.create(arena, @floatCast(f32, float)),
+            64 => return Value.Tag.float_64.create(arena, @floatCast(f64, float)),
+            128 => return Value.Tag.float_128.create(arena, float),
             else => unreachable,
         }
     }
