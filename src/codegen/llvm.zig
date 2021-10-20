@@ -1383,6 +1383,7 @@ pub const DeclGen = struct {
         ptr_val: Value,
         decl: *Module.Decl,
     ) Error!ParentPtr {
+        decl.alive = true;
         var ptr_ty_payload: Type.Payload.ElemType = .{
             .base = .{ .tag = .single_mut_pointer },
             .data = decl.ty,
