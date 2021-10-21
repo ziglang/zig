@@ -634,18 +634,24 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
 
             return simpleBinOp(gz, scope, rl, node, .bit_and);
         },
-        .bit_or   => return simpleBinOp(gz, scope, rl, node, .bit_or),
-        .bit_xor  => return simpleBinOp(gz, scope, rl, node, .xor),
 
+        .bit_or           => return simpleBinOp(gz, scope, rl, node, .bit_or),
+        .bit_xor          => return simpleBinOp(gz, scope, rl, node, .xor),
         .bang_equal       => return simpleBinOp(gz, scope, rl, node, .cmp_neq),
         .equal_equal      => return simpleBinOp(gz, scope, rl, node, .cmp_eq),
         .greater_than     => return simpleBinOp(gz, scope, rl, node, .cmp_gt),
         .greater_or_equal => return simpleBinOp(gz, scope, rl, node, .cmp_gte),
         .less_than        => return simpleBinOp(gz, scope, rl, node, .cmp_lt),
         .less_or_equal    => return simpleBinOp(gz, scope, rl, node, .cmp_lte),
-
         .array_cat        => return simpleBinOp(gz, scope, rl, node, .array_cat),
-        .array_mult       => return simpleBinOp(gz, scope, rl, node, .array_mul),
+
+        .array_mult => {
+            const result = try gz.addPlNode(.array_mul, node, Zir.Inst.Bin{
+                .lhs = try expr(gz, scope, .none, node_datas[node].lhs),
+                .rhs = try comptimeExpr(gz, scope, .{ .coerced_ty = .usize_type }, node_datas[node].rhs),
+            });
+            return rvalue(gz, rl, result, node);
+        },
 
         .error_union      => return simpleBinOp(gz, scope, rl, node, .error_union_type),
         .merge_error_sets => return simpleBinOp(gz, scope, rl, node, .merge_error_sets),

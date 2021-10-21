@@ -6945,11 +6945,11 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
 
     // In `**` rhs has to be comptime-known, but lhs can be runtime-known
-    const tomulby = try sema.resolveInt(block, rhs_src, extra.rhs, Type.usize);
+    const factor = try sema.resolveInt(block, rhs_src, extra.rhs, Type.usize);
     const mulinfo = getArrayCatInfo(lhs_ty) orelse
         return sema.fail(block, lhs_src, "expected array, found '{}'", .{lhs_ty});
 
-    const final_len = std.math.mul(u64, mulinfo.len, tomulby) catch
+    const final_len = std.math.mul(u64, mulinfo.len, factor) catch
         return sema.fail(block, rhs_src, "operation results in overflow", .{});
     const final_len_including_sent = final_len + @boolToInt(mulinfo.sentinel != null);
 
@@ -6961,24 +6961,25 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         const final_ty = if (mulinfo.sentinel) |sent|
             try Type.Tag.array_sentinel.create(anon_decl.arena(), .{
                 .len = final_len,
-                .elem_type = mulinfo.elem_type,
-                .sentinel = sent,
+                .elem_type = try mulinfo.elem_type.copy(anon_decl.arena()),
+                .sentinel = try sent.copy(anon_decl.arena()),
             })
         else
             try Type.Tag.array.create(anon_decl.arena(), .{
                 .len = final_len,
-                .elem_type = mulinfo.elem_type,
+                .elem_type = try mulinfo.elem_type.copy(anon_decl.arena()),
             });
         const buf = try anon_decl.arena().alloc(Value, final_len_including_sent);
 
-        // handles the optimisation where arr.len == 0 : [_]T { X } ** N
+        // Optimization for the common pattern of a single element repeated N times, such
+        // as zero-filling a byte array.
         const val = if (mulinfo.len == 1) blk: {
             const copied_val = try (try lhs_sub_val.elemValue(sema.arena, 0)).copy(anon_decl.arena());
             break :blk try Value.Tag.repeated.create(anon_decl.arena(), copied_val);
         } else blk: {
             // the actual loop
             var i: u64 = 0;
-            while (i < tomulby) : (i += 1) {
+            while (i < factor) : (i += 1) {
                 var j: u64 = 0;
                 while (j < mulinfo.len) : (j += 1) {
                     const val = try lhs_sub_val.elemValue(sema.arena, j);
