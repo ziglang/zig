@@ -51,6 +51,7 @@ test {
     _ = @import("behavior/switch.zig");
     _ = @import("behavior/this.zig");
     _ = @import("behavior/translate_c_macros.zig");
+    _ = @import("behavior/truncate.zig");
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/union.zig");
     _ = @import("behavior/usingnamespace.zig");
@@ -163,7 +164,6 @@ test {
         _ = @import("behavior/switch_prong_err_enum.zig");
         _ = @import("behavior/switch_prong_implicit_cast.zig");
         _ = @import("behavior/switch_stage1.zig");
-        _ = @import("behavior/truncate.zig");
         _ = @import("behavior/try.zig");
         _ = @import("behavior/tuple.zig");
         _ = @import("behavior/type.zig");

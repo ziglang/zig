@@ -1405,13 +1405,16 @@ pub const Mutable = struct {
                 r.normalize(r.len);
             }
         } else {
-            r.copy(a);
-            if (r.len < req_limbs) {
+            if (a.limbs.len < req_limbs) {
                 // Integer fits within target bits, no wrapping required.
+                r.copy(a);
                 return;
             }
 
-            r.len = req_limbs;
+            r.copy(.{
+                .positive = a.positive,
+                .limbs = a.limbs[0..req_limbs],
+            });
             r.limbs[r.len - 1] &= mask;
             r.normalize(r.len);
 
