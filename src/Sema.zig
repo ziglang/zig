@@ -11494,117 +11494,62 @@ fn elemVal(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    array_maybe_ptr: Air.Inst.Ref,
+    array: Air.Inst.Ref,
     elem_index: Air.Inst.Ref,
     elem_index_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    const array_ptr_src = src; // TODO better source location
-    const maybe_ptr_ty = sema.typeOf(array_maybe_ptr);
-    switch (maybe_ptr_ty.zigTypeTag()) {
-        .Pointer => switch (maybe_ptr_ty.ptrSize()) {
+    const array_src = src; // TODO better source location
+    const array_ty = sema.typeOf(array);
+
+    if (!array_ty.isIndexable()) {
+        return sema.fail(block, src, "array access of non-indexable type '{}'", .{array_ty});
+    }
+
+    switch (array_ty.zigTypeTag()) {
+        .Pointer => switch (array_ty.ptrSize()) {
             .Slice => {
-                const maybe_slice_val = try sema.resolveDefinedValue(block, array_ptr_src, array_maybe_ptr);
+                const maybe_slice_val = try sema.resolveDefinedValue(block, array_src, array);
                 const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
                 const runtime_src = if (maybe_slice_val) |slice_val| rs: {
                     const index_val = maybe_index_val orelse break :rs elem_index_src;
                     const index = @intCast(usize, index_val.toUnsignedInt());
                     const elem_val = try slice_val.elemValue(sema.arena, index);
-                    return sema.addConstant(maybe_ptr_ty.elemType2(), elem_val);
-                } else array_ptr_src;
+                    return sema.addConstant(array_ty.elemType2(), elem_val);
+                } else array_src;
 
                 try sema.requireRuntimeBlock(block, runtime_src);
-                return block.addBinOp(.slice_elem_val, array_maybe_ptr, elem_index);
+                return block.addBinOp(.slice_elem_val, array, elem_index);
             },
             .Many, .C => {
-                if (try sema.resolveDefinedValue(block, src, array_maybe_ptr)) |ptr_val| {
+                if (try sema.resolveDefinedValue(block, src, array)) |ptr_val| {
                     _ = ptr_val;
                     return sema.fail(block, src, "TODO implement Sema for elemVal for comptime known pointer", .{});
                 }
                 try sema.requireRuntimeBlock(block, src);
-                return block.addBinOp(.ptr_elem_val, array_maybe_ptr, elem_index);
+                return block.addBinOp(.ptr_elem_val, array, elem_index);
             },
             .One => {
-                const indexable_ty = maybe_ptr_ty.childType();
-                switch (indexable_ty.zigTypeTag()) {
-                    .Pointer => switch (indexable_ty.ptrSize()) {
-                        .Slice => {
-                            // We have a pointer to a slice and we want an element value.
-                            if (try sema.isComptimeKnown(block, src, array_maybe_ptr)) {
-                                const slice = try sema.analyzeLoad(block, src, array_maybe_ptr, array_ptr_src);
-                                if (try sema.resolveDefinedValue(block, src, slice)) |slice_val| {
-                                    _ = slice_val;
-                                    return sema.fail(block, src, "TODO implement Sema for elemVal for comptime known slice", .{});
-                                }
-                                try sema.requireRuntimeBlock(block, src);
-                                return block.addBinOp(.slice_elem_val, slice, elem_index);
-                            }
-                            try sema.requireRuntimeBlock(block, src);
-                            return block.addBinOp(.ptr_slice_elem_val, array_maybe_ptr, elem_index);
-                        },
-                        .Many, .C => {
-                            // We have a pointer to a pointer and we want an element value.
-                            if (try sema.isComptimeKnown(block, src, array_maybe_ptr)) {
-                                const ptr = try sema.analyzeLoad(block, src, array_maybe_ptr, array_ptr_src);
-                                if (try sema.resolveDefinedValue(block, src, ptr)) |ptr_val| {
-                                    _ = ptr_val;
-                                    return sema.fail(block, src, "TODO implement Sema for elemVal for comptime known pointer", .{});
-                                }
-                                try sema.requireRuntimeBlock(block, src);
-                                return block.addBinOp(.ptr_elem_val, ptr, elem_index);
-                            }
-                            try sema.requireRuntimeBlock(block, src);
-                            return block.addBinOp(.ptr_ptr_elem_val, array_maybe_ptr, elem_index);
-                        },
-                        .One => {
-                            const array_ty = indexable_ty.childType();
-                            if (array_ty.zigTypeTag() == .Array) {
-                                // We have a double pointer to an array, and we want an element
-                                // value. This can happen with this code for example:
-                                // var a: *[1]u8 = undefined; _ = a[0];
-                                const array_ptr = try sema.analyzeLoad(block, src, array_maybe_ptr, array_ptr_src);
-                                const ptr = try sema.elemPtr(block, src, array_ptr, elem_index, elem_index_src);
-                                return sema.analyzeLoad(block, src, ptr, elem_index_src);
-                            } else return sema.fail(
-                                block,
-                                array_ptr_src,
-                                "expected pointer, found '{}'",
-                                .{array_ty},
-                            );
-                        },
-                    },
-                    .Array => {
-                        const ptr = try sema.elemPtr(block, src, array_maybe_ptr, elem_index, elem_index_src);
-                        return sema.analyzeLoad(block, src, ptr, elem_index_src);
-                    },
-                    else => return sema.fail(
-                        block,
-                        array_ptr_src,
-                        "expected pointer, found '{}'",
-                        .{indexable_ty},
-                    ),
-                }
+                assert(array_ty.childType().zigTypeTag() == .Array);
+                const elem_ptr = try sema.elemPtr(block, src, array, elem_index, elem_index_src);
+                return sema.analyzeLoad(block, src, elem_ptr, elem_index_src);
             },
         },
         .Array => {
-            if (try sema.resolveMaybeUndefVal(block, src, array_maybe_ptr)) |array_val| {
-                const elem_ty = maybe_ptr_ty.childType();
-                const opt_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
+            if (try sema.resolveMaybeUndefVal(block, src, array)) |array_val| {
+                const elem_ty = array_ty.childType();
                 if (array_val.isUndef()) return sema.addConstUndef(elem_ty);
-                if (opt_index_val) |index_val| {
+                const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
+                if (maybe_index_val) |index_val| {
                     const index = @intCast(usize, index_val.toUnsignedInt());
                     const elem_val = try array_val.elemValue(sema.arena, index);
                     return sema.addConstant(elem_ty, elem_val);
                 }
             }
             try sema.requireRuntimeBlock(block, src);
-            return block.addBinOp(.array_elem_val, array_maybe_ptr, elem_index);
+            return block.addBinOp(.array_elem_val, array, elem_index);
         },
-        else => return sema.fail(
-            block,
-            array_ptr_src,
-            "expected pointer or array; found '{}'",
-            .{maybe_ptr_ty},
-        ),
+        .Vector => return sema.fail(block, src, "TODO implement Sema for elemVal for vector", .{}),
+        else => unreachable,
     }
 }
 
