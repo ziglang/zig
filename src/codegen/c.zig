@@ -1081,10 +1081,9 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .ptr_slice_ptr_ptr => try airPtrSliceFieldPtr(f, inst, ".ptr;\n"),
 
             .ptr_elem_val       => try airPtrElemVal(f, inst, "["),
-            .ptr_ptr_elem_val   => try airPtrElemVal(f, inst, "[0]["),
             .ptr_elem_ptr       => try airPtrElemPtr(f, inst),
             .slice_elem_val     => try airSliceElemVal(f, inst, "["),
-            .ptr_slice_elem_val => try airSliceElemVal(f, inst, "[0]["),
+            .slice_elem_ptr     => try airSliceElemPtr(f, inst),
             .array_elem_val     => try airArrayElemVal(f, inst),
 
             .unwrap_errunion_payload     => try airUnwrapErrUnionPay(f, inst),
@@ -1162,6 +1161,24 @@ fn airSliceElemVal(f: *Function, inst: Air.Inst.Index, prefix: []const u8) !CVal
     try writer.writeAll(" = ");
     try f.writeCValue(writer, slice);
     try writer.writeAll(prefix);
+    try f.writeCValue(writer, index);
+    try writer.writeAll("];\n");
+    return local;
+}
+
+fn airSliceElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
+
+    const slice = try f.resolveInst(bin_op.lhs);
+    const index = try f.resolveInst(bin_op.rhs);
+    const writer = f.object.writer();
+    const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
+    try writer.writeAll(" = &");
+    try f.writeCValue(writer, slice);
+    try writer.writeByte('[');
     try f.writeCValue(writer, index);
     try writer.writeAll("];\n");
     return local;

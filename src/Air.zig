@@ -384,10 +384,10 @@ pub const Inst = struct {
         /// Result type is the element type of the slice operand.
         /// Uses the `bin_op` field.
         slice_elem_val,
-        /// Given a pointer to a slice, and element index, return the element value at that index.
-        /// Result type is the element type of the slice operand (2 element type operations).
-        /// Uses the `bin_op` field.
-        ptr_slice_elem_val,
+        /// Given a slice value and element index, return a pointer to the element value at that index.
+        /// Result type is a pointer to the element type of the slice operand.
+        /// Uses the `ty_pl` field with payload `Bin`.
+        slice_elem_ptr,
         /// Given a pointer value, and element index, return the element value at that index.
         /// Result type is the element type of the pointer operand.
         /// Uses the `bin_op` field.
@@ -396,11 +396,6 @@ pub const Inst = struct {
         /// Result type is pointer to the element type of the pointer operand.
         /// Uses the `ty_pl` field with payload `Bin`.
         ptr_elem_ptr,
-        /// Given a pointer to a pointer, and element index, return the element value of the inner
-        /// pointer at that index.
-        /// Result type is the element type of the inner pointer operand.
-        /// Uses the `bin_op` field.
-        ptr_ptr_elem_val,
         /// Given a pointer to an array, return a slice.
         /// Uses the `ty_op` field.
         array_to_slice,
@@ -694,6 +689,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .constant,
         .struct_field_ptr,
         .struct_field_val,
+        .slice_elem_ptr,
         .ptr_elem_ptr,
         .cmpxchg_weak,
         .cmpxchg_strong,
@@ -771,11 +767,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {
             const ptr_ty = air.typeOf(datas[inst].bin_op.lhs);
             return ptr_ty.elemType();
-        },
-        .ptr_slice_elem_val, .ptr_ptr_elem_val => {
-            const outer_ptr_ty = air.typeOf(datas[inst].bin_op.lhs);
-            const inner_ptr_ty = outer_ptr_ty.elemType();
-            return inner_ptr_ty.elemType();
         },
         .atomic_load => {
             const ptr_ty = air.typeOf(datas[inst].atomic_load.ptr);
