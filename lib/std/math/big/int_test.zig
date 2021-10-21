@@ -1654,6 +1654,18 @@ test "big.int truncate negative multi to single" {
     try testing.expect((try a.to(i17)) == 0);
 }
 
+test "big.int truncate multi unsigned many" {
+    var a = try Managed.initSet(testing.allocator, 1);
+    defer a.deinit();
+    try a.shiftLeft(a, 1023);
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+    try b.truncate(a.toConst(), .signed, @bitSizeOf(i1));
+
+    try testing.expect((try b.to(i1)) == 0);
+}
+
 test "big.int saturate single signed positive" {
     var a = try Managed.initSet(testing.allocator, 0xBBBB_BBBB);
     defer a.deinit();

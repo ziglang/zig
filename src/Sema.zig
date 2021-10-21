@@ -9477,14 +9477,18 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 
     const target = sema.mod.getTarget();
-    const src_info = operand_ty.intInfo(target);
     const dest_info = dest_ty.intInfo(target);
 
-    if (src_info.bits == 0 or dest_info.bits == 0) {
+    if (dest_info.bits == 0) {
         return sema.addConstant(dest_ty, Value.zero);
     }
 
     if (!src_is_comptime_int) {
+        const src_info = operand_ty.intInfo(target);
+        if (src_info.bits == 0) {
+            return sema.addConstant(dest_ty, Value.zero);
+        }
+
         if (src_info.signedness != dest_info.signedness) {
             return sema.fail(block, operand_src, "expected {s} integer type, found '{}'", .{
                 @tagName(dest_info.signedness), operand_ty,
