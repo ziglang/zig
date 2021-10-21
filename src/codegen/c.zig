@@ -1081,10 +1081,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .ptr_slice_ptr_ptr => try airPtrSliceFieldPtr(f, inst, ".ptr;\n"),
 
             .ptr_elem_val       => try airPtrElemVal(f, inst, "["),
-            .ptr_ptr_elem_val   => try airPtrElemVal(f, inst, "[0]["),
             .ptr_elem_ptr       => try airPtrElemPtr(f, inst),
             .slice_elem_val     => try airSliceElemVal(f, inst, "["),
-            .ptr_slice_elem_val => try airSliceElemVal(f, inst, "[0]["),
             .array_elem_val     => try airArrayElemVal(f, inst),
 
             .unwrap_errunion_payload     => try airUnwrapErrUnionPay(f, inst),
