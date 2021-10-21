@@ -1091,11 +1091,22 @@ pub const DeclGen = struct {
                     const elem_ptr = tv.val.castTag(.elem_ptr).?.data;
                     const parent_ptr = try self.lowerParentPtr(elem_ptr.array_ptr);
                     const llvm_usize = try self.llvmType(Type.usize);
-                    const indices: [2]*const llvm.Value = .{
-                        llvm_usize.constInt(0, .False),
-                        llvm_usize.constInt(elem_ptr.index, .False),
-                    };
-                    return parent_ptr.constInBoundsGEP(&indices, indices.len);
+                    if (parent_ptr.typeOf().getElementType().getTypeKind() == .Array) {
+                        const indices: [2]*const llvm.Value = .{
+                            llvm_usize.constInt(0, .False),
+                            llvm_usize.constInt(elem_ptr.index, .False),
+                        };
+                        return parent_ptr.constInBoundsGEP(&indices, indices.len);
+                    } else {
+                        const indices: [1]*const llvm.Value = .{
+                            llvm_usize.constInt(elem_ptr.index, .False),
+                        };
+                        return parent_ptr.constInBoundsGEP(&indices, indices.len);
+                    }
+                },
+                .null_value => {
+                    const llvm_type = try self.llvmType(tv.ty);
+                    return llvm_type.constNull();
                 },
                 else => |tag| return self.todo("implement const of pointer type '{}' ({})", .{ tv.ty, tag }),
             },
@@ -1666,6 +1677,7 @@ pub const FuncGen = struct {
                 .shl_exact => try self.airShlExact(inst),
                 .min       => try self.airMin(inst),
                 .max       => try self.airMax(inst),
+                .slice     => try self.airSlice(inst),
 
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
@@ -2124,8 +2136,7 @@ pub const FuncGen = struct {
     }
 
     fn airSliceField(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
@@ -2721,6 +2732,19 @@ pub const FuncGen = struct {
         return self.builder.buildUMax(lhs, rhs, "");
     }
 
+    fn airSlice(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const ptr = try self.resolveInst(bin_op.lhs);
+        const len = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.air.typeOfIndex(inst);
+        const llvm_slice_ty = try self.dg.llvmType(inst_ty);
+
+        const partial = self.builder.buildInsertValue(llvm_slice_ty.getUndef(), ptr, 0, "");
+        return self.builder.buildInsertValue(partial, len, 1, "");
+    }
+
     fn airAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
@@ -2886,26 +2910,42 @@ pub const FuncGen = struct {
     }
 
     fn airPtrAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const offset = try self.resolveInst(bin_op.rhs);
-        const indices: [1]*const llvm.Value = .{offset};
-        return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        if (ptr_ty.ptrSize() == .One) {
+            // It's a pointer to an array, so according to LLVM we need an extra GEP index.
+            const indices: [2]*const llvm.Value = .{
+                self.context.intType(32).constNull(), offset,
+            };
+            return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        } else {
+            const indices: [1]*const llvm.Value = .{offset};
+            return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        }
     }
 
     fn airPtrSub(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+        if (self.liveness.isUnused(inst)) return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const offset = try self.resolveInst(bin_op.rhs);
         const negative_offset = self.builder.buildNeg(offset, "");
-        const indices: [1]*const llvm.Value = .{negative_offset};
-        return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        if (ptr_ty.ptrSize() == .One) {
+            // It's a pointer to an array, so according to LLVM we need an extra GEP index.
+            const indices: [2]*const llvm.Value = .{
+                self.context.intType(32).constNull(), negative_offset,
+            };
+            return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        } else {
+            const indices: [1]*const llvm.Value = .{negative_offset};
+            return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        }
     }
 
     fn airAnd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

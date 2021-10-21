@@ -727,56 +727,38 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
 
         .slice_open => {
             const lhs = try expr(gz, scope, .ref, node_datas[node].lhs);
-            const start = try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].rhs);
+            const start = try expr(gz, scope, .{ .coerced_ty = .usize_type }, node_datas[node].rhs);
             const result = try gz.addPlNode(.slice_start, node, Zir.Inst.SliceStart{
                 .lhs = lhs,
                 .start = start,
             });
-            switch (rl) {
-                .ref => return result,
-                else => {
-                    const dereffed = try gz.addUnNode(.load, result, node);
-                    return rvalue(gz, rl, dereffed, node);
-                },
-            }
+            return rvalue(gz, rl, result, node);
         },
         .slice => {
             const lhs = try expr(gz, scope, .ref, node_datas[node].lhs);
             const extra = tree.extraData(node_datas[node].rhs, Ast.Node.Slice);
-            const start = try expr(gz, scope, .{ .ty = .usize_type }, extra.start);
-            const end = try expr(gz, scope, .{ .ty = .usize_type }, extra.end);
+            const start = try expr(gz, scope, .{ .coerced_ty = .usize_type }, extra.start);
+            const end = try expr(gz, scope, .{ .coerced_ty = .usize_type }, extra.end);
             const result = try gz.addPlNode(.slice_end, node, Zir.Inst.SliceEnd{
                 .lhs = lhs,
                 .start = start,
                 .end = end,
             });
-            switch (rl) {
-                .ref => return result,
-                else => {
-                    const dereffed = try gz.addUnNode(.load, result, node);
-                    return rvalue(gz, rl, dereffed, node);
-                },
-            }
+            return rvalue(gz, rl, result, node);
         },
         .slice_sentinel => {
             const lhs = try expr(gz, scope, .ref, node_datas[node].lhs);
             const extra = tree.extraData(node_datas[node].rhs, Ast.Node.SliceSentinel);
-            const start = try expr(gz, scope, .{ .ty = .usize_type }, extra.start);
-            const end = if (extra.end != 0) try expr(gz, scope, .{ .ty = .usize_type }, extra.end) else .none;
-            const sentinel = try expr(gz, scope, .{ .ty = .usize_type }, extra.sentinel);
+            const start = try expr(gz, scope, .{ .coerced_ty = .usize_type }, extra.start);
+            const end = if (extra.end != 0) try expr(gz, scope, .{ .coerced_ty = .usize_type }, extra.end) else .none;
+            const sentinel = try expr(gz, scope, .none, extra.sentinel);
             const result = try gz.addPlNode(.slice_sentinel, node, Zir.Inst.SliceSentinel{
                 .lhs = lhs,
                 .start = start,
                 .end = end,
                 .sentinel = sentinel,
             });
-            switch (rl) {
-                .ref => return result,
-                else => {
-                    const dereffed = try gz.addUnNode(.load, result, node);
-                    return rvalue(gz, rl, dereffed, node);
-                },
-            }
+            return rvalue(gz, rl, result, node);
         },
 
         .deref => {

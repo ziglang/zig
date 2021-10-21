@@ -992,6 +992,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .min => try airMinMax(f, inst, "<"),
             .max => try airMinMax(f, inst, ">"),
 
+            .slice => try airSlice(f, inst),
+
             .cmp_eq  => try airBinOp(f, inst, " == "),
             .cmp_gt  => try airBinOp(f, inst, " > "),
             .cmp_gte => try airBinOp(f, inst, " >= "),
@@ -1104,8 +1106,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
 }
 
 fn airSliceField(f: *Function, inst: Air.Inst.Index, suffix: []const u8) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
+    if (f.liveness.isUnused(inst)) return CValue.none;
 
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const operand = try f.resolveInst(ty_op.operand);
@@ -1637,6 +1638,26 @@ fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValu
     try writer.writeAll(" : ");
     try f.writeCValue(writer, rhs);
     try writer.writeAll(";\n");
+
+    return local;
+}
+
+fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const ptr = try f.resolveInst(bin_op.lhs);
+    const len = try f.resolveInst(bin_op.rhs);
+
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+
+    try writer.writeAll(" = {");
+    try f.writeCValue(writer, ptr);
+    try writer.writeAll(", ");
+    try f.writeCValue(writer, len);
+    try writer.writeAll("};\n");
 
     return local;
 }

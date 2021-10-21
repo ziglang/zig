@@ -140,6 +140,7 @@ const Writer = struct {
             .set_union_tag,
             .min,
             .max,
+            .slice,
             => try w.writeBinOp(s, inst),
 
             .is_null,

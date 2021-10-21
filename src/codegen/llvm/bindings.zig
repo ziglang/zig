@@ -234,6 +234,9 @@ pub const Type = opaque {
 
     pub const getTypeKind = LLVMGetTypeKind;
     extern fn LLVMGetTypeKind(Ty: *const Type) TypeKind;
+
+    pub const getElementType = LLVMGetElementType;
+    extern fn LLVMGetElementType(Ty: *const Type) *const Type;
 };
 
 pub const Module = opaque {

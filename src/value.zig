@@ -761,6 +761,7 @@ pub const Value = extern union {
                 return decl_val.toAllocatedBytes(decl.ty, allocator);
             },
             .the_only_possible_value => return &[_]u8{},
+            .slice => return toAllocatedBytes(val.castTag(.slice).?.data.ptr, ty, allocator),
             else => unreachable,
         }
     }
@@ -1402,6 +1403,16 @@ pub const Value = extern union {
                     var buffer: Type.Payload.ElemType = undefined;
                     return eql(a_payload, b_payload, ty.optionalChild(&buffer));
                 },
+                .slice => {
+                    const a_payload = a.castTag(.slice).?.data;
+                    const b_payload = b.castTag(.slice).?.data;
+                    if (!eql(a_payload.len, b_payload.len, Type.usize)) return false;
+
+                    var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                    const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
+
+                    return eql(a_payload.ptr, b_payload.ptr, ptr_ty);
+                },
                 .elem_ptr => @panic("TODO: Implement more pointer eql cases"),
                 .field_ptr => @panic("TODO: Implement more pointer eql cases"),
                 .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
@@ -1474,6 +1485,14 @@ pub const Value = extern union {
                 .function,
                 .variable,
                 => std.hash.autoHash(hasher, val.pointerDecl().?),
+
+                .slice => {
+                    const slice = val.castTag(.slice).?.data;
+                    var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                    const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
+                    hash(slice.ptr, ptr_ty, hasher);
+                    hash(slice.len, Type.usize, hasher);
+                },
 
                 .elem_ptr => @panic("TODO: Implement more pointer hashing cases"),
                 .field_ptr => @panic("TODO: Implement more pointer hashing cases"),

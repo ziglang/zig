@@ -482,6 +482,7 @@ pub const Inst = struct {
         /// Includes a token source location.
         /// Uses the `un_tok` union field.
         /// The operand needs to get coerced to the function's return type.
+        /// TODO rename this to `ret_tok` because coercion is now done unconditionally in Sema.
         ret_coerce,
         /// Sends control flow back to the function's callee.
         /// The return operand is `error.foo` where `foo` is given by the string.

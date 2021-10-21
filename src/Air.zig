@@ -360,6 +360,9 @@ pub const Inst = struct {
         /// Given a tagged union value, get its tag value.
         /// Uses the `ty_op` field.
         get_union_tag,
+        /// Constructs a slice from a pointer and a length.
+        /// Uses the `ty_pl` field, payload is `Bin`. lhs is ptr, rhs is len.
+        slice,
         /// Given a slice value, return the length.
         /// Result type is always usize.
         /// Uses the `ty_op` field.
@@ -694,6 +697,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ptr_elem_ptr,
         .cmpxchg_weak,
         .cmpxchg_strong,
+        .slice,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,

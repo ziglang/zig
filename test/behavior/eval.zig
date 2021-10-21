@@ -395,10 +395,6 @@ test "f32 at compile time is lossy" {
     try expect(@as(f32, 1 << 24) + 1 == 1 << 24);
 }
 
-test "f32 at compile time is lossy" {
-    try expect(@as(f32, 1 << 24) + 1 == 1 << 24);
-}
-
 test "f64 at compile time is lossy" {
     try expect(@as(f64, 1 << 53) + 1 == 1 << 53);
 }

@@ -1529,6 +1529,7 @@ pub const Type = extern union {
         return fast_result;
     }
 
+    /// Returns 0 if the pointer is naturally aligned and the element type is 0-bit.
     pub fn ptrAlignment(self: Type, target: Target) u32 {
         switch (self.tag()) {
             .single_const_pointer,
@@ -1739,10 +1740,10 @@ pub const Type = extern union {
 
             .empty_struct,
             .void,
+            .c_void,
             => return 0,
 
             .empty_struct_literal,
-            .c_void,
             .type,
             .comptime_int,
             .comptime_float,
