@@ -500,6 +500,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
                     .array_elem_val      => try self.airArrayElemVal(inst),
                     .slice_elem_val      => try self.airSliceElemVal(inst),
+                    .slice_elem_ptr      => try self.airSliceElemPtr(inst),
                     .ptr_elem_val        => try self.airPtrElemVal(inst),
                     .ptr_elem_ptr        => try self.airPtrElemPtr(inst),
 
@@ -1082,6 +1083,13 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice_elem_val for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice_elem_ptr for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
 fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {

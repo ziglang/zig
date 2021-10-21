@@ -333,6 +333,24 @@ pub const Block = struct {
         });
     }
 
+    pub fn addSliceElemPtr(
+        block: *Block,
+        slice: Air.Inst.Ref,
+        elem_index: Air.Inst.Ref,
+        elem_ptr_ty: Type,
+    ) !Air.Inst.Ref {
+        return block.addInst(.{
+            .tag = .slice_elem_ptr,
+            .data = .{ .ty_pl = .{
+                .ty = try block.sema.addType(elem_ptr_ty),
+                .payload = try block.sema.addExtra(Air.Bin{
+                    .lhs = slice,
+                    .rhs = elem_index,
+                }),
+            } },
+        });
+    }
+
     pub fn addInst(block: *Block, inst: Air.Inst) error{OutOfMemory}!Air.Inst.Ref {
         return Air.indexToRef(try block.addInstAsIndex(inst));
     }
@@ -11476,18 +11494,39 @@ fn elemPtr(
         else => return sema.fail(block, array_ptr_src, "expected pointer, found '{}'", .{array_ptr_ty}),
     };
     if (!array_ty.isIndexable()) {
-        return sema.fail(block, src, "array access of non-array type '{}'", .{array_ty});
-    }
-    if (array_ty.isSinglePointer() and array_ty.elemType().zigTypeTag() == .Array) {
-        // we have to deref the ptr operand to get the actual array pointer
-        const array_ptr_deref = try sema.analyzeLoad(block, src, array_ptr, array_ptr_src);
-        return sema.elemPtrArray(block, src, array_ptr_deref, elem_index, elem_index_src);
-    }
-    if (array_ty.zigTypeTag() == .Array) {
-        return sema.elemPtrArray(block, src, array_ptr, elem_index, elem_index_src);
+        return sema.fail(block, src, "array access of non-indexable type '{}'", .{array_ty});
     }
 
-    return sema.fail(block, src, "TODO implement more analyze elemptr", .{});
+    switch (array_ty.zigTypeTag()) {
+        .Pointer => {
+            // In all below cases, we have to deref the ptr operand to get the actual array pointer.
+            const array = try sema.analyzeLoad(block, src, array_ptr, array_ptr_src);
+            switch (array_ty.ptrSize()) {
+                .Slice => {
+                    const result_ty = try array_ty.elemPtrType(sema.arena);
+                    const maybe_slice_val = try sema.resolveDefinedValue(block, array_ptr_src, array);
+                    const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
+                    const runtime_src = if (maybe_slice_val) |slice_val| rs: {
+                        const index_val = maybe_index_val orelse break :rs elem_index_src;
+                        const index = @intCast(usize, index_val.toUnsignedInt());
+                        const elem_ptr = try slice_val.elemPtr(sema.arena, index);
+                        return sema.addConstant(result_ty, elem_ptr);
+                    } else array_ptr_src;
+
+                    try sema.requireRuntimeBlock(block, runtime_src);
+                    return block.addSliceElemPtr(array, elem_index, result_ty);
+                },
+                .Many, .C => return sema.fail(block, src, "TODO implement Sema for elemPtr for many/c pointer", .{}),
+                .One => {
+                    assert(array_ty.childType().zigTypeTag() == .Array); // Guaranteed by isIndexable
+                    return sema.elemPtrArray(block, src, array, elem_index, elem_index_src);
+                },
+            }
+        },
+        .Array => return sema.elemPtrArray(block, src, array_ptr, elem_index, elem_index_src),
+        .Vector => return sema.fail(block, src, "TODO implement Sema for elemPtr for vector", .{}),
+        else => unreachable,
+    }
 }
 
 fn elemVal(
@@ -11529,7 +11568,7 @@ fn elemVal(
                 return block.addBinOp(.ptr_elem_val, array, elem_index);
             },
             .One => {
-                assert(array_ty.childType().zigTypeTag() == .Array);
+                assert(array_ty.childType().zigTypeTag() == .Array); // Guaranteed by isIndexable
                 const elem_ptr = try sema.elemPtr(block, src, array, elem_index, elem_index_src);
                 return sema.analyzeLoad(block, src, elem_ptr, elem_index_src);
             },
@@ -11562,12 +11601,7 @@ fn elemPtrArray(
     elem_index_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
     const array_ptr_ty = sema.typeOf(array_ptr);
-    const pointee_type = array_ptr_ty.elemType().elemType();
-    const result_ty = try Type.ptr(sema.arena, .{
-        .pointee_type = pointee_type,
-        .mutable = array_ptr_ty.ptrIsMutable(),
-        .@"addrspace" = array_ptr_ty.ptrAddressSpace(),
-    });
+    const result_ty = try array_ptr_ty.elemPtrType(sema.arena);
 
     if (try sema.resolveDefinedValue(block, src, array_ptr)) |array_ptr_val| {
         if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| {

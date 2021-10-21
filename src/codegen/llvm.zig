@@ -1760,6 +1760,7 @@ pub const FuncGen = struct {
 
                 .array_elem_val     => try self.airArrayElemVal(inst),
                 .slice_elem_val     => try self.airSliceElemVal(inst),
+                .slice_elem_ptr     => try self.airSliceElemPtr(inst),
                 .ptr_elem_val       => try self.airPtrElemVal(inst),
                 .ptr_elem_ptr       => try self.airPtrElemPtr(inst),
 
@@ -2157,10 +2158,18 @@ pub const FuncGen = struct {
 
         const slice = try self.resolveInst(bin_op.lhs);
         const index = try self.resolveInst(bin_op.rhs);
-        const base_ptr = self.builder.buildExtractValue(slice, 0, "");
-        const indices: [1]*const llvm.Value = .{index};
-        const ptr = self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
+        const ptr = self.sliceElemPtr(slice, index);
         return self.load(ptr, slice_ty);
+    }
+
+    fn airSliceElemPtr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+
+        const slice = try self.resolveInst(bin_op.lhs);
+        const index = try self.resolveInst(bin_op.rhs);
+        return self.sliceElemPtr(slice, index);
     }
 
     fn airArrayElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -3573,6 +3582,16 @@ pub const FuncGen = struct {
         const payload_index = @boolToInt(layout.tag_align >= layout.payload_align);
         const union_field_ptr = self.builder.buildStructGEP(union_ptr, payload_index, "");
         return self.builder.buildBitCast(union_field_ptr, result_llvm_ty, "");
+    }
+
+    fn sliceElemPtr(
+        self: *FuncGen,
+        slice: *const llvm.Value,
+        index: *const llvm.Value,
+    ) *const llvm.Value {
+        const base_ptr = self.builder.buildExtractValue(slice, 0, "");
+        const indices: [1]*const llvm.Value = .{index};
+        return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
     }
 
     fn getIntrinsic(self: *FuncGen, name: []const u8) *const llvm.Value {

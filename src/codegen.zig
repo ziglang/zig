@@ -848,6 +848,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     .array_elem_val      => try self.airArrayElemVal(inst),
                     .slice_elem_val      => try self.airSliceElemVal(inst),
+                    .slice_elem_ptr      => try self.airSliceElemPtr(inst),
                     .ptr_elem_val        => try self.airPtrElemVal(inst),
                     .ptr_elem_ptr        => try self.airPtrElemPtr(inst),
 
@@ -1531,6 +1532,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 else => return self.fail("TODO implement slice_elem_val for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
+        fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+            const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement slice_elem_ptr for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
         }
 
         fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {

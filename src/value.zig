@@ -114,7 +114,7 @@ pub const Value = extern union {
         /// This Tag will never be seen by machine codegen backends. It is changed into a
         /// `decl_ref` when a comptime variable goes out of scope.
         decl_ref_mut,
-        /// Pointer to a specific element of an array.
+        /// Pointer to a specific element of an array, vector or slice.
         elem_ptr,
         /// Pointer to a specific field of a struct or union.
         field_ptr,
@@ -1792,17 +1792,23 @@ pub const Value = extern union {
 
     /// Returns a pointer to the element value at the index.
     pub fn elemPtr(self: Value, allocator: *Allocator, index: usize) !Value {
-        if (self.castTag(.elem_ptr)) |elem_ptr| {
-            return Tag.elem_ptr.create(allocator, .{
-                .array_ptr = elem_ptr.data.array_ptr,
-                .index = elem_ptr.data.index + index,
-            });
+        switch (self.tag()) {
+            .elem_ptr => {
+                const elem_ptr = self.castTag(.elem_ptr).?.data;
+                return Tag.elem_ptr.create(allocator, .{
+                    .array_ptr = elem_ptr.array_ptr,
+                    .index = elem_ptr.index + index,
+                });
+            },
+            .slice => return Tag.elem_ptr.create(allocator, .{
+                .array_ptr = self.castTag(.slice).?.data.ptr,
+                .index = index,
+            }),
+            else => return Tag.elem_ptr.create(allocator, .{
+                .array_ptr = self,
+                .index = index,
+            }),
         }
-
-        return Tag.elem_ptr.create(allocator, .{
-            .array_ptr = self,
-            .index = index,
-        });
     }
 
     pub fn isUndef(self: Value) bool {

@@ -200,6 +200,7 @@ const Writer = struct {
             .loop,
             => try w.writeBlock(s, inst),
 
+            .slice_elem_ptr => try w.writeSliceElemPtr(s, inst),
             .ptr_elem_ptr => try w.writePtrElemPtr(s, inst),
             .struct_field_ptr => try w.writeStructField(s, inst),
             .struct_field_val => try w.writeStructField(s, inst),
@@ -279,6 +280,15 @@ const Writer = struct {
 
         try w.writeOperand(s, inst, 0, extra.struct_operand);
         try s.print(", {d}", .{extra.field_index});
+    }
+
+    fn writeSliceElemPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.Bin, ty_pl.payload).data;
+
+        try w.writeOperand(s, inst, 0, extra.lhs);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, extra.rhs);
     }
 
     fn writePtrElemPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
