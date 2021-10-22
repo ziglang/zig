@@ -65,3 +65,15 @@ test "implicit cast comptime_int to comptime_float" {
     comptime try expect(@as(comptime_float, 10) == @as(f32, 10));
     try expect(2 == 2.0);
 }
+
+test "pointer reinterpret const float to int" {
+    // The hex representation is 0x3fe3333333333303.
+    const float: f64 = 5.99999999999994648725e-01;
+    const float_ptr = &float;
+    const int_ptr = @ptrCast(*const i32, float_ptr);
+    const int_val = int_ptr.*;
+    if (native_endian == .Little)
+        try expect(int_val == 0x33333303)
+    else
+        try expect(int_val == 0x3fe33333);
+}

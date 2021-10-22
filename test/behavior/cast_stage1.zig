@@ -5,18 +5,6 @@ const maxInt = std.math.maxInt;
 const Vector = std.meta.Vector;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
-test "pointer reinterpret const float to int" {
-    // The hex representation is 0x3fe3333333333303.
-    const float: f64 = 5.99999999999994648725e-01;
-    const float_ptr = &float;
-    const int_ptr = @ptrCast(*const i32, float_ptr);
-    const int_val = int_ptr.*;
-    if (native_endian == .Little)
-        try expect(int_val == 0x33333303)
-    else
-        try expect(int_val == 0x3fe33333);
-}
-
 test "implicitly cast indirect pointer to maybe-indirect pointer" {
     const S = struct {
         const Self = @This();

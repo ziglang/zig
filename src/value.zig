@@ -1607,60 +1607,6 @@ pub const Value = extern union {
         }
     };
 
-    /// Asserts the value is a pointer and dereferences it.
-    /// Returns error.AnalysisFail if the pointer points to a Decl that failed semantic analysis.
-    pub fn pointerDeref(val: Value, arena: *Allocator) error{ AnalysisFail, OutOfMemory }!?Value {
-        const sub_val: Value = switch (val.tag()) {
-            .decl_ref_mut => sub_val: {
-                // The decl whose value we are obtaining here may be overwritten with
-                // a different value, which would invalidate this memory. So we must
-                // copy here.
-                const sub_val = try val.castTag(.decl_ref_mut).?.data.decl.value();
-                break :sub_val try sub_val.copy(arena);
-            },
-            .decl_ref => try val.castTag(.decl_ref).?.data.value(),
-            .elem_ptr => blk: {
-                const elem_ptr = val.castTag(.elem_ptr).?.data;
-                const array_val = (try elem_ptr.array_ptr.pointerDeref(arena)) orelse return null;
-                break :blk try array_val.elemValue(arena, elem_ptr.index);
-            },
-            .field_ptr => blk: {
-                const field_ptr = val.castTag(.field_ptr).?.data;
-                const container_val = (try field_ptr.container_ptr.pointerDeref(arena)) orelse return null;
-                break :blk try container_val.fieldValue(arena, field_ptr.field_index);
-            },
-            .eu_payload_ptr => blk: {
-                const err_union_ptr = val.castTag(.eu_payload_ptr).?.data;
-                const err_union_val = (try err_union_ptr.pointerDeref(arena)) orelse return null;
-                break :blk err_union_val.castTag(.eu_payload).?.data;
-            },
-            .opt_payload_ptr => blk: {
-                const opt_ptr = val.castTag(.opt_payload_ptr).?.data;
-                const opt_val = (try opt_ptr.pointerDeref(arena)) orelse return null;
-                break :blk opt_val.castTag(.opt_payload).?.data;
-            },
-
-            .zero,
-            .one,
-            .int_u64,
-            .int_i64,
-            .int_big_positive,
-            .int_big_negative,
-            .variable,
-            .extern_fn,
-            .function,
-            => return null,
-
-            else => unreachable,
-        };
-        if (sub_val.tag() == .variable) {
-            // This would be loading a runtime value at compile-time so we return
-            // the indicator that this pointer dereference requires being done at runtime.
-            return null;
-        }
-        return sub_val;
-    }
-
     pub fn isComptimeMutablePtr(val: Value) bool {
         return switch (val.tag()) {
             .decl_ref_mut => true,

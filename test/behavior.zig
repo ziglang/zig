@@ -45,6 +45,7 @@ test {
     _ = @import("behavior/null.zig");
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/pointers.zig");
+    _ = @import("behavior/ptrcast.zig");
     _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/slice.zig");
@@ -146,7 +147,7 @@ test {
         _ = @import("behavior/optional_stage1.zig");
         _ = @import("behavior/pointers_stage1.zig");
         _ = @import("behavior/popcount.zig");
-        _ = @import("behavior/ptrcast.zig");
+        _ = @import("behavior/ptrcast_stage1.zig");
         _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
         _ = @import("behavior/reflection.zig");
         {
