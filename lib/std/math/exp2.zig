@@ -84,7 +84,7 @@ fn exp2_32(x: f32) f32 {
 
     var uf = x + redux;
     var i_0 = @bitCast(u32, uf);
-    _ = @addWithOverflow(u32, i_0, tblsiz / 2, &i_0);
+    i_0 +%= tblsiz / 2;
 
     const k = i_0 / tblsiz;
     const uk = @bitCast(f64, @as(u64, 0x3FF + k) << 52);
@@ -411,7 +411,7 @@ fn exp2_64(x: f64) f64 {
     var uf: f64 = x + redux;
     // NOTE: musl performs an implicit 64-bit to 32-bit u32 truncation here
     var i_0: u32 = @truncate(u32, @bitCast(u64, uf));
-    _ = @addWithOverflow(u32, i_0, tblsiz / 2, &i_0);
+    i_0 +%= tblsiz / 2;
 
     const k: u32 = i_0 / tblsiz * tblsiz;
     const ik: i32 = @divTrunc(@bitCast(i32, k), tblsiz);
