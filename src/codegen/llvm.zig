@@ -2598,9 +2598,9 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const operand_ty = self.air.typeOf(ty_op.operand);
+        const payload_ty = self.air.typeOf(ty_op.operand);
         const non_null_bit = self.context.intType(1).constAllOnes();
-        if (!operand_ty.hasCodeGenBits()) return non_null_bit;
+        if (!payload_ty.hasCodeGenBits()) return non_null_bit;
         const operand = try self.resolveInst(ty_op.operand);
         const optional_ty = self.air.typeOfIndex(inst);
         if (optional_ty.isPtrLikeOptional()) return operand;
@@ -2608,8 +2608,6 @@ pub const FuncGen = struct {
         if (isByRef(optional_ty)) {
             const optional_ptr = self.buildAlloca(llvm_optional_ty);
             const payload_ptr = self.builder.buildStructGEP(optional_ptr, 0, "");
-            var buf: Type.Payload.ElemType = undefined;
-            const payload_ty = operand_ty.optionalChild(&buf);
             var ptr_ty_payload: Type.Payload.ElemType = .{
                 .base = .{ .tag = .single_mut_pointer },
                 .data = payload_ty,

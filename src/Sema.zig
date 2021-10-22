@@ -224,6 +224,16 @@ pub const Block = struct {
         });
     }
 
+    pub fn addBitCast(block: *Block, ty: Type, operand: Air.Inst.Ref) Allocator.Error!Air.Inst.Ref {
+        return block.addInst(.{
+            .tag = .bitcast,
+            .data = .{ .ty_op = .{
+                .ty = try block.sema.addType(ty),
+                .operand = operand,
+            } },
+        });
+    }
+
     pub fn addNoOp(block: *Block, tag: Air.Inst.Tag) error{OutOfMemory}!Air.Inst.Ref {
         return block.addInst(.{
             .tag = tag,
@@ -1409,7 +1419,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     // for the inferred allocation.
                     // This instruction will not make it to codegen; it is only to participate
                     // in the `stored_inst_list` of the `inferred_alloc`.
-                    const operand = try block.addTyOp(.bitcast, pointee_ty, .void_value);
+                    const operand = try block.addBitCast(pointee_ty, .void_value);
                     try inferred_alloc.stored_inst_list.append(sema.arena, operand);
                 },
                 .inferred_alloc_comptime => {
@@ -1436,7 +1446,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         }
     }
     try sema.requireRuntimeBlock(block, src);
-    const bitcasted_ptr = try block.addTyOp(.bitcast, ptr_ty, ptr);
+    const bitcasted_ptr = try block.addBitCast(ptr_ty, ptr);
     return bitcasted_ptr;
 }
 
@@ -2509,7 +2519,7 @@ fn zirStoreToBlockPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     // if expressions should force it when the condition is compile-time known.
     const src: LazySrcLoc = .unneeded;
     try sema.requireRuntimeBlock(block, src);
-    const bitcasted_ptr = try block.addTyOp(.bitcast, ptr_ty, ptr);
+    const bitcasted_ptr = try block.addBitCast(ptr_ty, ptr);
     return sema.storePtr(block, src, bitcasted_ptr, value);
 }
 
@@ -2555,7 +2565,7 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
             .pointee_type = operand_ty,
             .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
         });
-        const bitcasted_ptr = try block.addTyOp(.bitcast, ptr_ty, ptr);
+        const bitcasted_ptr = try block.addBitCast(ptr_ty, ptr);
         return sema.storePtr(block, src, bitcasted_ptr, operand);
     }
     unreachable;
@@ -4310,7 +4320,7 @@ fn zirErrorToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
 
     try sema.requireRuntimeBlock(block, src);
-    return block.addTyOp(.bitcast, result_ty, op_coerced);
+    return block.addBitCast(result_ty, op_coerced);
 }
 
 fn zirIntToError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -4340,7 +4350,13 @@ fn zirIntToError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         // const is_gt_max = @panic("TODO get max errors in compilation");
         // try sema.addSafetyCheck(block, is_gt_max, .invalid_error_code);
     }
-    return block.addTyOp(.bitcast, Type.anyerror, op);
+    return block.addInst(.{
+        .tag = .bitcast,
+        .data = .{ .ty_op = .{
+            .ty = Air.Inst.Ref.anyerror_type,
+            .operand = op,
+        } },
+    });
 }
 
 fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -4483,7 +4499,7 @@ fn zirEnumToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     try sema.requireRuntimeBlock(block, src);
-    return block.addTyOp(.bitcast, int_tag_ty, enum_tag);
+    return block.addBitCast(int_tag_ty, enum_tag);
 }
 
 fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9620,7 +9636,7 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             try sema.addSafetyCheck(block, is_aligned, .incorrect_alignment);
         }
     }
-    return block.addTyOp(.bitcast, type_res, operand_coerced);
+    return block.addBitCast(type_res, operand_coerced);
 }
 
 fn zirErrSetCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9650,7 +9666,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
         return sema.addConstant(dest_ty, val);
     }
-    return block.addTyOp(.bitcast, dest_ty, operand);
+    return block.addBitCast(dest_ty, operand);
 }
 
 fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -11871,7 +11887,7 @@ fn coerce(
             return sema.addConstant(dest_ty, val);
         }
         try sema.requireRuntimeBlock(block, inst_src);
-        return block.addTyOp(.bitcast, dest_ty, inst);
+        return block.addBitCast(dest_ty, inst);
     }
 
     // undefined to anything
@@ -11896,8 +11912,7 @@ fn coerce(
             }
 
             // T to ?T
-            var buf: Type.Payload.ElemType = undefined;
-            const child_type = dest_ty.optionalChild(&buf);
+            const child_type = try dest_ty.optionalChildAlloc(sema.arena);
             const intermediate = try sema.coerce(block, child_type, inst, inst_src);
             return sema.wrapOptional(block, dest_ty, intermediate, inst_src);
         },
@@ -12603,11 +12618,10 @@ fn beginComptimePtrLoad(
         .opt_payload_ptr => {
             const opt_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
             const parent = try beginComptimePtrLoad(sema, block, src, opt_ptr);
-            var buf: Type.Payload.ElemType = undefined;
             return ComptimePtrLoadKit{
                 .root_val = parent.root_val,
                 .val = parent.val.castTag(.opt_payload).?.data,
-                .ty = parent.ty.optionalChild(&buf),
+                .ty = try parent.ty.optionalChildAlloc(sema.arena),
                 .byte_offset = undefined,
                 .is_mutable = parent.is_mutable,
             };
@@ -12643,7 +12657,7 @@ fn bitCast(
         return sema.addConstant(dest_ty, result_val);
     }
     try sema.requireRuntimeBlock(block, inst_src);
-    return block.addTyOp(.bitcast, dest_ty, inst);
+    return block.addBitCast(dest_ty, inst);
 }
 
 fn coerceArrayPtrToSlice(
@@ -12756,7 +12770,7 @@ fn coerceEnumToUnion(
 
     // If the union has all fields 0 bits, the union value is just the enum value.
     if (union_ty.unionHasAllZeroBitFieldTypes()) {
-        return block.addTyOp(.bitcast, union_ty, enum_tag);
+        return block.addBitCast(union_ty, enum_tag);
     }
 
     // TODO resolve the field names and add a hint that says "field 'foo' has type 'bar'"
@@ -12814,7 +12828,7 @@ fn coerceVectorInMemory(
     }
 
     try sema.requireRuntimeBlock(block, inst_src);
-    return block.addTyOp(.bitcast, dest_ty, inst);
+    return block.addBitCast(dest_ty, inst);
 }
 
 fn coerceCompatibleErrorSets(
@@ -12828,7 +12842,13 @@ fn coerceCompatibleErrorSets(
         return sema.addConstant(Type.anyerror, err_set_val);
     }
     try sema.requireRuntimeBlock(block, err_set_src);
-    return block.addTyOp(.bitcast, Type.anyerror, err_set);
+    return block.addInst(.{
+        .tag = .bitcast,
+        .data = .{ .ty_op = .{
+            .ty = Air.Inst.Ref.anyerror_type,
+            .operand = err_set,
+        } },
+    });
 }
 
 fn analyzeDeclVal(
@@ -13128,7 +13148,7 @@ fn analyzeSlice(
         if (opt_new_ptr_val) |new_ptr_val| {
             return sema.addConstant(return_ty, new_ptr_val);
         } else {
-            return block.addTyOp(.bitcast, return_ty, new_ptr);
+            return block.addBitCast(return_ty, new_ptr);
         }
     }
 
