@@ -1648,6 +1648,7 @@ pub const FuncGen = struct {
         global.setInitializer(llvm_val);
         global.setLinkage(.Private);
         global.setGlobalConstant(.True);
+        global.setUnnamedAddr(.True);
         global.setAlignment(ty.abiAlignment(target));
         gop.value_ptr.* = global;
         return global;
