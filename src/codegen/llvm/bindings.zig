@@ -756,6 +756,12 @@ pub const Builder = opaque {
 
     pub const buildSMin = ZigLLVMBuildSMin;
     extern fn ZigLLVMBuildSMin(builder: *const Builder, LHS: *const Value, RHS: *const Value, name: [*:0]const u8) *const Value;
+
+    pub const buildExactUDiv = LLVMBuildExactUDiv;
+    extern fn LLVMBuildExactUDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const buildExactSDiv = LLVMBuildExactSDiv;
+    extern fn LLVMBuildExactSDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 };
 
 pub const IntPredicate = enum(c_uint) {

@@ -74,6 +74,11 @@ comptime {
         @export(__getf2, .{ .name = "__gttf2", .linkage = linkage });
 
         @export(__extendhfsf2, .{ .name = "__gnu_h2f_ieee", .linkage = linkage });
+
+        const __muloti4 = @import("compiler_rt/muloti4.zig").__muloti4;
+        @export(__muloti4, .{ .name = "__muloti4", .linkage = linkage });
+        const __mulodi4 = @import("compiler_rt/mulodi4.zig").__mulodi4;
+        @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
     }
 
     if (!builtin.zig_is_stage2) {
@@ -621,10 +626,6 @@ comptime {
             const __umodti3 = @import("compiler_rt/umodti3.zig").__umodti3;
             @export(__umodti3, .{ .name = "__umodti3", .linkage = linkage });
         }
-        const __muloti4 = @import("compiler_rt/muloti4.zig").__muloti4;
-        @export(__muloti4, .{ .name = "__muloti4", .linkage = linkage });
-        const __mulodi4 = @import("compiler_rt/mulodi4.zig").__mulodi4;
-        @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
 
         _ = @import("compiler_rt/atomics.zig");
 

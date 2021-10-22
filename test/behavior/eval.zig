@@ -402,3 +402,52 @@ test "f64 at compile time is lossy" {
 test {
     comptime try expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
 }
+
+fn copyWithPartialInline(s: []u32, b: []u8) void {
+    comptime var i: usize = 0;
+    inline while (i < 4) : (i += 1) {
+        s[i] = 0;
+        s[i] |= @as(u32, b[i * 4 + 0]) << 24;
+        s[i] |= @as(u32, b[i * 4 + 1]) << 16;
+        s[i] |= @as(u32, b[i * 4 + 2]) << 8;
+        s[i] |= @as(u32, b[i * 4 + 3]) << 0;
+    }
+}
+
+test "binary math operator in partially inlined function" {
+    var s: [4]u32 = undefined;
+    var b: [16]u8 = undefined;
+
+    for (b) |*r, i|
+        r.* = @intCast(u8, i + 1);
+
+    copyWithPartialInline(s[0..], b[0..]);
+    try expect(s[0] == 0x1020304);
+    try expect(s[1] == 0x5060708);
+    try expect(s[2] == 0x90a0b0c);
+    try expect(s[3] == 0xd0e0f10);
+}
+
+test "comptime shl" {
+    var a: u128 = 3;
+    var b: u7 = 63;
+    var c: u128 = 3 << 63;
+    try expect((a << b) == c);
+}
+
+test "comptime bitwise operators" {
+    comptime {
+        try expect(3 & 1 == 1);
+        try expect(3 & -1 == 3);
+        try expect(-3 & -1 == -3);
+        try expect(3 | -1 == -1);
+        try expect(-3 | -1 == -1);
+        try expect(3 ^ -1 == -4);
+        try expect(-3 ^ -1 == 2);
+        try expect(~@as(i8, -1) == 0);
+        try expect(~@as(i128, -1) == 0);
+        try expect(18446744073709551615 & 18446744073709551611 == 18446744073709551611);
+        try expect(-18446744073709551615 & -18446744073709551611 == -18446744073709551615);
+        try expect(~@as(u128, 0) == 0xffffffffffffffffffffffffffffffff);
+    }
+}

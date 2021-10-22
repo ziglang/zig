@@ -80,11 +80,27 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         mul_sat,
-        /// Integer or float division. For integers, wrapping is undefined behavior.
+        /// Float division.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
-        div,
+        div_float,
+        /// Truncating integer or float division. For integers, wrapping is undefined behavior.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        div_trunc,
+        /// Flooring integer or float division. For integers, wrapping is undefined behavior.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        div_floor,
+        /// Integer or float division. Guaranteed no remainder.
+        /// For integers, wrapping is undefined behavior.
+        /// Both operands are guaranteed to be the same type, and the result type
+        /// is the same as both operands.
+        /// Uses the `bin_op` field.
+        div_exact,
         /// Integer or float remainder division.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
@@ -644,7 +660,10 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .mul,
         .mulwrap,
         .mul_sat,
-        .div,
+        .div_float,
+        .div_trunc,
+        .div_floor,
+        .div_exact,
         .rem,
         .mod,
         .bit_and,

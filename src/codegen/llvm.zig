@@ -1667,7 +1667,10 @@ pub const FuncGen = struct {
                 .mul       => try self.airMul(inst),
                 .mulwrap   => try self.airMulWrap(inst),
                 .mul_sat   => try self.airMulSat(inst),
-                .div       => try self.airDiv(inst),
+                .div_float => try self.airDivFloat(inst),
+                .div_trunc => try self.airDivTrunc(inst),
+                .div_floor => try self.airDivFloor(inst),
+                .div_exact => try self.airDivExact(inst),
                 .rem       => try self.airRem(inst),
                 .mod       => try self.airMod(inst),
                 .ptr_add   => try self.airPtrAdd(inst),
@@ -2830,9 +2833,70 @@ pub const FuncGen = struct {
         return self.builder.buildUMulFixSat(lhs, rhs, "");
     }
 
-    fn airDiv(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+    fn airDivFloat(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+
+        return self.builder.buildFDiv(lhs, rhs, "");
+    }
+
+    fn airDivTrunc(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.air.typeOfIndex(inst);
+
+        if (inst_ty.isRuntimeFloat()) {
+            const result_llvm_ty = try self.dg.llvmType(inst_ty);
+            const zero = result_llvm_ty.constNull();
+            const result = self.builder.buildFDiv(lhs, rhs, "");
+            const ceiled = try self.callCeil(result, inst_ty);
+            const floored = try self.callFloor(result, inst_ty);
+            const ltz = self.builder.buildFCmp(.OLT, lhs, zero, "");
+            return self.builder.buildSelect(ltz, ceiled, floored, "");
+        }
+        if (inst_ty.isSignedInt()) return self.builder.buildSDiv(lhs, rhs, "");
+        return self.builder.buildUDiv(lhs, rhs, "");
+    }
+
+    fn airDivFloor(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.air.typeOfIndex(inst);
+
+        if (inst_ty.isRuntimeFloat()) {
+            const result = self.builder.buildFDiv(lhs, rhs, "");
+            return try self.callFloor(result, inst_ty);
+        }
+        if (inst_ty.isSignedInt()) {
+            // const d = @divTrunc(a, b);
+            // const r = @rem(a, b);
+            // return if (r == 0) d else d - ((a < 0) ^ (b < 0));
+            const result_llvm_ty = try self.dg.llvmType(inst_ty);
+            const zero = result_llvm_ty.constNull();
+            const div_trunc = self.builder.buildSDiv(lhs, rhs, "");
+            const rem = self.builder.buildSRem(lhs, rhs, "");
+            const rem_eq_0 = self.builder.buildICmp(.EQ, rem, zero, "");
+            const a_lt_0 = self.builder.buildICmp(.SLT, lhs, zero, "");
+            const b_lt_0 = self.builder.buildICmp(.SLT, rhs, zero, "");
+            const a_b_xor = self.builder.buildXor(a_lt_0, b_lt_0, "");
+            const a_b_xor_ext = self.builder.buildZExt(a_b_xor, div_trunc.typeOf(), "");
+            const d_sub_xor = self.builder.buildSub(div_trunc, a_b_xor_ext, "");
+            return self.builder.buildSelect(rem_eq_0, div_trunc, d_sub_xor, "");
+        }
+        return self.builder.buildUDiv(lhs, rhs, "");
+    }
+
+    fn airDivExact(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
 
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -2840,8 +2904,8 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
 
         if (inst_ty.isRuntimeFloat()) return self.builder.buildFDiv(lhs, rhs, "");
-        if (inst_ty.isSignedInt()) return self.builder.buildSDiv(lhs, rhs, "");
-        return self.builder.buildUDiv(lhs, rhs, "");
+        if (inst_ty.isSignedInt()) return self.builder.buildExactSDiv(lhs, rhs, "");
+        return self.builder.buildExactUDiv(lhs, rhs, "");
     }
 
     fn airRem(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -3544,6 +3608,33 @@ pub const FuncGen = struct {
         } else {
             return wrong_size_result;
         }
+    }
+
+    fn callFloor(self: *FuncGen, arg: *const llvm.Value, ty: Type) !*const llvm.Value {
+        return self.callFloatUnary(arg, ty, "floor");
+    }
+
+    fn callCeil(self: *FuncGen, arg: *const llvm.Value, ty: Type) !*const llvm.Value {
+        return self.callFloatUnary(arg, ty, "ceil");
+    }
+
+    fn callFloatUnary(self: *FuncGen, arg: *const llvm.Value, ty: Type, name: []const u8) !*const llvm.Value {
+        const target = self.dg.module.getTarget();
+
+        var fn_name_buf: [100]u8 = undefined;
+        const llvm_fn_name = std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.f{d}", .{
+            name, ty.floatBits(target),
+        }) catch unreachable;
+
+        const llvm_fn = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
+            const operand_llvm_ty = try self.dg.llvmType(ty);
+            const param_types = [_]*const llvm.Type{operand_llvm_ty};
+            const fn_type = llvm.functionType(operand_llvm_ty, &param_types, param_types.len, .False);
+            break :blk self.dg.object.llvm_module.addFunction(llvm_fn_name, fn_type);
+        };
+
+        const args: [1]*const llvm.Value = .{arg};
+        return self.builder.buildCall(llvm_fn, &args, args.len, .C, .Auto, "");
     }
 
     fn fieldPtr(

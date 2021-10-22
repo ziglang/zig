@@ -135,6 +135,11 @@ pub const Mutable = struct {
         };
     }
 
+    /// Returns true if `a == 0`.
+    pub fn eqZero(self: Mutable) bool {
+        return self.toConst().eqZero();
+    }
+
     /// Asserts that the allocator owns the limbs memory. If this is not the case,
     /// use `toConst().toManaged()`.
     pub fn toManaged(self: Mutable, allocator: *Allocator) Managed {
@@ -773,12 +778,15 @@ pub const Mutable = struct {
         div(q, r, a, b, limbs_buffer, allocator);
 
         // Trunc -> Floor.
-        if (!q.positive) {
+        if (a.positive and b.positive) return;
+
+        if ((!q.positive or q.eqZero()) and !r.eqZero()) {
             const one: Const = .{ .limbs = &[_]Limb{1}, .positive = true };
             q.sub(q.toConst(), one);
-            r.add(q.toConst(), one);
         }
-        r.positive = b.positive;
+
+        r.mulNoAlias(q.toConst(), b, allocator);
+        r.sub(a, r.toConst());
     }
 
     /// q = a / b (rem r)
@@ -1220,12 +1228,12 @@ pub const Mutable = struct {
 
             var x: Mutable = .{
                 .limbs = x_limbs,
-                .positive = a.positive,
+                .positive = true,
                 .len = a.limbs.len - ab_zero_limb_count,
             };
             var y: Mutable = .{
                 .limbs = y_limbs,
-                .positive = b.positive,
+                .positive = true,
                 .len = b.limbs.len - ab_zero_limb_count,
             };
 

@@ -33,6 +33,7 @@ test {
     _ = @import("behavior/error.zig");
     _ = @import("behavior/eval.zig");
     _ = @import("behavior/floatop.zig");
+    _ = @import("behavior/fn.zig");
     _ = @import("behavior/for.zig");
     _ = @import("behavior/generics.zig");
     _ = @import("behavior/hasdecl.zig");
@@ -126,7 +127,7 @@ test {
         _ = @import("behavior/eval_stage1.zig");
         _ = @import("behavior/field_parent_ptr.zig");
         _ = @import("behavior/floatop_stage1.zig");
-        _ = @import("behavior/fn.zig");
+        _ = @import("behavior/fn_stage1.zig");
         _ = @import("behavior/fn_delegation.zig");
         _ = @import("behavior/fn_in_struct_in_comptime.zig");
         _ = @import("behavior/for_stage1.zig");
@@ -150,7 +151,7 @@ test {
         _ = @import("behavior/reflection.zig");
         {
             // Checklist for getting saturating_arithmetic.zig passing for stage2:
-            // * add __muloti4 to compiler-rt
+            // * add __udivti3 to compiler-rt
             _ = @import("behavior/saturating_arithmetic.zig");
         }
         _ = @import("behavior/select.zig");

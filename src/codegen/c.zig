@@ -976,7 +976,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .mul           => try airBinOp (f, inst, " * "),
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
-            .div           => try airBinOp( f, inst, " / "),
+            .div_float, .div_exact, .div_trunc => try airBinOp( f, inst, " / "),
+            .div_floor                         => try airBinOp( f, inst, " divfloor "),
             .rem           => try airBinOp( f, inst, " % "),
             .mod           => try airBinOp( f, inst, " mod "), // TODO implement modulus division
 

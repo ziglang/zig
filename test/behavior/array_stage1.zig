@@ -4,32 +4,6 @@ const mem = std.mem;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "nested arrays" {
-    const array_of_strings = [_][]const u8{ "hello", "this", "is", "my", "thing" };
-    for (array_of_strings) |s, i| {
-        if (i == 0) try expect(mem.eql(u8, s, "hello"));
-        if (i == 1) try expect(mem.eql(u8, s, "this"));
-        if (i == 2) try expect(mem.eql(u8, s, "is"));
-        if (i == 3) try expect(mem.eql(u8, s, "my"));
-        if (i == 4) try expect(mem.eql(u8, s, "thing"));
-    }
-}
-
-var s_array: [8]Sub = undefined;
-const Sub = struct { b: u8 };
-const Str = struct { a: []Sub };
-test "set global var array via slice embedded in struct" {
-    var s = Str{ .a = s_array[0..] };
-
-    s.a[0].b = 1;
-    s.a[1].b = 2;
-    s.a[2].b = 3;
-
-    try expect(s_array[0].b == 1);
-    try expect(s_array[1].b == 2);
-    try expect(s_array[2].b == 3);
-}
-
 test "single-item pointer to array indexing and slicing" {
     try testSingleItemPtrArrayIndexSlice();
     comptime try testSingleItemPtrArrayIndexSlice();
@@ -73,15 +47,6 @@ test "comptime evaluating function that takes array by value" {
     const arr = [_]u8{ 0, 1 };
     _ = comptime testArrayByValAtComptime(arr);
     _ = comptime testArrayByValAtComptime(arr);
-}
-
-test "implicit comptime in array type size" {
-    var arr: [plusOne(10)]bool = undefined;
-    try expect(arr.len == 11);
-}
-
-fn plusOne(x: u32) u32 {
-    return x + 1;
 }
 
 test "runtime initialize array elem and then implicit cast to slice" {
@@ -169,23 +134,6 @@ test "double nested array to const slice cast in array literal" {
     };
     try S.entry(2);
     comptime try S.entry(2);
-}
-
-test "read/write through global variable array of struct fields initialized via array mult" {
-    const S = struct {
-        fn doTheTest() !void {
-            try expect(storage[0].term == 1);
-            storage[0] = MyStruct{ .term = 123 };
-            try expect(storage[0].term == 123);
-        }
-
-        pub const MyStruct = struct {
-            term: usize,
-        };
-
-        var storage: [1]MyStruct = [_]MyStruct{MyStruct{ .term = 1 }} ** 1;
-    };
-    try S.doTheTest();
 }
 
 test "implicit cast zero sized array ptr to slice" {

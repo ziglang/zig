@@ -410,7 +410,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                     .mul             => try self.airMul(inst),
                     .mulwrap         => try self.airMulWrap(inst),
                     .mul_sat         => try self.airMulSat(inst),
-                    .div             => try self.airDiv(inst),
                     .rem             => try self.airRem(inst),
                     .mod             => try self.airMod(inst),
                     .shl, .shl_exact => try self.airShl(inst),
@@ -418,6 +417,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                     .min             => try self.airMin(inst),
                     .max             => try self.airMax(inst),
                     .slice           => try self.airSlice(inst),
+
+                    .div_float, .div_trunc, .div_floor, .div_exact => try self.airDiv(inst),
 
                     .cmp_lt  => try self.airCmp(inst, .lt),
                     .cmp_lte => try self.airCmp(inst, .lte),

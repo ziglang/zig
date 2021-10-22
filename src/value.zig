@@ -2200,7 +2200,8 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+            // + 1 for negatives
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitAnd(lhs_bigint, rhs_bigint);
@@ -2264,7 +2265,8 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+            // + 1 for negatives
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitXor(lhs_bigint, rhs_bigint);
@@ -2352,7 +2354,7 @@ pub const Value = extern union {
         }
     }
 
-    pub fn intRem(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+    pub fn intDivFloor(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -2366,6 +2368,39 @@ pub const Value = extern union {
         const limbs_r = try allocator.alloc(
             std.math.big.Limb,
             lhs_bigint.limbs.len,
+        );
+        const limbs_buffer = try allocator.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
+        var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
+        result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
+        const result_limbs = result_q.limbs[0..result_q.len];
+
+        if (result_q.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
+    }
+
+    pub fn intRem(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs_q = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+        );
+        const limbs_r = try allocator.alloc(
+            std.math.big.Limb,
+            // TODO: audit this size, and also consider reworking Sema to re-use Values rather than
+            // always producing new Value objects.
+            rhs_bigint.limbs.len + 1,
         );
         const limbs_buffer = try allocator.alloc(
             std.math.big.Limb,
@@ -2657,6 +2692,68 @@ pub const Value = extern union {
                 const lhs_val = lhs.toFloat(f128);
                 const rhs_val = rhs.toFloat(f128);
                 return Value.Tag.float_128.create(arena, lhs_val / rhs_val);
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn floatDivFloor(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: *Allocator,
+    ) !Value {
+        switch (float_type.tag()) {
+            .f16 => {
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @divFloor(lhs_val, rhs_val));
+            },
+            .f32 => {
+                const lhs_val = lhs.toFloat(f32);
+                const rhs_val = rhs.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @divFloor(lhs_val, rhs_val));
+            },
+            .f64 => {
+                const lhs_val = lhs.toFloat(f64);
+                const rhs_val = rhs.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @divFloor(lhs_val, rhs_val));
+            },
+            .f128, .comptime_float, .c_longdouble => {
+                const lhs_val = lhs.toFloat(f128);
+                const rhs_val = rhs.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @divFloor(lhs_val, rhs_val));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn floatDivTrunc(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: *Allocator,
+    ) !Value {
+        switch (float_type.tag()) {
+            .f16 => {
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @divTrunc(lhs_val, rhs_val));
+            },
+            .f32 => {
+                const lhs_val = lhs.toFloat(f32);
+                const rhs_val = rhs.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @divTrunc(lhs_val, rhs_val));
+            },
+            .f64 => {
+                const lhs_val = lhs.toFloat(f64);
+                const rhs_val = rhs.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @divTrunc(lhs_val, rhs_val));
+            },
+            .f128, .comptime_float, .c_longdouble => {
+                const lhs_val = lhs.toFloat(f128);
+                const rhs_val = rhs.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @divTrunc(lhs_val, rhs_val));
             },
             else => unreachable,
         }
