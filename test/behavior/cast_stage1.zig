@@ -356,35 +356,6 @@ test "vector casts" {
     comptime try S.doTheTestFloat();
 }
 
-test "comptime_int @intToFloat" {
-    {
-        const result = @intToFloat(f16, 1234);
-        try expect(@TypeOf(result) == f16);
-        try expect(result == 1234.0);
-    }
-    {
-        const result = @intToFloat(f32, 1234);
-        try expect(@TypeOf(result) == f32);
-        try expect(result == 1234.0);
-    }
-    {
-        const result = @intToFloat(f64, 1234);
-        try expect(@TypeOf(result) == f64);
-        try expect(result == 1234.0);
-    }
-    {
-        const result = @intToFloat(f128, 1234);
-        try expect(@TypeOf(result) == f128);
-        try expect(result == 1234.0);
-    }
-    // big comptime_int (> 64 bits) to f128 conversion
-    {
-        const result = @intToFloat(f128, 0x1_0000_0000_0000_0000);
-        try expect(@TypeOf(result) == f128);
-        try expect(result == 0x1_0000_0000_0000_0000.0);
-    }
-}
-
 test "@floatCast cast down" {
     {
         var double: f64 = 0.001534;

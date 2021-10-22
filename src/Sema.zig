@@ -9561,8 +9561,8 @@ fn zirIntToFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const operand = sema.resolveInst(extra.rhs);
     const operand_ty = sema.typeOf(operand);
 
-    _ = try sema.checkIntType(block, ty_src, dest_ty);
-    try sema.checkFloatType(block, operand_src, operand_ty);
+    try sema.checkFloatType(block, ty_src, dest_ty);
+    _ = try sema.checkIntType(block, operand_src, operand_ty);
 
     if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
         const target = sema.mod.getTarget();
