@@ -4220,7 +4220,13 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     decl.analysis = .outdated;
 }
 
-pub fn allocateNewDecl(mod: *Module, name: [:0]const u8, namespace: *Namespace, src_node: Ast.Node.Index, src_scope: ?*CaptureScope) !*Decl {
+pub fn allocateNewDecl(
+    mod: *Module,
+    name: [:0]const u8,
+    namespace: *Namespace,
+    src_node: Ast.Node.Index,
+    src_scope: ?*CaptureScope,
+) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
     const new_decl: *Decl = if (mod.emit_h != null) blk: {
         const parent_struct = try mod.gpa.create(DeclPlusEmitH);
@@ -4242,7 +4248,7 @@ pub fn allocateNewDecl(mod: *Module, name: [:0]const u8, namespace: *Namespace, 
         .val = undefined,
         .align_val = undefined,
         .linksection_val = undefined,
-        .@"addrspace" = undefined,
+        .@"addrspace" = .generic,
         .analysis = .unreferenced,
         .deletion_flag = false,
         .zir_decl_index = 0,
@@ -4346,7 +4352,6 @@ pub fn createAnonymousDeclFromDeclNamed(
     new_decl.val = typed_value.val;
     new_decl.align_val = Value.initTag(.null_value);
     new_decl.linksection_val = Value.initTag(.null_value);
-    new_decl.@"addrspace" = .generic; // default global addrspace
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
