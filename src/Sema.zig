@@ -513,7 +513,6 @@ pub fn analyzeBody(
             .bit_not                      => try sema.zirBitNot(block, inst),
             .bit_or                       => try sema.zirBitwise(block, inst, .bit_or),
             .bitcast                      => try sema.zirBitcast(block, inst),
-            .bitcast_result_ptr           => try sema.zirBitcastResultPtr(block, inst),
             .suspend_block                => try sema.zirSuspendBlock(block, inst),
             .bool_not                     => try sema.zirBoolNot(block, inst),
             .bool_br_and                  => try sema.zirBoolBr(block, inst, false),
@@ -1383,12 +1382,6 @@ pub fn resolveInstValue(
         .ty = sema.typeOf(air_ref),
         .val = val,
     };
-}
-
-fn zirBitcastResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO implement zir_sema.zirBitcastResultPtr", .{});
 }
 
 fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

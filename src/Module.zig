@@ -317,6 +317,7 @@ pub const WipCaptureScope = struct {
         assert(!self.finalized);
         // use a temp to avoid unintentional aliasing due to RLS
         const tmp = try self.scope.captures.clone(self.perm_arena);
+        self.scope.captures.deinit(self.gpa);
         self.scope.captures = tmp;
         self.finalized = true;
     }

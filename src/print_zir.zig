@@ -349,7 +349,6 @@ const Writer = struct {
             .reduce,
             .atomic_load,
             .bitcast,
-            .bitcast_result_ptr,
             .vector_type,
             .maximum,
             .minimum,

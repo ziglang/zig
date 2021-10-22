@@ -276,17 +276,30 @@ fn typeExpr(gz: *GenZir, scope: *Scope, type_node: Ast.Node.Index) InnerError!Zi
     return expr(gz, scope, coerced_type_rl, type_node);
 }
 
+fn reachableTypeExpr(
+    gz: *GenZir,
+    scope: *Scope,
+    type_node: Ast.Node.Index,
+    reachable_node: Ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const prev_force_comptime = gz.force_comptime;
+    gz.force_comptime = true;
+    defer gz.force_comptime = prev_force_comptime;
+
+    return reachableExpr(gz, scope, coerced_type_rl, type_node, reachable_node);
+}
+
 /// Same as `expr` but fails with a compile error if the result type is `noreturn`.
 fn reachableExpr(
     gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
     node: Ast.Node.Index,
-    src_node: Ast.Node.Index,
+    reachable_node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const result_inst = try expr(gz, scope, rl, node);
     if (gz.refIsNoReturn(result_inst)) {
-        return gz.astgen.failNodeNotes(src_node, "unreachable code", .{}, &[_]u32{
+        return gz.astgen.failNodeNotes(reachable_node, "unreachable code", .{}, &[_]u32{
             try gz.astgen.errNoteNode(node, "control flow is diverted here", .{}),
         });
     }
@@ -2040,7 +2053,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .as_node,
             .bit_and,
             .bitcast,
-            .bitcast_result_ptr,
             .bit_or,
             .block,
             .block_inline,
@@ -7160,42 +7172,13 @@ fn bitCast(
     lhs: Ast.Node.Index,
     rhs: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
-    const astgen = gz.astgen;
-    const dest_type = try typeExpr(gz, scope, lhs);
-    switch (rl) {
-        .none, .discard, .ty, .coerced_ty => {
-            const operand = try expr(gz, scope, .none, rhs);
-            const result = try gz.addPlNode(.bitcast, node, Zir.Inst.Bin{
-                .lhs = dest_type,
-                .rhs = operand,
-            });
-            return rvalue(gz, rl, result, node);
-        },
-        .ref => {
-            return astgen.failNode(node, "cannot take address of `@bitCast` result", .{});
-        },
-        .ptr, .inferred_ptr => |result_ptr| {
-            return bitCastRlPtr(gz, scope, node, dest_type, result_ptr, rhs);
-        },
-        .block_ptr => |block| {
-            return bitCastRlPtr(gz, scope, node, dest_type, block.rl_ptr, rhs);
-        },
-    }
-}
-
-fn bitCastRlPtr(
-    gz: *GenZir,
-    scope: *Scope,
-    node: Ast.Node.Index,
-    dest_type: Zir.Inst.Ref,
-    result_ptr: Zir.Inst.Ref,
-    rhs: Ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
-    const casted_result_ptr = try gz.addPlNode(.bitcast_result_ptr, node, Zir.Inst.Bin{
+    const dest_type = try reachableTypeExpr(gz, scope, lhs, node);
+    const operand = try reachableExpr(gz, scope, .none, rhs, node);
+    const result = try gz.addPlNode(.bitcast, node, Zir.Inst.Bin{
         .lhs = dest_type,
-        .rhs = result_ptr,
+        .rhs = operand,
     });
-    return expr(gz, scope, .{ .ptr = casted_result_ptr }, rhs);
+    return rvalue(gz, rl, result, node);
 }
 
 fn typeOf(

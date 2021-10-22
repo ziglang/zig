@@ -1015,12 +1015,33 @@ pub const Value = extern union {
                 const bits = ty.intInfo(target).bits;
                 bigint.writeTwosComplement(buffer, bits, target.cpu.arch.endian());
             },
+            .Enum => {
+                var enum_buffer: Payload.U64 = undefined;
+                const int_val = val.enumToInt(ty, &enum_buffer);
+                var bigint_buffer: BigIntSpace = undefined;
+                const bigint = int_val.toBigInt(&bigint_buffer);
+                const bits = ty.intInfo(target).bits;
+                bigint.writeTwosComplement(buffer, bits, target.cpu.arch.endian());
+            },
             .Float => switch (ty.floatBits(target)) {
                 16 => return floatWriteToMemory(f16, val.toFloat(f16), target, buffer),
                 32 => return floatWriteToMemory(f32, val.toFloat(f32), target, buffer),
                 64 => return floatWriteToMemory(f64, val.toFloat(f64), target, buffer),
                 128 => return floatWriteToMemory(f128, val.toFloat(f128), target, buffer),
                 else => unreachable,
+            },
+            .Array, .Vector => {
+                const len = ty.arrayLen();
+                const elem_ty = ty.childType();
+                const elem_size = elem_ty.abiSize(target);
+                var elem_i: usize = 0;
+                var elem_value_buf: ElemValueBuffer = undefined;
+                var buf_off: usize = 0;
+                while (elem_i < len) : (elem_i += 1) {
+                    const elem_val = val.elemValueBuffer(elem_i, &elem_value_buf);
+                    writeToMemory(elem_val, elem_ty, target, buffer[buf_off..]);
+                    buf_off += elem_size;
+                }
             },
             else => @panic("TODO implement writeToMemory for more types"),
         }

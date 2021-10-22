@@ -240,10 +240,6 @@ pub const Inst = struct {
         /// Reinterpret the memory representation of a value as a different type.
         /// Uses the pl_node field with payload `Bin`.
         bitcast,
-        /// A typed result location pointer is bitcasted to a new result location pointer.
-        /// The new result location pointer has an inferred type.
-        /// Uses the pl_node field with payload `Bin`.
-        bitcast_result_ptr,
         /// Bitwise NOT. `~`
         /// Uses `un_node`.
         bit_not,
@@ -977,7 +973,6 @@ pub const Inst = struct {
                 .as_node,
                 .bit_and,
                 .bitcast,
-                .bitcast_result_ptr,
                 .bit_or,
                 .block,
                 .block_inline,
@@ -1235,7 +1230,6 @@ pub const Inst = struct {
                 .as_node = .pl_node,
                 .bit_and = .pl_node,
                 .bitcast = .pl_node,
-                .bitcast_result_ptr = .pl_node,
                 .bit_not = .un_node,
                 .bit_or = .pl_node,
                 .block = .pl_node,
