@@ -78,13 +78,15 @@ fn exp2_32(x: f32) f32 {
         return 1.0 + x;
     }
 
+    // NOTE: musl relies on unsafe behaviours which are replicated below
+    // (addition/bit-shift overflow). Appears that this produces the
+    // intended result but should confirm how GCC/Clang handle this to ensure.
+
     var uf = x + redux;
     var i_0 = @bitCast(u32, uf);
-    i_0 += tblsiz / 2;
+    _ = @addWithOverflow(u32, i_0, tblsiz / 2, &i_0);
 
     const k = i_0 / tblsiz;
-    // NOTE: musl relies on undefined overflow shift behaviour. Appears that this produces the
-    // intended result but should confirm how GCC/Clang handle this to ensure.
     const uk = @bitCast(f64, @as(u64, 0x3FF + k) << 52);
     i_0 &= tblsiz - 1;
     uf -= redux;
@@ -399,6 +401,11 @@ fn exp2_64(x: f64) f64 {
     else if (ix < 0x3C900000) {
         return 1.0 + x;
     }
+
+    // NOTE: musl relies on unsafe behaviours which are replicated below
+    // (addition overflow, division truncation, casting). Appears that this
+    // produces the intended result but should confirm how GCC/Clang handle this
+    // to ensure.
 
     // reduce x
     var uf: f64 = x + redux;
