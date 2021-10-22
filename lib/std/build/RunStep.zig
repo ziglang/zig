@@ -62,7 +62,18 @@ pub fn create(builder: *Builder, name: []const u8) *RunStep {
     return self;
 }
 
-pub fn addArtifactArg(self: *RunStep, artifact: *LibExeObjStep) void {
+pub fn addArtifactArg(self: *RunStep, artifact: *LibExeObjStep) !void {
+    if (self.argv.items.len == 0) {
+        const artifact_target = artifact.target.toTarget();
+        if (!builtin.target.canExecBinariesOf(artifact_target)) {
+            warn("Cannot run '{s}', incompatible target\n", .{artifact.name});
+            return error.CannotRunForeignExe;
+        }
+    }
+    self.addArtifactArgNoCheck(artifact);
+}
+
+pub fn addArtifactArgNoCheck(self: *RunStep, artifact: *LibExeObjStep) void {
     self.argv.append(Arg{ .artifact = artifact }) catch unreachable;
     self.step.dependOn(&artifact.step);
 }

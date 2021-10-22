@@ -10,7 +10,7 @@ pub fn build(b: *Builder) void {
     main.setBuildMode(opts);
 
     const run = main.run();
-    run.addArtifactArg(lib);
+    run.addArtifactArg(lib) catch unreachable;
 
     const test_step = b.step("test", "Test the program");
     test_step.dependOn(&run.step);

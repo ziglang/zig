@@ -1735,7 +1735,7 @@ pub const LibExeObjStep = struct {
         // Consider that this is declarative; the run step may not be run unless a user
         // option is supplied.
         const run_step = RunStep.create(exe.builder, exe.builder.fmt("run {s}", .{exe.step.name}));
-        run_step.addArtifactArg(exe);
+        run_step.addArtifactArg(exe) catch unreachable;
 
         if (exe.vcpkg_bin_path) |path| {
             run_step.addPathDir(path);
