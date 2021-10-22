@@ -13662,6 +13662,15 @@ pub fn resolveTypeLayout(
             const elem_ty = ty.childType();
             return sema.resolveTypeLayout(block, src, elem_ty);
         },
+        .Optional => {
+            var buf: Type.Payload.ElemType = undefined;
+            const payload_ty = ty.optionalChild(&buf);
+            return sema.resolveTypeLayout(block, src, payload_ty);
+        },
+        .ErrorUnion => {
+            const payload_ty = ty.errorUnionPayload();
+            return sema.resolveTypeLayout(block, src, payload_ty);
+        },
         else => {},
     }
 }
