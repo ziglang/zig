@@ -6912,11 +6912,11 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const final_len = lhs_info.len + rhs_info.len;
             const final_len_including_sent = final_len + @boolToInt(res_sent != null);
             const is_pointer = lhs_ty.zigTypeTag() == .Pointer;
+            const lhs_sub_val = if (is_pointer) (try lhs_val.pointerDeref(sema.arena)).? else lhs_val;
+            const rhs_sub_val = if (is_pointer) (try rhs_val.pointerDeref(sema.arena)).? else rhs_val;
             var anon_decl = try block.startAnonDecl();
             defer anon_decl.deinit();
 
-            const lhs_sub_val = if (is_pointer) (try lhs_val.pointerDeref(anon_decl.arena())).? else lhs_val;
-            const rhs_sub_val = if (is_pointer) (try rhs_val.pointerDeref(anon_decl.arena())).? else rhs_val;
             const buf = try anon_decl.arena().alloc(Value, final_len_including_sent);
             {
                 var i: u64 = 0;
@@ -6936,18 +6936,20 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 buf[final_len] = try rs.copy(anon_decl.arena());
                 break :ty try Type.Tag.array_sentinel.create(anon_decl.arena(), .{
                     .len = final_len,
-                    .elem_type = lhs_info.elem_type,
-                    .sentinel = rs,
+                    .elem_type = try lhs_info.elem_type.copy(anon_decl.arena()),
+                    .sentinel = try rs.copy(anon_decl.arena()),
                 });
             } else try Type.Tag.array.create(anon_decl.arena(), .{
                 .len = final_len,
-                .elem_type = lhs_info.elem_type,
+                .elem_type = try lhs_info.elem_type.copy(anon_decl.arena()),
             });
             const val = try Value.Tag.array.create(anon_decl.arena(), buf);
-            return if (is_pointer)
-                sema.analyzeDeclRef(try anon_decl.finish(ty, val))
-            else
-                sema.analyzeDeclVal(block, .unneeded, try anon_decl.finish(ty, val));
+            const decl = try anon_decl.finish(ty, val);
+            if (is_pointer) {
+                return sema.analyzeDeclRef(decl);
+            } else {
+                return sema.analyzeDeclVal(block, .unneeded, decl);
+            }
         } else {
             return sema.fail(block, lhs_src, "TODO runtime array_cat", .{});
         }
@@ -6990,10 +6992,11 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const final_len_including_sent = final_len + @boolToInt(mulinfo.sentinel != null);
 
     if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
+        const lhs_sub_val = if (lhs_ty.zigTypeTag() == .Pointer) (try lhs_val.pointerDeref(sema.arena)).? else lhs_val;
+
         var anon_decl = try block.startAnonDecl();
         defer anon_decl.deinit();
 
-        const lhs_sub_val = if (lhs_ty.zigTypeTag() == .Pointer) (try lhs_val.pointerDeref(anon_decl.arena())).? else lhs_val;
         const final_ty = if (mulinfo.sentinel) |sent|
             try Type.Tag.array_sentinel.create(anon_decl.arena(), .{
                 .len = final_len,
@@ -7010,7 +7013,8 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         // Optimization for the common pattern of a single element repeated N times, such
         // as zero-filling a byte array.
         const val = if (mulinfo.len == 1) blk: {
-            const copied_val = try (try lhs_sub_val.elemValue(sema.arena, 0)).copy(anon_decl.arena());
+            const elem_val = try lhs_sub_val.elemValue(sema.arena, 0);
+            const copied_val = try elem_val.copy(anon_decl.arena());
             break :blk try Value.Tag.repeated.create(anon_decl.arena(), copied_val);
         } else blk: {
             // the actual loop
@@ -7027,10 +7031,11 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             }
             break :blk try Value.Tag.array.create(anon_decl.arena(), buf);
         };
+        const decl = try anon_decl.finish(final_ty, val);
         if (lhs_ty.zigTypeTag() == .Pointer) {
-            return sema.analyzeDeclRef(try anon_decl.finish(final_ty, val));
+            return sema.analyzeDeclRef(decl);
         } else {
-            return sema.analyzeDeclVal(block, .unneeded, try anon_decl.finish(final_ty, val));
+            return sema.analyzeDeclVal(block, .unneeded, decl);
         }
     }
     return sema.fail(block, lhs_src, "TODO runtime array_mul", .{});

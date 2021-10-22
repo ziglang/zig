@@ -514,7 +514,9 @@ pub const Value = extern union {
                     .base = payload.base,
                     .data = try arena.alloc(Value, payload.data.len),
                 };
-                std.mem.copy(Value, new_payload.data, payload.data);
+                for (new_payload.data) |*elem, i| {
+                    elem.* = try payload.data[i].copy(arena);
+                }
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
             .slice => {
