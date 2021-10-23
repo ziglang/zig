@@ -1770,8 +1770,8 @@ pub const FuncGen = struct {
                 .ptr_elem_val       => try self.airPtrElemVal(inst),
                 .ptr_elem_ptr       => try self.airPtrElemPtr(inst),
 
-                .optional_payload     => try self.airOptionalPayload(inst, false),
-                .optional_payload_ptr => try self.airOptionalPayload(inst, true),
+                .optional_payload     => try self.airOptionalPayload(inst),
+                .optional_payload_ptr => try self.airOptionalPayloadPtr(inst),
 
                 .unwrap_errunion_payload     => try self.airErrUnionPayload(inst, false),
                 .unwrap_errunion_payload_ptr => try self.airErrUnionPayload(inst, true),
@@ -2520,33 +2520,53 @@ pub const FuncGen = struct {
         return self.builder.buildICmp(op, loaded, zero, "");
     }
 
-    fn airOptionalPayload(
-        self: *FuncGen,
-        inst: Air.Inst.Index,
-        operand_is_ptr: bool,
-    ) !?*const llvm.Value {
-        if (self.liveness.isUnused(inst))
-            return null;
+    fn airOptionalPayloadPtr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
+        const optional_ty = self.air.typeOf(ty_op.operand).childType();
+        var buf: Type.Payload.ElemType = undefined;
+        const payload_ty = optional_ty.optionalChild(&buf);
+        if (!payload_ty.hasCodeGenBits()) {
+            // We have a pointer to a zero-bit value and we need to return
+            // a pointer to a zero-bit value.
+            return operand;
+        }
+        if (optional_ty.isPtrLikeOptional()) {
+            // The payload and the optional are the same value.
+            return operand;
+        }
+        const index_type = self.context.intType(32);
+        const indices: [2]*const llvm.Value = .{
+            index_type.constNull(), // dereference the pointer
+            index_type.constNull(), // first field is the payload
+        };
+        return self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
+    }
 
-        if (operand_is_ptr) {
-            const operand_ty = self.air.typeOf(ty_op.operand).elemType();
-            if (operand_ty.isPtrLikeOptional()) {
-                return self.builder.buildLoad(operand, "");
-            }
+    fn airOptionalPayload(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
 
-            const index_type = self.context.intType(32);
-            var indices: [2]*const llvm.Value = .{
-                index_type.constNull(), index_type.constNull(),
-            };
-            return self.builder.buildInBoundsGEP(operand, &indices, 2, "");
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
+        const optional_ty = self.air.typeOf(ty_op.operand);
+        const payload_ty = self.air.typeOfIndex(inst);
+        if (!payload_ty.hasCodeGenBits()) return null;
+
+        if (optional_ty.isPtrLikeOptional()) {
+            // Payload value is the same as the optional value.
+            return operand;
         }
 
-        const operand_ty = self.air.typeOf(ty_op.operand);
-        if (operand_ty.isPtrLikeOptional()) {
-            return operand;
+        if (isByRef(payload_ty)) {
+            // We have a pointer and we need to return a pointer to the first field.
+            const index_type = self.context.intType(32);
+            const indices: [2]*const llvm.Value = .{
+                index_type.constNull(), // dereference the pointer
+                index_type.constNull(), // first field is the payload
+            };
+            return self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
         }
 
         return self.builder.buildExtractValue(operand, 0, "");
