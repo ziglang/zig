@@ -3872,7 +3872,7 @@ test "labeled break from labeled block expression" {
       {#see_also|Labeled while|Labeled for#}
 
       {#header_open|Shadowing#}
-      <p>It is never allowed for an identifier to "hide" another one by using the same name:</p>
+      <p>Identifiers are never allowed to "hide" other identifiers by using the same name:</p>
       {#code_begin|test_err|local shadows declaration#}
 const pi = 3.14;
 
@@ -3884,8 +3884,9 @@ test "inside test block" {
 }
       {#code_end#}
       <p>
-      Because of this, when you read Zig code you can rely on an identifier always meaning the same thing,
-      within the scope it is defined. Note that you can, however use the same name if the scopes are separate:
+      Because of this, when you read Zig code you can always rely on an identifier to consistently mean 
+      the same thing within the scope it is defined. Note that you can, however, use the same name if 
+      the scopes are separate:
       </p>
       {#code_begin|test|test_scopes#}
 test "separate scopes" {
