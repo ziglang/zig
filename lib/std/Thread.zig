@@ -63,18 +63,19 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
 
     switch (target.os.tag) {
         .linux => if (use_pthreads) {
-            const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
-            switch (err) {
-                .SUCCESS => return,
-                .RANGE => unreachable,
-                else => |e| return os.unexpectedErrno(e),
-            }
-        } else if (use_pthreads and self.getHandle() == std.c.pthread_self()) {
-            // TODO: this is dead code. what did the author of this code intend to happen here?
-            const err = try os.prctl(.SET_NAME, .{@ptrToInt(name_with_terminator.ptr)});
-            switch (@intToEnum(os.E, err)) {
-                .SUCCESS => return,
-                else => |e| return os.unexpectedErrno(e),
+            if (use_pthreads and self.getHandle() == std.c.pthread_self()) {
+                const err = try os.prctl(.SET_NAME, .{@ptrToInt(name_with_terminator.ptr)});
+                switch (@intToEnum(os.E, err)) {
+                    .SUCCESS => return,
+                    else => |e| return os.unexpectedErrno(e),
+                }
+            } else {
+                const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
+                switch (err) {
+                    .SUCCESS => return,
+                    .RANGE => unreachable,
+                    else => |e| return os.unexpectedErrno(e),
+                }
             }
         } else {
             var buf: [32]u8 = undefined;
