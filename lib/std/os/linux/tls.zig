@@ -289,8 +289,10 @@ pub fn prepareTLS(area: []u8) usize {
     // Copy the data
     mem.copy(u8, area[tls_image.data_offset..], tls_image.init_data);
 
-    // Return the corrected (if needed) value for the tp register
-    return @ptrToInt(area.ptr) + tls_tp_offset +
+    // Return the corrected value (if needed) for the tp register.
+    // Overflow here is not a problem, the pointer arithmetic involving the tp
+    // is done with wrapping semantics.
+    return @ptrToInt(area.ptr) +% tls_tp_offset +%
         if (tls_tp_points_past_tcb) tls_image.data_offset else tls_image.tcb_offset;
 }
 
