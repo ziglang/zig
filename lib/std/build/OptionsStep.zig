@@ -262,4 +262,6 @@ test "OptionsStep" {
         \\};
         \\
     , options.contents.items);
+
+    _ = try std.zig.parse(&arena.allocator, try options.contents.toOwnedSliceSentinel(0));
 }
