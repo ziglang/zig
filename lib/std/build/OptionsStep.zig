@@ -85,6 +85,7 @@ pub fn addOption(self: *OptionsStep, comptime T: type, name: []const u8, value: 
                 value.minor,
                 value.patch,
             }) catch unreachable;
+            return;
         },
         std.SemanticVersion => {
             out.print(
@@ -239,6 +240,7 @@ test "OptionsStep" {
     options.addOption(?usize, "option2", null);
     options.addOption([]const u8, "string", "zigisthebest");
     options.addOption(?[]const u8, "optional_string", null);
+    options.addOption(std.builtin.Version, "version", try std.builtin.Version.parse("0.1.2"));
     options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
 
     try std.testing.expectEqualStrings(
@@ -246,6 +248,11 @@ test "OptionsStep" {
         \\pub const option2: ?usize = null;
         \\pub const string: []const u8 = "zigisthebest";
         \\pub const optional_string: ?[]const u8 = null;
+        \\pub const version: @import("std").builtin.Version = .{
+        \\    .major = 0,
+        \\    .minor = 1,
+        \\    .patch = 2,
+        \\};
         \\pub const semantic_version: @import("std").SemanticVersion = .{
         \\    .major = 0,
         \\    .minor = 1,
