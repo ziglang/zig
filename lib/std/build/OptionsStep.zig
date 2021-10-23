@@ -119,6 +119,8 @@ pub fn addOption(self: *OptionsStep, comptime T: type, name: []const u8, value: 
                 out.print("    {},\n", .{std.zig.fmtId(field.name)}) catch unreachable;
             }
             out.writeAll("};\n") catch unreachable;
+            out.print("pub const {}: {s} = {s}.{s};\n", .{ std.zig.fmtId(name), @typeName(T), @typeName(T), std.zig.fmtId(@tagName(value)) }) catch unreachable;
+            return;
         },
         else => {},
     }
@@ -236,10 +238,15 @@ test "OptionsStep" {
 
     const options = builder.addOptions();
 
+    const KeywordEnum = enum {
+        @"0.8.1",
+    };
+
     options.addOption(usize, "option1", 1);
     options.addOption(?usize, "option2", null);
     options.addOption([]const u8, "string", "zigisthebest");
     options.addOption(?[]const u8, "optional_string", null);
+    options.addOption(KeywordEnum, "keyword_enum", .@"0.8.1");
     options.addOption(std.builtin.Version, "version", try std.builtin.Version.parse("0.1.2"));
     options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
 
@@ -248,6 +255,10 @@ test "OptionsStep" {
         \\pub const option2: ?usize = null;
         \\pub const string: []const u8 = "zigisthebest";
         \\pub const optional_string: ?[]const u8 = null;
+        \\pub const KeywordEnum = enum {
+        \\    @"0.8.1",
+        \\};
+        \\pub const keyword_enum: KeywordEnum = KeywordEnum.@"0.8.1";
         \\pub const version: @import("std").builtin.Version = .{
         \\    .major = 0,
         \\    .minor = 1,
