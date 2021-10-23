@@ -21,6 +21,10 @@ pub fn floor(x: anytype) @TypeOf(x) {
         f32 => floor32(x),
         f64 => floor64(x),
         f128 => floor128(x),
+
+        // TODO this is not correct for some targets
+        c_longdouble => @floatCast(c_longdouble, floor128(x)),
+
         else => @compileError("floor not implemented for " ++ @typeName(T)),
     };
 }

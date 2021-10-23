@@ -540,6 +540,7 @@ pub const Payload = struct {
             is_pub: bool,
             is_extern: bool,
             is_export: bool,
+            is_inline: bool,
             is_var_args: bool,
             name: ?[]const u8,
             linksection_string: ?[]const u8,
@@ -2614,6 +2615,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
     if (payload.is_pub) _ = try c.addToken(.keyword_pub, "pub");
     if (payload.is_extern) _ = try c.addToken(.keyword_extern, "extern");
     if (payload.is_export) _ = try c.addToken(.keyword_export, "export");
+    if (payload.is_inline) _ = try c.addToken(.keyword_inline, "inline");
     const fn_token = try c.addToken(.keyword_fn, "fn");
     if (payload.name) |some| _ = try c.addIdentifier(some);
 

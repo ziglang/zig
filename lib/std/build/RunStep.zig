@@ -229,7 +229,7 @@ fn make(step: *Step) !void {
                     printCmd(cwd, argv);
                 }
 
-                return error.UncleanExit;
+                return error.UnexpectedExitCode;
             }
         },
         else => {

@@ -976,7 +976,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .mul           => try airBinOp (f, inst, " * "),
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
-            .div           => try airBinOp( f, inst, " / "),
+            .div_float, .div_exact, .div_trunc => try airBinOp( f, inst, " / "),
+            .div_floor                         => try airBinOp( f, inst, " divfloor "),
             .rem           => try airBinOp( f, inst, " % "),
             .mod           => try airBinOp( f, inst, " mod "), // TODO implement modulus division
 
@@ -991,6 +992,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
 
             .min => try airMinMax(f, inst, "<"),
             .max => try airMinMax(f, inst, ">"),
+
+            .slice => try airSlice(f, inst),
 
             .cmp_eq  => try airBinOp(f, inst, " == "),
             .cmp_gt  => try airBinOp(f, inst, " > "),
@@ -1075,11 +1078,13 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .slice_ptr        => try airSliceField(f, inst, ".ptr;\n"),
             .slice_len        => try airSliceField(f, inst, ".len;\n"),
 
+            .ptr_slice_len_ptr => try airPtrSliceFieldPtr(f, inst, ".len;\n"),
+            .ptr_slice_ptr_ptr => try airPtrSliceFieldPtr(f, inst, ".ptr;\n"),
+
             .ptr_elem_val       => try airPtrElemVal(f, inst, "["),
-            .ptr_ptr_elem_val   => try airPtrElemVal(f, inst, "[0]["),
             .ptr_elem_ptr       => try airPtrElemPtr(f, inst),
             .slice_elem_val     => try airSliceElemVal(f, inst, "["),
-            .ptr_slice_elem_val => try airSliceElemVal(f, inst, "[0]["),
+            .slice_elem_ptr     => try airSliceElemPtr(f, inst),
             .array_elem_val     => try airArrayElemVal(f, inst),
 
             .unwrap_errunion_payload     => try airUnwrapErrUnionPay(f, inst),
@@ -1101,8 +1106,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
 }
 
 fn airSliceField(f: *Function, inst: Air.Inst.Index, suffix: []const u8) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
+    if (f.liveness.isUnused(inst)) return CValue.none;
 
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const operand = try f.resolveInst(ty_op.operand);
@@ -1112,6 +1116,21 @@ fn airSliceField(f: *Function, inst: Air.Inst.Index, suffix: []const u8) !CValue
     try f.writeCValue(writer, operand);
     try writer.writeAll(suffix);
     return local;
+}
+
+fn airPtrSliceFieldPtr(f: *Function, inst: Air.Inst.Index, suffix: []const u8) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const operand = try f.resolveInst(ty_op.operand);
+    const writer = f.object.writer();
+
+    _ = writer;
+    _ = operand;
+    _ = suffix;
+
+    return f.fail("TODO: C backend: airPtrSliceFieldPtr", .{});
 }
 
 fn airPtrElemVal(f: *Function, inst: Air.Inst.Index, prefix: []const u8) !CValue {
@@ -1143,6 +1162,24 @@ fn airSliceElemVal(f: *Function, inst: Air.Inst.Index, prefix: []const u8) !CVal
     try writer.writeAll(" = ");
     try f.writeCValue(writer, slice);
     try writer.writeAll(prefix);
+    try f.writeCValue(writer, index);
+    try writer.writeAll("];\n");
+    return local;
+}
+
+fn airSliceElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
+
+    const slice = try f.resolveInst(bin_op.lhs);
+    const index = try f.resolveInst(bin_op.rhs);
+    const writer = f.object.writer();
+    const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
+    try writer.writeAll(" = &");
+    try f.writeCValue(writer, slice);
+    try writer.writeByte('[');
     try f.writeCValue(writer, index);
     try writer.writeAll("];\n");
     return local;
@@ -1619,6 +1656,27 @@ fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValu
     try writer.writeAll(" : ");
     try f.writeCValue(writer, rhs);
     try writer.writeAll(";\n");
+
+    return local;
+}
+
+fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
+    const ptr = try f.resolveInst(bin_op.lhs);
+    const len = try f.resolveInst(bin_op.rhs);
+
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+
+    try writer.writeAll(" = {");
+    try f.writeCValue(writer, ptr);
+    try writer.writeAll(", ");
+    try f.writeCValue(writer, len);
+    try writer.writeAll("};\n");
 
     return local;
 }

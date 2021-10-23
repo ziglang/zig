@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
 const expect = std.testing.expect;
+const expectEqualStrings = std.testing.expectEqualStrings;
 
 // normal comment
 
@@ -446,3 +447,15 @@ test "self reference through fn ptr field" {
     a.f = S.foo;
     try expect(a.f(a) == 12);
 }
+
+test "global variable initialized to global variable array element" {
+    try expect(global_ptr == &gdt[0]);
+}
+const GDTEntry = struct {
+    field: i32,
+};
+var gdt = [_]GDTEntry{
+    GDTEntry{ .field = 1 },
+    GDTEntry{ .field = 2 },
+};
+var global_ptr = &gdt[0];

@@ -86,6 +86,8 @@ pub const Value = extern union {
         one,
         void_value,
         unreachable_value,
+        /// The only possible value for a particular type, which is stored externally.
+        the_only_possible_value,
         null_value,
         bool_true,
         bool_false,
@@ -112,9 +114,9 @@ pub const Value = extern union {
         /// This Tag will never be seen by machine codegen backends. It is changed into a
         /// `decl_ref` when a comptime variable goes out of scope.
         decl_ref_mut,
-        /// Pointer to a specific element of an array.
+        /// Pointer to a specific element of an array, vector or slice.
         elem_ptr,
-        /// Pointer to a specific field of a struct.
+        /// Pointer to a specific field of a struct or union.
         field_ptr,
         /// A slice of u8 whose memory is managed externally.
         bytes,
@@ -226,6 +228,7 @@ pub const Value = extern union {
                 .one,
                 .void_value,
                 .unreachable_value,
+                .the_only_possible_value,
                 .empty_struct_value,
                 .empty_array,
                 .null_value,
@@ -415,6 +418,7 @@ pub const Value = extern union {
             .one,
             .void_value,
             .unreachable_value,
+            .the_only_possible_value,
             .empty_array,
             .null_value,
             .bool_true,
@@ -510,7 +514,9 @@ pub const Value = extern union {
                     .base = payload.base,
                     .data = try arena.alloc(Value, payload.data.len),
                 };
-                std.mem.copy(Value, new_payload.data, payload.data);
+                for (new_payload.data) |*elem, i| {
+                    elem.* = try payload.data[i].copy(arena);
+                }
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
             .slice => {
@@ -664,6 +670,7 @@ pub const Value = extern union {
             .one => return out_stream.writeAll("1"),
             .void_value => return out_stream.writeAll("{}"),
             .unreachable_value => return out_stream.writeAll("unreachable"),
+            .the_only_possible_value => return out_stream.writeAll("(the only possible value)"),
             .bool_true => return out_stream.writeAll("true"),
             .bool_false => return out_stream.writeAll("false"),
             .ty => return val.castTag(.ty).?.data.format("", options, out_stream),
@@ -755,6 +762,8 @@ pub const Value = extern union {
                 const decl_val = try decl.value();
                 return decl_val.toAllocatedBytes(decl.ty, allocator);
             },
+            .the_only_possible_value => return &[_]u8{},
+            .slice => return toAllocatedBytes(val.castTag(.slice).?.data.ptr, ty, allocator),
             else => unreachable,
         }
     }
@@ -847,53 +856,63 @@ pub const Value = extern union {
                 // TODO should `@intToEnum` do this `@intCast` for you?
                 return @intToEnum(E, @intCast(@typeInfo(E).Enum.tag_type, field_index));
             },
+            .the_only_possible_value => {
+                const fields = std.meta.fields(E);
+                assert(fields.len == 1);
+                return @intToEnum(E, fields[0].value);
+            },
             else => unreachable,
         }
     }
 
     pub fn enumToInt(val: Value, ty: Type, buffer: *Payload.U64) Value {
-        if (val.castTag(.enum_field_index)) |enum_field_payload| {
-            const field_index = enum_field_payload.data;
-            switch (ty.tag()) {
-                .enum_full, .enum_nonexhaustive => {
-                    const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
-                    if (enum_full.values.count() != 0) {
-                        return enum_full.values.keys()[field_index];
-                    } else {
-                        // Field index and integer values are the same.
-                        buffer.* = .{
-                            .base = .{ .tag = .int_u64 },
-                            .data = field_index,
-                        };
-                        return Value.initPayload(&buffer.base);
-                    }
-                },
-                .enum_numbered => {
-                    const enum_obj = ty.castTag(.enum_numbered).?.data;
-                    if (enum_obj.values.count() != 0) {
-                        return enum_obj.values.keys()[field_index];
-                    } else {
-                        // Field index and integer values are the same.
-                        buffer.* = .{
-                            .base = .{ .tag = .int_u64 },
-                            .data = field_index,
-                        };
-                        return Value.initPayload(&buffer.base);
-                    }
-                },
-                .enum_simple => {
+        const field_index = switch (val.tag()) {
+            .enum_field_index => val.castTag(.enum_field_index).?.data,
+            .the_only_possible_value => blk: {
+                assert(ty.enumFieldCount() == 1);
+                break :blk 0;
+            },
+            // Assume it is already an integer and return it directly.
+            else => return val,
+        };
+
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
+                if (enum_full.values.count() != 0) {
+                    return enum_full.values.keys()[field_index];
+                } else {
                     // Field index and integer values are the same.
                     buffer.* = .{
                         .base = .{ .tag = .int_u64 },
                         .data = field_index,
                     };
                     return Value.initPayload(&buffer.base);
-                },
-                else => unreachable,
-            }
+                }
+            },
+            .enum_numbered => {
+                const enum_obj = ty.castTag(.enum_numbered).?.data;
+                if (enum_obj.values.count() != 0) {
+                    return enum_obj.values.keys()[field_index];
+                } else {
+                    // Field index and integer values are the same.
+                    buffer.* = .{
+                        .base = .{ .tag = .int_u64 },
+                        .data = field_index,
+                    };
+                    return Value.initPayload(&buffer.base);
+                }
+            },
+            .enum_simple => {
+                // Field index and integer values are the same.
+                buffer.* = .{
+                    .base = .{ .tag = .int_u64 },
+                    .data = field_index,
+                };
+                return Value.initPayload(&buffer.base);
+            },
+            else => unreachable,
         }
-        // Assume it is already an integer and return it directly.
-        return val;
     }
 
     /// Asserts the value is an integer.
@@ -901,6 +920,7 @@ pub const Value = extern union {
         switch (self.tag()) {
             .zero,
             .bool_false,
+            .the_only_possible_value, // i0, u0
             => return BigIntMutable.init(&space.limbs, 0).toConst(),
 
             .one,
@@ -922,6 +942,7 @@ pub const Value = extern union {
         switch (self.tag()) {
             .zero,
             .bool_false,
+            .the_only_possible_value, // i0, u0
             => return 0,
 
             .one,
@@ -943,6 +964,7 @@ pub const Value = extern union {
         switch (self.tag()) {
             .zero,
             .bool_false,
+            .the_only_possible_value, // i0, u0
             => return 0,
 
             .one,
@@ -993,12 +1015,33 @@ pub const Value = extern union {
                 const bits = ty.intInfo(target).bits;
                 bigint.writeTwosComplement(buffer, bits, target.cpu.arch.endian());
             },
+            .Enum => {
+                var enum_buffer: Payload.U64 = undefined;
+                const int_val = val.enumToInt(ty, &enum_buffer);
+                var bigint_buffer: BigIntSpace = undefined;
+                const bigint = int_val.toBigInt(&bigint_buffer);
+                const bits = ty.intInfo(target).bits;
+                bigint.writeTwosComplement(buffer, bits, target.cpu.arch.endian());
+            },
             .Float => switch (ty.floatBits(target)) {
                 16 => return floatWriteToMemory(f16, val.toFloat(f16), target, buffer),
                 32 => return floatWriteToMemory(f32, val.toFloat(f32), target, buffer),
                 64 => return floatWriteToMemory(f64, val.toFloat(f64), target, buffer),
                 128 => return floatWriteToMemory(f128, val.toFloat(f128), target, buffer),
                 else => unreachable,
+            },
+            .Array, .Vector => {
+                const len = ty.arrayLen();
+                const elem_ty = ty.childType();
+                const elem_size = elem_ty.abiSize(target);
+                var elem_i: usize = 0;
+                var elem_value_buf: ElemValueBuffer = undefined;
+                var buf_off: usize = 0;
+                while (elem_i < len) : (elem_i += 1) {
+                    const elem_val = val.elemValueBuffer(elem_i, &elem_value_buf);
+                    writeToMemory(elem_val, elem_ty, target, buffer[buf_off..]);
+                    buf_off += elem_size;
+                }
             },
             else => @panic("TODO implement writeToMemory for more types"),
         }
@@ -1124,6 +1167,11 @@ pub const Value = extern union {
                 @panic("TODO implement int_big_negative Value clz");
             },
 
+            .the_only_possible_value => {
+                assert(ty_bits == 0);
+                return ty_bits;
+            },
+
             else => unreachable,
         }
     }
@@ -1134,6 +1182,7 @@ pub const Value = extern union {
         switch (self.tag()) {
             .zero,
             .bool_false,
+            .the_only_possible_value,
             => return 0,
 
             .one,
@@ -1213,6 +1262,11 @@ pub const Value = extern union {
                 else => unreachable,
             },
 
+            .the_only_possible_value => {
+                assert(ty.intInfo(target).bits == 0);
+                return true;
+            },
+
             else => unreachable,
         }
     }
@@ -1251,7 +1305,7 @@ pub const Value = extern union {
     /// Asserts the value is numeric
     pub fn isZero(self: Value) bool {
         return switch (self.tag()) {
-            .zero => true,
+            .zero, .the_only_possible_value => true,
             .one => false,
 
             .int_u64 => self.castTag(.int_u64).?.data == 0,
@@ -1272,6 +1326,7 @@ pub const Value = extern union {
         return switch (lhs.tag()) {
             .zero,
             .bool_false,
+            .the_only_possible_value,
             => .eq,
 
             .one,
@@ -1354,7 +1409,7 @@ pub const Value = extern union {
         assert(b_tag != .undef);
         if (a_tag == b_tag) {
             switch (a_tag) {
-                .void_value, .null_value => return true,
+                .void_value, .null_value, .the_only_possible_value => return true,
                 .enum_literal => {
                     const a_name = a.castTag(.enum_literal).?.data;
                     const b_name = b.castTag(.enum_literal).?.data;
@@ -1370,6 +1425,16 @@ pub const Value = extern union {
                     const b_payload = b.castTag(.opt_payload).?.data;
                     var buffer: Type.Payload.ElemType = undefined;
                     return eql(a_payload, b_payload, ty.optionalChild(&buffer));
+                },
+                .slice => {
+                    const a_payload = a.castTag(.slice).?.data;
+                    const b_payload = b.castTag(.slice).?.data;
+                    if (!eql(a_payload.len, b_payload.len, Type.usize)) return false;
+
+                    var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                    const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
+
+                    return eql(a_payload.ptr, b_payload.ptr, ptr_ty);
                 },
                 .elem_ptr => @panic("TODO: Implement more pointer eql cases"),
                 .field_ptr => @panic("TODO: Implement more pointer eql cases"),
@@ -1443,6 +1508,14 @@ pub const Value = extern union {
                 .function,
                 .variable,
                 => std.hash.autoHash(hasher, val.pointerDecl().?),
+
+                .slice => {
+                    const slice = val.castTag(.slice).?.data;
+                    var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                    const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
+                    hash(slice.ptr, ptr_ty, hasher);
+                    hash(slice.len, Type.usize, hasher);
+                },
 
                 .elem_ptr => @panic("TODO: Implement more pointer hashing cases"),
                 .field_ptr => @panic("TODO: Implement more pointer hashing cases"),
@@ -1555,60 +1628,6 @@ pub const Value = extern union {
         }
     };
 
-    /// Asserts the value is a pointer and dereferences it.
-    /// Returns error.AnalysisFail if the pointer points to a Decl that failed semantic analysis.
-    pub fn pointerDeref(val: Value, arena: *Allocator) error{ AnalysisFail, OutOfMemory }!?Value {
-        const sub_val: Value = switch (val.tag()) {
-            .decl_ref_mut => sub_val: {
-                // The decl whose value we are obtaining here may be overwritten with
-                // a different value, which would invalidate this memory. So we must
-                // copy here.
-                const sub_val = try val.castTag(.decl_ref_mut).?.data.decl.value();
-                break :sub_val try sub_val.copy(arena);
-            },
-            .decl_ref => try val.castTag(.decl_ref).?.data.value(),
-            .elem_ptr => blk: {
-                const elem_ptr = val.castTag(.elem_ptr).?.data;
-                const array_val = (try elem_ptr.array_ptr.pointerDeref(arena)) orelse return null;
-                break :blk try array_val.elemValue(arena, elem_ptr.index);
-            },
-            .field_ptr => blk: {
-                const field_ptr = val.castTag(.field_ptr).?.data;
-                const container_val = (try field_ptr.container_ptr.pointerDeref(arena)) orelse return null;
-                break :blk try container_val.fieldValue(arena, field_ptr.field_index);
-            },
-            .eu_payload_ptr => blk: {
-                const err_union_ptr = val.castTag(.eu_payload_ptr).?.data;
-                const err_union_val = (try err_union_ptr.pointerDeref(arena)) orelse return null;
-                break :blk err_union_val.castTag(.eu_payload).?.data;
-            },
-            .opt_payload_ptr => blk: {
-                const opt_ptr = val.castTag(.opt_payload_ptr).?.data;
-                const opt_val = (try opt_ptr.pointerDeref(arena)) orelse return null;
-                break :blk opt_val.castTag(.opt_payload).?.data;
-            },
-
-            .zero,
-            .one,
-            .int_u64,
-            .int_i64,
-            .int_big_positive,
-            .int_big_negative,
-            .variable,
-            .extern_fn,
-            .function,
-            => return null,
-
-            else => unreachable,
-        };
-        if (sub_val.tag() == .variable) {
-            // This would be loading a runtime value at compile-time so we return
-            // the indicator that this pointer dereference requires being done at runtime.
-            return null;
-        }
-        return sub_val;
-    }
-
     pub fn isComptimeMutablePtr(val: Value) bool {
         return switch (val.tag()) {
             .decl_ref_mut => true,
@@ -1706,6 +1725,9 @@ pub const Value = extern union {
             .decl_ref => return val.castTag(.decl_ref).?.data.val.elemValueAdvanced(index, arena, buffer),
             .decl_ref_mut => return val.castTag(.decl_ref_mut).?.data.decl.val.elemValueAdvanced(index, arena, buffer),
 
+            // The child type of arrays which have only one possible value need to have only one possible value itself.
+            .the_only_possible_value => return val,
+
             else => unreachable,
         }
     }
@@ -1722,6 +1744,8 @@ pub const Value = extern union {
                 // TODO assert the tag is correct
                 return payload.val;
             },
+            // Structs which have only one possible value need to consist of members which have only one possible value.
+            .the_only_possible_value => return val,
 
             else => unreachable,
         }
@@ -1737,17 +1761,23 @@ pub const Value = extern union {
 
     /// Returns a pointer to the element value at the index.
     pub fn elemPtr(self: Value, allocator: *Allocator, index: usize) !Value {
-        if (self.castTag(.elem_ptr)) |elem_ptr| {
-            return Tag.elem_ptr.create(allocator, .{
-                .array_ptr = elem_ptr.data.array_ptr,
-                .index = elem_ptr.data.index + index,
-            });
+        switch (self.tag()) {
+            .elem_ptr => {
+                const elem_ptr = self.castTag(.elem_ptr).?.data;
+                return Tag.elem_ptr.create(allocator, .{
+                    .array_ptr = elem_ptr.array_ptr,
+                    .index = elem_ptr.index + index,
+                });
+            },
+            .slice => return Tag.elem_ptr.create(allocator, .{
+                .array_ptr = self.castTag(.slice).?.data.ptr,
+                .index = index,
+            }),
+            else => return Tag.elem_ptr.create(allocator, .{
+                .array_ptr = self,
+                .index = index,
+            }),
         }
-
-        return Tag.elem_ptr.create(allocator, .{
-            .array_ptr = self,
-            .index = index,
-        });
     }
 
     pub fn isUndef(self: Value) bool {
@@ -1817,16 +1847,26 @@ pub const Value = extern union {
         };
     }
 
-    pub fn intToFloat(val: Value, allocator: *Allocator, dest_ty: Type, target: Target) !Value {
+    pub fn intToFloat(val: Value, arena: *Allocator, dest_ty: Type, target: Target) !Value {
         switch (val.tag()) {
             .undef, .zero, .one => return val,
+            .the_only_possible_value => return Value.initTag(.zero), // for i0, u0
             .int_u64 => {
-                return intToFloatInner(val.castTag(.int_u64).?.data, allocator, dest_ty, target);
+                return intToFloatInner(val.castTag(.int_u64).?.data, arena, dest_ty, target);
             },
             .int_i64 => {
-                return intToFloatInner(val.castTag(.int_i64).?.data, allocator, dest_ty, target);
+                return intToFloatInner(val.castTag(.int_i64).?.data, arena, dest_ty, target);
             },
-            .int_big_positive, .int_big_negative => @panic("big int to float"),
+            .int_big_positive => {
+                const limbs = val.castTag(.int_big_positive).?.data;
+                const float = bigIntToFloat(limbs, true);
+                return floatToValue(float, arena, dest_ty, target);
+            },
+            .int_big_negative => {
+                const limbs = val.castTag(.int_big_negative).?.data;
+                const float = bigIntToFloat(limbs, false);
+                return floatToValue(float, arena, dest_ty, target);
+            },
             else => unreachable,
         }
     }
@@ -1837,6 +1877,16 @@ pub const Value = extern union {
             32 => return Value.Tag.float_32.create(arena, @intToFloat(f32, x)),
             64 => return Value.Tag.float_64.create(arena, @intToFloat(f64, x)),
             128 => return Value.Tag.float_128.create(arena, @intToFloat(f128, x)),
+            else => unreachable,
+        }
+    }
+
+    fn floatToValue(float: f128, arena: *Allocator, dest_ty: Type, target: Target) !Value {
+        switch (dest_ty.floatBits(target)) {
+            16 => return Value.Tag.float_16.create(arena, @floatCast(f16, float)),
+            32 => return Value.Tag.float_32.create(arena, @floatCast(f32, float)),
+            64 => return Value.Tag.float_64.create(arena, @floatCast(f64, float)),
+            128 => return Value.Tag.float_128.create(arena, float),
             else => unreachable,
         }
     }
@@ -2119,7 +2169,8 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+            // + 1 for negatives
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitAnd(lhs_bigint, rhs_bigint);
@@ -2183,7 +2234,8 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+            // + 1 for negatives
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitXor(lhs_bigint, rhs_bigint);
@@ -2271,7 +2323,7 @@ pub const Value = extern union {
         }
     }
 
-    pub fn intRem(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+    pub fn intDivFloor(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -2285,6 +2337,39 @@ pub const Value = extern union {
         const limbs_r = try allocator.alloc(
             std.math.big.Limb,
             lhs_bigint.limbs.len,
+        );
+        const limbs_buffer = try allocator.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+        );
+        var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
+        var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
+        result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
+        const result_limbs = result_q.limbs[0..result_q.len];
+
+        if (result_q.positive) {
+            return Value.Tag.int_big_positive.create(allocator, result_limbs);
+        } else {
+            return Value.Tag.int_big_negative.create(allocator, result_limbs);
+        }
+    }
+
+    pub fn intRem(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs_q = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+        );
+        const limbs_r = try allocator.alloc(
+            std.math.big.Limb,
+            // TODO: audit this size, and also consider reworking Sema to re-use Values rather than
+            // always producing new Value objects.
+            rhs_bigint.limbs.len + 1,
         );
         const limbs_buffer = try allocator.alloc(
             std.math.big.Limb,
@@ -2576,6 +2661,68 @@ pub const Value = extern union {
                 const lhs_val = lhs.toFloat(f128);
                 const rhs_val = rhs.toFloat(f128);
                 return Value.Tag.float_128.create(arena, lhs_val / rhs_val);
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn floatDivFloor(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: *Allocator,
+    ) !Value {
+        switch (float_type.tag()) {
+            .f16 => {
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @divFloor(lhs_val, rhs_val));
+            },
+            .f32 => {
+                const lhs_val = lhs.toFloat(f32);
+                const rhs_val = rhs.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @divFloor(lhs_val, rhs_val));
+            },
+            .f64 => {
+                const lhs_val = lhs.toFloat(f64);
+                const rhs_val = rhs.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @divFloor(lhs_val, rhs_val));
+            },
+            .f128, .comptime_float, .c_longdouble => {
+                const lhs_val = lhs.toFloat(f128);
+                const rhs_val = rhs.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @divFloor(lhs_val, rhs_val));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn floatDivTrunc(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: *Allocator,
+    ) !Value {
+        switch (float_type.tag()) {
+            .f16 => {
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @divTrunc(lhs_val, rhs_val));
+            },
+            .f32 => {
+                const lhs_val = lhs.toFloat(f32);
+                const rhs_val = rhs.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @divTrunc(lhs_val, rhs_val));
+            },
+            .f64 => {
+                const lhs_val = lhs.toFloat(f64);
+                const rhs_val = rhs.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @divTrunc(lhs_val, rhs_val));
+            },
+            .f128, .comptime_float, .c_longdouble => {
+                const lhs_val = lhs.toFloat(f128);
+                const rhs_val = rhs.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @divTrunc(lhs_val, rhs_val));
             },
             else => unreachable,
         }

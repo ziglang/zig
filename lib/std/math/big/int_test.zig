@@ -1399,6 +1399,63 @@ test "big.int div floor single-single -/-" {
     try testing.expect((try r.to(i32)) == er);
 }
 
+test "big.int div floor no remainder negative quotient" {
+    const u: i32 = -0x80000000;
+    const v: i32 = 1;
+
+    var a = try Managed.initSet(testing.allocator, u);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, v);
+    defer b.deinit();
+
+    var q = try Managed.init(testing.allocator);
+    defer q.deinit();
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    try Managed.divFloor(&q, &r, a.toConst(), b.toConst());
+
+    try testing.expect((try q.to(i32)) == -0x80000000);
+    try testing.expect((try r.to(i32)) == 0);
+}
+
+test "big.int div floor negative close to zero" {
+    const u: i32 = -2;
+    const v: i32 = 12;
+
+    var a = try Managed.initSet(testing.allocator, u);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, v);
+    defer b.deinit();
+
+    var q = try Managed.init(testing.allocator);
+    defer q.deinit();
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    try Managed.divFloor(&q, &r, a.toConst(), b.toConst());
+
+    try testing.expect((try q.to(i32)) == -1);
+    try testing.expect((try r.to(i32)) == 10);
+}
+
+test "big.int div floor positive close to zero" {
+    const u: i32 = 10;
+    const v: i32 = 12;
+
+    var a = try Managed.initSet(testing.allocator, u);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, v);
+    defer b.deinit();
+
+    var q = try Managed.init(testing.allocator);
+    defer q.deinit();
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    try Managed.divFloor(&q, &r, a.toConst(), b.toConst());
+
+    try testing.expect((try q.to(i32)) == 0);
+    try testing.expect((try r.to(i32)) == 10);
+}
+
 test "big.int div multi-multi with rem" {
     var a = try Managed.initSet(testing.allocator, 0x8888999911110000ffffeeeeddddccccbbbbaaaa9999);
     defer a.deinit();
@@ -1652,6 +1709,18 @@ test "big.int truncate negative multi to single" {
     try a.truncate(a.toConst(), .signed, @bitSizeOf(i17));
 
     try testing.expect((try a.to(i17)) == 0);
+}
+
+test "big.int truncate multi unsigned many" {
+    var a = try Managed.initSet(testing.allocator, 1);
+    defer a.deinit();
+    try a.shiftLeft(a, 1023);
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+    try b.truncate(a.toConst(), .signed, @bitSizeOf(i1));
+
+    try testing.expect((try b.to(i1)) == 0);
 }
 
 test "big.int saturate single signed positive" {

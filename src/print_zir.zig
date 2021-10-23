@@ -234,6 +234,8 @@ const Writer = struct {
             .@"await",
             .await_nosuspend,
             .fence,
+            .switch_cond,
+            .switch_cond_ref,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -347,7 +349,6 @@ const Writer = struct {
             .reduce,
             .atomic_load,
             .bitcast,
-            .bitcast_result_ptr,
             .vector_type,
             .maximum,
             .minimum,
@@ -379,19 +380,7 @@ const Writer = struct {
             .error_set_decl_anon => try self.writeErrorSetDecl(stream, inst, .anon),
             .error_set_decl_func => try self.writeErrorSetDecl(stream, inst, .func),
 
-            .switch_block => try self.writePlNodeSwitchBr(stream, inst, .none),
-            .switch_block_else => try self.writePlNodeSwitchBr(stream, inst, .@"else"),
-            .switch_block_under => try self.writePlNodeSwitchBr(stream, inst, .under),
-            .switch_block_ref => try self.writePlNodeSwitchBr(stream, inst, .none),
-            .switch_block_ref_else => try self.writePlNodeSwitchBr(stream, inst, .@"else"),
-            .switch_block_ref_under => try self.writePlNodeSwitchBr(stream, inst, .under),
-
-            .switch_block_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .none),
-            .switch_block_else_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .@"else"),
-            .switch_block_under_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .under),
-            .switch_block_ref_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .none),
-            .switch_block_ref_else_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .@"else"),
-            .switch_block_ref_under_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .under),
+            .switch_block => try self.writePlNodeSwitchBlock(stream, inst),
 
             .field_ptr,
             .field_val,
@@ -1649,113 +1638,46 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writePlNodeSwitchBr(
-        self: *Writer,
-        stream: anytype,
-        inst: Zir.Inst.Index,
-        special_prong: Zir.SpecialProng,
-    ) !void {
+    fn writePlNodeSwitchBlock(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Zir.Inst.SwitchBlock, inst_data.payload_index);
-        const special: struct {
-            body: []const Zir.Inst.Index,
-            end: usize,
-        } = switch (special_prong) {
-            .none => .{ .body = &.{}, .end = extra.end },
-            .under, .@"else" => blk: {
-                const body_len = self.code.extra[extra.end];
-                const extra_body_start = extra.end + 1;
-                break :blk .{
-                    .body = self.code.extra[extra_body_start..][0..body_len],
-                    .end = extra_body_start + body_len,
-                };
-            },
-        };
+
+        var extra_index: usize = extra.end;
+
+        const multi_cases_len = if (extra.data.bits.has_multi_cases) blk: {
+            const multi_cases_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk multi_cases_len;
+        } else 0;
 
         try self.writeInstRef(stream, extra.data.operand);
+        try self.writeFlag(stream, ", ref", extra.data.bits.is_ref);
 
         self.indent += 2;
 
-        if (special.body.len != 0) {
+        else_prong: {
+            const special_prong = extra.data.bits.specialProng();
             const prong_name = switch (special_prong) {
                 .@"else" => "else",
                 .under => "_",
-                else => unreachable,
+                else => break :else_prong,
             };
+
+            const body_len = self.code.extra[extra_index];
+            extra_index += 1;
+            const body = self.code.extra[extra_index..][0..body_len];
+            extra_index += body.len;
+
             try stream.writeAll(",\n");
             try stream.writeByteNTimes(' ', self.indent);
             try stream.print("{s} => ", .{prong_name});
-            try self.writeBracedBody(stream, special.body);
+            try self.writeBracedBody(stream, body);
         }
 
-        var extra_index: usize = special.end;
         {
+            const scalar_cases_len = extra.data.bits.scalar_cases_len;
             var scalar_i: usize = 0;
-            while (scalar_i < extra.data.cases_len) : (scalar_i += 1) {
-                const item_ref = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
-                extra_index += 1;
-                const body_len = self.code.extra[extra_index];
-                extra_index += 1;
-                const body = self.code.extra[extra_index..][0..body_len];
-                extra_index += body_len;
-
-                try stream.writeAll(",\n");
-                try stream.writeByteNTimes(' ', self.indent);
-                try self.writeInstRef(stream, item_ref);
-                try stream.writeAll(" => ");
-                try self.writeBracedBody(stream, body);
-            }
-        }
-
-        self.indent -= 2;
-
-        try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
-    }
-
-    fn writePlNodeSwitchBlockMulti(
-        self: *Writer,
-        stream: anytype,
-        inst: Zir.Inst.Index,
-        special_prong: Zir.SpecialProng,
-    ) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Zir.Inst.SwitchBlockMulti, inst_data.payload_index);
-        const special: struct {
-            body: []const Zir.Inst.Index,
-            end: usize,
-        } = switch (special_prong) {
-            .none => .{ .body = &.{}, .end = extra.end },
-            .under, .@"else" => blk: {
-                const body_len = self.code.extra[extra.end];
-                const extra_body_start = extra.end + 1;
-                break :blk .{
-                    .body = self.code.extra[extra_body_start..][0..body_len],
-                    .end = extra_body_start + body_len,
-                };
-            },
-        };
-
-        try self.writeInstRef(stream, extra.data.operand);
-
-        self.indent += 2;
-
-        if (special.body.len != 0) {
-            const prong_name = switch (special_prong) {
-                .@"else" => "else",
-                .under => "_",
-                else => unreachable,
-            };
-            try stream.writeAll(",\n");
-            try stream.writeByteNTimes(' ', self.indent);
-            try stream.print("{s} => ", .{prong_name});
-            try self.writeBracedBody(stream, special.body);
-        }
-
-        var extra_index: usize = special.end;
-        {
-            var scalar_i: usize = 0;
-            while (scalar_i < extra.data.scalar_cases_len) : (scalar_i += 1) {
+            while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
                 const item_ref = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
                 extra_index += 1;
                 const body_len = self.code.extra[extra_index];
@@ -1772,7 +1694,7 @@ const Writer = struct {
         }
         {
             var multi_i: usize = 0;
-            while (multi_i < extra.data.multi_cases_len) : (multi_i += 1) {
+            while (multi_i < multi_cases_len) : (multi_i += 1) {
                 const items_len = self.code.extra[extra_index];
                 extra_index += 1;
                 const ranges_len = self.code.extra[extra_index];

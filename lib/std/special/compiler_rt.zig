@@ -74,6 +74,86 @@ comptime {
         @export(__getf2, .{ .name = "__gttf2", .linkage = linkage });
 
         @export(__extendhfsf2, .{ .name = "__gnu_h2f_ieee", .linkage = linkage });
+
+        const __muloti4 = @import("compiler_rt/muloti4.zig").__muloti4;
+        @export(__muloti4, .{ .name = "__muloti4", .linkage = linkage });
+        const __mulodi4 = @import("compiler_rt/mulodi4.zig").__mulodi4;
+        @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
+    }
+
+    if (builtin.os.tag == .windows) {
+        // Default stack-probe functions emitted by LLVM
+        if (is_mingw) {
+            const _chkstk = @import("compiler_rt/stack_probe.zig")._chkstk;
+            @export(_chkstk, .{ .name = "_alloca", .linkage = strong_linkage });
+            const ___chkstk_ms = @import("compiler_rt/stack_probe.zig").___chkstk_ms;
+            @export(___chkstk_ms, .{ .name = "___chkstk_ms", .linkage = strong_linkage });
+        } else if (!builtin.link_libc) {
+            // This symbols are otherwise exported by MSVCRT.lib
+            const _chkstk = @import("compiler_rt/stack_probe.zig")._chkstk;
+            @export(_chkstk, .{ .name = "_chkstk", .linkage = strong_linkage });
+            const __chkstk = @import("compiler_rt/stack_probe.zig").__chkstk;
+            @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
+        }
+
+        switch (arch) {
+            .i386 => {
+                const __divti3 = @import("compiler_rt/divti3.zig").__divti3;
+                @export(__divti3, .{ .name = "__divti3", .linkage = linkage });
+                const __modti3 = @import("compiler_rt/modti3.zig").__modti3;
+                @export(__modti3, .{ .name = "__modti3", .linkage = linkage });
+                const __multi3 = @import("compiler_rt/multi3.zig").__multi3;
+                @export(__multi3, .{ .name = "__multi3", .linkage = linkage });
+                const __udivti3 = @import("compiler_rt/udivti3.zig").__udivti3;
+                @export(__udivti3, .{ .name = "__udivti3", .linkage = linkage });
+                const __udivmodti4 = @import("compiler_rt/udivmodti4.zig").__udivmodti4;
+                @export(__udivmodti4, .{ .name = "__udivmodti4", .linkage = linkage });
+                const __umodti3 = @import("compiler_rt/umodti3.zig").__umodti3;
+                @export(__umodti3, .{ .name = "__umodti3", .linkage = linkage });
+            },
+            .x86_64 => {
+                // The "ti" functions must use Vector(2, u64) parameter types to adhere to the ABI
+                // that LLVM expects compiler-rt to have.
+                const __divti3_windows_x86_64 = @import("compiler_rt/divti3.zig").__divti3_windows_x86_64;
+                @export(__divti3_windows_x86_64, .{ .name = "__divti3", .linkage = linkage });
+                const __modti3_windows_x86_64 = @import("compiler_rt/modti3.zig").__modti3_windows_x86_64;
+                @export(__modti3_windows_x86_64, .{ .name = "__modti3", .linkage = linkage });
+                const __multi3_windows_x86_64 = @import("compiler_rt/multi3.zig").__multi3_windows_x86_64;
+                @export(__multi3_windows_x86_64, .{ .name = "__multi3", .linkage = linkage });
+                const __udivti3_windows_x86_64 = @import("compiler_rt/udivti3.zig").__udivti3_windows_x86_64;
+                @export(__udivti3_windows_x86_64, .{ .name = "__udivti3", .linkage = linkage });
+                const __udivmodti4_windows_x86_64 = @import("compiler_rt/udivmodti4.zig").__udivmodti4_windows_x86_64;
+                @export(__udivmodti4_windows_x86_64, .{ .name = "__udivmodti4", .linkage = linkage });
+                const __umodti3_windows_x86_64 = @import("compiler_rt/umodti3.zig").__umodti3_windows_x86_64;
+                @export(__umodti3_windows_x86_64, .{ .name = "__umodti3", .linkage = linkage });
+            },
+            else => {},
+        }
+        if (arch.isAARCH64()) {
+            const __chkstk = @import("compiler_rt/stack_probe.zig").__chkstk;
+            @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
+            const __divti3_windows = @import("compiler_rt/divti3.zig").__divti3;
+            @export(__divti3_windows, .{ .name = "__divti3", .linkage = linkage });
+            const __modti3 = @import("compiler_rt/modti3.zig").__modti3;
+            @export(__modti3, .{ .name = "__modti3", .linkage = linkage });
+            const __udivti3_windows = @import("compiler_rt/udivti3.zig").__udivti3;
+            @export(__udivti3_windows, .{ .name = "__udivti3", .linkage = linkage });
+            const __umodti3 = @import("compiler_rt/umodti3.zig").__umodti3;
+            @export(__umodti3, .{ .name = "__umodti3", .linkage = linkage });
+        }
+    } else {
+        const __divti3 = @import("compiler_rt/divti3.zig").__divti3;
+        @export(__divti3, .{ .name = "__divti3", .linkage = linkage });
+        const __modti3 = @import("compiler_rt/modti3.zig").__modti3;
+        @export(__modti3, .{ .name = "__modti3", .linkage = linkage });
+        const __multi3 = @import("compiler_rt/multi3.zig").__multi3;
+        @export(__multi3, .{ .name = "__multi3", .linkage = linkage });
+        const __udivti3 = @import("compiler_rt/udivti3.zig").__udivti3;
+        @export(__udivti3, .{ .name = "__udivti3", .linkage = linkage });
+        const __udivmodti4 = @import("compiler_rt/udivmodti4.zig").__udivmodti4;
+        @export(__udivmodti4, .{ .name = "__udivmodti4", .linkage = linkage });
+        const __umodti3 = @import("compiler_rt/umodti3.zig").__umodti3;
+        @export(__umodti3, .{ .name = "__umodti3", .linkage = linkage });
     }
 
     if (!builtin.zig_is_stage2) {
@@ -546,85 +626,6 @@ comptime {
             @export(__getf2, .{ .name = "__gtkf2", .linkage = linkage });
             @export(__unordtf2, .{ .name = "__unordkf2", .linkage = linkage });
         }
-
-        if (builtin.os.tag == .windows) {
-            // Default stack-probe functions emitted by LLVM
-            if (is_mingw) {
-                const _chkstk = @import("compiler_rt/stack_probe.zig")._chkstk;
-                @export(_chkstk, .{ .name = "_alloca", .linkage = strong_linkage });
-                const ___chkstk_ms = @import("compiler_rt/stack_probe.zig").___chkstk_ms;
-                @export(___chkstk_ms, .{ .name = "___chkstk_ms", .linkage = strong_linkage });
-            } else if (!builtin.link_libc) {
-                // This symbols are otherwise exported by MSVCRT.lib
-                const _chkstk = @import("compiler_rt/stack_probe.zig")._chkstk;
-                @export(_chkstk, .{ .name = "_chkstk", .linkage = strong_linkage });
-                const __chkstk = @import("compiler_rt/stack_probe.zig").__chkstk;
-                @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
-            }
-
-            switch (arch) {
-                .i386 => {
-                    const __divti3 = @import("compiler_rt/divti3.zig").__divti3;
-                    @export(__divti3, .{ .name = "__divti3", .linkage = linkage });
-                    const __modti3 = @import("compiler_rt/modti3.zig").__modti3;
-                    @export(__modti3, .{ .name = "__modti3", .linkage = linkage });
-                    const __multi3 = @import("compiler_rt/multi3.zig").__multi3;
-                    @export(__multi3, .{ .name = "__multi3", .linkage = linkage });
-                    const __udivti3 = @import("compiler_rt/udivti3.zig").__udivti3;
-                    @export(__udivti3, .{ .name = "__udivti3", .linkage = linkage });
-                    const __udivmodti4 = @import("compiler_rt/udivmodti4.zig").__udivmodti4;
-                    @export(__udivmodti4, .{ .name = "__udivmodti4", .linkage = linkage });
-                    const __umodti3 = @import("compiler_rt/umodti3.zig").__umodti3;
-                    @export(__umodti3, .{ .name = "__umodti3", .linkage = linkage });
-                },
-                .x86_64 => {
-                    // The "ti" functions must use Vector(2, u64) parameter types to adhere to the ABI
-                    // that LLVM expects compiler-rt to have.
-                    const __divti3_windows_x86_64 = @import("compiler_rt/divti3.zig").__divti3_windows_x86_64;
-                    @export(__divti3_windows_x86_64, .{ .name = "__divti3", .linkage = linkage });
-                    const __modti3_windows_x86_64 = @import("compiler_rt/modti3.zig").__modti3_windows_x86_64;
-                    @export(__modti3_windows_x86_64, .{ .name = "__modti3", .linkage = linkage });
-                    const __multi3_windows_x86_64 = @import("compiler_rt/multi3.zig").__multi3_windows_x86_64;
-                    @export(__multi3_windows_x86_64, .{ .name = "__multi3", .linkage = linkage });
-                    const __udivti3_windows_x86_64 = @import("compiler_rt/udivti3.zig").__udivti3_windows_x86_64;
-                    @export(__udivti3_windows_x86_64, .{ .name = "__udivti3", .linkage = linkage });
-                    const __udivmodti4_windows_x86_64 = @import("compiler_rt/udivmodti4.zig").__udivmodti4_windows_x86_64;
-                    @export(__udivmodti4_windows_x86_64, .{ .name = "__udivmodti4", .linkage = linkage });
-                    const __umodti3_windows_x86_64 = @import("compiler_rt/umodti3.zig").__umodti3_windows_x86_64;
-                    @export(__umodti3_windows_x86_64, .{ .name = "__umodti3", .linkage = linkage });
-                },
-                else => {},
-            }
-            if (arch.isAARCH64()) {
-                const __chkstk = @import("compiler_rt/stack_probe.zig").__chkstk;
-                @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
-                const __divti3_windows = @import("compiler_rt/divti3.zig").__divti3;
-                @export(__divti3_windows, .{ .name = "__divti3", .linkage = linkage });
-                const __modti3 = @import("compiler_rt/modti3.zig").__modti3;
-                @export(__modti3, .{ .name = "__modti3", .linkage = linkage });
-                const __udivti3_windows = @import("compiler_rt/udivti3.zig").__udivti3;
-                @export(__udivti3_windows, .{ .name = "__udivti3", .linkage = linkage });
-                const __umodti3 = @import("compiler_rt/umodti3.zig").__umodti3;
-                @export(__umodti3, .{ .name = "__umodti3", .linkage = linkage });
-            }
-        } else {
-            const __divti3 = @import("compiler_rt/divti3.zig").__divti3;
-            @export(__divti3, .{ .name = "__divti3", .linkage = linkage });
-            const __modti3 = @import("compiler_rt/modti3.zig").__modti3;
-            @export(__modti3, .{ .name = "__modti3", .linkage = linkage });
-            const __multi3 = @import("compiler_rt/multi3.zig").__multi3;
-            @export(__multi3, .{ .name = "__multi3", .linkage = linkage });
-            const __udivti3 = @import("compiler_rt/udivti3.zig").__udivti3;
-            @export(__udivti3, .{ .name = "__udivti3", .linkage = linkage });
-            const __udivmodti4 = @import("compiler_rt/udivmodti4.zig").__udivmodti4;
-            @export(__udivmodti4, .{ .name = "__udivmodti4", .linkage = linkage });
-            const __umodti3 = @import("compiler_rt/umodti3.zig").__umodti3;
-            @export(__umodti3, .{ .name = "__umodti3", .linkage = linkage });
-        }
-        const __muloti4 = @import("compiler_rt/muloti4.zig").__muloti4;
-        @export(__muloti4, .{ .name = "__muloti4", .linkage = linkage });
-        const __mulodi4 = @import("compiler_rt/mulodi4.zig").__mulodi4;
-        @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
 
         _ = @import("compiler_rt/atomics.zig");
 

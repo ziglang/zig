@@ -3,37 +3,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const Tag = std.meta.Tag;
 
-const Value = union(enum) {
-    Int: u64,
-    Array: [9]u8,
-};
-
-const Agg = struct {
-    val1: Value,
-    val2: Value,
-};
-
-const v1 = Value{ .Int = 1234 };
-const v2 = Value{ .Array = [_]u8{3} ** 9 };
-
-const err = @as(anyerror!Agg, Agg{
-    .val1 = v1,
-    .val2 = v2,
-});
-
-const array = [_]Value{ v1, v2, v1, v2 };
-
-test "unions embedded in aggregate types" {
-    switch (array[1]) {
-        Value.Array => |arr| try expect(arr[4] == 3),
-        else => unreachable,
-    }
-    switch ((err catch unreachable).val1) {
-        Value.Int => |x| try expect(x == 1234),
-        else => unreachable,
-    }
-}
-
 const Letter = enum { A, B, C };
 const Payload = union(Letter) {
     A: i32,

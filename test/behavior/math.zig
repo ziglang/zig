@@ -249,3 +249,190 @@ test "binary not" {
 fn testBinaryNot(x: u16) !void {
     try expect(~x == 0b0101010101010101);
 }
+
+test "division" {
+    try testDivision();
+    comptime try testDivision();
+}
+fn testDivision() !void {
+    try expect(div(u32, 13, 3) == 4);
+    try expect(div(f16, 1.0, 2.0) == 0.5);
+    try expect(div(f32, 1.0, 2.0) == 0.5);
+
+    try expect(divExact(u32, 55, 11) == 5);
+    try expect(divExact(i32, -55, 11) == -5);
+    try expect(divExact(f16, 55.0, 11.0) == 5.0);
+    try expect(divExact(f16, -55.0, 11.0) == -5.0);
+    try expect(divExact(f32, 55.0, 11.0) == 5.0);
+    try expect(divExact(f32, -55.0, 11.0) == -5.0);
+
+    try expect(divFloor(i32, 5, 3) == 1);
+    try expect(divFloor(i32, -5, 3) == -2);
+    try expect(divFloor(f16, 5.0, 3.0) == 1.0);
+    try expect(divFloor(f16, -5.0, 3.0) == -2.0);
+    try expect(divFloor(f32, 5.0, 3.0) == 1.0);
+    try expect(divFloor(f32, -5.0, 3.0) == -2.0);
+    try expect(divFloor(i32, -0x80000000, -2) == 0x40000000);
+    try expect(divFloor(i32, 0, -0x80000000) == 0);
+    try expect(divFloor(i32, -0x40000001, 0x40000000) == -2);
+    try expect(divFloor(i32, -0x80000000, 1) == -0x80000000);
+    try expect(divFloor(i32, 10, 12) == 0);
+    try expect(divFloor(i32, -14, 12) == -2);
+    try expect(divFloor(i32, -2, 12) == -1);
+
+    try expect(divTrunc(i32, 5, 3) == 1);
+    try expect(divTrunc(i32, -5, 3) == -1);
+    try expect(divTrunc(f16, 5.0, 3.0) == 1.0);
+    try expect(divTrunc(f16, -5.0, 3.0) == -1.0);
+    try expect(divTrunc(f32, 5.0, 3.0) == 1.0);
+    try expect(divTrunc(f32, -5.0, 3.0) == -1.0);
+    try expect(divTrunc(f64, 5.0, 3.0) == 1.0);
+    try expect(divTrunc(f64, -5.0, 3.0) == -1.0);
+    try expect(divTrunc(i32, 10, 12) == 0);
+    try expect(divTrunc(i32, -14, 12) == -1);
+    try expect(divTrunc(i32, -2, 12) == 0);
+
+    try expect(mod(i32, 10, 12) == 10);
+    try expect(mod(i32, -14, 12) == 10);
+    try expect(mod(i32, -2, 12) == 10);
+
+    comptime {
+        try expect(
+            1194735857077236777412821811143690633098347576 % 508740759824825164163191790951174292733114988 == 177254337427586449086438229241342047632117600,
+        );
+        try expect(
+            @rem(-1194735857077236777412821811143690633098347576, 508740759824825164163191790951174292733114988) == -177254337427586449086438229241342047632117600,
+        );
+        try expect(
+            1194735857077236777412821811143690633098347576 / 508740759824825164163191790951174292733114988 == 2,
+        );
+        try expect(
+            @divTrunc(-1194735857077236777412821811143690633098347576, 508740759824825164163191790951174292733114988) == -2,
+        );
+        try expect(
+            @divTrunc(1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == -2,
+        );
+        try expect(
+            @divTrunc(-1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == 2,
+        );
+        try expect(
+            4126227191251978491697987544882340798050766755606969681711 % 10 == 1,
+        );
+    }
+}
+fn div(comptime T: type, a: T, b: T) T {
+    return a / b;
+}
+fn divExact(comptime T: type, a: T, b: T) T {
+    return @divExact(a, b);
+}
+fn divFloor(comptime T: type, a: T, b: T) T {
+    return @divFloor(a, b);
+}
+fn divTrunc(comptime T: type, a: T, b: T) T {
+    return @divTrunc(a, b);
+}
+fn mod(comptime T: type, a: T, b: T) T {
+    return @mod(a, b);
+}
+
+test "unsigned wrapping" {
+    try testUnsignedWrappingEval(maxInt(u32));
+    comptime try testUnsignedWrappingEval(maxInt(u32));
+}
+fn testUnsignedWrappingEval(x: u32) !void {
+    const zero = x +% 1;
+    try expect(zero == 0);
+    const orig = zero -% 1;
+    try expect(orig == maxInt(u32));
+}
+
+test "signed wrapping" {
+    try testSignedWrappingEval(maxInt(i32));
+    comptime try testSignedWrappingEval(maxInt(i32));
+}
+fn testSignedWrappingEval(x: i32) !void {
+    const min_val = x +% 1;
+    try expect(min_val == minInt(i32));
+    const max_val = min_val -% 1;
+    try expect(max_val == maxInt(i32));
+}
+
+test "signed negation wrapping" {
+    try testSignedNegationWrappingEval(minInt(i16));
+    comptime try testSignedNegationWrappingEval(minInt(i16));
+}
+fn testSignedNegationWrappingEval(x: i16) !void {
+    try expect(x == -32768);
+    const neg = -%x;
+    try expect(neg == -32768);
+}
+
+test "unsigned negation wrapping" {
+    try testUnsignedNegationWrappingEval(1);
+    comptime try testUnsignedNegationWrappingEval(1);
+}
+fn testUnsignedNegationWrappingEval(x: u16) !void {
+    try expect(x == 1);
+    const neg = -%x;
+    try expect(neg == maxInt(u16));
+}
+
+test "unsigned 64-bit division" {
+    try test_u64_div();
+    comptime try test_u64_div();
+}
+fn test_u64_div() !void {
+    const result = divWithResult(1152921504606846976, 34359738365);
+    try expect(result.quotient == 33554432);
+    try expect(result.remainder == 100663296);
+}
+fn divWithResult(a: u64, b: u64) DivResult {
+    return DivResult{
+        .quotient = a / b,
+        .remainder = a % b,
+    };
+}
+const DivResult = struct {
+    quotient: u64,
+    remainder: u64,
+};
+
+test "truncating shift right" {
+    try testShrTrunc(maxInt(u16));
+    comptime try testShrTrunc(maxInt(u16));
+}
+fn testShrTrunc(x: u16) !void {
+    const shifted = x >> 1;
+    try expect(shifted == 32767);
+}
+
+test "f128" {
+    try test_f128();
+    comptime try test_f128();
+}
+
+fn make_f128(x: f128) f128 {
+    return x;
+}
+
+fn test_f128() !void {
+    try expect(@sizeOf(f128) == 16);
+    try expect(make_f128(1.0) == 1.0);
+    try expect(make_f128(1.0) != 1.1);
+    try expect(make_f128(1.0) > 0.9);
+    try expect(make_f128(1.0) >= 0.9);
+    try expect(make_f128(1.0) >= 1.0);
+    try should_not_be_zero(1.0);
+}
+
+fn should_not_be_zero(x: f128) !void {
+    try expect(x != 0.0);
+}
+
+test "128-bit multiplication" {
+    var a: i128 = 3;
+    var b: i128 = 2;
+    var c = a * b;
+    try expect(c == 6);
+}

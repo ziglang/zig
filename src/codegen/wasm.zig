@@ -822,7 +822,7 @@ pub const Context = struct {
             .subwrap => self.airWrapBinOp(inst, .sub),
             .mul => self.airBinOp(inst, .mul),
             .mulwrap => self.airWrapBinOp(inst, .mul),
-            .div => self.airBinOp(inst, .div),
+            .div_trunc => self.airBinOp(inst, .div),
             .bit_and => self.airBinOp(inst, .@"and"),
             .bit_or => self.airBinOp(inst, .@"or"),
             .bool_and => self.airBinOp(inst, .@"and"),
@@ -866,6 +866,7 @@ pub const Context = struct {
             .struct_field_ptr_index_1 => self.airStructFieldPtrIndex(inst, 1),
             .struct_field_ptr_index_2 => self.airStructFieldPtrIndex(inst, 2),
             .struct_field_ptr_index_3 => self.airStructFieldPtrIndex(inst, 3),
+            .struct_field_val => self.airStructFieldVal(inst),
             .switch_br => self.airSwitchBr(inst),
             .unreach => self.airUnreachable(inst),
             .wrap_optional => self.airWrapOptional(inst),
@@ -1454,6 +1455,15 @@ pub const Context = struct {
     }
     fn structFieldPtr(struct_ptr: WValue, index: u32) InnerError!WValue {
         return WValue{ .local = struct_ptr.multi_value.index + index };
+    }
+
+    fn airStructFieldVal(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+        if (self.liveness.isUnused(inst)) return WValue.none;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
+        const struct_multivalue = self.resolveInst(extra.struct_operand).multi_value;
+        return WValue{ .local = struct_multivalue.index + extra.field_index };
     }
 
     fn airSwitchBr(self: *Context, inst: Air.Inst.Index) InnerError!WValue {

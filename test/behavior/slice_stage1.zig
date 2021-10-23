@@ -4,39 +4,6 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
-test "slicing" {
-    var array: [20]i32 = undefined;
-
-    array[5] = 1234;
-
-    var slice = array[5..10];
-
-    if (slice.len != 5) unreachable;
-
-    const ptr = &slice[0];
-    if (ptr.* != 1234) unreachable;
-
-    var slice_rest = array[10..];
-    if (slice_rest.len != 10) unreachable;
-}
-
-test "const slice" {
-    comptime {
-        const a = "1234567890";
-        try expect(a.len == 10);
-        const b = a[1..2];
-        try expect(b.len == 1);
-        try expect(b[0] == '2');
-    }
-}
-
-test "comptime slice of undefined pointer of length 0" {
-    const slice1 = @as([*]i32, undefined)[0..0];
-    try expect(slice1.len == 0);
-    const slice2 = @as([*]i32, undefined)[100..100];
-    try expect(slice2.len == 0);
-}
-
 test "slicing zero length array" {
     const s1 = ""[0..];
     const s2 = ([_]u32{})[0..];
@@ -97,15 +64,6 @@ fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) []u8 {
     return a_slice[start..end];
 }
 
-test "implicitly cast array of size 0 to slice" {
-    var msg = [_]u8{};
-    try assertLenIsZero(&msg);
-}
-
-fn assertLenIsZero(msg: []const u8) !void {
-    try expect(msg.len == 0);
-}
-
 test "C pointer" {
     var buf: [*c]const u8 = "kjdhfkjdhfdkjhfkfjhdfkjdhfkdjhfdkjhf";
     var len: u32 = 10;
@@ -148,19 +106,6 @@ test "slice type with custom alignment" {
     slice = &array;
     slice[1].anything = 42;
     try expect(array[1].anything == 42);
-}
-
-test "access len index of sentinel-terminated slice" {
-    const S = struct {
-        fn doTheTest() !void {
-            var slice: [:0]const u8 = "hello";
-
-            try expect(slice.len == 5);
-            try expect(slice[5] == 0);
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
 }
 
 test "obtaining a null terminated slice" {
@@ -407,14 +352,6 @@ test "type coercion of pointer to anon struct literal to pointer to slice" {
     comptime try S.doTheTest();
 }
 
-test "comptime slice of slice preserves comptime var" {
-    comptime {
-        var buff: [10]u8 = undefined;
-        buff[0..][0..][0] = 1;
-        try expect(buff[0..][0..][0] == 1);
-    }
-}
-
 test "comptime slice of pointer preserves comptime var" {
     comptime {
         var buff: [10]u8 = undefined;
@@ -430,28 +367,6 @@ test "array concat of slices gives slice" {
         var b: []const u8 = "asdf";
         const c = a ++ b;
         try expect(std.mem.eql(u8, c, "aoeuasdf"));
-    }
-}
-
-test "slice of type" {
-    comptime {
-        var types_array = [_]type{ i32, f64, type };
-        for (types_array) |T, i| {
-            switch (i) {
-                0 => try expect(T == i32),
-                1 => try expect(T == f64),
-                2 => try expect(T == type),
-                else => unreachable,
-            }
-        }
-        for (types_array[0..]) |T, i| {
-            switch (i) {
-                0 => try expect(T == i32),
-                1 => try expect(T == f64),
-                2 => try expect(T == type),
-                else => unreachable,
-            }
-        }
     }
 }
 

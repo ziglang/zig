@@ -233,7 +233,10 @@ fn analyzeInst(
         .mul,
         .mulwrap,
         .mul_sat,
-        .div,
+        .div_float,
+        .div_trunc,
+        .div_floor,
+        .div_exact,
         .rem,
         .mod,
         .ptr_add,
@@ -252,9 +255,7 @@ fn analyzeInst(
         .store,
         .array_elem_val,
         .slice_elem_val,
-        .ptr_slice_elem_val,
         .ptr_elem_val,
-        .ptr_ptr_elem_val,
         .shl,
         .shl_exact,
         .shl_sat,
@@ -300,6 +301,8 @@ fn analyzeInst(
         .wrap_errunion_err,
         .slice_ptr,
         .slice_len,
+        .ptr_slice_len_ptr,
+        .ptr_slice_ptr_ptr,
         .struct_field_ptr_index_0,
         .struct_field_ptr_index_1,
         .struct_field_ptr_index_2,
@@ -359,7 +362,7 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.StructField, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.struct_operand, .none, .none });
         },
-        .ptr_elem_ptr => {
+        .ptr_elem_ptr, .slice_elem_ptr, .slice => {
             const extra = a.air.extraData(Air.Bin, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
         },

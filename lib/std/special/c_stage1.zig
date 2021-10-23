@@ -644,32 +644,41 @@ export fn fmod(x: f64, y: f64) f64 {
 export fn floorf(x: f32) f32 {
     return math.floor(x);
 }
+export fn floor(x: f64) f64 {
+    return math.floor(x);
+}
+export fn floorl(x: c_longdouble) c_longdouble {
+    if (!long_double_is_f128) {
+        @panic("TODO implement this");
+    }
+    return math.floor(x);
+}
 
 export fn ceilf(x: f32) f32 {
     return math.ceil(x);
 }
-
-export fn floor(x: f64) f64 {
-    return math.floor(x);
-}
-
 export fn ceil(x: f64) f64 {
     return math.ceil(x);
 }
-
-export fn fmal(a: c_longdouble, b: c_longdouble, c: c_longdouble) c_longdouble {
+export fn ceill(x: c_longdouble) c_longdouble {
     if (!long_double_is_f128) {
         @panic("TODO implement this");
     }
-    return math.fma(c_longdouble, a, b, c);
+    return math.ceil(x);
+}
+
+export fn fmaf(a: f32, b: f32, c: f32) f32 {
+    return math.fma(f32, a, b, c);
 }
 
 export fn fma(a: f64, b: f64, c: f64) f64 {
     return math.fma(f64, a, b, c);
 }
-
-export fn fmaf(a: f32, b: f32, c: f32) f32 {
-    return math.fma(f32, a, b, c);
+export fn fmal(a: c_longdouble, b: c_longdouble, c: c_longdouble) c_longdouble {
+    if (!long_double_is_f128) {
+        @panic("TODO implement this");
+    }
+    return math.fma(c_longdouble, a, b, c);
 }
 
 export fn sin(a: f64) f64 {

@@ -62,7 +62,7 @@ test "saturating subtraction" {
 
 test "saturating multiplication" {
     // TODO: once #9660 has been solved, remove this line
-    if (builtin.stage2_arch == .wasm32) return error.SkipZigTest;
+    if (builtin.cpu.arch == .wasm32) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -99,7 +99,7 @@ test "saturating shift-left" {
             try testSatShl(i8, 127, 1, 127);
             try testSatShl(i8, -128, 1, -128);
             // TODO: remove this check once #9668 is completed
-            if (builtin.stage2_arch != .wasm32) {
+            if (builtin.cpu.arch != .wasm32) {
                 // skip testing ints > 64 bits on wasm due to miscompilation / wasmtime ci error
                 try testSatShl(i128, maxInt(i128), 64, maxInt(i128));
                 try testSatShl(u128, maxInt(u128), 64, maxInt(u128));

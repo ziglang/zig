@@ -12,26 +12,9 @@ pub const Vec3 = struct {
 };
 pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
     return Vec3{
-        .data = [_]f32{
-            x,
-            y,
-            z,
-        },
+        .data = [_]f32{ x, y, z },
     };
 }
-
-test "statically initialized struct" {
-    st_init_str_foo.x += 1;
-    try expect(st_init_str_foo.x == 14);
-}
-const StInitStrFoo = struct {
-    x: i32,
-    y: bool,
-};
-var st_init_str_foo = StInitStrFoo{
-    .x = 13,
-    .y = true,
-};
 
 test "inlined loop has array literal with elided runtime scope on first iteration but not second iteration" {
     var runtime = [1]i32{3};
@@ -131,20 +114,8 @@ test "float literal at compile time not lossy" {
     try expect(9007199254740992.0 + 1.0 == 9007199254740993.0);
 }
 
-test "f32 at compile time is lossy" {
-    try expect(@as(f32, 1 << 24) + 1 == 1 << 24);
-}
-
-test "f64 at compile time is lossy" {
-    try expect(@as(f64, 1 << 53) + 1 == 1 << 53);
-}
-
 test "f128 at compile time is lossy" {
     try expect(@as(f128, 10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
-}
-
-test {
-    comptime try expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
 }
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
@@ -159,31 +130,6 @@ test "string literal used as comptime slice is memoized" {
     const b = "link";
     comptime try expect(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
     comptime try expect(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
-}
-
-fn copyWithPartialInline(s: []u32, b: []u8) void {
-    comptime var i: usize = 0;
-    inline while (i < 4) : (i += 1) {
-        s[i] = 0;
-        s[i] |= @as(u32, b[i * 4 + 0]) << 24;
-        s[i] |= @as(u32, b[i * 4 + 1]) << 16;
-        s[i] |= @as(u32, b[i * 4 + 2]) << 8;
-        s[i] |= @as(u32, b[i * 4 + 3]) << 0;
-    }
-}
-
-test "binary math operator in partially inlined function" {
-    var s: [4]u32 = undefined;
-    var b: [16]u8 = undefined;
-
-    for (b) |*r, i|
-        r.* = @intCast(u8, i + 1);
-
-    copyWithPartialInline(s[0..], b[0..]);
-    try expect(s[0] == 0x1020304);
-    try expect(s[1] == 0x5060708);
-    try expect(s[2] == 0x90a0b0c);
-    try expect(s[3] == 0xd0e0f10);
 }
 
 test "comptime function with mutable pointer is not memoized" {
@@ -230,13 +176,6 @@ test "comptime shlWithOverflow" {
     };
 
     try expect(ct_shifted == rt_shifted);
-}
-
-test "comptime shl" {
-    var a: u128 = 3;
-    var b: u7 = 63;
-    var c: u128 = 3 << 63;
-    try expectEqual(a << b, c);
 }
 
 test "runtime 128 bit integer division" {
@@ -301,36 +240,10 @@ fn testVarInsideInlineLoop(args: anytype) !void {
     }
 }
 
-test "inline for with same type but different values" {
-    var res: usize = 0;
-    inline for ([_]type{ [2]u8, [1]u8, [2]u8 }) |T| {
-        var a: T = undefined;
-        res += a.len;
-    }
-    try expect(res == 5);
-}
-
 test "bit shift a u1" {
     var x: u1 = 1;
     var y = x << 0;
     try expect(y == 1);
-}
-
-test "comptime bitwise operators" {
-    comptime {
-        try expect(3 & 1 == 1);
-        try expect(3 & -1 == 3);
-        try expect(-3 & -1 == -3);
-        try expect(3 | -1 == -1);
-        try expect(-3 | -1 == -1);
-        try expect(3 ^ -1 == -4);
-        try expect(-3 ^ -1 == 2);
-        try expect(~@as(i8, -1) == 0);
-        try expect(~@as(i128, -1) == 0);
-        try expect(18446744073709551615 & 18446744073709551611 == 18446744073709551611);
-        try expect(-18446744073709551615 & -18446744073709551611 == -18446744073709551615);
-        try expect(~@as(u128, 0) == 0xffffffffffffffffffffffffffffffff);
-    }
 }
 
 test "*align(1) u16 is the same as *align(1:0:2) u16" {

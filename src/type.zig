@@ -1529,6 +1529,7 @@ pub const Type = extern union {
         return fast_result;
     }
 
+    /// Returns 0 if the pointer is naturally aligned and the element type is 0-bit.
     pub fn ptrAlignment(self: Type, target: Target) u32 {
         switch (self.tag()) {
             .single_const_pointer,
@@ -1739,10 +1740,10 @@ pub const Type = extern union {
 
             .empty_struct,
             .void,
+            .c_void,
             => return 0,
 
             .empty_struct_literal,
-            .c_void,
             .type,
             .comptime_int,
             .comptime_float,
@@ -1763,6 +1764,7 @@ pub const Type = extern union {
     }
 
     /// Asserts the type has the ABI size already resolved.
+    /// Types that return false for hasCodeGenBits() return 0.
     pub fn abiSize(self: Type, target: Target) u64 {
         return switch (self.tag()) {
             .fn_noreturn_no_args => unreachable, // represents machine code; not a pointer
@@ -1770,53 +1772,32 @@ pub const Type = extern union {
             .fn_naked_noreturn_no_args => unreachable, // represents machine code; not a pointer
             .fn_ccc_void_no_args => unreachable, // represents machine code; not a pointer
             .function => unreachable, // represents machine code; not a pointer
-            .c_void => unreachable,
-            .type => unreachable,
-            .comptime_int => unreachable,
-            .comptime_float => unreachable,
+            .@"opaque" => unreachable, // no size available
+            .bound_fn => unreachable, // TODO remove from the language
             .noreturn => unreachable,
-            .@"null" => unreachable,
-            .@"undefined" => unreachable,
-            .enum_literal => unreachable,
-            .single_const_pointer_to_comptime_int => unreachable,
-            .empty_struct_literal => unreachable,
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
-            .@"opaque" => unreachable,
             .var_args_param => unreachable,
             .generic_poison => unreachable,
-            .type_info => unreachable,
-            .bound_fn => unreachable,
+            .call_options => unreachable, // missing call to resolveTypeFields
+            .export_options => unreachable, // missing call to resolveTypeFields
+            .extern_options => unreachable, // missing call to resolveTypeFields
+            .type_info => unreachable, // missing call to resolveTypeFields
 
-            .empty_struct, .void => 0,
+            .c_void,
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .@"null",
+            .@"undefined",
+            .enum_literal,
+            .single_const_pointer_to_comptime_int,
+            .empty_struct_literal,
+            .empty_struct,
+            .void,
+            => 0,
 
-            .@"struct" => {
-                const fields = self.structFields();
-                if (self.castTag(.@"struct")) |payload| {
-                    const struct_obj = payload.data;
-                    assert(struct_obj.status == .have_layout);
-                    const is_packed = struct_obj.layout == .Packed;
-                    if (is_packed) @panic("TODO packed structs");
-                }
-                var size: u64 = 0;
-                var big_align: u32 = 0;
-                for (fields.values()) |field| {
-                    if (!field.ty.hasCodeGenBits()) continue;
-
-                    const field_align = a: {
-                        if (field.abi_align.tag() == .abi_align_default) {
-                            break :a field.ty.abiAlignment(target);
-                        } else {
-                            break :a @intCast(u32, field.abi_align.toUnsignedInt());
-                        }
-                    };
-                    big_align = @maximum(big_align, field_align);
-                    size = std.mem.alignForwardGeneric(u64, size, field_align);
-                    size += field.ty.abiSize(target);
-                }
-                size = std.mem.alignForwardGeneric(u64, size, big_align);
-                return size;
-            },
+            .@"struct" => return self.structFieldOffset(self.structFieldCount(), target),
             .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
                 var buffer: Payload.Bits = undefined;
                 const int_tag_ty = self.intTagType(&buffer);
@@ -1836,9 +1817,6 @@ pub const Type = extern union {
             .address_space,
             .float_mode,
             .reduce_op,
-            .call_options,
-            .export_options,
-            .extern_options,
             => return 1,
 
             .array_u8 => self.castTag(.array_u8).?.data,
@@ -2519,6 +2497,20 @@ pub const Type = extern union {
         };
     }
 
+    /// Returns the type of a pointer to an element.
+    /// Asserts that the type is a pointer, and that the element type is indexable.
+    /// For *[N]T, return *T
+    /// For [*]T, returns *T
+    /// For []T, returns *T
+    /// Handles const-ness and address spaces in particular.
+    pub fn elemPtrType(ptr_ty: Type, arena: *Allocator) !Type {
+        return try Type.ptr(arena, .{
+            .pointee_type = ptr_ty.elemType2(),
+            .mutable = ptr_ty.ptrIsMutable(),
+            .@"addrspace" = ptr_ty.ptrAddressSpace(),
+        });
+    }
+
     fn shallowElemType(child_ty: Type) Type {
         return switch (child_ty.zigTypeTag()) {
             .Array, .Vector => child_ty.childType(),
@@ -2676,7 +2668,7 @@ pub const Type = extern union {
 
             .pointer => return self.castTag(.pointer).?.data.sentinel,
             .array_sentinel => return self.castTag(.array_sentinel).?.data.sentinel,
-            .array_u8_sentinel_0 => return Value.initTag(.zero),
+            .array_u8_sentinel_0 => return Value.zero,
 
             else => unreachable,
         };
@@ -3096,6 +3088,14 @@ pub const Type = extern union {
                 }
                 return Value.initTag(.empty_struct_value);
             },
+            .enum_numbered => {
+                const enum_numbered = ty.castTag(.enum_numbered).?.data;
+                if (enum_numbered.fields.count() == 1) {
+                    return enum_numbered.values.keys()[0];
+                } else {
+                    return null;
+                }
+            },
             .enum_full => {
                 const enum_full = ty.castTag(.enum_full).?.data;
                 if (enum_full.fields.count() == 1) {
@@ -3107,13 +3107,19 @@ pub const Type = extern union {
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 if (enum_simple.fields.count() == 1) {
-                    return Value.initTag(.zero);
+                    return Value.zero;
                 } else {
                     return null;
                 }
             },
-            .enum_nonexhaustive => ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty,
-            .enum_numbered => ty = ty.castTag(.enum_numbered).?.data.tag_ty,
+            .enum_nonexhaustive => {
+                const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
+                if (!tag_ty.hasCodeGenBits()) {
+                    return Value.zero;
+                } else {
+                    return null;
+                }
+            },
             .@"union" => {
                 return null; // TODO
             },
@@ -3129,7 +3135,7 @@ pub const Type = extern union {
 
             .int_unsigned, .int_signed => {
                 if (ty.cast(Payload.Bits).?.data == 0) {
-                    return Value.initTag(.zero);
+                    return Value.zero;
                 } else {
                     return null;
                 }
@@ -3137,8 +3143,9 @@ pub const Type = extern union {
             .vector, .array, .array_u8 => {
                 if (ty.arrayLen() == 0)
                     return Value.initTag(.empty_array);
-                ty = ty.elemType();
-                continue;
+                if (ty.elemType().onePossibleValue() != null)
+                    return Value.initTag(.the_only_possible_value);
+                return null;
             },
 
             .inferred_alloc_const => unreachable,
@@ -3179,7 +3186,7 @@ pub const Type = extern union {
         const info = self.intInfo(target);
 
         if (info.signedness == .unsigned) {
-            return Value.initTag(.zero);
+            return Value.zero;
         }
 
         if (info.bits <= 6) {
@@ -3382,6 +3389,36 @@ pub const Type = extern union {
             },
             else => unreachable,
         }
+    }
+
+    pub fn structFieldOffset(ty: Type, index: usize, target: Target) u64 {
+        const fields = ty.structFields();
+        if (ty.castTag(.@"struct")) |payload| {
+            const struct_obj = payload.data;
+            assert(struct_obj.status == .have_layout);
+            const is_packed = struct_obj.layout == .Packed;
+            if (is_packed) @panic("TODO packed structs");
+        }
+
+        var offset: u64 = 0;
+        var big_align: u32 = 0;
+        for (fields.values()) |field, i| {
+            if (!field.ty.hasCodeGenBits()) continue;
+
+            const field_align = a: {
+                if (field.abi_align.tag() == .abi_align_default) {
+                    break :a field.ty.abiAlignment(target);
+                } else {
+                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                }
+            };
+            big_align = @maximum(big_align, field_align);
+            offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+            if (i == index) return offset;
+            offset += field.ty.abiSize(target);
+        }
+        offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+        return offset;
     }
 
     pub fn declSrcLoc(ty: Type) Module.SrcLoc {
@@ -4013,7 +4050,7 @@ pub const Type = extern union {
     ) Allocator.Error!Type {
         if (elem_type.eql(Type.u8)) {
             if (sent) |some| {
-                if (some.eql(Value.initTag(.zero), elem_type)) {
+                if (some.eql(Value.zero, elem_type)) {
                     return Tag.array_u8_sentinel_0.create(arena, len);
                 }
             } else {

@@ -758,13 +758,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .mul             => try self.airMul(inst),
                     .mulwrap         => try self.airMulWrap(inst),
                     .mul_sat         => try self.airMulSat(inst),
-                    .div             => try self.airDiv(inst),
                     .rem             => try self.airRem(inst),
                     .mod             => try self.airMod(inst),
                     .shl, .shl_exact => try self.airShl(inst),
                     .shl_sat         => try self.airShlSat(inst),
                     .min             => try self.airMin(inst),
                     .max             => try self.airMax(inst),
+                    .slice           => try self.airSlice(inst),
+
+                    .div_float, .div_trunc, .div_floor, .div_exact => try self.airDiv(inst),
 
                     .cmp_lt  => try self.airCmp(inst, .lt),
                     .cmp_lte => try self.airCmp(inst, .lte),
@@ -842,12 +844,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .slice_ptr       => try self.airSlicePtr(inst),
                     .slice_len       => try self.airSliceLen(inst),
 
+                    .ptr_slice_len_ptr => try self.airPtrSliceLenPtr(inst),
+                    .ptr_slice_ptr_ptr => try self.airPtrSlicePtrPtr(inst),
+
                     .array_elem_val      => try self.airArrayElemVal(inst),
                     .slice_elem_val      => try self.airSliceElemVal(inst),
-                    .ptr_slice_elem_val  => try self.airPtrSliceElemVal(inst),
+                    .slice_elem_ptr      => try self.airSliceElemPtr(inst),
                     .ptr_elem_val        => try self.airPtrElemVal(inst),
                     .ptr_elem_ptr        => try self.airPtrElemPtr(inst),
-                    .ptr_ptr_elem_val    => try self.airPtrPtrElemVal(inst),
 
                     .constant => unreachable, // excluded from function bodies
                     .const_ty => unreachable, // excluded from function bodies
@@ -1241,6 +1245,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
 
+        fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+            const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement slice for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        }
+
         fn airAdd(self: *Self, inst: Air.Inst.Index) !void {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
@@ -1498,6 +1511,22 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
         }
 
+        fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement ptr_slice_len_ptr for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
+        fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement ptr_slice_ptr_ptr for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        }
+
         fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
             const is_volatile = false; // TODO
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
@@ -1507,19 +1536,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
 
+        fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
+            const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+            const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+            const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
+                else => return self.fail("TODO implement slice_elem_ptr for {}", .{self.target.cpu.arch}),
+            };
+            return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
+        }
+
         fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
             const bin_op = self.air.instructions.items(.data)[inst].bin_op;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement array_elem_val for {}", .{self.target.cpu.arch}),
-            };
-            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-        }
-
-        fn airPtrSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
-            const is_volatile = false; // TODO
-            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-            const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else switch (arch) {
-                else => return self.fail("TODO implement ptr_slice_elem_val for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
@@ -1540,15 +1569,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 else => return self.fail("TODO implement ptr_elem_ptr for {}", .{self.target.cpu.arch}),
             };
             return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
-        }
-
-        fn airPtrPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
-            const is_volatile = false; // TODO
-            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-            const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else switch (arch) {
-                else => return self.fail("TODO implement ptr_ptr_elem_val for {}", .{self.target.cpu.arch}),
-            };
-            return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
         }
 
         fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) !void {

@@ -2120,6 +2120,11 @@ bool ZigClangFunctionDecl_isInlineSpecified(const struct ZigClangFunctionDecl *s
     return casted->isInlineSpecified();
 }
 
+bool ZigClangFunctionDecl_hasAlwaysInlineAttr(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return casted->hasAttr<clang::AlwaysInlineAttr>();
+}
+
 const char* ZigClangFunctionDecl_getSectionAttribute(const struct ZigClangFunctionDecl *self, size_t *len) {
     auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
     if (const clang::SectionAttr *SA = casted->getAttr<clang::SectionAttr>()) {

@@ -849,6 +849,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn foo() noreturn;
     });
 
+    cases.add("always_inline attribute",
+        \\__attribute__((always_inline)) int foo() {
+        \\    return 5;
+        \\}
+    , &[_][]const u8{
+        \\pub inline fn foo() c_int {
+        \\    return 5;
+        \\}
+    });
+
     cases.add("add, sub, mul, div, rem",
         \\int s() {
         \\    int a, b, c;

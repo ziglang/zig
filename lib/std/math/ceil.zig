@@ -20,6 +20,10 @@ pub fn ceil(x: anytype) @TypeOf(x) {
         f32 => ceil32(x),
         f64 => ceil64(x),
         f128 => ceil128(x),
+
+        // TODO this is not correct for some targets
+        c_longdouble => @floatCast(c_longdouble, ceil128(x)),
+
         else => @compileError("ceil not implemented for " ++ @typeName(T)),
     };
 }

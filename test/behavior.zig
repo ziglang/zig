@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 
 test {
     // Tests that pass for both.
+    _ = @import("behavior/align.zig");
     _ = @import("behavior/array.zig");
     _ = @import("behavior/atomics.zig");
     _ = @import("behavior/basic.zig");
@@ -32,6 +33,8 @@ test {
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/error.zig");
     _ = @import("behavior/eval.zig");
+    _ = @import("behavior/floatop.zig");
+    _ = @import("behavior/fn.zig");
     _ = @import("behavior/for.zig");
     _ = @import("behavior/generics.zig");
     _ = @import("behavior/hasdecl.zig");
@@ -43,13 +46,16 @@ test {
     _ = @import("behavior/null.zig");
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/pointers.zig");
+    _ = @import("behavior/ptrcast.zig");
     _ = @import("behavior/pub_enum.zig");
+    _ = @import("behavior/saturating_arithmetic.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/slice.zig");
     _ = @import("behavior/struct.zig");
     _ = @import("behavior/switch.zig");
     _ = @import("behavior/this.zig");
     _ = @import("behavior/translate_c_macros.zig");
+    _ = @import("behavior/truncate.zig");
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/union.zig");
     _ = @import("behavior/usingnamespace.zig");
@@ -60,7 +66,7 @@ test {
         // When all comptime_memory.zig tests pass, #9646 can be closed.
         // _ = @import("behavior/comptime_memory.zig");
     } else {
-        _ = @import("behavior/align.zig");
+        _ = @import("behavior/align_stage1.zig");
         _ = @import("behavior/alignof.zig");
         _ = @import("behavior/array_stage1.zig");
         if (builtin.os.tag != .wasi) {
@@ -123,8 +129,8 @@ test {
         _ = @import("behavior/error_stage1.zig");
         _ = @import("behavior/eval_stage1.zig");
         _ = @import("behavior/field_parent_ptr.zig");
-        _ = @import("behavior/floatop.zig");
-        _ = @import("behavior/fn.zig");
+        _ = @import("behavior/floatop_stage1.zig");
+        _ = @import("behavior/fn_stage1.zig");
         _ = @import("behavior/fn_delegation.zig");
         _ = @import("behavior/fn_in_struct_in_comptime.zig");
         _ = @import("behavior/for_stage1.zig");
@@ -143,14 +149,9 @@ test {
         _ = @import("behavior/optional_stage1.zig");
         _ = @import("behavior/pointers_stage1.zig");
         _ = @import("behavior/popcount.zig");
-        _ = @import("behavior/ptrcast.zig");
+        _ = @import("behavior/ptrcast_stage1.zig");
         _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
         _ = @import("behavior/reflection.zig");
-        {
-            // Checklist for getting saturating_arithmetic.zig passing for stage2:
-            // * add __muloti4 to compiler-rt
-            _ = @import("behavior/saturating_arithmetic.zig");
-        }
         _ = @import("behavior/select.zig");
         _ = @import("behavior/shuffle.zig");
         _ = @import("behavior/sizeof_and_typeof_stage1.zig");
@@ -162,7 +163,6 @@ test {
         _ = @import("behavior/switch_prong_err_enum.zig");
         _ = @import("behavior/switch_prong_implicit_cast.zig");
         _ = @import("behavior/switch_stage1.zig");
-        _ = @import("behavior/truncate.zig");
         _ = @import("behavior/try.zig");
         _ = @import("behavior/tuple.zig");
         _ = @import("behavior/type.zig");

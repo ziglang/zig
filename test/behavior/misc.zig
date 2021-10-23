@@ -100,18 +100,6 @@ test "string concatenation" {
     try expect(b[len] == 0);
 }
 
-test "global variable initialized to global variable array element" {
-    try expect(global_ptr == &gdt[0]);
-}
-const GDTEntry = struct {
-    field: i32,
-};
-var gdt = [_]GDTEntry{
-    GDTEntry{ .field = 1 },
-    GDTEntry{ .field = 2 },
-};
-var global_ptr = &gdt[0];
-
 // can't really run this test but we can make sure it has no compile error
 // and generates code
 const vram = @intToPtr([*]volatile u8, 0x20000000)[0..0x8000];
