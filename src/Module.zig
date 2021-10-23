@@ -772,6 +772,17 @@ pub const Decl = struct {
             else => false,
         };
     }
+
+    pub fn getAlignment(decl: Decl, target: Target) u32 {
+        assert(decl.has_tv);
+        if (decl.align_val.tag() != .null_value) {
+            // Explicit alignment.
+            return @intCast(u32, decl.align_val.toUnsignedInt());
+        } else {
+            // Natural alignment.
+            return decl.ty.abiAlignment(target);
+        }
+    }
 };
 
 /// This state is attached to every Decl when Module emit_h is non-null.

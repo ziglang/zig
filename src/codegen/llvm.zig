@@ -581,7 +581,9 @@ pub const DeclGen = struct {
         } else if (decl.val.castTag(.extern_fn)) |extern_fn| {
             _ = try self.resolveLlvmFunction(extern_fn.data);
         } else {
+            const target = self.module.getTarget();
             const global = try self.resolveGlobalDecl(decl);
+            global.setAlignment(decl.getAlignment(target));
             assert(decl.has_tv);
             const init_val = if (decl.val.castTag(.variable)) |payload| init_val: {
                 const variable = payload.data;
@@ -2713,7 +2715,8 @@ pub const FuncGen = struct {
     fn airSlice(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr = try self.resolveInst(bin_op.lhs);
         const len = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.air.typeOfIndex(inst);

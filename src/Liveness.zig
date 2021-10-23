@@ -267,7 +267,6 @@ fn analyzeInst(
         .set_union_tag,
         .min,
         .max,
-        .slice,
         => {
             const o = inst_datas[inst].bin_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.lhs, o.rhs, .none });
@@ -363,7 +362,7 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.StructField, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.struct_operand, .none, .none });
         },
-        .ptr_elem_ptr, .slice_elem_ptr => {
+        .ptr_elem_ptr, .slice_elem_ptr, .slice => {
             const extra = a.air.extraData(Air.Bin, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
         },

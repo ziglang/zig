@@ -11925,18 +11925,37 @@ fn coerce(
                 return sema.coerce(block, dest_ty, inst_as_ptr, inst_src);
             }
 
+            // *T to *[1]T
+            single_item: {
+                if (!dest_ty.isSinglePointer()) break :single_item;
+                if (!inst_ty.isSinglePointer()) break :single_item;
+                const ptr_elem_ty = inst_ty.childType();
+                const array_ty = dest_ty.childType();
+                if (array_ty.zigTypeTag() != .Array) break :single_item;
+                const array_elem_ty = array_ty.childType();
+                const dest_is_mut = !dest_ty.isConstPtr();
+                if (inst_ty.isConstPtr() and dest_is_mut) break :single_item;
+                if (inst_ty.isVolatilePtr() and !dest_ty.isVolatilePtr()) break :single_item;
+                if (inst_ty.ptrAddressSpace() != dest_ty.ptrAddressSpace()) break :single_item;
+                switch (coerceInMemoryAllowed(array_elem_ty, ptr_elem_ty, dest_is_mut, target)) {
+                    .ok => {},
+                    .no_match => break :single_item,
+                }
+                return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
+            }
+
             // Coercions where the source is a single pointer to an array.
             src_array_ptr: {
                 if (!inst_ty.isSinglePointer()) break :src_array_ptr;
-                const array_type = inst_ty.elemType();
-                if (array_type.zigTypeTag() != .Array) break :src_array_ptr;
-                const array_elem_type = array_type.elemType();
+                const array_ty = inst_ty.childType();
+                if (array_ty.zigTypeTag() != .Array) break :src_array_ptr;
+                const array_elem_type = array_ty.childType();
                 const dest_is_mut = !dest_ty.isConstPtr();
                 if (inst_ty.isConstPtr() and dest_is_mut) break :src_array_ptr;
                 if (inst_ty.isVolatilePtr() and !dest_ty.isVolatilePtr()) break :src_array_ptr;
                 if (inst_ty.ptrAddressSpace() != dest_ty.ptrAddressSpace()) break :src_array_ptr;
 
-                const dst_elem_type = dest_ty.elemType();
+                const dst_elem_type = dest_ty.childType();
                 switch (coerceInMemoryAllowed(dst_elem_type, array_elem_type, dest_is_mut, target)) {
                     .ok => {},
                     .no_match => break :src_array_ptr,
@@ -11949,20 +11968,20 @@ fn coerce(
                     },
                     .C => {
                         // *[N]T to [*c]T
-                        return sema.coerceArrayPtrToMany(block, dest_ty, inst, inst_src);
+                        return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
                     },
                     .Many => {
                         // *[N]T to [*]T
                         // *[N:s]T to [*:s]T
                         // *[N:s]T to [*]T
                         if (dest_ty.sentinel()) |dst_sentinel| {
-                            if (array_type.sentinel()) |src_sentinel| {
+                            if (array_ty.sentinel()) |src_sentinel| {
                                 if (src_sentinel.eql(dst_sentinel, dst_elem_type)) {
-                                    return sema.coerceArrayPtrToMany(block, dest_ty, inst, inst_src);
+                                    return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
                                 }
                             }
                         } else {
-                            return sema.coerceArrayPtrToMany(block, dest_ty, inst, inst_src);
+                            return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
                         }
                     },
                     .One => {},
@@ -12680,7 +12699,7 @@ fn coerceArrayPtrToSlice(
     return block.addTyOp(.array_to_slice, dest_ty, inst);
 }
 
-fn coerceArrayPtrToMany(
+fn coerceCompatiblePtrs(
     sema: *Sema,
     block: *Block,
     dest_ty: Type,
@@ -12888,10 +12907,15 @@ fn analyzeDeclRef(sema: *Sema, decl: *Decl) CompileError!Air.Inst.Ref {
     const decl_tv = try decl.typedValue();
     if (decl_tv.val.castTag(.variable)) |payload| {
         const variable = payload.data;
+        const alignment: u32 = if (decl.align_val.tag() == .null_value)
+            0
+        else
+            @intCast(u32, decl.align_val.toUnsignedInt());
         const ty = try Type.ptr(sema.arena, .{
             .pointee_type = decl_tv.ty,
             .mutable = variable.is_mutable,
             .@"addrspace" = decl.@"addrspace",
+            .@"align" = alignment,
         });
         return sema.addConstant(ty, try Value.Tag.decl_ref.create(sema.arena, decl));
     }

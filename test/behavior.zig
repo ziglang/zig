@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 
 test {
     // Tests that pass for both.
+    _ = @import("behavior/align.zig");
     _ = @import("behavior/array.zig");
     _ = @import("behavior/atomics.zig");
     _ = @import("behavior/basic.zig");
@@ -65,7 +66,7 @@ test {
         // When all comptime_memory.zig tests pass, #9646 can be closed.
         // _ = @import("behavior/comptime_memory.zig");
     } else {
-        _ = @import("behavior/align.zig");
+        _ = @import("behavior/align_stage1.zig");
         _ = @import("behavior/alignof.zig");
         _ = @import("behavior/array_stage1.zig");
         if (builtin.os.tag != .wasi) {

@@ -1246,7 +1246,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
-            const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+            const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+            const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
             const result: MCValue = if (self.liveness.isUnused(inst)) .dead else switch (arch) {
                 else => return self.fail("TODO implement slice for {}", .{self.target.cpu.arch}),
             };
