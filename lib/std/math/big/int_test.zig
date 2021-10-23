@@ -1016,7 +1016,7 @@ test "big.int mulWrap multi-multi unsigned" {
     defer c.deinit();
     try c.mulWrap(a.toConst(), b.toConst(), .unsigned, 65);
 
-    try testing.expect((try c.to(u256)) == (op1 * op2) & ((1 << 65) - 1));
+    try testing.expect((try c.to(u128)) == (op1 * op2) & ((1 << 65) - 1));
 }
 
 test "big.int mulWrap multi-multi signed" {
