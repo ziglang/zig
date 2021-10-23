@@ -134,7 +134,20 @@ fn printLiteral(out: anytype, val: anytype, indent: u8) !void {
     switch (@typeInfo(T)) {
         .Array => {
             // TODO: non-recursive?
-            try out.print("{s}{{\n", .{@typeName(T)});
+            try out.print("{s} {{\n", .{@typeName(T)});
+            for (val) |item| {
+                try out.writeByteNTimes(' ', indent + 4);
+                try printLiteral(out, item, indent + 4);
+                try out.writeAll(",\n");
+            }
+            try out.writeByteNTimes(' ', indent);
+            try out.writeAll("}");
+        },
+        .Pointer => |p| {
+            if (p.size != .Slice) {
+                @compileError("Non-slice pointers are not yet supported in build options");
+            }
+            try out.print("&[_]{s} {{\n", .{@typeName(p.child)});
             for (val) |item| {
                 try out.writeByteNTimes(' ', indent + 4);
                 try printLiteral(out, item, indent + 4);
@@ -262,11 +275,18 @@ test "OptionsStep" {
         @"0.8.1",
     };
 
+    const nested_array = [2][2]u16{
+        [2]u16{ 300, 200 },
+        [2]u16{ 300, 200 },
+    };
+    const nested_slice: []const []const u16 = &[_][]const u16{ &nested_array[0], &nested_array[1] };
+
     options.addOption(usize, "option1", 1);
     options.addOption(?usize, "option2", null);
     options.addOption([]const u8, "string", "zigisthebest");
     options.addOption(?[]const u8, "optional_string", null);
-    options.addOption([2][2]u16, "array", [2][2]u16{ [2]u16{ 300, 200 }, [2]u16{ 300, 200 } });
+    options.addOption([2][2]u16, "nested_array", nested_array);
+    options.addOption([]const []const u16, "nested_slice", nested_slice);
     options.addOption(KeywordEnum, "keyword_enum", .@"0.8.1");
     options.addOption(std.builtin.Version, "version", try std.builtin.Version.parse("0.1.2"));
     options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
@@ -276,12 +296,22 @@ test "OptionsStep" {
         \\pub const option2: ?usize = null;
         \\pub const string: []const u8 = "zigisthebest";
         \\pub const optional_string: ?[]const u8 = null;
-        \\pub const array: [2][2]u16 = [2][2]u16{
-        \\    [2]u16{
+        \\pub const nested_array: [2][2]u16 = [2][2]u16 {
+        \\    [2]u16 {
         \\        300,
         \\        200,
         \\    },
-        \\    [2]u16{
+        \\    [2]u16 {
+        \\        300,
+        \\        200,
+        \\    },
+        \\};
+        \\pub const nested_slice: []const []const u16 = &[_][]const u16 {
+        \\    &[_]u16 {
+        \\        300,
+        \\        200,
+        \\    },
+        \\    &[_]u16 {
         \\        300,
         \\        200,
         \\    },
