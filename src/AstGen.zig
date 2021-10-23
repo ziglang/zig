@@ -8514,10 +8514,10 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) enum { never
             .unwrap_optional,
             => node = node_datas[node].lhs,
 
-            // Forward the question to the RHS sub-expression.
+            // LHS sub-expression may still be an error under the outer optional or error union
             .@"catch",
             .@"orelse",
-            => node = node_datas[node].rhs,
+            => return .maybe,
 
             .block_two,
             .block_two_semicolon,
@@ -8544,11 +8544,18 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) enum { never
                 // If the builtin is an invalid name, we don't cause an error here; instead
                 // let it pass, and the error will be "invalid builtin function" later.
                 const builtin_info = BuiltinFn.list.get(builtin_name) orelse return .maybe;
-                if (builtin_info.tag == .err_set_cast) {
-                    return .always;
-                } else {
-                    return .never;
-                }
+                return switch (builtin_info.tag) {
+                    .as,
+                    .call,
+                    .field,
+                    => .maybe,
+
+                    .err_set_cast,
+                    .int_to_error,
+                    => .always,
+
+                    else => .never,
+                };
             },
         }
     }
