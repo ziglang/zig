@@ -1940,7 +1940,7 @@ fn zirRetPtr(
     try sema.requireFunctionBlock(block, src);
 
     if (block.is_comptime) {
-        return sema.analyzeComptimeAlloc(block, sema.fn_ret_ty);
+        return sema.analyzeComptimeAlloc(block, sema.fn_ret_ty, 0);
     }
 
     const ptr_type = try Type.ptr(sema.arena, .{
@@ -2067,9 +2067,7 @@ fn zirAllocExtended(
         const type_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
         extra_index += 1;
         break :blk try sema.resolveType(block, ty_src, type_ref);
-    } else {
-        return sema.fail(block, src, "TODO implement Sema.zirAllocExtended inferred", .{});
-    };
+    } else undefined;
 
     const alignment: u16 = if (small.has_align) blk: {
         const align_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
@@ -2078,22 +2076,47 @@ fn zirAllocExtended(
         break :blk alignment;
     } else 0;
 
+    const inferred_alloc_ty = if (small.is_const)
+        Type.initTag(.inferred_alloc_const)
+    else
+        Type.initTag(.inferred_alloc_mut);
+
     if (small.is_comptime) {
-        return sema.fail(block, src, "TODO implement Sema.zirAllocExtended comptime", .{});
+        if (small.has_type) {
+            return sema.analyzeComptimeAlloc(block, var_ty, alignment);
+        } else {
+            return sema.addConstant(
+                inferred_alloc_ty,
+                try Value.Tag.inferred_alloc_comptime.create(sema.arena, undefined),
+            );
+        }
     }
 
-    if (!small.is_const) {
-        return sema.fail(block, src, "TODO implement Sema.zirAllocExtended var", .{});
+    if (small.has_type) {
+        if (!small.is_const) {
+            try sema.validateVarType(block, ty_src, var_ty, false);
+        }
+        const ptr_type = try Type.ptr(sema.arena, .{
+            .pointee_type = var_ty,
+            .@"align" = alignment,
+            .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+        });
+        try sema.requireRuntimeBlock(block, src);
+        try sema.resolveTypeLayout(block, src, var_ty);
+        return block.addTy(.alloc, ptr_type);
     }
 
-    const ptr_type = try Type.ptr(sema.arena, .{
-        .pointee_type = var_ty,
-        .@"align" = alignment,
-        .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
-    });
-    try sema.requireRuntimeBlock(block, src);
-    try sema.resolveTypeLayout(block, src, var_ty);
-    return block.addTy(.alloc, ptr_type);
+    // `Sema.addConstant` does not add the instruction to the block because it is
+    // not needed in the case of constant values. However here, we plan to "downgrade"
+    // to a normal instruction when we hit `resolve_inferred_alloc`. So we append
+    // to the block even though it is currently a `.constant`.
+    const result = try sema.addConstant(
+        inferred_alloc_ty,
+        try Value.Tag.inferred_alloc.create(sema.arena, .{}),
+    );
+    try sema.requireFunctionBlock(block, src);
+    try block.instructions.append(sema.gpa, Air.refToIndex(result).?);
+    return result;
 }
 
 fn zirAllocComptime(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -2103,7 +2126,7 @@ fn zirAllocComptime(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const var_ty = try sema.resolveType(block, ty_src, inst_data.operand);
-    return sema.analyzeComptimeAlloc(block, var_ty);
+    return sema.analyzeComptimeAlloc(block, var_ty, 0);
 }
 
 fn zirAllocInferredComptime(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -2125,7 +2148,7 @@ fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     const var_decl_src = inst_data.src();
     const var_ty = try sema.resolveType(block, ty_src, inst_data.operand);
     if (block.is_comptime) {
-        return sema.analyzeComptimeAlloc(block, var_ty);
+        return sema.analyzeComptimeAlloc(block, var_ty, 0);
     }
     const ptr_type = try Type.ptr(sema.arena, .{
         .pointee_type = var_ty,
@@ -2145,7 +2168,7 @@ fn zirAllocMut(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const var_ty = try sema.resolveType(block, ty_src, inst_data.operand);
     if (block.is_comptime) {
-        return sema.analyzeComptimeAlloc(block, var_ty);
+        return sema.analyzeComptimeAlloc(block, var_ty, 0);
     }
     try sema.validateVarType(block, ty_src, var_ty, false);
     const ptr_type = try Type.ptr(sema.arena, .{
@@ -9436,8 +9459,10 @@ fn zirAlignOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const ty = try sema.resolveType(block, operand_src, inst_data.operand);
+    const resolved_ty = try sema.resolveTypeFields(block, operand_src, ty);
+    try sema.resolveTypeLayout(block, operand_src, resolved_ty);
     const target = sema.mod.getTarget();
-    const abi_align = ty.abiAlignment(target);
+    const abi_align = resolved_ty.abiAlignment(target);
     return sema.addIntUnsigned(Type.comptime_int, abi_align);
 }
 
@@ -9735,8 +9760,33 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
 fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirAlignCast", .{});
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const align_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const dest_align = try sema.resolveAlign(block, align_src, extra.lhs);
+    const ptr = sema.resolveInst(extra.rhs);
+    const ptr_ty = sema.typeOf(ptr);
+
+    // TODO in addition to pointers, this instruction is supposed to work for
+    // pointer-like optionals and slices.
+    try sema.checkPtrType(block, ptr_src, ptr_ty);
+
+    // TODO compile error if the result pointer is comptime known and would have an
+    // alignment that disagrees with the Decl's alignment.
+
+    // TODO insert safety check that the alignment is correct
+
+    const ptr_info = ptr_ty.ptrInfo().data;
+    const dest_ty = try Type.ptr(sema.arena, .{
+        .pointee_type = ptr_info.pointee_type,
+        .@"align" = dest_align,
+        .@"addrspace" = ptr_info.@"addrspace",
+        .mutable = ptr_info.mutable,
+        .@"allowzero" = ptr_info.@"allowzero",
+        .@"volatile" = ptr_info.@"volatile",
+        .size = ptr_info.size,
+    });
+    return sema.coerceCompatiblePtrs(block, dest_ty, ptr, ptr_src);
 }
 
 fn zirClz(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9835,6 +9885,18 @@ fn checkIntType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileEr
         .ComptimeInt => return true,
         .Int => return false,
         else => return sema.fail(block, src, "expected integer type, found '{}'", .{ty}),
+    }
+}
+
+fn checkPtrType(
+    sema: *Sema,
+    block: *Block,
+    ty_src: LazySrcLoc,
+    ty: Type,
+) CompileError!void {
+    switch (ty.zigTypeTag()) {
+        .Pointer => {},
+        else => return sema.fail(block, ty_src, "expected pointer type, found '{}'", .{ty}),
     }
 }
 
@@ -14630,14 +14692,22 @@ fn analyzeComptimeAlloc(
     sema: *Sema,
     block: *Block,
     var_type: Type,
+    alignment: u32,
 ) CompileError!Air.Inst.Ref {
     const ptr_type = try Type.ptr(sema.arena, .{
         .pointee_type = var_type,
         .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .global_constant),
+        .@"align" = alignment,
     });
 
     var anon_decl = try block.startAnonDecl();
     defer anon_decl.deinit();
+
+    const align_val = if (alignment == 0)
+        Value.@"null"
+    else
+        try Value.Tag.int_u64.create(anon_decl.arena(), alignment);
+
     const decl = try anon_decl.finish(
         try var_type.copy(anon_decl.arena()),
         // There will be stores before the first load, but they may be to sub-elements or
@@ -14645,6 +14715,8 @@ fn analyzeComptimeAlloc(
         // into fields/elements and have those overridden with stored values.
         Value.undef,
     );
+    decl.align_val = align_val;
+
     try sema.mod.declareDeclDependency(sema.owner_decl, decl);
     return sema.addConstant(ptr_type, try Value.Tag.decl_ref_mut.create(sema.arena, .{
         .runtime_index = block.runtime_index,

@@ -39,43 +39,6 @@ test "bit field alignment" {
     try expect(@TypeOf(&blah.b) == *align(1:3:1) const u3);
 }
 
-test "specifying alignment allows pointer cast" {
-    try testBytesAlign(0x33);
-}
-fn testBytesAlign(b: u8) !void {
-    var bytes align(4) = [_]u8{ b, b, b, b };
-    const ptr = @ptrCast(*u32, &bytes[0]);
-    try expect(ptr.* == 0x33333333);
-}
-
-test "@alignCast pointers" {
-    var x: u32 align(4) = 1;
-    expectsOnly1(&x);
-    try expect(x == 2);
-}
-fn expectsOnly1(x: *align(1) u32) void {
-    expects4(@alignCast(4, x));
-}
-fn expects4(x: *align(4) u32) void {
-    x.* += 1;
-}
-
-test "@alignCast slices" {
-    var array align(4) = [_]u32{
-        1,
-        1,
-    };
-    const slice = array[0..];
-    sliceExpectsOnly1(slice);
-    try expect(slice[0] == 2);
-}
-fn sliceExpectsOnly1(slice: []align(1) u32) void {
-    sliceExpects4(@alignCast(4, slice));
-}
-fn sliceExpects4(slice: []align(4) u32) void {
-    slice[0] += 1;
-}
-
 test "implicitly decreasing fn alignment" {
     // function alignment is a compile error on wasm32/wasm64
     if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
@@ -180,13 +143,6 @@ fn fnWithAlignedStack() i32 {
     return 1234;
 }
 
-test "alignment of structs" {
-    try expect(@alignOf(struct {
-        a: i32,
-        b: *i32,
-    }) == @alignOf(usize));
-}
-
 test "alignment of function with c calling convention" {
     var runtime_nothing = nothing;
     const casted1 = @ptrCast(*const u8, runtime_nothing);
@@ -195,44 +151,6 @@ test "alignment of function with c calling convention" {
 }
 
 fn nothing() callconv(.C) void {}
-
-test "return error union with 128-bit integer" {
-    try expect(3 == try give());
-}
-fn give() anyerror!u128 {
-    return 3;
-}
-
-test "alignment of >= 128-bit integer type" {
-    try expect(@alignOf(u128) == 16);
-    try expect(@alignOf(u129) == 16);
-}
-
-test "alignment of struct with 128-bit field" {
-    try expect(@alignOf(struct {
-        x: u128,
-    }) == 16);
-
-    comptime {
-        try expect(@alignOf(struct {
-            x: u128,
-        }) == 16);
-    }
-}
-
-test "size of extern struct with 128-bit field" {
-    try expect(@sizeOf(extern struct {
-        x: u128,
-        y: u8,
-    }) == 32);
-
-    comptime {
-        try expect(@sizeOf(extern struct {
-            x: u128,
-            y: u8,
-        }) == 32);
-    }
-}
 
 const DefaultAligned = struct {
     nevermind: u32,
