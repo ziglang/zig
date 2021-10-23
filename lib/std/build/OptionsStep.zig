@@ -124,7 +124,27 @@ pub fn addOption(self: *OptionsStep, comptime T: type, name: []const u8, value: 
         },
         else => {},
     }
-    out.print("pub const {}: {s} = {};\n", .{ std.zig.fmtId(name), @typeName(T), value }) catch unreachable;
+    out.print("pub const {}: {s} = ", .{ std.zig.fmtId(name), @typeName(T) }) catch unreachable;
+    printLiteral(out, value, 0) catch unreachable;
+    out.writeAll(";\n") catch unreachable;
+}
+
+fn printLiteral(out: anytype, val: anytype, indent: u8) !void {
+    const T = @TypeOf(val);
+    switch (@typeInfo(T)) {
+        .Array => {
+            // TODO: non-recursive?
+            try out.print("{s}{{\n", .{@typeName(T)});
+            for (val) |item| {
+                try out.writeByteNTimes(' ', indent + 4);
+                try printLiteral(out, item, indent + 4);
+                try out.writeAll(",\n");
+            }
+            try out.writeByteNTimes(' ', indent);
+            try out.writeAll("}");
+        },
+        else => try out.print("{any}", .{val}),
+    }
 }
 
 /// The value is the path in the cache dir.
@@ -246,6 +266,7 @@ test "OptionsStep" {
     options.addOption(?usize, "option2", null);
     options.addOption([]const u8, "string", "zigisthebest");
     options.addOption(?[]const u8, "optional_string", null);
+    options.addOption([2][2]u16, "array", [2][2]u16{ [2]u16{ 300, 200 }, [2]u16{ 300, 200 } });
     options.addOption(KeywordEnum, "keyword_enum", .@"0.8.1");
     options.addOption(std.builtin.Version, "version", try std.builtin.Version.parse("0.1.2"));
     options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
@@ -255,6 +276,16 @@ test "OptionsStep" {
         \\pub const option2: ?usize = null;
         \\pub const string: []const u8 = "zigisthebest";
         \\pub const optional_string: ?[]const u8 = null;
+        \\pub const array: [2][2]u16 = [2][2]u16{
+        \\    [2]u16{
+        \\        300,
+        \\        200,
+        \\    },
+        \\    [2]u16{
+        \\        300,
+        \\        200,
+        \\    },
+        \\};
         \\pub const KeywordEnum = enum {
         \\    @"0.8.1",
         \\};
