@@ -458,7 +458,7 @@ pub fn formatType(
             try writer.writeAll(@typeName(T));
             if (enumInfo.is_exhaustive) {
                 try writer.writeAll(".");
-                try writer.writeAll(@tagName(value));
+                try std.zig.fmtId(@tagName(value)).format("", options, writer);
                 return;
             }
 

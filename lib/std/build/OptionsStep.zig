@@ -233,6 +233,10 @@ test "OptionsStep" {
     );
     defer builder.destroy();
 
+    const KeywordEnum = enum {
+        @"0.8.1",
+    };
+
     const options = builder.addOptions();
 
     options.addOption(usize, "option1", 1);
@@ -240,6 +244,7 @@ test "OptionsStep" {
     options.addOption([]const u8, "string", "zigisthebest");
     options.addOption(?[]const u8, "optional_string", null);
     options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
+    options.addOption(KeywordEnum, "keyword_enum", .@"0.8.1");
 
     try std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
@@ -253,6 +258,10 @@ test "OptionsStep" {
         \\    .pre = "foo",
         \\    .build = "bar",
         \\};
+        \\pub const KeywordEnum = enum {
+        \\    @"0.8.1",
+        \\};
+        \\pub const keyword_enum: KeywordEnum = KeywordEnum.@"0.8.1";
         \\
     , options.contents.items);
 }
