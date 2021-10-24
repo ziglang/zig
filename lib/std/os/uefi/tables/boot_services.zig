@@ -179,6 +179,7 @@ pub const MemoryType = enum(u32) {
 
 pub const MemoryDescriptor = extern struct {
     type: MemoryType,
+    padding: u32,
     physical_start: u64,
     virtual_start: u64,
     number_of_pages: usize,
