@@ -763,8 +763,8 @@ pub const Mutable = struct {
     /// q may alias with a or b.
     ///
     /// Asserts there is enough memory to store q and r.
-    /// The upper bound for r limb count is b.limbs.len.
-    /// The upper bound for q limb count is given by `a.limbs.len + b.limbs.len`.
+    /// The upper bound for r limb count is `b.limbs.len`.
+    /// The upper bound for q limb count is given by `a.limbs`.
     ///
     /// If `allocator` is provided, it will be used for temporary storage to improve
     /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
@@ -893,9 +893,8 @@ pub const Mutable = struct {
     /// q may alias with a or b.
     ///
     /// Asserts there is enough memory to store q and r.
-    /// The upper bound for r limb count is a.limbs.len.
-    /// The upper bound for q limb count is given by `calcQuotientLimbLen`. This accounts
-    /// for temporary space used by the division algorithm.
+    /// The upper bound for r limb count is `b.limbs.len`.
+    /// The upper bound for q limb count is given by `a.limbs.len`.
     ///
     /// If `allocator` is provided, it will be used for temporary storage to improve
     /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
@@ -2569,7 +2568,7 @@ pub const Managed = struct {
     ///
     /// Returns an error if memory could not be allocated.
     pub fn divFloor(q: *Managed, r: *Managed, a: Const, b: Const) !void {
-        try q.ensureCapacity(a.limbs.len + b.limbs.len);
+        try q.ensureCapacity(a.limbs.len);
         try r.ensureCapacity(b.limbs.len);
         var mq = q.toMutable();
         var mr = r.toMutable();
@@ -2586,7 +2585,7 @@ pub const Managed = struct {
     ///
     /// Returns an error if memory could not be allocated.
     pub fn divTrunc(q: *Managed, r: *Managed, a: Const, b: Const) !void {
-        try q.ensureCapacity(a.limbs.len + b.limbs.len);
+        try q.ensureCapacity(a.limbs.len);
         try r.ensureCapacity(b.limbs.len);
         var mq = q.toMutable();
         var mr = r.toMutable();

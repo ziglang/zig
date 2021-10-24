@@ -2301,7 +2301,7 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs_q = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len + rhs_bigint.limbs.len,
+            lhs_bigint.limbs.len,
         );
         const limbs_r = try allocator.alloc(
             std.math.big.Limb,
@@ -2332,7 +2332,7 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs_q = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len + rhs_bigint.limbs.len,
+            lhs_bigint.limbs.len,
         );
         const limbs_r = try allocator.alloc(
             std.math.big.Limb,
@@ -2363,7 +2363,7 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs_q = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len + rhs_bigint.limbs.len,
+            lhs_bigint.limbs.len,
         );
         const limbs_r = try allocator.alloc(
             std.math.big.Limb,
@@ -2396,7 +2396,7 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs_q = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len + rhs_bigint.limbs.len,
+            lhs_bigint.limbs.len,
         );
         const limbs_r = try allocator.alloc(
             std.math.big.Limb,
