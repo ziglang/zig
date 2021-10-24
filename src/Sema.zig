@@ -1233,6 +1233,10 @@ fn failWithModRemNegative(sema: *Sema, block: *Block, src: LazySrcLoc, lhs_ty: T
     return sema.fail(block, src, "remainder division with '{}' and '{}': signed integers and floats must use @rem or @mod", .{ lhs_ty, rhs_ty });
 }
 
+fn failWithExpectedOptionalType(sema: *Sema, block: *Block, src: LazySrcLoc, optional_ty: Type) CompileError {
+    return sema.fail(block, src, "expected optional type, found {}", .{optional_ty});
+}
+
 fn failWithErrorSetCodeMissing(
     sema: *Sema,
     block: *Block,
@@ -4636,19 +4640,23 @@ fn zirOptionalPayload(
     const src = inst_data.src();
     const operand = sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
-    const opt_type = operand_ty;
-    if (opt_type.zigTypeTag() != .Optional) {
-        return sema.fail(block, src, "expected optional type, found {}", .{opt_type});
-    }
-
-    const child_type = try opt_type.optionalChildAlloc(sema.arena);
+    const result_ty = switch (operand_ty.zigTypeTag()) {
+        .Optional => try operand_ty.optionalChildAlloc(sema.arena),
+        .Pointer => t: {
+            if (operand_ty.ptrSize() != .C) {
+                return sema.failWithExpectedOptionalType(block, src, operand_ty);
+            }
+            break :t operand_ty;
+        },
+        else => return sema.failWithExpectedOptionalType(block, src, operand_ty),
+    };
 
     if (try sema.resolveDefinedValue(block, src, operand)) |val| {
         if (val.isNull()) {
             return sema.fail(block, src, "unable to unwrap null", .{});
         }
         const sub_val = val.castTag(.opt_payload).?.data;
-        return sema.addConstant(child_type, sub_val);
+        return sema.addConstant(result_ty, sub_val);
     }
 
     try sema.requireRuntimeBlock(block, src);
@@ -4656,7 +4664,7 @@ fn zirOptionalPayload(
         const is_non_null = try block.addUnOp(.is_non_null, operand);
         try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
     }
-    return block.addTyOp(.optional_payload, child_type, operand);
+    return block.addTyOp(.optional_payload, result_ty, operand);
 }
 
 /// Value in, value out
@@ -8135,11 +8143,13 @@ fn zirCmpEq(
         rhs_ty_tag == .Null and lhs_ty_tag == .Optional))
     {
         // comparing null with optionals
-        const opt_operand = if (lhs_ty_tag == .Optional) lhs else rhs;
+        const opt_operand = if (lhs_ty_tag == .Null) rhs else lhs;
         return sema.analyzeIsNull(block, src, opt_operand, op == .neq);
     }
     if (((lhs_ty_tag == .Null and rhs_ty.isCPtr()) or (rhs_ty_tag == .Null and lhs_ty.isCPtr()))) {
-        return sema.fail(block, src, "TODO implement C pointer cmp", .{});
+        // comparing null with C pointers
+        const opt_operand = if (lhs_ty_tag == .Null) rhs else lhs;
+        return sema.analyzeIsNull(block, src, opt_operand, op == .neq);
     }
     if (lhs_ty_tag == .Null or rhs_ty_tag == .Null) {
         const non_null_type = if (lhs_ty_tag == .Null) rhs_ty else lhs_ty;
@@ -13598,127 +13608,127 @@ fn resolvePeerTypes(
         const candidate_ty_tag = candidate_ty.zigTypeTag();
         const chosen_ty_tag = chosen_ty.zigTypeTag();
 
-        if (candidate_ty_tag == .NoReturn)
-            continue;
-        if (chosen_ty_tag == .NoReturn) {
-            chosen = candidate;
-            chosen_i = candidate_i + 1;
-            continue;
-        }
-        if (candidate_ty_tag == .Undefined)
-            continue;
-        if (chosen_ty_tag == .Undefined) {
-            chosen = candidate;
-            chosen_i = candidate_i + 1;
-            continue;
-        }
-        if (chosen_ty.isInt() and
-            candidate_ty.isInt() and
-            chosen_ty.isSignedInt() == candidate_ty.isSignedInt())
-        {
-            if (chosen_ty.intInfo(target).bits < candidate_ty.intInfo(target).bits) {
-                chosen = candidate;
-                chosen_i = candidate_i + 1;
-            }
-            continue;
-        }
-        if (chosen_ty.isRuntimeFloat() and candidate_ty.isRuntimeFloat()) {
-            if (chosen_ty.floatBits(target) < candidate_ty.floatBits(target)) {
-                chosen = candidate;
-                chosen_i = candidate_i + 1;
-            }
-            continue;
-        }
+        switch (candidate_ty_tag) {
+            .NoReturn, .Undefined => continue,
 
-        if (chosen_ty_tag == .ComptimeInt and candidate_ty.isInt()) {
-            chosen = candidate;
-            chosen_i = candidate_i + 1;
-            continue;
-        }
-
-        if (chosen_ty.isInt() and candidate_ty_tag == .ComptimeInt) {
-            continue;
-        }
-
-        if ((chosen_ty_tag == .ComptimeFloat or chosen_ty_tag == .ComptimeInt) and
-            candidate_ty.isRuntimeFloat())
-        {
-            chosen = candidate;
-            chosen_i = candidate_i + 1;
-            continue;
-        }
-        if (chosen_ty.isRuntimeFloat() and
-            (candidate_ty_tag == .ComptimeFloat or candidate_ty_tag == .ComptimeInt))
-        {
-            continue;
-        }
-
-        if (chosen_ty_tag == .Enum and candidate_ty_tag == .EnumLiteral) {
-            continue;
-        }
-        if (chosen_ty_tag == .EnumLiteral and candidate_ty_tag == .Enum) {
-            chosen = candidate;
-            chosen_i = candidate_i + 1;
-            continue;
-        }
-
-        if (chosen_ty_tag == .Pointer and chosen_ty.ptrSize() == .C and
-            (candidate_ty_tag == .Int or candidate_ty_tag == .ComptimeInt))
-        {
-            continue;
-        }
-        if (candidate_ty_tag == .Pointer and candidate_ty.ptrSize() == .C and
-            (chosen_ty_tag == .Int or chosen_ty_tag == .ComptimeInt))
-        {
-            chosen = candidate;
-            chosen_i = candidate_i + 1;
-            continue;
-        }
-
-        if (chosen_ty_tag == .ComptimeFloat and candidate_ty_tag == .ComptimeInt)
-            continue;
-        if (chosen_ty_tag == .ComptimeInt and candidate_ty_tag == .ComptimeFloat) {
-            chosen = candidate;
-            chosen_i = candidate_i + 1;
-            continue;
-        }
-
-        if (chosen_ty_tag == .Null) {
-            any_are_null = true;
-            chosen = candidate;
-            chosen_i = candidate_i + 1;
-            continue;
-        }
-        if (candidate_ty_tag == .Null) {
-            any_are_null = true;
-            continue;
-        }
-
-        if (chosen_ty_tag == .Optional) {
-            var opt_child_buf: Type.Payload.ElemType = undefined;
-            const opt_child_ty = chosen_ty.optionalChild(&opt_child_buf);
-            if (coerceInMemoryAllowed(opt_child_ty, candidate_ty, false, target) == .ok) {
+            .Null => {
+                any_are_null = true;
                 continue;
-            }
-            if (coerceInMemoryAllowed(candidate_ty, opt_child_ty, false, target) == .ok) {
+            },
+
+            .Int => switch (chosen_ty_tag) {
+                .ComptimeInt => {
+                    chosen = candidate;
+                    chosen_i = candidate_i + 1;
+                    continue;
+                },
+                .Int => {
+                    if (chosen_ty.isSignedInt() == candidate_ty.isSignedInt()) {
+                        if (chosen_ty.intInfo(target).bits < candidate_ty.intInfo(target).bits) {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+                        }
+                        continue;
+                    }
+                },
+                .Pointer => if (chosen_ty.ptrSize() == .C) continue,
+                else => {},
+            },
+            .ComptimeInt => switch (chosen_ty_tag) {
+                .Int, .Float, .ComptimeFloat => continue,
+                .Pointer => if (chosen_ty.ptrSize() == .C) continue,
+                else => {},
+            },
+            .Float => switch (chosen_ty_tag) {
+                .Float => {
+                    if (chosen_ty.floatBits(target) < candidate_ty.floatBits(target)) {
+                        chosen = candidate;
+                        chosen_i = candidate_i + 1;
+                    }
+                    continue;
+                },
+                .ComptimeFloat, .ComptimeInt => {
+                    chosen = candidate;
+                    chosen_i = candidate_i + 1;
+                    continue;
+                },
+                else => {},
+            },
+            .ComptimeFloat => switch (chosen_ty_tag) {
+                .Float => continue,
+                .ComptimeInt => {
+                    chosen = candidate;
+                    chosen_i = candidate_i + 1;
+                    continue;
+                },
+                else => {},
+            },
+            .Enum => switch (chosen_ty_tag) {
+                .EnumLiteral => {
+                    chosen = candidate;
+                    chosen_i = candidate_i + 1;
+                    continue;
+                },
+                else => {},
+            },
+            .EnumLiteral => switch (chosen_ty_tag) {
+                .Enum => continue,
+                else => {},
+            },
+            .Pointer => {
+                if (candidate_ty.ptrSize() == .C) {
+                    if (chosen_ty_tag == .Int or chosen_ty_tag == .ComptimeInt) {
+                        chosen = candidate;
+                        chosen_i = candidate_i + 1;
+                        continue;
+                    }
+                    if (chosen_ty_tag == .Pointer and chosen_ty.ptrSize() != .Slice) {
+                        continue;
+                    }
+                }
+            },
+            .Optional => {
+                var opt_child_buf: Type.Payload.ElemType = undefined;
+                const opt_child_ty = candidate_ty.optionalChild(&opt_child_buf);
+                if (coerceInMemoryAllowed(opt_child_ty, chosen_ty, false, target) == .ok) {
+                    chosen = candidate;
+                    chosen_i = candidate_i + 1;
+                    continue;
+                }
+                if (coerceInMemoryAllowed(chosen_ty, opt_child_ty, false, target) == .ok) {
+                    any_are_null = true;
+                    continue;
+                }
+            },
+            else => {},
+        }
+
+        switch (chosen_ty_tag) {
+            .NoReturn, .Undefined => {
+                chosen = candidate;
+                chosen_i = candidate_i + 1;
+                continue;
+            },
+            .Null => {
                 any_are_null = true;
                 chosen = candidate;
                 chosen_i = candidate_i + 1;
                 continue;
-            }
-        }
-        if (candidate_ty_tag == .Optional) {
-            var opt_child_buf: Type.Payload.ElemType = undefined;
-            const opt_child_ty = candidate_ty.optionalChild(&opt_child_buf);
-            if (coerceInMemoryAllowed(opt_child_ty, chosen_ty, false, target) == .ok) {
-                chosen = candidate;
-                chosen_i = candidate_i + 1;
-                continue;
-            }
-            if (coerceInMemoryAllowed(chosen_ty, opt_child_ty, false, target) == .ok) {
-                any_are_null = true;
-                continue;
-            }
+            },
+            .Optional => {
+                var opt_child_buf: Type.Payload.ElemType = undefined;
+                const opt_child_ty = chosen_ty.optionalChild(&opt_child_buf);
+                if (coerceInMemoryAllowed(opt_child_ty, candidate_ty, false, target) == .ok) {
+                    continue;
+                }
+                if (coerceInMemoryAllowed(candidate_ty, opt_child_ty, false, target) == .ok) {
+                    any_are_null = true;
+                    chosen = candidate;
+                    chosen_i = candidate_i + 1;
+                    continue;
+                }
+            },
+            else => {},
         }
 
         // At this point, we hit a compile error. We need to recover

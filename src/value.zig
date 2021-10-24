@@ -1790,11 +1790,30 @@ pub const Value = extern union {
         return self.tag() == .undef;
     }
 
-    /// Valid for all types. Asserts the value is not undefined and not unreachable.
+    /// Asserts the value is not undefined and not unreachable.
+    /// Integer value 0 is considered null because of C pointers.
     pub fn isNull(self: Value) bool {
         return switch (self.tag()) {
             .null_value => true,
             .opt_payload => false,
+
+            // If it's not one of those two tags then it must be a C pointer value,
+            // in which case the value 0 is null and other values are non-null.
+
+            .zero,
+            .bool_false,
+            .the_only_possible_value,
+            => true,
+
+            .one,
+            .bool_true,
+            => false,
+
+            .int_u64,
+            .int_i64,
+            .int_big_positive,
+            .int_big_negative,
+            => compareWithZero(self, .eq),
 
             .undef => unreachable,
             .unreachable_value => unreachable,
