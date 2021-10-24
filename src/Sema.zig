@@ -8001,7 +8001,12 @@ fn analyzePtrArithmetic(
                 const offset_int = offset_val.toUnsignedInt();
                 if (ptr_val.getUnsignedInt()) |addr| {
                     const target = sema.mod.getTarget();
-                    const elem_ty = ptr_ty.childType();
+                    const ptr_child_ty = ptr_ty.childType();
+                    const elem_ty = if (ptr_ty.isSinglePointer() and ptr_child_ty.zigTypeTag() == .Array)
+                        ptr_child_ty.childType()
+                    else
+                        ptr_child_ty;
+
                     const elem_size = elem_ty.abiSize(target);
                     const new_addr = switch (air_tag) {
                         .ptr_add => addr + elem_size * offset_int,

@@ -65,6 +65,7 @@ test {
     if (builtin.zig_is_stage2) {
         // When all comptime_memory.zig tests pass, #9646 can be closed.
         // _ = @import("behavior/comptime_memory.zig");
+        _ = @import("behavior/slice_stage2.zig");
     } else {
         _ = @import("behavior/align_stage1.zig");
         _ = @import("behavior/alignof.zig");
