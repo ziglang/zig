@@ -6500,7 +6500,8 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         },
         .always => {
             // Value is always an error. Emit both error defers and regular defers.
-            const err_code = try gz.addUnNode(.err_union_code, operand, node);
+            const result = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr, node) else operand;
+            const err_code = try gz.addUnNode(.err_union_code, result, node);
             try genDefers(gz, defer_outer, scope, .{ .both = err_code });
             try gz.addRet(rl, operand, node);
             return Zir.Inst.Ref.unreachable_value;
@@ -6515,7 +6516,8 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             }
 
             // Emit conditional branch for generating errdefers.
-            const is_non_err = try gz.addUnNode(.is_non_err, operand, node);
+            const result = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr, node) else operand;
+            const is_non_err = try gz.addUnNode(.is_non_err, result, node);
             const condbr = try gz.addCondBr(.condbr, node);
 
             var then_scope = gz.makeSubBlock(scope);
@@ -6528,7 +6530,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             defer else_scope.instructions.deinit(astgen.gpa);
 
             const which_ones: DefersToEmit = if (!defer_counts.need_err_code) .both_sans_err else .{
-                .both = try else_scope.addUnNode(.err_union_code, operand, node),
+                .both = try else_scope.addUnNode(.err_union_code, result, node),
             };
             try genDefers(&else_scope, defer_outer, scope, which_ones);
             try else_scope.addRet(rl, operand, node);
