@@ -4,6 +4,8 @@ const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
 const Allocator = mem.Allocator;
+const builtin = @import("builtin");
+const native_arch = builtin.target.cpu.arch;
 
 const Limb = std.math.big.Limb;
 const DoubleLimb = std.math.big.DoubleLimb;
@@ -537,6 +539,9 @@ test "big.rational set" {
 }
 
 test "big.rational setFloat" {
+    // TODO https://github.com/ziglang/zig/issues/10026
+    if (native_arch == .wasm32) return error.SkipZigTest;
+
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
