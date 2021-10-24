@@ -4398,7 +4398,7 @@ test "zig fmt: regression test for #5722" {
         \\    while (it.next()) |node|
         \\        view_tags.append(node.view.current_tags) catch {
         \\            c.wl_resource_post_no_memory(self.wl_resource);
-        \\            log.crit(.river_status, "out of memory", .{});
+        \\            log.err(.river_status, "out of memory", .{});
         \\            return;
         \\        };
         \\}

@@ -40,12 +40,8 @@ pub fn ScopedLoggingAllocator(
         // This function is required as the `std.log.log` function is not public
         inline fn logHelper(comptime log_level: std.log.Level, comptime format: []const u8, args: anytype) void {
             switch (log_level) {
-                .emerg => log.emerg(format, args),
-                .alert => log.alert(format, args),
-                .crit => log.crit(format, args),
                 .err => log.err(format, args),
                 .warn => log.warn(format, args),
-                .notice => log.notice(format, args),
                 .info => log.info(format, args),
                 .debug => log.debug(format, args),
             }
@@ -120,6 +116,6 @@ pub fn ScopedLoggingAllocator(
 /// This allocator is used in front of another allocator and logs to `std.log`
 /// on every call to the allocator.
 /// For logging to a `std.io.Writer` see `std.heap.LogToWriterAllocator`
-pub fn loggingAllocator(parent_allocator: *Allocator) LoggingAllocator(.debug, .crit) {
-    return LoggingAllocator(.debug, .crit).init(parent_allocator);
+pub fn loggingAllocator(parent_allocator: *Allocator) LoggingAllocator(.debug, .err) {
+    return LoggingAllocator(.debug, .err).init(parent_allocator);
 }

@@ -435,8 +435,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub const log_level: std.log.Level = .debug;
         \\
         \\pub const scope_levels = [_]std.log.ScopeLevel{
-        \\    .{ .scope = .a, .level = .alert },
-        \\    .{ .scope = .c, .level = .emerg },
+        \\    .{ .scope = .a, .level = .warn },
+        \\    .{ .scope = .c, .level = .err },
         \\};
         \\
         \\const loga = std.log.scoped(.a);
@@ -452,10 +452,6 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    logb.info("", .{});
         \\    logc.info("", .{});
         \\
-        \\    loga.notice("", .{});
-        \\    logb.notice("", .{});
-        \\    logc.notice("", .{});
-        \\
         \\    loga.warn("", .{});
         \\    logb.warn("", .{});
         \\    logc.warn("", .{});
@@ -463,18 +459,6 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    loga.err("", .{});
         \\    logb.err("", .{});
         \\    logc.err("", .{});
-        \\
-        \\    loga.crit("", .{});
-        \\    logb.crit("", .{});
-        \\    logc.crit("", .{});
-        \\
-        \\    loga.alert("", .{});
-        \\    logb.alert("", .{});
-        \\    logc.alert("", .{});
-        \\
-        \\    loga.emerg("", .{});
-        \\    logb.emerg("", .{});
-        \\    logc.emerg("", .{});
         \\}
         \\pub fn log(
         \\    comptime level: std.log.Level,
@@ -483,22 +467,18 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    args: anytype,
         \\) void {
         \\    const level_txt = comptime level.asText();
-        \\    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+        \\    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "):";
         \\    const stdout = std.io.getStdOut().writer();
         \\    nosuspend stdout.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
         \\}
     ,
-        \\debug(b): 
-        \\info(b): 
-        \\notice(b): 
-        \\warning(b): 
-        \\error(b): 
-        \\critical(b): 
-        \\alert(a): 
-        \\alert(b): 
-        \\emergency(a): 
-        \\emergency(b): 
-        \\emergency(c): 
+        \\debug(b):
+        \\info(b):
+        \\warning(a):
+        \\warning(b):
+        \\error(a):
+        \\error(b):
+        \\error(c):
         \\
     );
 
@@ -534,7 +514,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     ,
         \\debug: alloc - success - len: 10, ptr_align: 1, len_align: 0
         \\debug: shrink - success - 10 to 5, len_align: 0, buf_align: 1
-        \\critical: expand - failure: OutOfMemory - 5 to 20, len_align: 0, buf_align: 1
+        \\error: expand - failure: OutOfMemory - 5 to 20, len_align: 0, buf_align: 1
         \\debug: free - success - len: 5
         \\
     );

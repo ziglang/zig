@@ -27,7 +27,7 @@ const crash_report = @import("crash_report.zig");
 pub usingnamespace crash_report.root_decls;
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    std.log.emerg(format, args);
+    std.log.err(format, args);
     process.exit(1);
 }
 
@@ -94,7 +94,7 @@ const usage = if (debug_extensions_enabled) debug_usage else normal_usage;
 pub const log_level: std.log.Level = switch (builtin.mode) {
     .Debug => .debug,
     .ReleaseSafe, .ReleaseFast => .info,
-    .ReleaseSmall => .crit,
+    .ReleaseSmall => .err,
 };
 
 var log_scopes: std.ArrayListUnmanaged([]const u8) = .{};
@@ -120,14 +120,7 @@ pub fn log(
         } else return;
     }
 
-    // We only recognize 4 log levels in this application.
-    const level_txt = switch (level) {
-        .emerg, .alert, .crit, .err => "error",
-        .warn => "warning",
-        .notice, .info => "info",
-        .debug => "debug",
-    };
-    const prefix1 = level_txt;
+    const prefix1 = comptime level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
 
     // Print the message to stderr, silently ignoring any errors

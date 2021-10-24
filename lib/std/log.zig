@@ -18,8 +18,8 @@
 //! ```
 //! const std = @import("std");
 //!
-//! // Set the log level to warning
-//! pub const log_level: std.log.Level = .warn;
+//! // Set the log level to info
+//! pub const log_level: std.log.Level = .info;
 //!
 //! // Define root.log to override the std implementation
 //! pub fn log(
@@ -28,17 +28,17 @@
 //!     comptime format: []const u8,
 //!     args: anytype,
 //! ) void {
-//!     // Ignore all non-critical logging from sources other than
+//!     // Ignore all non-error logging from sources other than
 //!     // .my_project, .nice_library and .default
 //!     const scope_prefix = "(" ++ switch (scope) {
 //!         .my_project, .nice_library, .default => @tagName(scope),
-//!         else => if (@enumToInt(level) <= @enumToInt(std.log.Level.crit))
+//!         else => if (@enumToInt(level) <= @enumToInt(std.log.Level.err))
 //!             @tagName(scope)
 //!         else
 //!             return,
 //!     } ++ "): ";
 //!
-//!     const prefix = "[" ++ @tagName(level) ++ "] " ++ scope_prefix;
+//!     const prefix = "[" ++ level.asText() ++ "] " ++ scope_prefix;
 //!
 //!     // Print the message to stderr, silently ignoring any errors
 //!     const held = std.debug.getStderrMutex().acquire();
@@ -49,23 +49,23 @@
 //!
 //! pub fn main() void {
 //!     // Using the default scope:
-//!     std.log.info("Just a simple informational log message", .{}); // Won't be printed as log_level is .warn
-//!     std.log.warn("Flux capacitor is starting to overheat", .{});
+//!     std.log.debug("A borderline useless debug log message", .{}); // Won't be printed as log_level is .info
+//!     std.log.info("Flux capacitor is starting to overheat", .{});
 //!
 //!     // Using scoped logging:
 //!     const my_project_log = std.log.scoped(.my_project);
 //!     const nice_library_log = std.log.scoped(.nice_library);
 //!     const verbose_lib_log = std.log.scoped(.verbose_lib);
 //!
-//!     my_project_log.info("Starting up", .{}); // Won't be printed as log_level is .warn
-//!     nice_library_log.err("Something went very wrong, sorry", .{});
-//!     verbose_lib_log.err("Added 1 + 1: {}", .{1 + 1}); // Won't be printed as it gets filtered out by our log function
+//!     my_project_log.debug("Starting up", .{}); // Won't be printed as log_level is .info
+//!     nice_library_log.warn("Something went very wrong, sorry", .{});
+//!     verbose_lib_log.warn("Added 1 + 1: {}", .{1 + 1}); // Won't be printed as it gets filtered out by our log function
 //! }
 //! ```
 //! Which produces the following output:
 //! ```
-//! [warn] (default): Flux capacitor is starting to overheat
-//! [err] (nice_library): Something went very wrong, sorry
+//! [info] (default): Flux capacitor is starting to overheat
+//! [warning] (nice_library): Something went very wrong, sorry
 //! ```
 
 const std = @import("std.zig");
@@ -73,42 +73,29 @@ const builtin = @import("builtin");
 const root = @import("root");
 
 pub const Level = enum {
-    /// Emergency: a condition that cannot be handled, usually followed by a
-    /// panic.
-    emerg,
-    /// Alert: a condition that should be corrected immediately (e.g. database
-    /// corruption).
-    alert,
-    /// Critical: A bug has been detected or something has gone wrong and it
-    /// will have an effect on the operation of the program.
-    crit,
-    /// Error: A bug has been detected or something has gone wrong but it is
-    /// recoverable.
+    /// Error: something has gone wrong. This might be recoverable or might
+    /// be followed by the program exiting.
     err,
     /// Warning: it is uncertain if something has gone wrong or not, but the
     /// circumstances would be worth investigating.
     warn,
-    /// Notice: non-error but significant conditions.
-    notice,
-    /// Informational: general messages about the state of the program.
+    /// Info: general messages about the state of the program.
     info,
     /// Debug: messages only useful for debugging.
     debug,
 
     /// Returns a string literal of the given level in full text form.
     pub fn asText(comptime self: Level) switch (self) {
-        .emerg => @TypeOf("emergency"),
-        .crit => @TypeOf("critical"),
         .err => @TypeOf("error"),
         .warn => @TypeOf("warning"),
-        else => @TypeOf(@tagName(self)),
+        .info => @TypeOf("info"),
+        .debug => @TypeOf("debug"),
     } {
         return switch (self) {
-            .emerg => "emergency",
-            .crit => "critical",
             .err => "error",
             .warn => "warning",
-            else => @tagName(self),
+            .info => "info",
+            .debug => "debug",
         };
     }
 };
@@ -116,9 +103,8 @@ pub const Level = enum {
 /// The default log level is based on build mode.
 pub const default_level: Level = switch (builtin.mode) {
     .Debug => .debug,
-    .ReleaseSafe => .notice,
-    .ReleaseFast => .err,
-    .ReleaseSmall => .err,
+    .ReleaseSafe => .info,
+    .ReleaseFast, .ReleaseSmall => .err,
 };
 
 /// The current log level. This is set to root.log_level if present, otherwise
@@ -188,39 +174,18 @@ pub fn defaultLog(
 /// provided here.
 pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
     return struct {
-        /// Log an emergency message. This log level is intended to be used
-        /// for conditions that cannot be handled and is usually followed by a panic.
-        pub fn emerg(
-            comptime format: []const u8,
-            args: anytype,
-        ) void {
-            @setCold(true);
-            log(.emerg, scope, format, args);
-        }
+        /// Deprecated. TODO: replace with @compileError() after 0.9.0 is released
+        pub const emerg = @This().err;
 
-        /// Log an alert message. This log level is intended to be used for
-        /// conditions that should be corrected immediately (e.g. database corruption).
-        pub fn alert(
-            comptime format: []const u8,
-            args: anytype,
-        ) void {
-            @setCold(true);
-            log(.alert, scope, format, args);
-        }
+        /// Deprecated. TODO: replace with @compileError() after 0.9.0 is released
+        pub const alert = @This().err;
 
-        /// Log a critical message. This log level is intended to be used
-        /// when a bug has been detected or something has gone wrong and it will have
-        /// an effect on the operation of the program.
-        pub fn crit(
-            comptime format: []const u8,
-            args: anytype,
-        ) void {
-            @setCold(true);
-            log(.crit, scope, format, args);
-        }
+        /// Deprecated. TODO: replace with @compileError() after 0.9.0 is released
+        pub const crit = @This().err;
 
-        /// Log an error message. This log level is intended to be used when
-        /// a bug has been detected or something has gone wrong but it is recoverable.
+        /// Log an error message. This log level is intended to be used
+        /// when something has gone wrong. This might be recoverable or might
+        /// be followed by the program exiting.
         pub fn err(
             comptime format: []const u8,
             args: anytype,
@@ -239,14 +204,8 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
             log(.warn, scope, format, args);
         }
 
-        /// Log a notice message. This log level is intended to be used for
-        /// non-error but significant conditions.
-        pub fn notice(
-            comptime format: []const u8,
-            args: anytype,
-        ) void {
-            log(.notice, scope, format, args);
-        }
+        /// Deprecated. TODO: replace with @compileError() after 0.9.0 is released
+        pub const notice = @This().info;
 
         /// Log an info message. This log level is intended to be used for
         /// general messages about the state of the program.
@@ -271,24 +230,18 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
 /// The default scoped logging namespace.
 pub const default = scoped(.default);
 
-/// Log an emergency message using the default scope. This log level is
-/// intended to be used for conditions that cannot be handled and is usually
-/// followed by a panic.
-pub const emerg = default.emerg;
+/// Deprecated. TODO: replace with @compileError() after 0.9.0 is released
+pub const emerg = default.err;
 
-/// Log an alert message using the default scope. This log level is intended to
-/// be used for conditions that should be corrected immediately (e.g. database
-/// corruption).
-pub const alert = default.alert;
+/// Deprecated. TODO: replace with @compileError() after 0.9.0 is released
+pub const alert = default.err;
 
-/// Log a critical message using the default scope. This log level is intended
-/// to be used when a bug has been detected or something has gone wrong and it
-/// will have an effect on the operation of the program.
-pub const crit = default.crit;
+/// Deprecated. TODO: replace with @compileError() after 0.9.0 is released
+pub const crit = default.err;
 
 /// Log an error message using the default scope. This log level is intended to
-/// be used when a bug has been detected or something has gone wrong but it is
-/// recoverable.
+/// be used when something has gone wrong. This might be recoverable or might
+/// be followed by the program exiting.
 pub const err = default.err;
 
 /// Log a warning message using the default scope. This log level is intended
@@ -296,9 +249,8 @@ pub const err = default.err;
 /// the circumstances would be worth investigating.
 pub const warn = default.warn;
 
-/// Log a notice message using the default scope. This log level is intended to
-/// be used for non-error but significant conditions.
-pub const notice = default.notice;
+/// Deprecated. TODO: replace with @compileError() after 0.9.0 is released
+pub const notice = default.info;
 
 /// Log an info message using the default scope. This log level is intended to
 /// be used for general messages about the state of the program.
