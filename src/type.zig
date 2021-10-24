@@ -4006,6 +4006,7 @@ pub const Type = extern union {
     pub const @"u8" = initTag(.u8);
     pub const @"bool" = initTag(.bool);
     pub const @"usize" = initTag(.usize);
+    pub const @"isize" = initTag(.isize);
     pub const @"comptime_int" = initTag(.comptime_int);
     pub const @"void" = initTag(.void);
     pub const @"type" = initTag(.type);

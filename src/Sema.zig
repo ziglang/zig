@@ -7983,12 +7983,25 @@ fn analyzePtrArithmetic(
     const runtime_src = rs: {
         if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
             if (try sema.resolveDefinedValue(block, offset_src, offset)) |offset_val| {
+                const ptr_ty = sema.typeOf(ptr);
+                const offset_int = offset_val.toUnsignedInt();
+                const new_ptr_ty = ptr_ty; // TODO modify alignment
+                if (ptr_val.getUnsignedInt()) |addr| {
+                    const target = sema.mod.getTarget();
+                    const elem_ty = ptr_ty.childType();
+                    const elem_size = elem_ty.abiSize(target);
+                    const new_addr = switch (air_tag) {
+                        .ptr_add => addr + elem_size * offset_int,
+                        .ptr_sub => addr - elem_size * offset_int,
+                        else => unreachable,
+                    };
+                    const new_ptr_val = try Value.Tag.int_u64.create(sema.arena, new_addr);
+                    return sema.addConstant(new_ptr_ty, new_ptr_val);
+                }
                 if (air_tag == .ptr_sub) {
                     return sema.fail(block, op_src, "TODO implement Sema comptime pointer subtraction", .{});
                 }
-                const offset_int = offset_val.toUnsignedInt();
                 const new_ptr_val = try ptr_val.elemPtr(sema.arena, offset_int);
-                const new_ptr_ty = sema.typeOf(ptr);
                 return sema.addConstant(new_ptr_ty, new_ptr_val);
             } else break :rs offset_src;
         } else break :rs ptr_src;
@@ -11979,6 +11992,8 @@ fn coerce(
             return sema.wrapOptional(block, dest_ty, intermediate, inst_src);
         },
         .Pointer => {
+            const dest_info = dest_ty.ptrInfo().data;
+
             // Function body to function pointer.
             if (inst_ty.zigTypeTag() == .Fn) {
                 const fn_val = try sema.resolveConstValue(block, inst_src, inst);
@@ -11989,16 +12004,16 @@ fn coerce(
 
             // *T to *[1]T
             single_item: {
-                if (!dest_ty.isSinglePointer()) break :single_item;
+                if (dest_info.size != .One) break :single_item;
                 if (!inst_ty.isSinglePointer()) break :single_item;
                 const ptr_elem_ty = inst_ty.childType();
-                const array_ty = dest_ty.childType();
+                const array_ty = dest_info.pointee_type;
                 if (array_ty.zigTypeTag() != .Array) break :single_item;
                 const array_elem_ty = array_ty.childType();
-                const dest_is_mut = !dest_ty.isConstPtr();
+                const dest_is_mut = dest_info.mutable;
                 if (inst_ty.isConstPtr() and dest_is_mut) break :single_item;
-                if (inst_ty.isVolatilePtr() and !dest_ty.isVolatilePtr()) break :single_item;
-                if (inst_ty.ptrAddressSpace() != dest_ty.ptrAddressSpace()) break :single_item;
+                if (inst_ty.isVolatilePtr() and !dest_info.@"volatile") break :single_item;
+                if (inst_ty.ptrAddressSpace() != dest_info.@"addrspace") break :single_item;
                 switch (coerceInMemoryAllowed(array_elem_ty, ptr_elem_ty, dest_is_mut, target)) {
                     .ok => {},
                     .no_match => break :single_item,
@@ -12012,18 +12027,18 @@ fn coerce(
                 const array_ty = inst_ty.childType();
                 if (array_ty.zigTypeTag() != .Array) break :src_array_ptr;
                 const array_elem_type = array_ty.childType();
-                const dest_is_mut = !dest_ty.isConstPtr();
+                const dest_is_mut = dest_info.mutable;
                 if (inst_ty.isConstPtr() and dest_is_mut) break :src_array_ptr;
-                if (inst_ty.isVolatilePtr() and !dest_ty.isVolatilePtr()) break :src_array_ptr;
-                if (inst_ty.ptrAddressSpace() != dest_ty.ptrAddressSpace()) break :src_array_ptr;
+                if (inst_ty.isVolatilePtr() and !dest_info.@"volatile") break :src_array_ptr;
+                if (inst_ty.ptrAddressSpace() != dest_info.@"addrspace") break :src_array_ptr;
 
-                const dst_elem_type = dest_ty.childType();
+                const dst_elem_type = dest_info.pointee_type;
                 switch (coerceInMemoryAllowed(dst_elem_type, array_elem_type, dest_is_mut, target)) {
                     .ok => {},
                     .no_match => break :src_array_ptr,
                 }
 
-                switch (dest_ty.ptrSize()) {
+                switch (dest_info.size) {
                     .Slice => {
                         // *[N]T to []T
                         return sema.coerceArrayPtrToSlice(block, dest_ty, inst, inst_src);
@@ -12036,7 +12051,7 @@ fn coerce(
                         // *[N]T to [*]T
                         // *[N:s]T to [*:s]T
                         // *[N:s]T to [*]T
-                        if (dest_ty.sentinel()) |dst_sentinel| {
+                        if (dest_info.sentinel) |dst_sentinel| {
                             if (array_ty.sentinel()) |src_sentinel| {
                                 if (src_sentinel.eql(dst_sentinel, dst_elem_type)) {
                                     return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
@@ -12051,9 +12066,24 @@ fn coerce(
             }
 
             // coercion to C pointer
-            if (dest_ty.ptrSize() == .C) {
-                if (inst_ty.zigTypeTag() == .Null) {
-                    return sema.addConstant(dest_ty, Value.@"null");
+            if (dest_info.size == .C) {
+                switch (inst_ty.zigTypeTag()) {
+                    .Null => {
+                        return sema.addConstant(dest_ty, Value.@"null");
+                    },
+                    .ComptimeInt => {
+                        const addr = try sema.coerce(block, Type.usize, inst, inst_src);
+                        return sema.coerceCompatiblePtrs(block, dest_ty, addr, inst_src);
+                    },
+                    .Int => {
+                        const ptr_size_ty = switch (inst_ty.intInfo(target).signedness) {
+                            .signed => Type.isize,
+                            .unsigned => Type.usize,
+                        };
+                        const addr = try sema.coerce(block, ptr_size_ty, inst, inst_src);
+                        return sema.coerceCompatiblePtrs(block, dest_ty, addr, inst_src);
+                    },
+                    else => {},
                 }
             }
         },
@@ -13627,6 +13657,19 @@ fn resolvePeerTypes(
             continue;
         }
         if (chosen_ty_tag == .EnumLiteral and candidate_ty_tag == .Enum) {
+            chosen = candidate;
+            chosen_i = candidate_i + 1;
+            continue;
+        }
+
+        if (chosen_ty_tag == .Pointer and chosen_ty.ptrSize() == .C and
+            (candidate_ty_tag == .Int or candidate_ty_tag == .ComptimeInt))
+        {
+            continue;
+        }
+        if (candidate_ty_tag == .Pointer and candidate_ty.ptrSize() == .C and
+            (chosen_ty_tag == .Int or chosen_ty_tag == .ComptimeInt))
+        {
             chosen = candidate;
             chosen_i = candidate_i + 1;
             continue;

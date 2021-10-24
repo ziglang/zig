@@ -1106,7 +1106,7 @@ pub const DeclGen = struct {
                         return parent_ptr.constInBoundsGEP(&indices, indices.len);
                     }
                 },
-                .null_value => {
+                .null_value, .zero => {
                     const llvm_type = try self.llvmType(tv.ty);
                     return llvm_type.constNull();
                 },
@@ -3180,8 +3180,9 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
         const llvm_dest_ty = try self.dg.llvmType(inst_ty);
 
-        // TODO look into pulling this logic out into a different AIR instruction than bitcast
-        if (operand_ty.zigTypeTag() == .Vector and inst_ty.zigTypeTag() == .Array) {
+        if (operand_ty.zigTypeTag() == .Int and inst_ty.zigTypeTag() == .Pointer) {
+            return self.builder.buildIntToPtr(operand, llvm_dest_ty, "");
+        } else if (operand_ty.zigTypeTag() == .Vector and inst_ty.zigTypeTag() == .Array) {
             const target = self.dg.module.getTarget();
             const elem_ty = operand_ty.childType();
             if (!isByRef(inst_ty)) {
