@@ -4,7 +4,7 @@ pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
 
     const lib_a = b.addStaticLibrary("a", null);
-    lib_a.addCSourceFiles(&.{ "a.c", "b.c" }, &.{"-fcommon"});
+    lib_a.addCSourceFiles(&.{ "c.c", "a.c", "b.c" }, &.{"-fcommon"});
     lib_a.setBuildMode(mode);
 
     const test_exe = b.addTest("main.zig");

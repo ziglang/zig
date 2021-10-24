@@ -2311,7 +2311,7 @@ fn createDsoHandleAtom(self: *MachO) !void {
         nlist.n_desc = macho.N_WEAK_DEF;
         try self.globals.append(self.base.allocator, nlist);
 
-        _ = self.unresolved.fetchSwapRemove(resolv.where_index);
+        assert(self.unresolved.swapRemove(resolv.where_index));
 
         undef.* = .{
             .n_strx = 0,
@@ -2409,7 +2409,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                     const global = &self.globals.items[resolv.where_index];
 
                     if (symbolIsTentative(global.*)) {
-                        _ = self.tentatives.fetchSwapRemove(resolv.where_index);
+                        assert(self.tentatives.swapRemove(resolv.where_index));
                     } else if (!(symbolIsWeakDef(sym) or symbolIsPext(sym)) and
                         !(symbolIsWeakDef(global.*) or symbolIsPext(global.*)))
                     {
@@ -2437,7 +2437,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                         .n_desc = 0,
                         .n_value = 0,
                     };
-                    _ = self.unresolved.fetchSwapRemove(resolv.where_index);
+                    assert(self.unresolved.swapRemove(resolv.where_index));
                 },
             }
 
@@ -2496,6 +2496,8 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                         .n_value = sym.n_value,
                     });
                     _ = try self.tentatives.getOrPut(self.base.allocator, global_sym_index);
+                    assert(self.unresolved.swapRemove(resolv.where_index));
+
                     resolv.* = .{
                         .where = .global,
                         .where_index = global_sym_index,
@@ -2508,7 +2510,6 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                         .n_desc = 0,
                         .n_value = 0,
                     };
-                    _ = self.unresolved.fetchSwapRemove(resolv.where_index);
                 },
             }
         } else {
@@ -3412,7 +3413,7 @@ pub fn updateDeclExports(
                     const sym = &self.globals.items[resolv.where_index];
 
                     if (symbolIsTentative(sym.*)) {
-                        _ = self.tentatives.fetchSwapRemove(resolv.where_index);
+                        assert(self.tentatives.swapRemove(resolv.where_index));
                     } else if (!is_weak and !(symbolIsWeakDef(sym.*) or symbolIsPext(sym.*))) {
                         _ = try module.failed_exports.put(
                             module.gpa,
@@ -3438,7 +3439,7 @@ pub fn updateDeclExports(
                     continue;
                 },
                 .undef => {
-                    _ = self.unresolved.fetchSwapRemove(resolv.where_index);
+                    assert(self.unresolved.swapRemove(resolv.where_index));
                     _ = self.symbol_resolver.remove(n_strx);
                 },
             }
