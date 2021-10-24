@@ -2874,13 +2874,8 @@ pub const FuncGen = struct {
         const inst_ty = self.air.typeOfIndex(inst);
 
         if (inst_ty.isRuntimeFloat()) {
-            const result_llvm_ty = try self.dg.llvmType(inst_ty);
-            const zero = result_llvm_ty.constNull();
             const result = self.builder.buildFDiv(lhs, rhs, "");
-            const ceiled = try self.callCeil(result, inst_ty);
-            const floored = try self.callFloor(result, inst_ty);
-            const ltz = self.builder.buildFCmp(.OLT, lhs, zero, "");
-            return self.builder.buildSelect(ltz, ceiled, floored, "");
+            return self.callTrunc(result, inst_ty);
         }
         if (inst_ty.isSignedInt()) return self.builder.buildSDiv(lhs, rhs, "");
         return self.builder.buildUDiv(lhs, rhs, "");
@@ -3639,6 +3634,10 @@ pub const FuncGen = struct {
 
     fn callCeil(self: *FuncGen, arg: *const llvm.Value, ty: Type) !*const llvm.Value {
         return self.callFloatUnary(arg, ty, "ceil");
+    }
+
+    fn callTrunc(self: *FuncGen, arg: *const llvm.Value, ty: Type) !*const llvm.Value {
+        return self.callFloatUnary(arg, ty, "trunc");
     }
 
     fn callFloatUnary(self: *FuncGen, arg: *const llvm.Value, ty: Type, name: []const u8) !*const llvm.Value {

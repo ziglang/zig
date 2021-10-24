@@ -282,12 +282,20 @@ fn testDivision() !void {
 
     try expect(divTrunc(i32, 5, 3) == 1);
     try expect(divTrunc(i32, -5, 3) == -1);
+    try expect(divTrunc(i32, 9, -10) == 0);
+    try expect(divTrunc(i32, -9, 10) == 0);
     try expect(divTrunc(f16, 5.0, 3.0) == 1.0);
     try expect(divTrunc(f16, -5.0, 3.0) == -1.0);
+    try expect(divTrunc(f16, 9.0, -10.0) == 0.0);
+    try expect(divTrunc(f16, -9.0, 10.0) == 0.0);
     try expect(divTrunc(f32, 5.0, 3.0) == 1.0);
     try expect(divTrunc(f32, -5.0, 3.0) == -1.0);
+    try expect(divTrunc(f32, 9.0, -10.0) == 0.0);
+    try expect(divTrunc(f32, -9.0, 10.0) == 0.0);
     try expect(divTrunc(f64, 5.0, 3.0) == 1.0);
     try expect(divTrunc(f64, -5.0, 3.0) == -1.0);
+    try expect(divTrunc(f64, 9.0, -10.0) == 0.0);
+    try expect(divTrunc(f64, -9.0, 10.0) == 0.0);
     try expect(divTrunc(i32, 10, 12) == 0);
     try expect(divTrunc(i32, -14, 12) == -1);
     try expect(divTrunc(i32, -2, 12) == 0);
