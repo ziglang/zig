@@ -763,6 +763,13 @@ export fn truncf(a: f32) f32 {
     return math.trunc(a);
 }
 
+export fn truncl(a: c_longdouble) c_longdouble {
+    if (!long_double_is_f128) {
+        @panic("TODO implement this");
+    }
+    return math.trunc(a);
+}
+
 export fn round(a: f64) f64 {
     return math.round(a);
 }

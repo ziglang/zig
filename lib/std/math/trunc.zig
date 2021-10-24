@@ -21,6 +21,10 @@ pub fn trunc(x: anytype) @TypeOf(x) {
         f32 => trunc32(x),
         f64 => trunc64(x),
         f128 => trunc128(x),
+
+        // TODO this is not correct for some targets
+        c_longdouble => @floatCast(c_longdouble, trunc128(x)),
+
         else => @compileError("trunc not implemented for " ++ @typeName(T)),
     };
 }
