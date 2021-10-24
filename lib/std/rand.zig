@@ -53,7 +53,7 @@ pub const Random = struct {
         return values[index];
     }
 
-    /// Returns a random int `i` such that `0 <= i <= maxInt(T)`.
+    /// Returns a random int `i` such that `minInt(T) <= i <= maxInt(T)`.
     /// `i` is evenly distributed.
     pub fn int(r: *Random, comptime T: type) T {
         const bits = @typeInfo(T).Int.bits;
