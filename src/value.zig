@@ -2307,11 +2307,11 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs_q = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+            lhs_bigint.limbs.len,
         );
         const limbs_r = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len,
+            rhs_bigint.limbs.len,
         );
         const limbs_buffer = try allocator.alloc(
             std.math.big.Limb,
@@ -2319,7 +2319,7 @@ pub const Value = extern union {
         );
         var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-        result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
+        result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
         const result_limbs = result_q.limbs[0..result_q.len];
 
         if (result_q.positive) {
@@ -2338,11 +2338,11 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs_q = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+            lhs_bigint.limbs.len,
         );
         const limbs_r = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len,
+            rhs_bigint.limbs.len,
         );
         const limbs_buffer = try allocator.alloc(
             std.math.big.Limb,
@@ -2350,7 +2350,7 @@ pub const Value = extern union {
         );
         var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-        result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
+        result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
         const result_limbs = result_q.limbs[0..result_q.len];
 
         if (result_q.positive) {
@@ -2369,13 +2369,13 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs_q = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+            lhs_bigint.limbs.len,
         );
         const limbs_r = try allocator.alloc(
             std.math.big.Limb,
-            // TODO: audit this size, and also consider reworking Sema to re-use Values rather than
+            // TODO: consider reworking Sema to re-use Values rather than
             // always producing new Value objects.
-            rhs_bigint.limbs.len + 1,
+            rhs_bigint.limbs.len,
         );
         const limbs_buffer = try allocator.alloc(
             std.math.big.Limb,
@@ -2383,7 +2383,7 @@ pub const Value = extern union {
         );
         var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-        result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
+        result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
         const result_limbs = result_r.limbs[0..result_r.len];
 
         if (result_r.positive) {
@@ -2402,11 +2402,11 @@ pub const Value = extern union {
         const rhs_bigint = rhs.toBigInt(&rhs_space);
         const limbs_q = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len + rhs_bigint.limbs.len + 1,
+            lhs_bigint.limbs.len,
         );
         const limbs_r = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len,
+            rhs_bigint.limbs.len,
         );
         const limbs_buffer = try allocator.alloc(
             std.math.big.Limb,
@@ -2414,7 +2414,7 @@ pub const Value = extern union {
         );
         var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-        result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
+        result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
         const result_limbs = result_r.limbs[0..result_r.len];
 
         if (result_r.positive) {
