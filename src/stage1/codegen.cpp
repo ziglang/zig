@@ -2964,33 +2964,7 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_runtime_safety, bool want_fast
                 }
                 return result;
             case DivKindTrunc:
-                {
-                    LLVMBasicBlockRef ltz_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivTruncLTZero");
-                    LLVMBasicBlockRef gez_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivTruncGEZero");
-                    LLVMBasicBlockRef end_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivTruncEnd");
-                    LLVMValueRef ltz = LLVMBuildFCmp(g->builder, LLVMRealOLT, val1, zero, "");
-                    if (operand_type->id == ZigTypeIdVector) {
-                        ltz = ZigLLVMBuildOrReduce(g->builder, ltz);
-                    }
-                    LLVMBuildCondBr(g->builder, ltz, ltz_block, gez_block);
-
-                    LLVMPositionBuilderAtEnd(g->builder, ltz_block);
-                    LLVMValueRef ceiled = gen_float_op(g, result, operand_type, BuiltinFnIdCeil);
-                    LLVMBasicBlockRef ceiled_end_block = LLVMGetInsertBlock(g->builder);
-                    LLVMBuildBr(g->builder, end_block);
-
-                    LLVMPositionBuilderAtEnd(g->builder, gez_block);
-                    LLVMValueRef floored = gen_float_op(g, result, operand_type, BuiltinFnIdFloor);
-                    LLVMBasicBlockRef floored_end_block = LLVMGetInsertBlock(g->builder);
-                    LLVMBuildBr(g->builder, end_block);
-
-                    LLVMPositionBuilderAtEnd(g->builder, end_block);
-                    LLVMValueRef phi = LLVMBuildPhi(g->builder, get_llvm_type(g, operand_type), "");
-                    LLVMValueRef incoming_values[] = { ceiled, floored };
-                    LLVMBasicBlockRef incoming_blocks[] = { ceiled_end_block, floored_end_block };
-                    LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
-                    return phi;
-                }
+                return gen_float_op(g, result, operand_type, BuiltinFnIdTrunc);
             case DivKindFloor:
                 return gen_float_op(g, result, operand_type, BuiltinFnIdFloor);
         }
