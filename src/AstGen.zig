@@ -1156,16 +1156,6 @@ fn fnProtoExpr(
         return astgen.failNode(fn_proto.ast.section_expr, "linksection not allowed on function prototypes", .{});
     }
 
-    const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
-    const is_inferred_error = token_tags[maybe_bang] == .bang;
-    if (is_inferred_error) {
-        return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
-    }
-    var ret_gz = gz.makeSubBlock(scope);
-    defer ret_gz.instructions.deinit(gpa);
-    const ret_ty = try expr(&ret_gz, scope, coerced_type_rl, fn_proto.ast.return_type);
-    const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
-
     const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
         try expr(
             gz,
@@ -1175,6 +1165,16 @@ fn fnProtoExpr(
         )
     else
         Zir.Inst.Ref.none;
+
+    const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
+    const is_inferred_error = token_tags[maybe_bang] == .bang;
+    if (is_inferred_error) {
+        return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
+    }
+    var ret_gz = gz.makeSubBlock(scope);
+    defer ret_gz.instructions.deinit(gpa);
+    const ret_ty = try expr(&ret_gz, scope, coerced_type_rl, fn_proto.ast.return_type);
+    const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
 
     const result = try gz.addFunc(.{
         .src_node = fn_proto.ast.proto_node,
@@ -3182,11 +3182,6 @@ fn fnDecl(
         break :inst try comptimeExpr(&decl_gz, params_scope, .{ .ty = .const_slice_u8_type }, fn_proto.ast.section_expr);
     };
 
-    var ret_gz = decl_gz.makeSubBlock(params_scope);
-    defer ret_gz.instructions.deinit(gpa);
-    const ret_ty = try expr(&ret_gz, params_scope, coerced_type_rl, fn_proto.ast.return_type);
-    const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
-
     const cc: Zir.Inst.Ref = blk: {
         if (fn_proto.ast.callconv_expr != 0) {
             if (has_inline_keyword) {
@@ -3211,6 +3206,11 @@ fn fnDecl(
             break :blk .none;
         }
     };
+
+    var ret_gz = decl_gz.makeSubBlock(params_scope);
+    defer ret_gz.instructions.deinit(gpa);
+    const ret_ty = try expr(&ret_gz, params_scope, coerced_type_rl, fn_proto.ast.return_type);
+    const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
 
     const func_inst: Zir.Inst.Ref = if (body_node == 0) func: {
         if (!is_extern) {
