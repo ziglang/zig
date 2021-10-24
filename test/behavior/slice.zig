@@ -109,3 +109,51 @@ test "slice of type" {
         }
     }
 }
+
+test "generic malloc free" {
+    const a = memAlloc(u8, 10) catch unreachable;
+    memFree(u8, a);
+}
+var some_mem: [100]u8 = undefined;
+fn memAlloc(comptime T: type, n: usize) anyerror![]T {
+    return @ptrCast([*]T, &some_mem[0])[0..n];
+}
+fn memFree(comptime T: type, memory: []T) void {
+    _ = memory;
+}
+
+test "slice of hardcoded address to pointer" {
+    const S = struct {
+        fn doTheTest() !void {
+            const pointer = @intToPtr([*]u8, 0x04)[0..2];
+            comptime try expect(@TypeOf(pointer) == *[2]u8);
+            const slice: []const u8 = pointer;
+            try expect(@ptrToInt(slice.ptr) == 4);
+            try expect(slice.len == 2);
+        }
+    };
+
+    try S.doTheTest();
+}
+
+test "comptime slice of pointer preserves comptime var" {
+    comptime {
+        var buff: [10]u8 = undefined;
+        var a = @ptrCast([*]u8, &buff);
+        a[0..1][0] = 1;
+        try expect(buff[0..][0..][0] == 1);
+    }
+}
+
+test "comptime pointer cast array and then slice" {
+    const array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
+
+    const ptrA: [*]const u8 = @ptrCast([*]const u8, &array);
+    const sliceA: []const u8 = ptrA[0..2];
+
+    const ptrB: [*]const u8 = &array;
+    const sliceB: []const u8 = ptrB[0..2];
+
+    try expect(sliceA[1] == 2);
+    try expect(sliceB[1] == 2);
+}

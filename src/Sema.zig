@@ -7989,11 +7989,16 @@ fn analyzePtrArithmetic(
     const offset = try sema.coerce(block, Type.usize, uncasted_offset, offset_src);
     // TODO adjust the return type according to alignment and other factors
     const runtime_src = rs: {
-        if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
-            if (try sema.resolveDefinedValue(block, offset_src, offset)) |offset_val| {
+        if (try sema.resolveMaybeUndefVal(block, ptr_src, ptr)) |ptr_val| {
+            if (try sema.resolveMaybeUndefVal(block, offset_src, offset)) |offset_val| {
                 const ptr_ty = sema.typeOf(ptr);
-                const offset_int = offset_val.toUnsignedInt();
                 const new_ptr_ty = ptr_ty; // TODO modify alignment
+
+                if (ptr_val.isUndef() or offset_val.isUndef()) {
+                    return sema.addConstUndef(new_ptr_ty);
+                }
+
+                const offset_int = offset_val.toUnsignedInt();
                 if (ptr_val.getUnsignedInt()) |addr| {
                     const target = sema.mod.getTarget();
                     const elem_ty = ptr_ty.childType();
@@ -13206,8 +13211,8 @@ fn analyzeSlice(
     var elem_ty = ptr_ptr_child_ty.childType();
     switch (ptr_ptr_child_ty.zigTypeTag()) {
         .Array => {},
-        .Pointer => {
-            if (ptr_ptr_child_ty.isSinglePointer()) {
+        .Pointer => switch (ptr_ptr_child_ty.ptrSize()) {
+            .One => {
                 const double_child_ty = ptr_ptr_child_ty.childType();
                 if (double_child_ty.zigTypeTag() == .Array) {
                     ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
@@ -13217,10 +13222,23 @@ fn analyzeSlice(
                 } else {
                     return sema.fail(block, ptr_src, "slice of single-item pointer", .{});
                 }
-            }
+            },
+            .Many, .C => {
+                ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
+                slice_ty = ptr_ptr_child_ty;
+                array_ty = ptr_ptr_child_ty;
+                elem_ty = ptr_ptr_child_ty.childType();
+            },
+            .Slice => {
+                ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
+                slice_ty = ptr_ptr_child_ty;
+                array_ty = ptr_ptr_child_ty;
+                elem_ty = ptr_ptr_child_ty.childType();
+            },
         },
         else => return sema.fail(block, ptr_src, "slice of non-array type '{}'", .{ptr_ptr_child_ty}),
     }
+
     const ptr = if (slice_ty.isSlice())
         try sema.analyzeSlicePtr(block, src, ptr_or_slice, slice_ty, ptr_src)
     else
@@ -13252,7 +13270,6 @@ fn analyzeSlice(
 
     const new_len = try sema.analyzeArithmetic(block, .sub, end, start, src, end_src, start_src);
 
-    const opt_new_ptr_val = try sema.resolveDefinedValue(block, ptr_src, new_ptr);
     const opt_new_len_val = try sema.resolveDefinedValue(block, src, new_len);
 
     const new_ptr_ty_info = sema.typeOf(new_ptr).ptrInfo().data;
@@ -13276,11 +13293,21 @@ fn analyzeSlice(
             .size = .One,
         });
 
-        if (opt_new_ptr_val) |new_ptr_val| {
-            return sema.addConstant(return_ty, new_ptr_val);
-        } else {
+        const opt_new_ptr_val = try sema.resolveMaybeUndefVal(block, ptr_src, new_ptr);
+        const new_ptr_val = opt_new_ptr_val orelse {
             return block.addBitCast(return_ty, new_ptr);
+        };
+
+        if (!new_ptr_val.isUndef()) {
+            return sema.addConstant(return_ty, new_ptr_val);
         }
+
+        // Special case: @as([]i32, undefined)[x..x]
+        if (new_len_int == 0) {
+            return sema.addConstUndef(return_ty);
+        }
+
+        return sema.fail(block, ptr_src, "non-zero length slice of undefined pointer", .{});
     }
 
     const return_ty = try Type.ptr(sema.arena, .{
