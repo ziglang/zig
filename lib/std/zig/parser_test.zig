@@ -329,6 +329,50 @@ test "zig fmt: container declaration, transform trailing comma" {
     );
 }
 
+test "zig fmt: container declaration, comment, add trailing comma" {
+    try testTransform(
+        \\const X = struct {
+        \\    foo: i32, // foo
+        \\    bar: i8
+        \\};
+    ,
+        \\const X = struct {
+        \\    foo: i32, // foo
+        \\    bar: i8,
+        \\};
+        \\
+    );
+    try testTransform(
+        \\const X = struct {
+        \\    foo: i32 // foo
+        \\};
+    ,
+        \\const X = struct {
+        \\    foo: i32, // foo
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: container declaration, multiline string, add trailing comma" {
+    try testTransform(
+        \\const X = struct {
+        \\    foo: []const u8 =
+        \\        \\ foo
+        \\    ,
+        \\    bar: i8
+        \\};
+    ,
+        \\const X = struct {
+        \\    foo: []const u8 =
+        \\        \\ foo
+        \\    ,
+        \\    bar: i8,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: remove empty lines at start/end of container decl" {
     try testTransform(
         \\const X = struct {
