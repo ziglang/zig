@@ -323,6 +323,8 @@ const usage_build_generic =
     \\            medium|large]
     \\  -mred-zone                Force-enable the "red-zone"
     \\  -mno-red-zone             Force-disable the "red-zone"
+    \\  -fomit-frame-pointer      Omit the stack frame pointer
+    \\  -fno-omit-frame-pointer   Store the stack frame pointer
     \\  -mexec-model=[value]      Execution model (WASI only)
     \\  --name [name]             Override root name (not a file path)
     \\  -O [mode]                 Choose what to optimize for
@@ -581,6 +583,7 @@ fn buildOutputType(
     var want_sanitize_c: ?bool = null;
     var want_stack_check: ?bool = null;
     var want_red_zone: ?bool = null;
+    var omit_frame_pointer: ?bool = null;
     var want_valgrind: ?bool = null;
     var want_tsan: ?bool = null;
     var want_compiler_rt: ?bool = null;
@@ -976,6 +979,10 @@ fn buildOutputType(
                         want_red_zone = true;
                     } else if (mem.eql(u8, arg, "-mno-red-zone")) {
                         want_red_zone = false;
+                    } else if (mem.eql(u8, arg, "-fomit-frame-pointer")) {
+                        omit_frame_pointer = true;
+                    } else if (mem.eql(u8, arg, "-fno-omit-frame-pointer")) {
+                        omit_frame_pointer = false;
                     } else if (mem.eql(u8, arg, "-fsanitize-c")) {
                         want_sanitize_c = true;
                     } else if (mem.eql(u8, arg, "-fno-sanitize-c")) {
@@ -1217,6 +1224,8 @@ fn buildOutputType(
                     .no_lto => want_lto = false,
                     .red_zone => want_red_zone = true,
                     .no_red_zone => want_red_zone = false,
+                    .omit_frame_pointer => omit_frame_pointer = true,
+                    .no_omit_frame_pointer => omit_frame_pointer = false,
                     .unwind_tables => want_unwind_tables = true,
                     .no_unwind_tables => want_unwind_tables = false,
                     .nostdlib => ensure_libc_on_non_freestanding = false,
@@ -2082,6 +2091,7 @@ fn buildOutputType(
         .want_sanitize_c = want_sanitize_c,
         .want_stack_check = want_stack_check,
         .want_red_zone = want_red_zone,
+        .omit_frame_pointer = omit_frame_pointer,
         .want_valgrind = want_valgrind,
         .want_tsan = want_tsan,
         .want_compiler_rt = want_compiler_rt,
@@ -3708,6 +3718,8 @@ pub const ClangArgIterator = struct {
         nostdlibinc,
         red_zone,
         no_red_zone,
+        omit_frame_pointer,
+        no_omit_frame_pointer,
         strip,
         exec_model,
         emit_llvm,

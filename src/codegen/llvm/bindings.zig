@@ -28,6 +28,9 @@ pub const Context = opaque {
     pub const createEnumAttribute = LLVMCreateEnumAttribute;
     extern fn LLVMCreateEnumAttribute(*const Context, KindID: c_uint, Val: u64) *const Attribute;
 
+    pub const createStringAttribute = LLVMCreateStringAttribute;
+    extern fn LLVMCreateStringAttribute(*const Context, Key: [*]const u8, Key_Len: c_uint, Value: [*]const u8, Value_Len: c_uint) *const Attribute;
+
     pub const intType = LLVMIntTypeInContext;
     extern fn LLVMIntTypeInContext(C: *const Context, NumBits: c_uint) *const Type;
 

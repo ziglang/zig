@@ -199,6 +199,7 @@ struct ZigStage1 {
     bool include_compiler_rt;
     bool enable_stack_probing;
     bool red_zone;
+    bool omit_frame_pointer;
     bool enable_time_report;
     bool enable_stack_report;
     bool test_is_evented;

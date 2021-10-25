@@ -668,6 +668,11 @@ pub const DeclGen = struct {
         if (!dg.module.comp.bin_file.options.red_zone) {
             dg.addFnAttr(llvm_fn, "noredzone");
         }
+        if (dg.module.comp.bin_file.options.omit_frame_pointer) {
+            dg.addFnAttrString(llvm_fn, "frame-pointer", "none");
+        } else {
+            dg.addFnAttrString(llvm_fn, "frame-pointer", "all");
+        }
         dg.addFnAttr(llvm_fn, "nounwind");
         if (dg.module.comp.unwind_tables) {
             dg.addFnAttr(llvm_fn, "uwtable");
@@ -1541,8 +1546,28 @@ pub const DeclGen = struct {
         val.addAttributeAtIndex(index, llvm_attr);
     }
 
+    fn addAttrString(
+        dg: *DeclGen,
+        val: *const llvm.Value,
+        index: llvm.AttributeIndex,
+        name: []const u8,
+        value: []const u8,
+    ) void {
+        const llvm_attr = dg.context.createStringAttribute(
+            name.ptr,
+            @intCast(c_uint, name.len),
+            value.ptr,
+            @intCast(c_uint, value.len),
+        );
+        val.addAttributeAtIndex(index, llvm_attr);
+    }
+
     fn addFnAttr(dg: DeclGen, val: *const llvm.Value, name: []const u8) void {
         dg.addAttr(val, std.math.maxInt(llvm.AttributeIndex), name);
+    }
+
+    fn addFnAttrString(dg: *DeclGen, val: *const llvm.Value, name: []const u8, value: []const u8) void {
+        dg.addAttrString(val, std.math.maxInt(llvm.AttributeIndex), name, value);
     }
 
     fn removeFnAttr(fn_val: *const llvm.Value, name: []const u8) void {

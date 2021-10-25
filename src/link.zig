@@ -90,6 +90,7 @@ pub const Options = struct {
     tsan: bool,
     stack_check: bool,
     red_zone: bool,
+    omit_frame_pointer: bool,
     single_threaded: bool,
     verbose_link: bool,
     dll_export_fns: bool,

@@ -1515,6 +1515,8 @@ pub const LibExeObjStep = struct {
 
     red_zone: ?bool = null,
 
+    omit_frame_pointer: ?bool = null,
+
     subsystem: ?std.Target.SubSystem = null,
 
     /// Overrides the default stack size
@@ -2404,6 +2406,13 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-mred-zone");
             } else {
                 try zig_args.append("-mno-red-zone");
+            }
+        }
+        if (self.omit_frame_pointer) |omit_frame_pointer| {
+            if (omit_frame_pointer) {
+                try zig_args.append("-fomit-frame-pointer");
+            } else {
+                try zig_args.append("-fno-omit-frame-pointer");
             }
         }
         if (self.disable_sanitize_c) {

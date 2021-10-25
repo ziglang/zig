@@ -363,10 +363,6 @@ static bool cc_want_sret_attr(CallingConvention cc) {
     zig_unreachable();
 }
 
-static bool codegen_have_frame_pointer(CodeGen *g) {
-    return g->build_mode == BuildModeDebug;
-}
-
 static void add_common_fn_attributes(CodeGen *g, LLVMValueRef llvm_fn) {
     if (!g->red_zone) {
         addLLVMFnAttr(llvm_fn, "noredzone");
@@ -603,7 +599,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         addLLVMFnAttrInt(llvm_fn, "alignstack", fn->alignstack_value);
     }
 
-    if (codegen_have_frame_pointer(g) && cc != CallingConventionInline) {
+    if (!g->omit_frame_pointer && cc != CallingConventionInline) {
         ZigLLVMAddFunctionAttr(llvm_fn, "frame-pointer", "all");
     }
     if (fn->section_name) {
@@ -1223,7 +1219,7 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     // Error return trace memory is in the stack, which is impossible to be at address 0
     // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
-    if (codegen_have_frame_pointer(g)) {
+    if (!g->omit_frame_pointer) {
         ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
 
@@ -1299,7 +1295,7 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     add_common_fn_attributes(g, fn_val);
-    if (codegen_have_frame_pointer(g)) {
+    if (!g->omit_frame_pointer) {
         ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
 
@@ -1381,7 +1377,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     add_common_fn_attributes(g, fn_val);
-    if (codegen_have_frame_pointer(g)) {
+    if (!g->omit_frame_pointer) {
         ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
     // Not setting alignment here. See the comment above about
@@ -2389,7 +2385,7 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
 
     addLLVMArgAttr(fn_val, (unsigned)1, "noalias");
     addLLVMArgAttr(fn_val, (unsigned)1, "readonly");
-    if (codegen_have_frame_pointer(g)) {
+    if (!g->omit_frame_pointer) {
         ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
 
@@ -5418,7 +5414,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     add_common_fn_attributes(g, fn_val);
-    if (codegen_have_frame_pointer(g)) {
+    if (!g->omit_frame_pointer) {
         ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
 

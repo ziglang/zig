@@ -301,6 +301,14 @@ const known_options = [_]KnownOpt{
         .ident = "no_red_zone",
     },
     .{
+        .name = "fomit-frame-pointer",
+        .ident = "omit_frame_pointer",
+    },
+    .{
+        .name = "fno-omit-frame-pointer",
+        .ident = "no_omit_frame_pointer",
+    },
+    .{
         .name = "MD",
         .ident = "dep_file",
     },
