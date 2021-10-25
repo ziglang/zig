@@ -75,7 +75,7 @@ pub fn nanoTimestamp() i128 {
     @compileError("nanoTimestamp is deprecated. See `std.os.clock_gettime` for a POSIX timestamp. See timestampNow() or nanoMonotonic().");
 }
 
-const GlobalTimerState = enum(u8) {
+const GlobalTimerState = enum(u32) {
     uninitialized,
     initailizing,
     initialized,
@@ -96,10 +96,10 @@ pub fn nanoMonotonic() u64 {
 
     if (global_timer_state.compareAndSwap(.uninitialized, .initailizing, .Acquire, .Acquire)) |state| {
         switch (state) {
-            .uninitialized, => unreachable,
-            .initailizing, => return 0, // Another thread is initializing the timer
-            .failed, => return 0, // Timer failed to initialize
-            .initialized, => return global_timer.read(), // Another thread initalized the timer since we first checked
+            .uninitialized => unreachable,
+            .initailizing => return 0, // Another thread is initializing the timer
+            .failed => return 0, // Timer failed to initialize
+            .initialized => return global_timer.read(), // Another thread initalized the timer since we first checked
         }
     }
 
@@ -239,7 +239,7 @@ const PosixTimestampImpl = struct {
         if (clock_id_local == math.maxInt(i32)) {
             // Unknown clock_id, run the detection algorithm once
             detectClockId() catch return 0;
-            
+
             clock_id_local = clock_id.load(.Acquire);
         }
 
@@ -679,41 +679,37 @@ pub const Instant = struct {
         };
     }
 
-    var windows_ns_scale32 = Atomic(u64).init(maxInt(u64));
-    var darwin_ns_scale32 = Atomic(u64).init(maxInt(u64));
+    var ns_scale32: u64 = 0;
+    var set_scale_once = std.once(setScale);
 
-    fn getDarwinScale32() u64 {
-        var timebase: os.darwin.mach_timebase_info_data = undefined;
-        if (os.darwin.mach_timebase_info(&timebase) != 0) unreachable;
+    fn setScale() void {
+        if (is_windows) {
+            ns_scale32 = (std.time.ns_per_s << 32) / os.windows.QueryPerformanceFrequency();
+        } else if (is_darwin) {
+            var timebase: os.darwin.mach_timebase_info_data = undefined;
+            if (os.darwin.mach_timebase_info(&timebase) != 0) unreachable;
 
-        if (timebase.numer == timebase.denom)
-            return 0;
+            if (timebase.numer == timebase.denom) {
+                ns_scale32 = 0;
+                return;
+            }
 
-        return @as(u64, 1 << 32) * timebase.numer / timebase.denom;
+            ns_scale32 = @as(u64, 1 << 32) * timebase.numer / timebase.denom;
+        }
     }
 
     fn sinceAssumeEarlier(self: Instant, earlier: Instant) u64 {
         if (is_windows) {
             const duration_ticks = self.native_ticks - earlier.native_ticks;
 
-            var ns_scale32 = windows_ns_scale32.load(.Unordered);
-
-            if (ns_scale32 == maxInt(u64)) {
-                ns_scale32 = (std.time.ns_per_s << 32) / os.windows.QueryPerformanceFrequency();
-                windows_ns_scale32.store(ns_scale32, .Unordered);
-            }
+            set_scale_once.call();
 
             // Scales to duration in ns using fixed-point math avoiding overflow.
             return @truncate(u64, (@as(u96, duration_ticks) * ns_scale32) >> 32);
         } else if (is_darwin) {
             const duration_ticks = self.native_ticks - earlier.native_ticks;
 
-            var ns_scale32 = darwin_ns_scale32.load(.Unordered);
-
-            if (ns_scale32 == maxInt(u64)) {
-                ns_scale32 = getDarwinScale32();
-                darwin_ns_scale32.store(ns_scale32, .Unordered);
-            }
+            set_scale_once.call();
 
             if (ns_scale32 == 0)
                 return duration_ticks;
@@ -804,7 +800,12 @@ pub const CpuTime = enum {
         else => null,
     };
 
-    var windows_ns_scale32 = Atomic(u64).init(maxInt(u64));
+    var ns_scale32: u64 = 0;
+    var set_scale_once = std.once(setScale);
+
+    fn setScale() void {
+        ns_scale32 = (std.time.ns_per_s << 32) / os.windows.QueryPerformanceFrequency();
+    }
 
     /// TODO: Replace with QueryUnbiasedInterruptTimePrecise() once available
     fn readWindowsUnbiasedInterruptTime() u64 {
@@ -815,12 +816,7 @@ pub const CpuTime = enum {
         const KUSER_SHARED_DATA = 0x7ffe0000;
         const InterruptTimeBias = @intToPtr(*volatile u64, KUSER_SHARED_DATA + 0x3b0);
 
-        var ns_scale32 = windows_ns_scale32.load(.Unordered);
-
-        if (ns_scale32 == maxInt(u64)) {
-            ns_scale32 = (std.time.ns_per_s << 32) / os.windows.QueryPerformanceFrequency();
-            windows_ns_scale32.store(ns_scale32, .Unordered);
-        }
+        set_scale_once.call();
 
         while (true) {
             const bias = InterruptTimeBias.*;
