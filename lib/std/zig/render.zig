@@ -1206,7 +1206,7 @@ fn renderContainerField(
         ais.pushIndent();
         try renderExpression(gpa, ais, tree, field.ast.value_expr, .none); // value
         ais.popIndent();
-        try renderToken(ais, tree, maybe_comma, space);
+        try renderToken(ais, tree, maybe_comma, .newline);
     } else {
         ais.pushIndent();
         try renderExpression(gpa, ais, tree, field.ast.value_expr, space); // value
@@ -1894,7 +1894,11 @@ fn renderContainerDecl(
 
     const src_has_trailing_comma = token_tags[rbrace - 1] == .comma;
     if (!src_has_trailing_comma) one_line: {
-        // We can only print all the members in-line if all the members are fields.
+        // We can only print all the members in-line if there are no comments or multiline strings,
+        // and all the members are fields.
+        if (hasComment(tree, lbrace, rbrace) or hasMultilineString(tree, lbrace, rbrace)) {
+            break :one_line;
+        }
         for (container_decl.ast.members) |member| {
             if (!node_tags[member].isContainerField()) break :one_line;
         }
@@ -1912,7 +1916,18 @@ fn renderContainerDecl(
     if (token_tags[lbrace + 1] == .container_doc_comment) {
         try renderContainerDocComments(ais, tree, lbrace + 1);
     }
-    try renderMembers(gpa, ais, tree, container_decl.ast.members);
+    for (container_decl.ast.members) |member, i| {
+        if (i != 0) try renderExtraNewline(ais, tree, member);
+        switch (tree.nodes.items(.tag)[member]) {
+            // For container fields, ensure a trailing comma is added if necessary.
+            .container_field_init,
+            .container_field_align,
+            .container_field,
+            => try renderMember(gpa, ais, tree, member, .comma),
+
+            else => try renderMember(gpa, ais, tree, member, .newline),
+        }
+    }
     ais.popIndent();
 
     return renderToken(ais, tree, rbrace, space); // rbrace
@@ -2200,10 +2215,11 @@ fn renderExpressionIndented(gpa: *Allocator, ais: *Ais, tree: Ast, node: Ast.Nod
 }
 
 /// Render an expression, and the comma that follows it, if it is present in the source.
+/// If a comma is present, and `space` is `Space.comma`, render only a single comma.
 fn renderExpressionComma(gpa: *Allocator, ais: *Ais, tree: Ast, node: Ast.Node.Index, space: Space) Error!void {
     const token_tags = tree.tokens.items(.tag);
     const maybe_comma = tree.lastToken(node) + 1;
-    if (token_tags[maybe_comma] == .comma) {
+    if (token_tags[maybe_comma] == .comma and space != .comma) {
         try renderExpression(gpa, ais, tree, node, .none);
         return renderToken(ais, tree, maybe_comma, space);
     } else {
@@ -2211,10 +2227,12 @@ fn renderExpressionComma(gpa: *Allocator, ais: *Ais, tree: Ast, node: Ast.Node.I
     }
 }
 
+/// Render a token, and the comma that follows it, if it is present in the source.
+/// If a comma is present, and `space` is `Space.comma`, render only a single comma.
 fn renderTokenComma(ais: *Ais, tree: Ast, token: Ast.TokenIndex, space: Space) Error!void {
     const token_tags = tree.tokens.items(.tag);
     const maybe_comma = token + 1;
-    if (token_tags[maybe_comma] == .comma) {
+    if (token_tags[maybe_comma] == .comma and space != .comma) {
         try renderToken(ais, tree, token, .none);
         return renderToken(ais, tree, maybe_comma, space);
     } else {
