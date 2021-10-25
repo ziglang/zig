@@ -2450,6 +2450,12 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(un_op);
         const operand_ty = self.air.typeOf(un_op);
         const optional_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
+        if (optional_ty.isPtrLikeOptional()) {
+            const optional_llvm_ty = try self.dg.llvmType(optional_ty);
+            const loaded = if (operand_is_ptr) self.builder.buildLoad(operand, "") else operand;
+            return self.builder.buildICmp(pred, loaded, optional_llvm_ty.constNull(), "");
+        }
+
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = optional_ty.optionalChild(&buf);
         if (!payload_ty.hasCodeGenBits()) {
@@ -2458,11 +2464,6 @@ pub const FuncGen = struct {
             } else {
                 return operand;
             }
-        }
-        if (optional_ty.isPtrLikeOptional()) {
-            const optional_llvm_ty = try self.dg.llvmType(optional_ty);
-            const loaded = if (operand_is_ptr) self.builder.buildLoad(operand, "") else operand;
-            return self.builder.buildICmp(pred, loaded, optional_llvm_ty.constNull(), "");
         }
 
         if (operand_is_ptr or isByRef(optional_ty)) {

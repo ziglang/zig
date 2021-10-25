@@ -2347,11 +2347,13 @@ pub const Type = extern union {
         }
     }
 
-    /// Asserts that the type is an optional
+    /// Asserts that the type is an optional or a pointer that can be null.
     pub fn isPtrLikeOptional(self: Type) bool {
         switch (self.tag()) {
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
             => return true,
 
             .optional => {
@@ -2367,6 +2369,8 @@ pub const Type = extern union {
                     .Many, .One => return !info.@"allowzero",
                 }
             },
+
+            .pointer => return self.castTag(.pointer).?.data.size == .C,
             else => unreachable,
         }
     }
