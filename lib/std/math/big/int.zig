@@ -18,14 +18,11 @@ const debug_safety = false;
 /// Returns the number of limbs needed to store `scalar`, which must be a
 /// primitive integer value.
 pub fn calcLimbLen(scalar: anytype) usize {
-    const T = @TypeOf(scalar);
-    const max_scalar = switch (@typeInfo(T)) {
-        .Int => maxInt(T),
-        .ComptimeInt => scalar,
-        else => @compileError("parameter must be a primitive integer type"),
-    };
+    if (scalar == 0) {
+        return 1;
+    }
 
-    const w_value = std.math.absCast(max_scalar);
+    const w_value = std.math.absCast(scalar);
     return @divFloor(@intCast(Limb, math.log2(w_value)), limb_bits) + 1;
 }
 
