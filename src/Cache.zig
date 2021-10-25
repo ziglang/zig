@@ -803,13 +803,12 @@ fn hashFile(file: fs.File, bin_digest: *[Hasher.mac_length]u8) !void {
 
 // Create/Write a file, close it, then grab its stat.mtime timestamp.
 fn testGetCurrentFileTimestamp() !FileTimeCache {
-    var timestamp_file = try fs.cwd().createFile("filetimestamp.tmp", .{
-        .truncate = true,
+    var timestamp_file = try fs.cwd().createFile("zig-cache/filetimestamp.tmp", .{
+        .read = true,
+        .truncate = false,
     });
-    timestamp_file.close();
-
-    timestamp_file = try fs.cwd().openFile("filetimestamp.tmp", .{});
     defer timestamp_file.close();
+    try timestamp_file.setEndPos(0);
 
     return mtimeToFileTimeCache((try timestamp_file.stat()).mtime);
 }

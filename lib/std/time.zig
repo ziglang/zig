@@ -7,6 +7,8 @@ const math = std.math;
 const maxInt = math.maxInt;
 const minInt = math.minInt;
 
+const Atomic = std.atomic.Atomic;
+
 const is_windows = builtin.os.tag == .windows;
 const is_darwin = builtin.os.tag.isDarwin();
 
@@ -73,7 +75,14 @@ pub fn nanoTimestamp() i128 {
     @compileError("nanoTimestamp is deprecated. See `std.os.clock_gettime` for a POSIX timestamp. See timestampNow() or nanoMonotonic().");
 }
 
-var global_timer_started = false;
+const GlobalTimerState = enum(u8) {
+    uninitialized,
+    initailizing,
+    initialized,
+    failed,
+};
+
+var global_timer_state = Atomic(GlobalTimerState).init(.uninitialized);
 var global_timer: Timer = undefined;
 
 /// Get a monotonic counter, in nanoseconds, relative to the first call to this function.
@@ -81,13 +90,26 @@ var global_timer: Timer = undefined;
 /// Increments while suspended.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
 pub fn nanoMonotonic() u64 {
-    if (!global_timer_started) {
-        global_timer = Timer.start() catch return 0;
-        global_timer_started = true;
-        return 0;
+    // Do a quick check if it's already initialized first
+    if (global_timer_state.load(.Acquire) == .initialized)
+        return global_timer.read();
+
+    if (global_timer_state.compareAndSwap(.uninitialized, .initailizing, .Acquire, .Acquire)) |state| {
+        switch (state) {
+            .uninitialized, => unreachable,
+            .initailizing, => return 0, // Another thread is initializing the timer
+            .failed, => return 0, // Timer failed to initialize
+            .initialized, => return global_timer.read(), // Another thread initalized the timer since we first checked
+        }
     }
 
-    return global_timer.read();
+    // .uninitialized: Do the initalization now on this thread
+    global_timer = Timer.start() catch {
+        global_timer_state.store(.failed, .Release);
+        return 0;
+    };
+    global_timer_state.store(.initialized, .Release);
+    return 0;
 }
 
 /// Get a monotonic counter, in milliseconds, relative to the first call to nanoMonotonic().
@@ -153,7 +175,7 @@ const TimestampImpl = if (is_windows) WindowsTimestampImpl else PosixTimestampIm
 const PosixTimestampImpl = struct {
     // The CLOCK_ID to use in os.clock_gettime() to get Utc2018.
     // Must be detected with detectClockId().
-    var clock_id: i32 = math.maxInt(i32);
+    var clock_id = Atomic(i32).init(maxInt(i32));
 
     // The offset (in seconds) to get Utc2018. Must be detected with detectClockId().
     var clock_offset: u8 = 0;
@@ -164,19 +186,19 @@ const PosixTimestampImpl = struct {
             os.clock_gettime(os.CLOCK.REALTIME, &utc_ts) catch return error.UnsupportedClock;
 
             if (builtin.os.tag == .wasi) {
-                clock_id = os.CLOCK.REALTIME;
+                clock_id.store(os.CLOCK.REALTIME, .Release);
                 return;
             }
 
             if (comptime builtin.target.isDarwin()) {
-                clock_id = os.CLOCK.REALTIME;
+                clock_id.store(os.CLOCK.REALTIME, .Release);
                 return;
             }
 
             var tai_ts: os.timespec = undefined;
             os.clock_gettime(os.CLOCK.TAI, &tai_ts) catch {
                 // CLOCK.TAI unsupported, use CLOCK_REALTIME and assume no leap seconds
-                clock_id = os.CLOCK.REALTIME;
+                clock_id.store(os.CLOCK.REALTIME, .Release);
                 return;
             };
 
@@ -192,22 +214,20 @@ const PosixTimestampImpl = struct {
             if (offset < 0) {
                 // Offset doesn't make any sense: No possible way that Earth spun up that much.
                 // CLOCK.TAI unsupported, use CLOCK_REALTIME and assume no leap seconds
-                clock_id = os.CLOCK.REALTIME;
+                clock_id.store(os.CLOCK.REALTIME, .Release);
             } else if (offset <= 1) {
                 // Assume the epoch of CLOCK_TAI is 2018's UTC (assuming no leap seconds).
-                clock_id = os.CLOCK.TAI;
-                clock_offset = 0;
+                clock_id.store(os.CLOCK.TAI, .Release);
             } else if (offset > 1000) {
                 // CLOCK_TAI seems to be configured, but the offset doesn't make any sense:
                 // No possible way that Earth slowed down its spin that much.
                 // CLOCK.TAI unsupported, use CLOCK_REALTIME and assume no leap seconds
-                clock_id = os.CLOCK.REALTIME;
+                clock_id.store(os.CLOCK.REALTIME, .Release);
             } else {
                 // CLOCK_TAI is configured, assume it's actually TAI.
-                clock_id = os.CLOCK.TAI;
-
                 // Use the constant offset between TAI and Utc2018.
                 clock_offset = utc2018.tai_offset;
+                clock_id.store(os.CLOCK.TAI, .Release);
             }
         }
     }
@@ -215,13 +235,16 @@ const PosixTimestampImpl = struct {
     /// This implementation tries to use CLOCK_TAI to give consistent Utc2018 time
     /// but has a fallback that just assumes CLOCK_REALTIME is in 2018's UTC.
     fn timestampNow() u96 {
-        if (clock_id == math.maxInt(i32)) {
+        var clock_id_local = clock_id.load(.Acquire);
+        if (clock_id_local == math.maxInt(i32)) {
             // Unknown clock_id, run the detection algorithm once
             detectClockId() catch return 0;
+            
+            clock_id_local = clock_id.load(.Acquire);
         }
 
         var ts: os.timespec = undefined;
-        os.clock_gettime(clock_id, &ts) catch return 0;
+        os.clock_gettime(clock_id_local, &ts) catch return 0;
 
         // Convert to Utc2018 seconds
         const seconds = @intCast(u96, ts.tv_sec) + utc2018.epoch.posix - clock_offset;
@@ -242,7 +265,7 @@ const WindowsTimestampImpl = struct {
     fn timestampNow() u96 {
         // FileTime has a granularity of 100ns and uses the NTFS/Windows epoch.
         // Matches Zig's Utc2018 epoch.
-        // Explicitly doesn't have leap seconds (as of June 2018).
+        // Explicitly unaffected by leap seconds on supported platforms.
         var ft: os.windows.FILETIME = undefined;
         os.windows.kernel32.GetSystemTimePreciseAsFileTime(&ft);
 
@@ -291,19 +314,20 @@ test "timestampNow" {
 }
 
 // TODO: Should 'StdTime' just be 'Timestamp' in the 'time' namespace?
+
+/// Takes a number of seconds and converts them to Zig std time in fixed-point 36.60, by a 
+/// simple shift by 60 bits. The 60 bits of fraction are zero in this case
 pub fn stdTimeFromSeconds(s: u36) u96 {
-    // Zig std time in fixed-point 36.60
-    // The 60 bits of fraction are zero in this case
     return @as(u96, s) << 60;
 }
 
+/// Takes Zig std time in 36.60 fixed-point format.
+/// Shifts out the 60 bits of fraction to return just seconds.
 pub fn secondsPartOfStdTime(st: u96) u36 {
-    // Zig std time in fixed-point 36.60
-    // Shift out the 60 bits of fraction
     return @truncate(u36, st >> 60);
 }
 
-/// std time is in 36.60 fixed-point format.
+/// Takes Zig std time in 36.60 fixed-point format.
 /// This truncates out the 36 bits of 'seconds' and returns the fractional part converted to
 /// nanoseconds.
 pub fn nsPartOfStdTime(st: u96) u30 {
@@ -318,9 +342,8 @@ pub fn nsPartOfStdTime(st: u96) u30 {
     return @truncate(u30, ns >> 60);
 }
 
+/// Takes Zig std time in fixed-point 36.60 and shifts out 32 bits of fraction to leave 36.28
 pub fn reducePrecisionStdTime(st: u96) u64 {
-    // Zig std time in fixed-point 36.60
-    // Shift out 32 bits of fraction
     return @truncate(u64, st >> 32);
 }
 
@@ -591,12 +614,12 @@ pub const Instant = struct {
     };
 
     // This is used to implement Instant.asStdTime().
-    // This represents the std time at a hypothetical Instant{ZeroTick}.
+    // This represents the std time at a hypothetical instant_zero.
     var base_std_time: u96 = 0;
-    var base_std_time_valid = false;
+    var base_std_time_valid = Atomic(bool).init(false);
 
     // The two Instants are averaged to become slightly more accurate.
-    // avg_instant.sinceAssumeEarlier(Instant{ZeroTick}) is subtracted from the std timestamp to
+    // avg_instant.sinceAssumeEarlier(instant_zero) is subtracted from the std timestamp to
     // become base_std_time
     fn getBaseStdTime() void {
         var best_delta_ns = ns_per_day;
@@ -608,13 +631,13 @@ pub const Instant = struct {
             const st = timestampNow();
             const instant_2 = Instant.now();
 
-            const instant_1_ns_since_zero = instant_1.sinceAssumeEarlier(instant_zero);
-            const instant_2_ns_since_zero = instant_2.sinceAssumeEarlier(instant_zero);
+            const instant_1_ns_since_zero = instant_1.since(instant_zero) catch unreachable;
+            const instant_2_ns_since_zero = instant_2.since(instant_zero) catch unreachable;
 
             if (instant_1_ns_since_zero > instant_2_ns_since_zero)
                 continue; // Try again, non-monotonic behavior
 
-            const delta_ns = instant_2_ns_since_zero - instant_1_ns_since_zero;
+            const delta_ns = @intCast(u64, instant_2_ns_since_zero - instant_1_ns_since_zero);
             if (delta_ns < (best_delta_ns / 2)) {
                 best_delta_ns = delta_ns;
                 best_st = st;
@@ -630,14 +653,18 @@ pub const Instant = struct {
     /// The first time this is called, this may take up to a few microseconds to establish the 
     /// congruence between Instant's NativeTicks and StdTime via timestampNow().
     pub fn asStdTime(self: Instant) u96 {
-        if (!base_std_time_valid) {
+        if (!base_std_time_valid.load(.Acquire)) {
             base_std_time = getBaseStdTime();
-            // TODO: Add a Zig idiomatic fence to ensure the above occurs first.
-            base_std_time_valid = true;
+            base_std_time_valid.store(true, .Release);
         }
 
-        const st_since_base = self.sinceAssumeEarlier(instant_zero) * ns_scale_st_36_60;
-        return base_std_time + st_since_base;
+        if (self.native_ticks < 0) {
+            const st_since_base = instant_zero.sinceAssumeEarlier(self) * ns_scale_st_36_60;
+            return base_std_time - st_since_base;
+        } else {
+            const st_since_base = self.sinceAssumeEarlier(instant_zero) * ns_scale_st_36_60;
+            return base_std_time + st_since_base;
+        }
     }
 
     /// Returns the duration in nanoseconds since the earlier Instant to this Instant.
@@ -652,9 +679,8 @@ pub const Instant = struct {
         };
     }
 
-    var windows_ns_scale32: u64 = maxInt(u64);
-
-    var darwin_ns_scale32: u64 = maxInt(u64);
+    var windows_ns_scale32 = Atomic(u64).init(maxInt(u64));
+    var darwin_ns_scale32 = Atomic(u64).init(maxInt(u64));
 
     fn getDarwinScale32() u64 {
         var timebase: os.darwin.mach_timebase_info_data = undefined;
@@ -670,22 +696,30 @@ pub const Instant = struct {
         if (is_windows) {
             const duration_ticks = self.native_ticks - earlier.native_ticks;
 
-            if (windows_ns_scale32 == maxInt(u64))
-                windows_ns_scale32 = (std.time.ns_per_s << 32) / os.windows.QueryPerformanceFrequency();
+            var ns_scale32 = windows_ns_scale32.load(.Unordered);
+
+            if (ns_scale32 == maxInt(u64)) {
+                ns_scale32 = (std.time.ns_per_s << 32) / os.windows.QueryPerformanceFrequency();
+                windows_ns_scale32.store(ns_scale32, .Unordered);
+            }
 
             // Scales to duration in ns using fixed-point math avoiding overflow.
-            return @truncate(u64, (@as(u96, duration_ticks) * windows_ns_scale32) >> 32);
+            return @truncate(u64, (@as(u96, duration_ticks) * ns_scale32) >> 32);
         } else if (is_darwin) {
             const duration_ticks = self.native_ticks - earlier.native_ticks;
 
-            if (darwin_ns_scale32 == maxInt(u64))
-                darwin_ns_scale32 = getDarwinScale32();
+            var ns_scale32 = darwin_ns_scale32.load(.Unordered);
 
-            if (darwin_ns_scale32 == 0)
+            if (ns_scale32 == maxInt(u64)) {
+                ns_scale32 = getDarwinScale32();
+                darwin_ns_scale32.store(ns_scale32, .Unordered);
+            }
+
+            if (ns_scale32 == 0)
                 return duration_ticks;
 
             // Scales to duration in ns using fixed-point math avoiding overflow.
-            return @truncate(u64, (@as(u96, duration_ticks) * darwin_ns_scale32) >> 32);
+            return @truncate(u64, (@as(u96, duration_ticks) * ns_scale32) >> 32);
         } else {
             const duration_seconds = @intCast(u64, self.native_ticks.tv_sec - earlier.native_ticks.tv_sec);
 
@@ -702,20 +736,20 @@ pub const CpuTime = enum {
     /// Returns nanoseconds of cpu time spent in all threads in the caller's process
     process,
     /// Returns nanoseconds since an arbitrary point in time. Pauses while suspended.
-    computer,
+    machine,
 
     const Error = error{UnsupportedClock};
 
-    // measure thread/process/computer cpu time in nanoseconds
+    // measure thread/process/machine cpu time in nanoseconds
     pub fn read(self: CpuTime) Error!u64 {
         return if (is_windows) switch (self) {
             .thread => readWindowsCpuTime("GetThreadTimes", "GetCurrentThread"),
             .process => readWindowsCpuTime("GetProcessTimes", "GetCurrentProcess"),
-            .computer => readWindowsUnbiasedInterruptTime(),
+            .machine => readWindowsUnbiasedInterruptTime(),
         } else switch (self) {
             .thread => readPosixTime(os.CLOCK.THREAD_CPUTIME_ID),
             .process => readPosixTime(os.CLOCK.PROCESS_CPUTIME_ID),
-            .computer => readPosixTime(posix_uptime_clock_id),
+            .machine => readPosixTime(posix_uptime_clock_id),
         };
     }
 
@@ -770,7 +804,7 @@ pub const CpuTime = enum {
         else => null,
     };
 
-    var windows_ns_scale32: u64 = maxInt(u64);
+    var windows_ns_scale32 = Atomic(u64).init(maxInt(u64));
 
     /// TODO: Replace with QueryUnbiasedInterruptTimePrecise() once available
     fn readWindowsUnbiasedInterruptTime() u64 {
@@ -781,15 +815,19 @@ pub const CpuTime = enum {
         const KUSER_SHARED_DATA = 0x7ffe0000;
         const InterruptTimeBias = @intToPtr(*volatile u64, KUSER_SHARED_DATA + 0x3b0);
 
-        if (windows_ns_scale32 == maxInt(u64))
-            windows_ns_scale32 = (std.time.ns_per_s << 32) / os.windows.QueryPerformanceFrequency();
+        var ns_scale32 = windows_ns_scale32.load(.Unordered);
+
+        if (ns_scale32 == maxInt(u64)) {
+            ns_scale32 = (std.time.ns_per_s << 32) / os.windows.QueryPerformanceFrequency();
+            windows_ns_scale32.store(ns_scale32, .Unordered);
+        }
 
         while (true) {
             const bias = InterruptTimeBias.*;
             const counter = os.windows.QueryPerformanceCounter();
             if (bias == InterruptTimeBias.*) {
                 // Scales to duration in ns using fixed-point math avoiding overflow.
-                return @truncate(u64, (@as(u96, counter) * windows_ns_scale32) >> 32) - (bias * 100);
+                return @truncate(u64, (@as(u96, counter) * ns_scale32) >> 32) - (bias * 100);
             }
         }
     }
