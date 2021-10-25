@@ -7626,7 +7626,10 @@ void render_const_value(CodeGen *g, Buf *buf, ZigValue *const_val) {
                     ZigValue *array = ptr_val->data.x_ptr.data.base_array.array_val;
                     size_t start = ptr_val->data.x_ptr.data.base_array.elem_index;
 
-                    render_const_val_array(g, buf, &type_entry->name, array, start, len);
+                    if (array->special == ConstValSpecialUndef)
+                        buf_append_str(buf, "undefined");
+                    else
+                        render_const_val_array(g, buf, &type_entry->name, array, start, len);
                 } else {
                     buf_appendf(buf, "(struct %s constant)", buf_ptr(&type_entry->name));
                 }
