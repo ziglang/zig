@@ -184,7 +184,6 @@ const Writer = struct {
             .is_non_err,
             .is_non_err_ptr,
             .typeof,
-            .typeof_elem,
             .struct_init_empty,
             .type_info,
             .size_of,

@@ -608,7 +608,6 @@ pub fn analyzeBody(
             .size_of                      => try sema.zirSizeOf(block, inst),
             .bit_size_of                  => try sema.zirBitSizeOf(block, inst),
             .typeof                       => try sema.zirTypeof(block, inst),
-            .typeof_elem                  => try sema.zirTypeofElem(block, inst),
             .log2_int_type                => try sema.zirLog2IntType(block, inst),
             .typeof_log2_int_type         => try sema.zirTypeofLog2IntType(block, inst),
             .xor                          => try sema.zirBitwise(block, inst, .xor),
@@ -2337,11 +2336,21 @@ fn validateUnionInit(
         return sema.failWithBadUnionFieldAccess(block, union_obj, field_src, field_name);
     const field_index = @intCast(u32, field_index_big);
 
-    // TODO here we need to go back and see if we need to convert the union
-    // to a comptime-known value. This will involve editing the AIR code we have
-    // generated so far - in particular deleting some runtime pointer bitcast
-    // instructions which are not actually needed if the initialization expression
-    // ends up being comptime-known.
+    // Handle the possibility of the union value being comptime-known.
+    const union_ptr_inst = Air.refToIndex(sema.resolveInst(field_ptr_extra.lhs)).?;
+    switch (sema.air_instructions.items(.tag)[union_ptr_inst]) {
+        .constant => return, // In this case the tag has already been set. No validation to do.
+        .bitcast => {
+            // TODO here we need to go back and see if we need to convert the union
+            // to a comptime-known value. In such case, we must delete all the instructions
+            // added to the current block starting with the bitcast.
+            // If the bitcast result ptr is an alloc, the alloc should be replaced with
+            // a constant decl_ref.
+            // Otherwise, the bitcast should be preserved and a store instruction should be
+            // emitted to store the constant union value through the bitcast.
+        },
+        else => unreachable,
+    }
 
     // Otherwise, we set the new union tag now.
     const new_tag = try sema.addConstant(
@@ -4091,18 +4100,20 @@ fn analyzeCall(
             zir_tags,
         );
     } else res: {
+        try sema.requireRuntimeBlock(block, call_src);
+
         const args = try sema.arena.alloc(Air.Inst.Ref, uncasted_args.len);
         for (uncasted_args) |uncasted_arg, i| {
+            const arg_src = call_src; // TODO: better source location
             if (i < fn_params_len) {
                 const param_ty = func_ty.fnParamType(i);
-                const arg_src = call_src; // TODO: better source location
+                try sema.resolveTypeLayout(block, arg_src, param_ty);
                 args[i] = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
             } else {
                 args[i] = uncasted_arg;
             }
         }
 
-        try sema.requireRuntimeBlock(block, call_src);
         try sema.resolveTypeLayout(block, call_src, func_ty_info.return_type);
 
         try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
@@ -4173,6 +4184,7 @@ fn finishGenericCall(
                 const param_ty = new_fn_ty.fnParamType(runtime_i);
                 const arg_src = call_src; // TODO: better source location
                 const uncasted_arg = uncasted_args[total_i];
+                try sema.resolveTypeLayout(block, arg_src, param_ty);
                 const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
                 runtime_args[runtime_i] = casted_arg;
                 runtime_i += 1;
@@ -5548,7 +5560,7 @@ fn zirSwitchCapture(
                     );
                 }
                 try sema.requireRuntimeBlock(block, operand_src);
-                return block.addStructFieldPtr(operand_ptr, field_index, field.ty);
+                return block.addStructFieldPtr(operand_ptr, field_index, field_ty_ptr);
             }
 
             const operand = if (operand_is_ref)
@@ -5669,11 +5681,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const special_prong_src: LazySrcLoc = .{ .node_offset_switch_special_prong = src_node_offset };
     const extra = sema.code.extraData(Zir.Inst.SwitchBlock, inst_data.payload_index);
 
-    const operand_ptr = sema.resolveInst(extra.data.operand);
-    const operand = if (extra.data.bits.is_ref)
-        try sema.analyzeLoad(block, src, operand_ptr, operand_src)
-    else
-        operand_ptr;
+    const operand = sema.resolveInst(extra.data.operand);
 
     var header_extra_index: usize = extra.end;
 
@@ -8673,14 +8681,6 @@ fn zirTypeof(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const operand = sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
     return sema.addType(operand_ty);
-}
-
-fn zirTypeofElem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    _ = block;
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const operand_ptr = sema.resolveInst(inst_data.operand);
-    const elem_ty = sema.typeOf(operand_ptr).elemType();
-    return sema.addType(elem_ty);
 }
 
 fn zirTypeofLog2IntType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

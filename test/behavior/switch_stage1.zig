@@ -3,48 +3,6 @@ const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
 
-test "switch prong with variable" {
-    try switchProngWithVarFn(SwitchProngWithVarEnum{ .One = 13 });
-    try switchProngWithVarFn(SwitchProngWithVarEnum{ .Two = 13.0 });
-    try switchProngWithVarFn(SwitchProngWithVarEnum{ .Meh = {} });
-}
-const SwitchProngWithVarEnum = union(enum) {
-    One: i32,
-    Two: f32,
-    Meh: void,
-};
-fn switchProngWithVarFn(a: SwitchProngWithVarEnum) !void {
-    switch (a) {
-        SwitchProngWithVarEnum.One => |x| {
-            try expect(x == 13);
-        },
-        SwitchProngWithVarEnum.Two => |x| {
-            try expect(x == 13.0);
-        },
-        SwitchProngWithVarEnum.Meh => |x| {
-            const v: void = x;
-            _ = v;
-        },
-    }
-}
-
-test "switch on enum using pointer capture" {
-    try testSwitchEnumPtrCapture();
-    comptime try testSwitchEnumPtrCapture();
-}
-
-fn testSwitchEnumPtrCapture() !void {
-    var value = SwitchProngWithVarEnum{ .One = 1234 };
-    switch (value) {
-        SwitchProngWithVarEnum.One => |*x| x.* += 1,
-        else => unreachable,
-    }
-    switch (value) {
-        SwitchProngWithVarEnum.One => |x| try expect(x == 1235),
-        else => unreachable,
-    }
-}
-
 test "switch handles all cases of number" {
     try testSwitchHandleAllCases();
     comptime try testSwitchHandleAllCases();

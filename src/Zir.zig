@@ -544,9 +544,6 @@ pub const Inst = struct {
         /// Returns the type of a value.
         /// Uses the `un_node` field.
         typeof,
-        /// Given a value which is a pointer, returns the element type.
-        /// Uses the `un_node` field.
-        typeof_elem,
         /// Given a value, look at the type of it, which must be an integer type.
         /// Returns the integer type for the RHS of a shift operation.
         /// Uses the `un_node` field.
@@ -1045,7 +1042,6 @@ pub const Inst = struct {
                 .negate,
                 .negate_wrap,
                 .typeof,
-                .typeof_elem,
                 .xor,
                 .optional_type,
                 .optional_payload_safe,
@@ -1312,7 +1308,6 @@ pub const Inst = struct {
                 .negate = .un_node,
                 .negate_wrap = .un_node,
                 .typeof = .un_node,
-                .typeof_elem = .un_node,
                 .typeof_log2_int_type = .un_node,
                 .log2_int_type = .un_node,
                 .@"unreachable" = .@"unreachable",
@@ -2443,6 +2438,13 @@ pub const Inst = struct {
     ///        body member Index for every body_len
     ///    }
     pub const SwitchBlock = struct {
+        /// This is always a `switch_cond` or `switch_cond_ref` instruction.
+        /// If it is a `switch_cond_ref` instruction, bits.is_ref is always true.
+        /// If it is a `switch_cond` instruction, bits.is_ref is always false.
+        /// Both `switch_cond` and `switch_cond_ref` return a value, not a pointer,
+        /// that is useful for the case items, but cannot be used for capture values.
+        /// For the capture values, Sema is expected to find the operand of this operand
+        /// and use that.
         operand: Ref,
         bits: Bits,
 
@@ -2454,8 +2456,11 @@ pub const Inst = struct {
             /// If true, there is an underscore prong. This is mutually exclusive with `has_else`.
             has_under: bool,
             /// If true, the `operand` is a pointer to the value being switched on.
+            /// TODO this flag is redundant with the tag of operand and can be removed.
             is_ref: bool,
-            scalar_cases_len: u28,
+            scalar_cases_len: ScalarCasesLen,
+
+            pub const ScalarCasesLen = u28;
 
             pub fn specialProng(bits: Bits) SpecialProng {
                 const has_else: u2 = @boolToInt(bits.has_else);

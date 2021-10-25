@@ -3391,34 +3391,49 @@ pub const Type = extern union {
         }
     }
 
+    /// Supports structs and unions.
     pub fn structFieldOffset(ty: Type, index: usize, target: Target) u64 {
-        const fields = ty.structFields();
-        if (ty.castTag(.@"struct")) |payload| {
-            const struct_obj = payload.data;
-            assert(struct_obj.status == .have_layout);
-            const is_packed = struct_obj.layout == .Packed;
-            if (is_packed) @panic("TODO packed structs");
-        }
+        switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                assert(struct_obj.status == .have_layout);
+                const is_packed = struct_obj.layout == .Packed;
+                if (is_packed) @panic("TODO packed structs");
 
-        var offset: u64 = 0;
-        var big_align: u32 = 0;
-        for (fields.values()) |field, i| {
-            if (!field.ty.hasCodeGenBits()) continue;
+                var offset: u64 = 0;
+                var big_align: u32 = 0;
+                for (struct_obj.fields.values()) |field, i| {
+                    if (!field.ty.hasCodeGenBits()) continue;
 
-            const field_align = a: {
-                if (field.abi_align.tag() == .abi_align_default) {
-                    break :a field.ty.abiAlignment(target);
-                } else {
-                    break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                    const field_align = a: {
+                        if (field.abi_align.tag() == .abi_align_default) {
+                            break :a field.ty.abiAlignment(target);
+                        } else {
+                            break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                        }
+                    };
+                    big_align = @maximum(big_align, field_align);
+                    offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+                    if (i == index) return offset;
+                    offset += field.ty.abiSize(target);
                 }
-            };
-            big_align = @maximum(big_align, field_align);
-            offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-            if (i == index) return offset;
-            offset += field.ty.abiSize(target);
+                offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+                return offset;
+            },
+            .@"union" => return 0,
+            .union_tagged => {
+                const union_obj = ty.castTag(.union_tagged).?.data;
+                const layout = union_obj.getLayout(target, true);
+                if (layout.tag_align >= layout.payload_align) {
+                    // {Tag, Payload}
+                    return std.mem.alignForwardGeneric(u64, layout.tag_size, layout.payload_align);
+                } else {
+                    // {Payload, Tag}
+                    return 0;
+                }
+            },
+            else => unreachable,
         }
-        offset = std.mem.alignForwardGeneric(u64, offset, big_align);
-        return offset;
     }
 
     pub fn declSrcLoc(ty: Type) Module.SrcLoc {

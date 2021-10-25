@@ -2109,7 +2109,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .negate,
             .negate_wrap,
             .typeof,
-            .typeof_elem,
             .xor,
             .optional_type,
             .optional_payload_safe,
@@ -6028,8 +6027,7 @@ fn switchExpr(
     const cond_tag: Zir.Inst.Tag = if (any_payload_is_ref) .switch_cond_ref else .switch_cond;
     const cond = try parent_gz.addUnNode(cond_tag, raw_operand, operand_node);
     // We need the type of the operand to use as the result location for all the prong items.
-    const typeof_tag: Zir.Inst.Tag = if (any_payload_is_ref) .typeof_elem else .typeof;
-    const cond_ty_inst = try parent_gz.addUnNode(typeof_tag, cond, operand_node);
+    const cond_ty_inst = try parent_gz.addUnNode(.typeof, cond, operand_node);
     const item_rl: ResultLoc = .{ .ty = cond_ty_inst };
 
     // These contain the data that goes into the `extra` array for the SwitchBlock/SwitchBlockMulti.
@@ -6214,7 +6212,7 @@ fn switchExpr(
             .has_multi_cases = multi_cases_len != 0,
             .has_else = special_prong == .@"else",
             .has_under = special_prong == .under,
-            .scalar_cases_len = @intCast(u28, scalar_cases_len),
+            .scalar_cases_len = @intCast(Zir.Inst.SwitchBlock.Bits.ScalarCasesLen, scalar_cases_len),
         },
     });
 
