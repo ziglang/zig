@@ -1156,16 +1156,6 @@ fn fnProtoExpr(
         return astgen.failNode(fn_proto.ast.section_expr, "linksection not allowed on function prototypes", .{});
     }
 
-    const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
-    const is_inferred_error = token_tags[maybe_bang] == .bang;
-    if (is_inferred_error) {
-        return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
-    }
-    var ret_gz = gz.makeSubBlock(scope);
-    defer ret_gz.instructions.deinit(gpa);
-    const ret_ty = try expr(&ret_gz, scope, coerced_type_rl, fn_proto.ast.return_type);
-    const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
-
     const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
         try expr(
             gz,
@@ -1175,6 +1165,16 @@ fn fnProtoExpr(
         )
     else
         Zir.Inst.Ref.none;
+
+    const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
+    const is_inferred_error = token_tags[maybe_bang] == .bang;
+    if (is_inferred_error) {
+        return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
+    }
+    var ret_gz = gz.makeSubBlock(scope);
+    defer ret_gz.instructions.deinit(gpa);
+    const ret_ty = try expr(&ret_gz, scope, coerced_type_rl, fn_proto.ast.return_type);
+    const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
 
     const result = try gz.addFunc(.{
         .src_node = fn_proto.ast.proto_node,
@@ -3182,11 +3182,6 @@ fn fnDecl(
         break :inst try comptimeExpr(&decl_gz, params_scope, .{ .ty = .const_slice_u8_type }, fn_proto.ast.section_expr);
     };
 
-    var ret_gz = decl_gz.makeSubBlock(params_scope);
-    defer ret_gz.instructions.deinit(gpa);
-    const ret_ty = try expr(&ret_gz, params_scope, coerced_type_rl, fn_proto.ast.return_type);
-    const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
-
     const cc: Zir.Inst.Ref = blk: {
         if (fn_proto.ast.callconv_expr != 0) {
             if (has_inline_keyword) {
@@ -3211,6 +3206,11 @@ fn fnDecl(
             break :blk .none;
         }
     };
+
+    var ret_gz = decl_gz.makeSubBlock(params_scope);
+    defer ret_gz.instructions.deinit(gpa);
+    const ret_ty = try expr(&ret_gz, params_scope, coerced_type_rl, fn_proto.ast.return_type);
+    const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
 
     const func_inst: Zir.Inst.Ref = if (body_node == 0) func: {
         if (!is_extern) {
@@ -6500,7 +6500,8 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         },
         .always => {
             // Value is always an error. Emit both error defers and regular defers.
-            const err_code = try gz.addUnNode(.err_union_code, operand, node);
+            const result = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr, node) else operand;
+            const err_code = try gz.addUnNode(.err_union_code, result, node);
             try genDefers(gz, defer_outer, scope, .{ .both = err_code });
             try gz.addRet(rl, operand, node);
             return Zir.Inst.Ref.unreachable_value;
@@ -6515,7 +6516,8 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             }
 
             // Emit conditional branch for generating errdefers.
-            const is_non_err = try gz.addUnNode(.is_non_err, operand, node);
+            const result = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr, node) else operand;
+            const is_non_err = try gz.addUnNode(.is_non_err, result, node);
             const condbr = try gz.addCondBr(.condbr, node);
 
             var then_scope = gz.makeSubBlock(scope);
@@ -6528,7 +6530,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             defer else_scope.instructions.deinit(astgen.gpa);
 
             const which_ones: DefersToEmit = if (!defer_counts.need_err_code) .both_sans_err else .{
-                .both = try else_scope.addUnNode(.err_union_code, operand, node),
+                .both = try else_scope.addUnNode(.err_union_code, result, node),
             };
             try genDefers(&else_scope, defer_outer, scope, which_ones);
             try else_scope.addRet(rl, operand, node);
@@ -8514,10 +8516,10 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) enum { never
             .unwrap_optional,
             => node = node_datas[node].lhs,
 
-            // Forward the question to the RHS sub-expression.
+            // LHS sub-expression may still be an error under the outer optional or error union
             .@"catch",
             .@"orelse",
-            => node = node_datas[node].rhs,
+            => return .maybe,
 
             .block_two,
             .block_two_semicolon,
@@ -8544,11 +8546,18 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) enum { never
                 // If the builtin is an invalid name, we don't cause an error here; instead
                 // let it pass, and the error will be "invalid builtin function" later.
                 const builtin_info = BuiltinFn.list.get(builtin_name) orelse return .maybe;
-                if (builtin_info.tag == .err_set_cast) {
-                    return .always;
-                } else {
-                    return .never;
-                }
+                return switch (builtin_info.tag) {
+                    .as,
+                    .call,
+                    .field,
+                    => .maybe,
+
+                    .err_set_cast,
+                    .int_to_error,
+                    => .always,
+
+                    else => .never,
+                };
             },
         }
     }

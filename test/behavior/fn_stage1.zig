@@ -204,3 +204,19 @@ test "function with inferred error set but returning no error" {
     const return_ty = @typeInfo(@TypeOf(S.foo)).Fn.return_type.?;
     try expectEqual(0, @typeInfo(@typeInfo(return_ty).ErrorUnion.error_set).ErrorSet.?.len);
 }
+
+const nComplexCallconv = 100;
+fn fComplexCallconvRet(x: u32) callconv(blk: {
+    const s: struct { n: u32 } = .{ .n = nComplexCallconv };
+    break :blk switch (s.n) {
+        0 => .C,
+        1 => .Inline,
+        else => .Unspecified,
+    };
+}) struct { x: u32 } {
+    return .{ .x = x * x };
+}
+
+test "function with complex callconv and return type expressions" {
+    try expect(fComplexCallconvRet(3).x == 9);
+}
