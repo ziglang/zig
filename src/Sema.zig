@@ -9711,10 +9711,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             @tagName(dest_ty.zigTypeTag()), dest_ty,
         });
     }
-    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
-        return sema.addConstant(dest_ty, val);
-    }
-    return block.addBitCast(dest_ty, operand);
+    return sema.coerceCompatiblePtrs(block, dest_ty, operand, operand_src);
 }
 
 fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -12096,6 +12093,14 @@ fn coerce(
                     else => {},
                 }
             }
+
+            // cast from *T and [*]T to *c_void
+            // but don't do it if the source type is a double pointer
+            if (dest_info.pointee_type.tag() == .c_void and inst_ty.zigTypeTag() == .Pointer and
+                inst_ty.childType().zigTypeTag() != .Pointer)
+            {
+                return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
+            }
         },
         .Int => {
             // integer widening
@@ -12808,7 +12813,7 @@ fn coerceCompatiblePtrs(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
-    if (try sema.resolveDefinedValue(block, inst_src, inst)) |val| {
+    if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
         // The comptime Value representation is compatible with both types.
         return sema.addConstant(dest_ty, val);
     }
