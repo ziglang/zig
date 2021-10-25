@@ -7123,8 +7123,9 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     });
     const alloc = try block.addTy(.alloc, ptr_ty);
 
+    const lhs_val = if (lhs_ty.zigTypeTag() == .Pointer) try sema.analyzeLoad(block, lhs_src, lhs, lhs_src) else lhs;
     try sema.requireRuntimeBlock(block, lhs_src);
-    // memset(alloc, arr, mulinfo.len);
+    // memset(alloc, lhs_val, mulinfo.len);
     _ = try block.addInst(.{
         .tag = .memset,
         .data = .{
@@ -7132,12 +7133,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 .operand = alloc,
                 .payload = try sema.addExtra(
                     Air.Bin{
-                        .lhs = try sema.bitCast(
-                            block,
-                            try Module.makeIntType(sema.arena, .unsigned, @intCast(u16, mulinfo.len * 8)),
-                            lhs,
-                            lhs_src,
-                        ),
+                        .lhs = lhs_val,
                         .rhs = try sema.addIntUnsigned(Type.usize, mulinfo.len),
                     },
                 ),

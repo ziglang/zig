@@ -3495,13 +3495,31 @@ pub const FuncGen = struct {
         const len = try self.resolveInst(extra.rhs);
         const val_ty = self.air.typeOf(extra.lhs);
         const val_size = val_ty.abiSize(target);
-        const new_val = if (val_ty.zigTypeTag() == .Int) value else if (val_size > 65535) blk: {
-            const int_ty = self.dg.context.intType(@intCast(c_uint, val_size));
-            break :blk self.builder.buildBitCast(value, int_ty, "");
-        } else return self.todo("fall back to memcpy", .{});
         const u8_llvm_ty = self.context.intType(8);
         const ptr_u8_llvm_ty = u8_llvm_ty.pointerType(0);
         const dest_ptr_u8 = self.builder.buildBitCast(dest_ptr, ptr_u8_llvm_ty, "");
+        const new_val = if (val_ty.zigTypeTag() == .Int and val_size == 8) value else if (val_size == 8) self.builder.buildBitCast(value, u8_llvm_ty, "") else {
+            // fall back to memcpy
+            // the length is compitme known
+            if (self.air.value(extra.rhs)) |len_value| {
+                const len_int: u64 = len_value.toUnsignedInt();
+                var i: usize = 0;
+                while (i < len_int) : (i += 1) {
+                    const indices: [1]*const llvm.Value = .{self.context.intType(32).constInt(i * val_size, .False)};
+                    const offsetted = self.builder.buildInBoundsGEP(dest_ptr, &indices, indices.len, "");
+                    _ = self.builder.buildMemCpy(
+                        offsetted,
+                        Type.u8.abiAlignment(target),
+                        value, // TODO ref this
+                        Type.u8.abiAlignment(target),
+                        self.context.intType(32).constInt(val_size, .False),
+                        ptr_ty.isVolatilePtr(),
+                    );
+                }
+                return null;
+            }
+            return self.todo("memset with a non-comptime-known length and non char fill", .{});
+        };
         const fill_char = if (val_is_undef) u8_llvm_ty.constInt(0xaa, .False) else new_val;
         const dest_ptr_align = ptr_ty.ptrAlignment(target);
         _ = self.builder.buildMemSet(dest_ptr_u8, fill_char, len, dest_ptr_align, ptr_ty.isVolatilePtr());
