@@ -396,6 +396,14 @@ pub const Block = struct {
         return result_index;
     }
 
+    fn addUnreachable(block: *Block, src: LazySrcLoc, safety_check: bool) !void {
+        if (safety_check and block.wantSafety()) {
+            _ = try block.sema.safetyPanic(block, src, .unreach);
+        } else {
+            _ = try block.addNoOp(.unreach);
+        }
+    }
+
     pub fn startAnonDecl(block: *Block) !WipAnonDecl {
         return WipAnonDecl{
             .block = block,
@@ -6371,14 +6379,22 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     }
 
     var final_else_body: []const Air.Inst.Index = &.{};
-    if (special.body.len != 0) {
+    if (special.body.len != 0 or !is_first) {
         var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, child_block.wip_capture_scope);
         defer wip_captures.deinit();
 
         case_block.instructions.shrinkRetainingCapacity(0);
         case_block.wip_capture_scope = wip_captures.scope;
 
-        _ = try sema.analyzeBody(&case_block, special.body);
+        if (special.body.len != 0) {
+            _ = try sema.analyzeBody(&case_block, special.body);
+        } else {
+            // We still need a terminator in this block, but we have proven
+            // that it is unreachable.
+            // TODO this should be a special safety panic other than unreachable, something
+            // like "panic: switch operand had corrupt value not allowed by the type"
+            try case_block.addUnreachable(src, true);
+        }
 
         try wip_captures.finalize();
 
@@ -8963,15 +8979,10 @@ fn zirUnreachable(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
     const inst_data = sema.code.instructions.items(.data)[inst].@"unreachable";
     const src = inst_data.src();
-    const safety_check = inst_data.safety;
     try sema.requireRuntimeBlock(block, src);
     // TODO Add compile error for @optimizeFor occurring too late in a scope.
-    if (safety_check and block.wantSafety()) {
-        return sema.safetyPanic(block, src, .unreach);
-    } else {
-        _ = try block.addNoOp(.unreach);
-        return always_noreturn;
-    }
+    try block.addUnreachable(src, inst_data.safety);
+    return always_noreturn;
 }
 
 fn zirRetErrValue(

@@ -3,43 +3,6 @@ const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
 
-test "switch handles all cases of number" {
-    try testSwitchHandleAllCases();
-    comptime try testSwitchHandleAllCases();
-}
-
-fn testSwitchHandleAllCases() !void {
-    try expect(testSwitchHandleAllCasesExhaustive(0) == 3);
-    try expect(testSwitchHandleAllCasesExhaustive(1) == 2);
-    try expect(testSwitchHandleAllCasesExhaustive(2) == 1);
-    try expect(testSwitchHandleAllCasesExhaustive(3) == 0);
-
-    try expect(testSwitchHandleAllCasesRange(100) == 0);
-    try expect(testSwitchHandleAllCasesRange(200) == 1);
-    try expect(testSwitchHandleAllCasesRange(201) == 2);
-    try expect(testSwitchHandleAllCasesRange(202) == 4);
-    try expect(testSwitchHandleAllCasesRange(230) == 3);
-}
-
-fn testSwitchHandleAllCasesExhaustive(x: u2) u2 {
-    return switch (x) {
-        0 => @as(u2, 3),
-        1 => 2,
-        2 => 1,
-        3 => 0,
-    };
-}
-
-fn testSwitchHandleAllCasesRange(x: u8) u8 {
-    return switch (x) {
-        0...100 => @as(u8, 0),
-        101...200 => 1,
-        201, 203 => 2,
-        202 => 4,
-        204...255 => 3,
-    };
-}
-
 test "switch all prongs unreachable" {
     try testAllProngsUnreachable();
     comptime try testAllProngsUnreachable();
