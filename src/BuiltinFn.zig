@@ -119,10 +119,21 @@ pub const MemLocRequirement = enum {
     forward1,
 };
 
+pub const EvalToError = enum {
+    /// The builtin cannot possibly evaluate to an error.
+    never,
+    /// The builtin will always evaluate to an error.
+    always,
+    /// The builtin may or may not evaluate to an error depending on the parameters.
+    maybe,
+};
+
 tag: Tag,
 
 /// Info about the builtin call's ability to take advantage of a result location pointer.
 needs_mem_loc: MemLocRequirement = .never,
+/// Info about the builtin call's possibility of returning an error.
+eval_to_error: EvalToError = .never,
 /// `true` if the builtin call can be the left-hand side of an expression (assigned to).
 allows_lvalue: bool = false,
 /// The number of parameters to this builtin function. `null` means variable number
@@ -158,6 +169,7 @@ pub const list = list: {
             .{
                 .tag = .as,
                 .needs_mem_loc = .forward1,
+                .eval_to_error = .maybe,
                 .param_count = 2,
             },
         },
@@ -258,6 +270,7 @@ pub const list = list: {
             .{
                 .tag = .call,
                 .needs_mem_loc = .always,
+                .eval_to_error = .maybe,
                 .param_count = 3,
             },
         },
@@ -391,6 +404,7 @@ pub const list = list: {
             "@errSetCast",
             .{
                 .tag = .err_set_cast,
+                .eval_to_error = .always,
                 .param_count = 2,
             },
         },
@@ -420,6 +434,7 @@ pub const list = list: {
             .{
                 .tag = .field,
                 .needs_mem_loc = .always,
+                .eval_to_error = .maybe,
                 .param_count = 2,
                 .allows_lvalue = true,
             },
@@ -512,6 +527,7 @@ pub const list = list: {
             "@intToError",
             .{
                 .tag = .int_to_error,
+                .eval_to_error = .always,
                 .param_count = 1,
             },
         },

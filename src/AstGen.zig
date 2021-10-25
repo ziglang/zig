@@ -8339,7 +8339,7 @@ fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index) bool 
     }
 }
 
-fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) enum { never, always, maybe } {
+fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.EvalToError {
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
@@ -8546,18 +8546,7 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) enum { never
                 // If the builtin is an invalid name, we don't cause an error here; instead
                 // let it pass, and the error will be "invalid builtin function" later.
                 const builtin_info = BuiltinFn.list.get(builtin_name) orelse return .maybe;
-                return switch (builtin_info.tag) {
-                    .as,
-                    .call,
-                    .field,
-                    => .maybe,
-
-                    .err_set_cast,
-                    .int_to_error,
-                    => .always,
-
-                    else => .never,
-                };
+                return builtin_info.eval_to_error;
             },
         }
     }
