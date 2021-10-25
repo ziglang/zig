@@ -151,7 +151,7 @@ pub fn MultiArrayList(comptime S: type) type {
         }
 
         /// Obtain all the data for one array element.
-        pub fn get(self: *Self, index: usize) S {
+        pub fn get(self: Self, index: usize) S {
             const slices = self.slice();
             var result: S = undefined;
             inline for (fields) |field_info, i| {
