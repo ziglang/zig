@@ -762,7 +762,7 @@ pub const DeclGen = struct {
                 }
                 const llvm_addrspace = dg.llvmAddressSpace(t.ptrAddressSpace());
                 const elem_ty = t.childType();
-                const llvm_elem_ty = if (elem_ty.hasCodeGenBits())
+                const llvm_elem_ty = if (elem_ty.hasCodeGenBits() or elem_ty.zigTypeTag() == .Array)
                     try dg.llvmType(elem_ty)
                 else
                     dg.context.intType(8);
@@ -1475,7 +1475,7 @@ pub const DeclGen = struct {
         }
 
         const llvm_type = try self.llvmType(tv.ty);
-        if (!tv.ty.childType().hasCodeGenBits()) {
+        if (!tv.ty.childType().hasCodeGenBits() or !decl.ty.hasCodeGenBits()) {
             return self.lowerPtrToVoid(tv.ty);
         }
 
@@ -1497,7 +1497,7 @@ pub const DeclGen = struct {
         // for non-optional pointers. We also need to respect the alignment, even though
         // the address will never be dereferenced.
         const llvm_usize = try dg.llvmType(Type.usize);
-        const llvm_ptr_ty = dg.context.intType(8).pointerType(0);
+        const llvm_ptr_ty = try dg.llvmType(ptr_ty);
         if (alignment != 0) {
             return llvm_usize.constInt(alignment, .False).constIntToPtr(llvm_ptr_ty);
         }

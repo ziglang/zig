@@ -157,3 +157,12 @@ test "comptime pointer cast array and then slice" {
     try expect(sliceA[1] == 2);
     try expect(sliceB[1] == 2);
 }
+
+test "slicing zero length array" {
+    const s1 = ""[0..];
+    const s2 = ([_]u32{})[0..];
+    try expect(s1.len == 0);
+    try expect(s2.len == 0);
+    try expect(mem.eql(u8, s1, ""));
+    try expect(mem.eql(u32, s2, &[_]u32{}));
+}

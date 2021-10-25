@@ -4,15 +4,6 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
-test "slicing zero length array" {
-    const s1 = ""[0..];
-    const s2 = ([_]u32{})[0..];
-    try expect(s1.len == 0);
-    try expect(s2.len == 0);
-    try expect(mem.eql(u8, s1, ""));
-    try expect(mem.eql(u32, s2, &[_]u32{}));
-}
-
 test "slice string literal has correct type" {
     comptime {
         try expect(@TypeOf("aoeu"[0..]) == *const [4:0]u8);
