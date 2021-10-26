@@ -299,3 +299,17 @@ fn testSwitchHandleAllCasesRange(x: u8) u8 {
         204...255 => 3,
     };
 }
+
+test "switch on union with some prongs capturing" {
+    const X = union(enum) {
+        a,
+        b: i32,
+    };
+
+    var x: X = X{ .b = 10 };
+    var y: i32 = switch (x) {
+        .a => unreachable,
+        .b => |b| b + 1,
+    };
+    try expect(y == 11);
+}

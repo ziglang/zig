@@ -6070,6 +6070,13 @@ fn switchExpr(
 
         var capture_val_scope: Scope.LocalVal = undefined;
         const sub_scope = blk: {
+            const capture_index = if (is_multi_case) ci: {
+                multi_case_index += 1;
+                break :ci multi_case_index - 1;
+            } else ci: {
+                scalar_case_index += 1;
+                break :ci scalar_case_index - 1;
+            };
             const payload_token = case.payload_token orelse break :blk &case_scope.base;
             const ident = if (token_tags[payload_token] == .asterisk)
                 payload_token + 1
@@ -6102,13 +6109,6 @@ fn switchExpr(
                     0b01 => .switch_capture_ref,
                     0b10 => .switch_capture_multi,
                     0b11 => .switch_capture_multi_ref,
-                };
-                const capture_index = if (is_multi_case) ci: {
-                    multi_case_index += 1;
-                    break :ci multi_case_index - 1;
-                } else ci: {
-                    scalar_case_index += 1;
-                    break :ci scalar_case_index - 1;
                 };
                 break :capture try case_scope.add(.{
                     .tag = capture_tag,
