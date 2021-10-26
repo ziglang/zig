@@ -3035,10 +3035,11 @@ fn analyzeBlockBody(
     // to emit a jump instruction to after the block when it encounters the break.
     try parent_block.instructions.append(gpa, merges.block_inst);
     const resolved_ty = try sema.resolvePeerTypes(parent_block, src, merges.results.items, .none);
+    const ty_inst = try sema.addType(resolved_ty);
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
         child_block.instructions.items.len);
     sema.air_instructions.items(.data)[merges.block_inst] = .{ .ty_pl = .{
-        .ty = try sema.addType(resolved_ty),
+        .ty = ty_inst,
         .payload = sema.addExtraAssumeCapacity(Air.Block{
             .body_len = @intCast(u32, child_block.instructions.items.len),
         }),
@@ -4666,7 +4667,16 @@ fn zirOptionalPayload(
             if (operand_ty.ptrSize() != .C) {
                 return sema.failWithExpectedOptionalType(block, src, operand_ty);
             }
-            break :t operand_ty;
+            const ptr_info = operand_ty.ptrInfo().data;
+            break :t try Type.ptr(sema.arena, .{
+                .pointee_type = try ptr_info.pointee_type.copy(sema.arena),
+                .@"align" = ptr_info.@"align",
+                .@"addrspace" = ptr_info.@"addrspace",
+                .mutable = ptr_info.mutable,
+                .@"allowzero" = ptr_info.@"allowzero",
+                .@"volatile" = ptr_info.@"volatile",
+                .size = .One,
+            });
         },
         else => return sema.failWithExpectedOptionalType(block, src, operand_ty),
     };
