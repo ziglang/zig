@@ -1184,6 +1184,8 @@ pub const DeclGen = struct {
                 if (tv.ty.isPtrLikeOptional()) {
                     if (tv.val.castTag(.opt_payload)) |payload| {
                         return self.genTypedValue(.{ .ty = payload_ty, .val = payload.data });
+                    } else if (is_pl) {
+                        return self.genTypedValue(.{ .ty = payload_ty, .val = tv.val });
                     } else {
                         const llvm_ty = try self.llvmType(tv.ty);
                         return llvm_ty.constNull();
