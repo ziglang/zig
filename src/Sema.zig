@@ -1958,6 +1958,14 @@ fn zirRetPtr(
         .pointee_type = sema.fn_ret_ty,
         .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
     });
+
+    if (block.inlining != null) {
+        // We are inlining a function call; this should be emitted as an alloc, not a ret_ptr.
+        // TODO when functions gain result location support, the inlining struct in
+        // Block should contain the return pointer, and we would pass that through here.
+        return block.addTy(.alloc, ptr_type);
+    }
+
     return block.addTy(.ret_ptr, ptr_type);
 }
 

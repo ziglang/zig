@@ -90,3 +90,34 @@ test "discard the result of a function that returns a struct" {
     S.entry();
     comptime S.entry();
 }
+
+test "inline function call that calls optional function pointer, return pointer at callsite interacts correctly with callsite return type" {
+    const S = struct {
+        field: u32,
+
+        fn doTheTest() !void {
+            bar2 = actualFn;
+            const result = try foo();
+            try expect(result.field == 1234);
+        }
+
+        const Foo = struct { field: u32 };
+
+        fn foo() !Foo {
+            var res: Foo = undefined;
+            res.field = bar();
+            return res;
+        }
+
+        inline fn bar() u32 {
+            return bar2.?();
+        }
+
+        var bar2: ?fn () u32 = null;
+
+        fn actualFn() u32 {
+            return 1234;
+        }
+    };
+    try S.doTheTest();
+}
