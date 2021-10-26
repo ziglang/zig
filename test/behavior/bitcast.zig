@@ -64,3 +64,9 @@ test "bitcast literal [4]u8 param to u32" {
     const ip = @bitCast(u32, [_]u8{ 255, 255, 255, 255 });
     try expect(ip == maxInt(u32));
 }
+
+test "bitcast generates a temporary value" {
+    var y = @as(u16, 0x55AA);
+    const x = @bitCast(u16, @bitCast([2]u8, y));
+    try expect(y == x);
+}

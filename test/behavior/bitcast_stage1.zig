@@ -129,9 +129,3 @@ test "triple level result location with bitcast sandwich passed as tuple element
     };
     try S.foo(.{@as(f64, @bitCast(f32, @as(u32, 0x414570A4)))});
 }
-
-test "bitcast generates a temporary value" {
-    var y = @as(u16, 0x55AA);
-    const x = @bitCast(u16, @bitCast([2]u8, y));
-    try expectEqual(y, x);
-}
