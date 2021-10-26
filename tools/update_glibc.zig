@@ -100,11 +100,11 @@ const abi_lists = [_]AbiList{
     },
     AbiList{
         .targets = &[_]ZigTarget{ZigTarget{ .arch = .powerpc64le, .abi = .gnu }},
-        .path = "powerpc/powerpc64/le",
+        .path = "powerpc/powerpc64",
     },
     AbiList{
         .targets = &[_]ZigTarget{ZigTarget{ .arch = .powerpc64, .abi = .gnu }},
-        .path = "powerpc/powerpc64/be",
+        .path = "powerpc/powerpc64",
     },
     AbiList{
         .targets = &[_]ZigTarget{
@@ -137,9 +137,28 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     const in_glibc_dir = args[1]; // path to the unzipped tarball of glibc, e.g. ~/downloads/glibc-2.25
     const zig_src_dir = args[2]; // path to the source checkout of zig, lib dir, e.g. ~/zig-src/lib
+    const glibc_version = args[3]; // glibc version that will be updated, e.g. 2.32; 2.19; 2.2.5 etc.
+    const glibc_version_target = try std.builtin.Version.parse(glibc_version);
 
     const prefix = try fs.path.join(allocator, &[_][]const u8{ in_glibc_dir, "sysdeps", "unix", "sysv", "linux" });
-    const glibc_out_dir = try fs.path.join(allocator, &[_][]const u8{ zig_src_dir, "libc", "glibc" });
+    var glibc_out_dir = try fs.path.join(allocator, &[_][]const u8{ zig_src_dir, "libc", "glibc", "symbols" });
+
+    // Check if version directory is already created, and create if it is not.
+    var symbols_dir = try fs.cwd().openDir(glibc_out_dir, .{});
+    var out_dir: std.fs.Dir = undefined;
+    {
+        defer symbols_dir.close();
+        out_dir = symbols_dir.openDir(glibc_version, .{}) catch |err| switch (err) {
+            error.FileNotFound => blk: {
+                try symbols_dir.makeDir(glibc_version);
+                break :blk try symbols_dir.openDir(glibc_version, .{});
+            },
+            else => {
+                return err;
+            },
+        };
+    }
+    defer out_dir.close();
 
     var global_fn_set = std.StringHashMap(Function).init(allocator);
     var global_ver_set = std.StringHashMap(usize).init(allocator);
@@ -154,6 +173,18 @@ pub fn main() !void {
             };
         }
         const fn_set = &target_funcs_gop.value_ptr.list;
+
+        // glibc 2.31 added sysdeps/unix/sysv/linux/arm/le and sysdeps/unix/sysv/linux/arm/be
+        // Before these directories did not exist.
+        const ver30 = std.builtin.Version{
+            .major = 2,
+            .minor = 30,
+        };
+        // Similarly, powerpc64 le and be were introduced in glibc 2.29
+        const ver28 = std.builtin.Version{
+            .major = 2,
+            .minor = 28,
+        };
 
         for (lib_names) |lib_name| {
             const lib_prefix = if (std.mem.eql(u8, lib_name, "ld")) "" else "lib";
@@ -176,11 +207,20 @@ pub fn main() !void {
                     (is_c or (is_m and abi_list.targets[0].arch == .powerpc)))
                 {
                     break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "nofpu", basename });
-                } else if (abi_list.targets[0].arch == .arm) {
-                    break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "le", basename });
-                } else if (abi_list.targets[0].arch == .armeb) {
-                    break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, "be", basename });
+                } else if ((abi_list.targets[0].arch == .armeb or abi_list.targets[0].arch == .arm) and glibc_version_target.order(ver30) == .gt) {
+                    var le_be = "le";
+                    if (abi_list.targets[0].arch == .armeb) {
+                        le_be = "be";
+                    }
+                    break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, le_be, basename });
+                } else if ((abi_list.targets[0].arch == .powerpc64le or abi_list.targets[0].arch == .powerpc64) and glibc_version_target.order(ver28) == .gt) {
+                    var le_be = "le";
+                    if (abi_list.targets[0].arch == .powerpc64) {
+                        le_be = "be";
+                    }
+                    break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, le_be, basename });
                 }
+
                 break :blk try fs.path.join(allocator, &[_][]const u8{ prefix, abi_list.path, basename });
             };
             const max_bytes = 10 * 1024 * 1024;
@@ -236,8 +276,7 @@ pub fn main() !void {
         break :blk list.items;
     };
     {
-        const vers_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "vers.txt" });
-        const vers_txt_file = try fs.cwd().createFile(vers_txt_path, .{});
+        const vers_txt_file = try out_dir.createFile("vers.txt", .{});
         defer vers_txt_file.close();
         var buffered = std.io.bufferedWriter(vers_txt_file.writer());
         const vers_txt = buffered.writer();
@@ -248,8 +287,7 @@ pub fn main() !void {
         try buffered.flush();
     }
     {
-        const fns_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "fns.txt" });
-        const fns_txt_file = try fs.cwd().createFile(fns_txt_path, .{});
+        const fns_txt_file = try out_dir.createFile("fns.txt", .{});
         defer fns_txt_file.close();
         var buffered = std.io.bufferedWriter(fns_txt_file.writer());
         const fns_txt = buffered.writer();
@@ -279,8 +317,7 @@ pub fn main() !void {
     }
 
     {
-        const abilist_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "abi.txt" });
-        const abilist_txt_file = try fs.cwd().createFile(abilist_txt_path, .{});
+        const abilist_txt_file = try out_dir.createFile("abi.txt", .{});
         defer abilist_txt_file.close();
         var buffered = std.io.bufferedWriter(abilist_txt_file.writer());
         const abilist_txt = buffered.writer();

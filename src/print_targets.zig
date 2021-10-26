@@ -24,7 +24,8 @@ pub fn cmdTargets(
     defer zig_lib_directory.handle.close();
     defer allocator.free(zig_lib_directory.path.?);
 
-    const glibc_abi = try glibc.loadMetaData(allocator, zig_lib_directory.handle);
+    const glibc_abi = try glibc.loadMetaData(allocator, zig_lib_directory.handle, try glibc.latestGlibcVersion(zig_lib_directory.handle));
+
     defer glibc_abi.destroy(allocator);
 
     var bw = io.bufferedWriter(stdout);

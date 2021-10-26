@@ -57,9 +57,69 @@ pub const LoadMetaDataError = error{
     OutOfMemory,
 };
 
+// Gets appropriate lowest available glibc version symbol mapping directory for given target version.
+pub fn versionedSymbolsDir(zig_lib_dir: std.fs.Dir, target_version: std.builtin.Version) ![]const u8 {
+    var d = try zig_lib_dir.openDir("libc" ++ path.sep_str ++ "glibc" ++ path.sep_str ++ "symbols", .{ .iterate = true });
+    defer d.close();
+    var it = d.iterate();
+    var lowest_compatible_version: ?std.builtin.Version = null;
+    var lowest_dir_name: ?[]const u8 = null;
+
+    while (try it.next()) |entry| {
+        var parsed = std.build.Version.parse(entry.name) catch continue;
+        if (lowest_compatible_version) |lcv| {
+            switch (target_version.order(parsed)) {
+                .lt, .eq => {
+                    if (parsed.order(lcv) == .lt) {
+                        lowest_compatible_version = parsed;
+                        lowest_dir_name = entry.name;
+                    }
+                },
+                else => continue,
+            }
+        } else {
+            switch (target_version.order(parsed)) {
+                .lt, .eq => {
+                    lowest_compatible_version = parsed;
+                    lowest_dir_name = entry.name;
+                },
+                else => continue,
+            }
+        }
+    }
+    if (lowest_dir_name) |dir| {
+        return dir;
+    } else {
+        std.log.err("could not find entries in glibc symbols directory", .{});
+        return error.ZigInstallationCorrupt;
+    }
+}
+
+// Get latest version of glibc in glibc/symbols directory
+pub fn latestGlibcVersion(zig_lib_dir: std.fs.Dir) !std.builtin.Version {
+    var d = try zig_lib_dir.openDir("libc" ++ path.sep_str ++ "glibc" ++ path.sep_str ++ "symbols", .{ .iterate = true });
+
+    defer d.close();
+    var it = d.iterate();
+    var highest_version = std.builtin.Version{
+        .major = 1,
+        .minor = 0,
+        .patch = 0,
+    };
+
+    while (try it.next()) |entry| {
+        const version = std.builtin.Version.parse(entry.name) catch continue;
+        if (version.order(highest_version) == .gt) {
+            highest_version = version;
+        }
+    }
+
+    return highest_version;
+}
+
 /// This function will emit a log error when there is a problem with the zig installation and then return
 /// `error.ZigInstallationCorrupt`.
-pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!*ABI {
+pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir, target_version: std.builtin.Version) LoadMetaDataError!*ABI {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -72,7 +132,15 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
     var version_table = std.AutoHashMapUnmanaged(target_util.ArchOsAbi, [*]VerList){};
     errdefer version_table.deinit(gpa);
 
-    var glibc_dir = zig_lib_dir.openDir("libc" ++ path.sep_str ++ "glibc", .{}) catch |err| {
+    const version_directory = versionedSymbolsDir(zig_lib_dir, target_version) catch |err| {
+        std.log.err("unable to open glibc symbols dir: {s}", .{@errorName(err)});
+        return error.ZigInstallationCorrupt;
+    };
+    const glibc_dir_path = path.join(arena, &[_][]const u8{ "libc", "glibc", "symbols", version_directory }) catch |err| {
+        std.log.err("unable to open glibc symbols dir: {s}", .{@errorName(err)});
+        return error.ZigInstallationCorrupt;
+    };
+    var glibc_dir = zig_lib_dir.openDir(glibc_dir_path, .{ .iterate = true }) catch |err| {
         std.log.err("unable to open glibc dir: {s}", .{@errorName(err)});
         return error.ZigInstallationCorrupt;
     };
@@ -210,6 +278,7 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
                         std.log.err("abi.txt:{d}: too many versions", .{line_i});
                         return error.ZigInstallationCorrupt;
                     }
+
                     const version_index = std.fmt.parseInt(u8, version_index_string, 10) catch |err| {
                         // If this happens with legit data, increase the size of the integer type in the struct.
                         std.log.err("abi.txt:{d}: unable to parse version: {s}", .{ line_i, @errorName(err) });
@@ -753,9 +822,8 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     } else false;
 
     if (!actual_hit) {
-        const metadata = try loadMetaData(comp.gpa, comp.zig_lib_directory.handle);
+        const metadata = try loadMetaData(comp.gpa, comp.zig_lib_directory.handle, target_version);
         defer metadata.destroy(comp.gpa);
-
         const ver_list_base = metadata.version_table.get(.{
             .arch = target.cpu.arch,
             .os = target.os.tag,
