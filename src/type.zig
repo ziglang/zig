@@ -2573,6 +2573,19 @@ pub const Type = extern union {
     pub fn unionTagType(ty: Type) ?Type {
         return switch (ty.tag()) {
             .union_tagged => ty.castTag(.union_tagged).?.data.tag_ty,
+
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .address_space,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            .type_info,
+            => unreachable, // needed to call resolveTypeFields first
+
             else => null,
         };
     }

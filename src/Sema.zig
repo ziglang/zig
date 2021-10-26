@@ -8253,7 +8253,7 @@ fn analyzeCmpUnionTag(
     tag_src: LazySrcLoc,
     op: std.math.CompareOperator,
 ) CompileError!Air.Inst.Ref {
-    const union_ty = sema.typeOf(un);
+    const union_ty = try sema.resolveTypeFields(block, un_src, sema.typeOf(un));
     const union_tag_ty = union_ty.unionTagType() orelse {
         // TODO note at declaration site that says "union foo is not tagged"
         return sema.fail(block, un_src, "comparison of union and enum literal is only valid for tagged union types", .{});
@@ -9553,7 +9553,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const type_info_ty = try sema.getBuiltinType(block, src, "TypeInfo");
+    const type_info_ty = try sema.resolveBuiltinTypeFields(block, src, "TypeInfo");
     const uncasted_operand = sema.resolveInst(inst_data.operand);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const type_info = try sema.coerce(block, type_info_ty, uncasted_operand, operand_src);
@@ -11984,8 +11984,7 @@ fn coerce(
     }
     const dest_ty_src = inst_src; // TODO better source location
     const dest_ty = try sema.resolveTypeFields(block, dest_ty_src, dest_ty_unresolved);
-
-    const inst_ty = sema.typeOf(inst);
+    const inst_ty = try sema.resolveTypeFields(block, inst_src, sema.typeOf(inst));
     // If the types are the same, we can return the operand.
     if (dest_ty.eql(inst_ty))
         return inst;
@@ -12167,18 +12166,17 @@ fn coerce(
                 // enum literal to enum
                 const val = try sema.resolveConstValue(block, inst_src, inst);
                 const bytes = val.castTag(.enum_literal).?.data;
-                const resolved_dest_type = try sema.resolveTypeFields(block, inst_src, dest_ty);
-                const field_index = resolved_dest_type.enumFieldIndex(bytes) orelse {
+                const field_index = dest_ty.enumFieldIndex(bytes) orelse {
                     const msg = msg: {
                         const msg = try sema.errMsg(
                             block,
                             inst_src,
                             "enum '{}' has no field named '{s}'",
-                            .{ resolved_dest_type, bytes },
+                            .{ dest_ty, bytes },
                         );
                         errdefer msg.destroy(sema.gpa);
                         try sema.mod.errNoteNonLazy(
-                            resolved_dest_type.declSrcLoc(),
+                            dest_ty.declSrcLoc(),
                             msg,
                             "enum declared here",
                             .{},
@@ -12188,7 +12186,7 @@ fn coerce(
                     return sema.failWithOwnedErrorMsg(msg);
                 };
                 return sema.addConstant(
-                    resolved_dest_type,
+                    dest_ty,
                     try Value.Tag.enum_field_index.create(arena, @intCast(u32, field_index)),
                 );
             },
@@ -12196,7 +12194,7 @@ fn coerce(
                 // union to its own tag type
                 const union_tag_ty = inst_ty.unionTagType() orelse break :blk;
                 if (union_tag_ty.eql(dest_ty)) {
-                    return sema.unionToTag(block, dest_ty, inst, inst_src);
+                    return sema.unionToTag(block, inst_ty, inst, inst_src);
                 }
             },
             else => {},
@@ -14108,10 +14106,7 @@ fn semaStructFields(
     }
 }
 
-fn semaUnionFields(
-    mod: *Module,
-    union_obj: *Module.Union,
-) CompileError!void {
+fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
