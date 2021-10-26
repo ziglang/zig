@@ -4666,7 +4666,16 @@ fn zirOptionalPayload(
             if (operand_ty.ptrSize() != .C) {
                 return sema.failWithExpectedOptionalType(block, src, operand_ty);
             }
-            break :t operand_ty;
+            const ptr_info = operand_ty.ptrInfo().data;
+            break :t try Type.ptr(sema.arena, .{
+                .pointee_type = try ptr_info.pointee_type.copy(sema.arena),
+                .@"align" = ptr_info.@"align",
+                .@"addrspace" = ptr_info.@"addrspace",
+                .mutable = ptr_info.mutable,
+                .@"allowzero" = ptr_info.@"allowzero",
+                .@"volatile" = ptr_info.@"volatile",
+                .size = .One,
+            });
         },
         else => return sema.failWithExpectedOptionalType(block, src, operand_ty),
     };
