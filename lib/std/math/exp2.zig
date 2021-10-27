@@ -6,6 +6,12 @@
 
 const std = @import("../std.zig");
 const math = std.math;
+const inf_f32 = math.inf_f32;
+const inf_f64 = math.inf_f64;
+const inf_f128 = math.inf_f128;
+const nan_f32 = math.nan_f32;
+const nan_f64 = math.nan_f64;
+const nan_f128 = math.nan_f128;
 const expect = std.testing.expect;
 
 /// Returns 2 raised to the power of x (2^x).
@@ -563,6 +569,7 @@ const exp2_128_table = [_]f128{
     0x1.68155d44ca973081c57227b9f69ep+0,
 };
 
+// Use a separate table since these values are only 32-bit floats.
 const exp2_128_eps_table = [exp2_128_table.len]f32{
     -0x1.5c50p-101,
     -0x1.5d00p-106,
@@ -715,7 +722,7 @@ fn exp2_128(x: f128) f128 {
     }
 
     const ux = @bitCast(u128, x);
-    const e: u16 = @intCast(u16, ux >> 112) & 0x7FFF;  // exponent
+    const e: u16 = @intCast(u16, ux >> 112) & 0x7FFF; // exponent
 
     // |x| >= 16384 or nan
     if (e >= 0x3FFF + 14) {
@@ -806,4 +813,126 @@ test "math.exp2_128() basic" {
     try expect(math.approxEqAbs(f128, exp2_128(0.8923), 1.856133, epsilon));
     try expect(math.approxEqAbs(f128, exp2_128(1.5), 2.828427, epsilon));
     try expect(math.approxEqAbs(f128, exp2_128(-1), 0.5, epsilon));
+}
+
+const Testcase32 = struct {
+    input: f32,
+    exp_output: f32,
+
+    pub fn run(tc: @This()) !void {
+        const output = exp2_32(tc.input);
+        // Compare bits rather than values so that NaN compares correctly.
+        if (@bitCast(u32, output) != @bitCast(u32, tc.exp_output)) {
+            std.debug.print(
+                "expected exp2_32({x})->{x}, got {x}\n",
+                .{ tc.input, tc.exp_output, output },
+            );
+            return error.TestExpectedEqual;
+        }
+    }
+};
+
+fn tc32(input: f32, exp_output: f32) Testcase32 {
+    return .{ .input = input, .exp_output = exp_output };
+}
+
+const Testcase64 = struct {
+    input: f64,
+    exp_output: f64,
+
+    pub fn run(tc: @This()) !void {
+        const output = exp2_64(tc.input);
+        // Compare bits rather than values so that NaN compares correctly.
+        if (@bitCast(u64, output) != @bitCast(u64, tc.exp_output)) {
+            std.debug.print(
+                "expected exp2_64({})->{}, got {}\n",
+                .{ tc.input, tc.exp_output, output },
+            );
+            return error.TestExpectedEqual;
+        }
+    }
+};
+
+fn tc64(input: f64, exp_output: f64) Testcase64 {
+    return .{ .input = input, .exp_output = exp_output };
+}
+
+const Testcase128 = struct {
+    input: f128,
+    exp_output: f128,
+
+    pub fn run(tc: @This()) !void {
+        const output = exp2_128(tc.input);
+        // Compare bits rather than values so that NaN compares correctly.
+        if (@bitCast(u128, output) != @bitCast(u128, tc.exp_output)) {
+            std.debug.print(
+                "expected exp2_128({})->{}, got {}\n",
+                .{ tc.input, tc.exp_output, output },
+            );
+            return error.TestExpectedEqual;
+        }
+    }
+};
+
+fn tc128(input: f128, exp_output: f128) Testcase128 {
+    return .{ .input = input, .exp_output = exp_output };
+}
+
+test "math.exp2_32() sanity" {
+    const cases = [_]Testcase32{
+        // zig fmt: off
+        tc32(-0x1.0223a0p+3, 0x1.e8d134p-9),
+        tc32( 0x1.161868p+2, 0x1.453672p+4),
+        tc32(-0x1.0c34b4p+3, 0x1.890ca0p-9),
+        tc32(-0x1.a206f0p+2, 0x1.622d4ep-7),
+        tc32( 0x1.288bbcp+3, 0x1.340ecep+9),
+        tc32( 0x1.52efd0p-1, 0x1.950eeep+0),
+        tc32(-0x1.a05cc8p-2, 0x1.824056p-1),
+        tc32( 0x1.1f9efap-1, 0x1.79dfa2p+0),
+        tc32( 0x1.8c5db0p-1, 0x1.b5ceacp+0),
+        tc32(-0x1.5b86eap-1, 0x1.3fd8bap-1),
+        // zig fmt: on
+    };
+    for (cases) |tc| {
+        try tc.run();
+    }
+}
+
+test "math.exp2_32() special" {
+    const cases = [_]Testcase32{
+        // zig fmt: off
+        tc32( 0x0p+0,  0x1p+0 ),
+        tc32(-0x0p+0,  0x1p+0 ),
+        tc32( 0x1p+0,  0x1p+1 ),
+        tc32(-0x1p+0,  0x1p-1 ),
+        tc32( inf_f32, inf_f32),
+        tc32(-inf_f32, 0x0p+0 ),
+        tc32( nan_f32, nan_f32),
+        tc32(-nan_f32, nan_f32),
+        tc32(@bitCast(f32, @as(u32, 0x7ff01234)), nan_f32),
+        tc32(@bitCast(f32, @as(u32, 0xfff01234)), nan_f32),
+        // zig fmt: on
+    };
+    for (cases) |tc| {
+        try tc.run();
+    }
+}
+
+test "math.exp2_32() boundary" {
+    const cases = [_]Testcase32{
+        // zig fmt: off
+        tc32( 0x1.fffffep+6, 0x1.ffff4ep+127), // The last value before the exp gets infinite
+        tc32( 0x1p+7,        inf_f32        ), // The first value that gives infinite exp
+        // TODO: Incorrectly giving zero.
+        // tc32(-0x1.2ap+7,     0x1p-149       ), // The last value before the exp flushes to zero
+        tc32(-0x1.2a0002p+7, 0x0p+0         ), // The first value at which the exp flushes to zero
+        tc32(-0x1.f8p+6,     0x1p-126       ), // The last value before the exp flushes to subnormal
+        // TODO: Incorrectly giving zero (also check expected val).
+        // tc32(-0x1.f80002p+6, XXX   ), // The first value for which exp flushes to subnormal
+        // tc32(-0x1.fcp+6,     0x1p-127       ),
+        // zig fmt: on
+    };
+    for (cases) |tc| {
+        try tc.run();
+    }
 }
