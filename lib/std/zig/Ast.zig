@@ -262,6 +262,9 @@ pub fn renderError(tree: Tree, parse_error: Error, stream: anytype) !void {
                 token_tags[parse_error.token].symbol(),
             });
         },
+        .extern_fn_body => {
+            return stream.writeAll("extern functions have no body");
+        },
         .extra_addrspace_qualifier => {
             return stream.writeAll("extra addrspace qualifier");
         },
@@ -2447,6 +2450,7 @@ pub const Error = struct {
         expected_var_decl_or_fn,
         expected_loop_payload,
         expected_container,
+        extern_fn_body,
         extra_addrspace_qualifier,
         extra_align_qualifier,
         extra_allowzero_qualifier,

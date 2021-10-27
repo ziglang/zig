@@ -3147,7 +3147,7 @@ fn fnDecl(
                 break :param indexToRef(param_inst);
             };
 
-            if (param_name == 0) continue;
+            if (param_name == 0 or is_extern) continue;
 
             const sub_scope = try astgen.arena.create(Scope.LocalVal);
             sub_scope.* = .{

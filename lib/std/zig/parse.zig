@@ -532,11 +532,13 @@ const Parser = struct {
     ///      / KEYWORD_usingnamespace Expr SEMICOLON
     fn expectTopLevelDecl(p: *Parser) !Node.Index {
         const extern_export_inline_token = p.nextToken();
+        var is_extern: bool = false;
         var expect_fn: bool = false;
         var expect_var_or_fn: bool = false;
         switch (p.token_tags[extern_export_inline_token]) {
             .keyword_extern => {
                 _ = p.eatToken(.string_literal);
+                is_extern = true;
                 expect_var_or_fn = true;
             },
             .keyword_export => expect_var_or_fn = true,
@@ -554,6 +556,10 @@ const Parser = struct {
                     const fn_decl_index = try p.reserveNode();
                     const body_block = try p.parseBlock();
                     assert(body_block != 0);
+                    if (is_extern) {
+                        try p.warnMsg(.{ .tag = .extern_fn_body, .token = extern_export_inline_token });
+                        return null_node;
+                    }
                     return p.setNode(fn_decl_index, .{
                         .tag = .fn_decl,
                         .main_token = p.nodes.items(.main_token)[fn_proto],
