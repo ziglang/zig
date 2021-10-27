@@ -480,7 +480,7 @@ static Buf os_path_resolve_windows(Buf **paths_ptr, size_t paths_len) {
     // Now we know the disk designator to use, if any, and what kind it is. And our result
     // is big enough to append all the paths to.
     bool correct_disk_designator = true;
-    for (size_t i = 0; i < paths_len; i += 1) {
+    for (size_t i = first_index; i < paths_len; i += 1) {
         Slice<uint8_t> p = buf_to_slice(paths_ptr[i]);
         WindowsPath parsed = windowsParsePath(p);
 
