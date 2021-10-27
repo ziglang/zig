@@ -928,7 +928,7 @@ test "math.exp2_32() boundary" {
         tc32(-0x1.2a0002p+7, 0x0p+0         ), // The first value at which the exp flushes to zero
         tc32(-0x1.f8p+6,     0x1p-126       ), // The last value before the exp flushes to subnormal
         // TODO: Incorrectly giving zero (also check expected val).
-        // tc32(-0x1.f80002p+6, XXX   ), // The first value for which exp flushes to subnormal
+        // tc32(-0x1.f80002p+6, XXX            ), // The first value for which exp flushes to subnormal
         // tc32(-0x1.fcp+6,     0x1p-127       ),
         // zig fmt: on
     };
@@ -968,8 +968,8 @@ test "math.exp2_64() special" {
         tc64(-inf_f64, 0x0p+0 ),
         tc64( nan_f64, nan_f64),
         tc64(-nan_f64, nan_f64),
-        tc64( @bitCast(f64, @as(u64, 0x7ff0123400000000)), nan_f64),
-        tc64( @bitCast(f64, @as(u64, 0xfff0123400000000)), nan_f64),
+        tc64(@bitCast(f64, @as(u64, 0x7ff0123400000000)), nan_f64),
+        tc64(@bitCast(f64, @as(u64, 0xfff0123400000000)), nan_f64),
         // zig fmt: on
     };
     for (cases) |tc| {
@@ -1026,8 +1026,8 @@ test "math.exp2_128() special" {
         tc128(-inf_f128, 0x0p+0  ),
         tc128( nan_f128, nan_f128),
         tc128(-nan_f128, nan_f128),
-        tc128( @bitCast(f128, @as(u128, 0x7fff1234000000000000000000000000)), nan_f128),
-        tc128( @bitCast(f128, @as(u128, 0xffff1234000000000000000000000000)), nan_f128),
+        tc128(@bitCast(f128, @as(u128, 0x7fff1234000000000000000000000000)), nan_f128),
+        tc128(@bitCast(f128, @as(u128, 0xffff1234000000000000000000000000)), nan_f128),
         // zig fmt: on
     };
     for (cases) |tc| {
