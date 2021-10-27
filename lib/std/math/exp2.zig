@@ -845,7 +845,7 @@ const Testcase64 = struct {
         // Compare bits rather than values so that NaN compares correctly.
         if (@bitCast(u64, output) != @bitCast(u64, tc.exp_output)) {
             std.debug.print(
-                "expected exp2_64({})->{}, got {}\n",
+                "expected exp2_64({x})->{x}, got {x}\n",
                 .{ tc.input, tc.exp_output, output },
             );
             return error.TestExpectedEqual;
@@ -866,7 +866,7 @@ const Testcase128 = struct {
         // Compare bits rather than values so that NaN compares correctly.
         if (@bitCast(u128, output) != @bitCast(u128, tc.exp_output)) {
             std.debug.print(
-                "expected exp2_128({})->{}, got {}\n",
+                "expected exp2_128({x})->{x}, got {x}\n",
                 .{ tc.input, tc.exp_output, output },
             );
             return error.TestExpectedEqual;
@@ -930,6 +930,122 @@ test "math.exp2_32() boundary" {
         // TODO: Incorrectly giving zero (also check expected val).
         // tc32(-0x1.f80002p+6, XXX   ), // The first value for which exp flushes to subnormal
         // tc32(-0x1.fcp+6,     0x1p-127       ),
+        // zig fmt: on
+    };
+    for (cases) |tc| {
+        try tc.run();
+    }
+}
+
+test "math.exp2_64() sanity" {
+    const cases = [_]Testcase64{
+        // zig fmt: off
+        tc64(-0x1.02239f3c6a8f1p+3, 0x1.e8d13c396f452p-9),
+        tc64( 0x1.161868e18bc67p+2, 0x1.4536746bb6f12p+4),
+        tc64(-0x1.0c34b3e01e6e7p+3, 0x1.890ca0c00b9a2p-9),
+        tc64(-0x1.a206f0a19dcc4p+2, 0x1.622d4b0ebc6c1p-7),
+        tc64( 0x1.288bbb0d6a1e6p+3, 0x1.340ec7f3e607ep+9),
+        tc64( 0x1.52efd0cd80497p-1, 0x1.950eef4bc5451p+0),
+        tc64(-0x1.a05cc754481d1p-2, 0x1.824056efc687cp-1),
+        tc64( 0x1.1f9ef934745cbp-1, 0x1.79dfa14ab121ep+0),
+        tc64( 0x1.8c5db097f7442p-1, 0x1.b5cead2247372p+0),
+        tc64(-0x1.5b86ea8118a0ep-1, 0x1.3fd8ba33216b9p-1),
+        // zig fmt: on
+    };
+    for (cases) |tc| {
+        try tc.run();
+    }
+}
+
+test "math.exp2_64() special" {
+    const cases = [_]Testcase64{
+        // zig fmt: off
+        tc64( 0x0p+0,  0x1p+0 ),
+        tc64(-0x0p+0,  0x1p+0 ),
+        tc64( 0x1p+0,  0x1p+1 ),
+        tc64(-0x1p+0,  0x1p-1 ),
+        tc64( inf_f64, inf_f64),
+        tc64(-inf_f64, 0x0p+0 ),
+        tc64( nan_f64, nan_f64),
+        tc64(-nan_f64, nan_f64),
+        tc64( @bitCast(f64, @as(u64, 0x7ff0123400000000)), nan_f64),
+        tc64( @bitCast(f64, @as(u64, 0xfff0123400000000)), nan_f64),
+        // zig fmt: on
+    };
+    for (cases) |tc| {
+        try tc.run();
+    }
+}
+
+test "math.exp2_64() boundary" {
+    const cases = [_]Testcase64{
+        // zig fmt: off
+        tc64( 0x1.fffffffffffffp+9,  0x1.ffffffffffd3ap+1023), // The last value before the exp gets infinite
+        tc64( 0x1p+10,               inf_f64                ), // The first value that gives infinite exp
+        tc64(-0x1.0c8p+10,           0x1p-1074              ), // The last value before the exp flushes to zero
+        // TODO: Failing to flush to zero.
+        // tc64(-0x1.0c80000000001p+10, 0x0p+0                 ), // The first value at which the exp flushes to zero
+        tc64(-0x1.ffp+9,             0x1p-1022              ), // The last value before the exp flushes to subnormal
+        tc64(-0x1.ff00000000001p+9,  0x1.ffffffffffd3ap-1023), // The first value for which exp flushes to subnormal
+        tc64(-0x1.ff8p+9,            0x1p-1023              ),
+        // zig fmt: on
+    };
+    for (cases) |tc| {
+        try tc.run();
+    }
+}
+
+test "math.exp2_128() sanity" {
+    const cases = [_]Testcase128{
+        // zig fmt: off
+        tc128(-0x1.02239f3c6a8f13dep+3, 0x1.e8d13c396f44f500bfc7cefe1304p-9),
+        tc128( 0x1.161868e18bc67782p+2, 0x1.4536746bb6f139f3c05f40f3758dp+4),
+        tc128(-0x1.0c34b3e01e6e682cp+3, 0x1.890ca0c00b9a679b66a1cc43e168p-9),
+        tc128(-0x1.a206f0a19dcc3948p+2, 0x1.622d4b0ebc6c2e5980cda14724e4p-7),
+        tc128( 0x1.288bbb0d6a1e5bdap+3, 0x1.340ec7f3e607c5bd584d33ade9aep+9),
+        tc128( 0x1.52efd0cd80496a5ap-1, 0x1.950eef4bc5450eeabc992d9ba86ap+0),
+        tc128(-0x1.a05cc754481d0bd0p-2, 0x1.824056efc687c4f8b3c7e1f4f9fbp-1),
+        tc128( 0x1.1f9ef934745cad60p-1, 0x1.79dfa14ab121da4f38057c8f9f2ep+0),
+        tc128( 0x1.8c5db097f744257ep-1, 0x1.b5cead22473723958363b617f84ep+0),
+        tc128(-0x1.5b86ea8118a0e2bcp-1, 0x1.3fd8ba33216b93ceab3a5697c480p-1),
+        // zig fmt: on
+    };
+    for (cases) |tc| {
+        try tc.run();
+    }
+}
+
+test "math.exp2_128() special" {
+    const cases = [_]Testcase128{
+        // zig fmt: off
+        tc128( 0x0p+0,   0x1p+0  ),
+        tc128(-0x0p+0,   0x1p+0  ),
+        tc128( 0x1p+0,   0x1p+1  ),
+        tc128(-0x1p+0,   0x1p-1  ),
+        tc128( inf_f128, inf_f128),
+        tc128(-inf_f128, 0x0p+0  ),
+        tc128( nan_f128, nan_f128),
+        tc128(-nan_f128, nan_f128),
+        tc128( @bitCast(f128, @as(u128, 0x7fff1234000000000000000000000000)), nan_f128),
+        tc128( @bitCast(f128, @as(u128, 0xffff1234000000000000000000000000)), nan_f128),
+        // zig fmt: on
+    };
+    for (cases) |tc| {
+        try tc.run();
+    }
+}
+
+test "math.exp2_128() boundary" {
+    const cases = [_]Testcase128{
+        // zig fmt: off
+        tc128( 0x1p+14 - 0x1p-99,      0x1.ffffffffffffffffffffffffd3a3p+16383), // The last value before the exp gets infinite
+        tc128( 0x1p+14,                inf_f128                               ), // The first value that gives infinite exp
+        tc128(-0x1.01b8p+14,           0x1p-16494                             ), // The last value before the exp flushes to zero
+        // TODO: Failing to flush to zero.
+        // tc128(-0x1.01b8p+14 - 0x1p-98, 0x0p+0                                 ), // The first value at which the exp flushes to zero
+        tc128(-0x1.fffp+13,            0x1p-16382                             ), // The last value before the exp flushes to subnormal
+        tc128(-0x1.fffp+13 - 0x1p-99,  0x0.ffffffffffffffffffffffffe9d2p-16382), // The first value for which exp flushes to subnormal
+        tc128(-0x1.fff8p+13,           0x1p-16383                             ),
         // zig fmt: on
     };
     for (cases) |tc| {
