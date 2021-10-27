@@ -459,3 +459,18 @@ var gdt = [_]GDTEntry{
     GDTEntry{ .field = 2 },
 };
 var global_ptr = &gdt[0];
+
+test "global constant is loaded with a runtime-known index" {
+    const S = struct {
+        fn doTheTest() !void {
+            var index: usize = 1;
+            const ptr = &pieces[index].field;
+            try expect(ptr.* == 2);
+        }
+        const Piece = struct {
+            field: i32,
+        };
+        const pieces = [_]Piece{ Piece{ .field = 1 }, Piece{ .field = 2 }, Piece{ .field = 3 } };
+    };
+    try S.doTheTest();
+}

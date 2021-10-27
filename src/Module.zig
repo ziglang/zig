@@ -3039,10 +3039,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
                     log.debug("insert {*} ({s}) dependant {*} ({s}) into deletion set", .{
                         decl, decl.name, dep, dep.name,
                     });
-                    // We don't perform a deletion here, because this Decl or another one
-                    // may end up referencing it before the update is complete.
-                    dep.deletion_flag = true;
-                    try mod.deletion_set.put(mod.gpa, dep, {});
+                    try mod.markDeclForDeletion(dep);
                 }
             }
             decl.dependencies.clearRetainingCapacity();
@@ -3433,21 +3430,29 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     decl.owns_tv = false;
     var queue_linker_work = false;
-    if (decl_tv.val.castTag(.variable)) |payload| {
-        const variable = payload.data;
-        if (variable.owner_decl == decl) {
-            decl.owns_tv = true;
-            queue_linker_work = true;
+    switch (decl_tv.val.tag()) {
+        .variable => {
+            const variable = decl_tv.val.castTag(.variable).?.data;
+            if (variable.owner_decl == decl) {
+                decl.owns_tv = true;
+                queue_linker_work = true;
 
-            const copied_init = try variable.init.copy(&decl_arena.allocator);
-            variable.init = copied_init;
-        }
-    } else if (decl_tv.val.castTag(.extern_fn)) |payload| {
-        const owner_decl = payload.data;
-        if (decl == owner_decl) {
-            decl.owns_tv = true;
+                const copied_init = try variable.init.copy(&decl_arena.allocator);
+                variable.init = copied_init;
+            }
+        },
+        .extern_fn => {
+            const owner_decl = decl_tv.val.castTag(.extern_fn).?.data;
+            if (decl == owner_decl) {
+                decl.owns_tv = true;
+                queue_linker_work = true;
+            }
+        },
+        .array, .@"struct", .@"union" => {
+            log.debug("send global const to linker: {*} ({s})", .{ decl, decl.name });
             queue_linker_work = true;
-        }
+        },
+        else => {},
     }
 
     decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
@@ -3462,6 +3467,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     decl.generation = mod.generation;
 
     if (queue_linker_work and decl.ty.hasCodeGenBits()) {
+        log.debug("queue linker work for {*} ({s})", .{ decl, decl.name });
+
         try mod.comp.bin_file.allocateDeclIndexes(decl);
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
 
@@ -3985,6 +3992,7 @@ pub fn clearDecl(
     decl.analysis = .unreferenced;
 }
 
+/// This function is exclusively called for anonymous decls.
 pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
     log.debug("deleteUnusedDecl {*} ({s})", .{ decl, decl.name });
 
@@ -4017,6 +4025,13 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
         dep.removeDependant(decl);
     }
     decl.destroy(mod);
+}
+
+/// We don't perform a deletion here, because this Decl or another one
+/// may end up referencing it before the update is complete.
+fn markDeclForDeletion(mod: *Module, decl: *Decl) !void {
+    decl.deletion_flag = true;
+    try mod.deletion_set.put(mod.gpa, decl, {});
 }
 
 /// Cancel the creation of an anon decl and delete any references to it.
@@ -4369,12 +4384,13 @@ pub fn createAnonymousDeclFromDeclNamed(
 
     namespace.anon_decls.putAssumeCapacityNoClobber(new_decl, {});
 
-    // TODO: This generates the Decl into the machine code file if it is of a
-    // type that is non-zero size. We should be able to further improve the
-    // compiler to omit Decls which are only referenced at compile-time and not runtime.
+    // The Decl starts off with alive=false and the codegen backend will set alive=true
+    // if the Decl is referenced by an instruction or another constant. Otherwise,
+    // the Decl will be garbage collected by the `codegen_decl` task instead of sent
+    // to the linker.
     if (typed_value.ty.hasCodeGenBits()) {
         try mod.comp.bin_file.allocateDeclIndexes(new_decl);
-        try mod.comp.work_queue.writeItem(.{ .codegen_decl = new_decl });
+        try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = new_decl });
     }
 
     return new_decl;

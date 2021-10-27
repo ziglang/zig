@@ -809,6 +809,11 @@ pub const Context = struct {
                 try self.emitConstant(val, ty);
                 return Result.appended;
             },
+            .Struct => {
+                // TODO write the fields for real
+                try self.code.writer().writeByteNTimes(0xaa, ty.abiSize(self.target));
+                return Result{ .appended = {} };
+            },
             else => |tag| return self.fail("TODO: Implement zig type codegen for type: '{s}'", .{tag}),
         }
     }
