@@ -10762,6 +10762,11 @@ fn zirVarExtended(
     }
 
     const new_var = try sema.gpa.create(Module.Var);
+
+    log.debug("created variable {*} owner_decl: {*} ({s})", .{
+        new_var, sema.owner_decl, sema.owner_decl.name,
+    });
+
     new_var.* = .{
         .owner_decl = sema.owner_decl,
         .init = init_val,

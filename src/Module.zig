@@ -4767,15 +4767,25 @@ pub fn populateTestFunctions(mod: *Module) !void {
     try mod.linkerUpdateDecl(array_decl);
 
     {
-        var arena_instance = decl.value_arena.?.promote(gpa);
-        defer decl.value_arena.?.* = arena_instance.state;
-        const arena = &arena_instance.allocator;
+        var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+        errdefer new_decl_arena.deinit();
+        const arena = &new_decl_arena.allocator;
 
-        decl.ty = try Type.Tag.const_slice.create(arena, try tmp_test_fn_ty.copy(arena));
-        decl.val = try Value.Tag.slice.create(arena, .{
+        // This copy accesses the old Decl Type/Value so it must be done before `clearValues`.
+        const new_ty = try Type.Tag.const_slice.create(arena, try tmp_test_fn_ty.copy(arena));
+        const new_val = try Value.Tag.slice.create(arena, .{
             .ptr = try Value.Tag.decl_ref.create(arena, array_decl),
             .len = try Value.Tag.int_u64.create(arena, mod.test_functions.count()),
         });
+
+        // Since we are replacing the Decl's value we must perform cleanup on the
+        // previous value.
+        decl.clearValues(gpa);
+        decl.ty = new_ty;
+        decl.val = new_val;
+        decl.has_tv = true;
+
+        try decl.finalizeNewArena(&new_decl_arena);
     }
     try mod.linkerUpdateDecl(decl);
 }
