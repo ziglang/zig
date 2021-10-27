@@ -16,7 +16,7 @@ pub const is_enabled = builtin.mode == .Debug;
 /// You will also need to call initialize() on startup, preferably as the very first operation in your program.
 pub const root_decls = struct {
     pub const panic = if (is_enabled) compilerPanic else std.builtin.default_panic;
-    pub const enable_segfault_handler = if (is_enabled) false else debug.default_enable_segfault_handler;
+    pub const enable_segfault_handler = false;
 };
 
 /// Install signal handlers to identify crashes and report diagnostics.
