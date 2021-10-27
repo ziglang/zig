@@ -390,7 +390,7 @@ pub const Type = extern union {
                 .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
-                .@"allowzero" = false,
+                .@"allowzero" = true,
                 .mutable = false,
                 .@"volatile" = false,
                 .size = .C,
@@ -402,7 +402,7 @@ pub const Type = extern union {
                 .@"addrspace" = .generic,
                 .bit_offset = 0,
                 .host_size = 0,
-                .@"allowzero" = false,
+                .@"allowzero" = true,
                 .mutable = true,
                 .@"volatile" = false,
                 .size = .C,
@@ -1153,7 +1153,7 @@ pub const Type = extern union {
                     }
                     if (!payload.mutable) try writer.writeAll("const ");
                     if (payload.@"volatile") try writer.writeAll("volatile ");
-                    if (payload.@"allowzero") try writer.writeAll("allowzero ");
+                    if (payload.@"allowzero" and payload.size != .C) try writer.writeAll("allowzero ");
 
                     ty = payload.pointee_type;
                     continue;
@@ -2347,7 +2347,48 @@ pub const Type = extern union {
         }
     }
 
-    /// Asserts that the type is an optional or a pointer that can be null.
+    /// For pointer-like optionals, returns true, otherwise returns the allowzero property
+    /// of pointers.
+    pub fn ptrAllowsZero(ty: Type) bool {
+        if (ty.isPtrLikeOptional()) {
+            return true;
+        }
+        return ty.ptrInfo().data.@"allowzero";
+    }
+
+    /// For pointer-like optionals, it returns the pointer type. For pointers,
+    /// the type is returned unmodified.
+    pub fn ptrOrOptionalPtrTy(ty: Type, buf: *Payload.ElemType) ?Type {
+        if (isPtrLikeOptional(ty)) return ty.optionalChild(buf);
+        switch (ty.tag()) {
+            .c_const_pointer,
+            .c_mut_pointer,
+            .single_const_pointer_to_comptime_int,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            => return ty,
+
+            .pointer => {
+                if (ty.ptrSize() == .Slice) {
+                    return null;
+                } else {
+                    return ty;
+                }
+            },
+
+            .inferred_alloc_const => unreachable,
+            .inferred_alloc_mut => unreachable,
+
+            else => return null,
+        }
+    }
+
+    /// Returns true if the type is optional and would be lowered to a single pointer
+    /// address value, using 0 for null. Note that this returns true for C pointers.
     pub fn isPtrLikeOptional(self: Type) bool {
         switch (self.tag()) {
             .optional_single_const_pointer,
@@ -2371,7 +2412,8 @@ pub const Type = extern union {
             },
 
             .pointer => return self.castTag(.pointer).?.data.size == .C,
-            else => unreachable,
+
+            else => return false,
         }
     }
 
@@ -2532,38 +2574,50 @@ pub const Type = extern union {
 
     /// Asserts that the type is an optional.
     /// Resulting `Type` will have inner memory referencing `buf`.
-    pub fn optionalChild(self: Type, buf: *Payload.ElemType) Type {
-        return switch (self.tag()) {
-            .optional => self.castTag(.optional).?.data,
+    /// Note that for C pointers this returns the type unmodified.
+    pub fn optionalChild(ty: Type, buf: *Payload.ElemType) Type {
+        return switch (ty.tag()) {
+            .optional => ty.castTag(.optional).?.data,
             .optional_single_mut_pointer => {
                 buf.* = .{
                     .base = .{ .tag = .single_mut_pointer },
-                    .data = self.castPointer().?.data,
+                    .data = ty.castPointer().?.data,
                 };
                 return Type.initPayload(&buf.base);
             },
             .optional_single_const_pointer => {
                 buf.* = .{
                     .base = .{ .tag = .single_const_pointer },
-                    .data = self.castPointer().?.data,
+                    .data = ty.castPointer().?.data,
                 };
                 return Type.initPayload(&buf.base);
             },
+
+            .pointer, // here we assume it is a C pointer
+            .c_const_pointer,
+            .c_mut_pointer,
+            => return ty,
+
             else => unreachable,
         };
     }
 
     /// Asserts that the type is an optional.
     /// Same as `optionalChild` but allocates the buffer if needed.
-    pub fn optionalChildAlloc(self: Type, allocator: *Allocator) !Type {
-        switch (self.tag()) {
-            .optional => return self.castTag(.optional).?.data,
+    pub fn optionalChildAlloc(ty: Type, allocator: *Allocator) !Type {
+        switch (ty.tag()) {
+            .optional => return ty.castTag(.optional).?.data,
             .optional_single_mut_pointer => {
-                return Tag.single_mut_pointer.create(allocator, self.castPointer().?.data);
+                return Tag.single_mut_pointer.create(allocator, ty.castPointer().?.data);
             },
             .optional_single_const_pointer => {
-                return Tag.single_const_pointer.create(allocator, self.castPointer().?.data);
+                return Tag.single_const_pointer.create(allocator, ty.castPointer().?.data);
             },
+            .pointer, // here we assume it is a C pointer
+            .c_const_pointer,
+            .c_mut_pointer,
+            => return ty,
+
             else => unreachable,
         }
     }
@@ -2573,6 +2627,19 @@ pub const Type = extern union {
     pub fn unionTagType(ty: Type) ?Type {
         return switch (ty.tag()) {
             .union_tagged => ty.castTag(.union_tagged).?.data.tag_ty,
+
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .address_space,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            .type_info,
+            => unreachable, // needed to call resolveTypeFields first
+
             else => null,
         };
     }
@@ -4037,6 +4104,9 @@ pub const Type = extern union {
         if (d.sentinel != null or d.@"align" != 0 or d.@"addrspace" != .generic or
             d.bit_offset != 0 or d.host_size != 0 or d.@"allowzero" or d.@"volatile")
         {
+            if (d.size == .C) {
+                assert(d.@"allowzero"); // All C pointers must set allowzero to true.
+            }
             return Type.Tag.pointer.create(arena, d);
         }
 

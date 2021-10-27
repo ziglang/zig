@@ -46,6 +46,7 @@ stage1_cache_manifest: *Cache.Manifest = undefined,
 link_error_flags: link.File.ErrorFlags = .{},
 
 work_queue: std.fifo.LinearFifo(Job, .Dynamic),
+anon_work_queue: std.fifo.LinearFifo(Job, .Dynamic),
 
 /// These jobs are to invoke the Clang compiler to create an object file, which
 /// gets linked with the Compilation.
@@ -1460,6 +1461,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .emit_analysis = options.emit_analysis,
             .emit_docs = options.emit_docs,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
+            .anon_work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
             .astgen_work_queue = std.fifo.LinearFifo(*Module.File, .Dynamic).init(gpa),
             .embed_file_work_queue = std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic).init(gpa),
@@ -1646,6 +1648,7 @@ pub fn destroy(self: *Compilation) void {
 
     const gpa = self.gpa;
     self.work_queue.deinit();
+    self.anon_work_queue.deinit();
     self.c_object_work_queue.deinit();
     self.astgen_work_queue.deinit();
     self.embed_file_work_queue.deinit();
@@ -2072,7 +2075,6 @@ pub fn getCompileLogOutput(self: *Compilation) []const u8 {
 }
 
 pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemory }!void {
-    const gpa = self.gpa;
     // If the terminal is dumb, we dont want to show the user all the
     // output.
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
@@ -2146,7 +2148,24 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         }
     }
 
-    while (self.work_queue.readItem()) |work_item| switch (work_item) {
+    // In this main loop we give priority to non-anonymous Decls in the work queue, so
+    // that they can establish references to anonymous Decls, setting alive=true in the
+    // backend, preventing anonymous Decls from being prematurely destroyed.
+    while (true) {
+        if (self.work_queue.readItem()) |work_item| {
+            try processOneJob(self, work_item, main_progress_node);
+            continue;
+        }
+        if (self.anon_work_queue.readItem()) |work_item| {
+            try processOneJob(self, work_item, main_progress_node);
+            continue;
+        }
+        break;
+    }
+}
+
+fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress.Node) !void {
+    switch (job) {
         .codegen_decl => |decl| switch (decl.analysis) {
             .unreferenced => unreachable,
             .in_progress => unreachable,
@@ -2157,24 +2176,25 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             .codegen_failure,
             .dependency_failure,
             .sema_failure_retryable,
-            => continue,
+            => return,
 
             .complete, .codegen_failure_retryable => {
                 if (build_options.omit_stage2)
                     @panic("sadly stage2 is omitted from this build to save memory on the CI server");
 
-                const module = self.bin_file.options.module.?;
+                const module = comp.bin_file.options.module.?;
                 assert(decl.has_tv);
                 assert(decl.ty.hasCodeGenBits());
 
                 if (decl.alive) {
                     try module.linkerUpdateDecl(decl);
-                    continue;
+                    return;
                 }
 
                 // Instead of sending this decl to the linker, we actually will delete it
                 // because we found out that it in fact was never referenced.
                 module.deleteUnusedDecl(decl);
+                return;
             },
         },
         .codegen_func => |func| switch (func.owner_decl.analysis) {
@@ -2187,20 +2207,21 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             .codegen_failure,
             .dependency_failure,
             .sema_failure_retryable,
-            => continue,
+            => return,
 
             .complete, .codegen_failure_retryable => {
                 if (build_options.omit_stage2)
                     @panic("sadly stage2 is omitted from this build to save memory on the CI server");
                 switch (func.state) {
-                    .sema_failure, .dependency_failure => continue,
+                    .sema_failure, .dependency_failure => return,
                     .queued => {},
                     .in_progress => unreachable,
                     .inline_only => unreachable, // don't queue work for this
                     .success => unreachable, // don't queue it twice
                 }
 
-                const module = self.bin_file.options.module.?;
+                const gpa = comp.gpa;
+                const module = comp.bin_file.options.module.?;
                 const decl = func.owner_decl;
 
                 var tmp_arena = std.heap.ArenaAllocator.init(gpa);
@@ -2210,7 +2231,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 var air = module.analyzeFnBody(decl, func, sema_arena) catch |err| switch (err) {
                     error.AnalysisFail => {
                         assert(func.state != .in_progress);
-                        continue;
+                        return;
                     },
                     error.OutOfMemory => return error.OutOfMemory,
                 };
@@ -2220,17 +2241,17 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 var liveness = try Liveness.analyze(gpa, air, decl.getFileScope().zir);
                 defer liveness.deinit(gpa);
 
-                if (builtin.mode == .Debug and self.verbose_air) {
+                if (builtin.mode == .Debug and comp.verbose_air) {
                     std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
                     @import("print_air.zig").dump(gpa, air, decl.getFileScope().zir, liveness);
                     std.debug.print("# End Function AIR: {s}\n\n", .{decl.name});
                 }
 
-                self.bin_file.updateFunc(module, func, air, liveness) catch |err| switch (err) {
+                comp.bin_file.updateFunc(module, func, air, liveness) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
                     error.AnalysisFail => {
                         decl.analysis = .codegen_failure;
-                        continue;
+                        return;
                     },
                     else => {
                         try module.failed_decls.ensureUnusedCapacity(gpa, 1);
@@ -2241,10 +2262,10 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                             .{@errorName(err)},
                         ));
                         decl.analysis = .codegen_failure_retryable;
-                        continue;
+                        return;
                     },
                 };
-                continue;
+                return;
             },
         },
         .emit_h_decl => |decl| switch (decl.analysis) {
@@ -2256,14 +2277,15 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             .sema_failure,
             .dependency_failure,
             .sema_failure_retryable,
-            => continue,
+            => return,
 
             // emit-h only requires semantic analysis of the Decl to be complete,
             // it does not depend on machine code generation to succeed.
             .codegen_failure, .codegen_failure_retryable, .complete => {
                 if (build_options.omit_stage2)
                     @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-                const module = self.bin_file.options.module.?;
+                const gpa = comp.gpa;
+                const module = comp.bin_file.options.module.?;
                 const emit_h = module.emit_h.?;
                 _ = try emit_h.decl_table.getOrPut(gpa, decl);
                 const decl_emit_h = decl.getEmitH(module);
@@ -2287,7 +2309,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 c_codegen.genHeader(&dg) catch |err| switch (err) {
                     error.AnalysisFail => {
                         try emit_h.failed_decls.put(gpa, decl, dg.error_msg.?);
-                        continue;
+                        return;
                     },
                     else => |e| return e,
                 };
@@ -2299,26 +2321,27 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         .analyze_decl => |decl| {
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-            const module = self.bin_file.options.module.?;
+            const module = comp.bin_file.options.module.?;
             module.ensureDeclAnalyzed(decl) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => continue,
+                error.AnalysisFail => return,
             };
         },
         .update_embed_file => |embed_file| {
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-            const module = self.bin_file.options.module.?;
+            const module = comp.bin_file.options.module.?;
             module.updateEmbedFile(embed_file) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => continue,
+                error.AnalysisFail => return,
             };
         },
         .update_line_number => |decl| {
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-            const module = self.bin_file.options.module.?;
-            self.bin_file.updateDeclLineNumber(module, decl) catch |err| {
+            const gpa = comp.gpa;
+            const module = comp.bin_file.options.module.?;
+            comp.bin_file.updateDeclLineNumber(module, decl) catch |err| {
                 try module.failed_decls.ensureUnusedCapacity(gpa, 1);
                 module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
                     gpa,
@@ -2332,31 +2355,31 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         .analyze_pkg => |pkg| {
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-            const module = self.bin_file.options.module.?;
+            const module = comp.bin_file.options.module.?;
             module.semaPkg(pkg) catch |err| switch (err) {
                 error.CurrentWorkingDirectoryUnlinked,
                 error.Unexpected,
-                => try self.setMiscFailure(
+                => try comp.setMiscFailure(
                     .analyze_pkg,
                     "unexpected problem analyzing package '{s}'",
                     .{pkg.root_src_path},
                 ),
                 error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => continue,
+                error.AnalysisFail => return,
             };
         },
         .glibc_crt_file => |crt_file| {
-            glibc.buildCRTFile(self, crt_file) catch |err| {
+            glibc.buildCRTFile(comp, crt_file) catch |err| {
                 // TODO Surface more error details.
-                try self.setMiscFailure(.glibc_crt_file, "unable to build glibc CRT file: {s}", .{
+                try comp.setMiscFailure(.glibc_crt_file, "unable to build glibc CRT file: {s}", .{
                     @errorName(err),
                 });
             };
         },
         .glibc_shared_objects => {
-            glibc.buildSharedObjects(self) catch |err| {
+            glibc.buildSharedObjects(comp) catch |err| {
                 // TODO Surface more error details.
-                try self.setMiscFailure(
+                try comp.setMiscFailure(
                     .glibc_shared_objects,
                     "unable to build glibc shared objects: {s}",
                     .{@errorName(err)},
@@ -2364,9 +2387,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .musl_crt_file => |crt_file| {
-            musl.buildCRTFile(self, crt_file) catch |err| {
+            musl.buildCRTFile(comp, crt_file) catch |err| {
                 // TODO Surface more error details.
-                try self.setMiscFailure(
+                try comp.setMiscFailure(
                     .musl_crt_file,
                     "unable to build musl CRT file: {s}",
                     .{@errorName(err)},
@@ -2374,9 +2397,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .mingw_crt_file => |crt_file| {
-            mingw.buildCRTFile(self, crt_file) catch |err| {
+            mingw.buildCRTFile(comp, crt_file) catch |err| {
                 // TODO Surface more error details.
-                try self.setMiscFailure(
+                try comp.setMiscFailure(
                     .mingw_crt_file,
                     "unable to build mingw-w64 CRT file: {s}",
                     .{@errorName(err)},
@@ -2384,10 +2407,10 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .windows_import_lib => |index| {
-            const link_lib = self.bin_file.options.system_libs.keys()[index];
-            mingw.buildImportLib(self, link_lib) catch |err| {
+            const link_lib = comp.bin_file.options.system_libs.keys()[index];
+            mingw.buildImportLib(comp, link_lib) catch |err| {
                 // TODO Surface more error details.
-                try self.setMiscFailure(
+                try comp.setMiscFailure(
                     .windows_import_lib,
                     "unable to generate DLL import .lib file: {s}",
                     .{@errorName(err)},
@@ -2395,9 +2418,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .libunwind => {
-            libunwind.buildStaticLib(self) catch |err| {
+            libunwind.buildStaticLib(comp) catch |err| {
                 // TODO Surface more error details.
-                try self.setMiscFailure(
+                try comp.setMiscFailure(
                     .libunwind,
                     "unable to build libunwind: {s}",
                     .{@errorName(err)},
@@ -2405,9 +2428,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .libcxx => {
-            libcxx.buildLibCXX(self) catch |err| {
+            libcxx.buildLibCXX(comp) catch |err| {
                 // TODO Surface more error details.
-                try self.setMiscFailure(
+                try comp.setMiscFailure(
                     .libcxx,
                     "unable to build libcxx: {s}",
                     .{@errorName(err)},
@@ -2415,9 +2438,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .libcxxabi => {
-            libcxx.buildLibCXXABI(self) catch |err| {
+            libcxx.buildLibCXXABI(comp) catch |err| {
                 // TODO Surface more error details.
-                try self.setMiscFailure(
+                try comp.setMiscFailure(
                     .libcxxabi,
                     "unable to build libcxxabi: {s}",
                     .{@errorName(err)},
@@ -2425,9 +2448,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .libtsan => {
-            libtsan.buildTsan(self) catch |err| {
+            libtsan.buildTsan(comp) catch |err| {
                 // TODO Surface more error details.
-                try self.setMiscFailure(
+                try comp.setMiscFailure(
                     .libtsan,
                     "unable to build TSAN library: {s}",
                     .{@errorName(err)},
@@ -2435,9 +2458,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .wasi_libc_crt_file => |crt_file| {
-            wasi_libc.buildCRTFile(self, crt_file) catch |err| {
+            wasi_libc.buildCRTFile(comp, crt_file) catch |err| {
                 // TODO Surface more error details.
-                try self.setMiscFailure(
+                try comp.setMiscFailure(
                     .wasi_libc_crt_file,
                     "unable to build WASI libc CRT file: {s}",
                     .{@errorName(err)},
@@ -2445,15 +2468,15 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .compiler_rt_lib => {
-            self.buildOutputFromZig(
+            comp.buildOutputFromZig(
                 "compiler_rt.zig",
                 .Lib,
-                &self.compiler_rt_static_lib,
+                &comp.compiler_rt_static_lib,
                 .compiler_rt,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => continue, // error reported already
-                else => try self.setMiscFailure(
+                error.SubCompilationFailed => return, // error reported already
+                else => try comp.setMiscFailure(
                     .compiler_rt,
                     "unable to build compiler_rt: {s}",
                     .{@errorName(err)},
@@ -2461,15 +2484,15 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .compiler_rt_obj => {
-            self.buildOutputFromZig(
+            comp.buildOutputFromZig(
                 "compiler_rt.zig",
                 .Obj,
-                &self.compiler_rt_obj,
+                &comp.compiler_rt_obj,
                 .compiler_rt,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => continue, // error reported already
-                else => try self.setMiscFailure(
+                error.SubCompilationFailed => return, // error reported already
+                else => try comp.setMiscFailure(
                     .compiler_rt,
                     "unable to build compiler_rt: {s}",
                     .{@errorName(err)},
@@ -2477,15 +2500,15 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .libssp => {
-            self.buildOutputFromZig(
+            comp.buildOutputFromZig(
                 "ssp.zig",
                 .Lib,
-                &self.libssp_static_lib,
+                &comp.libssp_static_lib,
                 .libssp,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => continue, // error reported already
-                else => try self.setMiscFailure(
+                error.SubCompilationFailed => return, // error reported already
+                else => try comp.setMiscFailure(
                     .libssp,
                     "unable to build libssp: {s}",
                     .{@errorName(err)},
@@ -2493,15 +2516,15 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .zig_libc => {
-            self.buildOutputFromZig(
+            comp.buildOutputFromZig(
                 "c.zig",
                 .Lib,
-                &self.libc_static_lib,
+                &comp.libc_static_lib,
                 .zig_libc,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => continue, // error reported already
-                else => try self.setMiscFailure(
+                error.SubCompilationFailed => return, // error reported already
+                else => try comp.setMiscFailure(
                     .zig_libc,
                     "unable to build zig's multitarget libc: {s}",
                     .{@errorName(err)},
@@ -2512,11 +2535,11 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             if (!build_options.is_stage1)
                 unreachable;
 
-            self.updateStage1Module(main_progress_node) catch |err| {
+            comp.updateStage1Module(main_progress_node) catch |err| {
                 fatal("unable to build stage1 zig object: {s}", .{@errorName(err)});
             };
         },
-    };
+    }
 }
 
 const AstGenSrc = union(enum) {

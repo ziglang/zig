@@ -285,6 +285,13 @@ pub fn generateSymbol(
             }
             return Result{ .appended = {} };
         },
+        .Struct => {
+            const field_vals = typed_value.val.castTag(.@"struct").?.data;
+            _ = field_vals; // TODO write the fields for real
+            const target = bin_file.options.target;
+            try code.writer().writeByteNTimes(0xaa, typed_value.ty.abiSize(target));
+            return Result{ .appended = {} };
+        },
         else => |t| {
             return Result{
                 .fail = try ErrorMsg.create(

@@ -1958,6 +1958,14 @@ fn zirRetPtr(
         .pointee_type = sema.fn_ret_ty,
         .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
     });
+
+    if (block.inlining != null) {
+        // We are inlining a function call; this should be emitted as an alloc, not a ret_ptr.
+        // TODO when functions gain result location support, the inlining struct in
+        // Block should contain the return pointer, and we would pass that through here.
+        return block.addTy(.alloc, ptr_type);
+    }
+
     return block.addTy(.ret_ptr, ptr_type);
 }
 
@@ -8253,7 +8261,7 @@ fn analyzeCmpUnionTag(
     tag_src: LazySrcLoc,
     op: std.math.CompareOperator,
 ) CompileError!Air.Inst.Ref {
-    const union_ty = sema.typeOf(un);
+    const union_ty = try sema.resolveTypeFields(block, un_src, sema.typeOf(un));
     const union_tag_ty = union_ty.unionTagType() orelse {
         // TODO note at declaration site that says "union foo is not tagged"
         return sema.fail(block, un_src, "comparison of union and enum literal is only valid for tagged union types", .{});
@@ -9125,7 +9133,7 @@ fn zirPtrTypeSimple(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
         .pointee_type = elem_type,
         .@"addrspace" = .generic,
         .mutable = inst_data.is_mutable,
-        .@"allowzero" = inst_data.is_allowzero,
+        .@"allowzero" = inst_data.is_allowzero or inst_data.size == .C,
         .@"volatile" = inst_data.is_volatile,
         .size = inst_data.size,
     });
@@ -9185,7 +9193,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .bit_offset = bit_start,
         .host_size = bit_end,
         .mutable = inst_data.flags.is_mutable,
-        .@"allowzero" = inst_data.flags.is_allowzero,
+        .@"allowzero" = inst_data.flags.is_allowzero or inst_data.size == .C,
         .@"volatile" = inst_data.flags.is_volatile,
         .size = inst_data.size,
     });
@@ -9553,7 +9561,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const type_info_ty = try sema.getBuiltinType(block, src, "TypeInfo");
+    const type_info_ty = try sema.resolveBuiltinTypeFields(block, src, "TypeInfo");
     const uncasted_operand = sema.resolveInst(inst_data.operand);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const type_info = try sema.coerce(block, type_info_ty, uncasted_operand, operand_src);
@@ -11984,8 +11992,7 @@ fn coerce(
     }
     const dest_ty_src = inst_src; // TODO better source location
     const dest_ty = try sema.resolveTypeFields(block, dest_ty_src, dest_ty_unresolved);
-
-    const inst_ty = sema.typeOf(inst);
+    const inst_ty = try sema.resolveTypeFields(block, inst_src, sema.typeOf(inst));
     // If the types are the same, we can return the operand.
     if (dest_ty.eql(inst_ty))
         return inst;
@@ -12103,6 +12110,21 @@ fn coerce(
                 }
             }
 
+            // coercion from C pointer
+            if (inst_ty.isCPtr()) src_c_ptr: {
+                // In this case we must add a safety check because the C pointer
+                // could be null.
+                const src_elem_ty = inst_ty.childType();
+                const dest_is_mut = dest_info.mutable;
+                const dst_elem_type = dest_info.pointee_type;
+                switch (coerceInMemoryAllowed(dst_elem_type, src_elem_ty, dest_is_mut, target)) {
+                    .ok => {},
+                    .no_match => break :src_c_ptr,
+                }
+                // TODO add safety check for null pointer
+                return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
+            }
+
             // coercion to C pointer
             if (dest_info.size == .C) {
                 switch (inst_ty.zigTypeTag()) {
@@ -12167,18 +12189,17 @@ fn coerce(
                 // enum literal to enum
                 const val = try sema.resolveConstValue(block, inst_src, inst);
                 const bytes = val.castTag(.enum_literal).?.data;
-                const resolved_dest_type = try sema.resolveTypeFields(block, inst_src, dest_ty);
-                const field_index = resolved_dest_type.enumFieldIndex(bytes) orelse {
+                const field_index = dest_ty.enumFieldIndex(bytes) orelse {
                     const msg = msg: {
                         const msg = try sema.errMsg(
                             block,
                             inst_src,
                             "enum '{}' has no field named '{s}'",
-                            .{ resolved_dest_type, bytes },
+                            .{ dest_ty, bytes },
                         );
                         errdefer msg.destroy(sema.gpa);
                         try sema.mod.errNoteNonLazy(
-                            resolved_dest_type.declSrcLoc(),
+                            dest_ty.declSrcLoc(),
                             msg,
                             "enum declared here",
                             .{},
@@ -12188,7 +12209,7 @@ fn coerce(
                     return sema.failWithOwnedErrorMsg(msg);
                 };
                 return sema.addConstant(
-                    resolved_dest_type,
+                    dest_ty,
                     try Value.Tag.enum_field_index.create(arena, @intCast(u32, field_index)),
                 );
             },
@@ -12196,7 +12217,7 @@ fn coerce(
                 // union to its own tag type
                 const union_tag_ty = inst_ty.unionTagType() orelse break :blk;
                 if (union_tag_ty.eql(dest_ty)) {
-                    return sema.unionToTag(block, dest_ty, inst, inst_src);
+                    return sema.unionToTag(block, inst_ty, inst, inst_src);
                 }
             },
             else => {},
@@ -12264,84 +12285,107 @@ const InMemoryCoercionResult = enum {
 /// * sentinel-terminated pointers can coerce into `[*]`
 /// TODO improve this function to report recursive compile errors like it does in stage1.
 /// look at the function types_match_const_cast_only
-fn coerceInMemoryAllowed(dest_ty: Type, src_type: Type, dest_is_mut: bool, target: std.Target) InMemoryCoercionResult {
-    if (dest_ty.eql(src_type))
+fn coerceInMemoryAllowed(dest_ty: Type, src_ty: Type, dest_is_mut: bool, target: std.Target) InMemoryCoercionResult {
+    if (dest_ty.eql(src_ty))
         return .ok;
 
-    if (dest_ty.zigTypeTag() == .Pointer and
-        src_type.zigTypeTag() == .Pointer)
-    {
-        const dest_info = dest_ty.ptrInfo().data;
-        const src_info = src_type.ptrInfo().data;
-
-        const child = coerceInMemoryAllowed(dest_info.pointee_type, src_info.pointee_type, dest_info.mutable, target);
-        if (child == .no_match) {
-            return child;
+    // Pointers / Pointer-like Optionals
+    var dest_buf: Type.Payload.ElemType = undefined;
+    var src_buf: Type.Payload.ElemType = undefined;
+    if (dest_ty.ptrOrOptionalPtrTy(&dest_buf)) |dest_ptr_ty| {
+        if (src_ty.ptrOrOptionalPtrTy(&src_buf)) |src_ptr_ty| {
+            return coerceInMemoryAllowedPtrs(dest_ty, src_ty, dest_ptr_ty, src_ptr_ty, dest_is_mut, target);
         }
-
-        if (dest_info.@"addrspace" != src_info.@"addrspace") {
-            return .no_match;
-        }
-
-        const ok_sent = dest_info.sentinel == null or src_info.size == .C or
-            (src_info.sentinel != null and
-            dest_info.sentinel.?.eql(src_info.sentinel.?, dest_info.pointee_type));
-        if (!ok_sent) {
-            return .no_match;
-        }
-
-        const ok_ptr_size = src_info.size == dest_info.size or
-            src_info.size == .C or dest_info.size == .C;
-        if (!ok_ptr_size) {
-            return .no_match;
-        }
-
-        const ok_cv_qualifiers =
-            (src_info.mutable or !dest_info.mutable) and
-            (!src_info.@"volatile" or dest_info.@"volatile");
-
-        if (!ok_cv_qualifiers) {
-            return .no_match;
-        }
-
-        const ok_allows_zero = (dest_info.@"allowzero" and
-            (src_info.@"allowzero" or !dest_is_mut)) or
-            (!dest_info.@"allowzero" and !src_info.@"allowzero");
-        if (!ok_allows_zero) {
-            return .no_match;
-        }
-
-        if (dest_ty.hasCodeGenBits() != src_type.hasCodeGenBits()) {
-            return .no_match;
-        }
-
-        if (src_info.host_size != dest_info.host_size or
-            src_info.bit_offset != dest_info.bit_offset)
-        {
-            return .no_match;
-        }
-
-        // If both pointers have alignment 0, it means they both want ABI alignment.
-        // In this case, if they share the same child type, no need to resolve
-        // pointee type alignment. Otherwise both pointee types must have their alignment
-        // resolved and we compare the alignment numerically.
-        if (src_info.@"align" != 0 or dest_info.@"align" != 0 or
-            !dest_info.pointee_type.eql(src_info.pointee_type))
-        {
-            const src_align = src_type.ptrAlignment(target);
-            const dest_align = dest_ty.ptrAlignment(target);
-
-            if (dest_align > src_align) {
-                return .no_match;
-            }
-        }
-
-        return .ok;
     }
 
-    // TODO: implement more of this function
+    // Slices
+    if (dest_ty.isSlice() and src_ty.isSlice()) {
+        return coerceInMemoryAllowedPtrs(dest_ty, src_ty, dest_ty, src_ty, dest_is_mut, target);
+    }
+
+    // TODO: arrays
+    // TODO: non-pointer-like optionals
+    // TODO: error unions
+    // TODO: error sets
+    // TODO: functions
+    // TODO: vectors
 
     return .no_match;
+}
+
+fn coerceInMemoryAllowedPtrs(
+    dest_ty: Type,
+    src_ty: Type,
+    dest_ptr_ty: Type,
+    src_ptr_ty: Type,
+    dest_is_mut: bool,
+    target: std.Target,
+) InMemoryCoercionResult {
+    const dest_info = dest_ptr_ty.ptrInfo().data;
+    const src_info = src_ptr_ty.ptrInfo().data;
+
+    const child = coerceInMemoryAllowed(dest_info.pointee_type, src_info.pointee_type, dest_info.mutable, target);
+    if (child == .no_match) {
+        return child;
+    }
+
+    if (dest_info.@"addrspace" != src_info.@"addrspace") {
+        return .no_match;
+    }
+
+    const ok_sent = dest_info.sentinel == null or src_info.size == .C or
+        (src_info.sentinel != null and
+        dest_info.sentinel.?.eql(src_info.sentinel.?, dest_info.pointee_type));
+    if (!ok_sent) {
+        return .no_match;
+    }
+
+    const ok_ptr_size = src_info.size == dest_info.size or
+        src_info.size == .C or dest_info.size == .C;
+    if (!ok_ptr_size) {
+        return .no_match;
+    }
+
+    const ok_cv_qualifiers =
+        (src_info.mutable or !dest_info.mutable) and
+        (!src_info.@"volatile" or dest_info.@"volatile");
+
+    if (!ok_cv_qualifiers) {
+        return .no_match;
+    }
+
+    const dest_allow_zero = dest_ty.ptrAllowsZero();
+    const src_allow_zero = src_ty.ptrAllowsZero();
+
+    const ok_allows_zero = (dest_allow_zero and
+        (src_allow_zero or !dest_is_mut)) or
+        (!dest_allow_zero and !src_allow_zero);
+    if (!ok_allows_zero) {
+        return .no_match;
+    }
+
+    if (src_info.host_size != dest_info.host_size or
+        src_info.bit_offset != dest_info.bit_offset)
+    {
+        return .no_match;
+    }
+
+    // If both pointers have alignment 0, it means they both want ABI alignment.
+    // In this case, if they share the same child type, no need to resolve
+    // pointee type alignment. Otherwise both pointee types must have their alignment
+    // resolved and we compare the alignment numerically.
+    if (src_info.@"align" != 0 or dest_info.@"align" != 0 or
+        !dest_info.pointee_type.eql(src_info.pointee_type))
+    {
+        const src_align = src_info.@"align";
+        const dest_align = dest_info.@"align";
+
+        if (dest_align > src_align) {
+            return .no_match;
+        }
+    }
+
+    return .ok;
 }
 
 fn coerceNum(
@@ -13299,6 +13343,7 @@ fn analyzeSlice(
     const opt_new_len_val = try sema.resolveDefinedValue(block, src, new_len);
 
     const new_ptr_ty_info = sema.typeOf(new_ptr).ptrInfo().data;
+    const new_allowzero = new_ptr_ty_info.@"allowzero" and sema.typeOf(ptr).ptrSize() != .C;
 
     if (opt_new_len_val) |new_len_val| {
         const new_len_int = new_len_val.toUnsignedInt();
@@ -13314,7 +13359,7 @@ fn analyzeSlice(
             .@"align" = new_ptr_ty_info.@"align",
             .@"addrspace" = new_ptr_ty_info.@"addrspace",
             .mutable = new_ptr_ty_info.mutable,
-            .@"allowzero" = new_ptr_ty_info.@"allowzero",
+            .@"allowzero" = new_allowzero,
             .@"volatile" = new_ptr_ty_info.@"volatile",
             .size = .One,
         });
@@ -13342,7 +13387,7 @@ fn analyzeSlice(
         .@"align" = new_ptr_ty_info.@"align",
         .@"addrspace" = new_ptr_ty_info.@"addrspace",
         .mutable = new_ptr_ty_info.mutable,
-        .@"allowzero" = new_ptr_ty_info.@"allowzero",
+        .@"allowzero" = new_allowzero,
         .@"volatile" = new_ptr_ty_info.@"volatile",
         .size = .Slice,
     });
@@ -14108,10 +14153,7 @@ fn semaStructFields(
     }
 }
 
-fn semaUnionFields(
-    mod: *Module,
-    union_obj: *Module.Union,
-) CompileError!void {
+fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 

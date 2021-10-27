@@ -1184,6 +1184,8 @@ pub const DeclGen = struct {
                 if (tv.ty.isPtrLikeOptional()) {
                     if (tv.val.castTag(.opt_payload)) |payload| {
                         return self.genTypedValue(.{ .ty = payload_ty, .val = payload.data });
+                    } else if (is_pl) {
+                        return self.genTypedValue(.{ .ty = payload_ty, .val = tv.val });
                     } else {
                         const llvm_ty = try self.llvmType(tv.ty);
                         return llvm_ty.constNull();
@@ -3199,14 +3201,23 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.air.typeOf(ty_op.operand);
         const inst_ty = self.air.typeOfIndex(inst);
+        const operand_is_ref = isByRef(operand_ty);
+        const result_is_ref = isByRef(inst_ty);
         const llvm_dest_ty = try self.dg.llvmType(inst_ty);
+
+        if (operand_is_ref and result_is_ref) {
+            // They are both pointers; just do a bitcast on the pointers :)
+            return self.builder.buildBitCast(operand, llvm_dest_ty.pointerType(0), "");
+        }
 
         if (operand_ty.zigTypeTag() == .Int and inst_ty.zigTypeTag() == .Pointer) {
             return self.builder.buildIntToPtr(operand, llvm_dest_ty, "");
-        } else if (operand_ty.zigTypeTag() == .Vector and inst_ty.zigTypeTag() == .Array) {
+        }
+
+        if (operand_ty.zigTypeTag() == .Vector and inst_ty.zigTypeTag() == .Array) {
             const target = self.dg.module.getTarget();
             const elem_ty = operand_ty.childType();
-            if (!isByRef(inst_ty)) {
+            if (!result_is_ref) {
                 return self.dg.todo("implement bitcast vector to non-ref array", .{});
             }
             const array_ptr = self.buildAlloca(llvm_dest_ty);
@@ -3237,7 +3248,7 @@ pub const FuncGen = struct {
             const target = self.dg.module.getTarget();
             const elem_ty = operand_ty.childType();
             const llvm_vector_ty = try self.dg.llvmType(inst_ty);
-            if (!isByRef(operand_ty)) {
+            if (!operand_is_ref) {
                 return self.dg.todo("implement bitcast non-ref array to vector", .{});
             }
 
@@ -3270,6 +3281,21 @@ pub const FuncGen = struct {
 
                 return vector;
             }
+        }
+
+        if (operand_is_ref) {
+            // Bitcast the operand pointer, then load.
+            const casted_ptr = self.builder.buildBitCast(operand, llvm_dest_ty.pointerType(0), "");
+            return self.builder.buildLoad(casted_ptr, "");
+        }
+
+        if (result_is_ref) {
+            // Bitcast the result pointer, then store.
+            const result_ptr = self.buildAlloca(llvm_dest_ty);
+            const operand_llvm_ty = try self.dg.llvmType(operand_ty);
+            const casted_ptr = self.builder.buildBitCast(result_ptr, operand_llvm_ty.pointerType(0), "");
+            _ = self.builder.buildStore(operand, casted_ptr);
+            return result_ptr;
         }
 
         return self.builder.buildBitCast(operand, llvm_dest_ty, "");

@@ -1819,7 +1819,8 @@ pub const Value = extern union {
             .unreachable_value => unreachable,
             .inferred_alloc => unreachable,
             .inferred_alloc_comptime => unreachable,
-            else => unreachable,
+
+            else => false,
         };
     }
 

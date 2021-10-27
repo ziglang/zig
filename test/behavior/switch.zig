@@ -90,25 +90,6 @@ fn returnsFive() i32 {
     return 5;
 }
 
-const Number = union(enum) {
-    One: u64,
-    Two: u8,
-    Three: f32,
-};
-
-const number = Number{ .Three = 1.23 };
-
-fn returnsFalse() bool {
-    switch (number) {
-        Number.One => |x| return x > 1234,
-        Number.Two => |x| return x == 'a',
-        Number.Three => |x| return x > 12.34,
-    }
-}
-test "switch on const enum with var" {
-    try expect(!returnsFalse());
-}
-
 test "switch on type" {
     try expect(trueIfBoolFalseOtherwise(bool));
     try expect(!trueIfBoolFalseOtherwise(i32));
@@ -298,4 +279,18 @@ fn testSwitchHandleAllCasesRange(x: u8) u8 {
         202 => 4,
         204...255 => 3,
     };
+}
+
+test "switch on union with some prongs capturing" {
+    const X = union(enum) {
+        a,
+        b: i32,
+    };
+
+    var x: X = X{ .b = 10 };
+    var y: i32 = switch (x) {
+        .a => unreachable,
+        .b => |b| b + 1,
+    };
+    try expect(y == 11);
 }
