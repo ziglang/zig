@@ -617,6 +617,7 @@ pub const NativeTargetInfo = struct {
             error.FileNotFound => return error.GnuLibCVersionUnavailable,
             error.SystemResources => return error.SystemResources,
             error.NotDir => return error.GnuLibCVersionUnavailable,
+            error.NotSymLink => return error.GnuLibCVersionUnavailable,
             error.Unexpected => return error.GnuLibCVersionUnavailable,
             error.InvalidUtf8 => unreachable, // Windows only
             error.BadPathName => unreachable, // Windows only
@@ -893,6 +894,7 @@ pub const NativeTargetInfo = struct {
                             error.AccessDenied,
                             error.FileNotFound,
                             error.NotDir,
+                            error.NotSymLink,
                             => continue,
 
                             error.SystemResources,
