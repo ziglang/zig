@@ -2188,6 +2188,16 @@ fn buildOutputType(
         warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});
     }
 
+    if (test_exec_args.items.len == 0 and object_format == .c) default_exec_args: {
+        // Default to using `zig run` to execute the produced .c code from `zig test`.
+        const c_code_loc = emit_bin_loc orelse break :default_exec_args;
+        const c_code_directory = c_code_loc.directory orelse comp.bin_file.options.emit.?.directory;
+        const c_code_path = try fs.path.join(arena, &[_][]const u8{
+            c_code_directory.path orelse ".", c_code_loc.basename,
+        });
+        try test_exec_args.appendSlice(&.{ self_exe_path, "run", "-lc", c_code_path });
+    }
+
     const run_or_test = switch (arg_mode) {
         .run => true,
         .zig_test => !test_no_exec,
