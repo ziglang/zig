@@ -11,6 +11,7 @@ const KiB = 1024;
 const MiB = 1024 * KiB;
 
 var prng = std.rand.DefaultPrng.init(0);
+const random = prng.random();
 
 const Crypto = struct {
     ty: type,
@@ -34,7 +35,7 @@ pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 
     var h = Hash.init(.{});
 
     var block: [Hash.digest_length]u8 = undefined;
-    prng.random.bytes(block[0..]);
+    random.bytes(block[0..]);
 
     var offset: usize = 0;
     var timer = try Timer.start();
@@ -66,11 +67,11 @@ const macs = [_]Crypto{
 
 pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
     var in: [512 * KiB]u8 = undefined;
-    prng.random.bytes(in[0..]);
+    random.bytes(in[0..]);
 
     const key_length = if (Mac.key_length == 0) 32 else Mac.key_length;
     var key: [key_length]u8 = undefined;
-    prng.random.bytes(key[0..]);
+    random.bytes(key[0..]);
 
     var mac: [Mac.mac_length]u8 = undefined;
     var offset: usize = 0;
@@ -94,10 +95,10 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_c
     std.debug.assert(DhKeyExchange.shared_length >= DhKeyExchange.secret_length);
 
     var secret: [DhKeyExchange.shared_length]u8 = undefined;
-    prng.random.bytes(secret[0..]);
+    random.bytes(secret[0..]);
 
     var public: [DhKeyExchange.shared_length]u8 = undefined;
-    prng.random.bytes(public[0..]);
+    random.bytes(public[0..]);
 
     var timer = try Timer.start();
     const start = timer.lap();
@@ -211,15 +212,15 @@ const aeads = [_]Crypto{
 
 pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 {
     var in: [512 * KiB]u8 = undefined;
-    prng.random.bytes(in[0..]);
+    random.bytes(in[0..]);
 
     var tag: [Aead.tag_length]u8 = undefined;
 
     var key: [Aead.key_length]u8 = undefined;
-    prng.random.bytes(key[0..]);
+    random.bytes(key[0..]);
 
     var nonce: [Aead.nonce_length]u8 = undefined;
-    prng.random.bytes(nonce[0..]);
+    random.bytes(nonce[0..]);
 
     var offset: usize = 0;
     var timer = try Timer.start();
@@ -244,7 +245,7 @@ const aes = [_]Crypto{
 
 pub fn benchmarkAes(comptime Aes: anytype, comptime count: comptime_int) !u64 {
     var key: [Aes.key_bits / 8]u8 = undefined;
-    prng.random.bytes(key[0..]);
+    random.bytes(key[0..]);
     const ctx = Aes.initEnc(key);
 
     var in = [_]u8{0} ** 16;
@@ -273,7 +274,7 @@ const aes8 = [_]Crypto{
 
 pub fn benchmarkAes8(comptime Aes: anytype, comptime count: comptime_int) !u64 {
     var key: [Aes.key_bits / 8]u8 = undefined;
-    prng.random.bytes(key[0..]);
+    random.bytes(key[0..]);
     const ctx = Aes.initEnc(key);
 
     var in = [_]u8{0} ** (8 * 16);
