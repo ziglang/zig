@@ -850,17 +850,18 @@ test "std.PriorityDequeue: shrinkAndFree" {
 
 test "std.PriorityDequeue: fuzz testing min" {
     var prng = std.rand.DefaultPrng.init(0x12345678);
+    const random = prng.random();
 
     const test_case_count = 100;
     const queue_size = 1_000;
 
     var i: usize = 0;
     while (i < test_case_count) : (i += 1) {
-        try fuzzTestMin(&prng.random, queue_size);
+        try fuzzTestMin(random, queue_size);
     }
 }
 
-fn fuzzTestMin(rng: *std.rand.Random, comptime queue_size: usize) !void {
+fn fuzzTestMin(rng: std.rand.Random, comptime queue_size: usize) !void {
     const allocator = testing.allocator;
     const items = try generateRandomSlice(allocator, rng, queue_size);
 
@@ -878,17 +879,18 @@ fn fuzzTestMin(rng: *std.rand.Random, comptime queue_size: usize) !void {
 
 test "std.PriorityDequeue: fuzz testing max" {
     var prng = std.rand.DefaultPrng.init(0x87654321);
+    const random = prng.random();
 
     const test_case_count = 100;
     const queue_size = 1_000;
 
     var i: usize = 0;
     while (i < test_case_count) : (i += 1) {
-        try fuzzTestMax(&prng.random, queue_size);
+        try fuzzTestMax(random, queue_size);
     }
 }
 
-fn fuzzTestMax(rng: *std.rand.Random, queue_size: usize) !void {
+fn fuzzTestMax(rng: std.rand.Random, queue_size: usize) !void {
     const allocator = testing.allocator;
     const items = try generateRandomSlice(allocator, rng, queue_size);
 
@@ -906,17 +908,18 @@ fn fuzzTestMax(rng: *std.rand.Random, queue_size: usize) !void {
 
 test "std.PriorityDequeue: fuzz testing min and max" {
     var prng = std.rand.DefaultPrng.init(0x87654321);
+    const random = prng.random();
 
     const test_case_count = 100;
     const queue_size = 1_000;
 
     var i: usize = 0;
     while (i < test_case_count) : (i += 1) {
-        try fuzzTestMinMax(&prng.random, queue_size);
+        try fuzzTestMinMax(random, queue_size);
     }
 }
 
-fn fuzzTestMinMax(rng: *std.rand.Random, queue_size: usize) !void {
+fn fuzzTestMinMax(rng: std.rand.Random, queue_size: usize) !void {
     const allocator = testing.allocator;
     const items = try generateRandomSlice(allocator, rng, queue_size);
 
@@ -943,7 +946,7 @@ fn fuzzTestMinMax(rng: *std.rand.Random, queue_size: usize) !void {
     }
 }
 
-fn generateRandomSlice(allocator: *std.mem.Allocator, rng: *std.rand.Random, size: usize) ![]u32 {
+fn generateRandomSlice(allocator: *std.mem.Allocator, rng: std.rand.Random, size: usize) ![]u32 {
     var array = std.ArrayList(u32).init(allocator);
     try array.ensureTotalCapacity(size);
 

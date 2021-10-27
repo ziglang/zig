@@ -242,10 +242,11 @@ test "std.atomic.Queue" {
 
 fn startPuts(ctx: *Context) u8 {
     var put_count: usize = puts_per_thread;
-    var r = std.rand.DefaultPrng.init(0xdeadbeef);
+    var prng = std.rand.DefaultPrng.init(0xdeadbeef);
+    const random = prng.random();
     while (put_count != 0) : (put_count -= 1) {
         std.time.sleep(1); // let the os scheduler be our fuzz
-        const x = @bitCast(i32, r.random.int(u32));
+        const x = @bitCast(i32, random.int(u32));
         const node = ctx.allocator.create(Queue(i32).Node) catch unreachable;
         node.* = .{
             .prev = undefined,

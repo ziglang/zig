@@ -1795,10 +1795,11 @@ test "std.hash_map put and remove loop in random order" {
     while (i < size) : (i += 1) {
         try keys.append(i);
     }
-    var rng = std.rand.DefaultPrng.init(0);
+    var prng = std.rand.DefaultPrng.init(0);
+    const random = prng.random();
 
     while (i < iterations) : (i += 1) {
-        std.rand.Random.shuffle(&rng.random, u32, keys.items);
+        random.shuffle(u32, keys.items);
 
         for (keys.items) |key| {
             try map.put(key, key);
@@ -1826,14 +1827,15 @@ test "std.hash_map remove one million elements in random order" {
         keys.append(i) catch unreachable;
     }
 
-    var rng = std.rand.DefaultPrng.init(0);
-    std.rand.Random.shuffle(&rng.random, u32, keys.items);
+    var prng = std.rand.DefaultPrng.init(0);
+    const random = prng.random();
+    random.shuffle(u32, keys.items);
 
     for (keys.items) |key| {
         map.put(key, key) catch unreachable;
     }
 
-    std.rand.Random.shuffle(&rng.random, u32, keys.items);
+    random.shuffle(u32, keys.items);
     i = 0;
     while (i < n) : (i += 1) {
         const key = keys.items[i];

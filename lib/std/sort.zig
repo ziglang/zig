@@ -1328,16 +1328,17 @@ test "another sort case" {
 
 test "sort fuzz testing" {
     var prng = std.rand.DefaultPrng.init(0x12345678);
+    const random = prng.random();
     const test_case_count = 10;
     var i: usize = 0;
     while (i < test_case_count) : (i += 1) {
-        try fuzzTest(&prng.random);
+        try fuzzTest(random);
     }
 }
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn fuzzTest(rng: *std.rand.Random) !void {
+fn fuzzTest(rng: std.rand.Random) !void {
     const array_size = rng.intRangeLessThan(usize, 0, 1000);
     var array = try testing.allocator.alloc(IdAndValue, array_size);
     defer testing.allocator.free(array);
