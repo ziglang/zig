@@ -3849,7 +3849,11 @@ fn setMiscFailure(
 ) Allocator.Error!void {
     try comp.misc_failures.ensureUnusedCapacity(comp.gpa, 1);
     const msg = try std.fmt.allocPrint(comp.gpa, format, args);
-    comp.misc_failures.putAssumeCapacityNoClobber(tag, .{ .msg = msg });
+    const gop = comp.misc_failures.getOrPutAssumeCapacity(tag);
+    if (gop.found_existing) {
+        gop.value_ptr.deinit(comp.gpa);
+    }
+    gop.value_ptr.* = .{ .msg = msg };
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
