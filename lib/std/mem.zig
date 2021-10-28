@@ -131,14 +131,13 @@ pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
     return adjusted;
 }
 
-const failAllocator = blk: {
-    // TODO: This is an ugly hack, it could be improved once https://github.com/ziglang/zig/issues/6706 is implemented
-    // allowing the use of `*void` but it would still be ugly
-    var tmp: u1 = 0;
-    break :blk Allocator.init(&tmp, failAllocatorAlloc, Allocator.NoResize(u1).noResize);
+const failAllocator = Allocator{
+    .ptr = undefined,
+    .allocFn = failAllocatorAlloc,
+    .resizeFn = Allocator.NoResize(c_void).noResize,
 };
 
-fn failAllocatorAlloc(_: *u1, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
+fn failAllocatorAlloc(_: *c_void, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
     _ = n;
     _ = alignment;
     _ = len_align;

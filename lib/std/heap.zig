@@ -97,7 +97,7 @@ const CAllocator = struct {
     }
 
     fn alloc(
-        _: *u1,
+        _: *c_void,
         len: usize,
         alignment: u29,
         len_align: u29,
@@ -123,7 +123,7 @@ const CAllocator = struct {
     }
 
     fn resize(
-        _: *u1,
+        _: *c_void,
         buf: []u8,
         buf_align: u29,
         new_len: usize,
@@ -152,11 +152,10 @@ const CAllocator = struct {
 /// Supports the full Allocator interface, including alignment, and exploiting
 /// `malloc_usable_size` if available. For an allocator that directly calls
 /// `malloc`/`free`, see `raw_c_allocator`.
-pub const c_allocator = blk: {
-    // TODO: This is an ugly hack, it could be improved once https://github.com/ziglang/zig/issues/6706 is implemented
-    // allowing the use of `*void` but it would still be ugly
-    var tmp: u1 = 0;
-    break :blk Allocator.init(&tmp, CAllocator.alloc, CAllocator.resize);
+pub const c_allocator = Allocator{
+    .ptr = undefined,
+    .allocFn = CAllocator.alloc,
+    .resizeFn = CAllocator.resize,
 };
 
 /// Asserts allocations are within `@alignOf(std.c.max_align_t)` and directly calls
@@ -164,15 +163,14 @@ pub const c_allocator = blk: {
 /// This allocator is safe to use as the backing allocator with
 /// `ArenaAllocator` for example and is more optimal in such a case
 /// than `c_allocator`.
-pub const raw_c_allocator = blk: {
-    // TODO: This is an ugly hack, it could be improved once https://github.com/ziglang/zig/issues/6706 is implemented
-    // allowing the use of `*void` but it would still be ugly
-    var tmp: u1 = 0;
-    break :blk Allocator.init(&tmp, rawCAlloc, rawCResize);
+pub const raw_c_allocator = Allocator{
+    .ptr = undefined,
+    .allocFn = rawCAlloc,
+    .resizeFn = rawCResize,
 };
 
 fn rawCAlloc(
-    _: *u1,
+    _: *c_void,
     len: usize,
     ptr_align: u29,
     len_align: u29,
@@ -186,7 +184,7 @@ fn rawCAlloc(
 }
 
 fn rawCResize(
-    _: *u1,
+    _: *c_void,
     buf: []u8,
     old_align: u29,
     new_len: usize,
@@ -208,19 +206,19 @@ fn rawCResize(
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
 pub const page_allocator = if (builtin.target.isWasm())
-blk: {
-    // TODO: This is an ugly hack, it could be improved once https://github.com/ziglang/zig/issues/6706 is implemented
-    // allowing the use of `*void` but it would still be ugly
-    var tmp: u1 = 0;
-    break :blk Allocator.init(&tmp, WasmPageAllocator.alloc, WasmPageAllocator.resize);
-} else if (builtin.target.os.tag == .freestanding)
+    Allocator{
+        .ptr = undefined,
+        .allocFn = WasmPageAllocator.alloc,
+        .resizeFn = WasmPageAllocator.resize,
+    }
+else if (builtin.target.os.tag == .freestanding)
     root.os.heap.page_allocator
-else blk: {
-    // TODO: This is an ugly hack, it could be improved once https://github.com/ziglang/zig/issues/6706 is implemented
-    // allowing the use of `*void` but it would still be ugly
-    var tmp: u1 = 0;
-    break :blk Allocator.init(&tmp, PageAllocator.alloc, PageAllocator.resize);
-};
+else
+    Allocator{
+        .ptr = undefined,
+        .allocFn = PageAllocator.alloc,
+        .resizeFn = PageAllocator.resize,
+    };
 
 /// Verifies that the adjusted length will still map to the full length
 pub fn alignPageAllocLen(full_len: usize, len: usize, len_align: u29) usize {
@@ -233,7 +231,7 @@ pub fn alignPageAllocLen(full_len: usize, len: usize, len_align: u29) usize {
 pub var next_mmap_addr_hint: ?[*]align(mem.page_size) u8 = null;
 
 const PageAllocator = struct {
-    fn alloc(_: *u1, n: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
+    fn alloc(_: *c_void, n: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
         _ = ra;
         assert(n > 0);
         const aligned_len = mem.alignForward(n, mem.page_size);
@@ -331,7 +329,7 @@ const PageAllocator = struct {
     }
 
     fn resize(
-        _: *u1,
+        _: *c_void,
         buf_unaligned: []u8,
         buf_align: u29,
         new_size: usize,
@@ -487,7 +485,7 @@ const WasmPageAllocator = struct {
         return mem.alignForward(memsize, mem.page_size) / mem.page_size;
     }
 
-    fn alloc(_: *u1, len: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
+    fn alloc(_: *c_void, len: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
         _ = ra;
         const page_count = nPages(len);
         const page_idx = try allocPages(page_count, alignment);
@@ -542,7 +540,7 @@ const WasmPageAllocator = struct {
     }
 
     fn resize(
-        _: *u1,
+        _: *c_void,
         buf: []u8,
         buf_align: u29,
         new_len: usize,
