@@ -32,17 +32,16 @@ pub const Random = struct {
     ptr: *c_void,
     fillFn: fn (ptr: *c_void, buf: []u8) void,
 
-    pub fn init(pointer: anytype) Random {
+    pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: []u8) void) Random {
         const Ptr = @TypeOf(pointer);
         assert(@typeInfo(Ptr) == .Pointer); // Must be a pointer
         assert(@typeInfo(Ptr).Pointer.size == .One); // Must be a single-item pointer
         assert(@typeInfo(@typeInfo(Ptr).Pointer.child) == .Struct); // Must point to a struct
-        assert(std.meta.trait.hasFn("fill")(@typeInfo(Ptr).Pointer.child)); // Struct must provide the `fill` function
         const gen = struct {
             fn fill(ptr: *c_void, buf: []u8) void {
                 const alignment = @typeInfo(Ptr).Pointer.alignment;
                 const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
-                self.fill(buf);
+                fillFn(self, buf);
             }
         };
 
@@ -333,7 +332,7 @@ const SequentialPrng = struct {
     }
 
     pub fn random(self: *Self) Random {
-        return Random.init(self);
+        return Random.init(self, fill);
     }
 
     pub fn fill(self: *Self, buf: []u8) void {

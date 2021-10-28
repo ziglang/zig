@@ -24,7 +24,7 @@ pub fn init(init_s: u64) Sfc64 {
 }
 
 pub fn random(self: *Sfc64) Random {
-    return Random.init(self);
+    return Random.init(self, fill);
 }
 
 fn next(self: *Sfc64) u64 {
