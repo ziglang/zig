@@ -21,7 +21,7 @@ pub fn init(secret_seed: [secret_seed_length]u8) Gimli {
 }
 
 pub fn random(self: *Gimli) Random {
-    return Random.init(self);
+    return Random.init(self, fill);
 }
 
 pub fn fill(self: *Gimli, buf: []u8) void {

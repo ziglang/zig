@@ -31,7 +31,7 @@ pub fn init(init_s: u64) Isaac64 {
 }
 
 pub fn random(self: *Isaac64) Random {
-    return Random.init(self);
+    return Random.init(self, fill);
 }
 
 fn step(self: *Isaac64, mix: u64, base: usize, comptime m1: usize, comptime m2: usize) void {

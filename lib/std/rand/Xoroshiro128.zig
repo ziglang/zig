@@ -17,7 +17,7 @@ pub fn init(init_s: u64) Xoroshiro128 {
 }
 
 pub fn random(self: *Xoroshiro128) Random {
-    return Random.init(self);
+    return Random.init(self, fill);
 }
 
 fn next(self: *Xoroshiro128) u64 {

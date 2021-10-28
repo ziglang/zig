@@ -22,7 +22,7 @@ pub fn init(init_s: u64) Pcg {
 }
 
 pub fn random(self: *Pcg) Random {
-    return Random.init(self);
+    return Random.init(self, fill);
 }
 
 fn next(self: *Pcg) u32 {
