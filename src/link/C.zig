@@ -26,8 +26,7 @@ decl_table: std.AutoArrayHashMapUnmanaged(*const Module.Decl, DeclBlock) = .{},
 /// Accumulates allocations and then there is a periodic garbage collection after flush().
 arena: std.heap.ArenaAllocator,
 
-/// Per-declaration data. For functions this is the body, and
-/// the forward declaration is stored in the FnBlock.
+/// Per-declaration data.
 const DeclBlock = struct {
     code: std.ArrayListUnmanaged(u8) = .{},
     fwd_decl: std.ArrayListUnmanaged(u8) = .{},
@@ -243,28 +242,26 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = comp.gpa;
     const module = self.base.options.module.?;
 
     // This code path happens exclusively with -ofmt=c. The flush logic for
     // emit-h is in `flushEmitH` below.
 
-    // We collect a list of buffers to write, and write them all at once with pwritev 😎
-    var all_buffers = std.ArrayList(std.os.iovec_const).init(comp.gpa);
-    defer all_buffers.deinit();
+    var f: Flush = .{};
+    defer f.deinit(gpa);
 
     // This is at least enough until we get to the function bodies without error handling.
-    try all_buffers.ensureTotalCapacity(self.decl_table.count() + 2);
+    try f.all_buffers.ensureTotalCapacity(gpa, self.decl_table.count() + 2);
 
-    var file_size: u64 = zig_h.len;
-    all_buffers.appendAssumeCapacity(.{
+    f.all_buffers.appendAssumeCapacity(.{
         .iov_base = zig_h,
         .iov_len = zig_h.len,
     });
+    f.file_size += zig_h.len;
 
-    var err_typedef_buf = std.ArrayList(u8).init(comp.gpa);
-    defer err_typedef_buf.deinit();
-    const err_typedef_writer = err_typedef_buf.writer();
-    const err_typedef_item = all_buffers.addOneAssumeCapacity();
+    const err_typedef_writer = f.err_typedef_buf.writer(gpa);
+    const err_typedef_item = f.all_buffers.addOneAssumeCapacity();
 
     render_errors: {
         if (module.global_error_set.size == 0) break :render_errors;
@@ -275,73 +272,121 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
         try err_typedef_writer.writeByte('\n');
     }
 
-    var fn_count: usize = 0;
-    var typedefs = std.HashMap(Type, void, Type.HashContext64, std.hash_map.default_max_load_percentage).init(comp.gpa);
-    defer typedefs.deinit();
-
     // Typedefs, forward decls, and non-functions first.
-    // TODO: performance investigation: would keeping a list of Decls that we should
-    // generate, rather than querying here, be faster?
+    // Unlike other backends, the .c code we are emitting is order-dependent. Therefore
+    // we must traverse the set of Decls that we are emitting according to their dependencies.
+    // Our strategy is to populate a set of remaining decls, pop Decls one by one,
+    // recursively chasing their dependencies.
+    try f.remaining_decls.ensureUnusedCapacity(gpa, self.decl_table.count());
+
     const decl_keys = self.decl_table.keys();
     const decl_values = self.decl_table.values();
-    for (decl_keys) |decl, i| {
-        if (!decl.has_tv) continue; // TODO do we really need this branch?
+    for (decl_keys) |decl| {
+        assert(decl.has_tv);
+        f.remaining_decls.putAssumeCapacityNoClobber(decl, {});
+    }
 
-        const decl_block = &decl_values[i];
-
-        if (decl_block.fwd_decl.items.len != 0) {
-            try typedefs.ensureUnusedCapacity(@intCast(u32, decl_block.typedefs.count()));
-            var it = decl_block.typedefs.iterator();
-            while (it.next()) |new| {
-                const gop = typedefs.getOrPutAssumeCapacity(new.key_ptr.*);
-                if (!gop.found_existing) {
-                    try err_typedef_writer.writeAll(new.value_ptr.rendered);
-                }
-            }
-            const buf = decl_block.fwd_decl.items;
-            all_buffers.appendAssumeCapacity(.{
-                .iov_base = buf.ptr,
-                .iov_len = buf.len,
-            });
-            file_size += buf.len;
-        }
-        if (decl.getFunction() != null) {
-            fn_count += 1;
-        } else if (decl_block.code.items.len != 0) {
-            const buf = decl_block.code.items;
-            all_buffers.appendAssumeCapacity(.{
-                .iov_base = buf.ptr,
-                .iov_len = buf.len,
-            });
-            file_size += buf.len;
-        }
+    while (f.remaining_decls.popOrNull()) |kv| {
+        const decl = kv.key;
+        try flushDecl(self, &f, decl);
     }
 
     err_typedef_item.* = .{
-        .iov_base = err_typedef_buf.items.ptr,
-        .iov_len = err_typedef_buf.items.len,
+        .iov_base = f.err_typedef_buf.items.ptr,
+        .iov_len = f.err_typedef_buf.items.len,
     };
-    file_size += err_typedef_buf.items.len;
+    f.file_size += f.err_typedef_buf.items.len;
 
     // Now the function bodies.
-    try all_buffers.ensureUnusedCapacity(fn_count);
+    try f.all_buffers.ensureUnusedCapacity(gpa, f.fn_count);
     for (decl_keys) |decl, i| {
         if (decl.getFunction() != null) {
             const decl_block = &decl_values[i];
             const buf = decl_block.code.items;
             if (buf.len != 0) {
-                all_buffers.appendAssumeCapacity(.{
+                f.all_buffers.appendAssumeCapacity(.{
                     .iov_base = buf.ptr,
                     .iov_len = buf.len,
                 });
-                file_size += buf.len;
+                f.file_size += buf.len;
             }
         }
     }
 
     const file = self.base.file.?;
-    try file.setEndPos(file_size);
-    try file.pwritevAll(all_buffers.items, 0);
+    try file.setEndPos(f.file_size);
+    try file.pwritevAll(f.all_buffers.items, 0);
+}
+
+const Flush = struct {
+    remaining_decls: std.AutoArrayHashMapUnmanaged(*const Module.Decl, void) = .{},
+    typedefs: Typedefs = .{},
+    err_typedef_buf: std.ArrayListUnmanaged(u8) = .{},
+    /// We collect a list of buffers to write, and write them all at once with pwritev 😎
+    all_buffers: std.ArrayListUnmanaged(std.os.iovec_const) = .{},
+    /// Keeps track of the total bytes of `all_buffers`.
+    file_size: u64 = 0,
+    fn_count: usize = 0,
+
+    const Typedefs = std.HashMapUnmanaged(
+        Type,
+        void,
+        Type.HashContext64,
+        std.hash_map.default_max_load_percentage,
+    );
+
+    fn deinit(f: *Flush, gpa: *Allocator) void {
+        f.all_buffers.deinit(gpa);
+        f.err_typedef_buf.deinit(gpa);
+        f.typedefs.deinit(gpa);
+        f.remaining_decls.deinit(gpa);
+    }
+};
+
+const FlushDeclError = error{
+    OutOfMemory,
+};
+
+/// Assumes `decl` was in the `remaining_decls` set, and has already been removed.
+fn flushDecl(self: *C, f: *Flush, decl: *const Module.Decl) FlushDeclError!void {
+    // Before flushing any particular Decl we must ensure its
+    // dependencies are already flushed, so that the order in the .c
+    // file comes out correctly.
+    for (decl.dependencies.keys()) |dep| {
+        if (f.remaining_decls.swapRemove(dep)) {
+            try flushDecl(self, f, dep);
+        }
+    }
+
+    const decl_block = self.decl_table.getPtr(decl).?;
+    const gpa = self.base.allocator;
+
+    if (decl_block.fwd_decl.items.len != 0) {
+        try f.typedefs.ensureUnusedCapacity(gpa, @intCast(u32, decl_block.typedefs.count()));
+        var it = decl_block.typedefs.iterator();
+        while (it.next()) |new| {
+            const gop = f.typedefs.getOrPutAssumeCapacity(new.key_ptr.*);
+            if (!gop.found_existing) {
+                try f.err_typedef_buf.appendSlice(gpa, new.value_ptr.rendered);
+            }
+        }
+        const buf = decl_block.fwd_decl.items;
+        f.all_buffers.appendAssumeCapacity(.{
+            .iov_base = buf.ptr,
+            .iov_len = buf.len,
+        });
+        f.file_size += buf.len;
+    }
+    if (decl.getFunction() != null) {
+        f.fn_count += 1;
+    } else if (decl_block.code.items.len != 0) {
+        const buf = decl_block.code.items;
+        f.all_buffers.appendAssumeCapacity(.{
+            .iov_base = buf.ptr,
+            .iov_len = buf.len,
+        });
+        f.file_size += buf.len;
+    }
 }
 
 pub fn flushEmitH(module: *Module) !void {
