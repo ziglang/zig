@@ -648,7 +648,7 @@ const TagPayloadType = TagPayload;
 ///Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
 pub fn TagPayload(comptime U: type, tag: Tag(U)) type {
-    try testing.expect(trait.is(.Union)(U));
+    comptime debug.assert(trait.is(.Union)(U));
 
     const info = @typeInfo(U).Union;
 
