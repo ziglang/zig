@@ -4734,6 +4734,10 @@ pub fn populateTestFunctions(mod: *Module) !void {
             }),
             .val = try Value.Tag.array.create(arena, test_fn_vals),
         });
+
+        // Add a dependency on each test name and function pointer.
+        try array_decl.dependencies.ensureUnusedCapacity(gpa, test_fn_vals.len * 2);
+
         for (mod.test_functions.keys()) |test_decl, i| {
             const test_name_slice = mem.sliceTo(test_decl.name, 0);
             const test_name_decl = n: {
@@ -4747,6 +4751,8 @@ pub fn populateTestFunctions(mod: *Module) !void {
                 try test_name_decl.finalizeNewArena(&name_decl_arena);
                 break :n test_name_decl;
             };
+            array_decl.dependencies.putAssumeCapacityNoClobber(test_decl, {});
+            array_decl.dependencies.putAssumeCapacityNoClobber(test_name_decl, {});
             try mod.linkerUpdateDecl(test_name_decl);
 
             const field_vals = try arena.create([3]Value);
