@@ -590,6 +590,29 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             mem.copy(T, self.items[old_len..], items);
         }
 
+        pub const WriterContext = struct {
+            self: *Self,
+            allocator: *Allocator,
+        };
+
+        pub const Writer = if (T != u8)
+            @compileError("The Writer interface is only defined for ArrayList(u8) " ++
+                "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
+        else
+            std.io.Writer(WriterContext, error{OutOfMemory}, appendWrite);
+
+        /// Initializes a Writer which will append to the list.
+        pub fn writer(self: *Self, allocator: *Allocator) Writer {
+            return .{ .context = .{ .self = self, .allocator = allocator } };
+        }
+
+        /// Same as `append` except it returns the number of bytes written, which is always the same
+        /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
+        fn appendWrite(context: WriterContext, m: []const u8) !usize {
+            try context.self.appendSlice(context.allocator, m);
+            return m.len;
+        }
+
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
         pub fn appendNTimes(self: *Self, allocator: *Allocator, value: T, n: usize) !void {
@@ -1203,6 +1226,33 @@ test "std.ArrayList(u8)/ArrayListAligned implements writer" {
         defer list.deinit();
 
         const writer = list.writer();
+        try writer.writeAll("a");
+        try writer.writeAll("bc");
+        try writer.writeAll("d");
+        try writer.writeAll("efg");
+
+        try testing.expectEqualSlices(u8, list.items, "abcdefg");
+    }
+}
+
+test "std.ArrayListUnmanaged(u8) implements writer" {
+    const a = testing.allocator;
+
+    {
+        var buffer: ArrayListUnmanaged(u8) = .{};
+        defer buffer.deinit(a);
+
+        const x: i32 = 42;
+        const y: i32 = 1234;
+        try buffer.writer(a).print("x: {}\ny: {}\n", .{ x, y });
+
+        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
+    }
+    {
+        var list: ArrayListAlignedUnmanaged(u8, 2) = .{};
+        defer list.deinit(a);
+
+        const writer = list.writer(a);
         try writer.writeAll("a");
         try writer.writeAll("bc");
         try writer.writeAll("d");
