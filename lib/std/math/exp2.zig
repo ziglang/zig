@@ -759,7 +759,7 @@ fn exp2_128(x: f128) f128 {
     // reduce x
     var u_f: f128 = x + redux;
     var i_0: u32 = @truncate(u32, @bitCast(u128, u_f));
-    _ = @addWithOverflow(u32, i_0, tblsiz / 2, &i_0);
+    i_0 +%= tblsiz / 2;
 
     const k_u: u32 = i_0 / tblsiz * tblsiz;
     const k_i: i32 = @divTrunc(@bitCast(i32, k_u), tblsiz);
