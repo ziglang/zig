@@ -406,7 +406,7 @@ pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) 
         return;
 
     const shortened_actual = if (actual.len >= expected_ends_with.len)
-        actual[0..expected_ends_with.len]
+        actual[(actual.len - expected_ends_with.len)..]
     else
         actual;
 
