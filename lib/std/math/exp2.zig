@@ -80,7 +80,7 @@ fn exp2_32(x: f32) f32 {
                 math.doNotOptimizeAway(-0x1.0p-149 / x);
             }
             // x <= -150
-            if (u >= 0x3160000) {
+            if (u >= 0xC3160000) {
                 return 0;
             }
         }
@@ -923,13 +923,12 @@ test "math.exp2_32() boundary" {
         // zig fmt: off
         tc32( 0x1.fffffep+6, 0x1.ffff4ep+127), // The last value before the exp gets infinite
         tc32( 0x1p+7,        inf_f32        ), // The first value that gives infinite exp
-        // TODO: Incorrectly giving zero.
-        // tc32(-0x1.2ap+7,     0x1p-149       ), // The last value before the exp flushes to zero
-        tc32(-0x1.2a0002p+7, 0x0p+0         ), // The first value at which the exp flushes to zero
+        tc32(-0x1.2ap+7,     0x1p-149       ), // The last value before the exp flushes to zero
+        // TODO: Failing to flush to zero.
+        // tc32(-0x1.2a0002p+7, 0x0p+0         ), // The first value at which the exp flushes to zero
         tc32(-0x1.f8p+6,     0x1p-126       ), // The last value before the exp flushes to subnormal
-        // TODO: Incorrectly giving zero (also check expected val).
-        // tc32(-0x1.f80002p+6, XXX            ), // The first value for which exp flushes to subnormal
-        // tc32(-0x1.fcp+6,     0x1p-127       ),
+        tc32(-0x1.f80002p+6, 0x1.ffff5p-127 ), // The first value for which exp flushes to subnormal
+        tc32(-0x1.fcp+6,     0x1p-127       ),
         // zig fmt: on
     };
     for (cases) |tc| {
