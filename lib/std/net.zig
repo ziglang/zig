@@ -664,7 +664,7 @@ pub const AddressList = struct {
 };
 
 /// All memory allocated with `allocator` will be freed before this function returns.
-pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) !Stream {
+pub fn tcpConnectToHost(allocator: mem.Allocator, name: []const u8, port: u16) !Stream {
     const list = try getAddressList(allocator, name, port);
     defer list.deinit();
 
@@ -699,12 +699,12 @@ pub fn tcpConnectToAddress(address: Address) !Stream {
 }
 
 /// Call `AddressList.deinit` on the result.
-pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*AddressList {
+pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*AddressList {
     const result = blk: {
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
 
-        const result = try arena.allocator.create(AddressList);
+        const result = try arena.getAllocator().create(AddressList);
         result.* = AddressList{
             .arena = arena,
             .addrs = undefined,
@@ -712,7 +712,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         };
         break :blk result;
     };
-    const arena = &result.arena.allocator;
+    const arena = result.arena.getAllocator();
     errdefer result.arena.deinit();
 
     if (builtin.target.os.tag == .windows or builtin.link_libc) {
@@ -1303,7 +1303,7 @@ const ResolvConf = struct {
 
 /// Ignores lines longer than 512 bytes.
 /// TODO: https://github.com/ziglang/zig/issues/2765 and https://github.com/ziglang/zig/issues/2761
-fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
+fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
     rc.* = ResolvConf{
         .ns = std.ArrayList(LookupAddr).init(allocator),
         .search = std.ArrayList(u8).init(allocator),

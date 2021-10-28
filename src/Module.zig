@@ -30,7 +30,7 @@ const target_util = @import("target.zig");
 const build_options = @import("build_options");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
-gpa: *Allocator,
+gpa: Allocator,
 comp: *Compilation,
 
 /// Where our incremental compilation metadata serialization will go.
@@ -299,10 +299,10 @@ pub const CaptureScope = struct {
 pub const WipCaptureScope = struct {
     scope: *CaptureScope,
     finalized: bool,
-    gpa: *Allocator,
-    perm_arena: *Allocator,
+    gpa: Allocator,
+    perm_arena: Allocator,
 
-    pub fn init(gpa: *Allocator, perm_arena: *Allocator, parent: ?*CaptureScope) !@This() {
+    pub fn init(gpa: Allocator, perm_arena: Allocator, parent: ?*CaptureScope) !@This() {
         const scope = try perm_arena.create(CaptureScope);
         scope.* = .{ .parent = parent };
         return @This(){
@@ -469,7 +469,7 @@ pub const Decl = struct {
 
     pub const DepsTable = std.AutoArrayHashMapUnmanaged(*Decl, void);
 
-    pub fn clearName(decl: *Decl, gpa: *Allocator) void {
+    pub fn clearName(decl: *Decl, gpa: Allocator) void {
         gpa.free(mem.sliceTo(decl.name, 0));
         decl.name = undefined;
     }
@@ -499,7 +499,7 @@ pub const Decl = struct {
         }
     }
 
-    pub fn clearValues(decl: *Decl, gpa: *Allocator) void {
+    pub fn clearValues(decl: *Decl, gpa: Allocator) void {
         if (decl.getFunction()) |func| {
             func.deinit(gpa);
             gpa.destroy(func);
@@ -636,7 +636,7 @@ pub const Decl = struct {
         return decl.src_namespace.renderFullyQualifiedDebugName(unqualified_name, writer);
     }
 
-    pub fn getFullyQualifiedName(decl: Decl, gpa: *Allocator) ![:0]u8 {
+    pub fn getFullyQualifiedName(decl: Decl, gpa: Allocator) ![:0]u8 {
         var buffer = std.ArrayList(u8).init(gpa);
         defer buffer.deinit();
         try decl.renderFullyQualifiedName(buffer.writer());
@@ -855,7 +855,7 @@ pub const Struct = struct {
         is_comptime: bool,
     };
 
-    pub fn getFullyQualifiedName(s: *Struct, gpa: *Allocator) ![:0]u8 {
+    pub fn getFullyQualifiedName(s: *Struct, gpa: Allocator) ![:0]u8 {
         return s.owner_decl.getFullyQualifiedName(gpa);
     }
 
@@ -999,7 +999,7 @@ pub const Union = struct {
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
-    pub fn getFullyQualifiedName(s: *Union, gpa: *Allocator) ![:0]u8 {
+    pub fn getFullyQualifiedName(s: *Union, gpa: Allocator) ![:0]u8 {
         return s.owner_decl.getFullyQualifiedName(gpa);
     }
 
@@ -1178,7 +1178,7 @@ pub const Opaque = struct {
         };
     }
 
-    pub fn getFullyQualifiedName(s: *Opaque, gpa: *Allocator) ![:0]u8 {
+    pub fn getFullyQualifiedName(s: *Opaque, gpa: Allocator) ![:0]u8 {
         return s.owner_decl.getFullyQualifiedName(gpa);
     }
 };
@@ -1225,7 +1225,7 @@ pub const Fn = struct {
         success,
     };
 
-    pub fn deinit(func: *Fn, gpa: *Allocator) void {
+    pub fn deinit(func: *Fn, gpa: Allocator) void {
         if (func.getInferredErrorSet()) |map| {
             map.deinit(gpa);
         }
@@ -1422,27 +1422,27 @@ pub const File = struct {
     /// successful, this field is unloaded.
     prev_zir: ?*Zir = null,
 
-    pub fn unload(file: *File, gpa: *Allocator) void {
+    pub fn unload(file: *File, gpa: Allocator) void {
         file.unloadTree(gpa);
         file.unloadSource(gpa);
         file.unloadZir(gpa);
     }
 
-    pub fn unloadTree(file: *File, gpa: *Allocator) void {
+    pub fn unloadTree(file: *File, gpa: Allocator) void {
         if (file.tree_loaded) {
             file.tree_loaded = false;
             file.tree.deinit(gpa);
         }
     }
 
-    pub fn unloadSource(file: *File, gpa: *Allocator) void {
+    pub fn unloadSource(file: *File, gpa: Allocator) void {
         if (file.source_loaded) {
             file.source_loaded = false;
             gpa.free(file.source);
         }
     }
 
-    pub fn unloadZir(file: *File, gpa: *Allocator) void {
+    pub fn unloadZir(file: *File, gpa: Allocator) void {
         if (file.zir_loaded) {
             file.zir_loaded = false;
             file.zir.deinit(gpa);
@@ -1466,7 +1466,7 @@ pub const File = struct {
         file.* = undefined;
     }
 
-    pub fn getSource(file: *File, gpa: *Allocator) ![:0]const u8 {
+    pub fn getSource(file: *File, gpa: Allocator) ![:0]const u8 {
         if (file.source_loaded) return file.source;
 
         const root_dir_path = file.pkg.root_src_directory.path orelse ".";
@@ -1499,7 +1499,7 @@ pub const File = struct {
         return source;
     }
 
-    pub fn getTree(file: *File, gpa: *Allocator) !*const Ast {
+    pub fn getTree(file: *File, gpa: Allocator) !*const Ast {
         if (file.tree_loaded) return &file.tree;
 
         const source = try file.getSource(gpa);
@@ -1531,7 +1531,7 @@ pub const File = struct {
         };
     }
 
-    pub fn fullyQualifiedNameZ(file: File, gpa: *Allocator) ![:0]u8 {
+    pub fn fullyQualifiedNameZ(file: File, gpa: Allocator) ![:0]u8 {
         var buf = std.ArrayList(u8).init(gpa);
         defer buf.deinit();
         try file.renderFullyQualifiedName(buf.writer());
@@ -1539,7 +1539,7 @@ pub const File = struct {
     }
 
     /// Returns the full path to this file relative to its package.
-    pub fn fullPath(file: File, ally: *Allocator) ![]u8 {
+    pub fn fullPath(file: File, ally: Allocator) ![]u8 {
         return file.pkg.root_src_directory.join(ally, &[_][]const u8{file.sub_file_path});
     }
 
@@ -1594,7 +1594,7 @@ pub const ErrorMsg = struct {
     notes: []ErrorMsg = &.{},
 
     pub fn create(
-        gpa: *Allocator,
+        gpa: Allocator,
         src_loc: SrcLoc,
         comptime format: []const u8,
         args: anytype,
@@ -1607,13 +1607,13 @@ pub const ErrorMsg = struct {
 
     /// Assumes the ErrorMsg struct and msg were both allocated with `gpa`,
     /// as well as all notes.
-    pub fn destroy(err_msg: *ErrorMsg, gpa: *Allocator) void {
+    pub fn destroy(err_msg: *ErrorMsg, gpa: Allocator) void {
         err_msg.deinit(gpa);
         gpa.destroy(err_msg);
     }
 
     pub fn init(
-        gpa: *Allocator,
+        gpa: Allocator,
         src_loc: SrcLoc,
         comptime format: []const u8,
         args: anytype,
@@ -1624,7 +1624,7 @@ pub const ErrorMsg = struct {
         };
     }
 
-    pub fn deinit(err_msg: *ErrorMsg, gpa: *Allocator) void {
+    pub fn deinit(err_msg: *ErrorMsg, gpa: Allocator) void {
         for (err_msg.notes) |*note| {
             note.deinit(gpa);
         }
@@ -1651,7 +1651,7 @@ pub const SrcLoc = struct {
         return @bitCast(Ast.Node.Index, offset + @bitCast(i32, src_loc.parent_decl_node));
     }
 
-    pub fn byteOffset(src_loc: SrcLoc, gpa: *Allocator) !u32 {
+    pub fn byteOffset(src_loc: SrcLoc, gpa: Allocator) !u32 {
         switch (src_loc.lazy) {
             .unneeded => unreachable,
             .entire_file => return 0,
@@ -2066,7 +2066,7 @@ pub const SrcLoc = struct {
 
     pub fn byteOffsetBuiltinCallArg(
         src_loc: SrcLoc,
-        gpa: *Allocator,
+        gpa: Allocator,
         node_off: i32,
         arg_index: u32,
     ) !u32 {
@@ -2464,7 +2464,7 @@ pub fn deinit(mod: *Module) void {
     }
 }
 
-fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
+fn freeExportList(gpa: Allocator, export_list: []*Export) void {
     for (export_list) |exp| {
         gpa.free(exp.options.name);
         if (exp.options.section) |s| gpa.free(s);
@@ -2871,7 +2871,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
 /// * Decl.zir_index
 /// * Fn.zir_body_inst
 /// * Decl.zir_decl_index
-fn updateZirRefs(gpa: *Allocator, file: *File, old_zir: Zir) !void {
+fn updateZirRefs(gpa: Allocator, file: *File, old_zir: Zir) !void {
     const new_zir = file.zir;
 
     // Maps from old ZIR to new ZIR, struct_decl, enum_decl, etc. Any instruction which
@@ -2965,7 +2965,7 @@ fn updateZirRefs(gpa: *Allocator, file: *File, old_zir: Zir) !void {
 }
 
 pub fn mapOldZirToNew(
-    gpa: *Allocator,
+    gpa: Allocator,
     old_zir: Zir,
     new_zir: Zir,
     inst_map: *std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index),
@@ -4119,7 +4119,7 @@ fn deleteDeclExports(mod: *Module, decl: *Decl) void {
     mod.gpa.free(kv.value);
 }
 
-pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: *Allocator) SemaError!Air {
+pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) SemaError!Air {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -4427,7 +4427,7 @@ pub fn getNextAnonNameIndex(mod: *Module) usize {
     return @atomicRmw(usize, &mod.next_anon_name_index, .Add, 1, .Monotonic);
 }
 
-pub fn makeIntType(arena: *Allocator, signedness: std.builtin.Signedness, bits: u16) !Type {
+pub fn makeIntType(arena: Allocator, signedness: std.builtin.Signedness, bits: u16) !Type {
     const int_payload = try arena.create(Type.Payload.Bits);
     int_payload.* = .{
         .base = .{
@@ -4459,7 +4459,7 @@ pub fn errNoteNonLazy(
 }
 
 pub fn errorUnionType(
-    arena: *Allocator,
+    arena: Allocator,
     error_set: Type,
     payload: Type,
 ) Allocator.Error!Type {
@@ -4511,7 +4511,7 @@ pub const SwitchProngSrc = union(enum) {
     /// the LazySrcLoc in order to emit a compile error.
     pub fn resolve(
         prong_src: SwitchProngSrc,
-        gpa: *Allocator,
+        gpa: Allocator,
         decl: *Decl,
         switch_node_offset: i32,
         range_expand: RangeExpand,
@@ -4605,7 +4605,7 @@ pub const PeerTypeCandidateSrc = union(enum) {
 
     pub fn resolve(
         self: PeerTypeCandidateSrc,
-        gpa: *Allocator,
+        gpa: Allocator,
         decl: *Decl,
         candidate_i: usize,
     ) ?LazySrcLoc {

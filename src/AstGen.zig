@@ -16,7 +16,7 @@ const indexToRef = Zir.indexToRef;
 const trace = @import("tracy.zig").trace;
 const BuiltinFn = @import("BuiltinFn.zig");
 
-gpa: *Allocator,
+gpa: Allocator,
 tree: *const Ast,
 instructions: std.MultiArrayList(Zir.Inst) = .{},
 extra: ArrayListUnmanaged(u32) = .{},
@@ -33,7 +33,7 @@ source_line: u32 = 0,
 source_column: u32 = 0,
 /// Used for temporary allocations; freed after AstGen is complete.
 /// The resulting ZIR code has no references to anything in this arena.
-arena: *Allocator,
+arena: Allocator,
 string_table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
 compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
 /// The topmost block of the current function.
@@ -92,7 +92,7 @@ fn appendRefsAssumeCapacity(astgen: *AstGen, refs: []const Zir.Inst.Ref) void {
     astgen.extra.appendSliceAssumeCapacity(coerced);
 }
 
-pub fn generate(gpa: *Allocator, tree: Ast) Allocator.Error!Zir {
+pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
@@ -196,7 +196,7 @@ pub fn generate(gpa: *Allocator, tree: Ast) Allocator.Error!Zir {
     };
 }
 
-pub fn deinit(astgen: *AstGen, gpa: *Allocator) void {
+pub fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.instructions.deinit(gpa);
     astgen.extra.deinit(gpa);
     astgen.string_table.deinit(gpa);
@@ -2460,7 +2460,7 @@ fn makeDeferScope(
     astgen: *AstGen,
     scope: *Scope,
     node: Ast.Node.Index,
-    block_arena: *Allocator,
+    block_arena: Allocator,
     scope_tag: Scope.Tag,
 ) InnerError!*Scope {
     const tree = astgen.tree;
@@ -2486,7 +2486,7 @@ fn varDecl(
     gz: *GenZir,
     scope: *Scope,
     node: Ast.Node.Index,
-    block_arena: *Allocator,
+    block_arena: Allocator,
     var_decl: Ast.full.VarDecl,
 ) InnerError!*Scope {
     try emitDbgNode(gz, node);
@@ -3030,7 +3030,7 @@ const WipMembers = struct {
     /// (4 for src_hash + line + name + value + align + link_section + address_space)
     const max_decl_size = 10;
 
-    pub fn init(gpa: *Allocator, payload: *ArrayListUnmanaged(u32), decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
+    pub fn init(gpa: Allocator, payload: *ArrayListUnmanaged(u32), decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
         const payload_top = @intCast(u32, payload.items.len);
         const decls_start = payload_top + (decl_count + decls_per_u32 - 1) / decls_per_u32;
         const field_bits_start = decls_start + decl_count * max_decl_size;
@@ -6178,7 +6178,7 @@ fn tunnelThroughClosure(
     ns: ?*Scope.Namespace,
     value: Zir.Inst.Ref,
     token: Ast.TokenIndex,
-    gpa: *Allocator,
+    gpa: Allocator,
 ) !Zir.Inst.Ref {
     // For trivial values, we don't need a tunnel.
     // Just return the ref.
@@ -8806,7 +8806,7 @@ const Scope = struct {
         /// ref of the capture for decls in this namespace
         captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
 
-        pub fn deinit(self: *Namespace, gpa: *Allocator) void {
+        pub fn deinit(self: *Namespace, gpa: Allocator) void {
             self.decls.deinit(gpa);
             self.captures.deinit(gpa);
             self.* = undefined;

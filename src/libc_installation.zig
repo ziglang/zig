@@ -39,7 +39,7 @@ pub const LibCInstallation = struct {
     };
 
     pub fn parse(
-        allocator: *Allocator,
+        allocator: Allocator,
         libc_file: []const u8,
         target: std.zig.CrossTarget,
     ) !LibCInstallation {
@@ -175,7 +175,7 @@ pub const LibCInstallation = struct {
     }
 
     pub const FindNativeOptions = struct {
-        allocator: *Allocator,
+        allocator: Allocator,
 
         /// If enabled, will print human-friendly errors to stderr.
         verbose: bool = false,
@@ -234,7 +234,7 @@ pub const LibCInstallation = struct {
     }
 
     /// Must be the same allocator passed to `parse` or `findNative`.
-    pub fn deinit(self: *LibCInstallation, allocator: *Allocator) void {
+    pub fn deinit(self: *LibCInstallation, allocator: Allocator) void {
         const fields = std.meta.fields(LibCInstallation);
         inline for (fields) |field| {
             if (@field(self, field.name)) |payload| {
@@ -562,7 +562,7 @@ pub const LibCInstallation = struct {
 };
 
 pub const CCPrintFileNameOptions = struct {
-    allocator: *Allocator,
+    allocator: Allocator,
     search_basename: []const u8,
     want_dirname: enum { full_path, only_dir },
     verbose: bool = false,

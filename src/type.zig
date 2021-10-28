@@ -728,7 +728,7 @@ pub const Type = extern union {
         }
     };
 
-    pub fn copy(self: Type, allocator: *Allocator) error{OutOfMemory}!Type {
+    pub fn copy(self: Type, allocator: Allocator) error{OutOfMemory}!Type {
         if (@enumToInt(self.tag_if_small_enough) < Tag.no_payload_count) {
             return Type{ .tag_if_small_enough = self.tag_if_small_enough };
         } else switch (self.ptr_otherwise.tag) {
@@ -905,7 +905,7 @@ pub const Type = extern union {
         }
     }
 
-    fn copyPayloadShallow(self: Type, allocator: *Allocator, comptime T: type) error{OutOfMemory}!Type {
+    fn copyPayloadShallow(self: Type, allocator: Allocator, comptime T: type) error{OutOfMemory}!Type {
         const payload = self.cast(T).?;
         const new_payload = try allocator.create(T);
         new_payload.* = payload.*;
@@ -1198,7 +1198,7 @@ pub const Type = extern union {
     }
 
     /// Returns a name suitable for `@typeName`.
-    pub fn nameAlloc(ty: Type, arena: *Allocator) Allocator.Error![:0]const u8 {
+    pub fn nameAlloc(ty: Type, arena: Allocator) Allocator.Error![:0]const u8 {
         const t = ty.tag();
         switch (t) {
             .inferred_alloc_const => unreachable,
@@ -1421,7 +1421,7 @@ pub const Type = extern union {
         };
     }
 
-    pub fn toValue(self: Type, allocator: *Allocator) Allocator.Error!Value {
+    pub fn toValue(self: Type, allocator: Allocator) Allocator.Error!Value {
         switch (self.tag()) {
             .u1 => return Value.initTag(.u1_type),
             .u8 => return Value.initTag(.u8_type),
@@ -2676,7 +2676,7 @@ pub const Type = extern union {
     /// For [*]T, returns *T
     /// For []T, returns *T
     /// Handles const-ness and address spaces in particular.
-    pub fn elemPtrType(ptr_ty: Type, arena: *Allocator) !Type {
+    pub fn elemPtrType(ptr_ty: Type, arena: Allocator) !Type {
         return try Type.ptr(arena, .{
             .pointee_type = ptr_ty.elemType2(),
             .mutable = ptr_ty.ptrIsMutable(),
@@ -2731,7 +2731,7 @@ pub const Type = extern union {
 
     /// Asserts that the type is an optional.
     /// Same as `optionalChild` but allocates the buffer if needed.
-    pub fn optionalChildAlloc(ty: Type, allocator: *Allocator) !Type {
+    pub fn optionalChildAlloc(ty: Type, allocator: Allocator) !Type {
         switch (ty.tag()) {
             .optional => return ty.castTag(.optional).?.data,
             .optional_single_mut_pointer => {
@@ -3379,7 +3379,7 @@ pub const Type = extern union {
     }
 
     /// Asserts that self.zigTypeTag() == .Int.
-    pub fn minInt(self: Type, arena: *Allocator, target: Target) !Value {
+    pub fn minInt(self: Type, arena: Allocator, target: Target) !Value {
         assert(self.zigTypeTag() == .Int);
         const info = self.intInfo(target);
 
@@ -3404,7 +3404,7 @@ pub const Type = extern union {
     }
 
     /// Asserts that self.zigTypeTag() == .Int.
-    pub fn maxInt(self: Type, arena: *Allocator, target: Target) !Value {
+    pub fn maxInt(self: Type, arena: Allocator, target: Target) !Value {
         assert(self.zigTypeTag() == .Int);
         const info = self.intInfo(target);
 
@@ -4008,7 +4008,7 @@ pub const Type = extern union {
             return .{ .tag_if_small_enough = t };
         }
 
-        pub fn create(comptime t: Tag, ally: *Allocator, data: Data(t)) error{OutOfMemory}!file_struct.Type {
+        pub fn create(comptime t: Tag, ally: Allocator, data: Data(t)) error{OutOfMemory}!file_struct.Type {
             const p = try ally.create(t.Type());
             p.* = .{
                 .base = .{ .tag = t },
@@ -4104,7 +4104,7 @@ pub const Type = extern union {
                 functions: std.AutoHashMapUnmanaged(*Module.Fn, void),
                 is_anyerror: bool,
 
-                pub fn addErrorSet(self: *Data, gpa: *Allocator, err_set_ty: Type) !void {
+                pub fn addErrorSet(self: *Data, gpa: Allocator, err_set_ty: Type) !void {
                     switch (err_set_ty.tag()) {
                         .error_set => {
                             const names = err_set_ty.castTag(.error_set).?.data.names();
@@ -4225,7 +4225,7 @@ pub const Type = extern union {
     pub const @"type" = initTag(.type);
     pub const @"anyerror" = initTag(.anyerror);
 
-    pub fn ptr(arena: *Allocator, d: Payload.Pointer.Data) !Type {
+    pub fn ptr(arena: Allocator, d: Payload.Pointer.Data) !Type {
         assert(d.host_size == 0 or d.bit_offset < d.host_size * 8);
 
         if (d.sentinel != null or d.@"align" != 0 or d.@"addrspace" != .generic or
@@ -4260,7 +4260,7 @@ pub const Type = extern union {
     }
 
     pub fn array(
-        arena: *Allocator,
+        arena: Allocator,
         len: u64,
         sent: ?Value,
         elem_type: Type,
@@ -4289,14 +4289,14 @@ pub const Type = extern union {
         });
     }
 
-    pub fn vector(arena: *Allocator, len: u64, elem_type: Type) Allocator.Error!Type {
+    pub fn vector(arena: Allocator, len: u64, elem_type: Type) Allocator.Error!Type {
         return Tag.vector.create(arena, .{
             .len = len,
             .elem_type = elem_type,
         });
     }
 
-    pub fn optional(arena: *Allocator, child_type: Type) Allocator.Error!Type {
+    pub fn optional(arena: Allocator, child_type: Type) Allocator.Error!Type {
         switch (child_type.tag()) {
             .single_const_pointer => return Type.Tag.optional_single_const_pointer.create(
                 arena,
@@ -4317,7 +4317,7 @@ pub const Type = extern union {
         return @intCast(u16, base + @boolToInt(upper < max));
     }
 
-    pub fn smallestUnsignedInt(arena: *Allocator, max: u64) !Type {
+    pub fn smallestUnsignedInt(arena: Allocator, max: u64) !Type {
         const bits = smallestUnsignedBits(max);
         return switch (bits) {
             1 => initTag(.u1),

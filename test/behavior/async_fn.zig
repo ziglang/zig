@@ -713,7 +713,7 @@ fn testAsyncAwaitTypicalUsage(
         }
 
         var global_download_frame: anyframe = undefined;
-        fn fetchUrl(allocator: *std.mem.Allocator, url: []const u8) anyerror![]u8 {
+        fn fetchUrl(allocator: std.mem.Allocator, url: []const u8) anyerror![]u8 {
             _ = url;
             const result = try allocator.dupe(u8, "expected download text");
             errdefer allocator.free(result);
@@ -727,7 +727,7 @@ fn testAsyncAwaitTypicalUsage(
         }
 
         var global_file_frame: anyframe = undefined;
-        fn readFile(allocator: *std.mem.Allocator, filename: []const u8) anyerror![]u8 {
+        fn readFile(allocator: std.mem.Allocator, filename: []const u8) anyerror![]u8 {
             _ = filename;
             const result = try allocator.dupe(u8, "expected file text");
             errdefer allocator.free(result);
@@ -912,7 +912,7 @@ test "recursive async function" {
 
 fn recursiveAsyncFunctionTest(comptime suspending_implementation: bool) type {
     return struct {
-        fn fib(allocator: *std.mem.Allocator, x: u32) error{OutOfMemory}!u32 {
+        fn fib(allocator: std.mem.Allocator, x: u32) error{OutOfMemory}!u32 {
             if (x <= 1) return x;
 
             if (suspending_implementation) {

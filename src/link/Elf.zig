@@ -228,7 +228,7 @@ pub const SrcFn = struct {
     };
 };
 
-pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Elf {
+pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Elf {
     assert(options.object_format == .elf);
 
     if (build_options.have_llvm and options.use_llvm) {
@@ -281,7 +281,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     return self;
 }
 
-pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Elf {
+pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
     const ptr_width: PtrWidth = switch (options.target.cpu.arch.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
@@ -2205,7 +2205,7 @@ pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
     }
 }
 
-fn deinitRelocs(gpa: *Allocator, table: *File.DbgInfoTypeRelocsTable) void {
+fn deinitRelocs(gpa: Allocator, table: *File.DbgInfoTypeRelocsTable) void {
     var it = table.valueIterator();
     while (it.next()) |value| {
         value.relocs.deinit(gpa);
@@ -3360,7 +3360,7 @@ const CsuObjects = struct {
     crtend: ?[]const u8 = null,
     crtn: ?[]const u8 = null,
 
-    fn init(arena: *mem.Allocator, link_options: link.Options, comp: *const Compilation) !CsuObjects {
+    fn init(arena: mem.Allocator, link_options: link.Options, comp: *const Compilation) !CsuObjects {
         // crt objects are only required for libc.
         if (!link_options.link_libc) return CsuObjects{};
 

@@ -37,7 +37,7 @@ pub const Node = struct {
         return @fieldParentPtr(T, "base", self);
     }
 
-    pub fn deinit(self: *Node, allocator: *Allocator) void {
+    pub fn deinit(self: *Node, allocator: Allocator) void {
         switch (self.tag) {
             .doc => @fieldParentPtr(Node.Doc, "base", self).deinit(allocator),
             .map => @fieldParentPtr(Node.Map, "base", self).deinit(allocator),
@@ -69,7 +69,7 @@ pub const Node = struct {
 
         pub const base_tag: Node.Tag = .doc;
 
-        pub fn deinit(self: *Doc, allocator: *Allocator) void {
+        pub fn deinit(self: *Doc, allocator: Allocator) void {
             if (self.value) |node| {
                 node.deinit(allocator);
                 allocator.destroy(node);
@@ -113,7 +113,7 @@ pub const Node = struct {
             value: *Node,
         };
 
-        pub fn deinit(self: *Map, allocator: *Allocator) void {
+        pub fn deinit(self: *Map, allocator: Allocator) void {
             for (self.values.items) |entry| {
                 entry.value.deinit(allocator);
                 allocator.destroy(entry.value);
@@ -149,7 +149,7 @@ pub const Node = struct {
 
         pub const base_tag: Node.Tag = .list;
 
-        pub fn deinit(self: *List, allocator: *Allocator) void {
+        pub fn deinit(self: *List, allocator: Allocator) void {
             for (self.values.items) |node| {
                 node.deinit(allocator);
                 allocator.destroy(node);
@@ -198,12 +198,12 @@ pub const Node = struct {
 };
 
 pub const Tree = struct {
-    allocator: *Allocator,
+    allocator: Allocator,
     source: []const u8,
     tokens: []Token,
     docs: std.ArrayListUnmanaged(*Node) = .{},
 
-    pub fn init(allocator: *Allocator) Tree {
+    pub fn init(allocator: Allocator) Tree {
         return .{
             .allocator = allocator,
             .source = undefined,
@@ -266,7 +266,7 @@ pub const Tree = struct {
 };
 
 const Parser = struct {
-    allocator: *Allocator,
+    allocator: Allocator,
     tree: *Tree,
     token_it: *TokenIterator,
     scopes: std.ArrayListUnmanaged(Scope) = .{},

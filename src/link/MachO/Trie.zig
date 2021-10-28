@@ -65,7 +65,7 @@ pub const Node = struct {
         to: *Node,
         label: []u8,
 
-        fn deinit(self: *Edge, allocator: *Allocator) void {
+        fn deinit(self: *Edge, allocator: Allocator) void {
             self.to.deinit(allocator);
             allocator.destroy(self.to);
             allocator.free(self.label);
@@ -75,7 +75,7 @@ pub const Node = struct {
         }
     };
 
-    fn deinit(self: *Node, allocator: *Allocator) void {
+    fn deinit(self: *Node, allocator: Allocator) void {
         for (self.edges.items) |*edge| {
             edge.deinit(allocator);
         }
@@ -83,7 +83,7 @@ pub const Node = struct {
     }
 
     /// Inserts a new node starting from `self`.
-    fn put(self: *Node, allocator: *Allocator, label: []const u8) !*Node {
+    fn put(self: *Node, allocator: Allocator, label: []const u8) !*Node {
         // Check for match with edges from this node.
         for (self.edges.items) |*edge| {
             const match = mem.indexOfDiff(u8, edge.label, label) orelse return edge.to;
@@ -126,7 +126,7 @@ pub const Node = struct {
     }
 
     /// Recursively parses the node from the input byte stream.
-    fn read(self: *Node, allocator: *Allocator, reader: anytype) Trie.ReadError!usize {
+    fn read(self: *Node, allocator: Allocator, reader: anytype) Trie.ReadError!usize {
         self.node_dirty = true;
         const trie_offset = try reader.context.getPos();
         self.trie_offset = trie_offset;
@@ -308,7 +308,7 @@ pub const ExportSymbol = struct {
 /// Insert a symbol into the trie, updating the prefixes in the process.
 /// This operation may change the layout of the trie by splicing edges in
 /// certain circumstances.
-pub fn put(self: *Trie, allocator: *Allocator, symbol: ExportSymbol) !void {
+pub fn put(self: *Trie, allocator: Allocator, symbol: ExportSymbol) !void {
     try self.createRoot(allocator);
     const node = try self.root.?.put(allocator, symbol.name);
     node.terminal_info = .{
@@ -322,7 +322,7 @@ pub fn put(self: *Trie, allocator: *Allocator, symbol: ExportSymbol) !void {
 /// This step performs multiple passes through the trie ensuring
 /// there are no gaps after every `Node` is ULEB128 encoded.
 /// Call this method before trying to `write` the trie to a byte stream.
-pub fn finalize(self: *Trie, allocator: *Allocator) !void {
+pub fn finalize(self: *Trie, allocator: Allocator) !void {
     if (!self.trie_dirty) return;
 
     self.ordered_nodes.shrinkRetainingCapacity(0);
@@ -361,7 +361,7 @@ const ReadError = error{
 };
 
 /// Parse the trie from a byte stream.
-pub fn read(self: *Trie, allocator: *Allocator, reader: anytype) ReadError!usize {
+pub fn read(self: *Trie, allocator: Allocator, reader: anytype) ReadError!usize {
     try self.createRoot(allocator);
     return self.root.?.read(allocator, reader);
 }
@@ -377,7 +377,7 @@ pub fn write(self: Trie, writer: anytype) !u64 {
     return counting_writer.bytes_written;
 }
 
-pub fn deinit(self: *Trie, allocator: *Allocator) void {
+pub fn deinit(self: *Trie, allocator: Allocator) void {
     if (self.root) |root| {
         root.deinit(allocator);
         allocator.destroy(root);
@@ -385,7 +385,7 @@ pub fn deinit(self: *Trie, allocator: *Allocator) void {
     self.ordered_nodes.deinit(allocator);
 }
 
-fn createRoot(self: *Trie, allocator: *Allocator) !void {
+fn createRoot(self: *Trie, allocator: Allocator) !void {
     if (self.root == null) {
         const root = try allocator.create(Node);
         root.* = .{ .base = self };

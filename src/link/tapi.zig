@@ -106,7 +106,7 @@ pub const LibStub = struct {
     /// Typed contents of the tbd file.
     inner: []Tbd,
 
-    pub fn loadFromFile(allocator: *Allocator, file: fs.File) !LibStub {
+    pub fn loadFromFile(allocator: Allocator, file: fs.File) !LibStub {
         const source = try file.readToEndAlloc(allocator, std.math.maxInt(u32));
         defer allocator.free(source);
 

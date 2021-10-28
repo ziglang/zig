@@ -420,7 +420,7 @@ pub const File = struct {
     /// Reads all the bytes from the current position to the end of the file.
     /// On success, caller owns returned buffer.
     /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
-    pub fn readToEndAlloc(self: File, allocator: *mem.Allocator, max_bytes: usize) ![]u8 {
+    pub fn readToEndAlloc(self: File, allocator: mem.Allocator, max_bytes: usize) ![]u8 {
         return self.readToEndAllocOptions(allocator, max_bytes, null, @alignOf(u8), null);
     }
 
@@ -432,7 +432,7 @@ pub const File = struct {
     /// Allows specifying alignment and a sentinel value.
     pub fn readToEndAllocOptions(
         self: File,
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         max_bytes: usize,
         size_hint: ?usize,
         comptime alignment: u29,

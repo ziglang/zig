@@ -58,7 +58,7 @@ const DeclGenContext = struct {
     liveness: Liveness,
 };
 
-pub fn createEmpty(gpa: *Allocator, options: link.Options) !*SpirV {
+pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
     const spirv = try gpa.create(SpirV);
     spirv.* = .{
         .base = .{
@@ -87,7 +87,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*SpirV {
     return spirv;
 }
 
-pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*SpirV {
+pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*SpirV {
     assert(options.object_format == .spirv);
 
     if (options.use_llvm) return error.LLVM_BackendIsTODO_ForSpirV; // TODO: LLVM Doesn't support SpirV at all.

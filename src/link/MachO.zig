@@ -280,7 +280,7 @@ pub const SrcFn = struct {
     };
 };
 
-pub fn openPath(allocator: *Allocator, options: link.Options) !*MachO {
+pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     assert(options.object_format == .macho);
 
     const use_stage1 = build_options.is_stage1 and options.use_stage1;
@@ -366,7 +366,7 @@ pub fn openPath(allocator: *Allocator, options: link.Options) !*MachO {
     return self;
 }
 
-pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
+pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     const self = try gpa.create(MachO);
     const cpu_arch = options.target.cpu.arch;
     const os_tag = options.target.os.tag;
@@ -1032,7 +1032,7 @@ pub fn flushObject(self: *MachO, comp: *Compilation) !void {
 }
 
 fn resolveSearchDir(
-    arena: *Allocator,
+    arena: Allocator,
     dir: []const u8,
     syslibroot: ?[]const u8,
 ) !?[]const u8 {
@@ -1074,7 +1074,7 @@ fn resolveSearchDir(
 }
 
 fn resolveLib(
-    arena: *Allocator,
+    arena: Allocator,
     search_dirs: []const []const u8,
     name: []const u8,
     ext: []const u8,
@@ -1098,7 +1098,7 @@ fn resolveLib(
 }
 
 fn resolveFramework(
-    arena: *Allocator,
+    arena: Allocator,
     search_dirs: []const []const u8,
     name: []const u8,
     ext: []const u8,

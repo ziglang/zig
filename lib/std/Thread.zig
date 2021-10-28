@@ -460,7 +460,7 @@ const WindowsThreadImpl = struct {
         errdefer assert(windows.kernel32.HeapFree(heap_handle, 0, alloc_ptr) != 0);
 
         const instance_bytes = @ptrCast([*]u8, alloc_ptr)[0..alloc_bytes];
-        const instance = std.heap.FixedBufferAllocator.init(instance_bytes).allocator.create(Instance) catch unreachable;
+        const instance = std.heap.FixedBufferAllocator.init(instance_bytes).getAllocator().create(Instance) catch unreachable;
         instance.* = .{
             .fn_args = args,
             .thread = .{

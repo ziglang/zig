@@ -1244,7 +1244,7 @@ fn asciiLessThan(context: void, a: []const u8, b: []const u8) bool {
     return std.ascii.lessThanIgnoreCase(a, b);
 }
 
-fn llvmNameToZigName(arena: *mem.Allocator, llvm_name: []const u8) ![]const u8 {
+fn llvmNameToZigName(arena: mem.Allocator, llvm_name: []const u8) ![]const u8 {
     const duped = try arena.dupe(u8, llvm_name);
     for (duped) |*byte| switch (byte.*) {
         '-', '.' => byte.* = '_',
@@ -1254,7 +1254,7 @@ fn llvmNameToZigName(arena: *mem.Allocator, llvm_name: []const u8) ![]const u8 {
 }
 
 fn llvmNameToZigNameOmit(
-    arena: *mem.Allocator,
+    arena: mem.Allocator,
     llvm_target: LlvmTarget,
     llvm_name: []const u8,
 ) !?[]const u8 {
@@ -1279,7 +1279,7 @@ fn hasSuperclass(obj: *json.ObjectMap, class_name: []const u8) bool {
 }
 
 fn pruneFeatures(
-    arena: *mem.Allocator,
+    arena: mem.Allocator,
     features_table: std.StringHashMap(Feature),
     deps_set: *std.StringHashMap(void),
 ) !void {

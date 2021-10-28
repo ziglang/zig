@@ -165,7 +165,7 @@ pub fn main() anyerror!void {
     return mainArgs(gpa, arena, args);
 }
 
-pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
+pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     if (args.len <= 1) {
         std.log.info("{s}", .{usage});
         fatal("expected command argument", .{});
@@ -535,7 +535,7 @@ const Emit = union(enum) {
     }
 };
 
-fn optionalStringEnvVar(arena: *Allocator, name: []const u8) !?[]const u8 {
+fn optionalStringEnvVar(arena: Allocator, name: []const u8) !?[]const u8 {
     if (std.process.getEnvVarOwned(arena, name)) |value| {
         return value;
     } else |err| switch (err) {
@@ -554,8 +554,8 @@ const ArgMode = union(enum) {
 };
 
 fn buildOutputType(
-    gpa: *Allocator,
-    arena: *Allocator,
+    gpa: Allocator,
+    arena: Allocator,
     all_args: []const []const u8,
     arg_mode: ArgMode,
 ) !void {
@@ -2645,7 +2645,7 @@ fn buildOutputType(
 }
 
 fn parseCrossTargetOrReportFatalError(
-    allocator: *Allocator,
+    allocator: Allocator,
     opts: std.zig.CrossTarget.ParseOptions,
 ) !std.zig.CrossTarget {
     var opts_with_diags = opts;
@@ -2686,8 +2686,8 @@ fn parseCrossTargetOrReportFatalError(
 
 fn runOrTest(
     comp: *Compilation,
-    gpa: *Allocator,
-    arena: *Allocator,
+    gpa: Allocator,
+    arena: Allocator,
     emit_bin_loc: ?Compilation.EmitLoc,
     test_exec_args: []const ?[]const u8,
     self_exe_path: []const u8,
@@ -2818,7 +2818,7 @@ const AfterUpdateHook = union(enum) {
     update: []const u8,
 };
 
-fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !void {
+fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void {
     try comp.update();
 
     var errors = try comp.getAllErrorsAlloc();
@@ -2872,7 +2872,7 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
     }
 }
 
-fn freePkgTree(gpa: *Allocator, pkg: *Package, free_parent: bool) void {
+fn freePkgTree(gpa: Allocator, pkg: *Package, free_parent: bool) void {
     {
         var it = pkg.table.valueIterator();
         while (it.next()) |value| {
@@ -2884,7 +2884,7 @@ fn freePkgTree(gpa: *Allocator, pkg: *Package, free_parent: bool) void {
     }
 }
 
-fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !void {
+fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool) !void {
     if (!build_options.have_llvm)
         fatal("cannot translate-c: compiler built without LLVM extensions", .{});
 
@@ -3031,7 +3031,7 @@ pub const usage_libc =
     \\
 ;
 
-pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
+pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
     var input_file: ?[]const u8 = null;
     var target_arch_os_abi: []const u8 = "native";
     {
@@ -3100,8 +3100,8 @@ pub const usage_init =
 ;
 
 pub fn cmdInit(
-    gpa: *Allocator,
-    arena: *Allocator,
+    gpa: Allocator,
+    arena: Allocator,
     args: []const []const u8,
     output_mode: std.builtin.OutputMode,
 ) !void {
@@ -3196,7 +3196,7 @@ pub const usage_build =
     \\
 ;
 
-pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
+pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var prominent_compile_errors: bool = false;
 
     // We want to release all the locks before executing the child process, so we make a nice
@@ -3436,7 +3436,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
     }
 }
 
-fn argvCmd(allocator: *Allocator, argv: []const []const u8) ![]u8 {
+fn argvCmd(allocator: Allocator, argv: []const []const u8) ![]u8 {
     var cmd = std.ArrayList(u8).init(allocator);
     defer cmd.deinit();
     for (argv[0 .. argv.len - 1]) |arg| {
@@ -3448,7 +3448,7 @@ fn argvCmd(allocator: *Allocator, argv: []const []const u8) ![]u8 {
 }
 
 fn readSourceFileToEndAlloc(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     input: *const fs.File,
     size_hint: ?usize,
 ) ![:0]u8 {
@@ -3518,14 +3518,14 @@ const Fmt = struct {
     any_error: bool,
     check_ast: bool,
     color: Color,
-    gpa: *Allocator,
-    arena: *Allocator,
+    gpa: Allocator,
+    arena: Allocator,
     out_buffer: std.ArrayList(u8),
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
-pub fn cmdFmt(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
+pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var color: Color = .auto;
     var stdin_flag: bool = false;
     var check_flag: bool = false;
@@ -3855,8 +3855,8 @@ fn fmtPathFile(
 }
 
 fn printErrMsgToStdErr(
-    gpa: *mem.Allocator,
-    arena: *mem.Allocator,
+    gpa: mem.Allocator,
+    arena: mem.Allocator,
     parse_error: Ast.Error,
     tree: Ast,
     path: []const u8,
@@ -3938,7 +3938,7 @@ extern "c" fn ZigClang_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 extern "c" fn ZigLlvmAr_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 
 /// TODO https://github.com/ziglang/zig/issues/3257
-fn punt_to_clang(arena: *Allocator, args: []const []const u8) error{OutOfMemory} {
+fn punt_to_clang(arena: Allocator, args: []const []const u8) error{OutOfMemory} {
     if (!build_options.have_llvm)
         fatal("`zig cc` and `zig c++` unavailable: compiler built without LLVM extensions", .{});
     // Convert the args to the format Clang expects.
@@ -3952,7 +3952,7 @@ fn punt_to_clang(arena: *Allocator, args: []const []const u8) error{OutOfMemory}
 }
 
 /// TODO https://github.com/ziglang/zig/issues/3257
-fn punt_to_llvm_ar(arena: *Allocator, args: []const []const u8) error{OutOfMemory} {
+fn punt_to_llvm_ar(arena: Allocator, args: []const []const u8) error{OutOfMemory} {
     if (!build_options.have_llvm)
         fatal("`zig ar`, `zig dlltool`, `zig ranlib', and `zig lib` unavailable: compiler built without LLVM extensions", .{});
 
@@ -3973,7 +3973,7 @@ fn punt_to_llvm_ar(arena: *Allocator, args: []const []const u8) error{OutOfMemor
 /// * `lld-link` - COFF
 /// * `wasm-ld` - WebAssembly
 /// TODO https://github.com/ziglang/zig/issues/3257
-pub fn punt_to_lld(arena: *Allocator, args: []const []const u8) error{OutOfMemory} {
+pub fn punt_to_lld(arena: Allocator, args: []const []const u8) error{OutOfMemory} {
     if (!build_options.have_llvm)
         fatal("`zig {s}` unavailable: compiler built without LLVM extensions", .{args[0]});
     // Convert the args to the format LLD expects.
@@ -4009,7 +4009,7 @@ pub const ClangArgIterator = struct {
     argv: []const []const u8,
     next_index: usize,
     root_args: ?*Args,
-    allocator: *Allocator,
+    allocator: Allocator,
 
     pub const ZigEquivalent = enum {
         target,
@@ -4069,7 +4069,7 @@ pub const ClangArgIterator = struct {
         argv: []const []const u8,
     };
 
-    fn init(allocator: *Allocator, argv: []const []const u8) ClangArgIterator {
+    fn init(allocator: Allocator, argv: []const []const u8) ClangArgIterator {
         return .{
             .next_index = 2, // `zig cc foo` this points to `foo`
             .has_next = argv.len > 2,
@@ -4308,7 +4308,7 @@ test "fds" {
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 }
 
-fn detectNativeTargetInfo(gpa: *Allocator, cross_target: std.zig.CrossTarget) !std.zig.system.NativeTargetInfo {
+fn detectNativeTargetInfo(gpa: Allocator, cross_target: std.zig.CrossTarget) !std.zig.system.NativeTargetInfo {
     return std.zig.system.NativeTargetInfo.detect(gpa, cross_target);
 }
 
@@ -4343,8 +4343,8 @@ const usage_ast_check =
 ;
 
 pub fn cmdAstCheck(
-    gpa: *Allocator,
-    arena: *Allocator,
+    gpa: Allocator,
+    arena: Allocator,
     args: []const []const u8,
 ) !void {
     const Module = @import("Module.zig");
@@ -4513,8 +4513,8 @@ pub fn cmdAstCheck(
 
 /// This is only enabled for debug builds.
 pub fn cmdChangelist(
-    gpa: *Allocator,
-    arena: *Allocator,
+    gpa: Allocator,
+    arena: Allocator,
     args: []const []const u8,
 ) !void {
     const Module = @import("Module.zig");

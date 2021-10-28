@@ -460,7 +460,7 @@ pub const PDBStringTableHeader = packed struct {
     ByteSize: u32,
 };
 
-fn readSparseBitVector(stream: anytype, allocator: *mem.Allocator) ![]u32 {
+fn readSparseBitVector(stream: anytype, allocator: mem.Allocator) ![]u32 {
     const num_words = try stream.readIntLittle(u32);
     var list = ArrayList(u32).init(allocator);
     errdefer list.deinit();
@@ -481,7 +481,7 @@ fn readSparseBitVector(stream: anytype, allocator: *mem.Allocator) ![]u32 {
 pub const Pdb = struct {
     in_file: File,
     msf: Msf,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     string_table: ?*MsfStream,
     dbi: ?*MsfStream,
     modules: []Module,
@@ -500,7 +500,7 @@ pub const Pdb = struct {
         checksum_offset: ?usize,
     };
 
-    pub fn init(allocator: *mem.Allocator, path: []const u8) !Pdb {
+    pub fn init(allocator: mem.Allocator, path: []const u8) !Pdb {
         const file = try fs.cwd().openFile(path, .{ .intended_io_mode = .blocking });
         errdefer file.close();
 
@@ -858,7 +858,7 @@ const Msf = struct {
     directory: MsfStream,
     streams: []MsfStream,
 
-    fn init(allocator: *mem.Allocator, file: File) !Msf {
+    fn init(allocator: mem.Allocator, file: File) !Msf {
         const in = file.reader();
 
         const superblock = try in.readStruct(SuperBlock);

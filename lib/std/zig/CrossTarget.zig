@@ -520,7 +520,7 @@ pub fn isNative(self: CrossTarget) bool {
     return self.isNativeCpu() and self.isNativeOs() and self.isNativeAbi();
 }
 
-pub fn zigTriple(self: CrossTarget, allocator: *mem.Allocator) error{OutOfMemory}![]u8 {
+pub fn zigTriple(self: CrossTarget, allocator: mem.Allocator) error{OutOfMemory}![]u8 {
     if (self.isNative()) {
         return allocator.dupe(u8, "native");
     }
@@ -559,13 +559,13 @@ pub fn zigTriple(self: CrossTarget, allocator: *mem.Allocator) error{OutOfMemory
     return result.toOwnedSlice();
 }
 
-pub fn allocDescription(self: CrossTarget, allocator: *mem.Allocator) ![]u8 {
+pub fn allocDescription(self: CrossTarget, allocator: mem.Allocator) ![]u8 {
     // TODO is there anything else worthy of the description that is not
     // already captured in the triple?
     return self.zigTriple(allocator);
 }
 
-pub fn linuxTriple(self: CrossTarget, allocator: *mem.Allocator) ![]u8 {
+pub fn linuxTriple(self: CrossTarget, allocator: mem.Allocator) ![]u8 {
     return Target.linuxTripleSimple(allocator, self.getCpuArch(), self.getOsTag(), self.getAbi());
 }
 
@@ -576,7 +576,7 @@ pub fn wantSharedLibSymLinks(self: CrossTarget) bool {
 pub const VcpkgLinkage = std.builtin.LinkMode;
 
 /// Returned slice must be freed by the caller.
-pub fn vcpkgTriplet(self: CrossTarget, allocator: *mem.Allocator, linkage: VcpkgLinkage) ![]u8 {
+pub fn vcpkgTriplet(self: CrossTarget, allocator: mem.Allocator, linkage: VcpkgLinkage) ![]u8 {
     const arch = switch (self.getCpuArch()) {
         .i386 => "x86",
         .x86_64 => "x64",

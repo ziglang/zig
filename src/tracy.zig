@@ -103,18 +103,18 @@ pub inline fn traceNamed(comptime src: std.builtin.SourceLocation, comptime name
     }
 }
 
-pub fn tracyAllocator(allocator: *std.mem.Allocator) TracyAllocator(null) {
+pub fn tracyAllocator(allocator: std.mem.Allocator) TracyAllocator(null) {
     return TracyAllocator(null).init(allocator);
 }
 
 pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
     return struct {
         allocator: std.mem.Allocator,
-        parent_allocator: *std.mem.Allocator,
+        parent_allocator: std.mem.Allocator,
 
         const Self = @This();
 
-        pub fn init(allocator: *std.mem.Allocator) Self {
+        pub fn init(allocator: std.mem.Allocator) Self {
             return .{
                 .parent_allocator = allocator,
                 .allocator = .{
@@ -124,7 +124,7 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
             };
         }
 
-        fn allocFn(allocator: *std.mem.Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) std.mem.Allocator.Error![]u8 {
+        fn allocFn(allocator: std.mem.Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) std.mem.Allocator.Error![]u8 {
             const self = @fieldParentPtr(Self, "allocator", allocator);
             const result = self.parent_allocator.allocFn(self.parent_allocator, len, ptr_align, len_align, ret_addr);
             if (result) |data| {
@@ -141,7 +141,7 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
             return result;
         }
 
-        fn resizeFn(allocator: *std.mem.Allocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) std.mem.Allocator.Error!usize {
+        fn resizeFn(allocator: std.mem.Allocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) std.mem.Allocator.Error!usize {
             const self = @fieldParentPtr(Self, "allocator", allocator);
 
             if (self.parent_allocator.resizeFn(self.parent_allocator, buf, buf_align, new_len, len_align, ret_addr)) |resized_len| {

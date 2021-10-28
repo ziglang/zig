@@ -10,7 +10,7 @@ const LazySrcLoc = Module.LazySrcLoc;
 
 /// Write human-readable, debug formatted ZIR code to a file.
 pub fn renderAsTextToFile(
-    gpa: *Allocator,
+    gpa: Allocator,
     scope_file: *Module.File,
     fs_file: std.fs.File,
 ) !void {
@@ -61,7 +61,7 @@ pub fn renderAsTextToFile(
 }
 
 pub fn renderInstructionContext(
-    gpa: *Allocator,
+    gpa: Allocator,
     block: []const Zir.Inst.Index,
     block_index: usize,
     scope_file: *Module.File,
@@ -94,7 +94,7 @@ pub fn renderInstructionContext(
 }
 
 pub fn renderSingleInstruction(
-    gpa: *Allocator,
+    gpa: Allocator,
     inst: Zir.Inst.Index,
     scope_file: *Module.File,
     parent_decl_node: Ast.Node.Index,
@@ -120,8 +120,8 @@ pub fn renderSingleInstruction(
 }
 
 const Writer = struct {
-    gpa: *Allocator,
-    arena: *Allocator,
+    gpa: Allocator,
+    arena: Allocator,
     file: *Module.File,
     code: Zir,
     indent: u32,

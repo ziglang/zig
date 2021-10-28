@@ -274,7 +274,7 @@ test "OptionsStep" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     var builder = try Builder.create(
-        &arena.allocator,
+        arena.getAllocator(),
         "test",
         "test",
         "test",

@@ -11,7 +11,7 @@ pub const Error = error{ParseError} || Allocator.Error;
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(gpa: *Allocator, source: [:0]const u8) Allocator.Error!Ast {
+pub fn parse(gpa: Allocator, source: [:0]const u8) Allocator.Error!Ast {
     var tokens = Ast.TokenList{};
     defer tokens.deinit(gpa);
 
@@ -81,7 +81,7 @@ const null_node: Node.Index = 0;
 
 /// Represents in-progress parsing, will be converted to an Ast after completion.
 const Parser = struct {
-    gpa: *Allocator,
+    gpa: Allocator,
     source: []const u8,
     token_tags: []const Token.Tag,
     token_starts: []const Ast.ByteOffset,

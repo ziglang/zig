@@ -29,7 +29,7 @@ pub const LineInfo = struct {
     line: u64,
     column: u64,
     file_name: []const u8,
-    allocator: ?*mem.Allocator,
+    allocator: ?mem.Allocator,
 
     pub fn deinit(self: LineInfo) void {
         const allocator = self.allocator orelse return;
@@ -339,7 +339,7 @@ const RESET = "\x1b[0m";
 pub fn writeStackTrace(
     stack_trace: std.builtin.StackTrace,
     out_stream: anytype,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     debug_info: *DebugInfo,
     tty_config: TTY.Config,
 ) !void {
@@ -662,7 +662,7 @@ pub const OpenSelfDebugInfoError = error{
 };
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
-pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
+pub fn openSelfDebugInfo(allocator: mem.Allocator) anyerror!DebugInfo {
     nosuspend {
         if (builtin.strip_debug_info)
             return error.MissingDebugInfo;
@@ -688,7 +688,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
 /// it themselves, even on error.
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 /// TODO it's weird to take ownership even on error, rework this code.
-fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: File) !ModuleDebugInfo {
+fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo {
     nosuspend {
         errdefer coff_file.close();
 
@@ -755,7 +755,7 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) ![]const u8 {
 /// it themselves, even on error.
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 /// TODO it's weird to take ownership even on error, rework this code.
-pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugInfo {
+pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugInfo {
     nosuspend {
         const mapped_mem = try mapWholeFile(elf_file);
         const hdr = @ptrCast(*const elf.Ehdr, &mapped_mem[0]);
@@ -827,7 +827,7 @@ pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugI
 /// This takes ownership of macho_file: users of this function should not close
 /// it themselves, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
-fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !ModuleDebugInfo {
+fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugInfo {
     const mapped_mem = try mapWholeFile(macho_file);
 
     const hdr = @ptrCast(
@@ -1025,10 +1025,10 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
 }
 
 pub const DebugInfo = struct {
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     address_map: std.AutoHashMap(usize, *ModuleDebugInfo),
 
-    pub fn init(allocator: *mem.Allocator) DebugInfo {
+    pub fn init(allocator: mem.Allocator) DebugInfo {
         return DebugInfo{
             .allocator = allocator,
             .address_map = std.AutoHashMap(usize, *ModuleDebugInfo).init(allocator),
@@ -1278,7 +1278,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             addr_table: std.StringHashMap(u64),
         };
 
-        pub fn allocator(self: @This()) *mem.Allocator {
+        pub fn allocator(self: @This()) mem.Allocator {
             return self.ofiles.allocator;
         }
 
@@ -1470,7 +1470,7 @@ pub const ModuleDebugInfo = switch (native_os) {
         debug_data: PdbOrDwarf,
         coff: *coff.Coff,
 
-        pub fn allocator(self: @This()) *mem.Allocator {
+        pub fn allocator(self: @This()) mem.Allocator {
             return self.coff.allocator;
         }
 
@@ -1560,14 +1560,15 @@ fn getSymbolFromDwarf(address: u64, di: *DW.DwarfInfo) !SymbolInfo {
 }
 
 /// TODO multithreaded awareness
-var debug_info_allocator: ?*mem.Allocator = null;
+var debug_info_allocator: ?mem.Allocator = null;
 var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;
-fn getDebugInfoAllocator() *mem.Allocator {
+fn getDebugInfoAllocator() mem.Allocator {
     if (debug_info_allocator) |a| return a;
 
     debug_info_arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    debug_info_allocator = &debug_info_arena_allocator.allocator;
-    return &debug_info_arena_allocator.allocator;
+    const allocator = debug_info_arena_allocator.getAllocator();
+    debug_info_allocator = allocator;
+    return allocator;
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.

@@ -149,7 +149,7 @@ pub const Value = union(ValueType) {
         };
     }
 
-    fn fromNode(arena: *Allocator, tree: *const Tree, node: *const Node, type_hint: ?ValueType) YamlError!Value {
+    fn fromNode(arena: Allocator, tree: *const Tree, node: *const Node, type_hint: ?ValueType) YamlError!Value {
         if (node.cast(Node.Doc)) |doc| {
             const inner = doc.value orelse {
                 // empty doc
@@ -246,7 +246,7 @@ pub const Yaml = struct {
         }
     }
 
-    pub fn load(allocator: *Allocator, source: []const u8) !Yaml {
+    pub fn load(allocator: Allocator, source: []const u8) !Yaml {
         var arena = ArenaAllocator.init(allocator);
 
         var tree = Tree.init(&arena.allocator);

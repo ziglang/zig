@@ -33,7 +33,7 @@ fn testZigInstallPrefix(base_dir: fs.Dir) ?Compilation.Directory {
 }
 
 /// Both the directory handle and the path are newly allocated resources which the caller now owns.
-pub fn findZigLibDir(gpa: *mem.Allocator) !Compilation.Directory {
+pub fn findZigLibDir(gpa: mem.Allocator) !Compilation.Directory {
     const self_exe_path = try fs.selfExePathAlloc(gpa);
     defer gpa.free(self_exe_path);
 
@@ -42,7 +42,7 @@ pub fn findZigLibDir(gpa: *mem.Allocator) !Compilation.Directory {
 
 /// Both the directory handle and the path are newly allocated resources which the caller now owns.
 pub fn findZigLibDirFromSelfExe(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     self_exe_path: []const u8,
 ) error{ OutOfMemory, FileNotFound }!Compilation.Directory {
     const cwd = fs.cwd();
@@ -61,7 +61,7 @@ pub fn findZigLibDirFromSelfExe(
 }
 
 /// Caller owns returned memory.
-pub fn resolveGlobalCacheDir(allocator: *mem.Allocator) ![]u8 {
+pub fn resolveGlobalCacheDir(allocator: mem.Allocator) ![]u8 {
     if (std.process.getEnvVarOwned(allocator, "ZIG_GLOBAL_CACHE_DIR")) |value| {
         if (value.len > 0) {
             return value;

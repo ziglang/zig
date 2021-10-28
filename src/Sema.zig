@@ -7,13 +7,13 @@
 
 mod: *Module,
 /// Alias to `mod.gpa`.
-gpa: *Allocator,
+gpa: Allocator,
 /// Points to the temporary arena allocator of the Sema.
 /// This arena will be cleared when the sema is destroyed.
-arena: *Allocator,
+arena: Allocator,
 /// Points to the arena allocator for the owner_decl.
 /// This arena will persist until the decl is invalidated.
-perm_arena: *Allocator,
+perm_arena: Allocator,
 code: Zir,
 air_instructions: std.MultiArrayList(Air.Inst) = .{},
 air_extra: std.ArrayListUnmanaged(u32) = .{},
@@ -417,7 +417,7 @@ pub const Block = struct {
         new_decl_arena: std.heap.ArenaAllocator,
         finished: bool,
 
-        pub fn arena(wad: *WipAnonDecl) *Allocator {
+        pub fn arena(wad: *WipAnonDecl) Allocator {
             return &wad.new_decl_arena.allocator;
         }
 
@@ -12793,7 +12793,7 @@ const ComptimePtrMutationKit = struct {
     ty: Type,
     decl_arena: std.heap.ArenaAllocator = undefined,
 
-    fn beginArena(self: *ComptimePtrMutationKit, gpa: *Allocator) *Allocator {
+    fn beginArena(self: *ComptimePtrMutationKit, gpa: Allocator) Allocator {
         self.decl_arena = self.decl_ref_mut.decl.value_arena.?.promote(gpa);
         return &self.decl_arena.allocator;
     }

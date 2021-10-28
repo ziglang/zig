@@ -347,7 +347,7 @@ pub const ArgDbgInfo = struct {
     arg_index: u32,
 };
 
-pub fn deinit(mir: *Mir, gpa: *std.mem.Allocator) void {
+pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     gpa.free(mir.extra);
     mir.* = undefined;

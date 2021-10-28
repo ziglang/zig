@@ -172,11 +172,7 @@ pub const Config = struct {
 
 pub fn GeneralPurposeAllocator(comptime config: Config) type {
     return struct {
-        allocator: Allocator = Allocator{
-            .allocFn = alloc,
-            .resizeFn = resize,
-        },
-        backing_allocator: *Allocator = std.heap.page_allocator,
+        backing_allocator: Allocator = std.heap.page_allocator,
         buckets: [small_bucket_count]?*BucketHeader = [1]?*BucketHeader{null} ** small_bucket_count,
         large_allocations: LargeAllocTable = .{},
         empty_buckets: if (config.retain_metadata) ?*BucketHeader else void =
@@ -284,6 +280,10 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
         };
 
+        pub fn getAllocator(self: *Self) Allocator {
+            return Allocator.init(self, alloc, resize);
+        }
+
         fn bucketStackTrace(
             bucket: *BucketHeader,
             size_class: usize,
@@ -388,7 +388,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     var it = self.large_allocations.iterator();
                     while (it.next()) |large| {
                         if (large.value_ptr.freed) {
-                            _ = self.backing_allocator.resizeFn(self.backing_allocator, large.value_ptr.bytes, large.value_ptr.ptr_align, 0, 0, @returnAddress()) catch unreachable;
+                            _ = self.backing_allocator.resizeFn(self.backing_allocator.ptr, large.value_ptr.bytes, large.value_ptr.ptr_align, 0, 0, @returnAddress()) catch unreachable;
                         }
                     }
                 }
@@ -571,7 +571,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const result_len = if (config.never_unmap and new_size == 0)
                 0
             else
-                try self.backing_allocator.resizeFn(self.backing_allocator, old_mem, old_align, new_size, len_align, ret_addr);
+                try self.backing_allocator.resizeFn(self.backing_allocator.ptr, old_mem, old_align, new_size, len_align, ret_addr);
 
             if (config.enable_memory_limit) {
                 entry.value_ptr.requested_size = new_size;
@@ -606,15 +606,13 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         }
 
         fn resize(
-            allocator: *Allocator,
+            self: *Self,
             old_mem: []u8,
             old_align: u29,
             new_size: usize,
             len_align: u29,
             ret_addr: usize,
         ) Error!usize {
-            const self = @fieldParentPtr(Self, "allocator", allocator);
-
             self.mutex.lock();
             defer self.mutex.unlock();
 
@@ -755,9 +753,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             return true;
         }
 
-        fn alloc(allocator: *Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
-            const self = @fieldParentPtr(Self, "allocator", allocator);
-
+        fn alloc(self: Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
             self.mutex.lock();
             defer self.mutex.unlock();
 
@@ -768,7 +764,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const new_aligned_size = math.max(len, ptr_align);
             if (new_aligned_size > largest_bucket_object_size) {
                 try self.large_allocations.ensureUnusedCapacity(self.backing_allocator, 1);
-                const slice = try self.backing_allocator.allocFn(self.backing_allocator, len, ptr_align, len_align, ret_addr);
+                const slice = try self.backing_allocator.allocFn(self.backing_allocator.ptr, len, ptr_align, len_align, ret_addr);
 
                 const gop = self.large_allocations.getOrPutAssumeCapacity(@ptrToInt(slice.ptr));
                 if (config.retain_metadata and !config.never_unmap) {
@@ -834,7 +830,7 @@ const test_config = Config{};
 test "small allocations - free in same order" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     var list = std.ArrayList(*u64).init(std.testing.allocator);
     defer list.deinit();
@@ -853,7 +849,7 @@ test "small allocations - free in same order" {
 test "small allocations - free in reverse order" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     var list = std.ArrayList(*u64).init(std.testing.allocator);
     defer list.deinit();
@@ -872,7 +868,7 @@ test "small allocations - free in reverse order" {
 test "large allocations" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     const ptr1 = try allocator.alloc(u64, 42768);
     const ptr2 = try allocator.alloc(u64, 52768);
@@ -885,7 +881,7 @@ test "large allocations" {
 test "realloc" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     var slice = try allocator.alignedAlloc(u8, @alignOf(u32), 1);
     defer allocator.free(slice);
@@ -907,7 +903,7 @@ test "realloc" {
 test "shrink" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     var slice = try allocator.alloc(u8, 20);
     defer allocator.free(slice);
@@ -930,7 +926,7 @@ test "shrink" {
 test "large object - grow" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     var slice1 = try allocator.alloc(u8, page_size * 2 - 20);
     defer allocator.free(slice1);
@@ -948,7 +944,7 @@ test "large object - grow" {
 test "realloc small object to large object" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     var slice = try allocator.alloc(u8, 70);
     defer allocator.free(slice);
@@ -965,7 +961,7 @@ test "realloc small object to large object" {
 test "shrink large object to large object" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     var slice = try allocator.alloc(u8, page_size * 2 + 50);
     defer allocator.free(slice);
@@ -988,10 +984,10 @@ test "shrink large object to large object" {
 test "shrink large object to large object with larger alignment" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     var debug_buffer: [1000]u8 = undefined;
-    const debug_allocator = &std.heap.FixedBufferAllocator.init(&debug_buffer).allocator;
+    const debug_allocator = std.heap.FixedBufferAllocator.init(&debug_buffer).getAllocator();
 
     const alloc_size = page_size * 2 + 50;
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
@@ -1023,7 +1019,7 @@ test "shrink large object to large object with larger alignment" {
 test "realloc large object to small object" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     var slice = try allocator.alloc(u8, page_size * 2 + 50);
     defer allocator.free(slice);
@@ -1041,7 +1037,7 @@ test "overrideable mutexes" {
         .mutex = std.Thread.Mutex{},
     };
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     const ptr = try allocator.create(i32);
     defer allocator.destroy(ptr);
@@ -1050,7 +1046,7 @@ test "overrideable mutexes" {
 test "non-page-allocator backing allocator" {
     var gpa = GeneralPurposeAllocator(.{}){ .backing_allocator = std.testing.allocator };
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     const ptr = try allocator.create(i32);
     defer allocator.destroy(ptr);
@@ -1059,10 +1055,10 @@ test "non-page-allocator backing allocator" {
 test "realloc large object to larger alignment" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     var debug_buffer: [1000]u8 = undefined;
-    const debug_allocator = &std.heap.FixedBufferAllocator.init(&debug_buffer).allocator;
+    const debug_allocator = std.heap.FixedBufferAllocator.init(&debug_buffer).getAllocator();
 
     var slice = try allocator.alignedAlloc(u8, 16, page_size * 2 + 50);
     defer allocator.free(slice);
@@ -1098,9 +1094,9 @@ test "realloc large object to larger alignment" {
 
 test "large object shrinks to small but allocation fails during shrink" {
     var failing_allocator = std.testing.FailingAllocator.init(std.heap.page_allocator, 3);
-    var gpa = GeneralPurposeAllocator(.{}){ .backing_allocator = &failing_allocator.allocator };
+    var gpa = GeneralPurposeAllocator(.{}){ .backing_allocator = failing_allocator.getAllocator() };
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     var slice = try allocator.alloc(u8, page_size * 2 + 50);
     defer allocator.free(slice);
@@ -1117,7 +1113,7 @@ test "large object shrinks to small but allocation fails during shrink" {
 test "objects of size 1024 and 2048" {
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     const slice = try allocator.alloc(u8, 1025);
     const slice2 = try allocator.alloc(u8, 3000);
@@ -1129,7 +1125,7 @@ test "objects of size 1024 and 2048" {
 test "setting a memory cap" {
     var gpa = GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     gpa.setRequestedMemoryLimit(1010);
 
@@ -1158,9 +1154,9 @@ test "double frees" {
     defer std.testing.expect(!backing_gpa.deinit()) catch @panic("leak");
 
     const GPA = GeneralPurposeAllocator(.{ .safety = true, .never_unmap = true, .retain_metadata = true });
-    var gpa = GPA{ .backing_allocator = &backing_gpa.allocator };
+    var gpa = GPA{ .backing_allocator = backing_gpa.getAllocator() };
     defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
-    const allocator = &gpa.allocator;
+    const allocator = gpa.getAllocator();
 
     // detect a small allocation double free, even though bucket is emptied
     const index: usize = 6;

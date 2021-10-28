@@ -33,7 +33,7 @@ const InnerError = error{
     CodegenFail,
 };
 
-gpa: *Allocator,
+gpa: Allocator,
 air: Air,
 liveness: Liveness,
 bin_file: *link.File,
@@ -158,7 +158,7 @@ const MCValue = union(enum) {
 const Branch = struct {
     inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},
 
-    fn deinit(self: *Branch, gpa: *Allocator) void {
+    fn deinit(self: *Branch, gpa: Allocator) void {
         self.inst_table.deinit(gpa);
         self.* = undefined;
     }

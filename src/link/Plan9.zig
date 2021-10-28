@@ -132,7 +132,7 @@ pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
 
 pub const PtrWidth = enum { p32, p64 };
 
-pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Plan9 {
+pub fn createEmpty(gpa: Allocator, options: link.Options) !*Plan9 {
     if (options.use_llvm)
         return error.LLVMBackendDoesNotSupportPlan9;
     const sixtyfour_bit: bool = switch (options.target.cpu.arch.ptrBitWidth()) {
@@ -621,7 +621,7 @@ pub fn deinit(self: *Plan9) void {
 
 pub const Export = ?usize;
 pub const base_tag = .plan9;
-pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Plan9 {
+pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Plan9 {
     if (options.use_llvm)
         return error.LLVMBackendDoesNotSupportPlan9;
     assert(options.object_format == .plan9);

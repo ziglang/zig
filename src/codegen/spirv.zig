@@ -70,7 +70,7 @@ pub fn writeInstructionWithString(code: *std.ArrayList(Word), opcode: Opcode, ar
 /// of data which needs to be persistent over different calls to Decl code generation.
 pub const SPIRVModule = struct {
     /// A general-purpose allocator which may be used to allocate temporary resources required for compilation.
-    gpa: *Allocator,
+    gpa: Allocator,
 
     /// The parent module.
     module: *Module,
@@ -103,7 +103,7 @@ pub const SPIRVModule = struct {
     /// just the ones for OpLine. Note that OpLine needs the result of OpString, and not that of OpSource.
     file_names: std.StringHashMap(ResultId),
 
-    pub fn init(gpa: *Allocator, module: *Module) SPIRVModule {
+    pub fn init(gpa: Allocator, module: *Module) SPIRVModule {
         return .{
             .gpa = gpa,
             .module = module,

@@ -254,7 +254,7 @@ const MockRegister2 = enum(u2) {
 
 fn MockFunction(comptime Register: type) type {
     return struct {
-        allocator: *Allocator,
+        allocator: Allocator,
         register_manager: RegisterManager(Self, Register, &Register.callee_preserved_regs) = .{},
         spilled: std.ArrayListUnmanaged(Register) = .{},
 

@@ -23,7 +23,7 @@ const LazySrcLoc = Module.LazySrcLoc;
 
 const Error = error{ OutOfMemory, CodegenFail };
 
-pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
+pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
         .armeb => "armeb",
@@ -190,14 +190,14 @@ pub const Object = struct {
         std.hash_map.default_max_load_percentage,
     );
 
-    pub fn create(gpa: *Allocator, sub_path: []const u8, options: link.Options) !*Object {
+    pub fn create(gpa: Allocator, sub_path: []const u8, options: link.Options) !*Object {
         const obj = try gpa.create(Object);
         errdefer gpa.destroy(obj);
         obj.* = try Object.init(gpa, sub_path, options);
         return obj;
     }
 
-    pub fn init(gpa: *Allocator, sub_path: []const u8, options: link.Options) !Object {
+    pub fn init(gpa: Allocator, sub_path: []const u8, options: link.Options) !Object {
         const context = llvm.Context.create();
         errdefer context.dispose();
 
@@ -287,7 +287,7 @@ pub const Object = struct {
         };
     }
 
-    pub fn deinit(self: *Object, gpa: *Allocator) void {
+    pub fn deinit(self: *Object, gpa: Allocator) void {
         self.target_machine.dispose();
         self.llvm_module.dispose();
         self.context.dispose();
@@ -297,13 +297,13 @@ pub const Object = struct {
         self.* = undefined;
     }
 
-    pub fn destroy(self: *Object, gpa: *Allocator) void {
+    pub fn destroy(self: *Object, gpa: Allocator) void {
         self.deinit(gpa);
         gpa.destroy(self);
     }
 
     fn locPath(
-        arena: *Allocator,
+        arena: Allocator,
         opt_loc: ?Compilation.EmitLoc,
         cache_directory: Compilation.Directory,
     ) !?[*:0]u8 {
@@ -554,7 +554,7 @@ pub const DeclGen = struct {
     object: *Object,
     module: *Module,
     decl: *Module.Decl,
-    gpa: *Allocator,
+    gpa: Allocator,
     err_msg: ?*Module.ErrorMsg,
 
     fn todo(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
@@ -1621,7 +1621,7 @@ pub const DeclGen = struct {
 };
 
 pub const FuncGen = struct {
-    gpa: *Allocator,
+    gpa: Allocator,
     dg: *DeclGen,
     air: Air,
     liveness: Liveness,

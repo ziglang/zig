@@ -88,7 +88,7 @@ pub fn Reader(
         /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
-        pub fn readAllAlloc(self: Self, allocator: *mem.Allocator, max_size: usize) ![]u8 {
+        pub fn readAllAlloc(self: Self, allocator: mem.Allocator, max_size: usize) ![]u8 {
             var array_list = std.ArrayList(u8).init(allocator);
             defer array_list.deinit();
             try self.readAllArrayList(&array_list, max_size);
@@ -127,7 +127,7 @@ pub fn Reader(
         /// If this function returns an error, the contents from the stream read so far are lost.
         pub fn readUntilDelimiterAlloc(
             self: Self,
-            allocator: *mem.Allocator,
+            allocator: mem.Allocator,
             delimiter: u8,
             max_size: usize,
         ) ![]u8 {
@@ -163,7 +163,7 @@ pub fn Reader(
         /// If this function returns an error, the contents from the stream read so far are lost.
         pub fn readUntilDelimiterOrEofAlloc(
             self: Self,
-            allocator: *mem.Allocator,
+            allocator: mem.Allocator,
             delimiter: u8,
             max_size: usize,
         ) !?[]u8 {

@@ -5,7 +5,7 @@ const process = std.process;
 const fs = std.fs;
 const ChildProcess = std.ChildProcess;
 
-var a: *std.mem.Allocator = undefined;
+var a: std.mem.Allocator = undefined;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

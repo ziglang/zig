@@ -342,7 +342,7 @@ const Action = enum {
     Close,
 };
 
-fn genToc(allocator: *Allocator, tokenizer: *Tokenizer) !Toc {
+fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
     var urls = std.StringHashMap(Token).init(allocator);
     errdefer urls.deinit();
 
@@ -708,7 +708,7 @@ fn genToc(allocator: *Allocator, tokenizer: *Tokenizer) !Toc {
     };
 }
 
-fn urlize(allocator: *Allocator, input: []const u8) ![]u8 {
+fn urlize(allocator: Allocator, input: []const u8) ![]u8 {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
@@ -727,7 +727,7 @@ fn urlize(allocator: *Allocator, input: []const u8) ![]u8 {
     return buf.toOwnedSlice();
 }
 
-fn escapeHtml(allocator: *Allocator, input: []const u8) ![]u8 {
+fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
@@ -773,7 +773,7 @@ test "term color" {
     try testing.expectEqualSlices(u8, "A<span class=\"t32_1\">green</span>B", result);
 }
 
-fn termColor(allocator: *Allocator, input: []const u8) ![]u8 {
+fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
@@ -883,7 +883,7 @@ fn writeEscapedLines(out: anytype, text: []const u8) !void {
 }
 
 fn tokenizeAndPrintRaw(
-    allocator: *Allocator,
+    allocator: Allocator,
     docgen_tokenizer: *Tokenizer,
     out: anytype,
     source_token: Token,
@@ -1137,7 +1137,7 @@ fn tokenizeAndPrintRaw(
 }
 
 fn tokenizeAndPrint(
-    allocator: *Allocator,
+    allocator: Allocator,
     docgen_tokenizer: *Tokenizer,
     out: anytype,
     source_token: Token,
@@ -1146,7 +1146,7 @@ fn tokenizeAndPrint(
     return tokenizeAndPrintRaw(allocator, docgen_tokenizer, out, source_token, raw_src);
 }
 
-fn printSourceBlock(allocator: *Allocator, docgen_tokenizer: *Tokenizer, out: anytype, syntax_block: SyntaxBlock) !void {
+fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: anytype, syntax_block: SyntaxBlock) !void {
     const source_type = @tagName(syntax_block.source_type);
 
     try out.print("<figure><figcaption class=\"{s}-cap\"><cite class=\"file\">{s}</cite></figcaption><pre>", .{ source_type, syntax_block.name });
@@ -1188,7 +1188,7 @@ fn printShell(out: anytype, shell_content: []const u8) !void {
 }
 
 fn genHtml(
-    allocator: *Allocator,
+    allocator: Allocator,
     tokenizer: *Tokenizer,
     toc: *Toc,
     out: anytype,
@@ -1687,7 +1687,7 @@ fn genHtml(
     }
 }
 
-fn exec(allocator: *Allocator, env_map: *std.BufMap, args: []const []const u8) !ChildProcess.ExecResult {
+fn exec(allocator: Allocator, env_map: *std.BufMap, args: []const []const u8) !ChildProcess.ExecResult {
     const result = try ChildProcess.exec(.{
         .allocator = allocator,
         .argv = args,
@@ -1711,7 +1711,7 @@ fn exec(allocator: *Allocator, env_map: *std.BufMap, args: []const []const u8) !
     return result;
 }
 
-fn getBuiltinCode(allocator: *Allocator, env_map: *std.BufMap, zig_exe: []const u8) ![]const u8 {
+fn getBuiltinCode(allocator: Allocator, env_map: *std.BufMap, zig_exe: []const u8) ![]const u8 {
     const result = try exec(allocator, env_map, &[_][]const u8{ zig_exe, "build-obj", "--show-builtin" });
     return result.stdout;
 }

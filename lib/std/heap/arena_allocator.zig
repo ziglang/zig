@@ -6,9 +6,7 @@ const Allocator = std.mem.Allocator;
 /// This allocator takes an existing allocator, wraps it, and provides an interface
 /// where you can allocate without freeing, and then free it all together.
 pub const ArenaAllocator = struct {
-    allocator: Allocator,
-
-    child_allocator: *Allocator,
+    child_allocator: Allocator,
     state: State,
 
     /// Inner state of ArenaAllocator. Can be stored rather than the entire ArenaAllocator
@@ -17,21 +15,21 @@ pub const ArenaAllocator = struct {
         buffer_list: std.SinglyLinkedList([]u8) = @as(std.SinglyLinkedList([]u8), .{}),
         end_index: usize = 0,
 
-        pub fn promote(self: State, child_allocator: *Allocator) ArenaAllocator {
+        pub fn promote(self: State, child_allocator: Allocator) ArenaAllocator {
             return .{
-                .allocator = Allocator{
-                    .allocFn = alloc,
-                    .resizeFn = resize,
-                },
                 .child_allocator = child_allocator,
                 .state = self,
             };
         }
     };
 
+    pub fn getAllocator(self: *ArenaAllocator) Allocator {
+        return Allocator.init(self, alloc, resize);
+    }
+
     const BufNode = std.SinglyLinkedList([]u8).Node;
 
-    pub fn init(child_allocator: *Allocator) ArenaAllocator {
+    pub fn init(child_allocator: Allocator) ArenaAllocator {
         return (State{}).promote(child_allocator);
     }
 
@@ -49,7 +47,7 @@ pub const ArenaAllocator = struct {
         const actual_min_size = minimum_size + (@sizeOf(BufNode) + 16);
         const big_enough_len = prev_len + actual_min_size;
         const len = big_enough_len + big_enough_len / 2;
-        const buf = try self.child_allocator.allocFn(self.child_allocator, len, @alignOf(BufNode), 1, @returnAddress());
+        const buf = try self.child_allocator.allocFn(self.child_allocator.ptr, len, @alignOf(BufNode), 1, @returnAddress());
         const buf_node = @ptrCast(*BufNode, @alignCast(@alignOf(BufNode), buf.ptr));
         buf_node.* = BufNode{
             .data = buf,
@@ -60,10 +58,9 @@ pub const ArenaAllocator = struct {
         return buf_node;
     }
 
-    fn alloc(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) ![]u8 {
+    fn alloc(self: *ArenaAllocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) ![]u8 {
         _ = len_align;
         _ = ra;
-        const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
 
         var cur_node = if (self.state.buffer_list.first) |first_node| first_node else try self.createNode(0, n + ptr_align);
         while (true) {
@@ -91,11 +88,10 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    fn resize(allocator: *Allocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) Allocator.Error!usize {
+    fn resize(self: *ArenaAllocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) Allocator.Error!usize {
         _ = buf_align;
         _ = len_align;
         _ = ret_addr;
-        const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
 
         const cur_node = self.state.buffer_list.first orelse return error.OutOfMemory;
         const cur_buf = cur_node.data[@sizeOf(BufNode)..];

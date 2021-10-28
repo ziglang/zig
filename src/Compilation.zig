@@ -36,7 +36,7 @@ const libtsan = @import("libtsan.zig");
 const Zir = @import("Zir.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
-gpa: *Allocator,
+gpa: Allocator,
 /// Arena-allocated memory used during initialization. Should be untouched until deinit.
 arena_state: std.heap.ArenaAllocator.State,
 bin_file: *link.File,
@@ -164,7 +164,7 @@ pub const CRTFile = struct {
     lock: Cache.Lock,
     full_object_path: []const u8,
 
-    fn deinit(self: *CRTFile, gpa: *Allocator) void {
+    fn deinit(self: *CRTFile, gpa: Allocator) void {
         self.lock.release();
         gpa.free(self.full_object_path);
         self.* = undefined;
@@ -253,14 +253,14 @@ pub const CObject = struct {
         line: u32,
         column: u32,
 
-        pub fn destroy(em: *ErrorMsg, gpa: *Allocator) void {
+        pub fn destroy(em: *ErrorMsg, gpa: Allocator) void {
             gpa.free(em.msg);
             gpa.destroy(em);
         }
     };
 
     /// Returns if there was failure.
-    pub fn clearStatus(self: *CObject, gpa: *Allocator) bool {
+    pub fn clearStatus(self: *CObject, gpa: Allocator) bool {
         switch (self.status) {
             .new => return false,
             .failure, .failure_retryable => {
@@ -276,7 +276,7 @@ pub const CObject = struct {
         }
     }
 
-    pub fn destroy(self: *CObject, gpa: *Allocator) void {
+    pub fn destroy(self: *CObject, gpa: Allocator) void {
         _ = self.clearStatus(gpa);
         gpa.destroy(self);
     }
@@ -305,7 +305,7 @@ pub const MiscError = struct {
     msg: []u8,
     children: ?AllErrors = null,
 
-    pub fn deinit(misc_err: *MiscError, gpa: *Allocator) void {
+    pub fn deinit(misc_err: *MiscError, gpa: Allocator) void {
         gpa.free(misc_err.msg);
         if (misc_err.children) |*children| {
             children.deinit(gpa);
@@ -402,7 +402,7 @@ pub const AllErrors = struct {
         }
     };
 
-    pub fn deinit(self: *AllErrors, gpa: *Allocator) void {
+    pub fn deinit(self: *AllErrors, gpa: Allocator) void {
         self.arena.promote(gpa).deinit();
     }
 
@@ -456,7 +456,7 @@ pub const AllErrors = struct {
     }
 
     pub fn addZir(
-        arena: *Allocator,
+        arena: Allocator,
         errors: *std.ArrayList(Message),
         file: *Module.File,
     ) !void {
@@ -559,7 +559,7 @@ pub const AllErrors = struct {
         }
     }
 
-    fn dupeList(list: []const Message, arena: *Allocator) Allocator.Error![]Message {
+    fn dupeList(list: []const Message, arena: Allocator) Allocator.Error![]Message {
         const duped_list = try arena.alloc(Message, list.len);
         for (list) |item, i| {
             duped_list[i] = switch (item) {
@@ -589,7 +589,7 @@ pub const Directory = struct {
     path: ?[]const u8,
     handle: std.fs.Dir,
 
-    pub fn join(self: Directory, allocator: *Allocator, paths: []const []const u8) ![]u8 {
+    pub fn join(self: Directory, allocator: Allocator, paths: []const []const u8) ![]u8 {
         if (self.path) |p| {
             // TODO clean way to do this with only 1 allocation
             const part2 = try std.fs.path.join(allocator, paths);
@@ -600,7 +600,7 @@ pub const Directory = struct {
         }
     }
 
-    pub fn joinZ(self: Directory, allocator: *Allocator, paths: []const []const u8) ![:0]u8 {
+    pub fn joinZ(self: Directory, allocator: Allocator, paths: []const []const u8) ![:0]u8 {
         if (self.path) |p| {
             // TODO clean way to do this with only 1 allocation
             const part2 = try std.fs.path.join(allocator, paths);
@@ -829,7 +829,7 @@ fn addPackageTableToCacheHash(
     }
 }
 
-pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
+pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
     const is_dyn_lib = switch (options.output_mode) {
         .Obj, .Exe => false,
         .Lib => (options.link_mode orelse .Static) == .Dynamic,
@@ -3263,7 +3263,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     };
 }
 
-pub fn tmpFilePath(comp: *Compilation, arena: *Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
+pub fn tmpFilePath(comp: *Compilation, arena: Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
     const s = std.fs.path.sep_str;
     const rand_int = std.crypto.random.int(u64);
     if (comp.local_cache_directory.path) |p| {
@@ -3275,7 +3275,7 @@ pub fn tmpFilePath(comp: *Compilation, arena: *Allocator, suffix: []const u8) er
 
 pub fn addTranslateCCArgs(
     comp: *Compilation,
-    arena: *Allocator,
+    arena: Allocator,
     argv: *std.ArrayList([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
@@ -3289,7 +3289,7 @@ pub fn addTranslateCCArgs(
 /// Add common C compiler args between translate-c and C object compilation.
 pub fn addCCArgs(
     comp: *const Compilation,
-    arena: *Allocator,
+    arena: Allocator,
     argv: *std.ArrayList([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
@@ -3776,7 +3776,7 @@ const LibCDirs = struct {
     libc_installation: ?*const LibCInstallation,
 };
 
-fn getZigShippedLibCIncludeDirsDarwin(arena: *Allocator, zig_lib_dir: []const u8, target: Target) !LibCDirs {
+fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8, target: Target) !LibCDirs {
     const arch_name = @tagName(target.cpu.arch);
     const os_name = try std.fmt.allocPrint(arena, "{s}.{d}", .{
         @tagName(target.os.tag),
@@ -3808,7 +3808,7 @@ fn getZigShippedLibCIncludeDirsDarwin(arena: *Allocator, zig_lib_dir: []const u8
 }
 
 fn detectLibCIncludeDirs(
-    arena: *Allocator,
+    arena: Allocator,
     zig_lib_dir: []const u8,
     target: Target,
     is_native_abi: bool,
@@ -3933,7 +3933,7 @@ fn detectLibCIncludeDirs(
     };
 }
 
-fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const LibCInstallation) !LibCDirs {
+fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const LibCInstallation) !LibCDirs {
     var list = try std.ArrayList([]const u8).initCapacity(arena, 4);
 
     list.appendAssumeCapacity(lci.include_dir.?);
@@ -3965,7 +3965,7 @@ fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const
     };
 }
 
-pub fn get_libc_crt_file(comp: *Compilation, arena: *Allocator, basename: []const u8) ![]const u8 {
+pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const u8) ![]const u8 {
     if (comp.wantBuildGLibCFromSource() or
         comp.wantBuildMuslFromSource() or
         comp.wantBuildMinGWFromSource() or
@@ -4066,7 +4066,7 @@ pub fn dump_argv(argv: []const []const u8) void {
     std.debug.print("{s}\n", .{argv[argv.len - 1]});
 }
 
-pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Allocator.Error![]u8 {
+pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Allocator.Error![]u8 {
     const t = trace(@src());
     defer t.end();
 
@@ -4717,14 +4717,14 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     comp.stage1_lock = man.toOwnedLock();
 }
 
-fn stage1LocPath(arena: *Allocator, opt_loc: ?EmitLoc, cache_directory: Directory) ![]const u8 {
+fn stage1LocPath(arena: Allocator, opt_loc: ?EmitLoc, cache_directory: Directory) ![]const u8 {
     const loc = opt_loc orelse return "";
     const directory = loc.directory orelse cache_directory;
     return directory.join(arena, &[_][]const u8{loc.basename});
 }
 
 fn createStage1Pkg(
-    arena: *Allocator,
+    arena: Allocator,
     name: []const u8,
     pkg: *Package,
     parent_pkg: ?*stage1.Pkg,

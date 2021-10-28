@@ -33,7 +33,7 @@ pub fn LinearFifo(
     };
 
     return struct {
-        allocator: if (buffer_type == .Dynamic) *Allocator else void,
+        allocator: if (buffer_type == .Dynamic) Allocator else void,
         buf: if (buffer_type == .Static) [buffer_type.Static]T else []T,
         head: usize,
         count: usize,
@@ -69,7 +69,7 @@ pub fn LinearFifo(
                 }
             },
             .Dynamic => struct {
-                pub fn init(allocator: *Allocator) Self {
+                pub fn init(allocator: Allocator) Self {
                     return .{
                         .allocator = allocator,
                         .buf = &[_]T{},

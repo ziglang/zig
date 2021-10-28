@@ -363,7 +363,7 @@ pub fn HashMap(
     comptime verifyContext(Context, K, K, u64);
     return struct {
         unmanaged: Unmanaged,
-        allocator: *Allocator,
+        allocator: Allocator,
         ctx: Context,
 
         /// The type of the unmanaged hash map underlying this wrapper
@@ -390,7 +390,7 @@ pub fn HashMap(
         /// Create a managed hash map with an empty context.
         /// If the context is not zero-sized, you must use
         /// initContext(allocator, ctx) instead.
-        pub fn init(allocator: *Allocator) Self {
+        pub fn init(allocator: Allocator) Self {
             if (@sizeOf(Context) != 0) {
                 @compileError("Context must be specified! Call initContext(allocator, ctx) instead.");
             }
@@ -402,7 +402,7 @@ pub fn HashMap(
         }
 
         /// Create a managed hash map with a context
-        pub fn initContext(allocator: *Allocator, ctx: Context) Self {
+        pub fn initContext(allocator: Allocator, ctx: Context) Self {
             return .{
                 .unmanaged = .{},
                 .allocator = allocator,
@@ -636,7 +636,7 @@ pub fn HashMap(
         }
 
         /// Creates a copy of this map, using a specified allocator
-        pub fn cloneWithAllocator(self: Self, new_allocator: *Allocator) !Self {
+        pub fn cloneWithAllocator(self: Self, new_allocator: Allocator) !Self {
             var other = try self.unmanaged.cloneContext(new_allocator, self.ctx);
             return other.promoteContext(new_allocator, self.ctx);
         }
@@ -650,7 +650,7 @@ pub fn HashMap(
         /// Creates a copy of this map, using a specified allocator and context.
         pub fn cloneWithAllocatorAndContext(
             self: Self,
-            new_allocator: *Allocator,
+            new_allocator: Allocator,
             new_ctx: anytype,
         ) !HashMap(K, V, @TypeOf(new_ctx), max_load_percentage) {
             var other = try self.unmanaged.cloneContext(new_allocator, new_ctx);
@@ -841,13 +841,13 @@ pub fn HashMapUnmanaged(
 
         pub const Managed = HashMap(K, V, Context, max_load_percentage);
 
-        pub fn promote(self: Self, allocator: *Allocator) Managed {
+        pub fn promote(self: Self, allocator: Allocator) Managed {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call promoteContext instead.");
             return promoteContext(self, allocator, undefined);
         }
 
-        pub fn promoteContext(self: Self, allocator: *Allocator, ctx: Context) Managed {
+        pub fn promoteContext(self: Self, allocator: Allocator, ctx: Context) Managed {
             return .{
                 .unmanaged = self,
                 .allocator = allocator,
@@ -859,7 +859,7 @@ pub fn HashMapUnmanaged(
             return size * 100 < max_load_percentage * cap;
         }
 
-        pub fn deinit(self: *Self, allocator: *Allocator) void {
+        pub fn deinit(self: *Self, allocator: Allocator) void {
             self.deallocate(allocator);
             self.* = undefined;
         }
@@ -872,20 +872,20 @@ pub fn HashMapUnmanaged(
 
         pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
-        pub fn ensureTotalCapacity(self: *Self, allocator: *Allocator, new_size: Size) !void {
+        pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_size: Size) !void {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call ensureTotalCapacityContext instead.");
             return ensureTotalCapacityContext(self, allocator, new_size, undefined);
         }
-        pub fn ensureTotalCapacityContext(self: *Self, allocator: *Allocator, new_size: Size, ctx: Context) !void {
+        pub fn ensureTotalCapacityContext(self: *Self, allocator: Allocator, new_size: Size, ctx: Context) !void {
             if (new_size > self.size)
                 try self.growIfNeeded(allocator, new_size - self.size, ctx);
         }
 
-        pub fn ensureUnusedCapacity(self: *Self, allocator: *Allocator, additional_size: Size) !void {
+        pub fn ensureUnusedCapacity(self: *Self, allocator: Allocator, additional_size: Size) !void {
             return ensureUnusedCapacityContext(self, allocator, additional_size, undefined);
         }
-        pub fn ensureUnusedCapacityContext(self: *Self, allocator: *Allocator, additional_size: Size, ctx: Context) !void {
+        pub fn ensureUnusedCapacityContext(self: *Self, allocator: Allocator, additional_size: Size, ctx: Context) !void {
             return ensureTotalCapacityContext(self, allocator, self.count() + additional_size, ctx);
         }
 
@@ -897,7 +897,7 @@ pub fn HashMapUnmanaged(
             }
         }
 
-        pub fn clearAndFree(self: *Self, allocator: *Allocator) void {
+        pub fn clearAndFree(self: *Self, allocator: Allocator) void {
             self.deallocate(allocator);
             self.size = 0;
             self.available = 0;
@@ -962,12 +962,12 @@ pub fn HashMapUnmanaged(
         }
 
         /// Insert an entry in the map. Assumes it is not already present.
-        pub fn putNoClobber(self: *Self, allocator: *Allocator, key: K, value: V) !void {
+        pub fn putNoClobber(self: *Self, allocator: Allocator, key: K, value: V) !void {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call putNoClobberContext instead.");
             return self.putNoClobberContext(allocator, key, value, undefined);
         }
-        pub fn putNoClobberContext(self: *Self, allocator: *Allocator, key: K, value: V, ctx: Context) !void {
+        pub fn putNoClobberContext(self: *Self, allocator: Allocator, key: K, value: V, ctx: Context) !void {
             assert(!self.containsContext(key, ctx));
             try self.growIfNeeded(allocator, 1, ctx);
 
@@ -1021,12 +1021,12 @@ pub fn HashMapUnmanaged(
         }
 
         /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
-        pub fn fetchPut(self: *Self, allocator: *Allocator, key: K, value: V) !?KV {
+        pub fn fetchPut(self: *Self, allocator: Allocator, key: K, value: V) !?KV {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call fetchPutContext instead.");
             return self.fetchPutContext(allocator, key, value, undefined);
         }
-        pub fn fetchPutContext(self: *Self, allocator: *Allocator, key: K, value: V, ctx: Context) !?KV {
+        pub fn fetchPutContext(self: *Self, allocator: Allocator, key: K, value: V, ctx: Context) !?KV {
             const gop = try self.getOrPutContext(allocator, key, ctx);
             var result: ?KV = null;
             if (gop.found_existing) {
@@ -1157,12 +1157,12 @@ pub fn HashMapUnmanaged(
         }
 
         /// Insert an entry if the associated key is not already present, otherwise update preexisting value.
-        pub fn put(self: *Self, allocator: *Allocator, key: K, value: V) !void {
+        pub fn put(self: *Self, allocator: Allocator, key: K, value: V) !void {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call putContext instead.");
             return self.putContext(allocator, key, value, undefined);
         }
-        pub fn putContext(self: *Self, allocator: *Allocator, key: K, value: V, ctx: Context) !void {
+        pub fn putContext(self: *Self, allocator: Allocator, key: K, value: V, ctx: Context) !void {
             const result = try self.getOrPutContext(allocator, key, ctx);
             result.value_ptr.* = value;
         }
@@ -1231,24 +1231,24 @@ pub fn HashMapUnmanaged(
             return null;
         }
 
-        pub fn getOrPut(self: *Self, allocator: *Allocator, key: K) !GetOrPutResult {
+        pub fn getOrPut(self: *Self, allocator: Allocator, key: K) !GetOrPutResult {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutContext instead.");
             return self.getOrPutContext(allocator, key, undefined);
         }
-        pub fn getOrPutContext(self: *Self, allocator: *Allocator, key: K, ctx: Context) !GetOrPutResult {
+        pub fn getOrPutContext(self: *Self, allocator: Allocator, key: K, ctx: Context) !GetOrPutResult {
             const gop = try self.getOrPutContextAdapted(allocator, key, ctx, ctx);
             if (!gop.found_existing) {
                 gop.key_ptr.* = key;
             }
             return gop;
         }
-        pub fn getOrPutAdapted(self: *Self, allocator: *Allocator, key: anytype, key_ctx: anytype) !GetOrPutResult {
+        pub fn getOrPutAdapted(self: *Self, allocator: Allocator, key: anytype, key_ctx: anytype) !GetOrPutResult {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutContextAdapted instead.");
             return self.getOrPutContextAdapted(allocator, key, key_ctx, undefined);
         }
-        pub fn getOrPutContextAdapted(self: *Self, allocator: *Allocator, key: anytype, key_ctx: anytype, ctx: Context) !GetOrPutResult {
+        pub fn getOrPutContextAdapted(self: *Self, allocator: Allocator, key: anytype, key_ctx: anytype, ctx: Context) !GetOrPutResult {
             self.growIfNeeded(allocator, 1, ctx) catch |err| {
                 // If allocation fails, try to do the lookup anyway.
                 // If we find an existing item, we can return it.
@@ -1341,12 +1341,12 @@ pub fn HashMapUnmanaged(
             };
         }
 
-        pub fn getOrPutValue(self: *Self, allocator: *Allocator, key: K, value: V) !Entry {
+        pub fn getOrPutValue(self: *Self, allocator: Allocator, key: K, value: V) !Entry {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutValueContext instead.");
             return self.getOrPutValueContext(allocator, key, value, undefined);
         }
-        pub fn getOrPutValueContext(self: *Self, allocator: *Allocator, key: K, value: V, ctx: Context) !Entry {
+        pub fn getOrPutValueContext(self: *Self, allocator: Allocator, key: K, value: V, ctx: Context) !Entry {
             const res = try self.getOrPutAdapted(allocator, key, ctx);
             if (!res.found_existing) {
                 res.key_ptr.* = key;
@@ -1403,18 +1403,18 @@ pub fn HashMapUnmanaged(
             return @truncate(Size, max_load - self.available);
         }
 
-        fn growIfNeeded(self: *Self, allocator: *Allocator, new_count: Size, ctx: Context) !void {
+        fn growIfNeeded(self: *Self, allocator: Allocator, new_count: Size, ctx: Context) !void {
             if (new_count > self.available) {
                 try self.grow(allocator, capacityForSize(self.load() + new_count), ctx);
             }
         }
 
-        pub fn clone(self: Self, allocator: *Allocator) !Self {
+        pub fn clone(self: Self, allocator: Allocator) !Self {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call cloneContext instead.");
             return self.cloneContext(allocator, @as(Context, undefined));
         }
-        pub fn cloneContext(self: Self, allocator: *Allocator, new_ctx: anytype) !HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage) {
+        pub fn cloneContext(self: Self, allocator: Allocator, new_ctx: anytype) !HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage) {
             var other = HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage){};
             if (self.size == 0)
                 return other;
@@ -1439,7 +1439,7 @@ pub fn HashMapUnmanaged(
             return other;
         }
 
-        fn grow(self: *Self, allocator: *Allocator, new_capacity: Size, ctx: Context) !void {
+        fn grow(self: *Self, allocator: Allocator, new_capacity: Size, ctx: Context) !void {
             @setCold(true);
             const new_cap = std.math.max(new_capacity, minimal_capacity);
             assert(new_cap > self.capacity());
@@ -1470,7 +1470,7 @@ pub fn HashMapUnmanaged(
             std.mem.swap(Self, self, &map);
         }
 
-        fn allocate(self: *Self, allocator: *Allocator, new_capacity: Size) !void {
+        fn allocate(self: *Self, allocator: Allocator, new_capacity: Size) !void {
             const header_align = @alignOf(Header);
             const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
             const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
@@ -1503,7 +1503,7 @@ pub fn HashMapUnmanaged(
             self.metadata = @intToPtr([*]Metadata, metadata);
         }
 
-        fn deallocate(self: *Self, allocator: *Allocator) void {
+        fn deallocate(self: *Self, allocator: Allocator) void {
             if (self.metadata == null) return;
 
             const header_align = @alignOf(Header);

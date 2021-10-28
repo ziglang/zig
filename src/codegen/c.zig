@@ -163,14 +163,14 @@ pub const Object = struct {
 
 /// This data is available both when outputting .c code and when outputting an .h file.
 pub const DeclGen = struct {
-    gpa: *std.mem.Allocator,
+    gpa: std.mem.Allocator,
     module: *Module,
     decl: *Decl,
     fwd_decl: std.ArrayList(u8),
     error_msg: ?*Module.ErrorMsg,
     /// The key of this map is Type which has references to typedefs_arena.
     typedefs: TypedefMap,
-    typedefs_arena: *std.mem.Allocator,
+    typedefs_arena: std.mem.Allocator,
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         @setCold(true);

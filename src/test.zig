@@ -680,7 +680,7 @@ pub const TestContext = struct {
     }
 
     fn runOneCase(
-        allocator: *Allocator,
+        allocator: Allocator,
         root_node: *std.Progress.Node,
         case: Case,
         zig_lib_directory: Compilation.Directory,

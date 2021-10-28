@@ -28,7 +28,7 @@ pub const OptionsStep = @import("build/OptionsStep.zig");
 pub const Builder = struct {
     install_tls: TopLevelStep,
     uninstall_tls: TopLevelStep,
-    allocator: *Allocator,
+    allocator: Allocator,
     user_input_options: UserInputOptionsMap,
     available_options_map: AvailableOptionsMap,
     available_options_list: ArrayList(AvailableOption),
@@ -134,7 +134,7 @@ pub const Builder = struct {
     };
 
     pub fn create(
-        allocator: *Allocator,
+        allocator: Allocator,
         zig_exe: []const u8,
         build_root: []const u8,
         cache_root: []const u8,
@@ -1285,7 +1285,7 @@ test "builder.findProgram compiles" {
     defer arena.deinit();
 
     const builder = try Builder.create(
-        &arena.allocator,
+        arena.getAllocator(),
         "zig",
         "zig-cache",
         "zig-cache",
@@ -3077,7 +3077,7 @@ pub const Step = struct {
         custom,
     };
 
-    pub fn init(id: Id, name: []const u8, allocator: *Allocator, makeFn: fn (*Step) anyerror!void) Step {
+    pub fn init(id: Id, name: []const u8, allocator: Allocator, makeFn: fn (*Step) anyerror!void) Step {
         return Step{
             .id = id,
             .name = allocator.dupe(u8, name) catch unreachable,
@@ -3087,7 +3087,7 @@ pub const Step = struct {
             .done_flag = false,
         };
     }
-    pub fn initNoOp(id: Id, name: []const u8, allocator: *Allocator) Step {
+    pub fn initNoOp(id: Id, name: []const u8, allocator: Allocator) Step {
         return init(id, name, allocator, makeNoOp);
     }
 
@@ -3114,7 +3114,7 @@ pub const Step = struct {
     }
 };
 
-fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {
+fn doAtomicSymLinks(allocator: Allocator, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {
     const out_dir = fs.path.dirname(output_path) orelse ".";
     const out_basename = fs.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
@@ -3138,7 +3138,7 @@ fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_maj
 }
 
 /// Returned slice must be freed by the caller.
-fn findVcpkgRoot(allocator: *Allocator) !?[]const u8 {
+fn findVcpkgRoot(allocator: Allocator) !?[]const u8 {
     const appdata_path = try fs.getAppDataDir(allocator, "vcpkg");
     defer allocator.free(appdata_path);
 
@@ -3207,7 +3207,7 @@ test "Builder.dupePkg()" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     var builder = try Builder.create(
-        &arena.allocator,
+        arena.getAllocator(),
         "test",
         "test",
         "test",
@@ -3252,7 +3252,7 @@ test "LibExeObjStep.addPackage" {
     defer arena.deinit();
 
     var builder = try Builder.create(
-        &arena.allocator,
+        arena.getAllocator(),
         "test",
         "test",
         "test",

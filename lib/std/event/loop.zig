@@ -727,7 +727,7 @@ pub const Loop = struct {
     /// with `allocator` and freed when the function returns.
     /// `func` must return void and it can be an async function.
     /// Yields to the event loop, running the function on the next tick.
-    pub fn runDetached(self: *Loop, alloc: *mem.Allocator, comptime func: anytype, args: anytype) error{OutOfMemory}!void {
+    pub fn runDetached(self: *Loop, alloc: mem.Allocator, comptime func: anytype, args: anytype) error{OutOfMemory}!void {
         if (!std.io.is_async) @compileError("Can't use runDetached in non-async mode!");
         if (@TypeOf(@call(.{}, func, args)) != void) {
             @compileError("`func` must not have a return value");
@@ -735,7 +735,7 @@ pub const Loop = struct {
 
         const Wrapper = struct {
             const Args = @TypeOf(args);
-            fn run(func_args: Args, loop: *Loop, allocator: *mem.Allocator) void {
+            fn run(func_args: Args, loop: *Loop, allocator: mem.Allocator) void {
                 loop.beginOneEvent();
                 loop.yield();
                 @call(.{}, func, func_args); // compile error when called with non-void ret type

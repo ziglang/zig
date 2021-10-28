@@ -1,4 +1,4 @@
-gpa: *Allocator,
+gpa: Allocator,
 manifest_dir: fs.Dir,
 hash: HashHelper = .{},
 
@@ -48,7 +48,7 @@ pub const File = struct {
     bin_digest: BinDigest,
     contents: ?[]const u8,
 
-    pub fn deinit(self: *File, allocator: *Allocator) void {
+    pub fn deinit(self: *File, allocator: Allocator) void {
         if (self.path) |owned_slice| {
             allocator.free(owned_slice);
             self.path = null;

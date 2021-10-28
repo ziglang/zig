@@ -18,7 +18,7 @@ pub fn main() !void {
 }
 
 fn render(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     in_file: []const u8,
     out_file: []const u8,
     fmt: enum {

@@ -12,10 +12,9 @@ const mem = std.mem;
 /// Then use `failing_allocator` anywhere you would have used a
 /// different allocator.
 pub const FailingAllocator = struct {
-    allocator: mem.Allocator,
     index: usize,
     fail_index: usize,
-    internal_allocator: *mem.Allocator,
+    internal_allocator: mem.Allocator,
     allocated_bytes: usize,
     freed_bytes: usize,
     allocations: usize,
@@ -29,7 +28,7 @@ pub const FailingAllocator = struct {
     /// var a = try failing_alloc.create(i32);
     /// var b = try failing_alloc.create(i32);
     /// testing.expectError(error.OutOfMemory, failing_alloc.create(i32));
-    pub fn init(allocator: *mem.Allocator, fail_index: usize) FailingAllocator {
+    pub fn init(allocator: mem.Allocator, fail_index: usize) FailingAllocator {
         return FailingAllocator{
             .internal_allocator = allocator,
             .fail_index = fail_index,
@@ -38,25 +37,24 @@ pub const FailingAllocator = struct {
             .freed_bytes = 0,
             .allocations = 0,
             .deallocations = 0,
-            .allocator = mem.Allocator{
-                .allocFn = alloc,
-                .resizeFn = resize,
-            },
         };
     }
 
+    pub fn getAllocator(self: *FailingAllocator) mem.Allocator {
+        return mem.Allocator.init(self, alloc, resize);
+    }
+
     fn alloc(
-        allocator: *std.mem.Allocator,
+        self: *FailingAllocator,
         len: usize,
         ptr_align: u29,
         len_align: u29,
         return_address: usize,
     ) error{OutOfMemory}![]u8 {
-        const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
         if (self.index == self.fail_index) {
             return error.OutOfMemory;
         }
-        const result = try self.internal_allocator.allocFn(self.internal_allocator, len, ptr_align, len_align, return_address);
+        const result = try self.internal_allocator.allocFn(self.internal_allocator.ptr, len, ptr_align, len_align, return_address);
         self.allocated_bytes += result.len;
         self.allocations += 1;
         self.index += 1;
@@ -64,15 +62,14 @@ pub const FailingAllocator = struct {
     }
 
     fn resize(
-        allocator: *std.mem.Allocator,
+        self: *FailingAllocator,
         old_mem: []u8,
         old_align: u29,
         new_len: usize,
         len_align: u29,
         ra: usize,
     ) error{OutOfMemory}!usize {
-        const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
-        const r = self.internal_allocator.resizeFn(self.internal_allocator, old_mem, old_align, new_len, len_align, ra) catch |e| {
+        const r = self.internal_allocator.resizeFn(self.internal_allocator.ptr, old_mem, old_align, new_len, len_align, ra) catch |e| {
             std.debug.assert(new_len > old_mem.len);
             return e;
         };

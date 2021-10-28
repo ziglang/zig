@@ -1323,15 +1323,15 @@ pub const Target = struct {
 
     pub const stack_align = 16;
 
-    pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
+    pub fn zigTriple(self: Target, allocator: mem.Allocator) ![]u8 {
         return std.zig.CrossTarget.fromTarget(self).zigTriple(allocator);
     }
 
-    pub fn linuxTripleSimple(allocator: *mem.Allocator, cpu_arch: Cpu.Arch, os_tag: Os.Tag, abi: Abi) ![]u8 {
+    pub fn linuxTripleSimple(allocator: mem.Allocator, cpu_arch: Cpu.Arch, os_tag: Os.Tag, abi: Abi) ![]u8 {
         return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ @tagName(cpu_arch), @tagName(os_tag), @tagName(abi) });
     }
 
-    pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
+    pub fn linuxTriple(self: Target, allocator: mem.Allocator) ![]u8 {
         return linuxTripleSimple(allocator, self.cpu.arch, self.os.tag, self.abi);
     }
 
