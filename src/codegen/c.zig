@@ -219,11 +219,20 @@ pub const DeclGen = struct {
         val: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
         if (val.isUndef()) {
-            // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
-            // lower to leaving variables uninitialized (that might need to be implemented
-            // outside of this function).
-            return writer.writeAll("{}");
-            //return dg.fail("TODO: C backend: implement renderValue undef", .{});
+            switch (ty.zigTypeTag()) {
+                // Using '{}' for integer and floats seemed to error C compilers (both GCC and Clang)
+                // with 'error: expected expression' (including when built with 'zig cc')
+                .Int => return writer.writeAll("0xaa"),
+                //.Float => return writer.writeAll("*((uint32_t*)&0xaaaaaaaa)"),
+                .Float => return writer.writeAll("0"),
+
+                else => {
+                    // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
+                    // lower to leaving variables uninitialized (that might need to be implemented
+                    // outside of this function).
+                    return writer.writeAll("{}");
+                }
+            }
         }
         switch (ty.zigTypeTag()) {
             .Int => {
