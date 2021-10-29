@@ -43,7 +43,6 @@ test {
         _ = @import("behavior/generics.zig");
         _ = @import("behavior/hasdecl.zig");
         _ = @import("behavior/hasfield.zig");
-        _ = @import("behavior/if_llvm.zig");
         _ = @import("behavior/math.zig");
         _ = @import("behavior/maximum_minimum.zig");
         _ = @import("behavior/member_func.zig");

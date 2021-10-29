@@ -251,8 +251,8 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     var f: Flush = .{};
     defer f.deinit(gpa);
 
-    // This is at least enough until we get to the function bodies without error handling.
-    try f.all_buffers.ensureTotalCapacity(gpa, self.decl_table.count() + 2);
+    // Covers zig.h and err_typedef_item.
+    try f.all_buffers.ensureUnusedCapacity(gpa, 2);
 
     f.all_buffers.appendAssumeCapacity(.{
         .iov_base = zig_h,
@@ -261,7 +261,8 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     f.file_size += zig_h.len;
 
     const err_typedef_writer = f.err_typedef_buf.writer(gpa);
-    const err_typedef_item = f.all_buffers.addOneAssumeCapacity();
+    const err_typedef_index = f.all_buffers.items.len;
+    f.all_buffers.items.len += 1;
 
     render_errors: {
         if (module.global_error_set.size == 0) break :render_errors;
@@ -291,7 +292,7 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
         try flushDecl(self, &f, decl);
     }
 
-    err_typedef_item.* = .{
+    f.all_buffers.items[err_typedef_index] = .{
         .iov_base = f.err_typedef_buf.items.ptr,
         .iov_len = f.err_typedef_buf.items.len,
     };
@@ -371,7 +372,7 @@ fn flushDecl(self: *C, f: *Flush, decl: *const Module.Decl) FlushDeclError!void 
             }
         }
         const buf = decl_block.fwd_decl.items;
-        f.all_buffers.appendAssumeCapacity(.{
+        try f.all_buffers.append(gpa, .{
             .iov_base = buf.ptr,
             .iov_len = buf.len,
         });
@@ -381,7 +382,7 @@ fn flushDecl(self: *C, f: *Flush, decl: *const Module.Decl) FlushDeclError!void 
         f.fn_count += 1;
     } else if (decl_block.code.items.len != 0) {
         const buf = decl_block.code.items;
-        f.all_buffers.appendAssumeCapacity(.{
+        try f.all_buffers.append(gpa, .{
             .iov_base = buf.ptr,
             .iov_len = buf.len,
         });
