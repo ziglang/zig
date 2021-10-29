@@ -177,7 +177,7 @@ test "std.atomic.Queue" {
     defer std.heap.page_allocator.free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(plenty_of_memory);
-    var a = fixed_buffer_allocator.getThreadSafeAllocator();
+    var a = fixed_buffer_allocator.threadSafeAllocator();
 
     var queue = Queue(i32).init();
     var context = Context{

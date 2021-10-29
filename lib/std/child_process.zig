@@ -541,7 +541,7 @@ pub const ChildProcess = struct {
 
         var arena_allocator = std.heap.ArenaAllocator.init(self.allocator);
         defer arena_allocator.deinit();
-        const arena = arena_allocator.getAllocator();
+        const arena = arena_allocator.allocator();
 
         // The POSIX standard does not allow malloc() between fork() and execve(),
         // and `self.allocator` may be a libc allocator.
@@ -1149,7 +1149,7 @@ test "createNullDelimitedEnvMap" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const environ = try createNullDelimitedEnvMap(arena.getAllocator(), &envmap);
+    const environ = try createNullDelimitedEnvMap(arena.allocator(), &envmap);
 
     try testing.expectEqual(@as(usize, 5), environ.len);
 

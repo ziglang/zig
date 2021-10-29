@@ -692,7 +692,7 @@ pub const TestContext = struct {
 
         var arena_allocator = std.heap.ArenaAllocator.init(allocator);
         defer arena_allocator.deinit();
-        const arena = arena_allocator.getAllocator();
+        const arena = arena_allocator.allocator();
 
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();

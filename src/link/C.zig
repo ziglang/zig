@@ -128,7 +128,7 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
                 .decl = decl,
                 .fwd_decl = fwd_decl.toManaged(module.gpa),
                 .typedefs = typedefs.promote(module.gpa),
-                .typedefs_arena = self.arena.getAllocator(),
+                .typedefs_arena = self.arena.allocator(),
             },
             .code = code.toManaged(module.gpa),
             .indent_writer = undefined, // set later so we can get a pointer to object.code
@@ -193,7 +193,7 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
             .decl = decl,
             .fwd_decl = fwd_decl.toManaged(module.gpa),
             .typedefs = typedefs.promote(module.gpa),
-            .typedefs_arena = self.arena.getAllocator(),
+            .typedefs_arena = self.arena.allocator(),
         },
         .code = code.toManaged(module.gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code

@@ -390,7 +390,7 @@ pub const DeclGen = struct {
                         // Fall back to generic implementation.
                         var arena = std.heap.ArenaAllocator.init(dg.module.gpa);
                         defer arena.deinit();
-                        const arena_allocator = arena.getAllocator();
+                        const arena_allocator = arena.allocator();
 
                         try writer.writeAll("{");
                         var index: usize = 0;

@@ -23,7 +23,7 @@ pub const ArenaAllocator = struct {
         }
     };
 
-    pub fn getAllocator(self: *ArenaAllocator) Allocator {
+    pub fn allocator(self: *ArenaAllocator) Allocator {
         return Allocator.init(self, alloc, resize);
     }
 

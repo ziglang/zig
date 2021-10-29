@@ -517,7 +517,7 @@ pub const Decl = struct {
 
     pub fn finalizeNewArena(decl: *Decl, arena: *std.heap.ArenaAllocator) !void {
         assert(decl.value_arena == null);
-        const arena_state = try arena.getAllocator().create(std.heap.ArenaAllocator.State);
+        const arena_state = try arena.allocator().create(std.heap.ArenaAllocator.State);
         arena_state.* = arena.state;
         decl.value_arena = arena_state;
     }
@@ -3159,7 +3159,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     const gpa = mod.gpa;
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
     errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.getAllocator();
+    const new_decl_arena_allocator = new_decl_arena.allocator();
 
     const struct_obj = try new_decl_arena_allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(new_decl_arena_allocator, struct_obj);
@@ -3203,7 +3203,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
 
         var sema_arena = std.heap.ArenaAllocator.init(gpa);
         defer sema_arena.deinit();
-        const sema_arena_allocator = sema_arena.getAllocator();
+        const sema_arena_allocator = sema_arena.allocator();
 
         var sema: Sema = .{
             .mod = mod,
@@ -3267,11 +3267,11 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     // We need the memory for the Type to go into the arena for the Decl
     var decl_arena = std.heap.ArenaAllocator.init(gpa);
     errdefer decl_arena.deinit();
-    const decl_arena_allocator = decl_arena.getAllocator();
+    const decl_arena_allocator = decl_arena.allocator();
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
-    const analysis_arena_allocator = analysis_arena.getAllocator();
+    const analysis_arena_allocator = analysis_arena.allocator();
 
     var sema: Sema = .{
         .mod = mod,
@@ -4132,7 +4132,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
     // Use the Decl's arena for captured values.
     var decl_arena = decl.value_arena.?.promote(gpa);
     defer decl.value_arena.?.* = decl_arena.state;
-    const decl_arena_allocator = decl_arena.getAllocator();
+    const decl_arena_allocator = decl_arena.allocator();
 
     var sema: Sema = .{
         .mod = mod,
@@ -4756,7 +4756,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
         // decl reference it as a slice.
         var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
         errdefer new_decl_arena.deinit();
-        const arena = new_decl_arena.getAllocator();
+        const arena = new_decl_arena.allocator();
 
         const test_fn_vals = try arena.alloc(Value, mod.test_functions.count());
         const array_decl = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, null, .{
@@ -4807,7 +4807,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
     {
         var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
         errdefer new_decl_arena.deinit();
-        const arena = new_decl_arena.getAllocator();
+        const arena = new_decl_arena.allocator();
 
         // This copy accesses the old Decl Type/Value so it must be done before `clearValues`.
         const new_ty = try Type.Tag.const_slice.create(arena, try tmp_test_fn_ty.copy(arena));

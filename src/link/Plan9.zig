@@ -168,7 +168,7 @@ fn putFn(self: *Plan9, decl: *Module.Decl, out: FnDeclOutput) !void {
         try fn_map_res.value_ptr.functions.put(gpa, decl, out);
     } else {
         const file = decl.getFileScope();
-        const arena = self.path_arena.getAllocator();
+        const arena = self.path_arena.allocator();
         // each file gets a symbol
         fn_map_res.value_ptr.* = .{
             .sym_index = blk: {

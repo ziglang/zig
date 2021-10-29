@@ -373,7 +373,7 @@ pub fn translate(
     // from this function.
     var arena = std.heap.ArenaAllocator.init(gpa);
     errdefer arena.deinit();
-    const arena_allocator = arena.getAllocator();
+    const arena_allocator = arena.allocator();
 
     var context = Context{
         .gpa = gpa,

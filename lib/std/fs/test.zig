@@ -52,7 +52,7 @@ test "accessAbsolute" {
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const allocator = arena.getAllocator();
+    const allocator = arena.allocator();
 
     const base_path = blk: {
         const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
@@ -71,7 +71,7 @@ test "openDirAbsolute" {
     try tmp.dir.makeDir("subdir");
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const allocator = arena.getAllocator();
+    const allocator = arena.allocator();
 
     const base_path = blk: {
         const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
@@ -111,7 +111,7 @@ test "readLinkAbsolute" {
     // Get base abs path
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const allocator = arena.getAllocator();
+    const allocator = arena.allocator();
 
     const base_path = blk: {
         const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
@@ -162,7 +162,7 @@ test "Dir.Iterator" {
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const allocator = arena.getAllocator();
+    const allocator = arena.allocator();
 
     var entries = std.ArrayList(Dir.Entry).init(allocator);
 
@@ -207,7 +207,7 @@ test "Dir.realpath smoke test" {
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const allocator = arena.getAllocator();
+    const allocator = arena.allocator();
 
     const base_path = blk: {
         const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
@@ -482,7 +482,7 @@ test "renameAbsolute" {
     // Get base abs path
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const allocator = arena.getAllocator();
+    const allocator = arena.allocator();
 
     const base_path = blk: {
         const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
@@ -993,7 +993,7 @@ test ". and .. in absolute functions" {
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const allocator = arena.getAllocator();
+    const allocator = arena.allocator();
 
     const base_path = blk: {
         const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });

@@ -25,7 +25,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
-    const arena = arena_allocator.getAllocator();
+    const arena = arena_allocator.allocator();
 
     switch (crt_file) {
         .crti_o => {

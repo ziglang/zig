@@ -1285,7 +1285,7 @@ test "builder.findProgram compiles" {
     defer arena.deinit();
 
     const builder = try Builder.create(
-        arena.getAllocator(),
+        arena.allocator(),
         "zig",
         "zig-cache",
         "zig-cache",
@@ -3207,7 +3207,7 @@ test "Builder.dupePkg()" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     var builder = try Builder.create(
-        arena.getAllocator(),
+        arena.allocator(),
         "test",
         "test",
         "test",
@@ -3252,7 +3252,7 @@ test "LibExeObjStep.addPackage" {
     defer arena.deinit();
 
     var builder = try Builder.create(
-        arena.getAllocator(),
+        arena.allocator(),
         "test",
         "test",
         "test",

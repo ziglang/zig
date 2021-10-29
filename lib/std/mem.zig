@@ -46,13 +46,13 @@ pub fn ValidationAllocator(comptime T: type) type {
             };
         }
 
-        pub fn getAllocator(self: *Self) Allocator {
+        pub fn allocator(self: *Self) Allocator {
             return Allocator.init(self, alloc, resize);
         }
 
         fn getUnderlyingAllocatorPtr(self: *Self) Allocator {
             if (T == Allocator) return self.underlying_allocator;
-            return self.underlying_allocator.getAllocator();
+            return self.underlying_allocator.allocator();
         }
 
         pub fn alloc(

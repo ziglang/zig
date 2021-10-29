@@ -418,7 +418,7 @@ pub const Block = struct {
         finished: bool,
 
         pub fn arena(wad: *WipAnonDecl) Allocator {
-            return wad.new_decl_arena.getAllocator();
+            return wad.new_decl_arena.allocator();
         }
 
         pub fn deinit(wad: *WipAnonDecl) void {
@@ -1594,7 +1594,7 @@ fn zirStructDecl(
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
     errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.getAllocator();
+    const new_decl_arena_allocator = new_decl_arena.allocator();
 
     const struct_obj = try new_decl_arena_allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(new_decl_arena_allocator, struct_obj);
@@ -1699,7 +1699,7 @@ fn zirEnumDecl(
 
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
     errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.getAllocator();
+    const new_decl_arena_allocator = new_decl_arena.allocator();
 
     const enum_obj = try new_decl_arena_allocator.create(Module.EnumFull);
     const enum_ty_payload = try new_decl_arena_allocator.create(Type.Payload.EnumFull);
@@ -1889,7 +1889,7 @@ fn zirUnionDecl(
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
     errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.getAllocator();
+    const new_decl_arena_allocator = new_decl_arena.allocator();
 
     const union_obj = try new_decl_arena_allocator.create(Module.Union);
     const type_tag: Type.Tag = if (small.has_tag_type or small.auto_enum_tag) .union_tagged else .@"union";
@@ -1958,7 +1958,7 @@ fn zirOpaqueDecl(
 
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
     errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.getAllocator();
+    const new_decl_arena_allocator = new_decl_arena.allocator();
 
     const opaque_obj = try new_decl_arena_allocator.create(Module.Opaque);
     const opaque_ty_payload = try new_decl_arena_allocator.create(Type.Payload.Opaque);
@@ -2012,7 +2012,7 @@ fn zirErrorSetDecl(
 
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
     errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.getAllocator();
+    const new_decl_arena_allocator = new_decl_arena.allocator();
 
     const error_set = try new_decl_arena_allocator.create(Module.ErrorSet);
     const error_set_ty = try Type.Tag.error_set.create(new_decl_arena_allocator, error_set);
@@ -3940,7 +3940,7 @@ fn analyzeCall(
                 {
                     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
                     errdefer arena_allocator.deinit();
-                    const arena = arena_allocator.getAllocator();
+                    const arena = arena_allocator.allocator();
 
                     for (memoized_call_key.args) |*arg| {
                         arg.* = try arg.*.copy(arena);
@@ -4074,7 +4074,7 @@ fn analyzeCall(
 
             var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
             errdefer new_decl_arena.deinit();
-            const new_decl_arena_allocator = new_decl_arena.getAllocator();
+            const new_decl_arena_allocator = new_decl_arena.allocator();
 
             // Re-run the block that creates the function, with the comptime parameters
             // pre-populated inside `inst_map`. This causes `param_comptime` and
@@ -6053,8 +6053,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     defer arena.deinit();
 
                     const target = sema.mod.getTarget();
-                    const min_int = try operand_ty.minInt(arena.getAllocator(), target);
-                    const max_int = try operand_ty.maxInt(arena.getAllocator(), target);
+                    const min_int = try operand_ty.minInt(arena.allocator(), target);
+                    const max_int = try operand_ty.maxInt(arena.allocator(), target);
                     if (try range_set.spans(min_int, max_int, operand_ty)) {
                         if (special_prong == .@"else") {
                             return sema.fail(
@@ -12801,7 +12801,7 @@ const ComptimePtrMutationKit = struct {
 
     fn beginArena(self: *ComptimePtrMutationKit, gpa: Allocator) Allocator {
         self.decl_arena = self.decl_ref_mut.decl.value_arena.?.promote(gpa);
-        return self.decl_arena.getAllocator();
+        return self.decl_arena.allocator();
     }
 
     fn finishArena(self: *ComptimePtrMutationKit) void {
@@ -14293,7 +14293,7 @@ fn semaStructFields(
 
     var decl_arena = decl.value_arena.?.promote(gpa);
     defer decl.value_arena.?.* = decl_arena.state;
-    const decl_arena_allocator = decl_arena.getAllocator();
+    const decl_arena_allocator = decl_arena.allocator();
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
@@ -14301,7 +14301,7 @@ fn semaStructFields(
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
-        .arena = analysis_arena.getAllocator(),
+        .arena = analysis_arena.allocator(),
         .perm_arena = decl_arena_allocator,
         .code = zir,
         .owner_decl = decl,
@@ -14461,7 +14461,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
 
     var decl_arena = union_obj.owner_decl.value_arena.?.promote(gpa);
     defer union_obj.owner_decl.value_arena.?.* = decl_arena.state;
-    const decl_arena_allocator = decl_arena.getAllocator();
+    const decl_arena_allocator = decl_arena.allocator();
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
@@ -14469,7 +14469,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
-        .arena = analysis_arena.getAllocator(),
+        .arena = analysis_arena.allocator(),
         .perm_arena = decl_arena_allocator,
         .code = zir,
         .owner_decl = decl,
@@ -14623,7 +14623,7 @@ fn generateUnionTagTypeNumbered(
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
     errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.getAllocator();
+    const new_decl_arena_allocator = new_decl_arena.allocator();
 
     const enum_obj = try new_decl_arena_allocator.create(Module.EnumNumbered);
     const enum_ty_payload = try new_decl_arena_allocator.create(Type.Payload.EnumNumbered);
@@ -14660,7 +14660,7 @@ fn generateUnionTagTypeSimple(sema: *Sema, block: *Block, fields_len: u32) !Type
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
     errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.getAllocator();
+    const new_decl_arena_allocator = new_decl_arena.allocator();
 
     const enum_obj = try new_decl_arena_allocator.create(Module.EnumSimple);
     const enum_ty_payload = try new_decl_arena_allocator.create(Type.Payload.EnumSimple);

@@ -331,7 +331,7 @@ pub const Object = struct {
 
         var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
         defer arena_allocator.deinit();
-        const arena = arena_allocator.getAllocator();
+        const arena = arena_allocator.allocator();
 
         const mod = comp.bin_file.options.module.?;
         const cache_dir = mod.zig_cache_artifact_directory;
@@ -779,7 +779,7 @@ pub const DeclGen = struct {
 
                 // The Type memory is ephemeral; since we want to store a longer-lived
                 // reference, we need to copy it here.
-                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.getAllocator());
+                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
                 const opaque_obj = t.castTag(.@"opaque").?.data;
                 const name = try opaque_obj.getFullyQualifiedName(gpa);
@@ -837,7 +837,7 @@ pub const DeclGen = struct {
 
                 // The Type memory is ephemeral; since we want to store a longer-lived
                 // reference, we need to copy it here.
-                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.getAllocator());
+                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
                 const struct_obj = t.castTag(.@"struct").?.data;
 
@@ -871,7 +871,7 @@ pub const DeclGen = struct {
 
                 // The Type memory is ephemeral; since we want to store a longer-lived
                 // reference, we need to copy it here.
-                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.getAllocator());
+                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
                 const union_obj = t.cast(Type.Payload.Union).?.data;
                 const target = dg.module.getTarget();
@@ -2485,7 +2485,7 @@ pub const FuncGen = struct {
 
         var arena_allocator = std.heap.ArenaAllocator.init(self.gpa);
         defer arena_allocator.deinit();
-        const arena = arena_allocator.getAllocator();
+        const arena = arena_allocator.allocator();
 
         const llvm_params_len = args.len;
         const llvm_param_types = try arena.alloc(*const llvm.Type, llvm_params_len);

@@ -40,7 +40,7 @@ pub const FailingAllocator = struct {
         };
     }
 
-    pub fn getAllocator(self: *FailingAllocator) mem.Allocator {
+    pub fn allocator(self: *FailingAllocator) mem.Allocator {
         return mem.Allocator.init(self, alloc, resize);
     }
 

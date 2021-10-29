@@ -16,7 +16,7 @@ pub fn main() !void {
     // skip my own exe name
     _ = arg_it.skip();
 
-    a = arena.getAllocator();
+    a = arena.allocator();
 
     const zig_exe_rel = try (arg_it.next(a) orelse {
         std.debug.print("Expected first argument to be path to zig compiler\n", .{});

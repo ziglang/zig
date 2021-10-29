@@ -1566,7 +1566,7 @@ fn getDebugInfoAllocator() mem.Allocator {
     if (debug_info_allocator) |a| return a;
 
     debug_info_arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const allocator = debug_info_arena_allocator.getAllocator();
+    const allocator = debug_info_arena_allocator.allocator();
     debug_info_allocator = allocator;
     return allocator;
 }

@@ -769,7 +769,7 @@ const llvm_targets = [_]LlvmTarget{
 pub fn main() anyerror!void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_state.deinit();
-    const arena = arena_state.getAllocator();
+    const arena = arena_state.allocator();
 
     const args = try std.process.argsAlloc(arena);
     if (args.len <= 1) {
@@ -845,7 +845,7 @@ fn processOneTarget(job: Job) anyerror!void {
 
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_state.deinit();
-    const arena = arena_state.getAllocator();
+    const arena = arena_state.allocator();
 
     var progress_node = job.root_progress.start(llvm_target.zig_name, 3);
     progress_node.activate();

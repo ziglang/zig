@@ -139,7 +139,7 @@ pub fn main() anyerror!void {
     const gpa = gpa: {
         if (!builtin.link_libc) {
             gpa_need_deinit = true;
-            break :gpa general_purpose_allocator.getAllocator();
+            break :gpa general_purpose_allocator.allocator();
         }
         // We would prefer to use raw libc allocator here, but cannot
         // use it if it won't support the alignment we need.
@@ -153,7 +153,7 @@ pub fn main() anyerror!void {
     };
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
-    const arena = arena_instance.getAllocator();
+    const arena = arena_instance.allocator();
 
     const args = try process.argsAlloc(arena);
 
@@ -3619,7 +3619,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                 var errors = std.ArrayList(Compilation.AllErrors.Message).init(gpa);
                 defer errors.deinit();
 
-                try Compilation.AllErrors.addZir(arena_instance.getAllocator(), &errors, &file);
+                try Compilation.AllErrors.addZir(arena_instance.allocator(), &errors, &file);
                 const ttyconf: std.debug.TTY.Config = switch (color) {
                     .auto => std.debug.detectTTYConfig(),
                     .on => .escape_codes,
@@ -3818,7 +3818,7 @@ fn fmtPathFile(
             var errors = std.ArrayList(Compilation.AllErrors.Message).init(fmt.gpa);
             defer errors.deinit();
 
-            try Compilation.AllErrors.addZir(arena_instance.getAllocator(), &errors, &file);
+            try Compilation.AllErrors.addZir(arena_instance.allocator(), &errors, &file);
             const ttyconf: std.debug.TTY.Config = switch (fmt.color) {
                 .auto => std.debug.detectTTYConfig(),
                 .on => .escape_codes,

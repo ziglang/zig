@@ -2033,7 +2033,7 @@ test "parse into tagged union" {
 
     { // failing allocations should be bubbled up instantly without trying next member
         var fail_alloc = testing.FailingAllocator.init(testing.allocator, 0);
-        const options = ParseOptions{ .allocator = fail_alloc.getAllocator() };
+        const options = ParseOptions{ .allocator = fail_alloc.allocator() };
         const T = union(enum) {
             // both fields here match the input
             string: []const u8,
@@ -2081,7 +2081,7 @@ test "parse union bubbles up AllocatorRequired" {
 
 test "parseFree descends into tagged union" {
     var fail_alloc = testing.FailingAllocator.init(testing.allocator, 1);
-    const options = ParseOptions{ .allocator = fail_alloc.getAllocator() };
+    const options = ParseOptions{ .allocator = fail_alloc.allocator() };
     const T = union(enum) {
         int: i32,
         float: f64,
@@ -2364,7 +2364,7 @@ pub const Parser = struct {
 
         var arena = ArenaAllocator.init(p.allocator);
         errdefer arena.deinit();
-        const allocator = arena.getAllocator();
+        const allocator = arena.allocator();
 
         while (try s.next()) |token| {
             try p.transition(allocator, input, s.i - 1, token);
@@ -2746,13 +2746,13 @@ fn testParse(arena_allocator: std.mem.Allocator, json_str: []const u8) !Value {
 test "parsing empty string gives appropriate error" {
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
-    try testing.expectError(error.UnexpectedEndOfJson, testParse(arena_allocator.getAllocator(), ""));
+    try testing.expectError(error.UnexpectedEndOfJson, testParse(arena_allocator.allocator(), ""));
 }
 
 test "integer after float has proper type" {
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
-    const json = try testParse(arena_allocator.getAllocator(),
+    const json = try testParse(arena_allocator.allocator(),
         \\{
         \\  "float": 3.14,
         \\  "ints": [1, 2, 3]
@@ -2787,7 +2787,7 @@ test "escaped characters" {
         \\}
     ;
 
-    const obj = (try testParse(arena_allocator.getAllocator(), input)).Object;
+    const obj = (try testParse(arena_allocator.allocator(), input)).Object;
 
     try testing.expectEqualSlices(u8, obj.get("backslash").?.String, "\\");
     try testing.expectEqualSlices(u8, obj.get("forwardslash").?.String, "/");
@@ -2813,7 +2813,7 @@ test "string copy option" {
 
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
-    const allocator = arena_allocator.getAllocator();
+    const allocator = arena_allocator.allocator();
 
     const tree_nocopy = try Parser.init(allocator, false).parse(input);
     const obj_nocopy = tree_nocopy.root.Object;

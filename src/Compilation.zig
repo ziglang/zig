@@ -412,7 +412,7 @@ pub const AllErrors = struct {
         errors: *std.ArrayList(Message),
         module_err_msg: Module.ErrorMsg,
     ) !void {
-        const allocator = arena.getAllocator();
+        const allocator = arena.allocator();
         const notes = try allocator.alloc(Message, module_err_msg.notes.len);
         for (notes) |*note, i| {
             const module_note = module_err_msg.notes[i];
@@ -549,7 +549,7 @@ pub const AllErrors = struct {
         msg: []const u8,
         optional_children: ?AllErrors,
     ) !void {
-        const allocator = arena.getAllocator();
+        const allocator = arena.allocator();
         const duped_msg = try allocator.dupe(u8, msg);
         if (optional_children) |*children| {
             try errors.append(.{ .plain = .{
@@ -788,7 +788,7 @@ fn addPackageTableToCacheHash(
     seen_table: *std.AutoHashMap(*Package, void),
     hash_type: union(enum) { path_bytes, files: *Cache.Manifest },
 ) (error{OutOfMemory} || std.os.GetCwdError)!void {
-    const allocator = arena.getAllocator();
+    const allocator = arena.allocator();
 
     const packages = try allocator.alloc(Package.Table.KV, pkg_table.count());
     {
@@ -852,7 +852,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // initialization and then is freed in deinit().
         var arena_allocator = std.heap.ArenaAllocator.init(gpa);
         errdefer arena_allocator.deinit();
-        const arena = arena_allocator.getAllocator();
+        const arena = arena_allocator.allocator();
 
         // We put the `Compilation` itself in the arena. Freeing the arena will free the module.
         // It's initialized later after we prepare the initialization options.
@@ -1210,7 +1210,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             {
                 var local_arena = std.heap.ArenaAllocator.init(gpa);
                 defer local_arena.deinit();
-                var seen_table = std.AutoHashMap(*Package, void).init(local_arena.getAllocator());
+                var seen_table = std.AutoHashMap(*Package, void).init(local_arena.allocator());
                 try addPackageTableToCacheHash(&hash, &local_arena, main_pkg.table, &seen_table, .path_bytes);
             }
             hash.add(valgrind);
@@ -2013,7 +2013,7 @@ pub fn totalErrorCount(self: *Compilation) usize {
 pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     var arena = std.heap.ArenaAllocator.init(self.gpa);
     errdefer arena.deinit();
-    const arena_allocator = arena.getAllocator();
+    const arena_allocator = arena.allocator();
 
     var errors = std.ArrayList(AllErrors.Message).init(self.gpa);
     defer errors.deinit();
@@ -2295,7 +2295,7 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
 
                 var tmp_arena = std.heap.ArenaAllocator.init(gpa);
                 defer tmp_arena.deinit();
-                const sema_arena = tmp_arena.getAllocator();
+                const sema_arena = tmp_arena.allocator();
 
                 const sema_frame = tracy.namedFrame("sema");
                 var sema_frame_ended = false;
@@ -2390,7 +2390,7 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
                     .decl = decl,
                     .fwd_decl = fwd_decl.toManaged(gpa),
                     .typedefs = c_codegen.TypedefMap.init(gpa),
-                    .typedefs_arena = typedefs_arena.getAllocator(),
+                    .typedefs_arena = typedefs_arena.allocator(),
                 };
                 defer dg.fwd_decl.deinit();
                 defer dg.typedefs.deinit();
@@ -2844,7 +2844,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     const digest = if (!actual_hit) digest: {
         var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
         defer arena_allocator.deinit();
-        const arena = arena_allocator.getAllocator();
+        const arena = arena_allocator.allocator();
 
         const tmp_digest = man.hash.peek();
         const tmp_dir_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &tmp_digest });
@@ -3099,7 +3099,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
-    const arena = arena_allocator.getAllocator();
+    const arena = arena_allocator.allocator();
 
     const c_source_basename = std.fs.path.basename(c_object.src.src_path);
 
@@ -4420,7 +4420,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
-    const arena = arena_allocator.getAllocator();
+    const arena = arena_allocator.allocator();
 
     // Here we use the legacy stage1 C++ compiler to compile Zig code.
     const mod = comp.bin_file.options.module.?;
@@ -4457,7 +4457,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
 
     _ = try man.addFile(main_zig_file, null);
     {
-        var seen_table = std.AutoHashMap(*Package, void).init(arena_allocator.getAllocator());
+        var seen_table = std.AutoHashMap(*Package, void).init(arena_allocator.allocator());
         try addPackageTableToCacheHash(&man.hash, &arena_allocator, mod.main_pkg.table, &seen_table, .{ .files = &man });
     }
     man.hash.add(comp.bin_file.options.valgrind);

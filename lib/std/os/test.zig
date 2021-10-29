@@ -58,7 +58,7 @@ test "open smoke test" {
     // Get base abs path
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const allocator = arena.getAllocator();
+    const allocator = arena.allocator();
 
     const base_path = blk: {
         const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });

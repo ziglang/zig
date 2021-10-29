@@ -32,7 +32,7 @@ pub fn ScopedLoggingAllocator(
             };
         }
 
-        pub fn getAllocator(self: *Self) Allocator {
+        pub fn allocator(self: *Self) Allocator {
             return Allocator.init(self, alloc, resize);
         }
 

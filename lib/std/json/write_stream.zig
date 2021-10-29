@@ -243,7 +243,7 @@ test "json write stream" {
     try w.beginObject();
 
     try w.objectField("object");
-    try w.emitJson(try getJsonObject(arena_allocator.getAllocator()));
+    try w.emitJson(try getJsonObject(arena_allocator.allocator()));
 
     try w.objectField("string");
     try w.emitString("This is a string");

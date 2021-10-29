@@ -704,7 +704,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
 
-        const result = try arena.getAllocator().create(AddressList);
+        const result = try arena.allocator().create(AddressList);
         result.* = AddressList{
             .arena = arena,
             .addrs = undefined,
@@ -712,7 +712,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
         };
         break :blk result;
     };
-    const arena = result.arena.getAllocator();
+    const arena = result.arena.allocator();
     errdefer result.arena.deinit();
 
     if (builtin.target.os.tag == .windows or builtin.link_libc) {

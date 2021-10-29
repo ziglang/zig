@@ -854,7 +854,7 @@ pub fn execve(
 
     var arena_allocator = std.heap.ArenaAllocator.init(allocator);
     defer arena_allocator.deinit();
-    const arena = arena_allocator.getAllocator();
+    const arena = arena_allocator.allocator();
 
     const argv_buf = try arena.allocSentinel(?[*:0]u8, argv.len, null);
     for (argv) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;

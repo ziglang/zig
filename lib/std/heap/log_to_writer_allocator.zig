@@ -17,7 +17,7 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
             };
         }
 
-        pub fn getAllocator(self: *Self) Allocator {
+        pub fn allocator(self: *Self) Allocator {
             return Allocator.init(self, alloc, resize);
         }
 
@@ -82,7 +82,7 @@ test "LogToWriterAllocator" {
 
     var allocator_buf: [10]u8 = undefined;
     var fixedBufferAllocator = std.mem.validationWrap(std.heap.FixedBufferAllocator.init(&allocator_buf));
-    const allocator = logToWriterAllocator(fixedBufferAllocator.getAllocator(), fbs.writer()).getAllocator();
+    const allocator = logToWriterAllocator(fixedBufferAllocator.allocator(), fbs.writer()).allocator();
 
     var a = try allocator.alloc(u8, 10);
     a = allocator.shrink(a, 5);

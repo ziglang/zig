@@ -98,7 +98,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
 
     var astgen: AstGen = .{
         .gpa = gpa,
-        .arena = arena.getAllocator(),
+        .arena = arena.allocator(),
         .tree = &tree,
     };
     defer astgen.deinit(gpa);
@@ -1939,7 +1939,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
 
     var block_arena = std.heap.ArenaAllocator.init(gz.astgen.gpa);
     defer block_arena.deinit();
-    const block_arena_allocator = block_arena.getAllocator();
+    const block_arena_allocator = block_arena.allocator();
 
     var noreturn_src_node: Ast.Node.Index = 0;
     var scope = parent_scope;

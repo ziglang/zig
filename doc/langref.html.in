@@ -10061,7 +10061,7 @@ const expect = std.testing.expect;
 
 test "using an allocator" {
     var buffer: [100]u8 = undefined;
-    const allocator = std.heap.FixedBufferAllocator.init(&buffer).getAllocator();
+    const allocator = std.heap.FixedBufferAllocator.init(&buffer).allocator();
     const result = try concat(allocator, "foo", "bar");
     try expect(std.mem.eql(u8, "foobar", result));
 }
@@ -10114,7 +10114,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
-    const allocator = arena.getAllocator();
+    const allocator = arena.allocator();
 
     const ptr = try allocator.create(i32);
     std.debug.print("ptr={*}\n", .{ptr});
@@ -10820,7 +10820,7 @@ const std = @import("std");
 
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = general_purpose_allocator.getAllocator();
+    const gpa = general_purpose_allocator.allocator();
     const args = try std.process.argsAlloc(gpa);
     defer std.process.argsFree(gpa, args);
 
@@ -10842,7 +10842,7 @@ const PreopenList = std.fs.wasi.PreopenList;
 
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = general_purpose_allocator.getAllocator();
+    const gpa = general_purpose_allocator.allocator();
 
     var preopens = PreopenList.init(gpa);
     defer preopens.deinit();

@@ -573,7 +573,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
             };
         }
 
-        pub fn getAllocator(self: *HeapAllocator) Allocator {
+        pub fn allocator(self: *HeapAllocator) Allocator {
             return Allocator.init(self, alloc, resize);
         }
 
@@ -680,14 +680,14 @@ pub const FixedBufferAllocator = struct {
         };
     }
 
-    /// *WARNING* using this at the same time as the interface returned by `getThreadSafeAllocator` is not thread safe
-    pub fn getAllocator(self: *FixedBufferAllocator) Allocator {
+    /// *WARNING* using this at the same time as the interface returned by `threadSafeAllocator` is not thread safe
+    pub fn allocator(self: *FixedBufferAllocator) Allocator {
         return Allocator.init(self, alloc, resize);
     }
 
     /// Provides a lock free thread safe `Allocator` interface to the underlying `FixedBufferAllocator`
     /// *WARNING* using this at the same time as the interface returned by `getAllocator` is not thread safe
-    pub fn getThreadSafeAllocator(self: *FixedBufferAllocator) Allocator {
+    pub fn threadSafeAllocator(self: *FixedBufferAllocator) Allocator {
         return Allocator.init(self, threadSafeAlloc, Allocator.NoResize(FixedBufferAllocator).noResize);
     }
 
@@ -775,7 +775,7 @@ pub const FixedBufferAllocator = struct {
     }
 };
 
-pub const ThreadSafeFixedBufferAllocator = @compileError("ThreadSafeFixedBufferAllocator has been replaced with `getThreadSafeAllocator` on FixedBufferAllocator");
+pub const ThreadSafeFixedBufferAllocator = @compileError("ThreadSafeFixedBufferAllocator has been replaced with `threadSafeAllocator` on FixedBufferAllocator");
 
 pub fn stackFallback(comptime size: usize, fallback_allocator: Allocator) StackFallbackAllocator(size) {
     return StackFallbackAllocator(size){
@@ -909,7 +909,7 @@ test "HeapAllocator" {
     if (builtin.os.tag == .windows) {
         var heap_allocator = HeapAllocator.init();
         defer heap_allocator.deinit();
-        const allocator = heap_allocator.getAllocator();
+        const allocator = heap_allocator.allocator();
 
         try testAllocator(allocator);
         try testAllocatorAligned(allocator);
@@ -921,7 +921,7 @@ test "HeapAllocator" {
 test "ArenaAllocator" {
     var arena_allocator = ArenaAllocator.init(page_allocator);
     defer arena_allocator.deinit();
-    const allocator = arena_allocator.getAllocator();
+    const allocator = arena_allocator.allocator();
 
     try testAllocator(allocator);
     try testAllocatorAligned(allocator);
@@ -932,7 +932,7 @@ test "ArenaAllocator" {
 var test_fixed_buffer_allocator_memory: [800000 * @sizeOf(u64)]u8 = undefined;
 test "FixedBufferAllocator" {
     var fixed_buffer_allocator = mem.validationWrap(FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]));
-    const allocator = fixed_buffer_allocator.getAllocator();
+    const allocator = fixed_buffer_allocator.allocator();
 
     try testAllocator(allocator);
     try testAllocatorAligned(allocator);
@@ -943,7 +943,7 @@ test "FixedBufferAllocator" {
 test "FixedBufferAllocator.reset" {
     var buf: [8]u8 align(@alignOf(u64)) = undefined;
     var fba = FixedBufferAllocator.init(buf[0..]);
-    const allocator = fba.getAllocator();
+    const allocator = fba.allocator();
 
     const X = 0xeeeeeeeeeeeeeeee;
     const Y = 0xffffffffffffffff;
@@ -976,7 +976,7 @@ test "FixedBufferAllocator Reuse memory on realloc" {
     // check if we re-use the memory
     {
         var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
-        const allocator = fixed_buffer_allocator.getAllocator();
+        const allocator = fixed_buffer_allocator.allocator();
 
         var slice0 = try allocator.alloc(u8, 5);
         try testing.expect(slice0.len == 5);
@@ -988,7 +988,7 @@ test "FixedBufferAllocator Reuse memory on realloc" {
     // check that we don't re-use the memory if it's not the most recent block
     {
         var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
-        const allocator = fixed_buffer_allocator.getAllocator();
+        const allocator = fixed_buffer_allocator.allocator();
 
         var slice0 = try allocator.alloc(u8, 2);
         slice0[0] = 1;
@@ -1005,16 +1005,16 @@ test "FixedBufferAllocator Reuse memory on realloc" {
 test "Thread safe FixedBufferAllocator" {
     var fixed_buffer_allocator = FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
 
-    try testAllocator(fixed_buffer_allocator.getThreadSafeAllocator());
-    try testAllocatorAligned(fixed_buffer_allocator.getThreadSafeAllocator());
-    try testAllocatorLargeAlignment(fixed_buffer_allocator.getThreadSafeAllocator());
-    try testAllocatorAlignedShrink(fixed_buffer_allocator.getThreadSafeAllocator());
+    try testAllocator(fixed_buffer_allocator.threadSafeAllocator());
+    try testAllocatorAligned(fixed_buffer_allocator.threadSafeAllocator());
+    try testAllocatorLargeAlignment(fixed_buffer_allocator.threadSafeAllocator());
+    try testAllocatorAlignedShrink(fixed_buffer_allocator.threadSafeAllocator());
 }
 
 /// This one should not try alignments that exceed what C malloc can handle.
 pub fn testAllocator(base_allocator: mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
-    const allocator = validationAllocator.getAllocator();
+    const allocator = validationAllocator.allocator();
 
     var slice = try allocator.alloc(*i32, 100);
     try testing.expect(slice.len == 100);
@@ -1060,7 +1060,7 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
 
 pub fn testAllocatorAligned(base_allocator: mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
-    const allocator = validationAllocator.getAllocator();
+    const allocator = validationAllocator.allocator();
 
     // Test a few alignment values, smaller and bigger than the type's one
     inline for ([_]u29{ 1, 2, 4, 8, 16, 32, 64 }) |alignment| {
@@ -1090,7 +1090,7 @@ pub fn testAllocatorAligned(base_allocator: mem.Allocator) !void {
 
 pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
-    const allocator = validationAllocator.getAllocator();
+    const allocator = validationAllocator.allocator();
 
     //Maybe a platform's page_size is actually the same as or
     //  very near usize?
@@ -1122,10 +1122,10 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
 
 pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
-    const allocator = validationAllocator.getAllocator();
+    const allocator = validationAllocator.allocator();
 
     var debug_buffer: [1000]u8 = undefined;
-    const debug_allocator = FixedBufferAllocator.init(&debug_buffer).getAllocator();
+    const debug_allocator = FixedBufferAllocator.init(&debug_buffer).allocator();
 
     const alloc_size = mem.page_size * 2 + 50;
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);

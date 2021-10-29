@@ -47,7 +47,7 @@ pub fn dump(gpa: Allocator, air: Air, zir: Zir, liveness: Liveness) void {
 
     var writer: Writer = .{
         .gpa = gpa,
-        .arena = arena.getAllocator(),
+        .arena = arena.allocator(),
         .air = air,
         .zir = zir,
         .liveness = liveness,

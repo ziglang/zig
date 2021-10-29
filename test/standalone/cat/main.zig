@@ -8,7 +8,7 @@ const warn = std.log.warn;
 pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_instance.deinit();
-    const arena = arena_instance.getAllocator();
+    const arena = arena_instance.allocator();
 
     const args = try process.argsAlloc(arena);
 

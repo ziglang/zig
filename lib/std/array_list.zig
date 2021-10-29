@@ -1119,7 +1119,7 @@ test "std.ArrayList/ArrayListUnmanaged.insertSlice" {
 test "std.ArrayList/ArrayListUnmanaged.replaceRange" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const a = arena.getAllocator();
+    const a = arena.allocator();
 
     const init = [_]i32{ 1, 2, 3, 4, 5 };
     const new = [_]i32{ 0, 0, 0 };
@@ -1263,7 +1263,7 @@ test "std.ArrayList/ArrayListUnmanaged.shrink still sets length on error.OutOfMe
     // use an arena allocator to make sure realloc returns error.OutOfMemory
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const a = arena.getAllocator();
+    const a = arena.allocator();
 
     {
         var list = ArrayList(i32).init(a);
@@ -1361,7 +1361,7 @@ test "ArrayListAligned/ArrayListAlignedUnmanaged accepts unaligned slices" {
 
 test "std.ArrayList(u0)" {
     // An ArrayList on zero-sized types should not need to allocate
-    const a = testing.FailingAllocator.init(testing.allocator, 0).getAllocator();
+    const a = testing.FailingAllocator.init(testing.allocator, 0).allocator();
 
     var list = ArrayList(u0).init(a);
     defer list.deinit();

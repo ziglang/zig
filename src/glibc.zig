@@ -65,7 +65,7 @@ pub fn loadMetaData(gpa: Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!*
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     errdefer arena_allocator.deinit();
-    const arena = arena_allocator.getAllocator();
+    const arena = arena_allocator.allocator();
 
     var all_versions = std.ArrayListUnmanaged(std.builtin.Version){};
     var all_functions = std.ArrayListUnmanaged(Fn){};
@@ -256,7 +256,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
-    const arena = arena_allocator.getAllocator();
+    const arena = arena_allocator.allocator();
 
     switch (crt_file) {
         .crti_o => {
@@ -711,7 +711,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
-    const arena = arena_allocator.getAllocator();
+    const arena = arena_allocator.allocator();
 
     const target = comp.getTarget();
     const target_version = target.os.version_range.linux.glibc;

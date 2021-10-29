@@ -25,7 +25,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     }
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
-    const arena = arena_allocator.getAllocator();
+    const arena = arena_allocator.allocator();
 
     switch (crt_file) {
         .crt2_o => {
@@ -281,7 +281,7 @@ fn add_cc_args(
 pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
-    const arena = arena_allocator.getAllocator();
+    const arena = arena_allocator.allocator();
 
     const def_file_path = findDef(comp, arena, lib_name) catch |err| switch (err) {
         error.FileNotFound => {
