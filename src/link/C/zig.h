@@ -124,16 +124,6 @@
 #include <stddef.h>
 #include <limits.h>
 
-#if __STDC_VERSION__ >= 199901L
-#include <math.h>
-#elif __GNUC__
-#define _GNU_SOURCE
-#include <math.h>
-#undef _GNU_SOURCE
-#else
-#define NAN 0.0f / 0.0f
-#endif
-
 #define int128_t __int128
 #define uint128_t unsigned __int128
 ZIG_EXTERN_C void *memcpy (void *ZIG_RESTRICT, const void *ZIG_RESTRICT, size_t);
@@ -365,6 +355,18 @@ static inline long zig_subw_long(long lhs, long rhs, long min, long max) {
 
 static inline long long zig_subw_longlong(long long lhs, long long rhs, long long min, long long max) {
     return (long long)(((unsigned long long)lhs) - ((unsigned long long)rhs));
+}
+
+static inline float zig_bitcast_uint32_t_to_float(uint32_t arg) {
+    float dest;
+    memcpy(&dest, &arg, sizeof dest);
+    return dest;
+}
+
+static inline float zig_bitcast_uint64_t_to_double(uint64_t arg) {
+    double dest;
+    memcpy(&dest, &arg, sizeof dest);
+    return dest;
 }
 
 #define zig_add_sat_u(ZT, T) static inline T zig_adds_##ZT(T x, T y, T max) { \

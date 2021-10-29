@@ -243,7 +243,14 @@ pub const DeclGen = struct {
             .Float => {
                 if (ty.floatBits(dg.module.getTarget()) <= 64) {
                     if (std.math.isNan(val.toFloat(f64))) {
-                        return writer.print("NAN", .{});
+                        // just generate a bit cast (exactly like we do in airBitcast)
+                        switch (t.tag()) {
+                            .f32 => return writer.print("zig_bitcast_uint32_t_to_float(0x{x})",
+                                .{ @bitCast(u32, val.toFloat(f32)) }),
+                            .f64 => return writer.print("zig_bitcast_uint64_t_to_double(0x{x})",
+                                .{ @bitCast(u64, val.toFloat(f64)) }),
+                            else => unreachable // other float types aren't support in renderType() as of now
+                        }
                     } else {
                         return writer.print("{x}", .{val.toFloat(f64)});
                     }
