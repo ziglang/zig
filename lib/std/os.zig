@@ -4529,7 +4529,6 @@ pub const RealPathError = error{
     AccessDenied,
     NameTooLong,
     NotSupported,
-    NotLink,
     NotDir,
     SymLinkLoop,
     InputOutput,
@@ -4664,6 +4663,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             switch (errno(system.fcntl(fd, F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
                 .BADF => return error.FileNotFound,
+                error.NotLink => unreachable,
                 // TODO man pages for fcntl on macOS don't really tell you what
                 // errno values to expect when command is F.GETPATH...
                 else => |err| return unexpectedErrno(err),
@@ -4678,6 +4678,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             const target = readlinkZ(std.meta.assumeSentinel(proc_path.ptr, 0), out_buffer) catch |err| {
                 switch (err) {
                     error.UnsupportedReparsePointType => unreachable, // Windows only,
+                    error.NotLink => unreachable,
                     else => |e| return e,
                 }
             };
@@ -4689,6 +4690,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
 
             const target = readlinkZ(proc_path, out_buffer) catch |err| switch (err) {
                 error.UnsupportedReparsePointType => unreachable,
+                error.NotLink => unreachable,
                 else => |e| return e,
             };
             return target;
