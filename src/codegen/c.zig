@@ -223,14 +223,15 @@ pub const DeclGen = struct {
                 // Using '{}' for integer and floats seemed to error C compilers (both GCC and Clang)
                 // with 'error: expected expression' (including when built with 'zig cc')
                 .Int => {
-                    const c_bits = toCIntBits(info.bits) orelse
+                    const c_bits = toCIntBits(ty.intInfo(dg.module.getTarget()).bits) orelse
                             return dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
                     switch (c_bits) {
-                        8   => return writer.writeAll("0xaa"),
-                        16  => return writer.writeAll("0xaaaa"),
-                        32  => return writer.writeAll("0xaaaaaaaa"),
-                        64  => return writer.writeAll("0xaaaaaaaaaaaaaaaa"),
-                        128 => return writer.writeAll("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+                        8    => return writer.writeAll("0xaa"),
+                        16   => return writer.writeAll("0xaaaa"),
+                        32   => return writer.writeAll("0xaaaaaaaa"),
+                        64   => return writer.writeAll("0xaaaaaaaaaaaaaaaa"),
+                        128  => return writer.writeAll("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                        else => unreachable
                     }
                 },
                 .Float => {
@@ -257,7 +258,7 @@ pub const DeclGen = struct {
             },
             .Float => {
                 if (ty.floatBits(dg.module.getTarget()) <= 64) {
-                    if (std.math.isNan(val.toFloat(f64))) {
+                    if (std.math.isNan(val.toFloat(f64)) or std.math.isInf(val.toFloat(f64))) {
                         // just generate a bit cast (exactly like we do in airBitcast)
                         switch (ty.tag()) {
                             .f32 => return writer.print("zig_bitcast_uint32_t_to_float(0x{x})",
