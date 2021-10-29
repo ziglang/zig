@@ -222,9 +222,24 @@ pub const DeclGen = struct {
             switch (ty.zigTypeTag()) {
                 // Using '{}' for integer and floats seemed to error C compilers (both GCC and Clang)
                 // with 'error: expected expression' (including when built with 'zig cc')
-                .Int => return writer.writeAll("0xaa"),
-                //.Float => return writer.writeAll("*((uint32_t*)&0xaaaaaaaa)"),
-                .Float => return writer.writeAll("0"),
+                .Int => {
+                    const c_bits = toCIntBits(info.bits) orelse
+                            return dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
+                    switch (c_bits) {
+                        8   => return writer.writeAll("0xaa"),
+                        16  => return writer.writeAll("0xaaaa"),
+                        32  => return writer.writeAll("0xaaaaaaaa"),
+                        64  => return writer.writeAll("0xaaaaaaaaaaaaaaaa"),
+                        128 => return writer.writeAll("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+                    }
+                },
+                .Float => {
+                    switch (ty.floatBits(dg.module.getTarget())) {
+                        32 => return writer.writeAll("zig_bitcast_uint32_t_to_float(0xaaaaaaaa)"),
+                        64 => return writer.writeAll("zig_bitcast_uint64_t_to_double(0xaaaaaaaaaaaaaaaa)"),
+                        else => unreachable // other float types aren't support in renderType() as of now
+                    }
+                },
 
                 else => {
                     // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
@@ -244,7 +259,7 @@ pub const DeclGen = struct {
                 if (ty.floatBits(dg.module.getTarget()) <= 64) {
                     if (std.math.isNan(val.toFloat(f64))) {
                         // just generate a bit cast (exactly like we do in airBitcast)
-                        switch (t.tag()) {
+                        switch (ty.tag()) {
                             .f32 => return writer.print("zig_bitcast_uint32_t_to_float(0x{x})",
                                 .{ @bitCast(u32, val.toFloat(f32)) }),
                             .f64 => return writer.print("zig_bitcast_uint64_t_to_double(0x{x})",
