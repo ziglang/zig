@@ -509,7 +509,16 @@ pub const DeclGen = struct {
                 }
             },
 
-            .Float => return dg.fail("TODO: C backend: implement type Float", .{}),
+            .Float => {
+                switch (t.tag()) {
+                    .f32 => try w.writeAll("float"),
+                    .f64 => try w.writeAll("double"),
+                    .c_longdouble => try w.writeAll("long double"),
+                    .f16 => return dg.fail("TODO: C backend: implement float type f16", .{}),
+                    .f128 => return dg.fail("TODO: C backend: implement float type f128", .{}),
+                    else => unreachable,
+                }
+            },
 
             .Pointer => {
                 if (t.isSlice()) {
