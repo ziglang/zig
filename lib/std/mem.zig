@@ -40,9 +40,9 @@ pub fn ValidationAllocator(comptime T: type) type {
 
         underlying_allocator: T,
 
-        pub fn init(allocator: T) @This() {
+        pub fn init(underlying_allocator: T) @This() {
             return .{
-                .underlying_allocator = allocator,
+                .underlying_allocator = underlying_allocator,
             };
         }
 

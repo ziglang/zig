@@ -6550,9 +6550,9 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.objErrStage1("method call with first arg type wrong container",
         \\pub const List = struct {
         \\    len: usize,
-        \\    allocator: Allocator,
+        \\    allocator: *Allocator,
         \\
-        \\    pub fn init(allocator: Allocator) List {
+        \\    pub fn init(allocator: *Allocator) List {
         \\        return List {
         \\            .len = 0,
         \\            .allocator = allocator,
@@ -6573,7 +6573,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    x.init();
         \\}
     , &[_][]const u8{
-        "tmp.zig:23:5: error: expected type 'Allocator', found '*List'",
+        "tmp.zig:23:5: error: expected type '*Allocator', found '*List'",
     });
 
     ctx.objErrStage1("binary not on number literal",

@@ -28,9 +28,9 @@ pub const FailingAllocator = struct {
     /// var a = try failing_alloc.create(i32);
     /// var b = try failing_alloc.create(i32);
     /// testing.expectError(error.OutOfMemory, failing_alloc.create(i32));
-    pub fn init(allocator: mem.Allocator, fail_index: usize) FailingAllocator {
+    pub fn init(internal_allocator: mem.Allocator, fail_index: usize) FailingAllocator {
         return FailingAllocator{
-            .internal_allocator = allocator,
+            .internal_allocator = internal_allocator,
             .fail_index = fail_index,
             .index = 0,
             .allocated_bytes = 0,
