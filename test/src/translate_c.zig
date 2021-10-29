@@ -47,13 +47,12 @@ pub const TranslateCContext = struct {
         source: []const u8,
         expected_lines: []const []const u8,
     ) *TestCase {
-        const tc = self.b.allocator.create(TestCase) catch unreachable;
-        tc.* = TestCase{
+        const tc = self.b.create(TestCase{
             .name = name,
             .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
             .expected_lines = ArrayList([]const u8).init(self.b.allocator),
             .allow_warnings = allow_warnings,
-        };
+        });
 
         tc.addSourceFile(filename, source);
         var arg_i: usize = 0;

@@ -132,7 +132,7 @@ pub const Builder = struct {
         include_dir: ?[]const u8 = null,
     };
 
-    pub fn create(
+    pub fn createBuilder(
         allocator: *Allocator,
         zig_exe: []const u8,
         build_root: []const u8,
@@ -240,6 +240,13 @@ pub const Builder = struct {
             FileSource{ .path = p }
         else
             null;
+    }
+
+    /// Create the given object with the builder allocator
+    pub fn create(self: Builder, obj: anytype) *@TypeOf(obj) {
+        var ptr = self.allocator.create(@TypeOf(obj)) catch @panic("Out of memory");
+        ptr.* = obj;
+        return ptr;
     }
 
     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
@@ -369,22 +376,16 @@ pub const Builder = struct {
     }
 
     pub fn addWriteFiles(self: *Builder) *WriteFileStep {
-        const write_file_step = self.allocator.create(WriteFileStep) catch unreachable;
-        write_file_step.* = WriteFileStep.init(self);
-        return write_file_step;
+        return self.create(WriteFileStep.init(self));
     }
 
     pub fn addLog(self: *Builder, comptime format: []const u8, args: anytype) *LogStep {
         const data = self.fmt(format, args);
-        const log_step = self.allocator.create(LogStep) catch unreachable;
-        log_step.* = LogStep.init(self, data);
-        return log_step;
+        return self.create(LogStep.init(self, data));
     }
 
     pub fn addRemoveDirTree(self: *Builder, dir_path: []const u8) *RemoveDirStep {
-        const remove_dir_step = self.allocator.create(RemoveDirStep) catch unreachable;
-        remove_dir_step.* = RemoveDirStep.init(self, dir_path);
-        return remove_dir_step;
+        return self.create(RemoveDirStep.init(self, dir_path));
     }
 
     pub fn addFmt(self: *Builder, paths: []const []const u8) *FmtStep {
@@ -623,11 +624,10 @@ pub const Builder = struct {
     }
 
     pub fn step(self: *Builder, name: []const u8, description: []const u8) *Step {
-        const step_info = self.allocator.create(TopLevelStep) catch unreachable;
-        step_info.* = TopLevelStep{
+        const step_info = self.create(TopLevelStep{
             .step = Step.initNoOp(.top_level, name, self.allocator),
             .description = self.dupe(description),
-        };
+        });
         self.top_level_steps.append(step_info) catch unreachable;
         return &step_info.step;
     }
@@ -1034,15 +1034,11 @@ pub const Builder = struct {
         if (dest_rel_path.len == 0) {
             panic("dest_rel_path must be non-empty", .{});
         }
-        const install_step = self.allocator.create(InstallFileStep) catch unreachable;
-        install_step.* = InstallFileStep.init(self, source.dupe(self), install_dir, dest_rel_path);
-        return install_step;
+        return self.create(InstallFileStep.init(self, source.dupe(self), install_dir, dest_rel_path));
     }
 
     pub fn addInstallDirectory(self: *Builder, options: InstallDirectoryOptions) *InstallDirStep {
-        const install_step = self.allocator.create(InstallDirStep) catch unreachable;
-        install_step.* = InstallDirStep.init(self, options);
-        return install_step;
+        return self.create(InstallDirStep.init(self, options));
     }
 
     pub fn pushInstalledFile(self: *Builder, dir: InstallDir, dest_rel_path: []const u8) void {
@@ -1278,7 +1274,7 @@ test "builder.findProgram compiles" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
-    const builder = try Builder.create(
+    const builder = try Builder.createBuilder(
         &arena.allocator,
         "zig",
         "zig-cache",
@@ -1959,15 +1955,13 @@ pub const LibExeObjStep = struct {
 
     /// Handy when you have many C/C++ source files and want them all to have the same flags.
     pub fn addCSourceFiles(self: *LibExeObjStep, files: []const []const u8, flags: []const []const u8) void {
-        const c_source_files = self.builder.allocator.create(CSourceFiles) catch unreachable;
-
         const files_copy = self.builder.dupeStrings(files);
         const flags_copy = self.builder.dupeStrings(flags);
 
-        c_source_files.* = .{
+        const c_source_files = self.builder.create(CSourceFiles{
             .files = files_copy,
             .flags = flags_copy,
-        };
+        });
         self.link_objects.append(.{ .c_source_files = c_source_files }) catch unreachable;
     }
 
@@ -1979,8 +1973,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addCSourceFileSource(self: *LibExeObjStep, source: CSourceFile) void {
-        const c_source_file = self.builder.allocator.create(CSourceFile) catch unreachable;
-        c_source_file.* = source.dupe(self.builder);
+        const c_source_file = self.builder.create(source.dupe(self.builder));
         self.link_objects.append(.{ .c_source_file = c_source_file }) catch unreachable;
         source.source.addStepDependencies(&self.step);
     }
@@ -2792,8 +2785,7 @@ pub const InstallArtifactStep = struct {
     pub fn create(builder: *Builder, artifact: *LibExeObjStep) *Self {
         if (artifact.install_step) |s| return s;
 
-        const self = builder.allocator.create(Self) catch unreachable;
-        self.* = Self{
+        const self = builder.create(Self{
             .builder = builder,
             .step = Step.init(.install_artifact, builder.fmt("install {s}", .{artifact.step.name}), builder.allocator, make),
             .artifact = artifact,
@@ -2811,7 +2803,7 @@ pub const InstallArtifactStep = struct {
                 }
             } else null,
             .h_dir = if (artifact.kind == .lib and artifact.emit_h) .header else null,
-        };
+        });
         self.step.dependOn(&artifact.step);
         artifact.install_step = self;
 
@@ -3177,7 +3169,7 @@ test "Builder.dupePkg()" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    var builder = try Builder.create(
+    var builder = try Builder.createBuilder(
         &arena.allocator,
         "test",
         "test",
@@ -3222,7 +3214,7 @@ test "LibExeObjStep.addPackage" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var builder = try Builder.create(
+    var builder = try Builder.createBuilder(
         &arena.allocator,
         "test",
         "test",

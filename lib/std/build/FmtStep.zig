@@ -14,13 +14,11 @@ builder: *Builder,
 argv: [][]const u8,
 
 pub fn create(builder: *Builder, paths: []const []const u8) *FmtStep {
-    const self = builder.allocator.create(FmtStep) catch unreachable;
-    const name = "zig fmt";
-    self.* = FmtStep{
-        .step = Step.init(.fmt, name, builder.allocator, make),
+    const self = builder.create(FmtStep{
+        .step = Step.init(.fmt, "zig fmt", builder.allocator, make),
         .builder = builder,
         .argv = builder.allocator.alloc([]u8, paths.len + 2) catch unreachable,
-    };
+    });
 
     self.argv[0] = builder.zig_exe;
     self.argv[1] = "fmt";

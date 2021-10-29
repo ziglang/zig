@@ -42,13 +42,12 @@ pub const RunTranslatedCContext = struct {
         source: []const u8,
         expected_stdout: []const u8,
     ) *TestCase {
-        const tc = self.b.allocator.create(TestCase) catch unreachable;
-        tc.* = TestCase{
+        const tc = self.b.create(TestCase{
             .name = name,
             .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
             .expected_stdout = expected_stdout,
             .allow_warnings = allow_warnings,
-        };
+        });
 
         tc.addSourceFile(filename, source);
         return tc;

@@ -21,13 +21,12 @@ pub fn create(
     source: build.FileSource,
     expected_matches: []const []const u8,
 ) *CheckFileStep {
-    const self = builder.allocator.create(CheckFileStep) catch unreachable;
-    self.* = CheckFileStep{
+    const self = builder.create(CheckFileStep{
         .builder = builder,
         .step = Step.init(.check_file, "CheckFile", builder.allocator, make),
         .source = source.dupe(builder),
         .expected_matches = builder.dupeStrings(expected_matches),
-    };
+    });
     self.source.addStepDependencies(&self.step);
     return self;
 }

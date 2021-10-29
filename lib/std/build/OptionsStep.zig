@@ -19,15 +19,14 @@ artifact_args: std.ArrayList(OptionArtifactArg),
 file_source_args: std.ArrayList(OptionFileSourceArg),
 
 pub fn create(builder: *Builder) *OptionsStep {
-    const self = builder.allocator.create(OptionsStep) catch unreachable;
-    self.* = .{
+    const self = builder.create(OptionsStep{
         .builder = builder,
         .step = Step.init(.options, "options", builder.allocator, make),
         .generated_file = undefined,
         .contents = std.ArrayList(u8).init(builder.allocator),
         .artifact_args = std.ArrayList(OptionArtifactArg).init(builder.allocator),
         .file_source_args = std.ArrayList(OptionFileSourceArg).init(builder.allocator),
-    };
+    });
     self.generated_file = .{ .step = &self.step };
 
     return self;
@@ -224,7 +223,7 @@ test "OptionsStep" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    var builder = try Builder.create(
+    var builder = try Builder.createBuilder(
         &arena.allocator,
         "test",
         "test",

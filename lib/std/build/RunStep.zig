@@ -51,15 +51,13 @@ pub const Arg = union(enum) {
 };
 
 pub fn create(builder: *Builder, name: []const u8) *RunStep {
-    const self = builder.allocator.create(RunStep) catch unreachable;
-    self.* = RunStep{
+    return builder.create(RunStep{
         .builder = builder,
         .step = Step.init(.run, name, builder.allocator, make),
         .argv = ArrayList(Arg).init(builder.allocator),
         .cwd = null,
         .env_map = null,
-    };
-    return self;
+    });
 }
 
 pub fn addArtifactArg(self: *RunStep, artifact: *LibExeObjStep) void {
@@ -85,9 +83,7 @@ pub fn addArgs(self: *RunStep, args: []const []const u8) void {
 }
 
 pub fn clearEnvironment(self: *RunStep) void {
-    const new_env_map = self.builder.allocator.create(BufMap) catch unreachable;
-    new_env_map.* = BufMap.init(self.builder.allocator);
-    self.env_map = new_env_map;
+    self.env_map = self.builder.create(BufMap.init(self.builder.allocator));
 }
 
 pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
@@ -117,8 +113,9 @@ pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
 
 pub fn getEnvMap(self: *RunStep) *BufMap {
     return self.env_map orelse {
-        const env_map = self.builder.allocator.create(BufMap) catch unreachable;
-        env_map.* = process.getEnvMap(self.builder.allocator) catch unreachable;
+        const env_map = self.builder.create(
+            process.getEnvMap(self.builder.allocator) catch unreachable
+        );
         self.env_map = env_map;
         return env_map;
     };

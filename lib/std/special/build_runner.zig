@@ -41,7 +41,7 @@ pub fn main() !void {
         return error.InvalidArgs;
     };
 
-    const builder = try Builder.create(
+    const builder = try Builder.createBuilder(
         allocator,
         zig_exe,
         build_root,

@@ -31,14 +31,13 @@ pub fn init(builder: *Builder) WriteFileStep {
 }
 
 pub fn add(self: *WriteFileStep, basename: []const u8, bytes: []const u8) void {
-    const node = self.builder.allocator.create(std.TailQueue(File).Node) catch unreachable;
-    node.* = .{
+    const node = self.builder.create(std.TailQueue(File).Node{
         .data = .{
             .source = build.GeneratedFile{ .step = &self.step },
             .basename = self.builder.dupePath(basename),
             .bytes = self.builder.dupe(bytes),
         },
-    };
+    });
 
     self.files.append(node);
 }
