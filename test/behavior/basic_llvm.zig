@@ -4,135 +4,6 @@ const mem = std.mem;
 const expect = std.testing.expect;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
-const g1: i32 = 1233 + 1;
-var g2: i32 = 0;
-
-test "global variables" {
-    try expect(g2 == 0);
-    g2 = g1;
-    try expect(g2 == 1234);
-}
-
-test "comptime keyword on expressions" {
-    const x: i32 = comptime x: {
-        break :x 1 + 2 + 3;
-    };
-    try expect(x == comptime 6);
-}
-
-test "type equality" {
-    try expect(*const u8 != *u8);
-}
-
-test "pointer dereferencing" {
-    var x = @as(i32, 3);
-    const y = &x;
-
-    y.* += 1;
-
-    try expect(x == 4);
-    try expect(y.* == 4);
-}
-
-test "const expression eval handling of variables" {
-    var x = true;
-    while (x) {
-        x = false;
-    }
-}
-
-test "character literals" {
-    try expect('\'' == single_quote);
-}
-const single_quote = '\'';
-
-test "non const ptr to aliased type" {
-    const int = i32;
-    try expect(?*int == ?*i32);
-}
-
-test "cold function" {
-    thisIsAColdFn();
-    comptime thisIsAColdFn();
-}
-
-fn thisIsAColdFn() void {
-    @setCold(true);
-}
-
-test "unicode escape in character literal" {
-    var a: u24 = '\u{01f4a9}';
-    try expect(a == 128169);
-}
-
-test "unicode character in character literal" {
-    try expect('💩' == 128169);
-}
-
-fn first4KeysOfHomeRow() []const u8 {
-    return "aoeu";
-}
-
-test "return string from function" {
-    try expect(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
-}
-
-test "hex escape" {
-    try expect(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
-}
-
-test "multiline string" {
-    const s1 =
-        \\one
-        \\two)
-        \\three
-    ;
-    const s2 = "one\ntwo)\nthree";
-    try expect(mem.eql(u8, s1, s2));
-}
-
-test "multiline string comments at start" {
-    const s1 =
-        //\\one
-        \\two)
-        \\three
-    ;
-    const s2 = "two)\nthree";
-    try expect(mem.eql(u8, s1, s2));
-}
-
-test "multiline string comments at end" {
-    const s1 =
-        \\one
-        \\two)
-        //\\three
-    ;
-    const s2 = "one\ntwo)";
-    try expect(mem.eql(u8, s1, s2));
-}
-
-test "multiline string comments in middle" {
-    const s1 =
-        \\one
-        //\\two)
-        \\three
-    ;
-    const s2 = "one\nthree";
-    try expect(mem.eql(u8, s1, s2));
-}
-
-test "multiline string comments at multiple places" {
-    const s1 =
-        \\one
-        //\\two
-        \\three
-        //\\four
-        \\five
-    ;
-    const s2 = "one\nthree\nfive";
-    try expect(mem.eql(u8, s1, s2));
-}
-
 test "call result of if else expression" {
     try expect(mem.eql(u8, f2(true), "a"));
     try expect(mem.eql(u8, f2(false), "b"));
@@ -145,14 +16,6 @@ fn fA() []const u8 {
 }
 fn fB() []const u8 {
     return "b";
-}
-
-test "string concatenation" {
-    try expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
-}
-
-test "array mult operator" {
-    try expect(mem.eql(u8, "ab" ** 5, "ababababab"));
 }
 
 test "memcpy and memset intrinsics" {
@@ -176,14 +39,6 @@ fn testMemcpyMemset() !void {
 const OpaqueA = opaque {};
 const OpaqueB = opaque {};
 
-test "opaque types" {
-    try expect(*OpaqueA != *OpaqueB);
-    if (!builtin.zig_is_stage2) {
-        try expect(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
-        try expect(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
-    }
-}
-
 test "variable is allowed to be a pointer to an opaque type" {
     var x: i32 = 1234;
     _ = hereIsAnOpaqueType(@ptrCast(*OpaqueA, &x));
@@ -191,33 +46,6 @@ test "variable is allowed to be a pointer to an opaque type" {
 fn hereIsAnOpaqueType(ptr: *OpaqueA) *OpaqueA {
     var a = ptr;
     return a;
-}
-
-const global_a: i32 = 1234;
-const global_b: *const i32 = &global_a;
-const global_c: *const f32 = @ptrCast(*const f32, global_b);
-test "compile time global reinterpret" {
-    const d = @ptrCast(*const i32, global_c);
-    try expect(d.* == 1234);
-}
-
-test "cast undefined" {
-    const array: [100]u8 = undefined;
-    const slice = @as([]const u8, &array);
-    testCastUndefined(slice);
-}
-fn testCastUndefined(x: []const u8) void {
-    _ = x;
-}
-
-test "implicit cast after unreachable" {
-    try expect(outer() == 1234);
-}
-fn inner() i32 {
-    return 1234;
-}
-fn outer() i64 {
-    return inner();
 }
 
 test "take address of parameter" {
@@ -260,44 +88,6 @@ test "double implicit cast in same expression" {
 }
 fn nine() u8 {
     return 9;
-}
-
-test "comptime if inside runtime while which unconditionally breaks" {
-    testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(true);
-    comptime testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(true);
-}
-fn testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(cond: bool) void {
-    while (cond) {
-        if (false) {}
-        break;
-    }
-}
-
-test "implicit comptime while" {
-    while (false) {
-        @compileError("bad");
-    }
-}
-
-fn fnThatClosesOverLocalConst() type {
-    const c = 1;
-    return struct {
-        fn g() i32 {
-            return c;
-        }
-    };
-}
-
-test "function closes over local const" {
-    const x = fnThatClosesOverLocalConst().g();
-    try expect(x == 1);
-}
-
-test "volatile load and store" {
-    var number: i32 = 1234;
-    const ptr = @as(*volatile i32, &number);
-    ptr.* += 1;
-    try expect(ptr.* == 1235);
 }
 
 test "struct inside function" {

@@ -501,14 +501,9 @@ pub const DeclGen = struct {
                             .signed => "",
                             .unsigned => "u",
                         };
-                        inline for (.{ 8, 16, 32, 64, 128 }) |nbits| {
-                            if (info.bits <= nbits) {
-                                try w.print("{s}int{d}_t", .{ sign_prefix, nbits });
-                                break;
-                            }
-                        } else {
+                        const c_bits = toCIntBits(info.bits) orelse
                             return dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
-                        }
+                        try w.print("{s}int{d}_t", .{ sign_prefix, c_bits });
                     },
                     else => unreachable,
                 }
@@ -1089,6 +1084,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .call             => try airCall(f, inst),
             .dbg_stmt         => try airDbgStmt(f, inst),
             .intcast          => try airIntCast(f, inst),
+            .trunc            => try airTrunc(f, inst),
             .bool_to_int      => try airBoolToInt(f, inst),
             .load             => try airLoad(f, inst),
             .ret              => try airRet(f, inst),
@@ -1116,7 +1112,6 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .float_to_int,
             .fptrunc,
             .fpext,
-            .trunc,
             => try airSimpleCast(f, inst),
 
             .ptrtoint => try airPtrToInt(f, inst),
@@ -1364,6 +1359,39 @@ fn airIntCast(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, operand);
     try writer.writeAll(";\n");
     return local;
+}
+
+fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const writer = f.object.writer();
+    const operand = try f.resolveInst(ty_op.operand);
+    const target = f.object.dg.module.getTarget();
+    const dest_int_info = inst_ty.intInfo(target);
+    const dest_bits = dest_int_info.bits;
+
+    try writer.writeAll(" = ");
+
+    if (dest_bits >= 8 and std.math.isPowerOfTwo(dest_bits)) {
+        try f.writeCValue(writer, operand);
+        try writer.writeAll(";\n");
+        return local;
+    }
+
+    switch (dest_int_info.signedness) {
+        .unsigned => {
+            try f.writeCValue(writer, operand);
+            const mask = (@as(u65, 1) << @intCast(u7, dest_bits)) - 1;
+            try writer.print(" & {d}ULL;\n", .{mask});
+            return local;
+        },
+        .signed => {
+            return f.fail("TODO: C backend: implement trunc for signed integers", .{});
+        },
+    }
 }
 
 fn airBoolToInt(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -2614,4 +2642,13 @@ fn IndentWriter(comptime UnderlyingWriter: type) type {
             return bytes.len;
         }
     };
+}
+
+fn toCIntBits(zig_bits: u32) ?u32 {
+    for (&[_]u8{ 8, 16, 32, 64, 128 }) |c_bits| {
+        if (zig_bits <= c_bits) {
+            return c_bits;
+        }
+    }
+    return null;
 }
