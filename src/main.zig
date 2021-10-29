@@ -401,7 +401,7 @@ const usage_build_generic =
     \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
-    \\  -z [arg]                       Append linker arguments
+    \\  -z [arg]                       Set linker extension flags
     \\    nodelete                     Indicate that the object cannot be deleted from a process
     \\    notext                       Permit read-only relocations in read-only segments
     \\    defs                         Force a fatal error if any undefined symbols remain
@@ -1098,7 +1098,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-z")) {
                         i += 1;
                         if (i >= args.len) {
-                            fatal("expected linker arg after '{s}'", .{arg});
+                            fatal("expected linker extension flag after '{s}'", .{arg});
                         }
                         const z_arg = args[i];
                         if (mem.eql(u8, z_arg, "nodelete")) {
@@ -1116,7 +1116,7 @@ fn buildOutputType(
                         } else if (mem.eql(u8, z_arg, "relro")) {
                             linker_z_relro = true;
                         } else {
-                            warn("unsupported linker arg: -z {s}", .{z_arg});
+                            warn("unsupported linker extension flag: -z {s}", .{z_arg});
                         }
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
@@ -1449,7 +1449,7 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "-z")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
+                        fatal("expected linker extension flag after '{s}'", .{arg});
                     }
                     const z_arg = linker_args.items[i];
                     if (mem.eql(u8, z_arg, "nodelete")) {
@@ -1467,7 +1467,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, z_arg, "relro")) {
                         linker_z_relro = true;
                     } else {
-                        warn("unsupported linker arg: -z {s}", .{z_arg});
+                        warn("unsupported linker extension flag: -z {s}", .{z_arg});
                     }
                 } else if (mem.eql(u8, arg, "--major-image-version")) {
                     i += 1;
