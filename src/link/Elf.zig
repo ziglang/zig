@@ -1332,6 +1332,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.add(self.base.options.each_lib_rpath);
         man.hash.add(self.base.options.skip_linker_dependencies);
         man.hash.add(self.base.options.z_nodelete);
+        man.hash.add(self.base.options.z_notext);
         man.hash.add(self.base.options.z_defs);
         man.hash.add(self.base.options.z_origin);
         man.hash.add(self.base.options.z_noexecstack);
@@ -1469,6 +1470,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         if (self.base.options.z_nodelete) {
             try argv.append("-z");
             try argv.append("nodelete");
+        }
+        if (self.base.options.z_notext) {
+            try argv.append("-z");
+            try argv.append("notext");
         }
         if (self.base.options.z_defs) {
             try argv.append("-z");

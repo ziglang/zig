@@ -401,6 +401,14 @@ const usage_build_generic =
     \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
+    \\  -z [arg]                       Append linker arguments
+    \\    nodelete                     Indicate that the object cannot be deleted from a process
+    \\    notext                       Permit read-only relocations in read-only segments
+    \\    defs                         Force a fatal error if any undefined symbols remain
+    \\    origin                       Indicate that the object must have its origin processed
+    \\    noexecstack                  Indicate that the object requires an executable stack
+    \\    now                          Force all relocations to be processed on load
+    \\    relro                        Force all relocations to be resolved and be read-only on load
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
@@ -595,6 +603,7 @@ fn buildOutputType(
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
     var linker_z_nodelete = false;
+    var linker_z_notext = false;
     var linker_z_defs = false;
     var linker_z_origin = false;
     var linker_z_noexecstack = false;
@@ -1086,6 +1095,29 @@ fn buildOutputType(
                         linker_allow_shlib_undefined = true;
                     } else if (mem.eql(u8, arg, "-fno-allow-shlib-undefined")) {
                         linker_allow_shlib_undefined = false;
+                    } else if (mem.eql(u8, arg, "-z")) {
+                        i += 1;
+                        if (i >= args.len) {
+                            fatal("expected linker arg after '{s}'", .{arg});
+                        }
+                        const z_arg = args[i];
+                        if (mem.eql(u8, z_arg, "nodelete")) {
+                            linker_z_nodelete = true;
+                        } else if (mem.eql(u8, z_arg, "notext")) {
+                            linker_z_notext = true;
+                        } else if (mem.eql(u8, z_arg, "defs")) {
+                            linker_z_defs = true;
+                        } else if (mem.eql(u8, z_arg, "origin")) {
+                            linker_z_origin = true;
+                        } else if (mem.eql(u8, z_arg, "noexecstack")) {
+                            linker_z_noexecstack = true;
+                        } else if (mem.eql(u8, z_arg, "now")) {
+                            linker_z_now = true;
+                        } else if (mem.eql(u8, z_arg, "relro")) {
+                            linker_z_relro = true;
+                        } else {
+                            warn("unsupported linker arg: -z {s}", .{z_arg});
+                        }
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
@@ -1422,6 +1454,8 @@ fn buildOutputType(
                     const z_arg = linker_args.items[i];
                     if (mem.eql(u8, z_arg, "nodelete")) {
                         linker_z_nodelete = true;
+                    } else if (mem.eql(u8, z_arg, "notext")) {
+                        linker_z_notext = true;
                     } else if (mem.eql(u8, z_arg, "defs")) {
                         linker_z_defs = true;
                     } else if (mem.eql(u8, z_arg, "origin")) {
@@ -2108,6 +2142,7 @@ fn buildOutputType(
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
         .linker_z_nodelete = linker_z_nodelete,
+        .linker_z_notext = linker_z_notext,
         .linker_z_defs = linker_z_defs,
         .linker_z_origin = linker_z_origin,
         .linker_z_noexecstack = linker_z_noexecstack,
