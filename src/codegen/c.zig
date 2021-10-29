@@ -242,7 +242,11 @@ pub const DeclGen = struct {
             },
             .Float => {
                 if (ty.floatBits(dg.module.getTarget()) <= 64) {
-                    return writer.print("{x}", .{val.toFloat(f64)});
+                    if (std.math.isNan(val.toFloat(f64))) {
+                        return writer.print("NAN", .{});
+                    } else {
+                        return writer.print("{x}", .{val.toFloat(f64)});
+                    }
                 }
                 return dg.fail("TODO: C backend: implement lowering large float values", .{});
             },

@@ -123,6 +123,17 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <limits.h>
+
+#if __STDC_VERSION__ >= 199901L
+#include <math.h>
+#elif __GNUC__
+#define _GNU_SOURCE
+#include <math.h>
+#undef _GNU_SOURCE
+#else
+#define NAN 0.0f / 0.0f
+#endif
+
 #define int128_t __int128
 #define uint128_t unsigned __int128
 ZIG_EXTERN_C void *memcpy (void *ZIG_RESTRICT, const void *ZIG_RESTRICT, size_t);
