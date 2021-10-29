@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 
 test {
     // Tests that pass for stage1, stage2, and the C backend.
-    {}
+    _ = @import("behavior/if.zig");
 
     if (builtin.object_format != .c) {
         // Tests that pass for stage1 and stage2 but not the C backend.
@@ -43,7 +43,7 @@ test {
         _ = @import("behavior/generics.zig");
         _ = @import("behavior/hasdecl.zig");
         _ = @import("behavior/hasfield.zig");
-        _ = @import("behavior/if.zig");
+        _ = @import("behavior/if_llvm.zig");
         _ = @import("behavior/math.zig");
         _ = @import("behavior/maximum_minimum.zig");
         _ = @import("behavior/member_func.zig");

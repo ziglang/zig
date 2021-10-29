@@ -1117,8 +1117,9 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .float_to_int,
             .fptrunc,
             .fpext,
-            .ptrtoint,
             => try airSimpleCast(f, inst),
+
+            .ptrtoint => try airPtrToInt(f, inst),
 
             .atomic_store_unordered => try airAtomicStore(f, inst, toMemoryOrder(.Unordered)),
             .atomic_store_monotonic => try airAtomicStore(f, inst, toMemoryOrder(.Monotonic)),
@@ -2264,15 +2265,18 @@ fn airWrapOptional(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 fn airWrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
+    if (f.liveness.isUnused(inst)) return CValue.none;
 
     const writer = f.object.writer();
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const operand = try f.resolveInst(ty_op.operand);
+    const err_un_ty = f.air.typeOfIndex(inst);
+    const payload_ty = err_un_ty.errorUnionPayload();
+    if (!payload_ty.hasCodeGenBits()) {
+        return operand;
+    }
 
-    const inst_ty = f.air.typeOfIndex(inst);
-    const local = try f.allocLocal(inst_ty, .Const);
+    const local = try f.allocLocal(err_un_ty, .Const);
     try writer.writeAll(" = { .error = ");
     try f.writeCValue(writer, operand);
     try writer.writeAll(" };\n");
@@ -2343,14 +2347,28 @@ fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
 /// Emits a local variable with the result type and initializes it
 /// with the operand.
 fn airSimpleCast(f: *Function, inst: Air.Inst.Index) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
+    if (f.liveness.isUnused(inst)) return CValue.none;
 
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const writer = f.object.writer();
     const operand = try f.resolveInst(ty_op.operand);
+
+    try writer.writeAll(" = ");
+    try f.writeCValue(writer, operand);
+    try writer.writeAll(";\n");
+    return local;
+}
+
+fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const writer = f.object.writer();
+    const operand = try f.resolveInst(un_op);
 
     try writer.writeAll(" = ");
     try f.writeCValue(writer, operand);
