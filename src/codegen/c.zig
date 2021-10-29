@@ -477,7 +477,7 @@ pub const DeclGen = struct {
             .Bool => try w.writeAll("bool"),
             .Int => {
                 switch (t.tag()) {
-                    .u8 => try w.writeAll("uint8_t"),
+                    .u1, .u8 => try w.writeAll("uint8_t"),
                     .i8 => try w.writeAll("int8_t"),
                     .u16 => try w.writeAll("uint16_t"),
                     .i16 => try w.writeAll("int16_t"),
