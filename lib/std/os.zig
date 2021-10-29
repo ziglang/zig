@@ -4663,7 +4663,6 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             switch (errno(system.fcntl(fd, F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
                 .BADF => return error.FileNotFound,
-                error.NotLink => unreachable,
                 // TODO man pages for fcntl on macOS don't really tell you what
                 // errno values to expect when command is F.GETPATH...
                 else => |err| return unexpectedErrno(err),
