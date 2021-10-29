@@ -1089,7 +1089,6 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .call             => try airCall(f, inst),
             .dbg_stmt         => try airDbgStmt(f, inst),
             .intcast          => try airIntCast(f, inst),
-            .trunc            => try airTrunc(f, inst),
             .bool_to_int      => try airBoolToInt(f, inst),
             .load             => try airLoad(f, inst),
             .ret              => try airRet(f, inst),
@@ -1117,6 +1116,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .float_to_int,
             .fptrunc,
             .fpext,
+            .trunc,
             => try airSimpleCast(f, inst),
 
             .ptrtoint => try airPtrToInt(f, inst),
@@ -1364,16 +1364,6 @@ fn airIntCast(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, operand);
     try writer.writeAll(";\n");
     return local;
-}
-
-fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
-
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
-    const operand = try f.resolveInst(ty_op.operand);
-    _ = operand;
-    return f.fail("TODO: C backend: airTrunc", .{});
 }
 
 fn airBoolToInt(f: *Function, inst: Air.Inst.Index) !CValue {
