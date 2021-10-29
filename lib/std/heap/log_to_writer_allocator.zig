@@ -29,7 +29,7 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
             ra: usize,
         ) error{OutOfMemory}![]u8 {
             self.writer.print("alloc : {}", .{len}) catch {};
-            const result = self.parent_allocator.allocFn(self.parent_allocator.ptr, len, ptr_align, len_align, ra);
+            const result = self.parent_allocator.vtable.alloc(self.parent_allocator.ptr, len, ptr_align, len_align, ra);
             if (result) |_| {
                 self.writer.print(" success!\n", .{}) catch {};
             } else |_| {
@@ -53,7 +53,7 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
             } else {
                 self.writer.print("expand: {} to {}", .{ buf.len, new_len }) catch {};
             }
-            if (self.parent_allocator.resizeFn(self.parent_allocator.ptr, buf, buf_align, new_len, len_align, ra)) |resized_len| {
+            if (self.parent_allocator.vtable.resize(self.parent_allocator.ptr, buf, buf_align, new_len, len_align, ra)) |resized_len| {
                 if (new_len > buf.len) {
                     self.writer.print(" success!\n", .{}) catch {};
                 }

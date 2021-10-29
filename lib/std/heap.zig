@@ -154,8 +154,11 @@ const CAllocator = struct {
 /// `malloc`/`free`, see `raw_c_allocator`.
 pub const c_allocator = Allocator{
     .ptr = undefined,
-    .allocFn = CAllocator.alloc,
-    .resizeFn = CAllocator.resize,
+    .vtable = &c_allocator_vtable,
+};
+const c_allocator_vtable = Allocator.VTable{
+    .alloc = CAllocator.alloc,
+    .resize = CAllocator.resize,
 };
 
 /// Asserts allocations are within `@alignOf(std.c.max_align_t)` and directly calls
@@ -165,8 +168,11 @@ pub const c_allocator = Allocator{
 /// than `c_allocator`.
 pub const raw_c_allocator = Allocator{
     .ptr = undefined,
-    .allocFn = rawCAlloc,
-    .resizeFn = rawCResize,
+    .vtable = &raw_c_allocator_vtable,
+};
+const raw_c_allocator_vtable = Allocator.VTable{
+    .alloc = rawCAlloc,
+    .resize = rawCResize,
 };
 
 fn rawCAlloc(
@@ -208,16 +214,14 @@ fn rawCResize(
 pub const page_allocator = if (builtin.target.isWasm())
     Allocator{
         .ptr = undefined,
-        .allocFn = WasmPageAllocator.alloc,
-        .resizeFn = WasmPageAllocator.resize,
+        .vtable = &WasmPageAllocator.vtable,
     }
 else if (builtin.target.os.tag == .freestanding)
     root.os.heap.page_allocator
 else
     Allocator{
         .ptr = undefined,
-        .allocFn = PageAllocator.alloc,
-        .resizeFn = PageAllocator.resize,
+        .vtable = &PageAllocator.vtable,
     };
 
 /// Verifies that the adjusted length will still map to the full length
@@ -231,6 +235,11 @@ pub fn alignPageAllocLen(full_len: usize, len: usize, len_align: u29) usize {
 pub var next_mmap_addr_hint: ?[*]align(mem.page_size) u8 = null;
 
 const PageAllocator = struct {
+    const vtable = Allocator.VTable{
+        .alloc = alloc,
+        .resize = resize,
+    };
+
     fn alloc(_: *c_void, n: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
         _ = ra;
         assert(n > 0);
@@ -399,6 +408,11 @@ const WasmPageAllocator = struct {
             @compileError("WasmPageAllocator is only available for wasm32 arch");
         }
     }
+
+    const vtable = Allocator.VTable{
+        .alloc = alloc,
+        .resize = resize,
+    };
 
     const PageStatus = enum(u1) {
         used = 0,
@@ -807,7 +821,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             return_address: usize,
         ) error{OutOfMemory}![]u8 {
             return FixedBufferAllocator.alloc(&self.fixed_buffer_allocator, len, ptr_align, len_align, return_address) catch
-                return self.fallback_allocator.allocFn(self.fallback_allocator.ptr, len, ptr_align, len_align, return_address);
+                return self.fallback_allocator.vtable.alloc(self.fallback_allocator.ptr, len, ptr_align, len_align, return_address);
         }
 
         fn resize(
@@ -821,7 +835,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
                 return FixedBufferAllocator.resize(&self.fixed_buffer_allocator, buf, buf_align, new_len, len_align, return_address);
             } else {
-                return self.fallback_allocator.resizeFn(self.fallback_allocator.ptr, buf, buf_align, new_len, len_align, return_address);
+                return self.fallback_allocator.vtable.resize(self.fallback_allocator.ptr, buf, buf_align, new_len, len_align, return_address);
             }
         }
     };

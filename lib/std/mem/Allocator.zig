@@ -10,39 +10,42 @@ pub const Error = error{OutOfMemory};
 
 // The type erased pointer to the allocator implementation
 ptr: *c_void,
+vtable: *const VTable,
 
-/// Attempt to allocate at least `len` bytes aligned to `ptr_align`.
-///
-/// If `len_align` is `0`, then the length returned MUST be exactly `len` bytes,
-/// otherwise, the length must be aligned to `len_align`.
-///
-/// `len` must be greater than or equal to `len_align` and must be aligned by `len_align`.
-///
-/// `ret_addr` is optionally provided as the first return address of the allocation call stack.
-/// If the value is `0` it means no return address has been provided.
-allocFn: fn (ptr: *c_void, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8,
+pub const VTable = struct {
+    /// Attempt to allocate at least `len` bytes aligned to `ptr_align`.
+    ///
+    /// If `len_align` is `0`, then the length returned MUST be exactly `len` bytes,
+    /// otherwise, the length must be aligned to `len_align`.
+    ///
+    /// `len` must be greater than or equal to `len_align` and must be aligned by `len_align`.
+    ///
+    /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
+    /// If the value is `0` it means no return address has been provided.
+    alloc: fn (ptr: *c_void, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8,
 
-/// Attempt to expand or shrink memory in place. `buf.len` must equal the most recent
-/// length returned by `allocFn` or `resizeFn`. `buf_align` must equal the same value
-/// that was passed as the `ptr_align` parameter to the original `allocFn` call.
-///
-/// Passing a `new_len` of 0 frees and invalidates the buffer such that it can no
-/// longer be passed to `resizeFn`.
-///
-/// error.OutOfMemory can only be returned if `new_len` is greater than `buf.len`.
-/// If `buf` cannot be expanded to accomodate `new_len`, then the allocation MUST be
-/// unmodified and error.OutOfMemory MUST be returned.
-///
-/// If `len_align` is `0`, then the length returned MUST be exactly `len` bytes,
-/// otherwise, the length must be aligned to `len_align`. Note that `len_align` does *not*
-/// provide a way to modify the alignment of a pointer. Rather it provides an API for
-/// accepting more bytes of memory from the allocator than requested.
-///
-/// `new_len` must be greater than or equal to `len_align` and must be aligned by `len_align`.
-///
-/// `ret_addr` is optionally provided as the first return address of the allocation call stack.
-/// If the value is `0` it means no return address has been provided.
-resizeFn: fn (ptr: *c_void, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) Error!usize,
+    /// Attempt to expand or shrink memory in place. `buf.len` must equal the most recent
+    /// length returned by `alloc` or `resize`. `buf_align` must equal the same value
+    /// that was passed as the `ptr_align` parameter to the original `alloc` call.
+    ///
+    /// Passing a `new_len` of 0 frees and invalidates the buffer such that it can no
+    /// longer be passed to `resize`.
+    ///
+    /// error.OutOfMemory can only be returned if `new_len` is greater than `buf.len`.
+    /// If `buf` cannot be expanded to accomodate `new_len`, then the allocation MUST be
+    /// unmodified and error.OutOfMemory MUST be returned.
+    ///
+    /// If `len_align` is `0`, then the length returned MUST be exactly `len` bytes,
+    /// otherwise, the length must be aligned to `len_align`. Note that `len_align` does *not*
+    /// provide a way to modify the alignment of a pointer. Rather it provides an API for
+    /// accepting more bytes of memory from the allocator than requested.
+    ///
+    /// `new_len` must be greater than or equal to `len_align` and must be aligned by `len_align`.
+    ///
+    /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
+    /// If the value is `0` it means no return address has been provided.
+    resize: fn (ptr: *c_void, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) Error!usize,
+};
 
 pub fn init(
     pointer: anytype,
@@ -64,11 +67,14 @@ pub fn init(
             return resizeFn(self, buf, buf_align, new_len, len_align, ret_addr);
         }
     };
+    const vtable = VTable{
+        .alloc = gen.alloc,
+        .resize = gen.resize,
+    };
 
     return .{
         .ptr = pointer,
-        .allocFn = gen.alloc,
-        .resizeFn = gen.resize,
+        .vtable = &vtable,
     };
 }
 
@@ -141,7 +147,7 @@ fn reallocBytes(
     return_address: usize,
 ) Error![]u8 {
     if (old_mem.len == 0) {
-        const new_mem = try self.allocFn(self.ptr, new_byte_count, new_alignment, len_align, return_address);
+        const new_mem = try self.vtable.alloc(self.ptr, new_byte_count, new_alignment, len_align, return_address);
         // TODO: https://github.com/ziglang/zig/issues/4298
         @memset(new_mem.ptr, undefined, new_byte_count);
         return new_mem;
@@ -152,7 +158,7 @@ fn reallocBytes(
             const shrunk_len = self.shrinkBytes(old_mem, old_alignment, new_byte_count, len_align, return_address);
             return old_mem.ptr[0..shrunk_len];
         }
-        if (self.resizeFn(self.ptr, old_mem, old_alignment, new_byte_count, len_align, return_address)) |resized_len| {
+        if (self.vtable.resize(self.ptr, old_mem, old_alignment, new_byte_count, len_align, return_address)) |resized_len| {
             assert(resized_len >= new_byte_count);
             // TODO: https://github.com/ziglang/zig/issues/4298
             @memset(old_mem.ptr + new_byte_count, undefined, resized_len - new_byte_count);
@@ -178,7 +184,7 @@ fn moveBytes(
 ) Error![]u8 {
     assert(old_mem.len > 0);
     assert(new_len > 0);
-    const new_mem = try self.allocFn(self.ptr, new_len, new_alignment, len_align, return_address);
+    const new_mem = try self.vtable.alloc(self.ptr, new_len, new_alignment, len_align, return_address);
     @memcpy(new_mem.ptr, old_mem.ptr, math.min(new_len, old_mem.len));
     // TODO https://github.com/ziglang/zig/issues/4298
     @memset(old_mem.ptr, undefined, old_mem.len);
@@ -320,7 +326,7 @@ pub fn allocAdvancedWithRetAddr(
         .exact => 0,
         .at_least => size_of_T,
     };
-    const byte_slice = try self.allocFn(self.ptr, byte_count, a, len_align, return_address);
+    const byte_slice = try self.vtable.alloc(self.ptr, byte_count, a, len_align, return_address);
     switch (exact) {
         .exact => assert(byte_slice.len == byte_count),
         .at_least => assert(byte_slice.len >= byte_count),
@@ -345,7 +351,7 @@ pub fn resize(self: Allocator, old_mem: anytype, new_n: usize) Error!@TypeOf(old
     }
     const old_byte_slice = mem.sliceAsBytes(old_mem);
     const new_byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
-    const rc = try self.resizeFn(self.ptr, old_byte_slice, Slice.alignment, new_byte_count, 0, @returnAddress());
+    const rc = try self.vtable.resize(self.ptr, old_byte_slice, Slice.alignment, new_byte_count, 0, @returnAddress());
     assert(rc == new_byte_count);
     const new_byte_slice = old_byte_slice.ptr[0..new_byte_count];
     return mem.bytesAsSlice(T, new_byte_slice);
@@ -514,5 +520,5 @@ pub fn shrinkBytes(
     return_address: usize,
 ) usize {
     assert(new_len <= buf.len);
-    return self.resizeFn(self.ptr, buf, buf_align, new_len, len_align, return_address) catch unreachable;
+    return self.vtable.resize(self.ptr, buf, buf_align, new_len, len_align, return_address) catch unreachable;
 }

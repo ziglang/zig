@@ -70,7 +70,7 @@ pub fn ValidationAllocator(comptime T: type) type {
             }
 
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = try underlying.allocFn(underlying.ptr, n, ptr_align, len_align, ret_addr);
+            const result = try underlying.vtable.alloc(underlying.ptr, n, ptr_align, len_align, ret_addr);
             assert(mem.isAligned(@ptrToInt(result.ptr), ptr_align));
             if (len_align == 0) {
                 assert(result.len == n);
@@ -95,7 +95,7 @@ pub fn ValidationAllocator(comptime T: type) type {
                 assert(new_len >= len_align);
             }
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = try underlying.resizeFn(underlying.ptr, buf, buf_align, new_len, len_align, ret_addr);
+            const result = try underlying.vtable.resize(underlying.ptr, buf, buf_align, new_len, len_align, ret_addr);
             if (len_align == 0) {
                 assert(result == new_len);
             } else {
@@ -131,10 +131,14 @@ pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
     return adjusted;
 }
 
-const failAllocator = Allocator{
+const fail_allocator = Allocator{
     .ptr = undefined,
-    .allocFn = failAllocatorAlloc,
-    .resizeFn = Allocator.NoResize(c_void).noResize,
+    .vtable = &failAllocator_vtable,
+};
+
+const failAllocator_vtable = Allocator.VTable{
+    .alloc = failAllocatorAlloc,
+    .resize = Allocator.NoResize(c_void).noResize,
 };
 
 fn failAllocatorAlloc(_: *c_void, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
@@ -146,8 +150,8 @@ fn failAllocatorAlloc(_: *c_void, n: usize, alignment: u29, len_align: u29, ra: 
 }
 
 test "mem.Allocator basics" {
-    try testing.expectError(error.OutOfMemory, failAllocator.alloc(u8, 1));
-    try testing.expectError(error.OutOfMemory, failAllocator.allocSentinel(u8, 1, 0));
+    try testing.expectError(error.OutOfMemory, fail_allocator.alloc(u8, 1));
+    try testing.expectError(error.OutOfMemory, fail_allocator.allocSentinel(u8, 1, 0));
 }
 
 test "Allocator.resize" {

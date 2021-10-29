@@ -388,7 +388,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     var it = self.large_allocations.iterator();
                     while (it.next()) |large| {
                         if (large.value_ptr.freed) {
-                            _ = self.backing_allocator.resizeFn(self.backing_allocator.ptr, large.value_ptr.bytes, large.value_ptr.ptr_align, 0, 0, @returnAddress()) catch unreachable;
+                            _ = self.backing_allocator.vtable.resize(self.backing_allocator.ptr, large.value_ptr.bytes, large.value_ptr.ptr_align, 0, 0, @returnAddress()) catch unreachable;
                         }
                     }
                 }
