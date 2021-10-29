@@ -173,12 +173,12 @@ pub const Loop = struct {
         // We need at least one of these in case the fs thread wants to use onNextTick
         const extra_thread_count = thread_count - 1;
         const resume_node_count = std.math.max(extra_thread_count, 1);
-        self.eventfd_resume_nodes = try self.arena.allocator.alloc(
+        self.eventfd_resume_nodes = try self.arena.getAllocator().alloc(
             std.atomic.Stack(ResumeNode.EventFd).Node,
             resume_node_count,
         );
 
-        self.extra_threads = try self.arena.allocator.alloc(Thread, extra_thread_count);
+        self.extra_threads = try self.arena.getAllocator().alloc(Thread, extra_thread_count);
 
         try self.initOsData(extra_thread_count);
         errdefer self.deinitOsData();

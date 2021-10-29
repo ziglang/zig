@@ -48,7 +48,7 @@ const Version = struct {
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    const allocator = &arena.allocator;
+    const allocator = arena.getAllocator();
 
     const args = try std.process.argsAlloc(allocator);
 

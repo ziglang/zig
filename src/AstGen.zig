@@ -98,7 +98,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
 
     var astgen: AstGen = .{
         .gpa = gpa,
-        .arena = &arena.allocator,
+        .arena = arena.getAllocator(),
         .tree = &tree,
     };
     defer astgen.deinit(gpa);
@@ -1939,6 +1939,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
 
     var block_arena = std.heap.ArenaAllocator.init(gz.astgen.gpa);
     defer block_arena.deinit();
+    const block_arena_allocator = block_arena.getAllocator();
 
     var noreturn_src_node: Ast.Node.Index = 0;
     var scope = parent_scope;
@@ -1959,13 +1960,13 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
         }
         switch (node_tags[statement]) {
             // zig fmt: off
-            .global_var_decl  => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.globalVarDecl(statement)),
-            .local_var_decl   => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.localVarDecl(statement)),
-            .simple_var_decl  => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.simpleVarDecl(statement)),
-            .aligned_var_decl => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.alignedVarDecl(statement)),
+            .global_var_decl  => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.globalVarDecl(statement)),
+            .local_var_decl   => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.localVarDecl(statement)),
+            .simple_var_decl  => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.simpleVarDecl(statement)),
+            .aligned_var_decl => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.alignedVarDecl(statement)),
 
-            .@"defer"    => scope = try makeDeferScope(gz.astgen, scope, statement, &block_arena.allocator, .defer_normal),
-            .@"errdefer" => scope = try makeDeferScope(gz.astgen, scope, statement, &block_arena.allocator, .defer_error),
+            .@"defer"    => scope = try makeDeferScope(gz.astgen, scope, statement, block_arena_allocator, .defer_normal),
+            .@"errdefer" => scope = try makeDeferScope(gz.astgen, scope, statement, block_arena_allocator, .defer_error),
 
             .assign => try assign(gz, scope, statement),
 

@@ -1243,7 +1243,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
     var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.getAllocator();
 
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
 

@@ -19,7 +19,7 @@ pub fn renderAsTextToFile(
 
     var writer: Writer = .{
         .gpa = gpa,
-        .arena = &arena.allocator,
+        .arena = arena.getAllocator(),
         .file = scope_file,
         .code = scope_file.zir,
         .indent = 0,
@@ -74,7 +74,7 @@ pub fn renderInstructionContext(
 
     var writer: Writer = .{
         .gpa = gpa,
-        .arena = &arena.allocator,
+        .arena = arena.getAllocator(),
         .file = scope_file,
         .code = scope_file.zir,
         .indent = if (indent < 2) 2 else indent,
@@ -106,7 +106,7 @@ pub fn renderSingleInstruction(
 
     var writer: Writer = .{
         .gpa = gpa,
-        .arena = &arena.allocator,
+        .arena = arena.getAllocator(),
         .file = scope_file,
         .code = scope_file.zir,
         .indent = indent,

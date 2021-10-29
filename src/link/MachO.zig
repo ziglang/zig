@@ -412,7 +412,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
     var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.getAllocator();
 
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
 
@@ -5379,7 +5379,7 @@ fn snapshotState(self: *MachO) !void {
 
     var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.getAllocator();
 
     const out_file = try emit.directory.handle.createFile("snapshots.json", .{
         .truncate = self.cold_start,

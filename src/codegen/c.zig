@@ -390,6 +390,7 @@ pub const DeclGen = struct {
                         // Fall back to generic implementation.
                         var arena = std.heap.ArenaAllocator.init(dg.module.gpa);
                         defer arena.deinit();
+                        const arena_allocator = arena.getAllocator();
 
                         try writer.writeAll("{");
                         var index: usize = 0;
@@ -397,7 +398,7 @@ pub const DeclGen = struct {
                         const elem_ty = ty.elemType();
                         while (index < len) : (index += 1) {
                             if (index != 0) try writer.writeAll(",");
-                            const elem_val = try val.elemValue(&arena.allocator, index);
+                            const elem_val = try val.elemValue(arena_allocator, index);
                             try dg.renderValue(writer, elem_ty, elem_val);
                         }
                         if (ty.sentinel()) |sentinel_val| {

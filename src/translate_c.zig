@@ -373,13 +373,14 @@ pub fn translate(
     // from this function.
     var arena = std.heap.ArenaAllocator.init(gpa);
     errdefer arena.deinit();
+    const arena_allocator = arena.getAllocator();
 
     var context = Context{
         .gpa = gpa,
-        .arena = &arena.allocator,
+        .arena = arena_allocator,
         .source_manager = ast_unit.getSourceManager(),
         .alias_list = AliasList.init(gpa),
-        .global_scope = try arena.allocator.create(Scope.Root),
+        .global_scope = try arena_allocator.create(Scope.Root),
         .clang_context = ast_unit.getASTContext(),
         .pattern_list = try PatternList.init(gpa),
     };

@@ -628,7 +628,7 @@ pub const File = struct {
 
         var arena_allocator = std.heap.ArenaAllocator.init(base.allocator);
         defer arena_allocator.deinit();
-        const arena = &arena_allocator.allocator;
+        const arena = arena_allocator.getAllocator();
 
         const directory = base.options.emit.?.directory; // Just an alias to make it shorter to type.
 

@@ -450,8 +450,13 @@ const cpu_targets = struct {
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
+<<<<<<< HEAD
     const allocator = &arena.allocator;
 
+=======
+
+    const allocator = arena.getAllocator();
+>>>>>>> 11157e318 (allocgate: stage 1 and 2 building)
     const args = try std.process.argsAlloc(allocator);
 
     if (args.len <= 1) {
