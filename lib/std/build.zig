@@ -204,10 +204,10 @@ pub const Builder = struct {
     pub fn resolveInstallPrefix(self: *Builder, install_prefix: ?[]const u8, dir_list: DirList) void {
         if (self.dest_dir) |dest_dir| {
             self.install_prefix = install_prefix orelse "/usr";
-            self.install_path = self.pathJoin(&[_][]const u8{ dest_dir, self.install_prefix });
+            self.install_path = self.pathJoin(&.{ dest_dir, self.install_prefix });
         } else {
             self.install_prefix = install_prefix orelse
-                (self.pathJoin(&[_][]const u8{ self.build_root, "zig-out" }));
+                (self.pathJoin(&.{ self.build_root, "zig-out" }));
             self.install_path = self.install_prefix;
         }
 
@@ -1103,7 +1103,7 @@ pub const Builder = struct {
                 if (fs.path.isAbsolute(name)) {
                     return name;
                 }
-                const full_path = self.pathJoin(&[_][]const u8{
+                const full_path = self.pathJoin(&.{
                     search_prefix,
                     "bin",
                     self.fmt("{s}{s}", .{ name, exe_extension }),
@@ -1118,7 +1118,7 @@ pub const Builder = struct {
                 }
                 var it = mem.tokenize(u8, PATH, &[_]u8{fs.path.delimiter});
                 while (it.next()) |path| {
-                    const full_path = self.pathJoin(&[_][]const u8{
+                    const full_path = self.pathJoin(&.{
                         path,
                         self.fmt("{s}{s}", .{ name, exe_extension }),
                     });
@@ -1131,7 +1131,7 @@ pub const Builder = struct {
                 return name;
             }
             for (paths) |path| {
-                const full_path = self.pathJoin(&[_][]const u8{
+                const full_path = self.pathJoin(&.{
                     path,
                     self.fmt("{s}{s}", .{ name, exe_extension }),
                 });
@@ -1230,7 +1230,7 @@ pub const Builder = struct {
             .bin => self.exe_dir,
             .lib => self.lib_dir,
             .header => self.h_dir,
-            .custom => |path| self.pathJoin(&[_][]const u8{ self.install_path, path }),
+            .custom => |path| self.pathJoin(&.{ self.install_path, path }),
         };
         return fs.path.resolve(
             self.allocator,
@@ -1711,7 +1711,7 @@ pub const LibExeObjStep = struct {
             }
             if (self.output_dir != null) {
                 self.output_lib_path_source.path = self.builder.pathJoin(
-                    &[_][]const u8{ self.output_dir.?, self.out_lib_filename },
+                    &.{ self.output_dir.?, self.out_lib_filename },
                 );
             }
         }
@@ -2139,14 +2139,14 @@ pub const LibExeObjStep = struct {
                 const triplet = try self.target.vcpkgTriplet(allocator, if (linkage == .static) .Static else .Dynamic);
                 defer self.builder.allocator.free(triplet);
 
-                const include_path = self.pathJoin(&[_][]const u8{ root, "installed", triplet, "include" });
+                const include_path = self.builder.pathJoin(&.{ root, "installed", triplet, "include" });
                 errdefer allocator.free(include_path);
                 try self.include_dirs.append(IncludeDir{ .raw_path = include_path });
 
-                const lib_path = self.pathJoin(&[_][]const u8{ root, "installed", triplet, "lib" });
+                const lib_path = self.builder.pathJoin(&.{ root, "installed", triplet, "lib" });
                 try self.lib_paths.append(lib_path);
 
-                self.vcpkg_bin_path = self.pathJoin(&[_][]const u8{ root, "installed", triplet, "bin" });
+                self.vcpkg_bin_path = self.builder.pathJoin(&.{ root, "installed", triplet, "bin" });
             },
         }
     }
@@ -2664,11 +2664,11 @@ pub const LibExeObjStep = struct {
 
         for (builder.search_prefixes.items) |search_prefix| {
             try zig_args.append("-L");
-            try zig_args.append(builder.pathJoin(&[_][]const u8{
+            try zig_args.append(builder.pathJoin(&.{
                 search_prefix, "lib",
             }));
             try zig_args.append("-isystem");
-            try zig_args.append(builder.pathJoin(&[_][]const u8{
+            try zig_args.append(builder.pathJoin(&.{
                 search_prefix, "include",
             }));
         }
@@ -2774,18 +2774,18 @@ pub const LibExeObjStep = struct {
         // Update generated files
         if (self.output_dir != null) {
             self.output_path_source.path = builder.pathJoin(
-                &[_][]const u8{ self.output_dir.?, self.out_filename },
+                &.{ self.output_dir.?, self.out_filename },
             );
 
             if (self.emit_h) {
                 self.output_h_path_source.path = builder.pathJoin(
-                    &[_][]const u8{ self.output_dir.?, self.out_h_filename },
+                    &.{ self.output_dir.?, self.out_h_filename },
                 );
             }
 
             if (self.target.isWindows() or self.target.isUefi()) {
                 self.output_pdb_path_source.path = builder.pathJoin(
-                    &[_][]const u8{ self.output_dir.?, self.out_pdb_filename },
+                    &.{ self.output_dir.?, self.out_pdb_filename },
                 );
             }
         }
@@ -2967,11 +2967,11 @@ pub const InstallDirStep = struct {
                 }
             }
 
-            const full_path = self.builder.pathJoin(&[_][]const u8{
+            const full_path = self.builder.pathJoin(&.{
                 full_src_dir, entry.path,
             });
 
-            const dest_path = self.builder.pathJoin(&[_][]const u8{
+            const dest_path = self.builder.pathJoin(&.{
                 dest_prefix, entry.path,
             });
 
