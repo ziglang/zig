@@ -767,6 +767,7 @@ pub const InitOptions = struct {
     compatibility_version: ?std.builtin.Version = null,
     libc_installation: ?*const LibCInstallation = null,
     machine_code_model: std.builtin.CodeModel = .default,
+    target_abi: ?std.Target.TargetAbi,
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
     /// This is for stage1 and should be deleted upon completion of self-hosting.
     color: @import("main.zig").Color = .auto,
@@ -1176,6 +1177,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.target.os.getVersionRange());
         cache.hash.add(options.is_native_os);
         cache.hash.add(options.target.abi);
+        cache.hash.addOptionalBytes(if (options.target_abi) |t| @tagName(t) else null);
         cache.hash.add(ofmt);
         cache.hash.add(pic);
         cache.hash.add(pie);
@@ -1488,6 +1490,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .single_threaded = single_threaded,
             .verbose_link = options.verbose_link,
             .machine_code_model = options.machine_code_model,
+            .target_abi = options.target_abi,
             .dll_export_fns = dll_export_fns,
             .error_return_tracing = error_return_tracing,
             .llvm_cpu_features = llvm_cpu_features,
@@ -1780,8 +1783,8 @@ pub fn getTarget(self: Compilation) Target {
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
 pub fn update(self: *Compilation) !void {
-    const t = trace(@src());
-    defer t.end();
+    const tracy_trace = trace(@src());
+    defer tracy_trace.end();
 
     self.clearMiscFailures();
 
@@ -2822,8 +2825,8 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     if (!build_options.have_llvm)
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
 
-    const t = trace(@src());
-    defer t.end();
+    const tracy_trace = trace(@src());
+    defer tracy_trace.end();
 
     const cimport_zig_basename = "cimport.zig";
 
@@ -3077,8 +3080,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     const self_exe_path = comp.self_exe_path orelse
         return comp.failCObj(c_object, "clang compilation disabled", .{});
 
-    const t = trace(@src());
-    defer t.end();
+    const tracy_trace = trace(@src());
+    defer tracy_trace.end();
 
     log.debug("updating C object: {s}", .{c_object.src.src_path});
 
@@ -3451,6 +3454,9 @@ pub fn addCCArgs(
                 try argv.append("-mthumb");
             }
 
+            if (comp.bin_file.options.target_abi) |target_abi| {
+                try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{@tagName(target_abi)}));
+            }
             if (comp.sanitize_c and !comp.bin_file.options.tsan) {
                 try argv.append("-fsanitize=undefined");
                 try argv.append("-fsanitize-trap=undefined");
@@ -3583,6 +3589,11 @@ pub fn addCCArgs(
                     // TODO
                 },
             }
+
+            if (comp.bin_file.options.target_abi) |target_abi| {
+                try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{@tagName(target_abi)}));
+            }
+
             if (target_util.clangAssemblerSupportsMcpuArg(target)) {
                 if (target.cpu.model.llvm_name) |llvm_name| {
                     try argv.append(try std.fmt.allocPrint(arena, "-mcpu={s}", .{llvm_name}));
@@ -4036,8 +4047,8 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
 }
 
 fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) Allocator.Error!void {
-    const t = trace(@src());
-    defer t.end();
+    const tracy_trace = trace(@src());
+    defer tracy_trace.end();
 
     const source = try comp.generateBuiltinZigSource(comp.gpa);
     defer comp.gpa.free(source);
@@ -4074,8 +4085,8 @@ pub fn dump_argv(argv: []const []const u8) void {
 }
 
 pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Allocator.Error![]u8 {
-    const t = trace(@src());
-    defer t.end();
+    const tracy_trace = trace(@src());
+    defer tracy_trace.end();
 
     var buffer = std.ArrayList(u8).init(allocator);
     defer buffer.deinit();
@@ -4320,8 +4331,8 @@ fn buildOutputFromZig(
     out: *?CRTFile,
     misc_task_tag: MiscTask,
 ) !void {
-    const t = trace(@src());
-    defer t.end();
+    const tracy_trace = trace(@src());
+    defer tracy_trace.end();
 
     std.debug.assert(output_mode != .Exe);
     const special_sub = "std" ++ std.fs.path.sep_str ++ "special";
@@ -4378,6 +4389,7 @@ fn buildOutputFromZig(
         .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
+        .target_abi = comp.bin_file.options.target_abi,
         .self_exe_path = comp.self_exe_path,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
@@ -4419,8 +4431,8 @@ fn buildOutputFromZig(
 }
 
 fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node) !void {
-    const t = trace(@src());
-    defer t.end();
+    const tracy_trace = trace(@src());
+    defer tracy_trace.end();
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
@@ -4566,6 +4578,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .is_native_cpu = false, // Only true when bootstrapping the compiler.
         .llvm_cpu_name = if (target.cpu.model.llvm_name) |s| s.ptr else null,
         .llvm_cpu_features = comp.bin_file.options.llvm_cpu_features.?,
+        .llvm_target_abi = if (comp.bin_file.options.target_abi) |t| @tagName(t) else null,
     };
 
     comp.stage1_cache_manifest = &man;
@@ -4773,8 +4786,8 @@ pub fn build_crt_file(
     output_mode: std.builtin.OutputMode,
     c_source_files: []const Compilation.CSourceFile,
 ) !void {
-    const t = trace(@src());
-    defer t.end();
+    const tracy_trace = trace(@src());
+    defer tracy_trace.end();
 
     const target = comp.getTarget();
     const basename = try std.zig.binNameAlloc(comp.gpa, .{
@@ -4817,6 +4830,7 @@ pub fn build_crt_file(
         .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
+        .target_abi = comp.bin_file.options.target_abi,
         .self_exe_path = comp.self_exe_path,
         .c_source_files = c_source_files,
         .verbose_cc = comp.verbose_cc,

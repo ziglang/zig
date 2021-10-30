@@ -1474,6 +1474,7 @@ pub const LibExeObjStep = struct {
     name_prefix: []const u8,
     filter: ?[]const u8,
     test_evented_io: bool = false,
+    target_abi: ?std.Target.TargetAbi = null,
     code_model: std.builtin.CodeModel = .default,
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
@@ -2458,6 +2459,9 @@ pub const LibExeObjStep = struct {
             try zig_args.append(builder.fmt("--global-base={d}", .{global_base}));
         }
 
+        if (self.target_abi) |target_abi| {
+            try zig_args.append(builder.fmt("-mabi={s}", .{@tagName(target_abi)}));
+        }
         if (self.code_model != .default) {
             try zig_args.append("-mcmodel");
             try zig_args.append(@tagName(self.code_model));

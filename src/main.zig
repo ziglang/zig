@@ -328,6 +328,7 @@ const usage_build_generic =
     \\Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
     \\  -mcpu [cpu]               Specify target CPU and feature set
+    \\  -mabi [target-abi]        Specify processor specific target-abi
     \\  -mcmodel=[default|tiny|   Limit range of code and data virtual addresses
     \\            small|kernel|
     \\            medium|large]
@@ -653,6 +654,7 @@ fn buildOutputType(
     var sysroot: ?[]const u8 = null;
     var libc_paths_file: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIBC");
     var machine_code_model: std.builtin.CodeModel = .default;
+    var target_abi_str: ?[]const u8 = null;
     var runtime_args_start: ?usize = null;
     var test_filter: ?[]const u8 = null;
     var test_name_prefix: ?[]const u8 = null;
@@ -926,6 +928,12 @@ fn buildOutputType(
                         target_mcpu = arg["-mcpu=".len..];
                     } else if (mem.startsWith(u8, arg, "-mcmodel=")) {
                         machine_code_model = parseCodeModel(arg["-mcmodel=".len..]);
+                    } else if (mem.eql(u8, arg, "-mabi")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
+                        i += 1;
+                        target_abi_str = args[i];
+                    } else if (mem.startsWith(u8, arg, "-mabi=")) {
+                        target_abi_str = arg["-mabi=".len..];
                     } else if (mem.startsWith(u8, arg, "-O")) {
                         optimize_mode_string = arg["-O".len..];
                     } else if (mem.eql(u8, arg, "--dynamic-linker")) {
@@ -1872,6 +1880,12 @@ fn buildOutputType(
     const cross_target = try parseCrossTargetOrReportFatalError(arena, target_parse_options);
     const target_info = try detectNativeTargetInfo(gpa, cross_target);
 
+    const target_abi = if (target_abi_str) |s| std.Target.TargetAbi.parse(target_info.target.cpu, s) catch |err| switch (err) {
+        error.InvalidAbi => fatal("invalid target-abi value '{s}'", .{target_abi_str}),
+        error.ArchAbiMismatch => fatal("target-abi {s} is not valid for arch {s}", .{ target_abi_str, target_info.target.cpu.arch }),
+        error.FeatureAbiMismatch => fatal("target-abi {s} is not compatible with CPU features", .{target_abi_str}),
+    } else std.Target.TargetAbi.default(target_info.target.cpu.arch, target_info.target.cpu.features);
+
     if (target_info.target.os.tag != .freestanding) {
         if (ensure_libc_on_non_freestanding)
             link_libc = true;
@@ -2459,6 +2473,7 @@ fn buildOutputType(
         .verbose_cimport = verbose_cimport,
         .verbose_llvm_cpu_features = verbose_llvm_cpu_features,
         .machine_code_model = machine_code_model,
+        .target_abi = target_abi,
         .color = color,
         .time_report = time_report,
         .stack_report = stack_report,
@@ -3382,6 +3397,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .target = target_info.target,
             .is_native_os = cross_target.isNativeOs(),
             .is_native_abi = cross_target.isNativeAbi(),
+            .target_abi = std.Target.TargetAbi.default(target_info.target.cpu.arch, target_info.target.cpu.features),
             .dynamic_linker = target_info.dynamic_linker.get(),
             .output_mode = .Exe,
             .main_pkg = &main_pkg,

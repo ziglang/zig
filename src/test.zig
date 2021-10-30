@@ -907,6 +907,7 @@ pub const TestContext = struct {
             .object_format = case.object_format,
             .is_native_os = case.target.isNativeOs(),
             .is_native_abi = case.target.isNativeAbi(),
+            .target_abi = std.Target.TargetAbi.default(target.cpu.arch, target.cpu.features),
             .dynamic_linker = target_info.dynamic_linker.get(),
             .link_libc = link_libc,
             .use_llvm = use_llvm,

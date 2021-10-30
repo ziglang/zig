@@ -112,6 +112,7 @@ struct ZigTarget {
 
     const char *llvm_cpu_name;
     const char *llvm_cpu_features;
+    const char *llvm_target_abi;
 };
 
 // ABI warning

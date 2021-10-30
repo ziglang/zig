@@ -244,18 +244,7 @@ pub const Object = struct {
         // TODO handle float ABI better- it should depend on the ABI portion of std.Target
         const float_abi: llvm.ABIType = .Default;
 
-        // TODO a way to override this as part of std.Target ABI?
-        const abi_name: ?[*:0]const u8 = switch (options.target.cpu.arch) {
-            .riscv32 => switch (options.target.os.tag) {
-                .linux => "ilp32d",
-                else => "ilp32",
-            },
-            .riscv64 => switch (options.target.os.tag) {
-                .linux => "lp64d",
-                else => "lp64",
-            },
-            else => null,
-        };
+        const abi_name: ?[*:0]const u8 = if (options.target_abi) |t| @tagName(t) else null;
 
         const target_machine = llvm.TargetMachine.create(
             target,

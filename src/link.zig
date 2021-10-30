@@ -134,6 +134,7 @@ pub const Options = struct {
     version_script: ?[]const u8,
     soname: ?[]const u8,
     llvm_cpu_features: ?[*:0]const u8,
+    target_abi: ?std.Target.TargetAbi,
 
     objects: []const []const u8,
     framework_dirs: []const []const u8,

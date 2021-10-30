@@ -214,6 +214,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 .strip = comp.compilerRtStrip(),
                 .is_native_os = false,
                 .is_native_abi = false,
+                .target_abi = comp.bin_file.options.target_abi,
                 .self_exe_path = comp.self_exe_path,
                 .verbose_cc = comp.verbose_cc,
                 .verbose_link = comp.bin_file.options.verbose_link,

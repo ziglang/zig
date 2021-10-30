@@ -9487,9 +9487,8 @@ static void init(CodeGen *g) {
     // TODO handle float ABI better- it should depend on the ABI portion of std.Target
     ZigLLVMABIType float_abi = ZigLLVMABITypeDefault;
 
-    // TODO a way to override this as part of std.Target ABI?
-    const char *abi_name = nullptr;
-    if (target_is_riscv(g->zig_target)) {
+    const char *abi_name = g->zig_target->llvm_target_abi;
+    if (abi_name == nullptr && target_is_riscv(g->zig_target)) {
         // RISC-V Linux defaults to ilp32d/lp64d
         if (g->zig_target->os == OsLinux) {
             abi_name = (g->zig_target->arch == ZigLLVM_riscv32) ? "ilp32d" : "lp64d";
