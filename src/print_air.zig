@@ -196,6 +196,7 @@ const Writer = struct {
             .get_union_tag,
             .clz,
             .ctz,
+            .popcount,
             => try w.writeTyOp(s, inst),
 
             .block,

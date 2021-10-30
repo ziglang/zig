@@ -2434,3 +2434,14 @@ test "big.int regression test for realloc with alias" {
 
     try testing.expect(a.toConst().orderAgainstScalar(14691098406862188148944207245954912110548093601382197697835) == .eq);
 }
+
+test "big int popcount" {
+    var a = try Managed.initSet(testing.allocator, -1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, -1);
+    defer b.deinit();
+
+    try a.popCount(b.toConst(), 16);
+
+    try testing.expect(a.toConst().orderAgainstScalar(16) == .eq);
+}

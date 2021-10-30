@@ -202,6 +202,10 @@ pub const Inst = struct {
         /// Result type will always be an unsigned integer big enough to fit the answer.
         /// Uses the `ty_op` field.
         ctz,
+        /// Count number of 1 bits in an integer according to its representation in twos complement.
+        /// Result type will always be an unsigned integer big enough to fit the answer.
+        /// Uses the `ty_op` field.
+        popcount,
 
         /// `<`. Result type is always bool.
         /// Uses the `bin_op` field.
@@ -744,6 +748,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .get_union_tag,
         .clz,
         .ctz,
+        .popcount,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,

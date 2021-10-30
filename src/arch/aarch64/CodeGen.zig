@@ -481,6 +481,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                     .get_union_tag   => try self.airGetUnionTag(inst),
                     .clz             => try self.airClz(inst),
                     .ctz             => try self.airCtz(inst),
+                    .popcount        => try self.airPopcount(inst),
 
                     .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
                     .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -1135,6 +1136,12 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
 fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airCtz for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airPopcount for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
