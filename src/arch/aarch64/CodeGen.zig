@@ -315,6 +315,7 @@ pub fn generate(
 
     var emit = Emit{
         .mir = mir,
+        .bin_file = bin_file,
         .target = &bin_file.options.target,
         .code = code,
     };
@@ -335,6 +336,25 @@ fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     const result_index = @intCast(Air.Inst.Index, self.mir_instructions.len);
     self.mir_instructions.appendAssumeCapacity(inst);
     return result_index;
+}
+
+pub fn addExtra(self: *Self, extra: anytype) Allocator.Error!u32 {
+    const fields = std.meta.fields(@TypeOf(extra));
+    try self.mir_extra.ensureUnusedCapacity(self.gpa, fields.len);
+    return self.addExtraAssumeCapacity(extra);
+}
+
+pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
+    const fields = std.meta.fields(@TypeOf(extra));
+    const result = @intCast(u32, self.mir_extra.items.len);
+    inline for (fields) |field| {
+        self.mir_extra.appendAssumeCapacity(switch (field.field_type) {
+            u32 => @field(extra, field.name),
+            i32 => @bitCast(u32, @field(extra, field.name)),
+            else => @compileError("bad field type"),
+        });
+    }
+    return result;
 }
 
 fn gen(self: *Self) !void {
@@ -1537,26 +1557,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
             } else if (func_value.castTag(.extern_fn)) |func_payload| {
                 const decl = func_payload.data;
                 const n_strx = try macho_file.addExternFn(mem.spanZ(decl.name));
-                const offset = blk: {
-                    // TODO add a pseudo-instruction
-                    const offset = @intCast(u32, self.mir_instructions.len);
-                    // bl
-                    // mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.bl(0).toU32());
-                    _ = try self.addInst(.{
-                        .tag = .bl,
-                        .data = .{ .nop = {} },
-                    });
-                    break :blk offset;
-                };
-                // Add relocation to the decl.
-                try macho_file.active_decl.?.link.macho.relocs.append(self.bin_file.allocator, .{
-                    .offset = offset,
-                    .target = .{ .global = n_strx },
-                    .addend = 0,
-                    .subtractor = null,
-                    .pcrel = true,
-                    .length = 2,
-                    .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_BRANCH26),
+
+                _ = try self.addInst(.{
+                    .tag = .call_extern,
+                    .data = .{ .extern_fn = n_strx },
                 });
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
@@ -2185,70 +2189,13 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             });
         },
         .memory => |addr| {
-            if (self.bin_file.options.pie) {
-                // PC-relative displacement to the entry in the GOT table.
-                // adrp
-                // TODO add a pseudo instruction
-                const offset = @intCast(u32, self.mir_instructions.len);
-                // mem.writeIntLittle(
-                //     u32,
-                //     try self.code.addManyAsArray(4),
-                //     Instruction.adrp(reg, 0).toU32(),
-                // );
-                _ = try self.addInst(.{
-                    .tag = .nop,
-                    .data = .{ .nop = {} },
-                });
-
-                // ldr reg, reg, offset
-                _ = try self.addInst(.{
-                    .tag = .ldr,
-                    .data = .{ .load_store_register = .{
-                        .rt = reg,
-                        .rn = reg,
-                        .offset = Instruction.LoadStoreOffset.imm(0),
-                    } },
-                });
-
-                if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                    // TODO I think the reloc might be in the wrong place.
-                    const decl = macho_file.active_decl.?;
-                    // Page reloc for adrp instruction.
-                    try decl.link.macho.relocs.append(self.bin_file.allocator, .{
-                        .offset = offset,
-                        .target = .{ .local = @intCast(u32, addr) },
-                        .addend = 0,
-                        .subtractor = null,
-                        .pcrel = true,
-                        .length = 2,
-                        .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
-                    });
-                    // Pageoff reloc for adrp instruction.
-                    try decl.link.macho.relocs.append(self.bin_file.allocator, .{
-                        .offset = offset + 4,
-                        .target = .{ .local = @intCast(u32, addr) },
-                        .addend = 0,
-                        .subtractor = null,
-                        .pcrel = false,
-                        .length = 2,
-                        .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGEOFF12),
-                    });
-                } else {
-                    return self.fail("TODO implement genSetReg for PIE GOT indirection on this platform", .{});
-                }
-            } else {
-                // The value is in memory at a hard-coded address.
-                // If the type is a pointer, it means the pointer address is at this memory location.
-                try self.genSetReg(Type.initTag(.usize), reg, .{ .immediate = addr });
-                _ = try self.addInst(.{
-                    .tag = .ldr,
-                    .data = .{ .load_store_register = .{
-                        .rt = reg,
-                        .rn = reg,
-                        .offset = Instruction.LoadStoreOffset.none,
-                    } },
-                });
-            }
+            _ = try self.addInst(.{
+                .tag = .load_memory,
+                .data = .{ .payload = try self.addExtra(Mir.LoadMemory{
+                    .register = @enumToInt(reg),
+                    .addr = @intCast(u32, addr),
+                }) },
+            });
         },
         .stack_offset => |unadjusted_off| {
             // TODO: maybe addressing from sp instead of fp

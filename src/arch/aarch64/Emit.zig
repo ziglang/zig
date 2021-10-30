@@ -3,11 +3,16 @@
 
 const Emit = @This();
 const std = @import("std");
+const math = std.math;
 const Mir = @import("Mir.zig");
 const bits = @import("bits.zig");
+const link = @import("../../link.zig");
+const assert = std.debug.assert;
 const Instruction = bits.Instruction;
+const Register = bits.Register;
 
 mir: Mir,
+bin_file: *link.File,
 target: *const std.Target,
 code: *std.ArrayList(u8),
 
@@ -30,6 +35,10 @@ pub fn emitMir(
 
             .brk => try emit.mirExceptionGeneration(inst),
             .svc => try emit.mirExceptionGeneration(inst),
+
+            .call_extern => try emit.mirCallExtern(inst),
+
+            .load_memory => try emit.mirLoadMemory(inst),
 
             .ldp => try emit.mirLoadStoreRegisterPair(inst),
             .stp => try emit.mirLoadStoreRegisterPair(inst),
@@ -55,6 +64,20 @@ pub fn emitMir(
 fn writeInstruction(emit: *Emit, instruction: Instruction) !void {
     const endian = emit.target.cpu.arch.endian();
     std.mem.writeInt(u32, try emit.code.addManyAsArray(4), instruction.toU32(), endian);
+}
+
+fn moveImmediate(emit: *Emit, reg: Register, imm64: u64) !void {
+    try emit.writeInstruction(Instruction.movz(reg, @truncate(u16, imm64), 0));
+
+    if (imm64 > math.maxInt(u16)) {
+        try emit.writeInstruction(Instruction.movk(reg, @truncate(u16, imm64 >> 16), 16));
+    }
+    if (imm64 > math.maxInt(u32)) {
+        try emit.writeInstruction(Instruction.movk(reg, @truncate(u16, imm64 >> 32), 32));
+    }
+    if (imm64 > math.maxInt(u48)) {
+        try emit.writeInstruction(Instruction.movk(reg, @truncate(u16, imm64 >> 48), 48));
+    }
 }
 
 fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -110,6 +133,90 @@ fn mirExceptionGeneration(emit: *Emit, inst: Mir.Inst.Index) !void {
         .brk => try emit.writeInstruction(Instruction.brk(imm16)),
         .svc => try emit.writeInstruction(Instruction.svc(imm16)),
         else => unreachable,
+    }
+}
+
+fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
+    assert(emit.mir.instructions.items(.tag)[inst] == .call_extern);
+    const n_strx = emit.mir.instructions.items(.data)[inst].extern_fn;
+
+    if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+        const offset = blk: {
+            const offset = @intCast(u32, emit.code.items.len);
+            // bl
+            try emit.writeInstruction(Instruction.bl(0));
+            break :blk offset;
+        };
+        // Add relocation to the decl.
+        try macho_file.active_decl.?.link.macho.relocs.append(emit.bin_file.allocator, .{
+            .offset = offset,
+            .target = .{ .global = n_strx },
+            .addend = 0,
+            .subtractor = null,
+            .pcrel = true,
+            .length = 2,
+            .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_BRANCH26),
+        });
+    } else {
+        @panic("Implement call_extern for linking backends != MachO");
+    }
+}
+
+fn mirLoadMemory(emit: *Emit, inst: Mir.Inst.Index) !void {
+    assert(emit.mir.instructions.items(.tag)[inst] == .load_memory);
+    const payload = emit.mir.instructions.items(.data)[inst].payload;
+    const load_memory = emit.mir.extraData(Mir.LoadMemory, payload).data;
+    const reg = @intToEnum(Register, load_memory.register);
+    const addr = load_memory.addr;
+
+    if (emit.bin_file.options.pie) {
+        // PC-relative displacement to the entry in the GOT table.
+        // adrp
+        const offset = @intCast(u32, emit.code.items.len);
+        try emit.writeInstruction(Instruction.adrp(reg, 0));
+
+        // ldr reg, reg, offset
+        try emit.writeInstruction(Instruction.ldr(reg, .{
+            .register = .{
+                .rn = reg,
+                .offset = Instruction.LoadStoreOffset.imm(0),
+            },
+        }));
+
+        if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+            // TODO I think the reloc might be in the wrong place.
+            const decl = macho_file.active_decl.?;
+            // Page reloc for adrp instruction.
+            try decl.link.macho.relocs.append(emit.bin_file.allocator, .{
+                .offset = offset,
+                .target = .{ .local = addr },
+                .addend = 0,
+                .subtractor = null,
+                .pcrel = true,
+                .length = 2,
+                .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
+            });
+            // Pageoff reloc for adrp instruction.
+            try decl.link.macho.relocs.append(emit.bin_file.allocator, .{
+                .offset = offset + 4,
+                .target = .{ .local = addr },
+                .addend = 0,
+                .subtractor = null,
+                .pcrel = false,
+                .length = 2,
+                .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGEOFF12),
+            });
+        } else {
+            return @panic("TODO implement load_memory for PIE GOT indirection on this platform");
+        }
+    } else {
+        // The value is in memory at a hard-coded address.
+        // If the type is a pointer, it means the pointer address is at this memory location.
+        try emit.moveImmediate(reg, addr);
+        try emit.writeInstruction(Instruction.ldr(
+            reg,
+            .{ .register = .{ .rn = reg, .offset = Instruction.LoadStoreOffset.none } },
+        ));
     }
 }
 

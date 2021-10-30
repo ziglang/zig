@@ -34,6 +34,12 @@ pub const Inst = struct {
         blr,
         /// Breakpoint
         brk,
+        /// Pseudo-instruction: Call extern
+        call_extern,
+        /// Psuedo-instruction: Load memory
+        ///
+        /// Payload is `LoadMemory`
+        load_memory,
         /// Load Pair of Registers
         ldp,
         /// Load Register
@@ -89,11 +95,17 @@ pub const Inst = struct {
         ///
         /// Used by e.g. b
         inst: Index,
+        /// An extern function
+        ///
+        /// Used by e.g. call_extern
+        extern_fn: u32,
         /// A 16-bit immediate value.
         ///
         /// Used by e.g. svc
         imm16: u16,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
+        ///
+        /// Used by e.g. load_memory
         payload: u32,
         /// A register
         ///
@@ -156,3 +168,28 @@ pub fn deinit(mir: *Mir, gpa: *std.mem.Allocator) void {
     gpa.free(mir.extra);
     mir.* = undefined;
 }
+
+/// Returns the requested data, as well as the new index which is at the start of the
+/// trailers for the object.
+pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
+    const fields = std.meta.fields(T);
+    var i: usize = index;
+    var result: T = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.field_type) {
+            u32 => mir.extra[i],
+            i32 => @bitCast(i32, mir.extra[i]),
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return .{
+        .data = result,
+        .end = i,
+    };
+}
+
+pub const LoadMemory = struct {
+    register: u32,
+    addr: u32,
+};
