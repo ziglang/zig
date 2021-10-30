@@ -27,8 +27,11 @@ test "truncate to non-power-of-two integers" {
     try testTrunc(u32, u1, 0b10110, 0b0);
     try testTrunc(u32, u2, 0b10101, 0b01);
     try testTrunc(u32, u2, 0b10110, 0b10);
-    // TODO add test coverage for this!
-    // try testTrunc(i32, i3, -4, -4);
+    try testTrunc(i32, i5, -4, -4);
+    try testTrunc(i32, i5, 4, 4);
+    try testTrunc(i32, i5, -28, 4);
+    try testTrunc(i32, i5, 28, -4);
+    try testTrunc(i32, i5, std.math.maxInt(i32), -1);
 }
 
 fn testTrunc(comptime Big: type, comptime Little: type, big: Big, little: Little) !void {

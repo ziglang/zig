@@ -1389,7 +1389,14 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
             return local;
         },
         .signed => {
-            return f.fail("TODO: C backend: implement trunc for signed integers", .{});
+            const operand_ty = f.air.typeOf(ty_op.operand);
+            const c_bits = toCIntBits(operand_ty.intInfo(target).bits) orelse
+                return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
+            const shift_rhs = c_bits - dest_bits;
+            try writer.print("(int{d}_t)((uint{d}_t)", .{ c_bits, c_bits });
+            try f.writeCValue(writer, operand);
+            try writer.print(" << {d}) >> {d};\n", .{ shift_rhs, shift_rhs });
+            return local;
         },
     }
 }
