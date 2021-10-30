@@ -90,6 +90,7 @@ pub const sigset_t = linux.sigset_t;
 pub const sockaddr = linux.sockaddr;
 pub const socklen_t = linux.socklen_t;
 pub const stack_t = linux.stack_t;
+pub const termios = linux.termios;
 pub const time_t = linux.time_t;
 pub const timespec = linux.timespec;
 pub const timeval = linux.timeval;
