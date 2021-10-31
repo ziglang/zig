@@ -816,7 +816,9 @@ fn buildOutputType(
                             fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "--name")) {
-                        if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
+                        if (i + 1 >= args.len) {
+                            fatal("expected parameter after {s}", .{arg});
+                        } else if (mem.eql(u8, args[i + 1], root_src_file)) fatal("input name is the same as output", .{});
                         i += 1;
                         provided_name = args[i];
                     } else if (mem.eql(u8, arg, "-rpath")) {
