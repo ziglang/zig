@@ -36,6 +36,12 @@ pub const Inst = struct {
         brk,
         /// Pseudo-instruction: Call extern
         call_extern,
+        /// Pseudo-instruction: End of prologue
+        dbg_prologue_end,
+        /// Pseudo-instruction: Beginning of epilogue
+        dbg_epilogue_begin,
+        /// Pseudo-instruction: Update debug line
+        dbg_line,
         /// Psuedo-instruction: Load memory
         ///
         /// Payload is `LoadMemory`
@@ -151,6 +157,13 @@ pub const Inst = struct {
             rt2: Register,
             rn: Register,
             offset: bits.Instruction.LoadStorePairOffset,
+        },
+        /// Debug info: line and column
+        ///
+        /// Used by e.g. dbg_line
+        dbg_line_column: struct {
+            line: u32,
+            column: u32,
         },
     };
 

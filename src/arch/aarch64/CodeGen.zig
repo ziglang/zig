@@ -39,7 +39,6 @@ liveness: Liveness,
 bin_file: *link.File,
 target: *const std.Target,
 mod_fn: *const Module.Fn,
-debug_output: DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
@@ -53,13 +52,9 @@ mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// MIR extra data
 mir_extra: std.ArrayListUnmanaged(u32) = .{},
 
-prev_di_line: u32,
-prev_di_column: u32,
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
 end_di_column: u32,
-/// Relative to the beginning of `code`.
-prev_di_pc: usize,
 
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
@@ -272,7 +267,6 @@ pub fn generate(
         .target = &bin_file.options.target,
         .bin_file = bin_file,
         .mod_fn = module_fn,
-        .debug_output = debug_output,
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
@@ -281,9 +275,6 @@ pub fn generate(
         .branch_stack = &branch_stack,
         .src_loc = src_loc,
         .stack_align = undefined,
-        .prev_di_pc = 0,
-        .prev_di_line = module_fn.lbrace_line,
-        .prev_di_column = module_fn.lbrace_column,
         .end_di_line = module_fn.rbrace_line,
         .end_di_column = module_fn.rbrace_column,
     };
@@ -316,8 +307,12 @@ pub fn generate(
     var emit = Emit{
         .mir = mir,
         .bin_file = bin_file,
+        .debug_output = debug_output,
         .target = &bin_file.options.target,
         .code = code,
+        .prev_di_pc = 0,
+        .prev_di_line = module_fn.lbrace_line,
+        .prev_di_column = module_fn.lbrace_column,
     };
     try emit.emitMir();
 
@@ -386,7 +381,10 @@ fn gen(self: *Self) !void {
             .data = .{ .nop = {} },
         });
 
-        try self.dbgSetPrologueEnd();
+        _ = try self.addInst(.{
+            .tag = .dbg_prologue_end,
+            .data = .{ .nop = {} },
+        });
 
         try self.genBody(self.air.getMainBody());
 
@@ -402,7 +400,10 @@ fn gen(self: *Self) !void {
             return self.failSymbol("TODO AArch64: allow larger stacks", .{});
         }
 
-        try self.dbgSetEpilogueBegin();
+        _ = try self.addInst(.{
+            .tag = .dbg_epilogue_begin,
+            .data = .{ .nop = {} },
+        });
 
         // exitlude jumps
         if (self.exitlude_jump_relocs.items.len == 1) {
@@ -442,13 +443,27 @@ fn gen(self: *Self) !void {
             .data = .{ .reg = .x30 },
         });
     } else {
-        try self.dbgSetPrologueEnd();
+        _ = try self.addInst(.{
+            .tag = .dbg_prologue_end,
+            .data = .{ .nop = {} },
+        });
+
         try self.genBody(self.air.getMainBody());
-        try self.dbgSetEpilogueBegin();
+
+        _ = try self.addInst(.{
+            .tag = .dbg_epilogue_begin,
+            .data = .{ .nop = {} },
+        });
     }
 
     // Drop them off at the rbrace.
-    // try self.dbgAdvancePCAndLine(self.end_di_line, self.end_di_column);
+    _ = try self.addInst(.{
+        .tag = .dbg_line,
+        .data = .{ .dbg_line_column = .{
+            .line = self.end_di_line,
+            .column = self.end_di_column,
+        } },
+    });
 }
 
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
@@ -586,79 +601,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                 std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[inst] });
             }
         }
-    }
-}
-
-fn dbgSetPrologueEnd(self: *Self) InnerError!void {
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
-            // try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
-fn dbgSetEpilogueBegin(self: *Self) InnerError!void {
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
-            // try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
-fn dbgAdvancePCAndLine(self: *Self, line: u32, column: u32) InnerError!void {
-    const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
-    const delta_pc: usize = self.code.items.len - self.prev_di_pc;
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            // TODO Look into using the DWARF special opcodes to compress this data.
-            // It lets you emit single-byte opcodes that add different numbers to
-            // both the PC and the line number at the same time.
-            try dbg_out.dbg_line.ensureUnusedCapacity(11);
-            dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
-            leb128.writeULEB128(dbg_out.dbg_line.writer(), delta_pc) catch unreachable;
-            if (delta_line != 0) {
-                dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-                leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
-            }
-            dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
-            self.prev_di_pc = self.code.items.len;
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
-        },
-        .plan9 => |dbg_out| {
-            if (delta_pc <= 0) return; // only do this when the pc changes
-            // we have already checked the target in the linker to make sure it is compatable
-            const quant = @import("../../link/Plan9/aout.zig").getPCQuant(self.target.cpu.arch) catch unreachable;
-
-            // increasing the line number
-            try @import("../../link/Plan9.zig").changeLine(dbg_out.dbg_line, delta_line);
-            // increasing the pc
-            const d_pc_p9 = @intCast(i64, delta_pc) - quant;
-            if (d_pc_p9 > 0) {
-                // minus one because if its the last one, we want to leave space to change the line which is one quanta
-                try dbg_out.dbg_line.append(@intCast(u8, @divExact(d_pc_p9, quant) + 128) - quant);
-                if (dbg_out.pcop_change_index.*) |pci|
-                    dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index.* = @intCast(u32, dbg_out.dbg_line.items.len - 1);
-            } else if (d_pc_p9 == 0) {
-                // we don't need to do anything, because adding the quant does it for us
-            } else unreachable;
-            if (dbg_out.start_line.* == null)
-                dbg_out.start_line.* = self.prev_di_line;
-            dbg_out.end_line.* = line;
-            // only do this if the pc changed
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
-        },
-        .none => {},
     }
 }
 
@@ -1407,7 +1349,8 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
         },
         else => result,
     };
-    try self.genArgDbgInfo(inst, mcv);
+    // TODO generate debug info
+    // try self.genArgDbgInfo(inst, mcv);
 
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();
@@ -1698,8 +1641,15 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
 
 fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
     const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
-    _ = dbg_stmt;
-    // try self.dbgAdvancePCAndLine(dbg_stmt.line, dbg_stmt.column);
+
+    _ = try self.addInst(.{
+        .tag = .dbg_line,
+        .data = .{ .dbg_line_column = .{
+            .line = dbg_stmt.line,
+            .column = dbg_stmt.column,
+        } },
+    });
+
     return self.finishAirBookkeeping();
 }
 
