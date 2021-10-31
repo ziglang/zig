@@ -13,7 +13,8 @@ const Type = @import("type.zig").Type;
 const target_util = @import("target.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
-const trace = @import("tracy.zig").trace;
+const tracy = @import("tracy.zig");
+const trace = tracy.trace;
 const Liveness = @import("Liveness.zig");
 const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
@@ -1726,8 +1727,8 @@ pub fn getTarget(self: Compilation) Target {
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
 pub fn update(self: *Compilation) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const t = trace(@src());
+    defer t.end();
 
     self.clearMiscFailures();
 
@@ -2111,6 +2112,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     defer self.work_queue_wait_group.wait();
 
     {
+        const astgen_frame = tracy.namedFrame("astgen");
+        defer astgen_frame.end();
+
         self.astgen_wait_group.reset();
         defer self.astgen_wait_group.wait();
 
@@ -2138,6 +2142,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
 
     const use_stage1 = build_options.is_stage1 and self.bin_file.options.use_stage1;
     if (!use_stage1) {
+        const outdated_and_deleted_decls_frame = tracy.namedFrame("outdated_and_deleted_decls");
+        defer outdated_and_deleted_decls_frame.end();
+
         // Iterate over all the files and look for outdated and deleted declarations.
         if (self.bin_file.options.module) |mod| {
             try mod.processOutdatedAndDeletedDecls();
@@ -2181,6 +2188,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             => return,
 
             .complete, .codegen_failure_retryable => {
+                const named_frame = tracy.namedFrame("codegen_decl");
+                defer named_frame.end();
+
                 if (build_options.omit_stage2)
                     @panic("sadly stage2 is omitted from this build to save memory on the CI server");
 
@@ -2230,6 +2240,10 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
                 defer tmp_arena.deinit();
                 const sema_arena = &tmp_arena.allocator;
 
+                const sema_frame = tracy.namedFrame("sema");
+                var sema_frame_ended = false;
+                errdefer if (!sema_frame_ended) sema_frame.end();
+
                 var air = module.analyzeFnBody(decl, func, sema_arena) catch |err| switch (err) {
                     error.AnalysisFail => {
                         assert(func.state != .in_progress);
@@ -2239,15 +2253,28 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
                 };
                 defer air.deinit(gpa);
 
+                sema_frame.end();
+                sema_frame_ended = true;
+
+                const liveness_frame = tracy.namedFrame("liveness");
+                var liveness_frame_ended = false;
+                errdefer if (!liveness_frame_ended) liveness_frame.end();
+
                 log.debug("analyze liveness of {s}", .{decl.name});
                 var liveness = try Liveness.analyze(gpa, air, decl.getFileScope().zir);
                 defer liveness.deinit(gpa);
+
+                liveness_frame.end();
+                liveness_frame_ended = true;
 
                 if (builtin.mode == .Debug and comp.verbose_air) {
                     std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
                     @import("print_air.zig").dump(gpa, air, decl.getFileScope().zir, liveness);
                     std.debug.print("# End Function AIR: {s}\n\n", .{decl.name});
                 }
+
+                const named_frame = tracy.namedFrame("codegen");
+                defer named_frame.end();
 
                 comp.bin_file.updateFunc(module, func, air, liveness) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
@@ -2284,6 +2311,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             // emit-h only requires semantic analysis of the Decl to be complete,
             // it does not depend on machine code generation to succeed.
             .codegen_failure, .codegen_failure_retryable, .complete => {
+                const named_frame = tracy.namedFrame("emit_h_decl");
+                defer named_frame.end();
+
                 if (build_options.omit_stage2)
                     @panic("sadly stage2 is omitted from this build to save memory on the CI server");
                 const gpa = comp.gpa;
@@ -2321,6 +2351,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             },
         },
         .analyze_decl => |decl| {
+            const named_frame = tracy.namedFrame("analyze_decl");
+            defer named_frame.end();
+
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = comp.bin_file.options.module.?;
@@ -2330,6 +2363,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .update_embed_file => |embed_file| {
+            const named_frame = tracy.namedFrame("update_embed_file");
+            defer named_frame.end();
+
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = comp.bin_file.options.module.?;
@@ -2339,6 +2375,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .update_line_number => |decl| {
+            const named_frame = tracy.namedFrame("update_line_number");
+            defer named_frame.end();
+
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const gpa = comp.gpa;
@@ -2355,6 +2394,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .analyze_pkg => |pkg| {
+            const named_frame = tracy.namedFrame("analyze_pkg");
+            defer named_frame.end();
+
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = comp.bin_file.options.module.?;
@@ -2371,6 +2413,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .glibc_crt_file => |crt_file| {
+            const named_frame = tracy.namedFrame("glibc_crt_file");
+            defer named_frame.end();
+
             glibc.buildCRTFile(comp, crt_file) catch |err| {
                 // TODO Surface more error details.
                 try comp.setMiscFailure(.glibc_crt_file, "unable to build glibc CRT file: {s}", .{
@@ -2379,6 +2424,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .glibc_shared_objects => {
+            const named_frame = tracy.namedFrame("glibc_shared_objects");
+            defer named_frame.end();
+
             glibc.buildSharedObjects(comp) catch |err| {
                 // TODO Surface more error details.
                 try comp.setMiscFailure(
@@ -2389,6 +2437,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .musl_crt_file => |crt_file| {
+            const named_frame = tracy.namedFrame("musl_crt_file");
+            defer named_frame.end();
+
             musl.buildCRTFile(comp, crt_file) catch |err| {
                 // TODO Surface more error details.
                 try comp.setMiscFailure(
@@ -2399,6 +2450,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .mingw_crt_file => |crt_file| {
+            const named_frame = tracy.namedFrame("mingw_crt_file");
+            defer named_frame.end();
+
             mingw.buildCRTFile(comp, crt_file) catch |err| {
                 // TODO Surface more error details.
                 try comp.setMiscFailure(
@@ -2409,6 +2463,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .windows_import_lib => |index| {
+            const named_frame = tracy.namedFrame("windows_import_lib");
+            defer named_frame.end();
+
             const link_lib = comp.bin_file.options.system_libs.keys()[index];
             mingw.buildImportLib(comp, link_lib) catch |err| {
                 // TODO Surface more error details.
@@ -2420,6 +2477,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .libunwind => {
+            const named_frame = tracy.namedFrame("libunwind");
+            defer named_frame.end();
+
             libunwind.buildStaticLib(comp) catch |err| {
                 // TODO Surface more error details.
                 try comp.setMiscFailure(
@@ -2430,6 +2490,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .libcxx => {
+            const named_frame = tracy.namedFrame("libcxx");
+            defer named_frame.end();
+
             libcxx.buildLibCXX(comp) catch |err| {
                 // TODO Surface more error details.
                 try comp.setMiscFailure(
@@ -2440,6 +2503,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .libcxxabi => {
+            const named_frame = tracy.namedFrame("libcxxabi");
+            defer named_frame.end();
+
             libcxx.buildLibCXXABI(comp) catch |err| {
                 // TODO Surface more error details.
                 try comp.setMiscFailure(
@@ -2450,6 +2516,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .libtsan => {
+            const named_frame = tracy.namedFrame("libtsan");
+            defer named_frame.end();
+
             libtsan.buildTsan(comp) catch |err| {
                 // TODO Surface more error details.
                 try comp.setMiscFailure(
@@ -2460,6 +2529,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .wasi_libc_crt_file => |crt_file| {
+            const named_frame = tracy.namedFrame("wasi_libc_crt_file");
+            defer named_frame.end();
+
             wasi_libc.buildCRTFile(comp, crt_file) catch |err| {
                 // TODO Surface more error details.
                 try comp.setMiscFailure(
@@ -2470,6 +2542,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .compiler_rt_lib => {
+            const named_frame = tracy.namedFrame("compiler_rt_lib");
+            defer named_frame.end();
+
             comp.buildOutputFromZig(
                 "compiler_rt.zig",
                 .Lib,
@@ -2486,6 +2561,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .compiler_rt_obj => {
+            const named_frame = tracy.namedFrame("compiler_rt_obj");
+            defer named_frame.end();
+
             comp.buildOutputFromZig(
                 "compiler_rt.zig",
                 .Obj,
@@ -2502,6 +2580,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .libssp => {
+            const named_frame = tracy.namedFrame("libssp");
+            defer named_frame.end();
+
             comp.buildOutputFromZig(
                 "ssp.zig",
                 .Lib,
@@ -2518,6 +2599,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .zig_libc => {
+            const named_frame = tracy.namedFrame("zig_libc");
+            defer named_frame.end();
+
             comp.buildOutputFromZig(
                 "c.zig",
                 .Lib,
@@ -2534,6 +2618,9 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
             };
         },
         .stage1_module => {
+            const named_frame = tracy.namedFrame("stage1_module");
+            defer named_frame.end();
+
             if (!build_options.is_stage1)
                 unreachable;
 
@@ -2674,8 +2761,8 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     if (!build_options.have_llvm)
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const t = trace(@src());
+    defer t.end();
 
     const cimport_zig_basename = "cimport.zig";
 
@@ -2929,8 +3016,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     const self_exe_path = comp.self_exe_path orelse
         return comp.failCObj(c_object, "clang compilation disabled", .{});
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const t = trace(@src());
+    defer t.end();
 
     log.debug("updating C object: {s}", .{c_object.src.src_path});
 
@@ -3828,8 +3915,8 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
 }
 
 fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) Allocator.Error!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const t = trace(@src());
+    defer t.end();
 
     const source = try comp.generateBuiltinZigSource(comp.gpa);
     defer comp.gpa.free(source);
@@ -3866,8 +3953,8 @@ pub fn dump_argv(argv: []const []const u8) void {
 }
 
 pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Allocator.Error![]u8 {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const t = trace(@src());
+    defer t.end();
 
     var buffer = std.ArrayList(u8).init(allocator);
     defer buffer.deinit();
@@ -4112,8 +4199,8 @@ fn buildOutputFromZig(
     out: *?CRTFile,
     misc_task_tag: MiscTask,
 ) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const t = trace(@src());
+    defer t.end();
 
     std.debug.assert(output_mode != .Exe);
     const special_sub = "std" ++ std.fs.path.sep_str ++ "special";
@@ -4211,8 +4298,8 @@ fn buildOutputFromZig(
 }
 
 fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const t = trace(@src());
+    defer t.end();
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
@@ -4564,8 +4651,8 @@ pub fn build_crt_file(
     output_mode: std.builtin.OutputMode,
     c_source_files: []const Compilation.CSourceFile,
 ) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const t = trace(@src());
+    defer t.end();
 
     const target = comp.getTarget();
     const basename = try std.zig.binNameAlloc(comp.gpa, .{
