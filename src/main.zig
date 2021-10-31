@@ -2304,6 +2304,7 @@ fn buildOutputType(
             last_cmd = cmd;
             switch (cmd) {
                 .update => {
+                    tracy.frameMark();
                     if (output_mode == .Exe) {
                         try comp.makeBinFileWritable();
                     }
@@ -2316,6 +2317,7 @@ fn buildOutputType(
                     try stderr.writeAll(repl_help);
                 },
                 .run => {
+                    tracy.frameMark();
                     try runOrTest(
                         comp,
                         gpa,
@@ -2332,6 +2334,7 @@ fn buildOutputType(
                     );
                 },
                 .update_and_run => {
+                    tracy.frameMark();
                     if (output_mode == .Exe) {
                         try comp.makeBinFileWritable();
                     }
