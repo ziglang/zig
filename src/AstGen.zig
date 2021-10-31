@@ -7975,8 +7975,14 @@ fn callExpr(
 
     const callee = try calleeExpr(gz, scope, call.ast.fn_expr);
 
-    const args = try astgen.gpa.alloc(Zir.Inst.Ref, call.ast.params.len);
-    defer astgen.gpa.free(args);
+    // A large proportion of calls have 5 or less arguments, due to this preventing allocations
+    // for calls with few arguments has a sizeable effect on the aggregated runtime of this function
+    var arg_buffer: [5]Zir.Inst.Ref = undefined;
+    const args: []Zir.Inst.Ref = if (call.ast.params.len <= arg_buffer.len)
+        arg_buffer[0..call.ast.params.len]
+    else
+        try astgen.gpa.alloc(Zir.Inst.Ref, call.ast.params.len);
+    defer if (call.ast.params.len > arg_buffer.len) astgen.gpa.free(args);
 
     for (call.ast.params) |param_node, i| {
         // Parameters are always temporary values, they have no
