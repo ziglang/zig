@@ -108,7 +108,7 @@ pub fn NoResize(comptime AllocatorType: type) type {
 /// When the size/alignment is less than or equal to the previous allocation,
 /// this function returns `error.OutOfMemory` when the allocator decides the client
 /// would be better off keeping the extra alignment/size. Clients will call
-/// `resizeFn` when they require the allocator to track a new alignment/size,
+/// `vtable.resize` when they require the allocator to track a new alignment/size,
 /// and so this function should only return success when the allocator considers
 /// the reallocation desirable from the allocator's perspective.
 /// As an example, `std.ArrayList` tracks a "capacity", and therefore can handle
@@ -124,7 +124,7 @@ pub fn NoResize(comptime AllocatorType: type) type {
 fn reallocBytes(
     self: Allocator,
     /// Guaranteed to be the same as what was returned from most recent call to
-    /// `allocFn` or `resizeFn`.
+    /// `vtable.alloc` or `vtable.resize`.
     /// If `old_mem.len == 0` then this is a new allocation and `new_byte_count`
     /// is guaranteed to be >= 1.
     old_mem: []u8,
@@ -507,7 +507,7 @@ pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) ![:0]T {
     return new_buf[0..m.len :0];
 }
 
-/// Call `resizeFn`, but caller guarantees that `new_len` <= `buf.len` meaning
+/// Call `vtable.resize`, but caller guarantees that `new_len` <= `buf.len` meaning
 /// error.OutOfMemory should be impossible.
 /// This function allows a runtime `buf_align` value. Callers should generally prefer
 /// to call `shrink` directly.

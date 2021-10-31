@@ -555,7 +555,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             // Do memory limit accounting with requested sizes rather than what backing_allocator returns
             // because if we want to return error.OutOfMemory, we have to leave allocation untouched, and
-            // that is impossible to guarantee after calling backing_allocator.resizeFn.
+            // that is impossible to guarantee after calling backing_allocator.vtable.resize.
             const prev_req_bytes = self.total_requested_bytes;
             if (config.enable_memory_limit) {
                 const new_req_bytes = prev_req_bytes + new_size - entry.value_ptr.requested_size;
@@ -571,7 +571,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const result_len = if (config.never_unmap and new_size == 0)
                 0
             else
-                try self.backing_allocator.resizeFn(self.backing_allocator.ptr, old_mem, old_align, new_size, len_align, ret_addr);
+                try self.backing_allocator.vtable.resize(self.backing_allocator.ptr, old_mem, old_align, new_size, len_align, ret_addr);
 
             if (config.enable_memory_limit) {
                 entry.value_ptr.requested_size = new_size;
@@ -764,7 +764,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const new_aligned_size = math.max(len, ptr_align);
             if (new_aligned_size > largest_bucket_object_size) {
                 try self.large_allocations.ensureUnusedCapacity(self.backing_allocator, 1);
-                const slice = try self.backing_allocator.allocFn(self.backing_allocator.ptr, len, ptr_align, len_align, ret_addr);
+                const slice = try self.backing_allocator.vtable.alloc(self.backing_allocator.ptr, len, ptr_align, len_align, ret_addr);
 
                 const gop = self.large_allocations.getOrPutAssumeCapacity(@ptrToInt(slice.ptr));
                 if (config.retain_metadata and !config.never_unmap) {
@@ -1191,10 +1191,12 @@ test "double frees" {
 test "bug 9995 fix, large allocs count requested size not backing size" {
     // with AtLeast, buffer likely to be larger than requested, especially when shrinking
     var gpa = GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
-    var buf = try gpa.allocator.allocAdvanced(u8, 1, page_size + 1, .at_least);
+    const allocator = gpa.allocator();
+    
+    var buf = try allocator.allocAdvanced(u8, 1, page_size + 1, .at_least);
     try std.testing.expect(gpa.total_requested_bytes == page_size + 1);
-    buf = try gpa.allocator.reallocAtLeast(buf, 1);
+    buf = try allocator.reallocAtLeast(buf, 1);
     try std.testing.expect(gpa.total_requested_bytes == 1);
-    buf = try gpa.allocator.reallocAtLeast(buf, 2);
+    buf = try allocator.reallocAtLeast(buf, 2);
     try std.testing.expect(gpa.total_requested_bytes == 2);
 }

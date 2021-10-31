@@ -10200,7 +10200,7 @@ test "string literal to constant slice" {
       {#header_open|Implementing an Allocator#}
       <p>Zig programmers can implement their own allocators by fulfilling the Allocator interface.
       In order to do this one must read carefully the documentation comments in std/mem.zig and
-      then supply a {#syntax#}reallocFn{#endsyntax#} and a {#syntax#}shrinkFn{#endsyntax#}.
+      then supply a {#syntax#}allocFn{#endsyntax#} and a {#syntax#}resizeFn{#endsyntax#}.
       </p>
       <p>
       There are many example allocators to look at for inspiration. Look at std/heap.zig and
