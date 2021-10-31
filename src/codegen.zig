@@ -88,9 +88,10 @@ pub fn generateFunction(
         .wasm64 => unreachable, // has its own code path
         .arm => return Function(.arm).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         .armeb => return Function(.armeb).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        .aarch64 => return @import("arch/aarch64/CodeGen.zig").generate(.aarch64, bin_file, src_loc, func, air, liveness, code, debug_output),
-        .aarch64_be => return @import("arch/aarch64/CodeGen.zig").generate(.aarch64_be, bin_file, src_loc, func, air, liveness, code, debug_output),
-        .aarch64_32 => return @import("arch/aarch64/CodeGen.zig").generate(.aarch64_32, bin_file, src_loc, func, air, liveness, code, debug_output),
+        .aarch64,
+        .aarch64_be,
+        .aarch64_32,
+        => return @import("arch/aarch64/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.arc => return Function(.arc).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.avr => return Function(.avr).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.bpfel => return Function(.bpfel).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
