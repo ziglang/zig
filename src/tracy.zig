@@ -2,7 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub const enable = if (builtin.is_test) false else @import("build_options").enable_tracy;
-const enable_callstack = @import("build_options").enable_tracy_callstack;
+pub const enable_allocation = enable and @import("build_options").enable_tracy_allocation;
+pub const enable_callstack = enable and @import("build_options").enable_tracy_callstack;
 
 // TODO: make this configurable
 const callstack_depth = 10;

@@ -10,6 +10,7 @@ const ArrayList = std.ArrayList;
 const Ast = std.zig.Ast;
 const warn = std.log.warn;
 
+const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
 const link = @import("link.zig");
 const Package = @import("Package.zig");
@@ -155,6 +156,12 @@ pub fn main() anyerror!void {
     const arena = &arena_instance.allocator;
 
     const args = try process.argsAlloc(arena);
+
+    if (tracy.enable_allocation) {
+        var gpa_tracy = tracy.tracyAllocator(gpa);
+        return mainArgs(&gpa_tracy.allocator, arena, args);
+    }
+
     return mainArgs(gpa, arena, args);
 }
 
