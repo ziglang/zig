@@ -993,6 +993,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             } else if (options.target.os.tag == .windows and link_libcpp) {
                 // https://github.com/ziglang/zig/issues/8531
                 break :blk false;
+            } else if (options.target.cpu.arch.isRISCV()) {
+                // Clang and LLVM currently don't support RISC-V target-abi for LTO.
+                // Compiling with LTO may fail or produce undesired results.
+                // See https://reviews.llvm.org/D71387
+                // See https://reviews.llvm.org/D102582
+                break :blk false;
             } else switch (options.output_mode) {
                 .Lib, .Obj => break :blk false,
                 .Exe => switch (options.optimize_mode) {
