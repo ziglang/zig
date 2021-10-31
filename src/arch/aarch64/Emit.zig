@@ -7,6 +7,8 @@ const math = std.math;
 const Mir = @import("Mir.zig");
 const bits = @import("bits.zig");
 const link = @import("../../link.zig");
+const Module = @import("../../Module.zig");
+const ErrorMsg = Module.ErrorMsg;
 const assert = std.debug.assert;
 const DW = std.dwarf;
 const leb128 = std.leb;
@@ -18,12 +20,19 @@ mir: Mir,
 bin_file: *link.File,
 debug_output: DebugInfoOutput,
 target: *const std.Target,
+err_msg: ?*ErrorMsg = null,
+src_loc: Module.SrcLoc,
 code: *std.ArrayList(u8),
 
 prev_di_line: u32,
 prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
+
+const InnerError = error{
+    OutOfMemory,
+    EmitFail,
+};
 
 pub fn emitMir(
     emit: *Emit,
@@ -78,6 +87,13 @@ pub fn emitMir(
 fn writeInstruction(emit: *Emit, instruction: Instruction) !void {
     const endian = emit.target.cpu.arch.endian();
     std.mem.writeInt(u32, try emit.code.addManyAsArray(4), instruction.toU32(), endian);
+}
+
+fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
+    @setCold(true);
+    assert(emit.err_msg == null);
+    emit.err_msg = try ErrorMsg.create(emit.bin_file.allocator, emit.src_loc, format, args);
+    return error.EmitFail;
 }
 
 fn moveImmediate(emit: *Emit, reg: Register, imm64: u64) !void {
@@ -173,8 +189,8 @@ fn mirBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
     _ = target_inst;
 
     switch (tag) {
-        .b => @panic("Implement mirBranch"),
-        .bl => @panic("Implement mirBranch"),
+        .b => return emit.fail("Implement mirBranch", .{}),
+        .bl => return emit.fail("Implement mirBranch", .{}),
         else => unreachable,
     }
 }
@@ -255,7 +271,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
             .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_BRANCH26),
         });
     } else {
-        @panic("Implement call_extern for linking backends != MachO");
+        return emit.fail("Implement call_extern for linking backends != MachO", .{});
     }
 }
 
@@ -304,7 +320,7 @@ fn mirLoadMemory(emit: *Emit, inst: Mir.Inst.Index) !void {
                 .@"type" = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGEOFF12),
             });
         } else {
-            return @panic("TODO implement load_memory for PIE GOT indirection on this platform");
+            return emit.fail("TODO implement load_memory for PIE GOT indirection on this platform", .{});
         }
     } else {
         // The value is in memory at a hard-coded address.

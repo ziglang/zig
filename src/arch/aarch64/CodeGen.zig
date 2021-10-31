@@ -309,12 +309,16 @@ pub fn generate(
         .bin_file = bin_file,
         .debug_output = debug_output,
         .target = &bin_file.options.target,
+        .src_loc = src_loc,
         .code = code,
         .prev_di_pc = 0,
         .prev_di_line = module_fn.lbrace_line,
         .prev_di_column = module_fn.lbrace_column,
     };
-    try emit.emitMir();
+    emit.emitMir() catch |err| switch (err) {
+        error.EmitFail => return FnResult{ .fail = emit.err_msg.? },
+        else => |e| return e,
+    };
 
     if (function.err_msg) |em| {
         return FnResult{ .fail = em };
