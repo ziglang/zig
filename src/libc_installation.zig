@@ -321,7 +321,7 @@ pub const LibCInstallation = struct {
         const sys_include_dir_example_file = if (is_windows)
             "sys\\types.h"
         else if (is_haiku)
-            "posix/errno.h"
+            "errno.h"
         else
             "sys/errno.h";
 

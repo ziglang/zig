@@ -3836,6 +3836,15 @@ fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const
             list.appendAssumeCapacity(shared_dir);
         }
     }
+    if (target.os.tag == .haiku) {
+        const include_dir_path = lci.include_dir orelse return error.LibCInstallationNotAvailable;
+        const os_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, "os" });
+        list.appendAssumeCapacity(os_dir);
+
+        const config_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, "config" });
+        list.appendAssumeCapacity(config_dir);
+    }
+
     return LibCDirs{
         .libc_include_dir_list = list.items,
         .libc_installation = lci,
