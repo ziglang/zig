@@ -2606,6 +2606,12 @@ pub const LibExeObjStep = struct {
             try zig_args.append(c_macro);
         }
 
+        const single_threaded = self.single_threaded or
+            self.target.getCpuArch().isWasm();
+        if (self.is_linking_libcpp and single_threaded) {
+            try zig_args.append("-D_LIBCPP_HAS_NO_THREADS");
+        }
+
         if (self.target.isDarwin()) {
             for (self.framework_dirs.items) |dir| {
                 if (builder.sysroot != null) {
