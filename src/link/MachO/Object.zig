@@ -393,9 +393,8 @@ pub fn parseIntoAtoms(self: *Object, allocator: *Allocator, macho_file: *MachO) 
     // local < extern defined < undefined. Unfortunately, this is not guaranteed! For instance,
     // the GO compiler does not necessarily respect that therefore we sort immediately by type
     // and address within.
-    var sorted_all_nlists = std.ArrayList(NlistWithIndex).init(allocator);
+    var sorted_all_nlists = try std.ArrayList(NlistWithIndex).initCapacity(allocator, self.symtab.items.len);
     defer sorted_all_nlists.deinit();
-    try sorted_all_nlists.ensureTotalCapacity(self.symtab.items.len);
 
     for (self.symtab.items) |nlist, index| {
         sorted_all_nlists.appendAssumeCapacity(.{

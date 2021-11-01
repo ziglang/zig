@@ -3812,8 +3812,7 @@ fn detectLibCIncludeDirs(
 }
 
 fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const LibCInstallation) !LibCDirs {
-    var list = std.ArrayList([]const u8).init(arena);
-    try list.ensureTotalCapacity(4);
+    var list = try std.ArrayList([]const u8).initCapacity(arena, 4);
 
     list.appendAssumeCapacity(lci.include_dir.?);
 

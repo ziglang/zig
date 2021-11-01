@@ -849,8 +849,7 @@ pub const DeclGen = struct {
 
                 assert(struct_obj.haveFieldTypes());
 
-                var llvm_field_types: std.ArrayListUnmanaged(*const llvm.Type) = .{};
-                try llvm_field_types.ensureTotalCapacity(gpa, struct_obj.fields.count());
+                var llvm_field_types = try std.ArrayListUnmanaged(*const llvm.Type).initCapacity(gpa, struct_obj.fields.count());
                 defer llvm_field_types.deinit(gpa);
 
                 for (struct_obj.fields.values()) |field| {
@@ -1251,8 +1250,7 @@ pub const DeclGen = struct {
                 const field_vals = tv.val.castTag(.@"struct").?.data;
                 const gpa = self.gpa;
 
-                var llvm_fields: std.ArrayListUnmanaged(*const llvm.Value) = .{};
-                try llvm_fields.ensureTotalCapacity(gpa, field_vals.len);
+                var llvm_fields = try std.ArrayListUnmanaged(*const llvm.Value).initCapacity(gpa, field_vals.len);
                 defer llvm_fields.deinit(gpa);
 
                 for (field_vals) |field_val, i| {

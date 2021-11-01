@@ -5323,8 +5323,7 @@ fn snapshotState(self: *MachO) !void {
             node.payload.aliases = aliases.toOwnedSlice();
             try nodes.append(node);
 
-            var relocs = std.ArrayList(Snapshot.Node).init(arena);
-            try relocs.ensureTotalCapacity(atom.relocs.items.len);
+            var relocs = try std.ArrayList(Snapshot.Node).initCapacity(arena, atom.relocs.items.len);
             for (atom.relocs.items) |rel| {
                 const arch = self.base.options.target.cpu.arch;
                 const source_addr = blk: {
