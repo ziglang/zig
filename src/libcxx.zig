@@ -128,6 +128,12 @@ pub fn buildLibCXX(comp: *Compilation) !void {
             continue;
         if (std.mem.startsWith(u8, cxx_src, "src/support/ibm/") and target.os.tag != .zos)
             continue;
+        if (comp.bin_file.options.single_threaded) {
+            if (std.mem.startsWith(u8, cxx_src, "src/support/win32/thread_win32.cpp")) {
+                continue;
+            }
+            try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
+        }
 
         try cflags.append("-DNDEBUG");
         try cflags.append("-D_LIBCPP_BUILDING_LIBRARY");
@@ -145,8 +151,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         }
 
         if (target.os.tag == .wasi) {
-            // WASI doesn't support thread and exception yet.
-            try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
+            // WASI doesn't support exceptions yet.
             try cflags.append("-fno-exceptions");
         }
 
@@ -264,13 +269,20 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         var cflags = std.ArrayList([]const u8).init(arena);
 
         if (target.os.tag == .wasi) {
-            // WASI doesn't support thread and exception yet.
-            if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp") or
-                std.mem.startsWith(u8, cxxabi_src, "src/cxa_exception.cpp") or
+            // WASI doesn't support exceptions yet.
+            if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_exception.cpp") or
                 std.mem.startsWith(u8, cxxabi_src, "src/cxa_personality.cpp"))
                 continue;
-            try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
             try cflags.append("-fno-exceptions");
+        }
+
+        // WASM targets are single threaded.
+        if (comp.bin_file.options.single_threaded) {
+            if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp")) {
+                continue;
+            }
+            try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
+            try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
         } else {
             try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
         }
