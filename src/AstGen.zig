@@ -53,16 +53,30 @@ fn addExtra(astgen: *AstGen, extra: anytype) Allocator.Error!u32 {
 fn addExtraAssumeCapacity(astgen: *AstGen, extra: anytype) u32 {
     const fields = std.meta.fields(@TypeOf(extra));
     const result = @intCast(u32, astgen.extra.items.len);
+    astgen.extra.items.len += fields.len;
+    setExtra(astgen, result, extra);
+    return result;
+}
+
+fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
+    const fields = std.meta.fields(@TypeOf(extra));
+    var i = index;
     inline for (fields) |field| {
-        astgen.extra.appendAssumeCapacity(switch (field.field_type) {
+        astgen.extra.items[i] = switch (field.field_type) {
             u32 => @field(extra, field.name),
             Zir.Inst.Ref => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
             Zir.Inst.Call.Flags => @bitCast(u32, @field(extra, field.name)),
             Zir.Inst.SwitchBlock.Bits => @bitCast(u32, @field(extra, field.name)),
             else => @compileError("bad field type"),
-        });
+        };
+        i += 1;
     }
+}
+
+fn reserveExtra(astgen: *AstGen, size: usize) Allocator.Error!u32 {
+    const result = @intCast(u32, astgen.extra.items.len);
+    try astgen.extra.resize(astgen.gpa, result + size);
     return result;
 }
 
@@ -1307,18 +1321,18 @@ fn arrayInitExprRlNone(
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const gpa = astgen.gpa;
-    const elem_list = try gpa.alloc(Zir.Inst.Ref, elements.len);
-    defer gpa.free(elem_list);
 
-    for (elements) |elem_init, i| {
-        elem_list[i] = try expr(gz, scope, .none, elem_init);
-    }
-    const init_inst = try gz.addPlNode(tag, node, Zir.Inst.MultiOp{
-        .operands_len = @intCast(u32, elem_list.len),
+    const payload_index = try addExtra(astgen, Zir.Inst.MultiOp{
+        .operands_len = @intCast(u32, elements.len),
     });
-    try astgen.appendRefs(elem_list);
-    return init_inst;
+    var extra_index = try reserveExtra(astgen, elements.len);
+
+    for (elements) |elem_init| {
+        const elem_ref = try expr(gz, scope, .none, elem_init);
+        astgen.extra.items[extra_index] = @enumToInt(elem_ref);
+        extra_index += 1;
+    }
+    return try gz.addPlNodePayloadIndex(tag, node, payload_index);
 }
 
 fn arrayInitExprRlTy(
@@ -1330,21 +1344,19 @@ fn arrayInitExprRlTy(
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const gpa = astgen.gpa;
 
-    const elem_list = try gpa.alloc(Zir.Inst.Ref, elements.len);
-    defer gpa.free(elem_list);
+    const payload_index = try addExtra(astgen, Zir.Inst.MultiOp{
+        .operands_len = @intCast(u32, elements.len),
+    });
+    var extra_index = try reserveExtra(astgen, elements.len);
 
     const elem_rl: ResultLoc = .{ .ty = elem_ty_inst };
-
-    for (elements) |elem_init, i| {
-        elem_list[i] = try expr(gz, scope, elem_rl, elem_init);
+    for (elements) |elem_init| {
+        const elem_ref = try expr(gz, scope, elem_rl, elem_init);
+        astgen.extra.items[extra_index] = @enumToInt(elem_ref);
+        extra_index += 1;
     }
-    const init_inst = try gz.addPlNode(tag, node, Zir.Inst.MultiOp{
-        .operands_len = @intCast(u32, elem_list.len),
-    });
-    try astgen.appendRefs(elem_list);
-    return init_inst;
+    return try gz.addPlNodePayloadIndex(tag, node, payload_index);
 }
 
 fn arrayInitExprRlPtr(
@@ -1375,23 +1387,22 @@ fn arrayInitExprRlPtrInner(
     elements: []const Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const gpa = astgen.gpa;
 
-    const elem_ptr_list = try gpa.alloc(Zir.Inst.Index, elements.len);
-    defer gpa.free(elem_ptr_list);
+    const payload_index = try addExtra(astgen, Zir.Inst.Block{
+        .body_len = @intCast(u32, elements.len),
+    });
+    var extra_index = try reserveExtra(astgen, elements.len);
 
     for (elements) |elem_init, i| {
         const elem_ptr = try gz.addPlNode(.elem_ptr_imm, elem_init, Zir.Inst.ElemPtrImm{
             .ptr = result_ptr,
             .index = @intCast(u32, i),
         });
-        elem_ptr_list[i] = refToIndex(elem_ptr).?;
+        astgen.extra.items[extra_index] = refToIndex(elem_ptr).?;
+        extra_index += 1;
         _ = try expr(gz, scope, .{ .ptr = elem_ptr }, elem_init);
     }
-    _ = try gz.addPlNode(.validate_array_init, node, Zir.Inst.Block{
-        .body_len = @intCast(u32, elem_ptr_list.len),
-    });
-    try astgen.extra.appendSlice(gpa, elem_ptr_list);
+    _ = try gz.addPlNodePayloadIndex(.validate_array_init, node, payload_index);
     return .void_value;
 }
 
@@ -1505,30 +1516,25 @@ fn structInitExprRlNone(
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const gpa = astgen.gpa;
     const tree = astgen.tree;
 
-    const fields_list = try gpa.alloc(Zir.Inst.StructInitAnon.Item, struct_init.ast.fields.len);
-    defer gpa.free(fields_list);
+    const payload_index = try addExtra(astgen, Zir.Inst.StructInitAnon{
+        .fields_len = @intCast(u32, struct_init.ast.fields.len),
+    });
+    const field_size = @typeInfo(Zir.Inst.StructInitAnon.Item).Struct.fields.len;
+    var extra_index: usize = try reserveExtra(astgen, struct_init.ast.fields.len * field_size);
 
-    for (struct_init.ast.fields) |field_init, i| {
+    for (struct_init.ast.fields) |field_init| {
         const name_token = tree.firstToken(field_init) - 2;
         const str_index = try astgen.identAsString(name_token);
-
-        fields_list[i] = .{
+        setExtra(astgen, extra_index, Zir.Inst.StructInitAnon.Item{
             .field_name = str_index,
             .init = try expr(gz, scope, .none, field_init),
-        };
+        });
+        extra_index += field_size;
     }
-    const init_inst = try gz.addPlNode(tag, node, Zir.Inst.StructInitAnon{
-        .fields_len = @intCast(u32, fields_list.len),
-    });
-    try astgen.extra.ensureUnusedCapacity(gpa, fields_list.len *
-        @typeInfo(Zir.Inst.StructInitAnon.Item).Struct.fields.len);
-    for (fields_list) |field| {
-        _ = gz.astgen.addExtraAssumeCapacity(field);
-    }
-    return init_inst;
+
+    return try gz.addPlNodePayloadIndex(tag, node, payload_index);
 }
 
 fn structInitExprRlPtr(
@@ -1559,26 +1565,26 @@ fn structInitExprRlPtrInner(
     result_ptr: Zir.Inst.Ref,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const gpa = astgen.gpa;
     const tree = astgen.tree;
 
-    const field_ptr_list = try gpa.alloc(Zir.Inst.Index, struct_init.ast.fields.len);
-    defer gpa.free(field_ptr_list);
+    const payload_index = try addExtra(astgen, Zir.Inst.Block{
+        .body_len = @intCast(u32, struct_init.ast.fields.len),
+    });
+    var extra_index = try reserveExtra(astgen, struct_init.ast.fields.len);
 
-    for (struct_init.ast.fields) |field_init, i| {
+    for (struct_init.ast.fields) |field_init| {
         const name_token = tree.firstToken(field_init) - 2;
         const str_index = try astgen.identAsString(name_token);
         const field_ptr = try gz.addPlNode(.field_ptr, field_init, Zir.Inst.Field{
             .lhs = result_ptr,
             .field_name_start = str_index,
         });
-        field_ptr_list[i] = refToIndex(field_ptr).?;
+        astgen.extra.items[extra_index] = refToIndex(field_ptr).?;
+        extra_index += 1;
         _ = try expr(gz, scope, .{ .ptr = field_ptr }, field_init);
     }
-    _ = try gz.addPlNode(.validate_struct_init, node, Zir.Inst.Block{
-        .body_len = @intCast(u32, field_ptr_list.len),
-    });
-    try astgen.extra.appendSlice(gpa, field_ptr_list);
+
+    _ = try gz.addPlNodePayloadIndex(.validate_struct_init, node, payload_index);
     return Zir.Inst.Ref.void_value;
 }
 
@@ -1591,34 +1597,29 @@ fn structInitExprRlTy(
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const gpa = astgen.gpa;
     const tree = astgen.tree;
 
-    const fields_list = try gpa.alloc(Zir.Inst.StructInit.Item, struct_init.ast.fields.len);
-    defer gpa.free(fields_list);
+    const payload_index = try addExtra(astgen, Zir.Inst.StructInit{
+        .fields_len = @intCast(u32, struct_init.ast.fields.len),
+    });
+    const field_size = @typeInfo(Zir.Inst.StructInit.Item).Struct.fields.len;
+    var extra_index: usize = try reserveExtra(astgen, struct_init.ast.fields.len * field_size);
 
-    for (struct_init.ast.fields) |field_init, i| {
+    for (struct_init.ast.fields) |field_init| {
         const name_token = tree.firstToken(field_init) - 2;
         const str_index = try astgen.identAsString(name_token);
-
         const field_ty_inst = try gz.addPlNode(.field_type, field_init, Zir.Inst.FieldType{
             .container_type = ty_inst,
             .name_start = str_index,
         });
-        fields_list[i] = .{
+        setExtra(astgen, extra_index, Zir.Inst.StructInit.Item{
             .field_type = refToIndex(field_ty_inst).?,
             .init = try expr(gz, scope, .{ .ty = field_ty_inst }, field_init),
-        };
+        });
+        extra_index += field_size;
     }
-    const init_inst = try gz.addPlNode(tag, node, Zir.Inst.StructInit{
-        .fields_len = @intCast(u32, fields_list.len),
-    });
-    try astgen.extra.ensureUnusedCapacity(gpa, fields_list.len *
-        @typeInfo(Zir.Inst.StructInit.Item).Struct.fields.len);
-    for (fields_list) |field| {
-        _ = gz.astgen.addExtraAssumeCapacity(field);
-    }
-    return init_inst;
+
+    return try gz.addPlNodePayloadIndex(tag, node, payload_index);
 }
 
 /// This calls expr in a comptime scope, and is intended to be called as a helper function.
@@ -4851,20 +4852,18 @@ fn errorSetDecl(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Zir
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
 
-    var field_names: std.ArrayListUnmanaged(u32) = .{};
-    defer field_names.deinit(gpa);
-
+    const payload_index = try reserveExtra(astgen, @typeInfo(Zir.Inst.ErrorSetDecl).Struct.fields.len);
+    var fields_len: usize = 0;
     {
         const error_token = main_tokens[node];
         var tok_i = error_token + 2;
-        var field_i: usize = 0;
         while (true) : (tok_i += 1) {
             switch (token_tags[tok_i]) {
                 .doc_comment, .comma => {},
                 .identifier => {
                     const str_index = try astgen.identAsString(tok_i);
-                    try field_names.append(gpa, str_index);
-                    field_i += 1;
+                    try astgen.extra.append(gpa, str_index);
+                    fields_len += 1;
                 },
                 .r_brace => break,
                 else => unreachable,
@@ -4872,10 +4871,10 @@ fn errorSetDecl(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Zir
         }
     }
 
-    const result = try gz.addPlNode(.error_set_decl, node, Zir.Inst.ErrorSetDecl{
-        .fields_len = @intCast(u32, field_names.items.len),
+    setExtra(astgen, payload_index, Zir.Inst.ErrorSetDecl{
+        .fields_len = @intCast(u32, fields_len),
     });
-    try astgen.extra.appendSlice(gpa, field_names.items);
+    const result = try gz.addPlNodePayloadIndex(.error_set_decl, node, payload_index);
     return rvalue(gz, rl, result, node);
 }
 
@@ -7196,13 +7195,18 @@ fn typeOf(
         const result = try gz.addUnNode(.typeof, expr_result, node);
         return rvalue(gz, rl, result, node);
     }
-    const arena = gz.astgen.arena;
-    var items = try arena.alloc(Zir.Inst.Ref, params.len);
-    for (params) |param, param_i| {
-        items[param_i] = try reachableExpr(gz, scope, .none, param, node);
+
+    const payload_index = try addExtra(gz.astgen, Zir.Inst.NodeMultiOp{
+        .src_node = gz.nodeIndexToRelative(node),
+    });
+    var extra_index = try reserveExtra(gz.astgen, params.len);
+    for (params) |param| {
+        const param_ref = try reachableExpr(gz, scope, .none, param, node);
+        gz.astgen.extra.items[extra_index] = @enumToInt(param_ref);
+        extra_index += 1;
     }
 
-    const result = try gz.addExtendedMultiOp(.typeof_peer, node, items);
+    const result = try gz.addExtendedMultiOpPayloadIndex(.typeof_peer, payload_index, params.len);
     return rvalue(gz, rl, result, node);
 }
 
@@ -7259,12 +7263,16 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
         .compile_log => {
-            const arg_refs = try astgen.gpa.alloc(Zir.Inst.Ref, params.len);
-            defer astgen.gpa.free(arg_refs);
-
-            for (params) |param, i| arg_refs[i] = try expr(gz, scope, .none, param);
-
-            const result = try gz.addExtendedMultiOp(.compile_log, node, arg_refs);
+            const payload_index = try addExtra(gz.astgen, Zir.Inst.NodeMultiOp{
+                .src_node = gz.nodeIndexToRelative(node),
+            });
+            var extra_index = try reserveExtra(gz.astgen, params.len);
+            for (params) |param| {
+                const param_ref = try expr(gz, scope, .none, param);
+                astgen.extra.items[extra_index] = @enumToInt(param_ref);
+                extra_index += 1;
+            }
+            const result = try gz.addExtendedMultiOpPayloadIndex(.compile_log,payload_index, params.len);
             return rvalue(gz, rl, result, node);
         },
         .field => {
@@ -7974,22 +7982,6 @@ fn callExpr(
     const astgen = gz.astgen;
 
     const callee = try calleeExpr(gz, scope, call.ast.fn_expr);
-
-    // A large proportion of calls have 5 or less arguments, due to this preventing allocations
-    // for calls with few arguments has a sizeable effect on the aggregated runtime of this function
-    var arg_buffer: [5]Zir.Inst.Ref = undefined;
-    const args: []Zir.Inst.Ref = if (call.ast.params.len <= arg_buffer.len)
-        arg_buffer[0..call.ast.params.len]
-    else
-        try astgen.gpa.alloc(Zir.Inst.Ref, call.ast.params.len);
-    defer if (call.ast.params.len > arg_buffer.len) astgen.gpa.free(args);
-
-    for (call.ast.params) |param_node, i| {
-        // Parameters are always temporary values, they have no
-        // meaningful result location.  Sema will coerce them.
-        args[i] = try expr(gz, scope, .none, param_node);
-    }
-
     const modifier: std.builtin.CallOptions.Modifier = blk: {
         if (gz.force_comptime) {
             break :blk .compile_time;
@@ -8002,7 +7994,28 @@ fn callExpr(
         }
         break :blk .auto;
     };
-    const call_inst = try gz.addCall(modifier, callee, args, node);
+
+    assert(callee != .none);
+    assert(node != 0);
+
+    const payload_index = try addExtra(astgen, Zir.Inst.Call{
+        .callee = callee,
+        .flags = .{
+            .packed_modifier = @intCast(Zir.Inst.Call.Flags.PackedModifier, @enumToInt(modifier)),
+            .args_len = @intCast(Zir.Inst.Call.Flags.PackedArgsLen, call.ast.params.len),
+        },
+    });
+    var extra_index = try reserveExtra(astgen, call.ast.params.len);
+
+    for (call.ast.params) |param_node| {
+        // Parameters are always temporary values, they have no
+        // meaningful result location.  Sema will coerce them.
+        const arg_ref = try expr(gz, scope, .none, param_node);
+        astgen.extra.items[extra_index] = @enumToInt(arg_ref);
+        extra_index += 1;
+    }
+
+    const call_inst = try gz.addPlNodePayloadIndex(.call, node, payload_index);
     return rvalue(gz, rl, call_inst, node); // TODO function call with result location
 }
 
@@ -9765,44 +9778,6 @@ const GenZir = struct {
         return indexToRef(new_index);
     }
 
-    fn addCall(
-        gz: *GenZir,
-        modifier: std.builtin.CallOptions.Modifier,
-        callee: Zir.Inst.Ref,
-        args: []const Zir.Inst.Ref,
-        /// Absolute node index. This function does the conversion to offset from Decl.
-        src_node: Ast.Node.Index,
-    ) !Zir.Inst.Ref {
-        assert(callee != .none);
-        assert(src_node != 0);
-        const gpa = gz.astgen.gpa;
-        const Call = Zir.Inst.Call;
-        try gz.instructions.ensureUnusedCapacity(gpa, 1);
-        try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Call).Struct.fields.len +
-            args.len);
-
-        const payload_index = gz.astgen.addExtraAssumeCapacity(Call{
-            .callee = callee,
-            .flags = .{
-                .packed_modifier = @intCast(Call.Flags.PackedModifier, @enumToInt(modifier)),
-                .args_len = @intCast(Call.Flags.PackedArgsLen, args.len),
-            },
-        });
-        gz.astgen.appendRefsAssumeCapacity(args);
-
-        const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
-        gz.astgen.instructions.appendAssumeCapacity(.{
-            .tag = .call,
-            .data = .{ .pl_node = .{
-                .src_node = gz.nodeIndexToRelative(src_node),
-                .payload_index = payload_index,
-            } },
-        });
-        gz.instructions.appendAssumeCapacity(new_index);
-        return indexToRef(new_index);
-    }
-
     /// Note that this returns a `Zir.Inst.Index` not a ref.
     /// Leaves the `payload_index` field undefined.
     fn addBoolBr(
@@ -9902,6 +9877,22 @@ const GenZir = struct {
         return indexToRef(new_index);
     }
 
+    fn addPlNodePayloadIndex(
+        gz: *GenZir,
+        tag: Zir.Inst.Tag,
+        /// Absolute node index. This function does the conversion to offset from Decl.
+        src_node: Ast.Node.Index,
+        payload_index: u32,
+    ) !Zir.Inst.Ref {
+        return try gz.add(.{
+            .tag = tag,
+            .data = .{ .pl_node = .{
+                .src_node = gz.nodeIndexToRelative(src_node),
+                .payload_index = payload_index,
+            } },
+        });
+    }
+
     fn addParam(
         gz: *GenZir,
         tag: Zir.Inst.Tag,
@@ -9988,6 +9979,30 @@ const GenZir = struct {
         });
         gz.instructions.appendAssumeCapacity(new_index);
         astgen.appendRefsAssumeCapacity(operands);
+        return indexToRef(new_index);
+    }
+
+    fn addExtendedMultiOpPayloadIndex(
+        gz: *GenZir,
+        opcode: Zir.Inst.Extended,
+        payload_index: u32,
+        trailing_len: usize,
+    ) !Zir.Inst.Ref {
+        const astgen = gz.astgen;
+        const gpa = astgen.gpa;
+
+        try gz.instructions.ensureUnusedCapacity(gpa, 1);
+        try astgen.instructions.ensureUnusedCapacity(gpa, 1);
+        const new_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
+        astgen.instructions.appendAssumeCapacity(.{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = opcode,
+                .small = @intCast(u16, trailing_len),
+                .operand = payload_index,
+            } },
+        });
+        gz.instructions.appendAssumeCapacity(new_index);
         return indexToRef(new_index);
     }
 
