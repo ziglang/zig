@@ -397,10 +397,9 @@ pub fn flushEmitH(module: *Module) !void {
     const emit_h = module.emit_h orelse return;
 
     // We collect a list of buffers to write, and write them all at once with pwritev 😎
-    var all_buffers = std.ArrayList(std.os.iovec_const).init(module.gpa);
+    const num_buffers = emit_h.decl_table.count() + 1;
+    var all_buffers = try std.ArrayList(std.os.iovec_const).initCapacity(module.gpa, num_buffers);
     defer all_buffers.deinit();
-
-    try all_buffers.ensureTotalCapacity(emit_h.decl_table.count() + 1);
 
     var file_size: u64 = zig_h.len;
     all_buffers.appendAssumeCapacity(.{

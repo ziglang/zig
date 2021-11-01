@@ -6219,11 +6219,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
     try sema.requireRuntimeBlock(block, src);
 
-    var cases_extra: std.ArrayListUnmanaged(u32) = .{};
+    const estimated_cases_extra = (scalar_cases_len + multi_cases_len) *
+        @typeInfo(Air.SwitchBr.Case).Struct.fields.len + 2;
+    var cases_extra = try std.ArrayListUnmanaged(u32).initCapacity(gpa, estimated_cases_extra);
     defer cases_extra.deinit(gpa);
-
-    try cases_extra.ensureTotalCapacity(gpa, (scalar_cases_len + multi_cases_len) *
-        @typeInfo(Air.SwitchBr.Case).Struct.fields.len + 2);
 
     var case_block = child_block.makeSubBlock();
     case_block.runtime_loop = null;

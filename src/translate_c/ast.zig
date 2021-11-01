@@ -2787,9 +2787,8 @@ fn renderMacroFunc(c: *Context, node: Node) !NodeIndex {
 
 fn renderParams(c: *Context, params: []Payload.Param, is_var_args: bool) !std.ArrayList(NodeIndex) {
     _ = try c.addToken(.l_paren, "(");
-    var rendered = std.ArrayList(NodeIndex).init(c.gpa);
+    var rendered = try std.ArrayList(NodeIndex).initCapacity(c.gpa, std.math.max(params.len, 1));
     errdefer rendered.deinit();
-    try rendered.ensureTotalCapacity(std.math.max(params.len, 1));
 
     for (params) |param, i| {
         if (i != 0) _ = try c.addToken(.comma, ",");
