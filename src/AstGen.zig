@@ -41,6 +41,8 @@ fn_block: ?*GenZir = null,
 /// Maps string table indexes to the first `@import` ZIR instruction
 /// that uses this string as the operand.
 imports: std.AutoArrayHashMapUnmanaged(u32, Ast.TokenIndex) = .{},
+/// Used for temporary storage when building payloads.
+scratch: std.ArrayListUnmanaged(u32) = .{},
 
 const InnerError = error{ OutOfMemory, AnalysisFail };
 
@@ -198,6 +200,7 @@ pub fn deinit(astgen: *AstGen, gpa: *Allocator) void {
     astgen.string_bytes.deinit(gpa);
     astgen.compile_errors.deinit(gpa);
     astgen.imports.deinit(gpa);
+    astgen.scratch.deinit(gpa);
 }
 
 pub const ResultLoc = union(enum) {
@@ -2996,7 +2999,8 @@ fn arrayTypeSentinel(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.I
 }
 
 const WipMembers = struct {
-    payload: []u32,
+    payload: *ArrayListUnmanaged(u32),
+    payload_top: usize,
     decls_start: u32,
     decls_end: u32,
     field_bits_start: u32,
@@ -3013,16 +3017,19 @@ const WipMembers = struct {
     /// (4 for src_hash + line + name + value + align + link_section + address_space)
     const max_decl_size = 10;
 
-    pub fn init(gpa: *Allocator, decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
-        const decls_start = (decl_count + decls_per_u32 - 1) / decls_per_u32;
+    pub fn init(gpa: *Allocator, payload: *ArrayListUnmanaged(u32), decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
+        const payload_top = @intCast(u32, payload.items.len);
+        const decls_start = payload_top + (decl_count + decls_per_u32 - 1) / decls_per_u32;
         const field_bits_start = decls_start + decl_count * max_decl_size;
-        const fields_start = if (bits_per_field > 0) blk: {
+        const fields_start = field_bits_start + if (bits_per_field > 0) blk: {
             const fields_per_u32 = 32 / bits_per_field;
-            break :blk field_bits_start + (field_count + fields_per_u32 - 1) / fields_per_u32;
-        } else field_bits_start;
-        const capacity = fields_start + field_count * max_field_size;
+            break :blk (field_count + fields_per_u32 - 1) / fields_per_u32;
+        } else 0;
+        const payload_end = fields_start + field_count * max_field_size;
+        try payload.resize(gpa, payload_end);
         return Self{
-            .payload = try gpa.alloc(u32, capacity),
+            .payload = payload,
+            .payload_top = payload_top,
             .decls_start = decls_start,
             .field_bits_start = field_bits_start,
             .fields_start = fields_start,
@@ -3032,10 +3039,10 @@ const WipMembers = struct {
     }
 
     pub fn nextDecl(self: *Self, is_pub: bool, is_export: bool, has_align: bool, has_section_or_addrspace: bool) void {
-        const index = self.decl_index / decls_per_u32;
+        const index = self.payload_top + self.decl_index / decls_per_u32;
         assert(index < self.decls_start);
-        const bit_bag: u32 = if (self.decl_index % decls_per_u32 == 0) 0 else self.payload[index];
-        self.payload[index] = (bit_bag >> bits_per_decl) |
+        const bit_bag: u32 = if (self.decl_index % decls_per_u32 == 0) 0 else self.payload.items[index];
+        self.payload.items[index] = (bit_bag >> bits_per_decl) |
             (@as(u32, @boolToInt(is_pub)) << 28) |
             (@as(u32, @boolToInt(is_export)) << 29) |
             (@as(u32, @boolToInt(has_align)) << 30) |
@@ -3047,60 +3054,60 @@ const WipMembers = struct {
         const fields_per_u32 = 32 / bits_per_field;
         const index = self.field_bits_start + self.field_index / fields_per_u32;
         assert(index < self.fields_start);
-        var bit_bag: u32 = if (self.field_index % fields_per_u32 == 0) 0 else self.payload[index];
+        var bit_bag: u32 = if (self.field_index % fields_per_u32 == 0) 0 else self.payload.items[index];
         bit_bag >>= bits_per_field;
         comptime var i = 0;
         inline while (i < bits_per_field) : (i += 1) {
             bit_bag |= @as(u32, @boolToInt(bits[i])) << (32 - bits_per_field + i);
         }
-        self.payload[index] = bit_bag;
+        self.payload.items[index] = bit_bag;
         self.field_index += 1;
     }
 
     pub fn appendToDecl(self: *Self, data: u32) void {
         assert(self.decls_end < self.field_bits_start);
-        self.payload[self.decls_end] = data;
+        self.payload.items[self.decls_end] = data;
         self.decls_end += 1;
     }
 
     pub fn appendToDeclSlice(self: *Self, data: []const u32) void {
         assert(self.decls_end + data.len <= self.field_bits_start);
-        mem.copy(u32, self.payload[self.decls_end..], data);
+        mem.copy(u32, self.payload.items[self.decls_end..], data);
         self.decls_end += @intCast(u32, data.len);
     }
 
     pub fn appendToField(self: *Self, data: u32) void {
-        assert(self.fields_end < self.payload.len);
-        self.payload[self.fields_end] = data;
+        assert(self.fields_end < self.payload.items.len);
+        self.payload.items[self.fields_end] = data;
         self.fields_end += 1;
     }
 
     pub fn finishBits(self: *Self, comptime bits_per_field: u32) void {
         const empty_decl_slots = decls_per_u32 - (self.decl_index % decls_per_u32);
         if (self.decl_index > 0 and empty_decl_slots < decls_per_u32) {
-            const index = self.decl_index / decls_per_u32;
-            self.payload[index] >>= @intCast(u5, empty_decl_slots * bits_per_decl);
+            const index = self.payload_top + self.decl_index / decls_per_u32;
+            self.payload.items[index] >>= @intCast(u5, empty_decl_slots * bits_per_decl);
         }
         if (bits_per_field > 0) {
             const fields_per_u32 = 32 / bits_per_field;
             const empty_field_slots = fields_per_u32 - (self.field_index % fields_per_u32);
             if (self.field_index > 0 and empty_field_slots < fields_per_u32) {
                 const index = self.field_bits_start + self.field_index / fields_per_u32;
-                self.payload[index] >>= @intCast(u5, empty_field_slots * bits_per_field);
+                self.payload.items[index] >>= @intCast(u5, empty_field_slots * bits_per_field);
             }
         }
     }
 
     pub fn declsSlice(self: *Self) []u32 {
-        return self.payload[0..self.decls_end];
+        return self.payload.items[self.payload_top..self.decls_end];
     }
 
     pub fn fieldsSlice(self: *Self) []u32 {
-        return self.payload[self.field_bits_start..self.fields_end];
+        return self.payload.items[self.field_bits_start..self.fields_end];
     }
 
-    pub fn deinit(self: *Self, gpa: *Allocator) void {
-        gpa.free(self.payload);
+    pub fn deinit(self: *Self) void {
+        self.payload.items.len = self.payload_top;
     }
 };
 
@@ -3777,8 +3784,8 @@ fn structDeclInner(
 
     const bits_per_field = 4;
     const max_field_size = 4;
-    var wip_members = try WipMembers.init(gpa, decl_count, field_count, bits_per_field, max_field_size);
-    defer wip_members.deinit(gpa);
+    var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
+    defer wip_members.deinit();
 
     var known_has_bits = false;
     for (container_decl.ast.members) |member_node| {
@@ -3893,8 +3900,8 @@ fn unionDeclInner(
 
     const bits_per_field = 4;
     const max_field_size = 4;
-    var wip_members = try WipMembers.init(gpa, decl_count, field_count, bits_per_field, max_field_size);
-    defer wip_members.deinit(gpa);
+    var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
+    defer wip_members.deinit();
 
     for (members) |member_node| {
         const member = switch (try containerMember(gz, &namespace.base, &wip_members, member_node)) {
@@ -4166,8 +4173,8 @@ fn containerDecl(
 
             const bits_per_field = 1;
             const max_field_size = 2;
-            var wip_members = try WipMembers.init(gpa, @intCast(u32, counts.decls), @intCast(u32, counts.total_fields), bits_per_field, max_field_size);
-            defer wip_members.deinit(gpa);
+            var wip_members = try WipMembers.init(gpa, &astgen.scratch, @intCast(u32, counts.decls), @intCast(u32, counts.total_fields), bits_per_field, max_field_size);
+            defer wip_members.deinit();
 
             for (container_decl.ast.members) |member_node| {
                 if (member_node == counts.nonexhaustive_node)
@@ -4244,8 +4251,8 @@ fn containerDecl(
 
             const decl_count = try astgen.scanDecls(&namespace, container_decl.ast.members);
 
-            var wip_members = try WipMembers.init(gpa, decl_count, 0, 0, 0);
-            defer wip_members.deinit(gpa);
+            var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, 0, 0, 0);
+            defer wip_members.deinit();
 
             for (container_decl.ast.members) |member_node| {
                 _ = try containerMember(gz, &namespace.base, &wip_members, member_node);
@@ -5579,12 +5586,14 @@ fn switchExpr(
     // This contains the data that goes into the `extra` array for the SwitchBlock/SwitchBlockMulti,
     // except the first cases_nodes.len slots are a table that indexes payloads later in the array, with
     // the special case index coming first, then scalar_case_len indexes, then multi_cases_len indexes
-    var payloads = ArrayListUnmanaged(u32){};
-    defer payloads.deinit(gpa);
-    const scalar_case_table: u32 = @boolToInt(special_prong != .none);
+    const payloads = &astgen.scratch;
+    const scratch_top = astgen.scratch.items.len;
+    const case_table_start = scratch_top;
+    const scalar_case_table = case_table_start + @boolToInt(special_prong != .none);
     const multi_case_table = scalar_case_table + scalar_cases_len;
-    const case_table_len = multi_case_table + multi_cases_len;
-    try payloads.resize(gpa, case_table_len);
+    const case_table_end = multi_case_table + multi_cases_len;
+    try astgen.scratch.resize(gpa, case_table_end);
+    defer astgen.scratch.items.len = scratch_top;
 
     var block_scope = parent_gz.makeSubBlock(scope);
     block_scope.setBreakResultLoc(rl);
@@ -5702,7 +5711,7 @@ fn switchExpr(
             payloads.items[header_index + 1] = ranges_len;
             break :blk header_index + 2;
         } else if (case_node == special_node) blk: {
-            payloads.items[0] = header_index;
+            payloads.items[case_table_start] = header_index;
             try payloads.resize(gpa, header_index + 1); // body_len
             break :blk header_index;
         } else blk: {
@@ -5729,7 +5738,7 @@ fn switchExpr(
 
     try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.SwitchBlock).Struct.fields.len +
         @boolToInt(multi_cases_len != 0) +
-        payloads.items.len - case_table_len);
+        payloads.items.len - case_table_end);
 
     const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.SwitchBlock{
         .operand = cond,
@@ -5752,9 +5761,10 @@ fn switchExpr(
     zir_datas[switch_block].pl_node.payload_index = payload_index;
 
     const strat = rl.strategy(&block_scope);
-    for (payloads.items[0..case_table_len]) |start_index, table_index| {
+    for (payloads.items[case_table_start..case_table_end]) |start_index, i| {
         var body_len_index = start_index;
         var end_index = start_index;
+        const table_index = case_table_start + i;
         if (table_index < scalar_case_table) {
             end_index += 1;
         } else if (table_index < multi_case_table) {
