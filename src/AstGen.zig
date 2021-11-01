@@ -2998,9 +2998,9 @@ fn arrayTypeSentinel(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.I
 const WipMembers = struct {
     payload: []u32,
     decls_start: u32,
+    decls_end: u32,
     field_bits_start: u32,
     fields_start: u32,
-    decls_end: u32,
     fields_end: u32,
     decl_index: u32 = 0,
     field_index: u32 = 0,
@@ -3750,7 +3750,6 @@ fn structDeclInner(
     const gpa = astgen.gpa;
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
-    const node_datas = tree.nodes.items(.data);
 
     var namespace: Scope.Namespace = .{
         .parent = scope,
@@ -3783,130 +3782,9 @@ fn structDeclInner(
 
     var known_has_bits = false;
     for (container_decl.ast.members) |member_node| {
-        const member = switch (node_tags[member_node]) {
-            .container_field_init => tree.containerFieldInit(member_node),
-            .container_field_align => tree.containerFieldAlign(member_node),
-            .container_field => tree.containerField(member_node),
-
-            .fn_decl => {
-                const fn_proto = node_datas[member_node].lhs;
-                const body = node_datas[member_node].rhs;
-                switch (node_tags[fn_proto]) {
-                    .fn_proto_simple => {
-                        var params: [1]Ast.Node.Index = undefined;
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProtoSimple(&params, fn_proto)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .fn_proto_multi => {
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProtoMulti(fn_proto)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .fn_proto_one => {
-                        var params: [1]Ast.Node.Index = undefined;
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProtoOne(&params, fn_proto)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .fn_proto => {
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProto(fn_proto)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    else => unreachable,
-                }
-            },
-            .fn_proto_simple => {
-                var params: [1]Ast.Node.Index = undefined;
-                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProtoSimple(&params, member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .fn_proto_multi => {
-                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProtoMulti(member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .fn_proto_one => {
-                var params: [1]Ast.Node.Index = undefined;
-                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProtoOne(&params, member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .fn_proto => {
-                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProto(member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-
-            .global_var_decl => {
-                astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.globalVarDecl(member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .local_var_decl => {
-                astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.localVarDecl(member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .simple_var_decl => {
-                astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.simpleVarDecl(member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .aligned_var_decl => {
-                astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.alignedVarDecl(member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-
-            .@"comptime" => {
-                astgen.comptimeDecl(gz, &namespace.base, &wip_members, member_node) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .@"usingnamespace" => {
-                astgen.usingnamespaceDecl(gz, &namespace.base, &wip_members, member_node) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .test_decl => {
-                astgen.testDecl(gz, &namespace.base, &wip_members, member_node) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            else => unreachable,
+        const member = switch (try containerMember(gz, &namespace.base, &wip_members, member_node)) {
+            .decl => continue,
+            .field => |field| field,
         };
 
         const field_name = try astgen.identAsString(member.ast.name_token);
@@ -3943,7 +3821,6 @@ fn structDeclInner(
             return astgen.failTok(comptime_token, "comptime field without default initialization value", .{});
         }
     }
-    assert(wip_members.decl_index == decl_count and wip_members.field_index == field_count);
 
     if (block_scope.instructions.items.len != 0) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
@@ -3984,7 +3861,6 @@ fn unionDeclInner(
     const gpa = astgen.gpa;
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
-    const node_datas = tree.nodes.items(.data);
 
     var namespace: Scope.Namespace = .{
         .parent = scope,
@@ -4021,130 +3897,9 @@ fn unionDeclInner(
     defer wip_members.deinit(gpa);
 
     for (members) |member_node| {
-        const member = switch (node_tags[member_node]) {
-            .container_field_init => tree.containerFieldInit(member_node),
-            .container_field_align => tree.containerFieldAlign(member_node),
-            .container_field => tree.containerField(member_node),
-
-            .fn_decl => {
-                const fn_proto = node_datas[member_node].lhs;
-                const body = node_datas[member_node].rhs;
-                switch (node_tags[fn_proto]) {
-                    .fn_proto_simple => {
-                        var params: [1]Ast.Node.Index = undefined;
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProtoSimple(&params, fn_proto)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .fn_proto_multi => {
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProtoMulti(fn_proto)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .fn_proto_one => {
-                        var params: [1]Ast.Node.Index = undefined;
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProtoOne(&params, fn_proto)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .fn_proto => {
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProto(fn_proto)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    else => unreachable,
-                }
-            },
-            .fn_proto_simple => {
-                var params: [1]Ast.Node.Index = undefined;
-                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProtoSimple(&params, member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .fn_proto_multi => {
-                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProtoMulti(member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .fn_proto_one => {
-                var params: [1]Ast.Node.Index = undefined;
-                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProtoOne(&params, member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .fn_proto => {
-                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProto(member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-
-            .global_var_decl => {
-                astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.globalVarDecl(member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .local_var_decl => {
-                astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.localVarDecl(member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .simple_var_decl => {
-                astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.simpleVarDecl(member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .aligned_var_decl => {
-                astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.alignedVarDecl(member_node)) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-
-            .@"comptime" => {
-                astgen.comptimeDecl(gz, &namespace.base, &wip_members, member_node) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .@"usingnamespace" => {
-                astgen.usingnamespaceDecl(gz, &namespace.base, &wip_members, member_node) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            .test_decl => {
-                astgen.testDecl(gz, &namespace.base, &wip_members, member_node) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {},
-                };
-                continue;
-            },
-            else => unreachable,
+        const member = switch (try containerMember(gz, &namespace.base, &wip_members, member_node)) {
+            .decl => continue,
+            .field => |field| field,
         };
         if (member.comptime_token) |comptime_token| {
             return astgen.failTok(comptime_token, "union fields cannot be marked comptime", .{});
@@ -4205,7 +3960,6 @@ fn unionDeclInner(
             wip_members.appendToField(@enumToInt(tag_value));
         }
     }
-    assert(wip_members.decl_index == decl_count and wip_members.field_index == field_count);
     if (field_count == 0) {
         return astgen.failNode(node, "union declarations must have at least one tag", .{});
     }
@@ -4247,7 +4001,6 @@ fn containerDecl(
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
     const node_tags = tree.nodes.items(.tag);
-    const node_datas = tree.nodes.items(.data);
 
     const prev_fn_block = astgen.fn_block;
     astgen.fn_block = null;
@@ -4419,130 +4172,9 @@ fn containerDecl(
             for (container_decl.ast.members) |member_node| {
                 if (member_node == counts.nonexhaustive_node)
                     continue;
-                const member = switch (node_tags[member_node]) {
-                    .container_field_init => tree.containerFieldInit(member_node),
-                    .container_field_align => tree.containerFieldAlign(member_node),
-                    .container_field => tree.containerField(member_node),
-
-                    .fn_decl => {
-                        const fn_proto = node_datas[member_node].lhs;
-                        const body = node_datas[member_node].rhs;
-                        switch (node_tags[fn_proto]) {
-                            .fn_proto_simple => {
-                                var params: [1]Ast.Node.Index = undefined;
-                                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProtoSimple(&params, fn_proto)) catch |err| switch (err) {
-                                    error.OutOfMemory => return error.OutOfMemory,
-                                    error.AnalysisFail => {},
-                                };
-                                continue;
-                            },
-                            .fn_proto_multi => {
-                                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProtoMulti(fn_proto)) catch |err| switch (err) {
-                                    error.OutOfMemory => return error.OutOfMemory,
-                                    error.AnalysisFail => {},
-                                };
-                                continue;
-                            },
-                            .fn_proto_one => {
-                                var params: [1]Ast.Node.Index = undefined;
-                                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProtoOne(&params, fn_proto)) catch |err| switch (err) {
-                                    error.OutOfMemory => return error.OutOfMemory,
-                                    error.AnalysisFail => {},
-                                };
-                                continue;
-                            },
-                            .fn_proto => {
-                                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProto(fn_proto)) catch |err| switch (err) {
-                                    error.OutOfMemory => return error.OutOfMemory,
-                                    error.AnalysisFail => {},
-                                };
-                                continue;
-                            },
-                            else => unreachable,
-                        }
-                    },
-                    .fn_proto_simple => {
-                        var params: [1]Ast.Node.Index = undefined;
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProtoSimple(&params, member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .fn_proto_multi => {
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProtoMulti(member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .fn_proto_one => {
-                        var params: [1]Ast.Node.Index = undefined;
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProtoOne(&params, member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .fn_proto => {
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProto(member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-
-                    .global_var_decl => {
-                        astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.globalVarDecl(member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .local_var_decl => {
-                        astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.localVarDecl(member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .simple_var_decl => {
-                        astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.simpleVarDecl(member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .aligned_var_decl => {
-                        astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.alignedVarDecl(member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-
-                    .@"comptime" => {
-                        astgen.comptimeDecl(gz, &namespace.base, &wip_members, member_node) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .@"usingnamespace" => {
-                        astgen.usingnamespaceDecl(gz, &namespace.base, &wip_members, member_node) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .test_decl => {
-                        astgen.testDecl(gz, &namespace.base, &wip_members, member_node) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    else => unreachable,
+                const member = switch (try containerMember(gz, &namespace.base, &wip_members, member_node)) {
+                    .decl => continue,
+                    .field => |field| field,
                 };
                 assert(member.comptime_token == null);
                 assert(member.ast.type_expr == 0);
@@ -4573,7 +4205,6 @@ fn containerDecl(
                     wip_members.appendToField(@enumToInt(tag_value_inst));
                 }
             }
-            assert(wip_members.decl_index == counts.decls and wip_members.field_index == counts.total_fields);
 
             if (block_scope.instructions.items.len != 0) {
                 _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
@@ -4617,131 +4248,8 @@ fn containerDecl(
             defer wip_members.deinit(gpa);
 
             for (container_decl.ast.members) |member_node| {
-                switch (node_tags[member_node]) {
-                    .container_field_init, .container_field_align, .container_field => {},
-
-                    .fn_decl => {
-                        const fn_proto = node_datas[member_node].lhs;
-                        const body = node_datas[member_node].rhs;
-                        switch (node_tags[fn_proto]) {
-                            .fn_proto_simple => {
-                                var params: [1]Ast.Node.Index = undefined;
-                                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProtoSimple(&params, fn_proto)) catch |err| switch (err) {
-                                    error.OutOfMemory => return error.OutOfMemory,
-                                    error.AnalysisFail => {},
-                                };
-                                continue;
-                            },
-                            .fn_proto_multi => {
-                                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProtoMulti(fn_proto)) catch |err| switch (err) {
-                                    error.OutOfMemory => return error.OutOfMemory,
-                                    error.AnalysisFail => {},
-                                };
-                                continue;
-                            },
-                            .fn_proto_one => {
-                                var params: [1]Ast.Node.Index = undefined;
-                                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProtoOne(&params, fn_proto)) catch |err| switch (err) {
-                                    error.OutOfMemory => return error.OutOfMemory,
-                                    error.AnalysisFail => {},
-                                };
-                                continue;
-                            },
-                            .fn_proto => {
-                                astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, body, tree.fnProto(fn_proto)) catch |err| switch (err) {
-                                    error.OutOfMemory => return error.OutOfMemory,
-                                    error.AnalysisFail => {},
-                                };
-                                continue;
-                            },
-                            else => unreachable,
-                        }
-                    },
-                    .fn_proto_simple => {
-                        var params: [1]Ast.Node.Index = undefined;
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProtoSimple(&params, member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .fn_proto_multi => {
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProtoMulti(member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .fn_proto_one => {
-                        var params: [1]Ast.Node.Index = undefined;
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProtoOne(&params, member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .fn_proto => {
-                        astgen.fnDecl(gz, &namespace.base, &wip_members, member_node, 0, tree.fnProto(member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-
-                    .global_var_decl => {
-                        astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.globalVarDecl(member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .local_var_decl => {
-                        astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.localVarDecl(member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .simple_var_decl => {
-                        astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.simpleVarDecl(member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .aligned_var_decl => {
-                        astgen.globalVarDecl(gz, &namespace.base, &wip_members, member_node, tree.alignedVarDecl(member_node)) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-
-                    .@"comptime" => {
-                        astgen.comptimeDecl(gz, &namespace.base, &wip_members, member_node) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .@"usingnamespace" => {
-                        astgen.usingnamespaceDecl(gz, &namespace.base, &wip_members, member_node) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    .test_decl => {
-                        astgen.testDecl(gz, &namespace.base, &wip_members, member_node) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.AnalysisFail => {},
-                        };
-                        continue;
-                    },
-                    else => unreachable,
-                }
+                _ = try containerMember(gz, &namespace.base, &wip_members, member_node);
             }
-            assert(wip_members.decl_index == decl_count);
 
             try gz.setOpaque(decl_inst, .{
                 .src_node = node,
@@ -4757,6 +4265,131 @@ fn containerDecl(
         },
         else => unreachable,
     }
+}
+
+const ContainerMemberResult = union(enum) { decl, field: Ast.full.ContainerField };
+
+fn containerMember(
+    gz: *GenZir,
+    scope: *Scope,
+    wip_members: *WipMembers,
+    member_node: Ast.Node.Index,
+) InnerError!ContainerMemberResult {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_tags = tree.nodes.items(.tag);
+    const node_datas = tree.nodes.items(.data);
+    switch (node_tags[member_node]) {
+        .container_field_init => return ContainerMemberResult{ .field = tree.containerFieldInit(member_node) },
+        .container_field_align => return ContainerMemberResult{ .field = tree.containerFieldAlign(member_node) },
+        .container_field => return ContainerMemberResult{ .field = tree.containerField(member_node) },
+
+        .fn_decl => {
+            const fn_proto = node_datas[member_node].lhs;
+            const body = node_datas[member_node].rhs;
+            switch (node_tags[fn_proto]) {
+                .fn_proto_simple => {
+                    var params: [1]Ast.Node.Index = undefined;
+                    astgen.fnDecl(gz, scope, wip_members, member_node, body, tree.fnProtoSimple(&params, fn_proto)) catch |err| switch (err) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        error.AnalysisFail => {},
+                    };
+                },
+                .fn_proto_multi => {
+                    astgen.fnDecl(gz, scope, wip_members, member_node, body, tree.fnProtoMulti(fn_proto)) catch |err| switch (err) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        error.AnalysisFail => {},
+                    };
+                },
+                .fn_proto_one => {
+                    var params: [1]Ast.Node.Index = undefined;
+                    astgen.fnDecl(gz, scope, wip_members, member_node, body, tree.fnProtoOne(&params, fn_proto)) catch |err| switch (err) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        error.AnalysisFail => {},
+                    };
+                },
+                .fn_proto => {
+                    astgen.fnDecl(gz, scope, wip_members, member_node, body, tree.fnProto(fn_proto)) catch |err| switch (err) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        error.AnalysisFail => {},
+                    };
+                },
+                else => unreachable,
+            }
+        },
+        .fn_proto_simple => {
+            var params: [1]Ast.Node.Index = undefined;
+            astgen.fnDecl(gz, scope, wip_members, member_node, 0, tree.fnProtoSimple(&params, member_node)) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {},
+            };
+        },
+        .fn_proto_multi => {
+            astgen.fnDecl(gz, scope, wip_members, member_node, 0, tree.fnProtoMulti(member_node)) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {},
+            };
+        },
+        .fn_proto_one => {
+            var params: [1]Ast.Node.Index = undefined;
+            astgen.fnDecl(gz, scope, wip_members, member_node, 0, tree.fnProtoOne(&params, member_node)) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {},
+            };
+        },
+        .fn_proto => {
+            astgen.fnDecl(gz, scope, wip_members, member_node, 0, tree.fnProto(member_node)) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {},
+            };
+        },
+
+        .global_var_decl => {
+            astgen.globalVarDecl(gz, scope, wip_members, member_node, tree.globalVarDecl(member_node)) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {},
+            };
+        },
+        .local_var_decl => {
+            astgen.globalVarDecl(gz, scope, wip_members, member_node, tree.localVarDecl(member_node)) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {},
+            };
+        },
+        .simple_var_decl => {
+            astgen.globalVarDecl(gz, scope, wip_members, member_node, tree.simpleVarDecl(member_node)) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {},
+            };
+        },
+        .aligned_var_decl => {
+            astgen.globalVarDecl(gz, scope, wip_members, member_node, tree.alignedVarDecl(member_node)) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {},
+            };
+        },
+
+        .@"comptime" => {
+            astgen.comptimeDecl(gz, scope, wip_members, member_node) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {},
+            };
+        },
+        .@"usingnamespace" => {
+            astgen.usingnamespaceDecl(gz, scope, wip_members, member_node) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {},
+            };
+        },
+        .test_decl => {
+            astgen.testDecl(gz, scope, wip_members, member_node) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => {},
+            };
+        },
+        else => unreachable,
+    }
+    return .decl;
 }
 
 fn errorSetDecl(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
