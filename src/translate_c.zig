@@ -4901,10 +4901,9 @@ fn finishTransFnProto(
 
     // TODO check for align attribute
 
-    var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
-    defer fn_params.deinit();
     const param_count: usize = if (fn_proto_ty != null) fn_proto_ty.?.getNumParams() else 0;
-    try fn_params.ensureTotalCapacity(param_count);
+    var fn_params = try std.ArrayList(ast.Payload.Param).initCapacity(c.gpa, param_count);
+    defer fn_params.deinit();
 
     var i: usize = 0;
     while (i < param_count) : (i += 1) {

@@ -2866,8 +2866,7 @@ pub fn cmdInit(
     const build_zig_contents = template_dir.readFileAlloc(arena, "build.zig", max_bytes) catch |err| {
         fatal("unable to read template file 'build.zig': {s}", .{@errorName(err)});
     };
-    var modified_build_zig_contents = std.ArrayList(u8).init(arena);
-    try modified_build_zig_contents.ensureTotalCapacity(build_zig_contents.len);
+    var modified_build_zig_contents = try std.ArrayList(u8).initCapacity(arena, build_zig_contents.len);
     for (build_zig_contents) |c| {
         if (c == '$') {
             try modified_build_zig_contents.appendSlice(cwd_basename);
