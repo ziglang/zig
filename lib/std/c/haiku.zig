@@ -14,8 +14,12 @@ pub extern "c" fn find_thread(thread_name: ?*c_void) i32;
 
 pub extern "c" fn get_system_info(system_info: *system_info) usize;
 
+pub extern "c" fn _get_team_info(team: c_int, team_info: *team_info, size: usize) i32;
+
+pub extern "c" fn _get_next_area_info(team: c_int, cookie: *i64, area_info: *area_info, size: usize) i32;
+
 // TODO revisit if abi changes or better option becomes apparent
-pub extern "c" fn _get_next_image_info(team: c_int, cookie: *i32, image_info: *image_info) usize;
+pub extern "c" fn _get_next_image_info(team: c_int, cookie: *i32, image_info: *image_info, size: usize) i32;
 
 pub extern "c" fn _kern_read_dir(fd: c_int, buf_ptr: [*]u8, nbytes: usize, maxcount: u32) usize;
 
@@ -111,6 +115,12 @@ pub const EAI = enum(c_int) {
 };
 
 pub const EAI_MAX = 15;
+
+pub const AI = struct {
+    pub const NUMERICSERV = 0x00000008;
+};
+
+pub const AI_NUMERICSERV = AI.NUMERICSERV;
 
 pub const fd_t = c_int;
 pub const pid_t = c_int;
@@ -282,15 +292,29 @@ pub const dirent = extern struct {
     }
 };
 
+pub const area_info = extern struct {
+    area: u32,
+    name: [32]u8,
+    size: usize,
+    lock: u32,
+    protection: u32,
+    team_id: i32,
+    ram_size: u32,
+    copy_count: u32,
+    in_count: u32,
+    out_count: u32,
+    address: *c_void,
+};
+
 pub const image_info = extern struct {
     id: u32,
-    type: u32,
+    image_type: u32,
     sequence: i32,
     init_order: i32,
     init_routine: *c_void,
     term_routine: *c_void,
     device: i32,
-    node: i32,
+    node: i64,
     name: [1024]u8,
     text: *c_void,
     data: *c_void,
@@ -326,6 +350,19 @@ pub const system_info = extern struct {
     kernel_build_time: [32]u8,
     kernel_version: i64,
     abi: u32,
+};
+
+pub const team_info = extern struct {
+    team_id: i32,
+    thread_count: i32,
+    image_count: i32,
+    area_count: i32,
+    debugger_nub_thread: i32,
+    debugger_nub_port: i32,
+    argc: i32,
+    args: [64]u8,
+    uid: uid_t,
+    gid: gid_t,
 };
 
 pub const in_port_t = u16;
@@ -374,7 +411,10 @@ pub const CTL = struct {
 pub const KERN = struct {
     pub const PROC = 14; // struct: process entries
     pub const PROC_PATHNAME = 12; // path to executable
+    pub const IOV_MAX = 1024;
 };
+
+pub const IOV_MAX = KERN.IOV_MAX;
 
 pub const PATH_MAX = 1024;
 
@@ -400,18 +440,13 @@ pub const MAP = struct {
     pub const FAILED = @intToPtr(*c_void, maxInt(usize));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
-    pub const FIXED = 0x0010;
+    pub const FIXED = 0x0004;
     pub const STACK = 0x0400;
     pub const NOSYNC = 0x0800;
-    pub const ANON = 0x1000;
+    pub const ANON = 0x0008;
     pub const ANONYMOUS = ANON;
     pub const FILE = 0;
 
-    pub const GUARD = 0x00002000;
-    pub const EXCL = 0x00004000;
-    pub const NOCORE = 0x00020000;
-    pub const PREFAULT_READ = 0x00040000;
-    pub const @"32BIT" = 0x00080000;
 };
 
 pub const W = struct {
@@ -535,8 +570,6 @@ pub const O = struct {
     pub const RDWR = 0x0002;
     pub const ACCMODE = 0x0003;
 
-    pub const SHLOCK = 0x0010;
-    pub const EXLOCK = 0x0020;
 
     pub const CREAT = 0x0200;
     pub const EXCL = 0x0800;
@@ -549,7 +582,7 @@ pub const O = struct {
     pub const RSYNC = 0o4010000;
     pub const DIRECTORY = 0x20000;
     pub const NOFOLLOW = 0x0100;
-    pub const CLOEXEC = 0x00100000;
+    pub const CLOEXEC = 0x00000040;
 
     pub const ASYNC = 0x0040;
     pub const DIRECT = 0x00010000;
@@ -1405,3 +1438,6 @@ pub const termios = extern struct {
     c_ospeed: speed_t,
     cc_t: [NCCS]cc_t,
 };
+
+pub const MSG_NOSIGNAL   = 0x0800;
+
