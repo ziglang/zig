@@ -1550,10 +1550,6 @@ pub const rlimit = extern struct {
     max: rlim_t,
 };
 
-pub const RUSAGE_SELF = 0;
-pub const RUSAGE_CHILDREN = -1;
-pub const RUSAGE_THREAD = 1;
-
 pub const rusage = extern struct {
     utime: timeval,
     stime: timeval,
@@ -1571,6 +1567,10 @@ pub const rusage = extern struct {
     nsignals: isize,
     nvcsw: isize,
     nivcsw: isize,
+
+    pub const SELF = 0;
+    pub const CHILDREN = -1;
+    pub const THREAD = 1;
 };
 
 pub const SHUT = struct {

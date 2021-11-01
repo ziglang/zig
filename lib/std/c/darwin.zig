@@ -1703,8 +1703,6 @@ pub const CLOCK = struct {
 /// Max open files per process
 /// https://opensource.apple.com/source/xnu/xnu-4903.221.2/bsd/sys/syslimits.h.auto.html
 pub const OPEN_MAX = 10240;
-pub const RUSAGE_SELF = 0;
-pub const RUSAGE_CHILDREN = -1;
 
 pub const rusage = extern struct {
     utime: timeval,
@@ -1723,6 +1721,9 @@ pub const rusage = extern struct {
     nsignals: isize,
     nvcsw: isize,
     nivcsw: isize,
+
+    pub const SELF = 0;
+    pub const CHILDREN = -1;
 };
 
 pub const rlimit_resource = enum(c_int) {
