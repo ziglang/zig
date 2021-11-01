@@ -1,15 +1,21 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const native_arch = builtin.cpu.arch;
 
-pub fn __truncsfhf2(a: f32) callconv(.C) u16 {
-    return @bitCast(u16, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f32, a }));
+// AArch64 is the only ABI (at the moment) to support f16 arguments without the
+// need for extending them to wider fp types.
+pub const F16T = if (native_arch.isAARCH64()) f16 else u16;
+
+pub fn __truncsfhf2(a: f32) callconv(.C) F16T {
+    return @bitCast(F16T, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f32, a }));
 }
 
-pub fn __truncdfhf2(a: f64) callconv(.C) u16 {
-    return @bitCast(u16, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f64, a }));
+pub fn __truncdfhf2(a: f64) callconv(.C) F16T {
+    return @bitCast(F16T, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f64, a }));
 }
 
-pub fn __trunctfhf2(a: f128) callconv(.C) u16 {
-    return @bitCast(u16, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f128, a }));
+pub fn __trunctfhf2(a: f128) callconv(.C) F16T {
+    return @bitCast(F16T, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f128, a }));
 }
 
 pub fn __trunctfsf2(a: f128) callconv(.C) f32 {
