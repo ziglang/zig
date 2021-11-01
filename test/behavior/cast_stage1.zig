@@ -263,6 +263,32 @@ test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     try expect(mem.eql(u8, std.mem.spanZ(@ptrCast([*:0]const u8, x[0].?)), "window name"));
 }
 
+test "cast f16 to wider types" {
+    const S = struct {
+        fn doTheTest() !void {
+            var x: f16 = 1234.0;
+            try std.testing.expectEqual(@as(f32, 1234.0), x);
+            try std.testing.expectEqual(@as(f64, 1234.0), x);
+            try std.testing.expectEqual(@as(f128, 1234.0), x);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "cast f128 to narrower types" {
+    const S = struct {
+        fn doTheTest() !void {
+            var x: f128 = 1234.0;
+            try std.testing.expectEqual(@as(f16, 1234.0), @floatCast(f16, x));
+            try std.testing.expectEqual(@as(f32, 1234.0), @floatCast(f32, x));
+            try std.testing.expectEqual(@as(f64, 1234.0), @floatCast(f64, x));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
 test "vector casts" {
     const S = struct {
         fn doTheTest() !void {

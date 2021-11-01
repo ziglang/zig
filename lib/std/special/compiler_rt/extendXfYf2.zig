@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
+const native_arch = builtin.cpu.arch;
 
 pub fn __extendsfdf2(a: f32) callconv(.C) f64 {
     return extendXfYf2(f64, f32, @bitCast(u32, a));
@@ -14,12 +15,16 @@ pub fn __extendsftf2(a: f32) callconv(.C) f128 {
     return extendXfYf2(f128, f32, @bitCast(u32, a));
 }
 
-pub fn __extendhfsf2(a: u16) callconv(.C) f32 {
-    return extendXfYf2(f32, f16, a);
+// AArch64 is the only ABI (at the moment) to support f16 arguments without the
+// need for extending them to wider fp types.
+pub const F16T = if (native_arch.isAARCH64()) f16 else u16;
+
+pub fn __extendhfsf2(a: F16T) callconv(.C) f32 {
+    return extendXfYf2(f32, f16, @bitCast(u16, a));
 }
 
-pub fn __extendhftf2(a: u16) callconv(.C) f128 {
-    return extendXfYf2(f128, f16, a);
+pub fn __extendhftf2(a: F16T) callconv(.C) f128 {
+    return extendXfYf2(f128, f16, @bitCast(u16, a));
 }
 
 pub fn __extendxftf2(a: c_longdouble) callconv(.C) f128 {
@@ -29,15 +34,13 @@ pub fn __extendxftf2(a: c_longdouble) callconv(.C) f128 {
 
 pub fn __aeabi_h2f(arg: u16) callconv(.AAPCS) f32 {
     @setRuntimeSafety(false);
-    return @call(.{ .modifier = .always_inline }, __extendhfsf2, .{arg});
+    return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f32, f16, arg });
 }
 
 pub fn __aeabi_f2d(arg: f32) callconv(.AAPCS) f64 {
     @setRuntimeSafety(false);
-    return @call(.{ .modifier = .always_inline }, __extendsfdf2, .{arg});
+    return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f64, f32, @bitCast(u32, arg) });
 }
-
-const CHAR_BIT = 8;
 
 inline fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits)) dst_t {
     @setRuntimeSafety(builtin.is_test);
@@ -50,7 +53,7 @@ inline fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: std.meta.In
 
     // Various constants whose values follow from the type parameters.
     // Any reasonable optimizer will fold and propagate all of these.
-    const srcBits = @sizeOf(src_t) * CHAR_BIT;
+    const srcBits = @bitSizeOf(src_t);
     const srcExpBits = srcBits - srcSigBits - 1;
     const srcInfExp = (1 << srcExpBits) - 1;
     const srcExpBias = srcInfExp >> 1;
@@ -62,7 +65,7 @@ inline fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: std.meta.In
     const srcQNaN = 1 << (srcSigBits - 1);
     const srcNaNCode = srcQNaN - 1;
 
-    const dstBits = @sizeOf(dst_t) * CHAR_BIT;
+    const dstBits = @bitSizeOf(dst_t);
     const dstExpBits = dstBits - dstSigBits - 1;
     const dstInfExp = (1 << dstExpBits) - 1;
     const dstExpBias = dstInfExp >> 1;
