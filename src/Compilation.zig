@@ -3386,12 +3386,6 @@ pub fn addCCArgs(
                 try argv.append("-mthumb");
             }
 
-            if (comp.haveFramePointer()) {
-                try argv.append("-fno-omit-frame-pointer");
-            } else {
-                try argv.append("-fomit-frame-pointer");
-            }
-
             if (comp.sanitize_c and !comp.bin_file.options.tsan) {
                 try argv.append("-fsanitize=undefined");
                 try argv.append("-fsanitize-trap=undefined");
@@ -3709,16 +3703,6 @@ test "classifyFileExt" {
     try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2.3"));
     try std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.so.1.2.3~"));
     try std.testing.expectEqual(FileExt.zig, classifyFileExt("foo.zig"));
-}
-
-fn haveFramePointer(comp: *const Compilation) bool {
-    // If you complicate this logic make sure you update the parent cache hash.
-    // Right now it's not in the cache hash because the value depends on optimize_mode
-    // and strip which are both already part of the hash.
-    return switch (comp.bin_file.options.optimize_mode) {
-        .Debug, .ReleaseSafe => !comp.bin_file.options.strip,
-        .ReleaseSmall, .ReleaseFast => false,
-    };
 }
 
 const LibCDirs = struct {
