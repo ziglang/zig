@@ -6558,25 +6558,25 @@ fn identifier(
     if (mem.eql(u8, ident_name_raw, "_")) {
         return astgen.failNode(ident, "'_' used as an identifier without @\"_\" syntax", .{});
     }
-    const ident_name = try astgen.identifierTokenString(ident_token);
 
+    // if not @"" syntax, just use raw token slice
     if (ident_name_raw[0] != '@') {
-        if (primitives.get(ident_name)) |zir_const_ref| {
+        if (primitives.get(ident_name_raw)) |zir_const_ref| {
             return rvalue(gz, rl, zir_const_ref, ident);
         }
 
-        if (ident_name.len >= 2) integer: {
-            const first_c = ident_name[0];
+        if (ident_name_raw.len >= 2) integer: {
+            const first_c = ident_name_raw[0];
             if (first_c == 'i' or first_c == 'u') {
                 const signedness: std.builtin.Signedness = switch (first_c == 'i') {
                     true => .signed,
                     false => .unsigned,
                 };
-                const bit_count = std.fmt.parseInt(u16, ident_name[1..], 10) catch |err| switch (err) {
+                const bit_count = std.fmt.parseInt(u16, ident_name_raw[1..], 10) catch |err| switch (err) {
                     error.Overflow => return astgen.failNode(
                         ident,
                         "primitive integer type '{s}' exceeds maximum bit width of 65535",
-                        .{ident_name},
+                        .{ident_name_raw},
                     ),
                     error.InvalidCharacter => break :integer,
                 };
@@ -6629,6 +6629,7 @@ fn identifier(
 
                 // Can't close over a runtime variable
                 if (num_namespaces_out != 0 and !local_ptr.maybe_comptime) {
+                    const ident_name = try astgen.identifierTokenString(ident_token);
                     return astgen.failNodeNotes(ident, "mutable '{s}' not accessible from here", .{ident_name}, &.{
                         try astgen.errNoteTok(local_ptr.token_src, "declared mutable here", .{}),
                         try astgen.errNoteNode(capturing_namespace.?.node, "crosses namespace boundary here", .{}),
@@ -6676,6 +6677,7 @@ fn identifier(
         .top => break,
     };
     if (found_already == null) {
+        const ident_name = try astgen.identifierTokenString(ident_token);
         return astgen.failNode(ident, "use of undeclared identifier '{s}'", .{ident_name});
     }
 
