@@ -1,88 +1,6 @@
 const std = @import("std");
-const ArrayList = std.ArrayList;
 const Builder = std.build.Builder;
-const ChildProcess = std.ChildProcess;
 const CrossTarget = std.zig.CrossTarget;
-const LibExeObjStep = std.build.LibExeObjStep;
-const Step = std.build.Step;
-const Str = []const u8;
-
-const ExecutorRunStep = struct {
-    const Self = @This();
-
-    pub const base_id = .custom;
-
-    step: Step,
-    builder: *Builder,
-    artifact: *LibExeObjStep,
-    executor: Str,
-
-    pub fn init(b: *Builder, artifact: *LibExeObjStep, executor: Str) Self {
-        var step = Step.init(
-            .custom,
-            b.fmt("{s} {s}", .{ @typeName(Self), artifact.name }),
-            b.allocator,
-            make,
-        );
-        step.dependOn(&artifact.step);
-        return Self{
-            .builder = b,
-            .step = step,
-            .artifact = artifact,
-            .executor = b.dupe(executor),
-        };
-    }
-
-    fn make(step: *Step) !void {
-        const self = @fieldParentPtr(Self, "step", step);
-        const exe = self.artifact.installed_path orelse
-            self.artifact.getOutputSource().getPath(self.builder);
-        var cmd = [_]Str{ self.executor, exe };
-        const index: usize = if (self.executor.len == 0) 1 else 0;
-
-        const result = try ChildProcess.exec(
-            .{ .allocator = self.builder.allocator, .argv = cmd[index..] },
-        );
-        switch (result.term) {
-            .Exited => |code| {
-                if (code != 0) {
-                    std.debug.warn(
-                        "\"{s} {s}\" exited with error code {}\n",
-                        .{ self.executor, exe, code },
-                    );
-                    std.debug.warn("{s}\n", .{result.stderr});
-                    return error.CommandFailed;
-                }
-            },
-            else => {
-                std.debug.warn(
-                    "\"{s} {s}\" terminated unexpectedly\n",
-                    .{ self.executor, exe },
-                );
-                std.debug.warn("{s}\n", .{result.stderr});
-                return error.CommandFailed;
-            },
-        }
-        std.debug.warn("{s}\n", .{result.stdout});
-    }
-};
-
-fn executorRun(b: *Builder, artifact: *LibExeObjStep) ?*ExecutorRunStep {
-    const opt_executor = switch (artifact.target.getExternalExecutor()) {
-        .native, .unavailable => "",
-        .qemu => |bin_name| bin_name,
-        .wasmtime => |bin_name| bin_name,
-        else => null,
-    };
-    if (opt_executor) |executor| {
-        const opt_step = b.allocator.create(ExecutorRunStep) catch null;
-        if (opt_step) |executorRunStep| {
-            executorRunStep.* = ExecutorRunStep.init(b, artifact, executor);
-            return executorRunStep;
-        }
-    }
-    return null;
-}
 
 fn isSingleThreadedTarget(t: CrossTarget) bool {
     // WASM target will be detected automatically as single threaded
@@ -96,6 +14,11 @@ pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
 
+    const is_wine_enabled = b.option(bool, "enable-wine", "Use Wine to run cross compiled Windows tests") orelse false;
+    const is_qemu_enabled = b.option(bool, "enable-qemu", "Use QEMU to run cross compiled foreign architecture tests") orelse false;
+    const is_wasmtime_enabled = b.option(bool, "enable-wasmtime", "Use Wasmtime to enable and run WASI libstd tests") orelse false;
+    const is_darling_enabled = b.option(bool, "enable-darling", "[Experimental] Use Darling to run cross compiled macOS tests") orelse false;
+
     const test_step = b.step("test", "Test the program");
 
     const exe_c = b.addExecutable("test_c", null);
@@ -104,6 +27,10 @@ pub fn build(b: *Builder) void {
     exe_c.setBuildMode(mode);
     exe_c.setTarget(target);
     exe_c.linkLibC();
+    exe_c.enable_wine = is_wine_enabled;
+    exe_c.enable_qemu = is_qemu_enabled;
+    exe_c.enable_wasmtime = is_wasmtime_enabled;
+    exe_c.enable_darling = is_darling_enabled;
 
     const exe_cpp = b.addExecutable("test_cpp", null);
     b.default_step.dependOn(&exe_cpp.step);
@@ -115,6 +42,10 @@ pub fn build(b: *Builder) void {
     if (target.getCpuArch().isWasm()) {
         exe_cpp.defineCMacro("_LIBCPP_NO_EXCEPTIONS", null);
     }
+    exe_cpp.enable_wine = is_wine_enabled;
+    exe_cpp.enable_qemu = is_qemu_enabled;
+    exe_cpp.enable_wasmtime = is_wasmtime_enabled;
+    exe_cpp.enable_darling = is_darling_enabled;
 
     // disable broken LTO links:
     switch (target.getOsTag()) {
@@ -128,13 +59,15 @@ pub fn build(b: *Builder) void {
         else => {},
     }
 
-    if (executorRun(b, exe_c)) |run_c_cmd| {
+    const run_c_cmd = exe_c.run();
+    if (run_c_cmd.isRunnable()) {
         test_step.dependOn(&run_c_cmd.step);
     } else {
         test_step.dependOn(&exe_c.step);
     }
 
-    if (executorRun(b, exe_cpp)) |run_cpp_cmd| {
+    const run_cpp_cmd = exe_cpp.run();
+    if (run_cpp_cmd.isRunnable()) {
         test_step.dependOn(&run_cpp_cmd.step);
     } else {
         test_step.dependOn(&exe_cpp.step);
