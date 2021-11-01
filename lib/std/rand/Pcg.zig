@@ -8,20 +8,21 @@ const Pcg = @This();
 
 const default_multiplier = 6364136223846793005;
 
-random: Random,
-
 s: u64,
 i: u64,
 
 pub fn init(init_s: u64) Pcg {
     var pcg = Pcg{
-        .random = Random{ .fillFn = fill },
         .s = undefined,
         .i = undefined,
     };
 
     pcg.seed(init_s);
     return pcg;
+}
+
+pub fn random(self: *Pcg) Random {
+    return Random.init(self, fill);
 }
 
 fn next(self: *Pcg) u32 {
@@ -48,9 +49,7 @@ fn seedTwo(self: *Pcg, init_s: u64, init_i: u64) void {
     self.s = self.s *% default_multiplier +% self.i;
 }
 
-fn fill(r: *Random, buf: []u8) void {
-    const self = @fieldParentPtr(Pcg, "random", r);
-
+pub fn fill(self: *Pcg, buf: []u8) void {
     var i: usize = 0;
     const aligned_len = buf.len - (buf.len & 7);
 
@@ -113,7 +112,7 @@ test "pcg fill" {
         var buf0: [4]u8 = undefined;
         var buf1: [3]u8 = undefined;
         std.mem.writeIntLittle(u32, &buf0, s);
-        Pcg.fill(&r.random, &buf1);
+        r.fill(&buf1);
         try std.testing.expect(std.mem.eql(u8, buf0[0..3], buf1[0..]));
     }
 }

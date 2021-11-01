@@ -1062,14 +1062,7 @@ pub const Value = extern union {
                 const limbs_buffer = try arena.alloc(std.math.big.Limb, 2);
                 var bigint = BigIntMutable.init(limbs_buffer, 0);
                 bigint.readTwosComplement(buffer, int_info.bits, endian, int_info.signedness);
-                // TODO if it fits in 64 bits then use one of those tags
-
-                const result_limbs = bigint.limbs[0..bigint.len];
-                if (bigint.positive) {
-                    return Value.Tag.int_big_positive.create(arena, result_limbs);
-                } else {
-                    return Value.Tag.int_big_negative.create(arena, result_limbs);
-                }
+                return fromBigInt(arena, bigint.toConst());
             },
             .Float => switch (ty.floatBits(target)) {
                 16 => return Value.Tag.float_16.create(arena, floatReadFromMemory(f16, target, buffer)),
@@ -1200,14 +1193,32 @@ pub const Value = extern union {
                 if (x == 0) return 0;
                 return @intCast(usize, std.math.log2(x) + 1);
             },
-            .int_i64 => {
-                @panic("TODO implement i64 intBitCountTwosComp");
-            },
             .int_big_positive => return self.castTag(.int_big_positive).?.asBigInt().bitCountTwosComp(),
             .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt().bitCountTwosComp(),
 
-            else => unreachable,
+            else => {
+                var buffer: BigIntSpace = undefined;
+                return self.toBigInt(&buffer).bitCountTwosComp();
+            },
         }
+    }
+
+    pub fn popCount(val: Value, ty: Type, target: Target, arena: *Allocator) !Value {
+        assert(!val.isUndef());
+
+        const info = ty.intInfo(target);
+
+        var buffer: Value.BigIntSpace = undefined;
+        const operand_bigint = val.toBigInt(&buffer);
+
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcTwosCompLimbCount(info.bits),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        result_bigint.popCount(operand_bigint, info.bits);
+
+        return fromBigInt(arena, result_bigint.toConst());
     }
 
     /// Asserts the value is an integer, and the destination type is ComptimeInt or Int.
@@ -1246,7 +1257,8 @@ pub const Value = extern union {
                     const info = ty.intInfo(target);
                     if (info.signedness == .unsigned and x < 0)
                         return false;
-                    @panic("TODO implement i64 intFitsInType");
+                    var buffer: BigIntSpace = undefined;
+                    return self.toBigInt(&buffer).fitsInTwosComp(info.signedness, info.bits);
                 },
                 .ComptimeInt => return true,
                 else => unreachable,
@@ -1943,12 +1955,22 @@ pub const Value = extern union {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.addWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+        return fromBigInt(arena, result_bigint.toConst());
+    }
 
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
+    fn fromBigInt(arena: *Allocator, big_int: BigIntConst) !Value {
+        if (big_int.positive) {
+            if (big_int.to(u64)) |x| {
+                return Value.Tag.int_u64.create(arena, x);
+            } else |_| {
+                return Value.Tag.int_big_positive.create(arena, big_int.limbs);
+            }
         } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
+            if (big_int.to(i64)) |x| {
+                return Value.Tag.int_i64.create(arena, x);
+            } else |_| {
+                return Value.Tag.int_big_negative.create(arena, big_int.limbs);
+            }
         }
     }
 
@@ -1975,13 +1997,7 @@ pub const Value = extern union {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.addSat(lhs_bigint, rhs_bigint, info.signedness, info.bits);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
-        }
+        return fromBigInt(arena, result_bigint.toConst());
     }
 
     /// Supports both floats and ints; handles undefined.
@@ -2010,13 +2026,7 @@ pub const Value = extern union {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.subWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
-        }
+        return fromBigInt(arena, result_bigint.toConst());
     }
 
     /// Supports integers only; asserts neither operand is undefined.
@@ -2042,13 +2052,7 @@ pub const Value = extern union {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.subSat(lhs_bigint, rhs_bigint, info.signedness, info.bits);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
-        }
+        return fromBigInt(arena, result_bigint.toConst());
     }
 
     /// Supports both floats and ints; handles undefined.
@@ -2082,13 +2086,7 @@ pub const Value = extern union {
         );
         defer arena.free(limbs_buffer);
         result_bigint.mulWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits, limbs_buffer, arena);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
-        }
+        return fromBigInt(arena, result_bigint.toConst());
     }
 
     /// Supports integers only; asserts neither operand is undefined.
@@ -2124,13 +2122,7 @@ pub const Value = extern union {
         defer arena.free(limbs_buffer);
         result_bigint.mul(lhs_bigint, rhs_bigint, limbs_buffer, arena);
         result_bigint.saturate(result_bigint.toConst(), info.signedness, info.bits);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
-        }
+        return fromBigInt(arena, result_bigint.toConst());
     }
 
     /// Supports both floats and ints; handles undefined.
@@ -2174,13 +2166,7 @@ pub const Value = extern union {
 
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitNotWrap(val_bigint, info.signedness, info.bits);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
-        }
+        return fromBigInt(arena, result_bigint.toConst());
     }
 
     /// operands must be integers; handles undefined. 
@@ -2200,13 +2186,7 @@ pub const Value = extern union {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitAnd(lhs_bigint, rhs_bigint);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
-        }
+        return fromBigInt(arena, result_bigint.toConst());
     }
 
     /// operands must be integers; handles undefined. 
@@ -2239,13 +2219,7 @@ pub const Value = extern union {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitOr(lhs_bigint, rhs_bigint);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
-        }
+        return fromBigInt(arena, result_bigint.toConst());
     }
 
     /// operands must be integers; handles undefined. 
@@ -2265,13 +2239,7 @@ pub const Value = extern union {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitXor(lhs_bigint, rhs_bigint);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
-        }
+        return fromBigInt(arena, result_bigint.toConst());
     }
 
     pub fn intAdd(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
@@ -2287,13 +2255,7 @@ pub const Value = extern union {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.add(lhs_bigint, rhs_bigint);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(allocator, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(allocator, result_limbs);
-        }
+        return fromBigInt(allocator, result_bigint.toConst());
     }
 
     pub fn intSub(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
@@ -2309,13 +2271,7 @@ pub const Value = extern union {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.sub(lhs_bigint, rhs_bigint);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(allocator, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(allocator, result_limbs);
-        }
+        return fromBigInt(allocator, result_bigint.toConst());
     }
 
     pub fn intDiv(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
@@ -2340,13 +2296,7 @@ pub const Value = extern union {
         var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
         result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
-        const result_limbs = result_q.limbs[0..result_q.len];
-
-        if (result_q.positive) {
-            return Value.Tag.int_big_positive.create(allocator, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(allocator, result_limbs);
-        }
+        return fromBigInt(allocator, result_q.toConst());
     }
 
     pub fn intDivFloor(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
@@ -2371,13 +2321,7 @@ pub const Value = extern union {
         var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
         result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
-        const result_limbs = result_q.limbs[0..result_q.len];
-
-        if (result_q.positive) {
-            return Value.Tag.int_big_positive.create(allocator, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(allocator, result_limbs);
-        }
+        return fromBigInt(allocator, result_q.toConst());
     }
 
     pub fn intRem(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
@@ -2404,13 +2348,7 @@ pub const Value = extern union {
         var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
         result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
-        const result_limbs = result_r.limbs[0..result_r.len];
-
-        if (result_r.positive) {
-            return Value.Tag.int_big_positive.create(allocator, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(allocator, result_limbs);
-        }
+        return fromBigInt(allocator, result_r.toConst());
     }
 
     pub fn intMod(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
@@ -2435,13 +2373,7 @@ pub const Value = extern union {
         var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
         result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
-        const result_limbs = result_r.limbs[0..result_r.len];
-
-        if (result_r.positive) {
-            return Value.Tag.int_big_positive.create(allocator, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(allocator, result_limbs);
-        }
+        return fromBigInt(allocator, result_r.toConst());
     }
 
     /// Returns true if the value is a floating point type and is NaN. Returns false otherwise.
@@ -2487,13 +2419,7 @@ pub const Value = extern union {
         );
         defer allocator.free(limbs_buffer);
         result_bigint.mul(lhs_bigint, rhs_bigint, limbs_buffer, allocator);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(allocator, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(allocator, result_limbs);
-        }
+        return fromBigInt(allocator, result_bigint.toConst());
     }
 
     pub fn intTrunc(val: Value, allocator: *Allocator, signedness: std.builtin.Signedness, bits: u16) !Value {
@@ -2507,13 +2433,7 @@ pub const Value = extern union {
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
 
         result_bigint.truncate(val_bigint, signedness, bits);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(allocator, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(allocator, result_limbs);
-        }
+        return fromBigInt(allocator, result_bigint.toConst());
     }
 
     pub fn shl(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
@@ -2532,13 +2452,7 @@ pub const Value = extern union {
             .len = undefined,
         };
         result_bigint.shiftLeft(lhs_bigint, shift);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(allocator, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(allocator, result_limbs);
-        }
+        return fromBigInt(allocator, result_bigint.toConst());
     }
 
     pub fn shlSat(
@@ -2565,13 +2479,7 @@ pub const Value = extern union {
             .len = undefined,
         };
         result_bigint.shiftLeftSat(lhs_bigint, shift, info.signedness, info.bits);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
-        }
+        return fromBigInt(arena, result_bigint.toConst());
     }
 
     pub fn shr(lhs: Value, rhs: Value, allocator: *Allocator) !Value {
@@ -2590,13 +2498,7 @@ pub const Value = extern union {
             .len = undefined,
         };
         result_bigint.shiftRight(lhs_bigint, shift);
-        const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-        if (result_bigint.positive) {
-            return Value.Tag.int_big_positive.create(allocator, result_limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(allocator, result_limbs);
-        }
+        return fromBigInt(allocator, result_bigint.toConst());
     }
 
     pub fn floatAdd(

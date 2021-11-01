@@ -7,18 +7,19 @@ const Random = std.rand.Random;
 const math = std.math;
 const Xoshiro256 = @This();
 
-random: Random,
-
 s: [4]u64,
 
 pub fn init(init_s: u64) Xoshiro256 {
     var x = Xoshiro256{
-        .random = Random{ .fillFn = fill },
         .s = undefined,
     };
 
     x.seed(init_s);
     return x;
+}
+
+pub fn random(self: *Xoshiro256) Random {
+    return Random.init(self, fill);
 }
 
 fn next(self: *Xoshiro256) u64 {
@@ -64,9 +65,7 @@ pub fn seed(self: *Xoshiro256, init_s: u64) void {
     self.s[3] = gen.next();
 }
 
-fn fill(r: *Random, buf: []u8) void {
-    const self = @fieldParentPtr(Xoshiro256, "random", r);
-
+pub fn fill(self: *Xoshiro256, buf: []u8) void {
     var i: usize = 0;
     const aligned_len = buf.len - (buf.len & 7);
 
@@ -138,7 +137,7 @@ test "xoroshiro fill" {
         var buf0: [8]u8 = undefined;
         var buf1: [7]u8 = undefined;
         std.mem.writeIntLittle(u64, &buf0, s);
-        Xoshiro256.fill(&r.random, &buf1);
+        r.fill(&buf1);
         try std.testing.expect(std.mem.eql(u8, buf0[0..7], buf1[0..]));
     }
 }

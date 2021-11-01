@@ -10,6 +10,7 @@ const ArrayList = std.ArrayList;
 const Ast = std.zig.Ast;
 const warn = std.log.warn;
 
+const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
 const link = @import("link.zig");
 const Package = @import("Package.zig");
@@ -155,6 +156,12 @@ pub fn main() anyerror!void {
     const arena = &arena_instance.allocator;
 
     const args = try process.argsAlloc(arena);
+
+    if (tracy.enable_allocation) {
+        var gpa_tracy = tracy.tracyAllocator(gpa);
+        return mainArgs(&gpa_tracy.allocator, arena, args);
+    }
+
     return mainArgs(gpa, arena, args);
 }
 
@@ -401,6 +408,14 @@ const usage_build_generic =
     \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
+    \\  -z [arg]                       Set linker extension flags
+    \\    nodelete                     Indicate that the object cannot be deleted from a process
+    \\    notext                       Permit read-only relocations in read-only segments
+    \\    defs                         Force a fatal error if any undefined symbols remain
+    \\    origin                       Indicate that the object must have its origin processed
+    \\    noexecstack                  Indicate that the object requires an executable stack
+    \\    now                          Force all relocations to be processed on load
+    \\    relro                        Force all relocations to be resolved and be read-only on load
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
@@ -595,6 +610,7 @@ fn buildOutputType(
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
     var linker_z_nodelete = false;
+    var linker_z_notext = false;
     var linker_z_defs = false;
     var linker_z_origin = false;
     var linker_z_noexecstack = false;
@@ -1086,6 +1102,29 @@ fn buildOutputType(
                         linker_allow_shlib_undefined = true;
                     } else if (mem.eql(u8, arg, "-fno-allow-shlib-undefined")) {
                         linker_allow_shlib_undefined = false;
+                    } else if (mem.eql(u8, arg, "-z")) {
+                        i += 1;
+                        if (i >= args.len) {
+                            fatal("expected linker extension flag after '{s}'", .{arg});
+                        }
+                        const z_arg = args[i];
+                        if (mem.eql(u8, z_arg, "nodelete")) {
+                            linker_z_nodelete = true;
+                        } else if (mem.eql(u8, z_arg, "notext")) {
+                            linker_z_notext = true;
+                        } else if (mem.eql(u8, z_arg, "defs")) {
+                            linker_z_defs = true;
+                        } else if (mem.eql(u8, z_arg, "origin")) {
+                            linker_z_origin = true;
+                        } else if (mem.eql(u8, z_arg, "noexecstack")) {
+                            linker_z_noexecstack = true;
+                        } else if (mem.eql(u8, z_arg, "now")) {
+                            linker_z_now = true;
+                        } else if (mem.eql(u8, z_arg, "relro")) {
+                            linker_z_relro = true;
+                        } else {
+                            warn("unsupported linker extension flag: -z {s}", .{z_arg});
+                        }
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
@@ -1417,11 +1456,13 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "-z")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
+                        fatal("expected linker extension flag after '{s}'", .{arg});
                     }
                     const z_arg = linker_args.items[i];
                     if (mem.eql(u8, z_arg, "nodelete")) {
                         linker_z_nodelete = true;
+                    } else if (mem.eql(u8, z_arg, "notext")) {
+                        linker_z_notext = true;
                     } else if (mem.eql(u8, z_arg, "defs")) {
                         linker_z_defs = true;
                     } else if (mem.eql(u8, z_arg, "origin")) {
@@ -1433,7 +1474,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, z_arg, "relro")) {
                         linker_z_relro = true;
                     } else {
-                        warn("unsupported linker arg: -z {s}", .{z_arg});
+                        warn("unsupported linker extension flag: -z {s}", .{z_arg});
                     }
                 } else if (mem.eql(u8, arg, "--major-image-version")) {
                     i += 1;
@@ -2108,6 +2149,7 @@ fn buildOutputType(
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
         .linker_z_nodelete = linker_z_nodelete,
+        .linker_z_notext = linker_z_notext,
         .linker_z_defs = linker_z_defs,
         .linker_z_origin = linker_z_origin,
         .linker_z_noexecstack = linker_z_noexecstack,
@@ -2188,6 +2230,16 @@ fn buildOutputType(
         warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});
     }
 
+    if (test_exec_args.items.len == 0 and object_format == .c) default_exec_args: {
+        // Default to using `zig run` to execute the produced .c code from `zig test`.
+        const c_code_loc = emit_bin_loc orelse break :default_exec_args;
+        const c_code_directory = c_code_loc.directory orelse comp.bin_file.options.emit.?.directory;
+        const c_code_path = try fs.path.join(arena, &[_][]const u8{
+            c_code_directory.path orelse ".", c_code_loc.basename,
+        });
+        try test_exec_args.appendSlice(&.{ self_exe_path, "run", "-lc", c_code_path });
+    }
+
     const run_or_test = switch (arg_mode) {
         .run => true,
         .zig_test => !test_no_exec,
@@ -2252,6 +2304,7 @@ fn buildOutputType(
             last_cmd = cmd;
             switch (cmd) {
                 .update => {
+                    tracy.frameMark();
                     if (output_mode == .Exe) {
                         try comp.makeBinFileWritable();
                     }
@@ -2264,6 +2317,7 @@ fn buildOutputType(
                     try stderr.writeAll(repl_help);
                 },
                 .run => {
+                    tracy.frameMark();
                     try runOrTest(
                         comp,
                         gpa,
@@ -2280,6 +2334,7 @@ fn buildOutputType(
                     );
                 },
                 .update_and_run => {
+                    tracy.frameMark();
                     if (output_mode == .Exe) {
                         try comp.makeBinFileWritable();
                     }

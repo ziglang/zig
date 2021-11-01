@@ -313,6 +313,7 @@ fn analyzeInst(
         .get_union_tag,
         .clz,
         .ctz,
+        .popcount,
         => {
             const o = inst_datas[inst].ty_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.operand, .none, .none });

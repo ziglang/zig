@@ -29,19 +29,39 @@ pub const Xoshiro256 = @import("rand/Xoshiro256.zig");
 pub const Sfc64 = @import("rand/Sfc64.zig");
 
 pub const Random = struct {
-    fillFn: fn (r: *Random, buf: []u8) void,
+    ptr: *c_void,
+    fillFn: fn (ptr: *c_void, buf: []u8) void,
 
-    /// Read random bytes into the specified buffer until full.
-    pub fn bytes(r: *Random, buf: []u8) void {
-        r.fillFn(r, buf);
+    pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: []u8) void) Random {
+        const Ptr = @TypeOf(pointer);
+        assert(@typeInfo(Ptr) == .Pointer); // Must be a pointer
+        assert(@typeInfo(Ptr).Pointer.size == .One); // Must be a single-item pointer
+        assert(@typeInfo(@typeInfo(Ptr).Pointer.child) == .Struct); // Must point to a struct
+        const gen = struct {
+            fn fill(ptr: *c_void, buf: []u8) void {
+                const alignment = @typeInfo(Ptr).Pointer.alignment;
+                const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
+                fillFn(self, buf);
+            }
+        };
+
+        return .{
+            .ptr = pointer,
+            .fillFn = gen.fill,
+        };
     }
 
-    pub fn boolean(r: *Random) bool {
+    /// Read random bytes into the specified buffer until full.
+    pub fn bytes(r: Random, buf: []u8) void {
+        r.fillFn(r.ptr, buf);
+    }
+
+    pub fn boolean(r: Random) bool {
         return r.int(u1) != 0;
     }
 
     /// Returns a random value from an enum, evenly distributed.
-    pub fn enumValue(r: *Random, comptime EnumType: type) EnumType {
+    pub fn enumValue(r: Random, comptime EnumType: type) EnumType {
         if (comptime !std.meta.trait.is(.Enum)(EnumType)) {
             @compileError("Random.enumValue requires an enum type, not a " ++ @typeName(EnumType));
         }
@@ -55,7 +75,7 @@ pub const Random = struct {
 
     /// Returns a random int `i` such that `minInt(T) <= i <= maxInt(T)`.
     /// `i` is evenly distributed.
-    pub fn int(r: *Random, comptime T: type) T {
+    pub fn int(r: Random, comptime T: type) T {
         const bits = @typeInfo(T).Int.bits;
         const UnsignedT = std.meta.Int(.unsigned, bits);
         const ByteAlignedT = std.meta.Int(.unsigned, @divTrunc(bits + 7, 8) * 8);
@@ -73,7 +93,7 @@ pub const Random = struct {
 
     /// Constant-time implementation off `uintLessThan`.
     /// The results of this function may be biased.
-    pub fn uintLessThanBiased(r: *Random, comptime T: type, less_than: T) T {
+    pub fn uintLessThanBiased(r: Random, comptime T: type, less_than: T) T {
         comptime assert(@typeInfo(T).Int.signedness == .unsigned);
         const bits = @typeInfo(T).Int.bits;
         comptime assert(bits <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
@@ -93,7 +113,7 @@ pub const Random = struct {
     /// However, if `fillFn` is backed by any evenly distributed pseudo random number generator,
     /// this function is guaranteed to return.
     /// If you need deterministic runtime bounds, use `uintLessThanBiased`.
-    pub fn uintLessThan(r: *Random, comptime T: type, less_than: T) T {
+    pub fn uintLessThan(r: Random, comptime T: type, less_than: T) T {
         comptime assert(@typeInfo(T).Int.signedness == .unsigned);
         const bits = @typeInfo(T).Int.bits;
         comptime assert(bits <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
@@ -130,7 +150,7 @@ pub const Random = struct {
 
     /// Constant-time implementation off `uintAtMost`.
     /// The results of this function may be biased.
-    pub fn uintAtMostBiased(r: *Random, comptime T: type, at_most: T) T {
+    pub fn uintAtMostBiased(r: Random, comptime T: type, at_most: T) T {
         assert(@typeInfo(T).Int.signedness == .unsigned);
         if (at_most == maxInt(T)) {
             // have the full range
@@ -142,7 +162,7 @@ pub const Random = struct {
     /// Returns an evenly distributed random unsigned integer `0 <= i <= at_most`.
     /// See `uintLessThan`, which this function uses in most cases,
     /// for commentary on the runtime of this function.
-    pub fn uintAtMost(r: *Random, comptime T: type, at_most: T) T {
+    pub fn uintAtMost(r: Random, comptime T: type, at_most: T) T {
         assert(@typeInfo(T).Int.signedness == .unsigned);
         if (at_most == maxInt(T)) {
             // have the full range
@@ -153,7 +173,7 @@ pub const Random = struct {
 
     /// Constant-time implementation off `intRangeLessThan`.
     /// The results of this function may be biased.
-    pub fn intRangeLessThanBiased(r: *Random, comptime T: type, at_least: T, less_than: T) T {
+    pub fn intRangeLessThanBiased(r: Random, comptime T: type, at_least: T, less_than: T) T {
         assert(at_least < less_than);
         const info = @typeInfo(T).Int;
         if (info.signedness == .signed) {
@@ -172,7 +192,7 @@ pub const Random = struct {
     /// Returns an evenly distributed random integer `at_least <= i < less_than`.
     /// See `uintLessThan`, which this function uses in most cases,
     /// for commentary on the runtime of this function.
-    pub fn intRangeLessThan(r: *Random, comptime T: type, at_least: T, less_than: T) T {
+    pub fn intRangeLessThan(r: Random, comptime T: type, at_least: T, less_than: T) T {
         assert(at_least < less_than);
         const info = @typeInfo(T).Int;
         if (info.signedness == .signed) {
@@ -190,7 +210,7 @@ pub const Random = struct {
 
     /// Constant-time implementation off `intRangeAtMostBiased`.
     /// The results of this function may be biased.
-    pub fn intRangeAtMostBiased(r: *Random, comptime T: type, at_least: T, at_most: T) T {
+    pub fn intRangeAtMostBiased(r: Random, comptime T: type, at_least: T, at_most: T) T {
         assert(at_least <= at_most);
         const info = @typeInfo(T).Int;
         if (info.signedness == .signed) {
@@ -209,7 +229,7 @@ pub const Random = struct {
     /// Returns an evenly distributed random integer `at_least <= i <= at_most`.
     /// See `uintLessThan`, which this function uses in most cases,
     /// for commentary on the runtime of this function.
-    pub fn intRangeAtMost(r: *Random, comptime T: type, at_least: T, at_most: T) T {
+    pub fn intRangeAtMost(r: Random, comptime T: type, at_least: T, at_most: T) T {
         assert(at_least <= at_most);
         const info = @typeInfo(T).Int;
         if (info.signedness == .signed) {
@@ -230,7 +250,7 @@ pub const Random = struct {
     pub const range = @compileError("deprecated; use intRangeLessThan()");
 
     /// Return a floating point value evenly distributed in the range [0, 1).
-    pub fn float(r: *Random, comptime T: type) T {
+    pub fn float(r: Random, comptime T: type) T {
         // Generate a uniform value between [1, 2) and scale down to [0, 1).
         // Note: The lowest mantissa bit is always set to 0 so we only use half the available range.
         switch (T) {
@@ -251,7 +271,7 @@ pub const Random = struct {
     /// Return a floating point value normally distributed with mean = 0, stddev = 1.
     ///
     /// To use different parameters, use: floatNorm(...) * desiredStddev + desiredMean.
-    pub fn floatNorm(r: *Random, comptime T: type) T {
+    pub fn floatNorm(r: Random, comptime T: type) T {
         const value = ziggurat.next_f64(r, ziggurat.NormDist);
         switch (T) {
             f32 => return @floatCast(f32, value),
@@ -263,7 +283,7 @@ pub const Random = struct {
     /// Return an exponentially distributed float with a rate parameter of 1.
     ///
     /// To use a different rate parameter, use: floatExp(...) / desiredRate.
-    pub fn floatExp(r: *Random, comptime T: type) T {
+    pub fn floatExp(r: Random, comptime T: type) T {
         const value = ziggurat.next_f64(r, ziggurat.ExpDist);
         switch (T) {
             f32 => return @floatCast(f32, value),
@@ -273,7 +293,7 @@ pub const Random = struct {
     }
 
     /// Shuffle a slice into a random order.
-    pub fn shuffle(r: *Random, comptime T: type, buf: []T) void {
+    pub fn shuffle(r: Random, comptime T: type, buf: []T) void {
         if (buf.len < 2) {
             return;
         }
@@ -303,18 +323,19 @@ pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
 
 const SequentialPrng = struct {
     const Self = @This();
-    random: Random,
     next_value: u8,
 
     pub fn init() Self {
         return Self{
-            .random = Random{ .fillFn = fill },
             .next_value = 0,
         };
     }
 
-    fn fill(r: *Random, buf: []u8) void {
-        const self = @fieldParentPtr(Self, "random", r);
+    pub fn random(self: *Self) Random {
+        return Random.init(self, fill);
+    }
+
+    pub fn fill(self: *Self, buf: []u8) void {
         for (buf) |*b| {
             b.* = self.next_value;
         }
@@ -327,45 +348,46 @@ test "Random int" {
     comptime try testRandomInt();
 }
 fn testRandomInt() !void {
-    var r = SequentialPrng.init();
+    var rng = SequentialPrng.init();
+    const random = rng.random();
 
-    try expect(r.random.int(u0) == 0);
+    try expect(random.int(u0) == 0);
 
-    r.next_value = 0;
-    try expect(r.random.int(u1) == 0);
-    try expect(r.random.int(u1) == 1);
-    try expect(r.random.int(u2) == 2);
-    try expect(r.random.int(u2) == 3);
-    try expect(r.random.int(u2) == 0);
+    rng.next_value = 0;
+    try expect(random.int(u1) == 0);
+    try expect(random.int(u1) == 1);
+    try expect(random.int(u2) == 2);
+    try expect(random.int(u2) == 3);
+    try expect(random.int(u2) == 0);
 
-    r.next_value = 0xff;
-    try expect(r.random.int(u8) == 0xff);
-    r.next_value = 0x11;
-    try expect(r.random.int(u8) == 0x11);
+    rng.next_value = 0xff;
+    try expect(random.int(u8) == 0xff);
+    rng.next_value = 0x11;
+    try expect(random.int(u8) == 0x11);
 
-    r.next_value = 0xff;
-    try expect(r.random.int(u32) == 0xffffffff);
-    r.next_value = 0x11;
-    try expect(r.random.int(u32) == 0x11111111);
+    rng.next_value = 0xff;
+    try expect(random.int(u32) == 0xffffffff);
+    rng.next_value = 0x11;
+    try expect(random.int(u32) == 0x11111111);
 
-    r.next_value = 0xff;
-    try expect(r.random.int(i32) == -1);
-    r.next_value = 0x11;
-    try expect(r.random.int(i32) == 0x11111111);
+    rng.next_value = 0xff;
+    try expect(random.int(i32) == -1);
+    rng.next_value = 0x11;
+    try expect(random.int(i32) == 0x11111111);
 
-    r.next_value = 0xff;
-    try expect(r.random.int(i8) == -1);
-    r.next_value = 0x11;
-    try expect(r.random.int(i8) == 0x11);
+    rng.next_value = 0xff;
+    try expect(random.int(i8) == -1);
+    rng.next_value = 0x11;
+    try expect(random.int(i8) == 0x11);
 
-    r.next_value = 0xff;
-    try expect(r.random.int(u33) == 0x1ffffffff);
-    r.next_value = 0xff;
-    try expect(r.random.int(i1) == -1);
-    r.next_value = 0xff;
-    try expect(r.random.int(i2) == -1);
-    r.next_value = 0xff;
-    try expect(r.random.int(i33) == -1);
+    rng.next_value = 0xff;
+    try expect(random.int(u33) == 0x1ffffffff);
+    rng.next_value = 0xff;
+    try expect(random.int(i1) == -1);
+    rng.next_value = 0xff;
+    try expect(random.int(i2) == -1);
+    rng.next_value = 0xff;
+    try expect(random.int(i33) == -1);
 }
 
 test "Random boolean" {
@@ -373,11 +395,13 @@ test "Random boolean" {
     comptime try testRandomBoolean();
 }
 fn testRandomBoolean() !void {
-    var r = SequentialPrng.init();
-    try expect(r.random.boolean() == false);
-    try expect(r.random.boolean() == true);
-    try expect(r.random.boolean() == false);
-    try expect(r.random.boolean() == true);
+    var rng = SequentialPrng.init();
+    const random = rng.random();
+
+    try expect(random.boolean() == false);
+    try expect(random.boolean() == true);
+    try expect(random.boolean() == false);
+    try expect(random.boolean() == true);
 }
 
 test "Random enum" {
@@ -390,11 +414,12 @@ fn testRandomEnumValue() !void {
         Second,
         Third,
     };
-    var r = SequentialPrng.init();
-    r.next_value = 0;
-    try expect(r.random.enumValue(TestEnum) == TestEnum.First);
-    try expect(r.random.enumValue(TestEnum) == TestEnum.First);
-    try expect(r.random.enumValue(TestEnum) == TestEnum.First);
+    var rng = SequentialPrng.init();
+    const random = rng.random();
+    rng.next_value = 0;
+    try expect(random.enumValue(TestEnum) == TestEnum.First);
+    try expect(random.enumValue(TestEnum) == TestEnum.First);
+    try expect(random.enumValue(TestEnum) == TestEnum.First);
 }
 
 test "Random intLessThan" {
@@ -403,38 +428,40 @@ test "Random intLessThan" {
     comptime try testRandomIntLessThan();
 }
 fn testRandomIntLessThan() !void {
-    var r = SequentialPrng.init();
-    r.next_value = 0xff;
-    try expect(r.random.uintLessThan(u8, 4) == 3);
-    try expect(r.next_value == 0);
-    try expect(r.random.uintLessThan(u8, 4) == 0);
-    try expect(r.next_value == 1);
+    var rng = SequentialPrng.init();
+    const random = rng.random();
 
-    r.next_value = 0;
-    try expect(r.random.uintLessThan(u64, 32) == 0);
+    rng.next_value = 0xff;
+    try expect(random.uintLessThan(u8, 4) == 3);
+    try expect(rng.next_value == 0);
+    try expect(random.uintLessThan(u8, 4) == 0);
+    try expect(rng.next_value == 1);
+
+    rng.next_value = 0;
+    try expect(random.uintLessThan(u64, 32) == 0);
 
     // trigger the bias rejection code path
-    r.next_value = 0;
-    try expect(r.random.uintLessThan(u8, 3) == 0);
+    rng.next_value = 0;
+    try expect(random.uintLessThan(u8, 3) == 0);
     // verify we incremented twice
-    try expect(r.next_value == 2);
+    try expect(rng.next_value == 2);
 
-    r.next_value = 0xff;
-    try expect(r.random.intRangeLessThan(u8, 0, 0x80) == 0x7f);
-    r.next_value = 0xff;
-    try expect(r.random.intRangeLessThan(u8, 0x7f, 0xff) == 0xfe);
+    rng.next_value = 0xff;
+    try expect(random.intRangeLessThan(u8, 0, 0x80) == 0x7f);
+    rng.next_value = 0xff;
+    try expect(random.intRangeLessThan(u8, 0x7f, 0xff) == 0xfe);
 
-    r.next_value = 0xff;
-    try expect(r.random.intRangeLessThan(i8, 0, 0x40) == 0x3f);
-    r.next_value = 0xff;
-    try expect(r.random.intRangeLessThan(i8, -0x40, 0x40) == 0x3f);
-    r.next_value = 0xff;
-    try expect(r.random.intRangeLessThan(i8, -0x80, 0) == -1);
+    rng.next_value = 0xff;
+    try expect(random.intRangeLessThan(i8, 0, 0x40) == 0x3f);
+    rng.next_value = 0xff;
+    try expect(random.intRangeLessThan(i8, -0x40, 0x40) == 0x3f);
+    rng.next_value = 0xff;
+    try expect(random.intRangeLessThan(i8, -0x80, 0) == -1);
 
-    r.next_value = 0xff;
-    try expect(r.random.intRangeLessThan(i3, -4, 0) == -1);
-    r.next_value = 0xff;
-    try expect(r.random.intRangeLessThan(i3, -2, 2) == 1);
+    rng.next_value = 0xff;
+    try expect(random.intRangeLessThan(i3, -4, 0) == -1);
+    rng.next_value = 0xff;
+    try expect(random.intRangeLessThan(i3, -2, 2) == 1);
 }
 
 test "Random intAtMost" {
@@ -443,67 +470,70 @@ test "Random intAtMost" {
     comptime try testRandomIntAtMost();
 }
 fn testRandomIntAtMost() !void {
-    var r = SequentialPrng.init();
-    r.next_value = 0xff;
-    try expect(r.random.uintAtMost(u8, 3) == 3);
-    try expect(r.next_value == 0);
-    try expect(r.random.uintAtMost(u8, 3) == 0);
+    var rng = SequentialPrng.init();
+    const random = rng.random();
+
+    rng.next_value = 0xff;
+    try expect(random.uintAtMost(u8, 3) == 3);
+    try expect(rng.next_value == 0);
+    try expect(random.uintAtMost(u8, 3) == 0);
 
     // trigger the bias rejection code path
-    r.next_value = 0;
-    try expect(r.random.uintAtMost(u8, 2) == 0);
+    rng.next_value = 0;
+    try expect(random.uintAtMost(u8, 2) == 0);
     // verify we incremented twice
-    try expect(r.next_value == 2);
+    try expect(rng.next_value == 2);
 
-    r.next_value = 0xff;
-    try expect(r.random.intRangeAtMost(u8, 0, 0x7f) == 0x7f);
-    r.next_value = 0xff;
-    try expect(r.random.intRangeAtMost(u8, 0x7f, 0xfe) == 0xfe);
+    rng.next_value = 0xff;
+    try expect(random.intRangeAtMost(u8, 0, 0x7f) == 0x7f);
+    rng.next_value = 0xff;
+    try expect(random.intRangeAtMost(u8, 0x7f, 0xfe) == 0xfe);
 
-    r.next_value = 0xff;
-    try expect(r.random.intRangeAtMost(i8, 0, 0x3f) == 0x3f);
-    r.next_value = 0xff;
-    try expect(r.random.intRangeAtMost(i8, -0x40, 0x3f) == 0x3f);
-    r.next_value = 0xff;
-    try expect(r.random.intRangeAtMost(i8, -0x80, -1) == -1);
+    rng.next_value = 0xff;
+    try expect(random.intRangeAtMost(i8, 0, 0x3f) == 0x3f);
+    rng.next_value = 0xff;
+    try expect(random.intRangeAtMost(i8, -0x40, 0x3f) == 0x3f);
+    rng.next_value = 0xff;
+    try expect(random.intRangeAtMost(i8, -0x80, -1) == -1);
 
-    r.next_value = 0xff;
-    try expect(r.random.intRangeAtMost(i3, -4, -1) == -1);
-    r.next_value = 0xff;
-    try expect(r.random.intRangeAtMost(i3, -2, 1) == 1);
+    rng.next_value = 0xff;
+    try expect(random.intRangeAtMost(i3, -4, -1) == -1);
+    rng.next_value = 0xff;
+    try expect(random.intRangeAtMost(i3, -2, 1) == 1);
 
-    try expect(r.random.uintAtMost(u0, 0) == 0);
+    try expect(random.uintAtMost(u0, 0) == 0);
 }
 
 test "Random Biased" {
-    var r = DefaultPrng.init(0);
+    var prng = DefaultPrng.init(0);
+    const random = prng.random();
     // Not thoroughly checking the logic here.
     // Just want to execute all the paths with different types.
 
-    try expect(r.random.uintLessThanBiased(u1, 1) == 0);
-    try expect(r.random.uintLessThanBiased(u32, 10) < 10);
-    try expect(r.random.uintLessThanBiased(u64, 20) < 20);
+    try expect(random.uintLessThanBiased(u1, 1) == 0);
+    try expect(random.uintLessThanBiased(u32, 10) < 10);
+    try expect(random.uintLessThanBiased(u64, 20) < 20);
 
-    try expect(r.random.uintAtMostBiased(u0, 0) == 0);
-    try expect(r.random.uintAtMostBiased(u1, 0) <= 0);
-    try expect(r.random.uintAtMostBiased(u32, 10) <= 10);
-    try expect(r.random.uintAtMostBiased(u64, 20) <= 20);
+    try expect(random.uintAtMostBiased(u0, 0) == 0);
+    try expect(random.uintAtMostBiased(u1, 0) <= 0);
+    try expect(random.uintAtMostBiased(u32, 10) <= 10);
+    try expect(random.uintAtMostBiased(u64, 20) <= 20);
 
-    try expect(r.random.intRangeLessThanBiased(u1, 0, 1) == 0);
-    try expect(r.random.intRangeLessThanBiased(i1, -1, 0) == -1);
-    try expect(r.random.intRangeLessThanBiased(u32, 10, 20) >= 10);
-    try expect(r.random.intRangeLessThanBiased(i32, 10, 20) >= 10);
-    try expect(r.random.intRangeLessThanBiased(u64, 20, 40) >= 20);
-    try expect(r.random.intRangeLessThanBiased(i64, 20, 40) >= 20);
+    try expect(random.intRangeLessThanBiased(u1, 0, 1) == 0);
+    try expect(random.intRangeLessThanBiased(i1, -1, 0) == -1);
+    try expect(random.intRangeLessThanBiased(u32, 10, 20) >= 10);
+    try expect(random.intRangeLessThanBiased(i32, 10, 20) >= 10);
+    try expect(random.intRangeLessThanBiased(u64, 20, 40) >= 20);
+    try expect(random.intRangeLessThanBiased(i64, 20, 40) >= 20);
 
     // uncomment for broken module error:
-    //expect(r.random.intRangeAtMostBiased(u0, 0, 0) == 0);
-    try expect(r.random.intRangeAtMostBiased(u1, 0, 1) >= 0);
-    try expect(r.random.intRangeAtMostBiased(i1, -1, 0) >= -1);
-    try expect(r.random.intRangeAtMostBiased(u32, 10, 20) >= 10);
-    try expect(r.random.intRangeAtMostBiased(i32, 10, 20) >= 10);
-    try expect(r.random.intRangeAtMostBiased(u64, 20, 40) >= 20);
-    try expect(r.random.intRangeAtMostBiased(i64, 20, 40) >= 20);
+    //expect(random.intRangeAtMostBiased(u0, 0, 0) == 0);
+    try expect(random.intRangeAtMostBiased(u1, 0, 1) >= 0);
+    try expect(random.intRangeAtMostBiased(i1, -1, 0) >= -1);
+    try expect(random.intRangeAtMostBiased(u32, 10, 20) >= 10);
+    try expect(random.intRangeAtMostBiased(i32, 10, 20) >= 10);
+    try expect(random.intRangeAtMostBiased(u64, 20, 40) >= 20);
+    try expect(random.intRangeAtMostBiased(i64, 20, 40) >= 20);
 }
 
 // Generator to extend 64-bit seed values into longer sequences.
@@ -547,14 +577,15 @@ test "splitmix64 sequence" {
 // Actual Random helper function tests, pcg engine is assumed correct.
 test "Random float" {
     var prng = DefaultPrng.init(0);
+    const random = prng.random();
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
-        const val1 = prng.random.float(f32);
+        const val1 = random.float(f32);
         try expect(val1 >= 0.0);
         try expect(val1 < 1.0);
 
-        const val2 = prng.random.float(f64);
+        const val2 = random.float(f64);
         try expect(val2 >= 0.0);
         try expect(val2 < 1.0);
     }
@@ -562,13 +593,14 @@ test "Random float" {
 
 test "Random shuffle" {
     var prng = DefaultPrng.init(0);
+    const random = prng.random();
 
     var seq = [_]u8{ 0, 1, 2, 3, 4 };
     var seen = [_]bool{false} ** 5;
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
-        prng.random.shuffle(u8, seq[0..]);
+        random.shuffle(u8, seq[0..]);
         seen[seq[0]] = true;
         try expect(sumArray(seq[0..]) == 10);
     }
@@ -588,17 +620,19 @@ fn sumArray(s: []const u8) u32 {
 
 test "Random range" {
     var prng = DefaultPrng.init(0);
-    try testRange(&prng.random, -4, 3);
-    try testRange(&prng.random, -4, -1);
-    try testRange(&prng.random, 10, 14);
-    try testRange(&prng.random, -0x80, 0x7f);
+    const random = prng.random();
+
+    try testRange(random, -4, 3);
+    try testRange(random, -4, -1);
+    try testRange(random, 10, 14);
+    try testRange(random, -0x80, 0x7f);
 }
 
-fn testRange(r: *Random, start: i8, end: i8) !void {
+fn testRange(r: Random, start: i8, end: i8) !void {
     try testRangeBias(r, start, end, true);
     try testRangeBias(r, start, end, false);
 }
-fn testRangeBias(r: *Random, start: i8, end: i8, biased: bool) !void {
+fn testRangeBias(r: Random, start: i8, end: i8, biased: bool) !void {
     const count = @intCast(usize, @as(i32, end) - @as(i32, start));
     var values_buffer = [_]bool{false} ** 0x100;
     const values = values_buffer[0..count];
@@ -617,9 +651,10 @@ test "CSPRNG" {
     var secret_seed: [DefaultCsprng.secret_seed_length]u8 = undefined;
     std.crypto.random.bytes(&secret_seed);
     var csprng = DefaultCsprng.init(secret_seed);
-    const a = csprng.random.int(u64);
-    const b = csprng.random.int(u64);
-    const c = csprng.random.int(u64);
+    const random = csprng.random();
+    const a = random.int(u64);
+    const b = random.int(u64);
+    const c = random.int(u64);
     try expect(a ^ b ^ c != 0);
 }
 

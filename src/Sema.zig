@@ -9904,8 +9904,30 @@ fn zirCtz(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
 fn zirPopCount(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirPopCount", .{});
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand = sema.resolveInst(inst_data.operand);
+    const operand_ty = sema.typeOf(operand);
+    // TODO implement support for vectors
+    if (operand_ty.zigTypeTag() != .Int) {
+        return sema.fail(block, ty_src, "expected integer type, found '{}'", .{
+            operand_ty,
+        });
+    }
+    const target = sema.mod.getTarget();
+    const bits = operand_ty.intInfo(target).bits;
+    if (bits == 0) return Air.Inst.Ref.zero;
+
+    const result_ty = try Type.smallestUnsignedInt(sema.arena, bits);
+
+    const runtime_src = if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        if (val.isUndef()) return sema.addConstUndef(result_ty);
+        const result_val = try val.popCount(operand_ty, target, sema.arena);
+        return sema.addConstant(result_ty, result_val);
+    } else operand_src;
+
+    try sema.requireRuntimeBlock(block, runtime_src);
+    return block.addTyOp(.popcount, result_ty, operand);
 }
 
 fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -10762,6 +10784,11 @@ fn zirVarExtended(
     }
 
     const new_var = try sema.gpa.create(Module.Var);
+
+    log.debug("created variable {*} owner_decl: {*} ({s})", .{
+        new_var, sema.owner_decl, sema.owner_decl.name,
+    });
+
     new_var.* = .{
         .owner_decl = sema.owner_decl,
         .init = init_val,

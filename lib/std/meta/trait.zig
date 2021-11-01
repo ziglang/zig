@@ -354,7 +354,7 @@ test "std.meta.trait.isConstPtr" {
 
 pub fn isContainer(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .Struct, .Union, .Enum => true,
+        .Struct, .Union, .Enum, .Opaque => true,
         else => false,
     };
 }
@@ -368,10 +368,12 @@ test "std.meta.trait.isContainer" {
         A,
         B,
     };
+    const TestOpaque = opaque {};
 
     try testing.expect(isContainer(TestStruct));
     try testing.expect(isContainer(TestUnion));
     try testing.expect(isContainer(TestEnum));
+    try testing.expect(isContainer(TestOpaque));
     try testing.expect(!isContainer(u8));
 }
 

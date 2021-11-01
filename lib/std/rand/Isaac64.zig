@@ -8,8 +8,6 @@ const Random = std.rand.Random;
 const mem = std.mem;
 const Isaac64 = @This();
 
-random: Random,
-
 r: [256]u64,
 m: [256]u64,
 a: u64,
@@ -19,7 +17,6 @@ i: usize,
 
 pub fn init(init_s: u64) Isaac64 {
     var isaac = Isaac64{
-        .random = Random{ .fillFn = fill },
         .r = undefined,
         .m = undefined,
         .a = undefined,
@@ -31,6 +28,10 @@ pub fn init(init_s: u64) Isaac64 {
     // seed == 0 => same result as the unseeded reference implementation
     isaac.seed(init_s, 1);
     return isaac;
+}
+
+pub fn random(self: *Isaac64) Random {
+    return Random.init(self, fill);
 }
 
 fn step(self: *Isaac64, mix: u64, base: usize, comptime m1: usize, comptime m2: usize) void {
@@ -149,9 +150,7 @@ fn seed(self: *Isaac64, init_s: u64, comptime rounds: usize) void {
     self.i = self.r.len; // trigger refill on first value
 }
 
-fn fill(r: *Random, buf: []u8) void {
-    const self = @fieldParentPtr(Isaac64, "random", r);
-
+pub fn fill(self: *Isaac64, buf: []u8) void {
     var i: usize = 0;
     const aligned_len = buf.len - (buf.len & 7);
 
@@ -230,7 +229,7 @@ test "isaac64 fill" {
         var buf0: [8]u8 = undefined;
         var buf1: [7]u8 = undefined;
         std.mem.writeIntLittle(u64, &buf0, s);
-        Isaac64.fill(&r.random, &buf1);
+        r.fill(&buf1);
         try std.testing.expect(std.mem.eql(u8, buf0[0..7], buf1[0..]));
     }
 }

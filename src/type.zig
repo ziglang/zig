@@ -252,6 +252,14 @@ pub const Type = extern union {
         };
     }
 
+    /// If it is a function pointer, returns the function type. Otherwise returns null.
+    pub fn castPtrToFn(ty: Type) ?Type {
+        if (ty.zigTypeTag() != .Pointer) return null;
+        const elem_ty = ty.childType();
+        if (elem_ty.zigTypeTag() != .Fn) return null;
+        return elem_ty;
+    }
+
     pub fn ptrIsMutable(ty: Type) bool {
         return switch (ty.tag()) {
             .single_const_pointer_to_comptime_int,

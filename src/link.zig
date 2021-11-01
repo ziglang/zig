@@ -72,6 +72,7 @@ pub const Options = struct {
     emit_relocs: bool,
     rdynamic: bool,
     z_nodelete: bool,
+    z_notext: bool,
     z_defs: bool,
     z_origin: bool,
     z_noexecstack: bool,

@@ -1489,6 +1489,9 @@ pub const LibExeObjStep = struct {
 
     linker_allow_shlib_undefined: ?bool = null,
 
+    /// Permit read-only relocations in read-only segments. Disallowed by default.
+    link_z_notext: bool = false,
+
     /// Uses system Wine installation to run cross compiled Windows build artifacts.
     enable_wine: bool = false,
 
@@ -2353,6 +2356,10 @@ pub const LibExeObjStep = struct {
         }
         if (self.linker_allow_shlib_undefined) |x| {
             try zig_args.append(if (x) "-fallow-shlib-undefined" else "-fno-allow-shlib-undefined");
+        }
+        if (self.link_z_notext) {
+            try zig_args.append("-z");
+            try zig_args.append("notext");
         }
         if (self.single_threaded) {
             try zig_args.append("--single-threaded");

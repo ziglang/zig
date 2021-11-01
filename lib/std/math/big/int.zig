@@ -733,6 +733,27 @@ pub const Mutable = struct {
         rma.truncate(rma.toConst(), signedness, bit_count);
     }
 
+    /// r = @popCount(a) with 2s-complement semantics.
+    /// r and a may be aliases.
+    ///
+    /// Assets the result fits in `r`. Upper bound on the number of limbs needed by
+    /// r is `calcTwosCompLimbCount(bit_count)`.
+    pub fn popCount(r: *Mutable, a: Const, bit_count: usize) void {
+        r.copy(a);
+
+        if (!a.positive) {
+            r.positive = true; // Negate.
+            r.bitNotWrap(r.toConst(), .unsigned, bit_count); // Bitwise NOT.
+            r.addScalar(r.toConst(), 1); // Add one.
+        }
+
+        var sum: Limb = 0;
+        for (r.limbs[0..r.len]) |limb| {
+            sum += @popCount(Limb, limb);
+        }
+        r.set(sum);
+    }
+
     /// rma = a * a
     ///
     /// `rma` may not alias with `a`.
@@ -2733,6 +2754,15 @@ pub const Managed = struct {
         try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
         var m = r.toMutable();
         m.saturate(a, signedness, bit_count);
+        r.setMetadata(m.positive, m.len);
+    }
+
+    /// r = @popCount(a) with 2s-complement semantics.
+    /// r and a may be aliases.
+    pub fn popCount(r: *Managed, a: Const, bit_count: usize) !void {
+        try r.ensureCapacity(calcTwosCompLimbCount(bit_count));
+        var m = r.toMutable();
+        m.popCount(a, bit_count);
         r.setMetadata(m.positive, m.len);
     }
 };

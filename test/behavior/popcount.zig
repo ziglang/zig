@@ -44,19 +44,3 @@ fn testPopCountIntegers() !void {
         try expect(@popCount(i128, 0b11111111000110001100010000100001000011000011100101010001) == 24);
     }
 }
-
-test "@popCount vectors" {
-    comptime try testPopCountVectors();
-    try testPopCountVectors();
-}
-
-fn testPopCountVectors() !void {
-    {
-        var x: Vector(8, u32) = [1]u32{0xffffffff} ** 8;
-        try expectEqual([1]u6{32} ** 8, @as([8]u6, @popCount(u32, x)));
-    }
-    {
-        var x: Vector(8, i16) = [1]i16{-1} ** 8;
-        try expectEqual([1]u5{16} ** 8, @as([8]u5, @popCount(i16, x)));
-    }
-}
