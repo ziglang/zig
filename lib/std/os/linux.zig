@@ -3798,10 +3798,6 @@ pub const MFD_HUGE_1GB = HUGETLB_FLAG_ENCODE_1GB;
 pub const MFD_HUGE_2GB = HUGETLB_FLAG_ENCODE_2GB;
 pub const MFD_HUGE_16GB = HUGETLB_FLAG_ENCODE_16GB;
 
-pub const RUSAGE_SELF = 0;
-pub const RUSAGE_CHILDREN = -1;
-pub const RUSAGE_THREAD = 1;
-
 pub const rusage = extern struct {
     utime: timeval,
     stime: timeval,
@@ -3820,6 +3816,10 @@ pub const rusage = extern struct {
     nvcsw: isize,
     nivcsw: isize,
     __reserved: [16]isize = [1]isize{0} ** 16,
+
+    pub const SELF = 0;
+    pub const CHILDREN = -1;
+    pub const THREAD = 1;
 };
 
 pub const cc_t = u8;
@@ -5199,4 +5199,6 @@ pub const PERF = struct {
         pub const QUERY_BPF = 3221758986;
         pub const MODIFY_ATTRIBUTES = 1074275339;
     };
+
+    pub const IOC_FLAG_GROUP = 1;
 };
