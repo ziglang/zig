@@ -223,7 +223,7 @@ pub const SegmentCommand = struct {
         var segment = SegmentCommand{
             .inner = inner,
         };
-        try segment.sections.ensureTotalCapacity(alloc, inner.nsects);
+        try segment.sections.ensureTotalCapacityPrecise(alloc, inner.nsects);
 
         var i: usize = 0;
         while (i < inner.nsects) : (i += 1) {
