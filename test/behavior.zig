@@ -10,6 +10,7 @@ test {
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/if.zig");
+    _ = @import("behavior/ptrcast.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/null.zig");
 
@@ -53,7 +54,6 @@ test {
         _ = @import("behavior/optional.zig");
         _ = @import("behavior/pointers.zig");
         _ = @import("behavior/popcount.zig");
-        _ = @import("behavior/ptrcast.zig");
         _ = @import("behavior/pub_enum.zig");
         _ = @import("behavior/saturating_arithmetic.zig");
         _ = @import("behavior/sizeof_and_typeof.zig");
