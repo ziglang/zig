@@ -723,6 +723,10 @@ export fn exp2f(a: f32) f32 {
     return math.exp2(a);
 }
 
+export fn exp2q(a: f128) f128 {
+    return math.exp2(a);
+}
+
 export fn log(a: f64) f64 {
     return math.ln(a);
 }
