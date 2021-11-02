@@ -4146,7 +4146,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: *Allocator) Se
     // for the runtime ones.
     const fn_ty = decl.ty;
     const runtime_params_len = @intCast(u32, fn_ty.fnParamLen());
-    try inner_block.instructions.ensureTotalCapacity(gpa, runtime_params_len);
+    try inner_block.instructions.ensureTotalCapacityPrecise(gpa, runtime_params_len);
     try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
     try sema.inst_map.ensureUnusedCapacity(gpa, fn_info.total_params_len);
 

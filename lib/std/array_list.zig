@@ -56,19 +56,11 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Initialize with capacity to hold at least `num` elements.
+        /// The resulting capacity is likely to be equal to `num`.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: *Allocator, num: usize) !Self {
             var self = Self.init(allocator);
-
-            if (@sizeOf(T) > 0) {
-                const new_memory = try self.allocator.allocAdvanced(T, alignment, num, .at_least);
-                self.items.ptr = new_memory.ptr;
-                self.capacity = new_memory.len;
-            } else {
-                // If `T` is a zero-sized type, then we do not need to allocate memory.
-                self.capacity = std.math.maxInt(usize);
-            }
-
+            try self.ensureTotalCapacityPrecise(num);
             return self;
         }
 
@@ -330,8 +322,22 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
                     if (better_capacity >= new_capacity) break;
                 }
 
+                return self.ensureTotalCapacityPrecise(better_capacity);
+            } else {
+                self.capacity = std.math.maxInt(usize);
+            }
+        }
+
+        /// Modify the array so that it can hold at least `new_capacity` items.
+        /// Like `ensureTotalCapacity`, but the resulting capacity is much more likely
+        /// (but not guaranteed) to be equal to `new_capacity`.
+        /// Invalidates pointers if additional memory is needed.
+        pub fn ensureTotalCapacityPrecise(self: *Self, new_capacity: usize) !void {
+            if (@sizeOf(T) > 0) {
+                if (self.capacity >= new_capacity) return;
+
                 // TODO This can be optimized to avoid needlessly copying undefined memory.
-                const new_memory = try self.allocator.reallocAtLeast(self.allocatedSlice(), better_capacity);
+                const new_memory = try self.allocator.reallocAtLeast(self.allocatedSlice(), new_capacity);
                 self.items.ptr = new_memory.ptr;
                 self.capacity = new_memory.len;
             } else {
@@ -464,14 +470,11 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         pub const Slice = if (alignment) |a| ([]align(a) T) else []T;
 
         /// Initialize with capacity to hold at least num elements.
+        /// The resulting capacity is likely to be equal to `num`.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: *Allocator, num: usize) !Self {
             var self = Self{};
-
-            const new_memory = try allocator.allocAdvanced(T, alignment, num, .at_least);
-            self.items.ptr = new_memory.ptr;
-            self.capacity = new_memory.len;
-
+            try self.ensureTotalCapacityPrecise(allocator, num);
             return self;
         }
 
@@ -685,7 +688,17 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
                 if (better_capacity >= new_capacity) break;
             }
 
-            const new_memory = try allocator.reallocAtLeast(self.allocatedSlice(), better_capacity);
+            return self.ensureTotalCapacityPrecise(allocator, better_capacity);
+        }
+
+        /// Modify the array so that it can hold at least `new_capacity` items.
+        /// Like `ensureTotalCapacity`, but the resulting capacity is much more likely
+        /// (but not guaranteed) to be equal to `new_capacity`.
+        /// Invalidates pointers if additional memory is needed.
+        pub fn ensureTotalCapacityPrecise(self: *Self, allocator: *Allocator, new_capacity: usize) !void {
+            if (self.capacity >= new_capacity) return;
+
+            const new_memory = try allocator.reallocAtLeast(self.allocatedSlice(), new_capacity);
             self.items.ptr = new_memory.ptr;
             self.capacity = new_memory.len;
         }
