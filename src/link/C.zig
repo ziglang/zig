@@ -362,7 +362,7 @@ fn flushDecl(self: *C, f: *Flush, decl: *const Module.Decl) FlushDeclError!void 
     const decl_block = self.decl_table.getPtr(decl).?;
     const gpa = self.base.allocator;
 
-    if (decl_block.fwd_decl.items.len != 0) {
+    if (decl_block.typedefs.count() != 0) {
         try f.typedefs.ensureUnusedCapacity(gpa, @intCast(u32, decl_block.typedefs.count()));
         var it = decl_block.typedefs.iterator();
         while (it.next()) |new| {
@@ -371,6 +371,9 @@ fn flushDecl(self: *C, f: *Flush, decl: *const Module.Decl) FlushDeclError!void 
                 try f.err_typedef_buf.appendSlice(gpa, new.value_ptr.rendered);
             }
         }
+    }
+
+    if (decl_block.fwd_decl.items.len != 0) {
         const buf = decl_block.fwd_decl.items;
         try f.all_buffers.append(gpa, .{
             .iov_base = buf.ptr,
