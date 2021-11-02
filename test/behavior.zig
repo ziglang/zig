@@ -5,6 +5,7 @@ test {
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/call.zig");
+    _ = @import("behavior/enum.zig");
     _ = @import("behavior/if.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/null.zig");
@@ -37,7 +38,6 @@ test {
         _ = @import("behavior/bugs/6850.zig");
         _ = @import("behavior/cast.zig");
         _ = @import("behavior/defer.zig");
-        _ = @import("behavior/enum.zig");
         _ = @import("behavior/error.zig");
         _ = @import("behavior/eval.zig");
         _ = @import("behavior/floatop.zig");
