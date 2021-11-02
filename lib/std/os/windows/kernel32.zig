@@ -198,6 +198,19 @@ pub extern "kernel32" fn GetFileInformationByHandleEx(
     in_dwBufferSize: DWORD,
 ) callconv(WINAPI) BOOL;
 
+const WindowsFDTypes = enum(DWORD) 
+{
+    FILE_TYPE_UNKNOWN = 0x0000,
+    FILE_TYPE_DISK = 0x0001,
+    FILE_TYPE_CHAR = 0x0002,
+    FILE_TYPE_PIPE = 0x0003,
+    FILE_TYPE_REMOTE = 0x8000,
+};
+
+pub extern "kernel32" fn GetFileType(
+    hFile: HANDLE
+) callconv(WINAPI) WindowsFDTypes;
+
 pub extern "kernel32" fn GetFinalPathNameByHandleW(
     hFile: HANDLE,
     lpszFilePath: [*]u16,
