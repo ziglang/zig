@@ -8,6 +8,7 @@ test {
     _ = @import("behavior/bugs/655.zig");
     _ = @import("behavior/bugs/679.zig");
     _ = @import("behavior/bugs/704.zig");
+    _ = @import("behavior/bugs/1486.zig");
     _ = @import("behavior/call.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
@@ -30,7 +31,6 @@ test {
         _ = @import("behavior/bugs/394.zig");
         _ = @import("behavior/bugs/624.zig");
         _ = @import("behavior/bugs/1277.zig");
-        _ = @import("behavior/bugs/1486.zig");
         _ = @import("behavior/bugs/1500.zig");
         _ = @import("behavior/bugs/1741.zig");
         _ = @import("behavior/bugs/2006.zig");
