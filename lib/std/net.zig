@@ -1728,6 +1728,16 @@ pub const StreamServer = struct {
 
         const sockfd = try os.socket(address.any.family, sock_flags, proto);
         self.sockfd = sockfd;
+
+        if (std.io.is_async and builtin.os.tag == .windows) {
+            _ = os.windows.CreateIoCompletionPort(
+                sockfd,
+                std.event.Loop.instance.?.os_data.io_port,
+                0,
+                0,
+            ) catch undefined;
+        }
+
         errdefer {
             os.closeSocket(sockfd);
             self.sockfd = null;
