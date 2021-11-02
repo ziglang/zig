@@ -5,6 +5,7 @@ test {
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/bitcast.zig");
     _ = @import("behavior/bool.zig");
+    _ = @import("behavior/bugs/655.zig");
     _ = @import("behavior/call.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
@@ -26,7 +27,6 @@ test {
         _ = @import("behavior/basic_llvm.zig");
         _ = @import("behavior/bugs/394.zig");
         _ = @import("behavior/bugs/624.zig");
-        _ = @import("behavior/bugs/655.zig");
         _ = @import("behavior/bugs/679.zig");
         _ = @import("behavior/bugs/704.zig");
         _ = @import("behavior/bugs/1277.zig");
