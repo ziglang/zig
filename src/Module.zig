@@ -4163,7 +4163,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
                 // in `Decl` to notice that the line number did not change.
                 mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
             },
-            .c, .wasm, .spirv => {},
+            .c, .wasm, .spirv, .nvptx => {},
         }
     }
 }
@@ -4237,6 +4237,7 @@ pub fn clearDecl(
                 .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
                 .spirv => .{ .spirv = {} },
+                .nvptx => .{ .nvptx = {} },
             };
             decl.fn_link = switch (mod.comp.bin_file.tag) {
                 .coff => .{ .coff = {} },
@@ -4246,6 +4247,7 @@ pub fn clearDecl(
                 .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
                 .spirv => .{ .spirv = .{} },
+                .nvptx => .{ .nvptx = .{} },
             };
         }
         if (decl.getInnerNamespace()) |namespace| {
@@ -4573,6 +4575,7 @@ pub fn allocateNewDecl(
             .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
             .spirv => .{ .spirv = {} },
+            .nvptx => .{ .nvptx = {} },
         },
         .fn_link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = {} },
@@ -4582,6 +4585,7 @@ pub fn allocateNewDecl(
             .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
             .spirv => .{ .spirv = .{} },
+            .nvptx => .{ .nvptx = .{} },
         },
         .generation = 0,
         .is_pub = false,

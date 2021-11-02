@@ -378,7 +378,7 @@ pub const Object = struct {
         const mod = comp.bin_file.options.module.?;
         const cache_dir = mod.zig_cache_artifact_directory;
 
-        const emit_bin_path: ?[*:0]const u8 = if (comp.bin_file.options.emit) |emit|
+        var emit_bin_path: ?[*:0]const u8 = if (comp.bin_file.options.emit) |emit|
             try emit.basenamePath(arena, try arena.dupeZ(u8, comp.bin_file.intermediary_basename.?))
         else
             null;
@@ -5049,6 +5049,10 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) llvm.Ca
         },
         .Signal => .AVR_SIGNAL,
         .SysV => .X86_64_SysV,
+        .PtxKernel => return switch (target.cpu.arch) {
+            .nvptx, .nvptx64 => .PTX_Kernel,
+            else => unreachable,
+        },
     };
 }
 
