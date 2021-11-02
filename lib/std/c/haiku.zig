@@ -446,7 +446,6 @@ pub const MAP = struct {
     pub const ANON = 0x0008;
     pub const ANONYMOUS = ANON;
     pub const FILE = 0;
-
 };
 
 pub const W = struct {
@@ -569,7 +568,6 @@ pub const O = struct {
     pub const WRONLY = 0x0001;
     pub const RDWR = 0x0002;
     pub const ACCMODE = 0x0003;
-
 
     pub const CREAT = 0x0200;
     pub const EXCL = 0x0800;
@@ -1439,5 +1437,4 @@ pub const termios = extern struct {
     cc_t: [NCCS]cc_t,
 };
 
-pub const MSG_NOSIGNAL   = 0x0800;
-
+pub const MSG_NOSIGNAL = 0x0800;
