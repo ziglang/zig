@@ -1,0 +1,15 @@
+---
+kind: pipeline
+type: docker
+name: x86_64-linux
+platform:
+  os: linux
+  arch: amd64
+workspace:
+  path: /workspace
+
+steps:
+- name: build-test-package
+  image: ci/debian-amd64:11.1-1
+  commands:
+  - ./ci/zinc/linux_build.sh
