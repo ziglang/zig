@@ -4,6 +4,7 @@ test {
     // Tests that pass for stage1, stage2, and the C backend.
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/bool.zig");
+    _ = @import("behavior/call.zig");
     _ = @import("behavior/if.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/null.zig");
@@ -34,7 +35,6 @@ test {
         _ = @import("behavior/bugs/4769_a.zig");
         _ = @import("behavior/bugs/4769_b.zig");
         _ = @import("behavior/bugs/6850.zig");
-        _ = @import("behavior/call.zig");
         _ = @import("behavior/cast.zig");
         _ = @import("behavior/defer.zig");
         _ = @import("behavior/enum.zig");
