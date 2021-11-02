@@ -464,7 +464,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
         loop.beginOneEvent();
         suspend {
             // TODO handle buffer bigger than DWORD can hold
-            if (kernel32.ReadFile(in_hFile, buffer.ptr, @intCast(DWORD, buffer.len), null, &resume_node.base.overlapped) == 0) {
+            if (kernel32.ReadFile(in_hFile, buffer.ptr, @intCast(DWORD, buffer.len), null, &resume_node.base.overlapped) == FALSE) {
                 switch (kernel32.GetLastError()) {
                     .IO_PENDING => {},
                     else => |err| {
@@ -476,12 +476,12 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
             }
         }
         var bytes_transferred: DWORD = undefined;
-        if (kernel32.GetOverlappedResult(in_hFile, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
+        if (kernel32.GetOverlappedResult(in_hFile, &resume_node.base.overlapped, &bytes_transferred, FALSE) == FALSE) {
             switch (kernel32.GetLastError()) {
                 .IO_PENDING => unreachable,
                 .OPERATION_ABORTED => return error.OperationAborted,
                 .BROKEN_PIPE => return error.BrokenPipe,
-                .CONNECTION_ABORTED => return error.ConnectionResetByPeer,
+                .CONNECTION_ABORTED, .NETNAME_DELETED => return error.ConnectionResetByPeer,
                 .HANDLE_EOF => return @as(usize, bytes_transferred),
                 else => |err| return unexpectedError(err),
             }
@@ -541,13 +541,13 @@ pub fn WriteFile(
 ) WriteFileError!usize {
     if (std.event.Loop.instance != null and io_mode != .blocking) {
         const loop = std.event.Loop.instance.?;
-        const maybeSeekable = switch (kernel32.GetFileType(in_hFile)) {
+        const maybeSeekable = switch (kernel32.GetFileType(handle)) {
             .FILE_TYPE_PIPE => false,
             else => true,
         };
 
         // TODO make getting the file position non-blocking
-        const off = if (offset) |o| o else if (maybeSeekable) try SetFilePointerEx_CURRENT_get(in_hFile) else 0;
+        const off = if (offset) |o| o else if (maybeSeekable) try SetFilePointerEx_CURRENT_get(handle) else 0;
 
         if (!maybeSeekable) assert(off == 0);
 
@@ -571,7 +571,7 @@ pub fn WriteFile(
         loop.beginOneEvent();
         suspend {
             const adjusted_len = math.cast(DWORD, bytes.len) catch maxInt(DWORD);
-            if (kernel32.WriteFile(handle, bytes.ptr, adjusted_len, null, &resume_node.base.overlapped)) {
+            if (kernel32.WriteFile(handle, bytes.ptr, adjusted_len, null, &resume_node.base.overlapped) == FALSE) {
                 switch (kernel32.GetLastError()) {
                     .IO_PENDING => {},
                     else => |err| {
@@ -591,7 +591,7 @@ pub fn WriteFile(
                 .OPERATION_ABORTED => return error.OperationAborted,
                 .NOT_ENOUGH_QUOTA => return error.SystemResources,
                 .BROKEN_PIPE => return error.BrokenPipe,
-                .CONNECTION_ABORTED => return error.ConnectionResetByPeer,
+                .CONNECTION_ABORTED, .NETNAME_DELETED => return error.ConnectionResetByPeer,
                 else => |err| return unexpectedError(err),
             }
         }
@@ -1409,7 +1409,75 @@ pub fn closesocket(s: ws2_32.SOCKET) !void {
 
 pub fn accept(s: ws2_32.SOCKET, name: ?*ws2_32.sockaddr, namelen: ?*ws2_32.socklen_t) ws2_32.SOCKET {
     assert((name == null) == (namelen == null));
-    return ws2_32.accept(s, name, @ptrCast(?*i32, namelen));
+    if (std.io.is_async) {
+        const loop = std.event.Loop.instance.?;
+
+        const off = 0;
+        var resume_node = std.event.Loop.ResumeNode.Basic{
+            .base = .{
+                .id = .Basic,
+                .handle = @frame(),
+                .overlapped = OVERLAPPED{
+                    .Internal = 0,
+                    .InternalHigh = 0,
+                    .DUMMYUNIONNAME = .{
+                        .DUMMYSTRUCTNAME = .{
+                            .Offset = @truncate(u32, off),
+                            .OffsetHigh = @truncate(u32, off >> 32),
+                        },
+                    },
+                    .hEvent = null,
+                },
+            },
+        };
+
+        const nonblock = if (std.io.is_async) ws2_32.SOCK.NONBLOCK else 0;
+        const sock_flags = ws2_32.SOCK.STREAM | ws2_32.SOCK.CLOEXEC | nonblock;
+        const proto = ws2_32.IPPROTO.TCP;
+
+        const sockfd = std.os.socket(ws2_32.AF.INET, sock_flags, proto) catch unreachable;
+        errdefer std.os.closeSocket(sockfd);
+
+        const addressSize = @sizeOf(std.net.Address);
+        const sizeOfAddressInBuffer = addressSize + 16;
+        var buffer: [sizeOfAddressInBuffer * 2]u8 = undefined;
+        var bytesRead: u32 = 0;
+
+        loop.beginOneEvent();
+        suspend {
+            if (ws2_32.AcceptEx(
+                s,
+                sockfd,
+                &buffer,
+                0,
+                addressSize + 16,
+                addressSize + 16,
+                &bytesRead,
+                &resume_node.base.overlapped,
+            ) == FALSE) {
+                switch (ws2_32.WSAGetLastError()) {
+                    .WSA_IO_PENDING => {},
+                    else => {
+                        resume @frame();
+                        loop.finishOneEvent();
+                        std.os.closeSocket(sockfd);
+                        return ws2_32.INVALID_SOCKET;
+                    },
+                }
+            }
+        }
+
+        _ = CreateIoCompletionPort(sockfd, loop.os_data.io_port, 0, 0) catch unreachable;
+
+        //Copy remote socket address to passed in location
+        if (name) |_name| {
+            std.mem.copy(u8, @ptrCast([*]u8, _name)[0..addressSize], buffer[addressSize + 16 .. addressSize * 2 + 16]);
+        }
+
+        return sockfd;
+    } else {
+        return ws2_32.accept(s, name, @ptrCast(?*i32, namelen));
+    }
 }
 
 pub fn getsockname(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
