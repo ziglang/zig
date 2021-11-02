@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 test {
     // Tests that pass for stage1, stage2, and the C backend.
     _ = @import("behavior/basic.zig");
+    _ = @import("behavior/bitcast.zig");
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/call.zig");
     _ = @import("behavior/defer.zig");
@@ -20,7 +21,6 @@ test {
         _ = @import("behavior/array.zig");
         _ = @import("behavior/atomics.zig");
         _ = @import("behavior/basic_llvm.zig");
-        _ = @import("behavior/bitcast.zig");
         _ = @import("behavior/bugs/394.zig");
         _ = @import("behavior/bugs/624.zig");
         _ = @import("behavior/bugs/655.zig");
