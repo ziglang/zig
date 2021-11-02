@@ -106,7 +106,7 @@ pub fn generateFunction(
         //.r600 => return Function(.r600).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.amdgcn => return Function(.amdgcn).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.riscv32 => return Function(.riscv32).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        .riscv64 => return Function(.riscv64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
+        .riscv64 => return @import("arch/riscv64/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.sparc => return Function(.sparc).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.sparcv9 => return Function(.sparcv9).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         //.sparcel => return Function(.sparcel).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
@@ -2123,9 +2123,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .i386 => {
                     try self.code.append(0xcc); // int3
                 },
-                .riscv64 => {
-                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ebreak.toU32());
-                },
                 .arm, .armeb => {
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.bkpt(0).toU32());
                 },
@@ -2153,34 +2150,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // on linking.
             if (self.bin_file.tag == link.File.Elf.base_tag or self.bin_file.tag == link.File.Coff.base_tag) {
                 switch (arch) {
-                    .riscv64 => {
-                        if (info.args.len > 0) return self.fail("TODO implement fn args for {}", .{self.target.cpu.arch});
-
-                        if (self.air.value(callee)) |func_value| {
-                            if (func_value.castTag(.function)) |func_payload| {
-                                const func = func_payload.data;
-
-                                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-                                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                                const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
-                                    const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-                                    break :blk @intCast(u32, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * ptr_bytes);
-                                } else if (self.bin_file.cast(link.File.Coff)) |coff_file|
-                                    coff_file.offset_table_virtual_address + func.owner_decl.link.coff.offset_table_index * ptr_bytes
-                                else
-                                    unreachable;
-
-                                try self.genSetReg(Type.initTag(.usize), .ra, .{ .memory = got_addr });
-                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.ra, 0, .ra).toU32());
-                            } else if (func_value.castTag(.extern_fn)) |_| {
-                                return self.fail("TODO implement calling extern functions", .{});
-                            } else {
-                                return self.fail("TODO implement calling bitcasted functions", .{});
-                            }
-                        } else {
-                            return self.fail("TODO implement calling runtime known function pointer", .{});
-                        }
-                    },
                     .arm, .armeb => {
                         for (info.args) |mc_arg, arg_i| {
                             const arg = args[arg_i];
@@ -2286,9 +2255,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (arch) {
                 .i386 => {
                     try self.code.append(0xc3); // ret
-                },
-                .riscv64 => {
-                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.zero, 0, .ra).toU32());
                 },
                 .arm, .armeb => {
                     // Just add space for an instruction, patch this later
@@ -2969,42 +2935,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         break :result MCValue{ .none = {} };
                     }
                 },
-                .riscv64 => result: {
-                    for (args) |arg| {
-                        const input = zir.extraData(Zir.Inst.Asm.Input, extra_i);
-                        extra_i = input.end;
-                        const constraint = zir.nullTerminatedString(input.data.constraint);
-
-                        if (constraint.len < 3 or constraint[0] != '{' or constraint[constraint.len - 1] != '}') {
-                            return self.fail("unrecognized asm input constraint: '{s}'", .{constraint});
-                        }
-                        const reg_name = constraint[1 .. constraint.len - 1];
-                        const reg = parseRegName(reg_name) orelse
-                            return self.fail("unrecognized register: '{s}'", .{reg_name});
-
-                        const arg_mcv = try self.resolveInst(arg);
-                        try self.register_manager.getReg(reg, null);
-                        try self.genSetReg(self.air.typeOf(arg), reg, arg_mcv);
-                    }
-
-                    if (mem.eql(u8, asm_source, "ecall")) {
-                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ecall.toU32());
-                    } else {
-                        return self.fail("TODO implement support for more riscv64 assembly instructions", .{});
-                    }
-
-                    if (output_constraint) |output| {
-                        if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                            return self.fail("unrecognized asm output constraint: '{s}'", .{output});
-                        }
-                        const reg_name = output[2 .. output.len - 1];
-                        const reg = parseRegName(reg_name) orelse
-                            return self.fail("unrecognized register: '{s}'", .{reg_name});
-                        break :result MCValue{ .register = reg };
-                    } else {
-                        break :result MCValue{ .none = {} };
-                    }
-                },
                 .i386 => result: {
                     for (args) |arg| {
                         const input = zir.extraData(Zir.Inst.Asm.Input, extra_i);
@@ -3310,49 +3240,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     else => return self.fail("TODO implement getSetReg for arm {}", .{mcv}),
-                },
-                .riscv64 => switch (mcv) {
-                    .dead => unreachable,
-                    .ptr_stack_offset => unreachable,
-                    .ptr_embedded_in_code => unreachable,
-                    .unreach, .none => return, // Nothing to do.
-                    .undef => {
-                        if (!self.wantSafety())
-                            return; // The already existing value will do just fine.
-                        // Write the debug undefined value.
-                        return self.genSetReg(ty, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
-                    },
-                    .immediate => |unsigned_x| {
-                        const x = @bitCast(i64, unsigned_x);
-                        if (math.minInt(i12) <= x and x <= math.maxInt(i12)) {
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.addi(reg, .zero, @truncate(i12, x)).toU32());
-                            return;
-                        }
-                        if (math.minInt(i32) <= x and x <= math.maxInt(i32)) {
-                            const lo12 = @truncate(i12, x);
-                            const carry: i32 = if (lo12 < 0) 1 else 0;
-                            const hi20 = @truncate(i20, (x >> 12) +% carry);
-
-                            // TODO: add test case for 32-bit immediate
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.lui(reg, hi20).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.addi(reg, reg, lo12).toU32());
-                            return;
-                        }
-                        // li rd, immediate
-                        // "Myriad sequences"
-                        return self.fail("TODO genSetReg 33-64 bit immediates for riscv64", .{}); // glhf
-                    },
-                    .memory => |addr| {
-                        // The value is in memory at a hard-coded address.
-                        // If the type is a pointer, it means the pointer address is at this memory location.
-                        try self.genSetReg(ty, reg, .{ .immediate = addr });
-
-                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ld(reg, 0, reg).toU32());
-                        // LOAD imm=[i12 offset = 0], rs1 =
-
-                        // return self.fail("TODO implement genSetReg memory for riscv64");
-                    },
-                    else => return self.fail("TODO implement getSetReg for riscv64 {}", .{mcv}),
                 },
                 else => return self.fail("TODO implement getSetReg for {}", .{self.target.cpu.arch}),
             }
@@ -3762,7 +3649,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         const Register = switch (arch) {
             .i386 => @import("arch/x86/bits.zig").Register,
-            .riscv64 => @import("arch/riscv64/bits.zig").Register,
             .arm, .armeb => @import("arch/arm/bits.zig").Register,
             else => enum {
                 dummy,
@@ -3775,7 +3661,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         };
 
         const Instruction = switch (arch) {
-            .riscv64 => @import("arch/riscv64/bits.zig").Instruction,
             .arm, .armeb => @import("arch/arm/bits.zig").Instruction,
             else => void,
         };
@@ -3787,7 +3672,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         const callee_preserved_regs = switch (arch) {
             .i386 => @import("arch/x86/bits.zig").callee_preserved_regs,
-            .riscv64 => @import("arch/riscv64/bits.zig").callee_preserved_regs,
             .arm, .armeb => @import("arch/arm/bits.zig").callee_preserved_regs,
             else => [_]Register{},
         };
