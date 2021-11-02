@@ -2311,6 +2311,15 @@ pub const TransferType = enum(u2) {
     METHOD_NEITHER = 3,
 };
 
+pub const FileType = enum(DWORD) 
+{
+    FILE_TYPE_UNKNOWN = 0x0000,
+    FILE_TYPE_DISK = 0x0001,
+    FILE_TYPE_CHAR = 0x0002,
+    FILE_TYPE_PIPE = 0x0003,
+    FILE_TYPE_REMOTE = 0x8000,
+};
+
 pub const FILE_ANY_ACCESS = 0;
 pub const FILE_READ_ACCESS = 1;
 pub const FILE_WRITE_ACCESS = 2;
