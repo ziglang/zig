@@ -8,6 +8,7 @@ test {
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/hasdecl.zig");
+    _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/if.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/null.zig");
@@ -45,7 +46,6 @@ test {
         _ = @import("behavior/fn.zig");
         _ = @import("behavior/for.zig");
         _ = @import("behavior/generics.zig");
-        _ = @import("behavior/hasfield.zig");
         _ = @import("behavior/math.zig");
         _ = @import("behavior/maximum_minimum.zig");
         _ = @import("behavior/member_func.zig");
