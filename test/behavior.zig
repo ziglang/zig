@@ -16,6 +16,7 @@ test {
     _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/underscore.zig");
+    _ = @import("behavior/usingnamespace.zig");
 
     if (builtin.object_format != .c) {
         // Tests that pass for stage1 and stage2 but not the C backend.
@@ -64,7 +65,6 @@ test {
         _ = @import("behavior/this.zig");
         _ = @import("behavior/translate_c_macros.zig");
         _ = @import("behavior/union.zig");
-        _ = @import("behavior/usingnamespace.zig");
         _ = @import("behavior/while.zig");
         _ = @import("behavior/widening.zig");
 
