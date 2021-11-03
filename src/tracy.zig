@@ -109,10 +109,13 @@ pub fn tracyAllocator(allocator: std.mem.Allocator) TracyAllocator(null) {
 
 pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
     return struct {
-        allocator: std.mem.Allocator,
         parent_allocator: std.mem.Allocator,
 
         const Self = @This();
+
+        pub fn allocator(self: *Self) std.mem.Allocator {
+            return std.mem.Allocator.init(self, allocFn, resizeFn);
+        }
 
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{
@@ -124,8 +127,7 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
             };
         }
 
-        fn allocFn(allocator: std.mem.Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) std.mem.Allocator.Error![]u8 {
-            const self = @fieldParentPtr(Self, "allocator", allocator);
+        fn allocFn(self: *Self, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) std.mem.Allocator.Error![]u8 {
             const result = self.parent_allocator.allocFn(self.parent_allocator, len, ptr_align, len_align, ret_addr);
             if (result) |data| {
                 if (data.len != 0) {
@@ -141,9 +143,7 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
             return result;
         }
 
-        fn resizeFn(allocator: std.mem.Allocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) std.mem.Allocator.Error!usize {
-            const self = @fieldParentPtr(Self, "allocator", allocator);
-
+        fn resizeFn(self: *Self, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) std.mem.Allocator.Error!usize {
             if (self.parent_allocator.resizeFn(self.parent_allocator, buf, buf_align, new_len, len_align, ret_addr)) |resized_len| {
                 // this condition is to handle free being called on an empty slice that was never even allocated
                 // example case: `std.process.getSelfExeSharedLibPaths` can return `&[_][:0]u8{}`

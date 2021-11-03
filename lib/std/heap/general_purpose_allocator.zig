@@ -1192,7 +1192,7 @@ test "bug 9995 fix, large allocs count requested size not backing size" {
     // with AtLeast, buffer likely to be larger than requested, especially when shrinking
     var gpa = GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
     const allocator = gpa.allocator();
-    
+
     var buf = try allocator.allocAdvanced(u8, 1, page_size + 1, .at_least);
     try std.testing.expect(gpa.total_requested_bytes == page_size + 1);
     buf = try allocator.reallocAtLeast(buf, 1);
