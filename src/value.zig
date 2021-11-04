@@ -1929,6 +1929,84 @@ pub const Value = extern union {
         }
     }
 
+    pub fn floatToInt(val: Value, arena: *Allocator, dest_ty: Type, target: Target) error{ FloatCannotFit, OutOfMemory }!Value {
+        _ = arena; _ = dest_ty; _ = target;
+        const Limb = std.math.big.Limb;
+
+        var value = val.toFloat(f64); // TODO: f128 ?
+        var isNegative = std.math.signbit(value);
+
+        if (std.math.isNan(value) or std.math.isInf(value)) {
+            return error.FloatCannotFit;
+        }
+
+        if (value < 0) {
+            value = std.math.fabs(value);
+            isNegative = true;
+        }
+
+        var floored = std.math.floor(value);
+
+        // Convert to rational to avoid problems with the way we convert it to a big int
+        // due to floating point precision
+        var rational = try std.math.big.Rational.init(arena);
+        defer rational.deinit();
+        rational.setFloat(f64, floored) catch |err| switch (err) {
+            error.NonFiniteFloat => unreachable,
+            error.OutOfMemory => return error.OutOfMemory
+        };
+
+        // The maximum value of a Limb, as a Rational.
+        var maxLimb = try std.math.big.Rational.init(arena);
+        defer maxLimb.deinit();
+        try maxLimb.setInt(std.math.maxInt(Limb));
+
+        // Big int representing the maximum value of a limb.
+        var tempLimbs: [1]std.math.big.Limb = undefined;
+        var limbInt = BigIntMutable.init(&tempLimbs, std.math.maxInt(Limb));
+
+        const limbs = try arena.alloc(
+            Limb,
+            calcLimbLenFloat(floored),
+        );
+        errdefer arena.free(limbs);
+
+        var result_bigint = BigIntMutable.init(limbs, 0);
+
+        // Add rational to the big int, in increments of Limb
+        while ((try rational.order(maxLimb)) != .lt) {
+            result_bigint.add(result_bigint.toConst(), limbInt.toConst());
+            try rational.sub(rational, maxLimb);
+        }
+
+        // Add the remaining value (which is guarenteed to be smaller or equals to the max size of a limb)
+        limbInt.set(@floatToInt(Limb, std.math.floor(try rational.toFloat(f32))));
+        //result_bigint.add(result_bigint.toConst(), limbInt.toConst());
+
+        //const maxValue = std.math.powi(2, );
+        const maxInt = (try dest_ty.maxInt(arena, target)).toUnsignedInt();
+        const minInt = (try dest_ty.minInt(arena, target)).toSignedInt();
+
+        std.log.info("{}: max = {d} min = {d}", .{ dest_ty, maxInt, minInt });
+
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+        if (isNegative) {
+            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        } else {
+            return Value.Tag.int_big_positive.create(arena, result_limbs);
+        }
+    }
+
+    fn calcLimbLenFloat(scalar: anytype) usize {
+        if (scalar == 0) {
+            return 1;
+        }
+
+        const w_value = std.math.fabs(scalar);
+        return @divFloor(@floatToInt(std.math.big.Limb, std.math.log2(w_value)),
+            @typeInfo(std.math.big.Limb).Int.bits) + 1;
+    }
+
     /// Supports both floats and ints; handles undefined.
     pub fn numberAddWrap(
         lhs: Value,
