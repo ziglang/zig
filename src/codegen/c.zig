@@ -224,21 +224,21 @@ pub const DeclGen = struct {
                 // with 'error: expected expression' (including when built with 'zig cc')
                 .Int => {
                     const c_bits = toCIntBits(ty.intInfo(dg.module.getTarget()).bits) orelse
-                            return dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
+                        return dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
                     switch (c_bits) {
-                        8    => return writer.writeAll("0xaaU"),
-                        16   => return writer.writeAll("0xaaaaU"),
-                        32   => return writer.writeAll("0xaaaaaaaaU"),
-                        64   => return writer.writeAll("0xaaaaaaaaaaaaaaaaUL"),
-                        128  => return writer.writeAll("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaULL"),
-                        else => unreachable
+                        8 => return writer.writeAll("0xaaU"),
+                        16 => return writer.writeAll("0xaaaaU"),
+                        32 => return writer.writeAll("0xaaaaaaaaU"),
+                        64 => return writer.writeAll("0xaaaaaaaaaaaaaaaaUL"),
+                        128 => return writer.writeAll("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaULL"),
+                        else => unreachable,
                     }
                 },
                 .Float => {
                     switch (ty.floatBits(dg.module.getTarget())) {
                         32 => return writer.writeAll("zig_bitcast_f32_u32(0xaaaaaaaa)"),
                         64 => return writer.writeAll("zig_bitcast_f64_u64(0xaaaaaaaaaaaaaaaa)"),
-                        else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{})
+                        else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
                     }
                 },
 
@@ -247,7 +247,7 @@ pub const DeclGen = struct {
                     // lower to leaving variables uninitialized (that might need to be implemented
                     // outside of this function).
                     return writer.writeAll("{}");
-                }
+                },
             }
         }
         switch (ty.zigTypeTag()) {
@@ -261,11 +261,9 @@ pub const DeclGen = struct {
                     if (std.math.isNan(val.toFloat(f64)) or std.math.isInf(val.toFloat(f64))) {
                         // just generate a bit cast (exactly like we do in airBitcast)
                         switch (ty.tag()) {
-                            .f32 => return writer.print("zig_bitcast_f32_u32(0x{x})",
-                                .{ @bitCast(u32, val.toFloat(f32)) }),
-                            .f64 => return writer.print("zig_bitcast_f64_u64(0x{x})",
-                                .{ @bitCast(u64, val.toFloat(f64)) }),
-                            else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{})
+                            .f32 => return writer.print("zig_bitcast_f32_u32(0x{x})", .{@bitCast(u32, val.toFloat(f32))}),
+                            .f64 => return writer.print("zig_bitcast_f64_u64(0x{x})", .{@bitCast(u64, val.toFloat(f64))}),
+                            else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
                         }
                     } else {
                         return writer.print("{x}", .{val.toFloat(f64)});
