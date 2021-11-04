@@ -357,13 +357,13 @@ static inline long long zig_subw_longlong(long long lhs, long long rhs, long lon
     return (long long)(((unsigned long long)lhs) - ((unsigned long long)rhs));
 }
 
-static inline float zig_bitcast_uint32_t_to_float(uint32_t arg) {
+static inline float zig_bitcast_f32_u32(uint32_t arg) {
     float dest;
     memcpy(&dest, &arg, sizeof dest);
     return dest;
 }
 
-static inline float zig_bitcast_uint64_t_to_double(uint64_t arg) {
+static inline float zig_bitcast_f64_u64(uint64_t arg) {
     double dest;
     memcpy(&dest, &arg, sizeof dest);
     return dest;
