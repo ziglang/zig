@@ -1936,7 +1936,7 @@ pub const Value = extern union {
         if (std.math.isNan(value) or std.math.isInf(value)) {
             return error.FloatCannotFit;
         }
-        
+
         const isNegative = std.math.signbit(value);
         value = std.math.fabs(value);
 
@@ -1948,7 +1948,7 @@ pub const Value = extern union {
         defer rational.deinit();
         rational.setFloat(f64, floored) catch |err| switch (err) {
             error.NonFiniteFloat => unreachable,
-            error.OutOfMemory => return error.OutOfMemory
+            error.OutOfMemory => return error.OutOfMemory,
         };
 
         // The float is reduced in rational.setFloat, so we assert that denominator is equal to one
@@ -1956,11 +1956,11 @@ pub const Value = extern union {
         assert(rational.q.toConst().eqAbs(bigOne)); // asserts denominator is one
 
         const result_limbs = try arena.dupe(Limb, rational.p.toConst().limbs);
-        const result = 
+        const result =
             if (isNegative)
-                try Value.Tag.int_big_negative.create(arena, result_limbs)
-            else
-                try Value.Tag.int_big_positive.create(arena, result_limbs);
+            try Value.Tag.int_big_negative.create(arena, result_limbs)
+        else
+            try Value.Tag.int_big_positive.create(arena, result_limbs);
 
         if (result.intFitsInType(dest_ty, target)) {
             return result;
@@ -1975,8 +1975,7 @@ pub const Value = extern union {
         }
 
         const w_value = std.math.fabs(scalar);
-        return @divFloor(@floatToInt(std.math.big.Limb, std.math.log2(w_value)),
-            @typeInfo(std.math.big.Limb).Int.bits) + 1;
+        return @divFloor(@floatToInt(std.math.big.Limb, std.math.log2(w_value)), @typeInfo(std.math.big.Limb).Int.bits) + 1;
     }
 
     /// Supports both floats and ints; handles undefined.

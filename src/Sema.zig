@@ -9659,7 +9659,7 @@ fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             error.FloatCannotFit => {
                 return sema.fail(block, operand_src, "integer value {d} cannot be stored in type '{}'", .{ std.math.floor(val.toFloat(f64)), dest_ty });
             },
-            else => |e| return e
+            else => |e| return e,
         };
         return sema.addConstant(dest_ty, result_val);
     }
@@ -12459,7 +12459,7 @@ fn coerceNum(
                     error.FloatCannotFit => {
                         return sema.fail(block, inst_src, "integer value {d} cannot be stored in type '{}'", .{ std.math.floor(val.toFloat(f64)), dest_ty });
                     },
-                    else => |e| return e
+                    else => |e| return e,
                 };
                 return try sema.addConstant(dest_ty, result_val);
             },
