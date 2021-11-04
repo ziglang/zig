@@ -1930,7 +1930,6 @@ pub const Value = extern union {
     }
 
     pub fn floatToInt(val: Value, arena: *Allocator, dest_ty: Type, target: Target) error{ FloatCannotFit, OutOfMemory }!Value {
-        _ = arena; _ = dest_ty; _ = target;
         const Limb = std.math.big.Limb;
 
         var value = val.toFloat(f64); // TODO: f128 ?
@@ -1981,19 +1980,19 @@ pub const Value = extern union {
 
         // Add the remaining value (which is guarenteed to be smaller or equals to the max size of a limb)
         limbInt.set(@floatToInt(Limb, std.math.floor(try rational.toFloat(f32))));
-        //result_bigint.add(result_bigint.toConst(), limbInt.toConst());
-
-        //const maxValue = std.math.powi(2, );
-        const maxInt = (try dest_ty.maxInt(arena, target)).toUnsignedInt();
-        const minInt = (try dest_ty.minInt(arena, target)).toSignedInt();
-
-        std.log.info("{}: max = {d} min = {d}", .{ dest_ty, maxInt, minInt });
-
+        result_bigint.add(result_bigint.toConst(), limbInt.toConst());
+        
         const result_limbs = result_bigint.limbs[0..result_bigint.len];
-        if (isNegative) {
-            return Value.Tag.int_big_negative.create(arena, result_limbs);
+        const result = 
+            if (isNegative)
+                try Value.Tag.int_big_negative.create(arena, result_limbs)
+            else
+                try Value.Tag.int_big_positive.create(arena, result_limbs);
+        
+        if (result.intFitsInType(dest_ty, target)) {
+            return result;
         } else {
-            return Value.Tag.int_big_positive.create(arena, result_limbs);
+            return error.FloatCannotFit;
         }
     }
 
