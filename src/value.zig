@@ -1942,8 +1942,6 @@ pub const Value = extern union {
 
         const floored = std.math.floor(value);
 
-        // Convert to rational to avoid problems with the way we convert it to a big int
-        // due to floating point precision
         var rational = try std.math.big.Rational.init(arena);
         defer rational.deinit();
         rational.setFloat(f64, floored) catch |err| switch (err) {
@@ -1953,11 +1951,10 @@ pub const Value = extern union {
 
         // The float is reduced in rational.setFloat, so we assert that denominator is equal to one
         const bigOne = std.math.big.int.Const{ .limbs = &.{1}, .positive = true };
-        assert(rational.q.toConst().eqAbs(bigOne)); // asserts denominator is one
+        assert(rational.q.toConst().eqAbs(bigOne));
 
         const result_limbs = try arena.dupe(Limb, rational.p.toConst().limbs);
-        const result =
-            if (isNegative)
+        const result = if (isNegative)
             try Value.Tag.int_big_negative.create(arena, result_limbs)
         else
             try Value.Tag.int_big_positive.create(arena, result_limbs);
