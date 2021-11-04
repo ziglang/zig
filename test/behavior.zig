@@ -5,6 +5,8 @@ test {
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/if.zig");
+    _ = @import("behavior/truncate.zig");
+    _ = @import("behavior/null.zig");
 
     if (builtin.object_format != .c) {
         // Tests that pass for stage1 and stage2 but not the C backend.
@@ -47,7 +49,7 @@ test {
         _ = @import("behavior/math.zig");
         _ = @import("behavior/maximum_minimum.zig");
         _ = @import("behavior/member_func.zig");
-        _ = @import("behavior/null.zig");
+        _ = @import("behavior/null_llvm.zig");
         _ = @import("behavior/optional.zig");
         _ = @import("behavior/pointers.zig");
         _ = @import("behavior/popcount.zig");
@@ -60,7 +62,6 @@ test {
         _ = @import("behavior/switch.zig");
         _ = @import("behavior/this.zig");
         _ = @import("behavior/translate_c_macros.zig");
-        _ = @import("behavior/truncate.zig");
         _ = @import("behavior/underscore.zig");
         _ = @import("behavior/union.zig");
         _ = @import("behavior/usingnamespace.zig");

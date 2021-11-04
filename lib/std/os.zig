@@ -6349,3 +6349,87 @@ pub fn madvise(ptr: [*]align(mem.page_size) u8, length: usize, advice: u32) Madv
         else => |err| return unexpectedErrno(err),
     }
 }
+
+pub const PerfEventOpenError = error{
+    /// Returned if the perf_event_attr size value is too small (smaller
+    /// than PERF_ATTR_SIZE_VER0), too big (larger than the page  size),
+    /// or  larger  than the kernel supports and the extra bytes are not
+    /// zero.  When E2BIG is returned, the perf_event_attr size field is
+    /// overwritten by the kernel to be the size of the structure it was
+    /// expecting.
+    TooBig,
+    /// Returned when the requested event requires CAP_SYS_ADMIN permis‐
+    /// sions  (or a more permissive perf_event paranoid setting).  Some
+    /// common cases where an unprivileged process  may  encounter  this
+    /// error:  attaching  to a process owned by a different user; moni‐
+    /// toring all processes on a given CPU (i.e.,  specifying  the  pid
+    /// argument  as  -1); and not setting exclude_kernel when the para‐
+    /// noid setting requires it.
+    /// Also:
+    /// Returned on many (but not all) architectures when an unsupported
+    /// exclude_hv,  exclude_idle,  exclude_user, or exclude_kernel set‐
+    /// ting is specified.
+    /// It can also happen, as with EACCES, when the requested event re‐
+    /// quires   CAP_SYS_ADMIN   permissions   (or   a  more  permissive
+    /// perf_event paranoid setting).  This includes  setting  a  break‐
+    /// point on a kernel address, and (since Linux 3.13) setting a ker‐
+    /// nel function-trace tracepoint.
+    PermissionDenied,
+    /// Returned if another event already has exclusive  access  to  the
+    /// PMU.
+    DeviceBusy,
+    /// Each  opened  event uses one file descriptor.  If a large number
+    /// of events are opened, the per-process limit  on  the  number  of
+    /// open file descriptors will be reached, and no more events can be
+    /// created.
+    ProcessResources,
+    EventRequiresUnsupportedCpuFeature,
+    /// Returned if  you  try  to  add  more  breakpoint
+    /// events than supported by the hardware.
+    TooManyBreakpoints,
+    /// Returned  if PERF_SAMPLE_STACK_USER is set in sample_type and it
+    /// is not supported by hardware.
+    SampleStackNotSupported,
+    /// Returned if an event requiring a specific  hardware  feature  is
+    /// requested  but  there is no hardware support.  This includes re‐
+    /// questing low-skid events if not supported, branch tracing if  it
+    /// is not available, sampling if no PMU interrupt is available, and
+    /// branch stacks for software events.
+    EventNotSupported,
+    /// Returned  if  PERF_SAMPLE_CALLCHAIN  is   requested   and   sam‐
+    /// ple_max_stack   is   larger   than   the  maximum  specified  in
+    /// /proc/sys/kernel/perf_event_max_stack.
+    SampleMaxStackOverflow,
+    /// Returned if attempting to attach to a process that does not  exist.
+    ProcessNotFound,
+} || UnexpectedError;
+
+pub fn perf_event_open(
+    attr: *linux.perf_event_attr,
+    pid: pid_t,
+    cpu: i32,
+    group_fd: fd_t,
+    flags: usize,
+) PerfEventOpenError!fd_t {
+    const rc = system.perf_event_open(attr, pid, cpu, group_fd, flags);
+    switch (errno(rc)) {
+        .SUCCESS => return @intCast(fd_t, rc),
+        .@"2BIG" => return error.TooBig,
+        .ACCES => return error.PermissionDenied,
+        .BADF => unreachable, // group_fd file descriptor is not valid.
+        .BUSY => return error.DeviceBusy,
+        .FAULT => unreachable, // Segmentation fault.
+        .INVAL => unreachable, // Bad attr settings.
+        .INTR => unreachable, // Mixed perf and ftrace handling for a uprobe.
+        .MFILE => return error.ProcessResources,
+        .NODEV => return error.EventRequiresUnsupportedCpuFeature,
+        .NOENT => unreachable, // Invalid type setting.
+        .NOSPC => return error.TooManyBreakpoints,
+        .NOSYS => return error.SampleStackNotSupported,
+        .OPNOTSUPP => return error.EventNotSupported,
+        .OVERFLOW => return error.SampleMaxStackOverflow,
+        .PERM => return error.PermissionDenied,
+        .SRCH => return error.ProcessNotFound,
+        else => |err| return unexpectedErrno(err),
+    }
+}

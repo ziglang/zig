@@ -308,6 +308,11 @@ pub const DeclGen = struct {
                 if (ty.isPtrLikeOptional()) {
                     return dg.renderValue(writer, payload_type, val);
                 }
+                const target = dg.module.getTarget();
+                if (payload_type.abiSize(target) == 0) {
+                    const is_null = val.castTag(.opt_payload) == null;
+                    return writer.print("{}", .{is_null});
+                }
                 try writer.writeByte('(');
                 try dg.renderType(writer, ty);
                 try writer.writeAll("){");
@@ -588,10 +593,13 @@ pub const DeclGen = struct {
             .Optional => {
                 var opt_buf: Type.Payload.ElemType = undefined;
                 const child_type = t.optionalChild(&opt_buf);
+                const target = dg.module.getTarget();
                 if (t.isPtrLikeOptional()) {
                     return dg.renderType(w, child_type);
                 } else if (dg.typedefs.get(t)) |some| {
                     return w.writeAll(some.name);
+                } else if (child_type.abiSize(target) == 0) {
+                    return w.writeAll("bool");
                 }
 
                 var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
@@ -1390,7 +1398,14 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
             return local;
         },
         .signed => {
-            return f.fail("TODO: C backend: implement trunc for signed integers", .{});
+            const operand_ty = f.air.typeOf(ty_op.operand);
+            const c_bits = toCIntBits(operand_ty.intInfo(target).bits) orelse
+                return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
+            const shift_rhs = c_bits - dest_bits;
+            try writer.print("(int{d}_t)((uint{d}_t)", .{ c_bits, c_bits });
+            try f.writeCValue(writer, operand);
+            try writer.print(" << {d}) >> {d};\n", .{ shift_rhs, shift_rhs });
+            return local;
         },
     }
 }
@@ -2093,14 +2108,21 @@ fn airIsNull(
     const un_op = f.air.instructions.items(.data)[inst].un_op;
     const writer = f.object.writer();
     const operand = try f.resolveInst(un_op);
+    const target = f.object.dg.module.getTarget();
 
     const local = try f.allocLocal(Type.initTag(.bool), .Const);
     try writer.writeAll(" = (");
     try f.writeCValue(writer, operand);
 
-    if (f.air.typeOf(un_op).isPtrLikeOptional()) {
+    const ty = f.air.typeOf(un_op);
+    var opt_buf: Type.Payload.ElemType = undefined;
+    const payload_type = ty.optionalChild(&opt_buf);
+
+    if (ty.isPtrLikeOptional()) {
         // operand is a regular pointer, test `operand !=/== NULL`
         try writer.print("){s} {s} NULL;\n", .{ deref_suffix, operator });
+    } else if (payload_type.abiSize(target) == 0) {
+        try writer.print("){s} {s} true;\n", .{ deref_suffix, operator });
     } else {
         try writer.print("){s}.is_null {s} true;\n", .{ deref_suffix, operator });
     }

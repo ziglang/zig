@@ -10,6 +10,7 @@ const ArrayList = std.ArrayList;
 const Ast = std.zig.Ast;
 const warn = std.log.warn;
 
+const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
 const link = @import("link.zig");
 const Package = @import("Package.zig");
@@ -155,6 +156,12 @@ pub fn main() anyerror!void {
     const arena = &arena_instance.allocator;
 
     const args = try process.argsAlloc(arena);
+
+    if (tracy.enable_allocation) {
+        var gpa_tracy = tracy.tracyAllocator(gpa);
+        return mainArgs(&gpa_tracy.allocator, arena, args);
+    }
+
     return mainArgs(gpa, arena, args);
 }
 
@@ -2297,6 +2304,7 @@ fn buildOutputType(
             last_cmd = cmd;
             switch (cmd) {
                 .update => {
+                    tracy.frameMark();
                     if (output_mode == .Exe) {
                         try comp.makeBinFileWritable();
                     }
@@ -2309,6 +2317,7 @@ fn buildOutputType(
                     try stderr.writeAll(repl_help);
                 },
                 .run => {
+                    tracy.frameMark();
                     try runOrTest(
                         comp,
                         gpa,
@@ -2325,6 +2334,7 @@ fn buildOutputType(
                     );
                 },
                 .update_and_run => {
+                    tracy.frameMark();
                     if (output_mode == .Exe) {
                         try comp.makeBinFileWritable();
                     }
