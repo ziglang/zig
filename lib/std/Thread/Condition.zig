@@ -196,37 +196,39 @@ pub const AtomicCondition = struct {
 
 // verify that the condition variable unblocks when signalled
 test "AtomicCondition" {
-    var wait_thread_alive = std.atomic.Atomic(bool).init(false);
-    var wait_thread_finished = std.atomic.Atomic(bool).init(false);
-    var run_condition = std.atomic.Atomic(bool).init(false);
-    var condvar = Condition{};
-    const test_thread = try std.Thread.spawn(.{}, conditionWaitThread, .{ &wait_thread_alive, &wait_thread_finished, &run_condition, &condvar });
-    test_thread.detach();
+    if (!builtin.single_threaded) {
+        var wait_thread_alive = std.atomic.Atomic(bool).init(false);
+        var wait_thread_finished = std.atomic.Atomic(bool).init(false);
+        var run_condition = std.atomic.Atomic(bool).init(false);
+        var condvar = Condition{};
+        const test_thread = try std.Thread.spawn(.{}, conditionWaitThread, .{ &wait_thread_alive, &wait_thread_finished, &run_condition, &condvar });
+        test_thread.detach();
 
-    // we give the waiting thread generous time to become alive, but
-    // in case it does not, we fail here rather than hang indefinitely
-    try waitUntilTrue(&wait_thread_alive,10);
+        // we give the waiting thread generous time to become alive, but
+        // in case it does not, we fail here rather than hang indefinitely
+        try waitUntilTrue(&wait_thread_alive, 10);
 
-    // this does not really tell us much, but we might as well check it
-    try std.testing.expect(!wait_thread_finished.load(.SeqCst));
+        // this does not really tell us much, but we might as well check it
+        try std.testing.expect(!wait_thread_finished.load(.SeqCst));
 
-    run_condition.store(true, .SeqCst);
-    condvar.signal();
-    
-    // similar as above we let the thread indicate it is finished or fail
-    try waitUntilTrue(&wait_thread_finished,10);
+        run_condition.store(true, .SeqCst);
+        condvar.signal();
+
+        // similar as above we let the thread indicate it is finished or fail
+        try waitUntilTrue(&wait_thread_finished, 10);
+    }
 }
 
 /// a primitive helper method that blocks until an atomic boolean becomes true
 /// if the bool does not become true within the given amount of max seconds, this function failes
 fn waitUntilTrue(boolean: *std.atomic.Atomic(bool), max_wait_time_seconds: u32) !void {
-    var current_time : std.os.timespec = undefined;
+    var current_time: std.os.timespec = undefined;
     try std.os.clock_gettime(std.os.CLOCK.REALTIME, &current_time);
     const start_time = current_time;
     while (!boolean.load(.SeqCst)) {
         std.os.nanosleep(1, 250 * 1000);
         try std.os.clock_gettime(std.os.CLOCK.REALTIME, &current_time);
-        if(current_time.tv_sec - start_time.tv_sec > max_wait_time_seconds) {
+        if (current_time.tv_sec - start_time.tv_sec > max_wait_time_seconds) {
             return error.Timeout;
         }
     }
