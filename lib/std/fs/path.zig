@@ -592,6 +592,11 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
         result_disk_designator = parsed_cwd.disk_designator;
         if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
             result[0] = asciiUpper(result[0]);
+            // Remove the trailing slash if present, eg. if the cwd is a root
+            // directory.
+            if (cwd.len > 0 and cwd[cwd.len - 1] == sep_windows) {
+                result_index -= 1;
+            }
         }
         have_drive_kind = parsed_cwd.kind;
     }
