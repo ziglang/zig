@@ -106,7 +106,7 @@ pub const AtomicCondition = struct {
                     .linux => {
                         switch (linux.getErrno(linux.futex_wait(
                             &cond.futex,
-                            linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAIT,
+                            linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAIT,
                             0,
                             null,
                         ))) {
@@ -128,7 +128,7 @@ pub const AtomicCondition = struct {
                 .linux => {
                     switch (linux.getErrno(linux.futex_wake(
                         &cond.futex,
-                        linux.FUTEX_PRIVATE_FLAG | linux.FUTEX_WAKE,
+                        linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAKE,
                         1,
                     ))) {
                         .SUCCESS => {},
@@ -152,9 +152,9 @@ pub const AtomicCondition = struct {
             @atomicStore(bool, &cond.pending, true, .SeqCst);
         }
 
-        mutex.unlock();
+        mutex.releaseDirect();
         waiter.data.wait();
-        mutex.lock();
+        _ = mutex.acquire();
     }
 
     pub fn signal(cond: *AtomicCondition) void {
@@ -193,3 +193,60 @@ pub const AtomicCondition = struct {
             waiter.data.notify();
     }
 };
+
+// verify that the condition variable unblocks when signalled
+test "AtomicCondition" {
+    var wait_thread_alive = std.atomic.Atomic(bool).init(false);
+    var wait_thread_finished = std.atomic.Atomic(bool).init(false);
+    var run_condition = std.atomic.Atomic(bool).init(false);
+    var condvar = Condition{};
+    const test_thread = try std.Thread.spawn(.{}, conditionWaitThread, .{ &wait_thread_alive, &wait_thread_finished, &run_condition, &condvar });
+    test_thread.detach();
+
+    // we give the waiting thread generous time to become alive, but
+    // in case it does not, we fail here rather than hang indefinitely
+    try waitUntilTrue(&wait_thread_alive,10);
+
+    // this does not really tell us much, but we might as well check it
+    try std.testing.expect(!wait_thread_finished.load(.SeqCst));
+
+    run_condition.store(true, .SeqCst);
+    condvar.signal();
+    
+    // similar as above we let the thread indicate it is finished or fail
+    try waitUntilTrue(&wait_thread_finished,10);
+}
+
+/// a primitive helper method that blocks until an atomic boolean becomes true
+/// if the bool does not become true within the given amount of max seconds, this function failes
+fn waitUntilTrue(boolean: *std.atomic.Atomic(bool), max_wait_time_seconds: u32) !void {
+    var current_time : std.os.timespec = undefined;
+    try std.os.clock_gettime(std.os.CLOCK.REALTIME, &current_time);
+    const start_time = current_time;
+    while (!boolean.load(.SeqCst)) {
+        std.os.nanosleep(1, 250 * 1000);
+        try std.os.clock_gettime(std.os.CLOCK.REALTIME, &current_time);
+        if(current_time.tv_sec - start_time.tv_sec > max_wait_time_seconds) {
+            return error.Timeout;
+        }
+    }
+}
+
+/// a helper thread for testing the condition variable. Both wait_... variables must be false when passed to the thread.
+/// when the thread starts it 
+fn conditionWaitThread(wait_thread_alive: *std.atomic.Atomic(bool), wait_thread_finished: *std.atomic.Atomic(bool), run_condition: *std.atomic.Atomic(bool), condvar: *Condition) void {
+    std.debug.assert(!wait_thread_alive.load(.SeqCst));
+    std.debug.assert(!wait_thread_finished.load(.SeqCst));
+
+    // indicate this thread has started up
+    wait_thread_alive.store(true, .SeqCst);
+    var mutex = std.Thread.Mutex{};
+    const held = mutex.acquire();
+    defer held.release();
+    // wait for the condition variable
+    while (!run_condition.load(.SeqCst)) {
+        condvar.wait(&mutex);
+    }
+    // and indicate that this thread has completed
+    wait_thread_finished.store(true, .SeqCst);
+}
