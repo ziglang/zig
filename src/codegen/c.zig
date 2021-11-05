@@ -451,6 +451,8 @@ pub const DeclGen = struct {
         const return_ty = dg.decl.ty.fnReturnType();
         if (return_ty.hasCodeGenBits()) {
             try dg.renderType(w, return_ty);
+        } else if (return_ty.zigTypeTag() == .NoReturn) {
+            try w.writeAll("zig_noreturn void");
         } else {
             try w.writeAll("void");
         }
