@@ -1431,7 +1431,7 @@ pub const LibExeObjStep = struct {
     verbose_cc: bool,
     emit_llvm_ir: bool = false,
     emit_asm: bool = false,
-    emit_bin: bool = true,
+    emit_bin: ?[]const u8 = null,
     emit_docs: bool = false,
     emit_h: bool = false,
     bundle_compiler_rt: ?bool = null,
@@ -1447,6 +1447,7 @@ pub const LibExeObjStep = struct {
     filter: ?[]const u8,
     single_threaded: bool,
     test_evented_io: bool = false,
+    test_no_exec: bool = false,
     code_model: std.builtin.CodeModel = .default,
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
@@ -2338,9 +2339,16 @@ pub const LibExeObjStep = struct {
 
         if (self.emit_llvm_ir) try zig_args.append("-femit-llvm-ir");
         if (self.emit_asm) try zig_args.append("-femit-asm");
-        if (!self.emit_bin) try zig_args.append("-fno-emit-bin");
         if (self.emit_docs) try zig_args.append("-femit-docs");
         if (self.emit_h) try zig_args.append("-femit-h");
+
+        if (self.test_no_exec) try zig_args.append("--test-no-exec");
+        
+        if (self.emit_bin) |emit_bin|{
+          try zig_args.append(try std.fmt.allocPrint(builder.allocator, "-femit-bin={s}", emit_bin));
+        } else {
+          try zig_args.append("-fno-emit-bin");
+        }
 
         if (self.strip) {
             try zig_args.append("--strip");
