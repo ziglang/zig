@@ -12,7 +12,7 @@ const wasm = std.wasm;
 
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
-const codegen = @import("../codegen/wasm.zig");
+const CodeGen = @import("../arch/wasm/CodeGen.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
@@ -215,7 +215,7 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
     fn_data.code.items.len = 0;
     fn_data.idx_refs.items.len = 0;
 
-    var context = codegen.Context{
+    var codegen: CodeGen = .{
         .gpa = self.base.allocator,
         .air = air,
         .liveness = liveness,
@@ -228,18 +228,18 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
         .target = self.base.options.target,
         .global_error_set = self.base.options.module.?.global_error_set,
     };
-    defer context.deinit();
+    defer codegen.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = context.genFunc() catch |err| switch (err) {
+    const result = codegen.genFunc() catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, context.err_msg);
+            try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
             return;
         },
         else => |e| return e,
     };
-    return self.finishUpdateDecl(decl, result, &context);
+    return self.finishUpdateDecl(decl, result, &codegen);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
@@ -259,7 +259,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     fn_data.code.items.len = 0;
     fn_data.idx_refs.items.len = 0;
 
-    var context = codegen.Context{
+    var codegen: CodeGen = .{
         .gpa = self.base.allocator,
         .air = undefined,
         .liveness = undefined,
@@ -272,26 +272,26 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         .target = self.base.options.target,
         .global_error_set = self.base.options.module.?.global_error_set,
     };
-    defer context.deinit();
+    defer codegen.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = context.gen(decl.ty, decl.val) catch |err| switch (err) {
+    const result = codegen.gen(decl.ty, decl.val) catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, context.err_msg);
+            try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
             return;
         },
         else => |e| return e,
     };
 
-    return self.finishUpdateDecl(decl, result, &context);
+    return self.finishUpdateDecl(decl, result, &codegen);
 }
 
-fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: codegen.Result, context: *codegen.Context) !void {
+fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, codegen: *CodeGen) !void {
     const fn_data: *FnData = &decl.fn_link.wasm;
 
-    fn_data.code = context.code.toUnmanaged();
-    fn_data.functype = context.func_type_data.toUnmanaged();
+    fn_data.code = codegen.code.toUnmanaged();
+    fn_data.functype = codegen.func_type_data.toUnmanaged();
 
     const code: []const u8 = switch (result) {
         .appended => @as([]const u8, fn_data.code.items),
@@ -304,7 +304,7 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: codegen.Result, con
         // here we update them to correct them
         for (fn_data.idx_refs.items) |*func| {
             // For each local, add 6 bytes (count + type)
-            func.offset += @intCast(u32, context.locals.items.len * 6);
+            func.offset += @intCast(u32, codegen.locals.items.len * 6);
         }
     } else {
         block.size = @intCast(u32, code.len);
