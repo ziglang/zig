@@ -733,6 +733,14 @@ pub fn close(fd: i32) usize {
     return syscall1(.close, @bitCast(usize, @as(isize, fd)));
 }
 
+pub fn fchmod(fd: i32, mode: mode_t) usize {
+    return syscall2(.fchmod, @bitCast(usize, @as(isize, fd)), mode);
+}
+
+pub fn fchown(fd: i32, owner: uid_t, group: gid_t) usize {
+    return syscall3(.fchown, @bitCast(usize, @as(isize, fd)), owner, group);
+}
+
 /// Can only be called on 32 bit systems. For 64 bit see `lseek`.
 pub fn llseek(fd: i32, offset: u64, result: ?*u64, whence: usize) usize {
     // NOTE: The offset parameter splitting is independent from the target
