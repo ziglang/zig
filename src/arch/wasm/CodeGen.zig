@@ -592,8 +592,8 @@ fn addInstAt(self: *Self, offset: usize, inst: Mir.Inst) error{OutOfMemory}!void
     self.mir_instructions.insertAssumeCapacity(offset, inst);
 }
 
-fn addNoOp(self: *Self, tag: Mir.Inst.Tag) error{OutOfMemory}!void {
-    try self.addInst(.{ .tag = tag, .data = .{ .no_op = {} } });
+fn addTag(self: *Self, tag: Mir.Inst.Tag) error{OutOfMemory}!void {
+    try self.addInst(.{ .tag = tag, .data = .{ .tag = {} } });
 }
 
 fn addLabel(self: *Self, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!void {
@@ -796,7 +796,7 @@ pub fn genFunc(self: *Self) InnerError!Result {
     // Generate MIR for function body
     try self.genBody(self.air.getMainBody());
     // End of function body
-    try self.addNoOp(.end);
+    try self.addTag(.end);
 
     var mir: Mir = .{
         .instructions = self.mir_instructions.toOwnedSlice(),
@@ -950,7 +950,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
     try self.emitWValue(operand);
-    try self.addNoOp(.@"return");
+    try self.addTag(.@"return");
     return .none;
 }
 
@@ -1072,7 +1072,7 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
         .valtype1 = try self.typeToValtype(bin_ty),
         .signedness = if (bin_ty.isSignedInt()) .signed else .unsigned,
     });
-    try self.addNoOp(Mir.Inst.Tag.fromOpcode(opcode));
+    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
     return WValue{ .mir_offset = offset };
 }
 
@@ -1098,7 +1098,7 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
         .valtype1 = try self.typeToValtype(bin_ty),
         .signedness = if (bin_ty.isSignedInt()) .signed else .unsigned,
     });
-    try self.addNoOp(Mir.Inst.Tag.fromOpcode(opcode));
+    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
 
     const int_info = bin_ty.intInfo(self.target);
     const bitsize = int_info.bits;
@@ -1110,20 +1110,20 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
         // wasm provides those if the integers are signed and 8/16-bit.
         // For arbitrary integer sizes, we use the algorithm mentioned above.
         if (is_signed and bitsize == 8) {
-            try self.addNoOp(.i32_extend8_s);
+            try self.addTag(.i32_extend8_s);
         } else if (is_signed and bitsize == 16) {
-            try self.addNoOp(.i32_extend16_s);
+            try self.addTag(.i32_extend16_s);
         } else {
             const result = (@as(u64, 1) << @intCast(u6, bitsize - @boolToInt(is_signed))) - 1;
             if (bitsize < 32) {
                 try self.addImm32(@bitCast(i32, @intCast(u32, result)));
-                try self.addNoOp(.i32_and);
+                try self.addTag(.i32_and);
             } else {
                 try self.addInst(.{
                     .tag = .i64_const,
                     .data = .{ .imm64 = @bitCast(i64, result) },
                 });
-                try self.addNoOp(.i64_and);
+                try self.addTag(.i64_and);
             }
         }
     } else if (int_info.bits > 64) {
@@ -1330,7 +1330,7 @@ fn startBlock(self: *Self, block_tag: wasm.Opcode, valtype: u8, with_offset: ?us
 
 /// Ends the current wasm block and decreases the `block_depth` by 1
 fn endBlock(self: *Self) !void {
-    try self.addNoOp(.end);
+    try self.addTag(.end);
     self.block_depth -= 1;
 }
 
@@ -1419,7 +1419,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) Inner
         },
         .signedness = signedness,
     });
-    try self.addNoOp(Mir.Inst.Tag.fromOpcode(opcode));
+    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
     return WValue{ .mir_offset = offset };
 }
 
@@ -1449,7 +1449,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     // wasm does not have booleans nor the `not` instruction, therefore compare with 0
     // to create the same logic
     try self.addImm32(0);
-    try self.addNoOp(.i32_eq);
+    try self.addTag(.i32_eq);
 
     return WValue{ .mir_offset = offset };
 }
@@ -1464,7 +1464,7 @@ fn airBreakpoint(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airUnreachable(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     _ = inst;
-    try self.addNoOp(.@"unreachable");
+    try self.addTag(.@"unreachable");
     return .none;
 }
 
@@ -1567,14 +1567,14 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             // since br_table works using indexes, starting from '0', we must ensure all values
             // we put inside, are atleast 0.
             try self.addImm32(lowest * -1);
-            try self.addNoOp(.i32_add);
+            try self.addTag(.i32_add);
         }
 
         const depth = highest - lowest + @boolToInt(has_else_body);
-        const jump_table: Mir.JumpTable = .{ .length = depth };
+        const jump_table: Mir.JumpTable = .{ .length = @bitCast(u32, depth) };
         const table_extra_index = try self.addExtra(jump_table);
         try self.addInst(.{ .tag = .br_table, .data = .{ .payload = table_extra_index } });
-        try self.mir_extra.ensureUnusedCapacity(self.gpa, depth);
+        try self.mir_extra.ensureUnusedCapacity(self.gpa, @bitCast(u32, depth));
         while (lowest <= highest) : (lowest += 1) {
             // idx represents the branch we jump to
             const idx = blk: {
@@ -1612,7 +1612,7 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                     .op = .ne, // not equal, because we want to jump out of this block if it does not match the condition.
                     .signedness = signedness,
                 });
-                try self.addNoOp(Mir.Inst.Tag.fromOpcode(opcode));
+                try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
                 try self.addLabel(.br_if, 0);
             } else {
                 // in multi-value prongs we must check if any prongs match the target value.
@@ -1625,7 +1625,7 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                         .op = .eq,
                         .signedness = signedness,
                     });
-                    try self.addNoOp(Mir.Inst.Tag.fromOpcode(opcode));
+                    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
                     try self.addLabel(.br_if, 0);
                 }
                 // value did not match any of the prong values
@@ -1653,7 +1653,7 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!W
     try self.emitWValue(.{ .local = operand.multi_value.index });
     // Compare the error value with '0'
     try self.addImm32(0);
-    try self.addNoOp(Mir.Inst.Tag.fromOpcode(opcode));
+    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
 
     return WValue{ .mir_offset = offset };
 }
@@ -1684,9 +1684,9 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     try self.emitWValue(operand);
     if (op_bits > 32 and wanted_bits <= 32) {
-        try self.addNoOp(.i32_wrap_i64);
+        try self.addTag(.i32_wrap_i64);
     } else if (op_bits <= 32 and wanted_bits > 32) {
-        try self.addNoOp(switch (ref_info.signedness) {
+        try self.addTag(switch (ref_info.signedness) {
             .signed => .i64_extend_i32_s,
             .unsigned => .i64_extend_i32_u,
         });

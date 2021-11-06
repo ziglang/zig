@@ -37,28 +37,101 @@ pub fn emitMir(emit: *Emit) InnerError!void {
     for (mir_tags) |tag, index| {
         const inst = @intCast(u32, index);
         switch (tag) {
+            // block instructions
             .block => try emit.emitBlock(tag, inst),
+            .loop => try emit.emitBlock(tag, inst),
+
+            // branch instructions
             .br_if => try emit.emitLabel(tag, inst),
             .br_table => try emit.emitBrTable(inst),
             .br => try emit.emitLabel(tag, inst),
+
+            // relocatables
             .call => try emit.emitCall(inst),
-            .end => try emit.emitNoop(tag),
-            .f32_const => try emit.emitFloat32(inst),
-            .f64_const => try emit.emitFloat64(inst),
             .global_get => try emit.emitGlobal(tag, inst),
             .global_set => try emit.emitGlobal(tag, inst),
+
+            // immediates
+            .f32_const => try emit.emitFloat32(inst),
+            .f64_const => try emit.emitFloat64(inst),
             .i32_const => try emit.emitImm32(inst),
+            .i64_const => try emit.emitImm64(inst),
+
+            // memory instructions
             .i32_load => try emit.emitMemArg(tag, inst),
             .i32_store => try emit.emitMemArg(tag, inst),
-            .i64_const => try emit.emitImm64(inst),
+
             .local_get => try emit.emitLabel(tag, inst),
             .local_set => try emit.emitLabel(tag, inst),
             .local_tee => try emit.emitLabel(tag, inst),
-            .loop => try emit.emitBlock(tag, inst),
             .memory_grow => try emit.emitLabel(tag, inst),
-            .memory_size => try emit.emitNoop(tag),
-            .@"return" => try emit.emitNoop(tag),
-            .@"unreachable" => try emit.emitNoop(tag),
+
+            // no-ops
+            .end => try emit.emitTag(tag),
+            .memory_size => try emit.emitTag(tag),
+            .@"return" => try emit.emitTag(tag),
+            .@"unreachable" => try emit.emitTag(tag),
+
+            // arithmetic
+            .i32_eqz => try emit.emitTag(tag),
+            .i32_eq => try emit.emitTag(tag),
+            .i32_ne => try emit.emitTag(tag),
+            .i32_lt_s => try emit.emitTag(tag),
+            .i32_lt_u => try emit.emitTag(tag),
+            .i32_gt_s => try emit.emitTag(tag),
+            .i32_gt_u => try emit.emitTag(tag),
+            .i32_le_s => try emit.emitTag(tag),
+            .i32_le_u => try emit.emitTag(tag),
+            .i32_ge_s => try emit.emitTag(tag),
+            .i32_ge_u => try emit.emitTag(tag),
+            .i64_eqz => try emit.emitTag(tag),
+            .i64_eq => try emit.emitTag(tag),
+            .i64_ne => try emit.emitTag(tag),
+            .i64_lt_s => try emit.emitTag(tag),
+            .i64_lt_u => try emit.emitTag(tag),
+            .i64_gt_s => try emit.emitTag(tag),
+            .i64_gt_u => try emit.emitTag(tag),
+            .i64_le_s => try emit.emitTag(tag),
+            .i64_le_u => try emit.emitTag(tag),
+            .i64_ge_s => try emit.emitTag(tag),
+            .i64_ge_u => try emit.emitTag(tag),
+            .f32_eq => try emit.emitTag(tag),
+            .f32_ne => try emit.emitTag(tag),
+            .f32_lt => try emit.emitTag(tag),
+            .f32_gt => try emit.emitTag(tag),
+            .f32_le => try emit.emitTag(tag),
+            .f32_ge => try emit.emitTag(tag),
+            .f64_eq => try emit.emitTag(tag),
+            .f64_ne => try emit.emitTag(tag),
+            .f64_lt => try emit.emitTag(tag),
+            .f64_gt => try emit.emitTag(tag),
+            .f64_le => try emit.emitTag(tag),
+            .f64_ge => try emit.emitTag(tag),
+            .i32_add => try emit.emitTag(tag),
+            .i32_sub => try emit.emitTag(tag),
+            .i32_mul => try emit.emitTag(tag),
+            .i32_div_s => try emit.emitTag(tag),
+            .i32_div_u => try emit.emitTag(tag),
+            .i32_and => try emit.emitTag(tag),
+            .i32_or => try emit.emitTag(tag),
+            .i32_xor => try emit.emitTag(tag),
+            .i32_shl => try emit.emitTag(tag),
+            .i32_shr_s => try emit.emitTag(tag),
+            .i32_shr_u => try emit.emitTag(tag),
+            .i64_add => try emit.emitTag(tag),
+            .i64_sub => try emit.emitTag(tag),
+            .i64_mul => try emit.emitTag(tag),
+            .i64_div_s => try emit.emitTag(tag),
+            .i64_div_u => try emit.emitTag(tag),
+            .i64_and => try emit.emitTag(tag),
+            .i32_wrap_i64 => try emit.emitTag(tag),
+            .i64_extend_i32_s => try emit.emitTag(tag),
+            .i64_extend_i32_u => try emit.emitTag(tag),
+            .i32_extend8_s => try emit.emitTag(tag),
+            .i32_extend16_s => try emit.emitTag(tag),
+            .i64_extend8_s => try emit.emitTag(tag),
+            .i64_extend16_s => try emit.emitTag(tag),
+            .i64_extend32_s => try emit.emitTag(tag),
         }
     }
 
@@ -86,7 +159,7 @@ fn emitLocals(emit: *Emit) !void {
     }
 }
 
-fn emitNoop(emit: *Emit, tag: Mir.Inst.Tag) !void {
+fn emitTag(emit: *Emit, tag: Mir.Inst.Tag) !void {
     try emit.code.append(@enumToInt(tag));
 }
 

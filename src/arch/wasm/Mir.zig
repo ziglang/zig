@@ -126,7 +126,124 @@ pub const Inst = struct {
         ///
         /// Uses `float64`
         f64_const = 0x44,
-
+        /// Uses `tag`
+        i32_eqz = 0x45,
+        /// Uses `tag`
+        i32_eq = 0x46,
+        /// Uses `tag`
+        i32_ne = 0x47,
+        /// Uses `tag`
+        i32_lt_s = 0x48,
+        /// Uses `tag`
+        i32_lt_u = 0x49,
+        /// Uses `tag`
+        i32_gt_s = 0x4A,
+        /// Uses `tag`
+        i32_gt_u = 0x4B,
+        /// Uses `tag`
+        i32_le_s = 0x4C,
+        /// Uses `tag`
+        i32_le_u = 0x4D,
+        /// Uses `tag`
+        i32_ge_s = 0x4E,
+        /// Uses `tag`
+        i32_ge_u = 0x4F,
+        /// Uses `tag`
+        i64_eqz = 0x50,
+        /// Uses `tag`
+        i64_eq = 0x51,
+        /// Uses `tag`
+        i64_ne = 0x52,
+        /// Uses `tag`
+        i64_lt_s = 0x53,
+        /// Uses `tag`
+        i64_lt_u = 0x54,
+        /// Uses `tag`
+        i64_gt_s = 0x55,
+        /// Uses `tag`
+        i64_gt_u = 0x56,
+        /// Uses `tag`
+        i64_le_s = 0x57,
+        /// Uses `tag`
+        i64_le_u = 0x58,
+        /// Uses `tag`
+        i64_ge_s = 0x59,
+        /// Uses `tag`
+        i64_ge_u = 0x5A,
+        /// Uses `tag`
+        f32_eq = 0x5B,
+        /// Uses `tag`
+        f32_ne = 0x5C,
+        /// Uses `tag`
+        f32_lt = 0x5D,
+        /// Uses `tag`
+        f32_gt = 0x5E,
+        /// Uses `tag`
+        f32_le = 0x5F,
+        /// Uses `tag`
+        f32_ge = 0x60,
+        /// Uses `tag`
+        f64_eq = 0x61,
+        /// Uses `tag`
+        f64_ne = 0x62,
+        /// Uses `tag`
+        f64_lt = 0x63,
+        /// Uses `tag`
+        f64_gt = 0x64,
+        /// Uses `tag`
+        f64_le = 0x65,
+        /// Uses `tag`
+        f64_ge = 0x66,
+        /// Uses `tag`
+        i32_add = 0x6A,
+        /// Uses `tag`
+        i32_sub = 0x6B,
+        /// Uses `tag`
+        i32_mul = 0x6C,
+        /// Uses `tag`
+        i32_div_s = 0x6D,
+        /// Uses `tag`
+        i32_div_u = 0x6E,
+        /// Uses `tag`
+        i32_and = 0x71,
+        /// Uses `tag`
+        i32_or = 0x72,
+        /// Uses `tag`
+        i32_xor = 0x73,
+        /// Uses `tag`
+        i32_shl = 0x74,
+        /// Uses `tag`
+        i32_shr_s = 0x75,
+        /// Uses `tag`
+        i32_shr_u = 0x76,
+        /// Uses `tag`
+        i64_add = 0x7C,
+        /// Uses `tag`
+        i64_sub = 0x7D,
+        /// Uses `tag`
+        i64_mul = 0x7E,
+        /// Uses `tag`
+        i64_div_s = 0x7F,
+        /// Uses `tag`
+        i64_div_u = 0x80,
+        /// Uses `tag`
+        i64_and = 0x83,
+        /// Uses `tag`
+        i32_wrap_i64 = 0xA7,
+        /// Uses `tag`
+        i64_extend_i32_s = 0xAC,
+        /// Uses `tag`
+        i64_extend_i32_u = 0xAD,
+        /// Uses `tag`
+        i32_extend8_s = 0xC0,
+        /// Uses `tag`
+        i32_extend16_s = 0xC1,
+        /// Uses `tag`
+        i64_extend8_s = 0xC2,
+        /// Uses `tag`
+        i64_extend16_s = 0xC3,
+        /// Uses `tag`
+        i64_extend32_s = 0xC4,
         /// From a given wasm opcode, returns a MIR tag.
         pub fn fromOpcode(opcode: std.wasm.Opcode) Tag {
             return @intToEnum(Tag, @enumToInt(opcode));
@@ -143,7 +260,7 @@ pub const Inst = struct {
     /// how to interpret the data within.
     pub const Data = union {
         /// Uses no additional data
-        no_op: void,
+        tag: void,
         /// Contains the result type of a block
         ///
         /// Used by `block` and `loop`
