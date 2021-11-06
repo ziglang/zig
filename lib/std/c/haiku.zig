@@ -292,9 +292,11 @@ pub const dirent = extern struct {
     }
 };
 
+pub const B_OS_NAME_LENGTH = 32; // OS.h
+
 pub const area_info = extern struct {
     area: u32,
-    name: [32]u8,
+    name: [B_OS_NAME_LENGTH]u8,
     size: usize,
     lock: u32,
     protection: u32,
@@ -306,6 +308,8 @@ pub const area_info = extern struct {
     address: *c_void,
 };
 
+pub const MAXPATHLEN = PATH_MAX;
+
 pub const image_info = extern struct {
     id: u32,
     image_type: u32,
@@ -315,7 +319,7 @@ pub const image_info = extern struct {
     term_routine: *c_void,
     device: i32,
     node: i64,
-    name: [1024]u8,
+    name: [MAXPATHLEN]u8,
     text: *c_void,
     data: *c_void,
     text_size: i32,
@@ -441,11 +445,9 @@ pub const MAP = struct {
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const FIXED = 0x0004;
-    pub const STACK = 0x0400;
-    pub const NOSYNC = 0x0800;
-    pub const ANON = 0x0008;
-    pub const ANONYMOUS = ANON;
-    pub const FILE = 0;
+    pub const ANONYMOUS = 0x0008;
+    pub const ANON = ANONYMOUS;
+    pub const NORESERVE = 0x10;
 };
 
 pub const W = struct {
