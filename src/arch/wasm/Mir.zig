@@ -129,11 +129,11 @@ pub const Inst = struct {
     /// how to interpret the data within.
     pub const Data = union {
         /// Uses no additional data
-        nop: void,
+        no_op: void,
         /// Contains a blocktype
         ///
         /// Used by `block` and `loop`
-        blocktype: u8,
+        block_type: u8,
         /// Contains an u32 index into a wasm section entry, such as a local.
         /// Note: This is not an index to another instruction.
         ///
@@ -173,4 +173,24 @@ pub fn deinit(self: *Mir, gpa: *std.mem.Allocator) void {
     self.instructions.deinit(gpa);
     gpa.free(self.extra);
     self.* = undefined;
+}
+
+pub const JumpTable = struct {
+    /// Length of the jump table and the amount of entries it contains
+    length: u32,
+};
+
+pub fn extraData(self: Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
+    const fields = std.meta.fields(T);
+    var i: usize = index;
+    var result: T = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.field_type) {
+            u32 => self.extra[i],
+            else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
+        };
+        i += 1;
+    }
+
+    return .{ .data = result, .end = i };
 }
