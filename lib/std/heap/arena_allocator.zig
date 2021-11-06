@@ -24,7 +24,7 @@ pub const ArenaAllocator = struct {
     };
 
     pub fn allocator(self: *ArenaAllocator) Allocator {
-        return Allocator.init(self, alloc, resize);
+        return Allocator.init(self, alloc, resize, free);
     }
 
     const BufNode = std.SinglyLinkedList([]u8).Node;
@@ -47,7 +47,7 @@ pub const ArenaAllocator = struct {
         const actual_min_size = minimum_size + (@sizeOf(BufNode) + 16);
         const big_enough_len = prev_len + actual_min_size;
         const len = big_enough_len + big_enough_len / 2;
-        const buf = try self.child_allocator.vtable.alloc(self.child_allocator.ptr, len, @alignOf(BufNode), 1, @returnAddress());
+        const buf = try self.child_allocator.rawAlloc(len, @alignOf(BufNode), 1, @returnAddress());
         const buf_node = @ptrCast(*BufNode, @alignCast(@alignOf(BufNode), buf.ptr));
         buf_node.* = BufNode{
             .data = buf,
@@ -109,6 +109,18 @@ pub const ArenaAllocator = struct {
             return new_len;
         } else {
             return error.OutOfMemory;
+        }
+    }
+
+    fn free(self: *ArenaAllocator, buf: []u8, buf_align: u29, ret_addr: usize) void {
+        _ = buf_align;
+        _ = ret_addr;
+
+        const cur_node = self.state.buffer_list.first orelse return;
+        const cur_buf = cur_node.data[@sizeOf(BufNode)..];
+
+        if (@ptrToInt(cur_buf.ptr) + self.state.end_index == @ptrToInt(buf.ptr) + buf.len) {
+            self.state.end_index -= buf.len;
         }
     }
 };

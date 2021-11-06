@@ -155,13 +155,10 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
                     }
                 }
 
-                if (resized_len != 0) {
-                    // this was a shrink or a resize
-                    if (name) |n| {
-                        allocNamed(buf.ptr, resized_len, n);
-                    } else {
-                        alloc(buf.ptr, resized_len);
-                    }
+                if (name) |n| {
+                    allocNamed(buf.ptr, resized_len, n);
+                } else {
+                    alloc(buf.ptr, resized_len);
                 }
 
                 return resized_len;
@@ -170,6 +167,15 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
                 // due to this emitting messages for it is both slow and causes clutter
                 // messageColor("allocation resize failed", 0xFF0000);
                 return err;
+            }
+        }
+
+        fn freeFn(self: *Self, buf: []u8, buf_align: u29, ret_addr: usize) void {
+            self.parent_allocator.rawFree(buf, buf_align, ret_addr);
+            if (name) |n| {
+                freeNamed(buf.ptr, n);
+            } else {
+                free(buf.ptr);
             }
         }
     };

@@ -47,7 +47,7 @@ pub fn ValidationAllocator(comptime T: type) type {
         }
 
         pub fn allocator(self: *Self) Allocator {
-            return Allocator.init(self, alloc, resize);
+            return Allocator.init(self, alloc, resize, free);
         }
 
         fn getUnderlyingAllocatorPtr(self: *Self) Allocator {
@@ -70,7 +70,7 @@ pub fn ValidationAllocator(comptime T: type) type {
             }
 
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = try underlying.vtable.alloc(underlying.ptr, n, ptr_align, len_align, ret_addr);
+            const result = try underlying.rawAlloc(n, ptr_align, len_align, ret_addr);
             assert(mem.isAligned(@ptrToInt(result.ptr), ptr_align));
             if (len_align == 0) {
                 assert(result.len == n);
@@ -95,7 +95,7 @@ pub fn ValidationAllocator(comptime T: type) type {
                 assert(new_len >= len_align);
             }
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = try underlying.vtable.resize(underlying.ptr, buf, buf_align, new_len, len_align, ret_addr);
+            const result = try underlying.rawResize(buf, buf_align, new_len, len_align, ret_addr);
             if (len_align == 0) {
                 assert(result == new_len);
             } else {
@@ -104,6 +104,19 @@ pub fn ValidationAllocator(comptime T: type) type {
             }
             return result;
         }
+
+        pub fn free(
+            self: *Self,
+            buf: []u8,
+            buf_align: u29,
+            ret_addr: usize,
+        ) void {
+            _ = self;
+            _ = buf_align;
+            _ = ret_addr;
+            assert(buf.len > 0);
+        }
+
         pub usingnamespace if (T == Allocator or !@hasDecl(T, "reset")) struct {} else struct {
             pub fn reset(self: *Self) void {
                 self.underlying_allocator.reset();
@@ -139,6 +152,7 @@ const fail_allocator = Allocator{
 const failAllocator_vtable = Allocator.VTable{
     .alloc = failAllocatorAlloc,
     .resize = Allocator.NoResize(c_void).noResize,
+    .free = Allocator.NoOpFree(c_void).noOpFree,
 };
 
 fn failAllocatorAlloc(_: *c_void, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {

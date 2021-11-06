@@ -41,7 +41,7 @@ pub const FailingAllocator = struct {
     }
 
     pub fn allocator(self: *FailingAllocator) mem.Allocator {
-        return mem.Allocator.init(self, alloc, resize);
+        return mem.Allocator.init(self, alloc, resize, free);
     }
 
     fn alloc(
@@ -54,7 +54,7 @@ pub const FailingAllocator = struct {
         if (self.index == self.fail_index) {
             return error.OutOfMemory;
         }
-        const result = try self.internal_allocator.vtable.alloc(self.internal_allocator.ptr, len, ptr_align, len_align, return_address);
+        const result = try self.internal_allocator.rawAlloc(len, ptr_align, len_align, return_address);
         self.allocated_bytes += result.len;
         self.allocations += 1;
         self.index += 1;
@@ -69,18 +69,26 @@ pub const FailingAllocator = struct {
         len_align: u29,
         ra: usize,
     ) error{OutOfMemory}!usize {
-        const r = self.internal_allocator.vtable.resize(self.internal_allocator.ptr, old_mem, old_align, new_len, len_align, ra) catch |e| {
+        const r = self.internal_allocator.rawResize(old_mem, old_align, new_len, len_align, ra) catch |e| {
             std.debug.assert(new_len > old_mem.len);
             return e;
         };
-        if (new_len == 0) {
-            self.deallocations += 1;
-            self.freed_bytes += old_mem.len;
-        } else if (r < old_mem.len) {
+        if (r < old_mem.len) {
             self.freed_bytes += old_mem.len - r;
         } else {
             self.allocated_bytes += r - old_mem.len;
         }
         return r;
+    }
+
+    fn free(
+        self: *FailingAllocator,
+        old_mem: []u8,
+        old_align: u29,
+        ra: usize,
+    ) void {
+        self.internal_allocator.rawFree(old_mem, old_align, ra);
+        self.deallocations += 1;
+        self.freed_bytes += old_mem.len;
     }
 };

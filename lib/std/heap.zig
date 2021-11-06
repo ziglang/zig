@@ -132,10 +132,6 @@ const CAllocator = struct {
     ) Allocator.Error!usize {
         _ = buf_align;
         _ = return_address;
-        if (new_len == 0) {
-            alignedFree(buf.ptr);
-            return 0;
-        }
         if (new_len <= buf.len) {
             return mem.alignAllocLen(buf.len, new_len, len_align);
         }
@@ -146,6 +142,17 @@ const CAllocator = struct {
             }
         }
         return error.OutOfMemory;
+    }
+
+    fn free(
+        _: *c_void,
+        buf: []u8,
+        buf_align: u29,
+        return_address: usize,
+    ) void {
+        _ = buf_align;
+        _ = return_address;
+        alignedFree(buf.ptr);
     }
 };
 
@@ -159,6 +166,7 @@ pub const c_allocator = Allocator{
 const c_allocator_vtable = Allocator.VTable{
     .alloc = CAllocator.alloc,
     .resize = CAllocator.resize,
+    .free = CAllocator.free,
 };
 
 /// Asserts allocations are within `@alignOf(std.c.max_align_t)` and directly calls
@@ -173,6 +181,7 @@ pub const raw_c_allocator = Allocator{
 const raw_c_allocator_vtable = Allocator.VTable{
     .alloc = rawCAlloc,
     .resize = rawCResize,
+    .free = rawCFree,
 };
 
 fn rawCAlloc(
@@ -199,14 +208,21 @@ fn rawCResize(
 ) Allocator.Error!usize {
     _ = old_align;
     _ = ret_addr;
-    if (new_len == 0) {
-        c.free(buf.ptr);
-        return 0;
-    }
     if (new_len <= buf.len) {
         return mem.alignAllocLen(buf.len, new_len, len_align);
     }
     return error.OutOfMemory;
+}
+
+fn rawCFree(
+    _: *c_void,
+    buf: []u8,
+    old_align: u29,
+    ret_addr: usize,
+) void {
+    _ = old_align;
+    _ = ret_addr;
+    c.free(buf.ptr);
 }
 
 /// This allocator makes a syscall directly for every allocation and free.
@@ -238,6 +254,7 @@ const PageAllocator = struct {
     const vtable = Allocator.VTable{
         .alloc = alloc,
         .resize = resize,
+        .free = free,
     };
 
     fn alloc(_: *c_void, n: usize, alignment: u29, len_align: u29, ra: usize) error{OutOfMemory}![]u8 {
@@ -351,16 +368,6 @@ const PageAllocator = struct {
 
         if (builtin.os.tag == .windows) {
             const w = os.windows;
-            if (new_size == 0) {
-                // From the docs:
-                // "If the dwFreeType parameter is MEM_RELEASE, this parameter
-                // must be 0 (zero). The function frees the entire region that
-                // is reserved in the initial allocation call to VirtualAlloc."
-                // So we can only use MEM_RELEASE when actually releasing the
-                // whole allocation.
-                w.VirtualFree(buf_unaligned.ptr, 0, w.MEM_RELEASE);
-                return 0;
-            }
             if (new_size <= buf_unaligned.len) {
                 const base_addr = @ptrToInt(buf_unaligned.ptr);
                 const old_addr_end = base_addr + buf_unaligned.len;
@@ -391,14 +398,25 @@ const PageAllocator = struct {
             const ptr = @alignCast(mem.page_size, buf_unaligned.ptr + new_size_aligned);
             // TODO: if the next_mmap_addr_hint is within the unmapped range, update it
             os.munmap(ptr[0 .. buf_aligned_len - new_size_aligned]);
-            if (new_size_aligned == 0)
-                return 0;
             return alignPageAllocLen(new_size_aligned, new_size, len_align);
         }
 
         // TODO: call mremap
         // TODO: if the next_mmap_addr_hint is within the remapped range, update it
         return error.OutOfMemory;
+    }
+
+    fn free(_: *c_void, buf_unaligned: []u8, buf_align: u29, return_address: usize) void {
+        _ = buf_align;
+        _ = return_address;
+
+        if (builtin.os.tag == .windows) {
+            os.windows.VirtualFree(buf_unaligned.ptr, 0, os.windows.MEM_RELEASE);
+        } else {
+            const buf_aligned_len = mem.alignForward(buf_unaligned.len, mem.page_size);
+            const ptr = @alignCast(mem.page_size, buf_unaligned.ptr);
+            os.munmap(ptr[0..buf_aligned_len]);
+        }
     }
 };
 
@@ -412,6 +430,7 @@ const WasmPageAllocator = struct {
     const vtable = Allocator.VTable{
         .alloc = alloc,
         .resize = resize,
+        .free = free,
     };
 
     const PageStatus = enum(u1) {
@@ -571,7 +590,21 @@ const WasmPageAllocator = struct {
             const base = nPages(@ptrToInt(buf.ptr));
             freePages(base + new_n, base + current_n);
         }
-        return if (new_len == 0) 0 else alignPageAllocLen(new_n * mem.page_size, new_len, len_align);
+        return alignPageAllocLen(new_n * mem.page_size, new_len, len_align);
+    }
+
+    fn free(
+        _: *c_void,
+        buf: []u8,
+        buf_align: u29,
+        return_address: usize,
+    ) void {
+        _ = buf_align;
+        _ = return_address;
+        const aligned_len = mem.alignForward(buf.len, mem.page_size);
+        const current_n = nPages(aligned_len);
+        const base = nPages(@ptrToInt(buf.ptr));
+        freePages(base, base + current_n);
     }
 };
 
@@ -588,7 +621,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         }
 
         pub fn allocator(self: *HeapAllocator) Allocator {
-            return Allocator.init(self, alloc, resize);
+            return Allocator.init(self, alloc, resize, free);
         }
 
         pub fn deinit(self: *HeapAllocator) void {
@@ -644,10 +677,6 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         ) error{OutOfMemory}!usize {
             _ = buf_align;
             _ = return_address;
-            if (new_size == 0) {
-                os.windows.HeapFree(self.heap_handle.?, 0, @intToPtr(*c_void, getRecordPtr(buf).*));
-                return 0;
-            }
 
             const root_addr = getRecordPtr(buf).*;
             const align_offset = @ptrToInt(buf.ptr) - root_addr;
@@ -668,6 +697,17 @@ pub const HeapAllocator = switch (builtin.os.tag) {
             };
             getRecordPtr(buf.ptr[0..return_len]).* = root_addr;
             return return_len;
+        }
+
+        fn free(
+            self: *HeapAllocator,
+            buf: []u8,
+            buf_align: u29,
+            return_address: usize,
+        ) void {
+            _ = buf_align;
+            _ = return_address;
+            os.windows.HeapFree(self.heap_handle.?, 0, @intToPtr(*c_void, getRecordPtr(buf).*));
         }
     },
     else => @compileError("Unsupported OS"),
@@ -696,13 +736,18 @@ pub const FixedBufferAllocator = struct {
 
     /// *WARNING* using this at the same time as the interface returned by `threadSafeAllocator` is not thread safe
     pub fn allocator(self: *FixedBufferAllocator) Allocator {
-        return Allocator.init(self, alloc, resize);
+        return Allocator.init(self, alloc, resize, free);
     }
 
     /// Provides a lock free thread safe `Allocator` interface to the underlying `FixedBufferAllocator`
     /// *WARNING* using this at the same time as the interface returned by `getAllocator` is not thread safe
     pub fn threadSafeAllocator(self: *FixedBufferAllocator) Allocator {
-        return Allocator.init(self, threadSafeAlloc, Allocator.NoResize(FixedBufferAllocator).noResize);
+        return Allocator.init(
+            self,
+            threadSafeAlloc,
+            Allocator.NoResize(FixedBufferAllocator).noResize,
+            Allocator.NoOpFree(FixedBufferAllocator).noOpFree,
+        );
     }
 
     pub fn ownsPtr(self: *FixedBufferAllocator, ptr: [*]u8) bool {
@@ -715,7 +760,7 @@ pub const FixedBufferAllocator = struct {
 
     /// NOTE: this will not work in all cases, if the last allocation had an adjusted_index
     ///       then we won't be able to determine what the last allocation was.  This is because
-    ///       the alignForward operation done in alloc is not reverisible.
+    ///       the alignForward operation done in alloc is not reversible.
     pub fn isLastAllocation(self: *FixedBufferAllocator, buf: []u8) bool {
         return buf.ptr + buf.len == self.buffer.ptr + self.end_index;
     }
@@ -751,13 +796,13 @@ pub const FixedBufferAllocator = struct {
         if (!self.isLastAllocation(buf)) {
             if (new_size > buf.len)
                 return error.OutOfMemory;
-            return if (new_size == 0) 0 else mem.alignAllocLen(buf.len, new_size, len_align);
+            return mem.alignAllocLen(buf.len, new_size, len_align);
         }
 
         if (new_size <= buf.len) {
             const sub = buf.len - new_size;
             self.end_index -= sub;
-            return if (new_size == 0) 0 else mem.alignAllocLen(buf.len - sub, new_size, len_align);
+            return mem.alignAllocLen(buf.len - sub, new_size, len_align);
         }
 
         const add = new_size - buf.len;
@@ -766,6 +811,21 @@ pub const FixedBufferAllocator = struct {
         }
         self.end_index += add;
         return new_size;
+    }
+
+    fn free(
+        self: *FixedBufferAllocator,
+        buf: []u8,
+        buf_align: u29,
+        return_address: usize,
+    ) void {
+        _ = buf_align;
+        _ = return_address;
+        assert(self.ownsSlice(buf)); // sanity check
+
+        if (self.isLastAllocation(buf)) {
+            self.end_index -= buf.len;
+        }
     }
 
     fn threadSafeAlloc(self: *FixedBufferAllocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) ![]u8 {
@@ -810,7 +870,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         /// WARNING: This functions both fetches a `std.mem.Allocator` interface to this allocator *and* resets the internal buffer allocator
         pub fn get(self: *Self) Allocator {
             self.fixed_buffer_allocator = FixedBufferAllocator.init(self.buffer[0..]);
-            return Allocator.init(self, alloc, resize);
+            return Allocator.init(self, alloc, resize, free);
         }
 
         fn alloc(
@@ -821,7 +881,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             return_address: usize,
         ) error{OutOfMemory}![]u8 {
             return FixedBufferAllocator.alloc(&self.fixed_buffer_allocator, len, ptr_align, len_align, return_address) catch
-                return self.fallback_allocator.vtable.alloc(self.fallback_allocator.ptr, len, ptr_align, len_align, return_address);
+                return self.fallback_allocator.rawAlloc(len, ptr_align, len_align, return_address);
         }
 
         fn resize(
@@ -835,7 +895,20 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
                 return FixedBufferAllocator.resize(&self.fixed_buffer_allocator, buf, buf_align, new_len, len_align, return_address);
             } else {
-                return self.fallback_allocator.vtable.resize(self.fallback_allocator.ptr, buf, buf_align, new_len, len_align, return_address);
+                return self.fallback_allocator.rawResize(buf, buf_align, new_len, len_align, return_address);
+            }
+        }
+
+        fn free(
+            self: *Self,
+            buf: []u8,
+            buf_align: u29,
+            return_address: usize,
+        ) void {
+            if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
+                return FixedBufferAllocator.free(&self.fixed_buffer_allocator, buf, buf_align, return_address);
+            } else {
+                return self.fallback_allocator.rawFree(buf, buf_align, return_address);
             }
         }
     };

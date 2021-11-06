@@ -18,7 +18,7 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
         }
 
         pub fn allocator(self: *Self) Allocator {
-            return Allocator.init(self, alloc, resize);
+            return Allocator.init(self, alloc, resize, free);
         }
 
         fn alloc(
@@ -29,7 +29,7 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
             ra: usize,
         ) error{OutOfMemory}![]u8 {
             self.writer.print("alloc : {}", .{len}) catch {};
-            const result = self.parent_allocator.vtable.alloc(self.parent_allocator.ptr, len, ptr_align, len_align, ra);
+            const result = self.parent_allocator.rawAlloc(len, ptr_align, len_align, ra);
             if (result) |_| {
                 self.writer.print(" success!\n", .{}) catch {};
             } else |_| {
@@ -46,14 +46,12 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
             len_align: u29,
             ra: usize,
         ) error{OutOfMemory}!usize {
-            if (new_len == 0) {
-                self.writer.print("free  : {}\n", .{buf.len}) catch {};
-            } else if (new_len <= buf.len) {
+            if (new_len <= buf.len) {
                 self.writer.print("shrink: {} to {}\n", .{ buf.len, new_len }) catch {};
             } else {
                 self.writer.print("expand: {} to {}", .{ buf.len, new_len }) catch {};
             }
-            if (self.parent_allocator.vtable.resize(self.parent_allocator.ptr, buf, buf_align, new_len, len_align, ra)) |resized_len| {
+            if (self.parent_allocator.rawResize(buf, buf_align, new_len, len_align, ra)) |resized_len| {
                 if (new_len > buf.len) {
                     self.writer.print(" success!\n", .{}) catch {};
                 }
@@ -63,6 +61,16 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
                 self.writer.print(" failure!\n", .{}) catch {};
                 return e;
             }
+        }
+
+        fn free(
+            self: *Self,
+            buf: []u8,
+            buf_align: u29,
+            ra: usize,
+        ) void {
+            self.writer.print("free  : {}\n", .{buf.len}) catch {};
+            self.parent_allocator.rawFree(buf, buf_align, ra);
         }
     };
 }

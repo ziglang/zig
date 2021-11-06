@@ -33,7 +33,7 @@ pub fn ScopedLoggingAllocator(
         }
 
         pub fn allocator(self: *Self) Allocator {
-            return Allocator.init(self, alloc, resize);
+            return Allocator.init(self, alloc, resize, free);
         }
 
         // This function is required as the `std.log.log` function is not public
@@ -53,7 +53,7 @@ pub fn ScopedLoggingAllocator(
             len_align: u29,
             ra: usize,
         ) error{OutOfMemory}![]u8 {
-            const result = self.parent_allocator.vtable.alloc(self.parent_allocator.ptr, len, ptr_align, len_align, ra);
+            const result = self.parent_allocator.rawAlloc(len, ptr_align, len_align, ra);
             if (result) |_| {
                 logHelper(
                     success_log_level,
@@ -78,10 +78,8 @@ pub fn ScopedLoggingAllocator(
             len_align: u29,
             ra: usize,
         ) error{OutOfMemory}!usize {
-            if (self.parent_allocator.vtable.resize(self.parent_allocator.ptr, buf, buf_align, new_len, len_align, ra)) |resized_len| {
-                if (new_len == 0) {
-                    logHelper(success_log_level, "free - success - len: {}", .{buf.len});
-                } else if (new_len <= buf.len) {
+            if (self.parent_allocator.rawResize(buf, buf_align, new_len, len_align, ra)) |resized_len| {
+                if (new_len <= buf.len) {
                     logHelper(
                         success_log_level,
                         "shrink - success - {} to {}, len_align: {}, buf_align: {}",
@@ -105,6 +103,16 @@ pub fn ScopedLoggingAllocator(
                 );
                 return err;
             }
+        }
+
+        fn free(
+            self: *Self,
+            buf: []u8,
+            buf_align: u29,
+            ra: usize,
+        ) void {
+            self.parent_allocator.rawFree(buf, buf_align, ra);
+            logHelper(success_log_level, "free - len: {}", .{buf.len});
         }
     };
 }
