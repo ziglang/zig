@@ -28,8 +28,8 @@ const WValue = union(enum) {
     local: u32,
     /// Holds a memoized typed value
     constant: TypedValue,
-    /// Offset position in the list of bytecode instructions
-    code_offset: usize,
+    /// Offset position in the list of MIR instructions
+    mir_offset: usize,
     /// Used for variables that create multiple locals on the stack when allocated
     /// such as structs and optionals.
     multi_value: struct {
@@ -580,23 +580,28 @@ fn resolveInst(self: Self, ref: Air.Inst.Ref) WValue {
 }
 
 /// Appends a MIR instruction and returns its index within the list of instructions
-fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
+fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!void {
+    try self.mir_instructions.append(self.gpa, inst);
+}
+
+/// Inserts a Mir instruction at the given `offset`.
+/// Asserts offset is within bound.
+fn addInstAt(self: *Self, offset: usize, inst: Mir.Inst) error{OutOfMemory}!void {
+    assert(offset < self.mir_instructions.len);
     try self.mir_instructions.ensureUnusedCapacity(self.gpa, 1);
-    const result_index = @intCast(Mir.Inst.Index, self.mir_instructions.len);
-    self.mir_instructions.appendAssumeCapacity(inst);
-    return result_index;
+    self.mir_instructions.insertAssumeCapacity(offset, inst);
 }
 
-fn addNoOp(self: *Self, tag: Mir.Inst.Tag) error{OutOfMemory}!Mir.Inst.Index {
-    return try self.addInst(.{ .tag = tag, .data = .{ .no_op = {} } });
+fn addNoOp(self: *Self, tag: Mir.Inst.Tag) error{OutOfMemory}!void {
+    try self.addInst(.{ .tag = tag, .data = .{ .no_op = {} } });
 }
 
-fn addLabel(self: *Self, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!Mir.Inst.Index {
-    return try self.addInst(.{ .tag = tag, .data = .{ .label = label } });
+fn addLabel(self: *Self, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!void {
+    try self.addInst(.{ .tag = tag, .data = .{ .label = label } });
 }
 
-fn addImm32(self: *Self, imm: i32) error{OutOfMemory}!Mir.Inst.Index {
-    return try self.addInst(.{ .tag = .i32_const, .data = .{ .imm32 = imm } });
+fn addImm32(self: *Self, imm: i32) error{OutOfMemory}!void {
+    try self.addInst(.{ .tag = .i32_const, .data = .{ .imm32 = imm } });
 }
 
 /// Appends entries to `mir_extra` based on the type of `extra`.
@@ -668,9 +673,9 @@ fn genBlockType(self: *Self, ty: Type) InnerError!u8 {
 fn emitWValue(self: *Self, val: WValue) InnerError!void {
     switch (val) {
         .multi_value => unreachable, // multi_value can never be written directly, and must be accessed individually
-        .none, .code_offset => {}, // no-op
+        .none, .mir_offset => {}, // no-op
         .local => |idx| {
-            _ = try self.addLabel(.local_get, idx);
+            try self.addLabel(.local_get, idx);
         },
         .constant => |tv| try self.emitConstant(tv.val, tv.ty), // Creates a new constant on the stack
     }
@@ -791,7 +796,7 @@ pub fn genFunc(self: *Self) InnerError!Result {
     // Generate MIR for function body
     try self.genBody(self.air.getMainBody());
     // End of function body
-    _ = try self.addNoOp(.end);
+    try self.addNoOp(.end);
 
     var mir: Mir = .{
         .instructions = self.mir_instructions.toOwnedSlice(),
@@ -945,7 +950,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
     try self.emitWValue(operand);
-    _ = try self.addNoOp(.@"return");
+    try self.addNoOp(.@"return");
     return .none;
 }
 
@@ -970,12 +975,13 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         try self.emitWValue(arg_val);
     }
 
-    try self.code.append(wasm.opcode(.call));
+    try self.addLabel(.call, target.link.wasm.symbol_index);
 
     // The function index immediate argument will be filled in using this data
     // in link.Wasm.flush().
+    // TODO: Remove this when `Emit` supports relocations
     try self.decl.fn_link.wasm.idx_refs.append(self.gpa, .{
-        .offset = @intCast(u32, self.code.items.len),
+        .offset = @intCast(u32, self.mir_instructions.len),
         .decl = target,
     });
 
@@ -1009,7 +1015,7 @@ fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                 // in reverse.
                 var i: u32 = multi_value.count;
                 while (i > 0) : (i -= 1) {
-                    _ = try self.addLabel(.local_set, multi_value.index + i - 1);
+                    try self.addLabel(.local_set, multi_value.index + i - 1);
                 }
             },
             .local => {
@@ -1019,13 +1025,13 @@ fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                 assert(multi_value.count == 2);
                 // set payload
                 try self.emitWValue(rhs);
-                _ = try self.addLabel(.local_set, multi_value.index + 1);
+                try self.addLabel(.local_set, multi_value.index + 1);
             },
             else => unreachable,
         },
         .local => |local| {
             try self.emitWValue(rhs);
-            _ = try self.addLabel(.local_set, local);
+            try self.addLabel(.local_set, local);
         },
         else => unreachable,
     }
@@ -1052,9 +1058,9 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     // it's possible for both lhs and/or rhs to return an offset as well,
     // in which case we return the first offset occurrence we find.
     const offset = blk: {
-        if (lhs == .code_offset) break :blk lhs.code_offset;
-        if (rhs == .code_offset) break :blk rhs.code_offset;
-        break :blk self.code.items.len;
+        if (lhs == .mir_offset) break :blk lhs.mir_offset;
+        if (rhs == .mir_offset) break :blk rhs.mir_offset;
+        break :blk self.mir_instructions.len;
     };
 
     try self.emitWValue(lhs);
@@ -1066,8 +1072,8 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
         .valtype1 = try self.typeToValtype(bin_ty),
         .signedness = if (bin_ty.isSignedInt()) .signed else .unsigned,
     });
-    try self.code.append(wasm.opcode(opcode));
-    return WValue{ .code_offset = offset };
+    try self.addNoOp(Mir.Inst.Tag.fromOpcode(opcode));
+    return WValue{ .mir_offset = offset };
 }
 
 fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
@@ -1078,9 +1084,9 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     // it's possible for both lhs and/or rhs to return an offset as well,
     // in which case we return the first offset occurrence we find.
     const offset = blk: {
-        if (lhs == .code_offset) break :blk lhs.code_offset;
-        if (rhs == .code_offset) break :blk rhs.code_offset;
-        break :blk self.code.items.len;
+        if (lhs == .mir_offset) break :blk lhs.mir_offset;
+        if (rhs == .mir_offset) break :blk rhs.mir_offset;
+        break :blk self.mir_instructions.len;
     };
 
     try self.emitWValue(lhs);
@@ -1092,7 +1098,7 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
         .valtype1 = try self.typeToValtype(bin_ty),
         .signedness = if (bin_ty.isSignedInt()) .signed else .unsigned,
     });
-    try self.code.append(wasm.opcode(opcode));
+    try self.addNoOp(Mir.Inst.Tag.fromOpcode(opcode));
 
     const int_info = bin_ty.intInfo(self.target);
     const bitsize = int_info.bits;
@@ -1104,30 +1110,30 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
         // wasm provides those if the integers are signed and 8/16-bit.
         // For arbitrary integer sizes, we use the algorithm mentioned above.
         if (is_signed and bitsize == 8) {
-            try self.code.append(wasm.opcode(.i32_extend8_s));
+            try self.addNoOp(.i32_extend8_s);
         } else if (is_signed and bitsize == 16) {
-            try self.code.append(wasm.opcode(.i32_extend16_s));
+            try self.addNoOp(.i32_extend16_s);
         } else {
             const result = (@as(u64, 1) << @intCast(u6, bitsize - @boolToInt(is_signed))) - 1;
             if (bitsize < 32) {
-                try self.code.append(wasm.opcode(.i32_const));
-                try leb.writeILEB128(self.code.writer(), @bitCast(i32, @intCast(u32, result)));
-                try self.code.append(wasm.opcode(.i32_and));
+                try self.addImm32(@bitCast(i32, @intCast(u32, result)));
+                try self.addNoOp(.i32_and);
             } else {
-                try self.code.append(wasm.opcode(.i64_const));
-                try leb.writeILEB128(self.code.writer(), @bitCast(i64, result));
-                try self.code.append(wasm.opcode(.i64_and));
+                try self.addInst(.{
+                    .tag = .i64_const,
+                    .data = .{ .imm64 = @bitCast(i64, result) },
+                });
+                try self.addNoOp(.i64_and);
             }
         }
     } else if (int_info.bits > 64) {
         return self.fail("TODO wasm: Integer wrapping for bitsizes larger than 64", .{});
     }
 
-    return WValue{ .code_offset = offset };
+    return WValue{ .mir_offset = offset };
 }
 
 fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
-    const writer = self.code.writer();
     switch (ty.zigTypeTag()) {
         .Int => {
             // write opcode
@@ -1135,11 +1141,10 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 .op = .@"const",
                 .valtype1 = try self.typeToValtype(ty),
             });
-            try writer.writeByte(wasm.opcode(opcode));
             const int_info = ty.intInfo(self.target);
             // write constant
-            _ = try self.addInst(.{
-                .tag = @intToEnum(Mir.Inst.Tag, wasm.opcode(opcode)),
+            try self.addInst(.{
+                .tag = Mir.Inst.Tag.fromOpcode(opcode),
                 .data = switch (int_info.signedness) {
                     .signed => @as(Mir.Inst.Data, switch (int_info.bits) {
                         0...32 => .{ .imm32 = @intCast(i32, val.toSignedInt()) },
@@ -1154,25 +1159,22 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 },
             });
         },
-        .Bool => {
-            // write opcode
-            try writer.writeByte(wasm.opcode(.i32_const));
-            // write constant
-            try leb.writeILEB128(writer, val.toSignedInt());
-        },
+        .Bool => try self.addImm32(@intCast(i32, val.toSignedInt())),
         .Float => {
             // write opcode
             const opcode: wasm.Opcode = buildOpcode(.{
                 .op = .@"const",
                 .valtype1 = try self.typeToValtype(ty),
             });
-            try writer.writeByte(wasm.opcode(opcode));
             // write constant
-            switch (ty.floatBits(self.target)) {
-                0...32 => try writer.writeIntLittle(u32, @bitCast(u32, val.toFloat(f32))),
-                64 => try writer.writeIntLittle(u64, @bitCast(u64, val.toFloat(f64))),
-                else => |bits| return self.fail("Wasm TODO: emitConstant for float with {d} bits", .{bits}),
-            }
+            try self.addInst(.{
+                .tag = Mir.Inst.Tag.fromOpcode(opcode),
+                .data = switch (ty.floatBits(self.target)) {
+                    0...32 => .{ .float32 = val.toFloat(f32) },
+                    64 => .{ .float64 = val.toFloat(f64) },
+                    else => |bits| return self.fail("Wasm TODO: emitConstant for float with {d} bits", .{bits}),
+                },
+            });
         },
         .Pointer => {
             if (val.castTag(.decl_ref)) |payload| {
@@ -1181,32 +1183,28 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
 
                 // offset into the offset table within the 'data' section
                 const ptr_width = self.target.cpu.arch.ptrBitWidth() / 8;
-                try writer.writeByte(wasm.opcode(.i32_const));
-                try leb.writeULEB128(writer, decl.link.wasm.offset_index * ptr_width);
+                try self.addImm32(@bitCast(i32, decl.link.wasm.offset_index * ptr_width));
 
                 // memory instruction followed by their memarg immediate
                 // memarg ::== x:u32, y:u32 => {align x, offset y}
-                try writer.writeByte(wasm.opcode(.i32_load));
-                try leb.writeULEB128(writer, @as(u32, 0));
-                try leb.writeULEB128(writer, @as(u32, 0));
+                try self.addInst(.{
+                    .tag = .i32_load,
+                    .data = .{ .mem_arg = .{ .offset = 0, .alignment = 0 } },
+                });
             } else return self.fail("Wasm TODO: emitConstant for other const pointer tag {s}", .{val.tag()});
         },
         .Void => {},
         .Enum => {
             if (val.castTag(.enum_field_index)) |field_index| {
                 switch (ty.tag()) {
-                    .enum_simple => {
-                        try writer.writeByte(wasm.opcode(.i32_const));
-                        try leb.writeULEB128(writer, field_index.data);
-                    },
+                    .enum_simple => try self.addImm32(@bitCast(i32, field_index.data)),
                     .enum_full, .enum_nonexhaustive => {
                         const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
                         if (enum_full.values.count() != 0) {
                             const tag_val = enum_full.values.keys()[field_index.data];
                             try self.emitConstant(tag_val, enum_full.tag_ty);
                         } else {
-                            try writer.writeByte(wasm.opcode(.i32_const));
-                            try leb.writeULEB128(writer, field_index.data);
+                            try self.addImm32(@bitCast(i32, field_index.data));
                         }
                     },
                     else => unreachable,
@@ -1219,8 +1217,7 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
         },
         .ErrorSet => {
             const error_index = self.global_error_set.get(val.getError().?).?;
-            try writer.writeByte(wasm.opcode(.i32_const));
-            try leb.writeULEB128(writer, error_index);
+            try self.addImm32(@bitCast(i32, error_index));
         },
         .ErrorUnion => {
             const error_type = ty.errorUnionSet();
@@ -1228,8 +1225,7 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             if (val.castTag(.eu_payload)) |pl| {
                 const payload_val = pl.data;
                 // no error, so write a '0' const
-                try writer.writeByte(wasm.opcode(.i32_const));
-                try leb.writeULEB128(writer, @as(u32, 0));
+                try self.addImm32(0);
                 // after the error code, we emit the payload
                 try self.emitConstant(payload_val, payload_type);
             } else {
@@ -1237,12 +1233,7 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 try self.emitConstant(val, error_type);
 
                 // no payload, so write a '0' const
-                const opcode: wasm.Opcode = buildOpcode(.{
-                    .op = .@"const",
-                    .valtype1 = try self.typeToValtype(payload_type),
-                });
-                try writer.writeByte(wasm.opcode(opcode));
-                try leb.writeULEB128(writer, @as(u32, 0));
+                try self.addImm32(0);
             }
         },
         .Optional => {
@@ -1256,19 +1247,13 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             // and payload to '0'
             if (val.castTag(.opt_payload)) |pl| {
                 const payload_val = pl.data;
-                try writer.writeByte(wasm.opcode(.i32_const));
-                try leb.writeILEB128(writer, @as(i32, 0));
+                try self.addImm32(0);
                 try self.emitConstant(payload_val, payload_type);
             } else {
-                try writer.writeByte(wasm.opcode(.i32_const));
-                try leb.writeILEB128(writer, @as(i32, 1));
-
-                const opcode: wasm.Opcode = buildOpcode(.{
-                    .op = .@"const",
-                    .valtype1 = try self.typeToValtype(payload_type),
-                });
-                try writer.writeByte(wasm.opcode(opcode));
-                try leb.writeULEB128(writer, @as(u32, 0));
+                // set null-tag
+                try self.addImm32(1);
+                // null-tag is set, so write a '0' const
+                try self.addImm32(0);
             }
         },
         else => |zig_type| return self.fail("Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
@@ -1328,20 +1313,24 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 }
 
 /// appends a new wasm block to the code section and increases the `block_depth` by 1
-fn startBlock(self: *Self, block_type: wasm.Opcode, valtype: u8, with_offset: ?usize) !void {
+fn startBlock(self: *Self, block_tag: wasm.Opcode, valtype: u8, with_offset: ?usize) !void {
     self.block_depth += 1;
     if (with_offset) |offset| {
-        try self.code.insert(offset, wasm.opcode(block_type));
-        try self.code.insert(offset + 1, valtype);
+        try self.addInstAt(offset, .{
+            .tag = Mir.Inst.Tag.fromOpcode(block_tag),
+            .data = .{ .block_type = valtype },
+        });
     } else {
-        try self.code.append(wasm.opcode(block_type));
-        try self.code.append(valtype);
+        try self.addInst(.{
+            .tag = Mir.Inst.Tag.fromOpcode(block_tag),
+            .data = .{ .block_type = valtype },
+        });
     }
 }
 
 /// Ends the current wasm block and decreases the `block_depth` by 1
 fn endBlock(self: *Self) !void {
-    try self.code.append(wasm.opcode(.end));
+    try self.addNoOp(.end);
     self.block_depth -= 1;
 }
 
@@ -1356,9 +1345,7 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     try self.genBody(body);
 
     // breaking to the index of a loop block will continue the loop instead
-    try self.code.append(wasm.opcode(.br));
-    try leb.writeULEB128(self.code.writer(), @as(u32, 0));
-
+    try self.addLabel(.br, 0);
     try self.endBlock();
 
     return .none;
@@ -1370,15 +1357,14 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const extra = self.air.extraData(Air.CondBr, pl_op.payload);
     const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
     const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
-    const writer = self.code.writer();
     // TODO: Handle death instructions for then and else body
 
     // insert blocks at the position of `offset` so
     // the condition can jump to it
     const offset = switch (condition) {
-        .code_offset => |offset| offset,
+        .mir_offset => |offset| offset,
         else => blk: {
-            const offset = self.code.items.len;
+            const offset = self.mir_instructions.len;
             try self.emitWValue(condition);
             break :blk offset;
         },
@@ -1390,8 +1376,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     // we inserted the block in front of the condition
     // so now check if condition matches. If not, break outside this block
     // and continue with the then codepath
-    try writer.writeByte(wasm.opcode(.br_if));
-    try leb.writeULEB128(writer, @as(u32, 0));
+    try self.addLabel(.br_if, 0);
 
     try self.genBody(else_body);
     try self.endBlock();
@@ -1405,7 +1390,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) InnerError!WValue {
     // save offset, so potential conditions can insert blocks in front of
     // the comparison that we can later jump back to
-    const offset = self.code.items.len;
+    const offset = self.mir_instructions.len;
 
     const data: Air.Inst.Data = self.air.instructions.items(.data)[inst];
     const lhs = self.resolveInst(data.bin_op.lhs);
@@ -1434,8 +1419,8 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) Inner
         },
         .signedness = signedness,
     });
-    try self.code.append(wasm.opcode(opcode));
-    return WValue{ .code_offset = offset };
+    try self.addNoOp(Mir.Inst.Tag.fromOpcode(opcode));
+    return WValue{ .mir_offset = offset };
 }
 
 fn airBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1449,29 +1434,24 @@ fn airBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     // We map every block to its block index.
     // We then determine how far we have to jump to it by subtracting it from current block depth
     const idx: u32 = self.block_depth - self.blocks.get(br.block_inst).?;
-    const writer = self.code.writer();
-    try writer.writeByte(wasm.opcode(.br));
-    try leb.writeULEB128(writer, idx);
+    try self.addLabel(.br, idx);
 
     return .none;
 }
 
 fn airNot(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const offset = self.code.items.len;
+    const offset = self.mir_instructions.len;
 
     const operand = self.resolveInst(ty_op.operand);
     try self.emitWValue(operand);
 
     // wasm does not have booleans nor the `not` instruction, therefore compare with 0
     // to create the same logic
-    const writer = self.code.writer();
-    try writer.writeByte(wasm.opcode(.i32_const));
-    try leb.writeILEB128(writer, @as(i32, 0));
+    try self.addImm32(0);
+    try self.addNoOp(.i32_eq);
 
-    try writer.writeByte(wasm.opcode(.i32_eq));
-
-    return WValue{ .code_offset = offset };
+    return WValue{ .mir_offset = offset };
 }
 
 fn airBreakpoint(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1484,7 +1464,7 @@ fn airBreakpoint(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airUnreachable(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     _ = inst;
-    try self.code.append(wasm.opcode(.@"unreachable"));
+    try self.addNoOp(.@"unreachable");
     return .none;
 }
 
@@ -1586,13 +1566,15 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         if (lowest < 0) {
             // since br_table works using indexes, starting from '0', we must ensure all values
             // we put inside, are atleast 0.
-            try self.code.append(wasm.opcode(.i32_const));
-            try leb.writeILEB128(self.code.writer(), lowest * -1);
-            try self.code.append(wasm.opcode(.i32_add));
+            try self.addImm32(lowest * -1);
+            try self.addNoOp(.i32_add);
         }
-        try self.code.append(wasm.opcode(.br_table));
+
         const depth = highest - lowest + @boolToInt(has_else_body);
-        try leb.writeILEB128(self.code.writer(), depth);
+        const jump_table: Mir.JumpTable = .{ .length = depth };
+        const table_extra_index = try self.addExtra(jump_table);
+        try self.addInst(.{ .tag = .br_table, .data = .{ .payload = table_extra_index } });
+        try self.mir_extra.ensureUnusedCapacity(self.gpa, depth);
         while (lowest <= highest) : (lowest += 1) {
             // idx represents the branch we jump to
             const idx = blk: {
@@ -1603,9 +1585,9 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                 }
                 break :blk if (has_else_body) case_i else unreachable;
             };
-            try leb.writeULEB128(self.code.writer(), idx);
+            self.mir_extra.appendAssumeCapacity(idx);
         } else if (has_else_body) {
-            try leb.writeULEB128(self.code.writer(), @as(u32, case_i)); // default branch
+            self.mir_extra.appendAssumeCapacity(case_i); // default branch
         }
         try self.endBlock();
     }
@@ -1630,9 +1612,8 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                     .op = .ne, // not equal, because we want to jump out of this block if it does not match the condition.
                     .signedness = signedness,
                 });
-                try self.code.append(wasm.opcode(opcode));
-                try self.code.append(wasm.opcode(.br_if));
-                try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+                try self.addNoOp(Mir.Inst.Tag.fromOpcode(opcode));
+                try self.addLabel(.br_if, 0);
             } else {
                 // in multi-value prongs we must check if any prongs match the target value.
                 try self.startBlock(.block, blocktype, null);
@@ -1644,13 +1625,11 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                         .op = .eq,
                         .signedness = signedness,
                     });
-                    try self.code.append(wasm.opcode(opcode));
-                    try self.code.append(wasm.opcode(.br_if));
-                    try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+                    try self.addNoOp(Mir.Inst.Tag.fromOpcode(opcode));
+                    try self.addLabel(.br_if, 0);
                 }
                 // value did not match any of the prong values
-                try self.code.append(wasm.opcode(.br));
-                try leb.writeULEB128(self.code.writer(), @as(u32, 1));
+                try self.addLabel(.br, 1);
                 try self.endBlock();
             }
         }
@@ -1668,18 +1647,15 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
-    const offset = self.code.items.len;
-    const writer = self.code.writer();
+    const offset = self.mir_instructions.len;
 
     // load the error value which is positioned at multi_value's index
     try self.emitWValue(.{ .local = operand.multi_value.index });
     // Compare the error value with '0'
-    try writer.writeByte(wasm.opcode(.i32_const));
-    try leb.writeILEB128(writer, @as(i32, 0));
+    try self.addImm32(0);
+    try self.addNoOp(Mir.Inst.Tag.fromOpcode(opcode));
 
-    try writer.writeByte(@enumToInt(opcode));
-
-    return WValue{ .code_offset = offset };
+    return WValue{ .mir_offset = offset };
 }
 
 fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1708,12 +1684,12 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     try self.emitWValue(operand);
     if (op_bits > 32 and wanted_bits <= 32) {
-        try self.code.append(wasm.opcode(.i32_wrap_i64));
+        try self.addNoOp(.i32_wrap_i64);
     } else if (op_bits <= 32 and wanted_bits > 32) {
-        try self.code.append(wasm.opcode(switch (ref_info.signedness) {
+        try self.addNoOp(switch (ref_info.signedness) {
             .signed => .i64_extend_i32_s,
             .unsigned => .i64_extend_i32_u,
-        }));
+        });
     }
 
     // other cases are no-op
@@ -1723,7 +1699,6 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
-    // const offset = self.code.items.len;
     const writer = self.code.writer();
 
     // load the null value which is positioned at multi_value's index

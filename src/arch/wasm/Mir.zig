@@ -65,6 +65,10 @@ pub const Inst = struct {
         ///
         /// Uses `nop`
         @"return" = 0x0F,
+        /// Calls a function by its index
+        ///
+        /// Uses `label`
+        call = 0x10,
         /// Loads a local at given index onto the stack.
         ///
         /// Uses `label`
@@ -122,6 +126,16 @@ pub const Inst = struct {
         ///
         /// Uses `float64`
         f64_const = 0x44,
+
+        /// From a given wasm opcode, returns a MIR tag.
+        pub fn fromOpcode(opcode: std.wasm.Opcode) Tag {
+            return @intToEnum(Tag, @enumToInt(opcode));
+        }
+
+        /// Returns a wasm opcode from a given MIR tag.
+        pub fn toOpcode(self: Tag) std.wasm.Opcode {
+            return @intToEnum(std.wasm.Opcode, @enumToInt(self));
+        }
     };
 
     /// All instructions contain a 4-byte payload, which is contained within

@@ -37,27 +37,28 @@ pub fn emitMir(emit: *Emit) InnerError!void {
     for (mir_tags) |tag, index| {
         const inst = @intCast(u32, index);
         switch (tag) {
-            .@"unreachable" => try emit.emitNoop(tag),
             .block => try emit.emitBlock(tag, inst),
-            .loop => try emit.emitBlock(tag, inst),
-            .end => try emit.emitNoop(tag),
-            .br => try emit.emitLabel(tag, inst),
             .br_if => try emit.emitLabel(tag, inst),
             .br_table => try emit.emitBrTable(inst),
-            .@"return" => try emit.emitNoop(tag),
+            .br => try emit.emitLabel(tag, inst),
+            .call => try emit.emitCall(inst),
+            .end => try emit.emitNoop(tag),
+            .f32_const => try emit.emitFloat32(inst),
+            .f64_const => try emit.emitFloat64(inst),
+            .global_get => try emit.emitGlobal(tag, inst),
+            .global_set => try emit.emitGlobal(tag, inst),
+            .i32_const => try emit.emitImm32(inst),
+            .i32_load => try emit.emitMemArg(tag, inst),
+            .i32_store => try emit.emitMemArg(tag, inst),
+            .i64_const => try emit.emitImm64(inst),
             .local_get => try emit.emitLabel(tag, inst),
             .local_set => try emit.emitLabel(tag, inst),
             .local_tee => try emit.emitLabel(tag, inst),
-            .global_get => try emit.emitGlobal(tag, inst),
-            .global_set => try emit.emitGlobal(tag, inst),
-            .i32_load => try emit.emitMemArg(tag, inst),
-            .i32_store => try emit.emitMemArg(tag, inst),
-            .memory_size => try emit.emitNoop(tag),
+            .loop => try emit.emitBlock(tag, inst),
             .memory_grow => try emit.emitLabel(tag, inst),
-            .i32_const => try emit.emitImm32(inst),
-            .i64_const => try emit.emitImm64(inst),
-            .f32_const => try emit.emitFloat32(inst),
-            .f64_const => try emit.emitFloat64(inst),
+            .memory_size => try emit.emitNoop(tag),
+            .@"return" => try emit.emitNoop(tag),
+            .@"unreachable" => try emit.emitNoop(tag),
         }
     }
 
@@ -117,7 +118,9 @@ fn emitLabel(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
 fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const label = emit.mir.instructions.items(.data)[inst].label;
     try emit.code.append(@enumToInt(tag));
-    try leb128.writeULEB128(emit.code.writer(), label);
+    var buf: [5]u8 = undefined;
+    leb128.writeUnsignedFixed(5, &buf, label);
+    try emit.code.appendSlice(&buf);
 
     // TODO: Append label to the relocation list of this function
 }
@@ -151,4 +154,14 @@ fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     try emit.code.append(@enumToInt(tag));
     try leb128.writeULEB128(emit.code.writer(), mem_arg.alignment);
     try leb128.writeULEB128(emit.code.writer(), mem_arg.offset);
+}
+
+fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const label = emit.mir.instructions.items(.data)[inst].label;
+    try emit.code.append(std.wasm.opcode(.call));
+    var buf: [5]u8 = undefined;
+    leb128.writeUnsignedFixed(5, &buf, label);
+    try emit.code.appendSlice(&buf);
+
+    // TODO: Add relocation entry
 }
