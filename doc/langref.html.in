@@ -11271,7 +11271,7 @@ fn readU32Be() u32 {}
       Note that a tool reading Zig source code can make assumptions if the source code is assumed to be correct Zig code.
       For example, when identifying the ends of lines, a tool can use a naive search such as <code>/\n/</code>,
       or an <a href="https://msdn.microsoft.com/en-us/library/dd409797.aspx">advanced</a>
-      search such as <code>/\r\n?|[\n\u0085\u2028\u2029]/</code>, and in either case line endings will be correctly identified.
+      search such as <code>/\r?\n|[\n\u0085\u2028\u2029]/</code>, and in either case line endings will be correctly identified.
       For another example, when identifying the whitespace before the first token on a line,
       a tool can either use a naive search such as <code>/[ \t]/</code>,
       or an <a href="https://tc39.es/ecma262/#sec-characterclassescape">advanced</a> search such as <code>/\s/</code>,
