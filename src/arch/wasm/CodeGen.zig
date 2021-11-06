@@ -17,6 +17,8 @@ const link = @import("../../link.zig");
 const TypedValue = @import("../../TypedValue.zig");
 const Air = @import("../../Air.zig");
 const Liveness = @import("../../Liveness.zig");
+const Mir = @import("Mir.zig");
+const Emit = @import("Emit.zig");
 
 /// Wasm Value, created when generating an instruction
 const WValue = union(enum) {
@@ -517,22 +519,33 @@ block_depth: u32 = 0,
 locals: std.ArrayListUnmanaged(u8),
 /// The Target we're emitting (used to call intInfo)
 target: std.Target,
+/// Represents the wasm binary file that is being linked.
+bin_file: *link.File,
 /// Table with the global error set. Consists of every error found in
 /// the compiled code. Each error name maps to a `Module.ErrorInt` which is emitted
 /// during codegen to determine the error value.
 global_error_set: std.StringHashMapUnmanaged(Module.ErrorInt),
+/// List of MIR Instructions
+mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
+/// Contains extra data for MIR
+mir_extra: std.ArrayListUnmanaged(u32) = .{},
 
 const InnerError = error{
     OutOfMemory,
+    /// An error occured when trying to lower AIR to MIR.
     CodegenFail,
     /// Can occur when dereferencing a pointer that points to a `Decl` of which the analysis has failed
     AnalysisFail,
+    /// Failed to emit MIR instructions to binary/textual representation.
+    EmitFail,
 };
 
 pub fn deinit(self: *Self) void {
     self.values.deinit(self.gpa);
     self.blocks.deinit(self.gpa);
     self.locals.deinit(self.gpa);
+    self.mir_instructions.deinit(self.gpa);
+    self.mir_extra.deinit(self.gpa);
     self.* = undefined;
 }
 
@@ -564,6 +577,48 @@ fn resolveInst(self: Self, ref: Air.Inst.Ref) WValue {
     }
 
     return self.values.get(inst_index).?; // Instruction does not dominate all uses!
+}
+
+/// Appends a MIR instruction and returns its index within the list of instructions
+fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
+    try self.mir_instructions.ensureUnusedCapacity(self.gpa, 1);
+    const result_index = @intCast(Mir.Inst.Index, self.mir_instructions.len);
+    self.mir_instructions.appendAssumeCapacity(inst);
+    return result_index;
+}
+
+fn addNoOp(self: *Self, tag: Mir.Inst.Tag) error{OutOfMemory}!Mir.Inst.Index {
+    return try self.addInst(.{ .tag = tag, .data = .{ .no_op = {} } });
+}
+
+fn addLabel(self: *Self, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!Mir.Inst.Index {
+    return try self.addInst(.{ .tag = tag, .data = .{ .label = label } });
+}
+
+fn addImm32(self: *Self, imm: i32) error{OutOfMemory}!Mir.Inst.Index {
+    return try self.addInst(.{ .tag = .i32_const, .data = .{ .imm32 = imm } });
+}
+
+/// Appends entries to `mir_extra` based on the type of `extra`.
+/// Returns the index into `mir_extra`
+fn addExtra(self: *Self, extra: anytype) error{OutOfMemory}!u32 {
+    const fields = std.meta.fields(@TypeOf(extra));
+    try self.mir_extra.ensureUnusedCapacity(self.gpa, fields.len);
+    return self.addExtraAssumeCapacity(extra);
+}
+
+/// Appends entries to `mir_extra` based on the type of `extra`.
+/// Returns the index into `mir_extra`
+fn addExtraAssumeCapacity(self: *Self, extra: anytype) error{OutOfMemory}!u32 {
+    const fields = std.meta.fields(@TypeOf(extra));
+    const result = @intCast(u32, self.mir_extra.items.len);
+    inline for (fields) |field| {
+        self.mir_extra.appendAssumeCapacity(switch (field.field_type) {
+            u32 => @field(extra, field.name),
+            else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
+        });
+    }
+    return result;
 }
 
 /// Using a given `Type`, returns the corresponding wasm Valtype
@@ -611,13 +666,11 @@ fn genBlockType(self: *Self, ty: Type) InnerError!u8 {
 
 /// Writes the bytecode depending on the given `WValue` in `val`
 fn emitWValue(self: *Self, val: WValue) InnerError!void {
-    const writer = self.code.writer();
     switch (val) {
         .multi_value => unreachable, // multi_value can never be written directly, and must be accessed individually
         .none, .code_offset => {}, // no-op
         .local => |idx| {
-            try writer.writeByte(wasm.opcode(.local_get));
-            try leb.writeULEB128(writer, idx);
+            _ = try self.addLabel(.local_get, idx);
         },
         .constant => |tv| try self.emitConstant(tv.val, tv.ty), // Creates a new constant on the stack
     }
@@ -735,35 +788,31 @@ pub fn genFunc(self: *Self) InnerError!Result {
     try self.genFunctype();
     // TODO: check for and handle death of instructions
 
-    // Reserve space to write the size after generating the code as well as space for locals count
-    try self.code.resize(10);
-
+    // Generate MIR for function body
     try self.genBody(self.air.getMainBody());
+    // End of function body
+    _ = try self.addNoOp(.end);
 
-    // finally, write our local types at the 'offset' position
-    {
-        leb.writeUnsignedFixed(5, self.code.items[5..10], @intCast(u32, self.locals.items.len));
+    var mir: Mir = .{
+        .instructions = self.mir_instructions.toOwnedSlice(),
+        .extra = self.mir_extra.toOwnedSlice(self.gpa),
+    };
+    defer mir.deinit(self.gpa);
 
-        // offset into 'code' section where we will put our locals types
-        var local_offset: usize = 10;
+    var emit: Emit = .{
+        .mir = mir,
+        .bin_file = self.bin_file,
+        .code = &self.code,
+        .locals = self.locals.items,
+    };
 
-        // emit the actual locals amount
-        for (self.locals.items) |local| {
-            var buf: [6]u8 = undefined;
-            leb.writeUnsignedFixed(5, buf[0..5], @as(u32, 1));
-            buf[5] = local;
-            try self.code.insertSlice(local_offset, &buf);
-            local_offset += 6;
-        }
-    }
-
-    const writer = self.code.writer();
-    try writer.writeByte(wasm.opcode(.end));
-
-    // Fill in the size of the generated code to the reserved space at the
-    // beginning of the buffer.
-    const size = self.code.items.len - 5 + self.decl.fn_link.wasm.idx_refs.items.len * 5;
-    leb.writeUnsignedFixed(5, self.code.items[0..5], @intCast(u32, size));
+    emit.emitMir() catch |err| switch (err) {
+        error.EmitFail => {
+            self.err_msg = emit.error_msg.?;
+            return error.EmitFail;
+        },
+        else => |e| return e,
+    };
 
     // codegen data has been appended to `code`
     return Result.appended;
@@ -896,7 +945,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
     try self.emitWValue(operand);
-    try self.code.append(wasm.opcode(.@"return"));
+    _ = try self.addNoOp(.@"return");
     return .none;
 }
 
@@ -940,7 +989,6 @@ fn airAlloc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const writer = self.code.writer();
 
     const lhs = self.resolveInst(bin_op.lhs);
     const rhs = self.resolveInst(bin_op.rhs);
@@ -961,8 +1009,7 @@ fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                 // in reverse.
                 var i: u32 = multi_value.count;
                 while (i > 0) : (i -= 1) {
-                    try writer.writeByte(wasm.opcode(.local_set));
-                    try leb.writeULEB128(writer, multi_value.index + i - 1);
+                    _ = try self.addLabel(.local_set, multi_value.index + i - 1);
                 }
             },
             .local => {
@@ -970,23 +1017,15 @@ fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                 // such as wrapping a non-optional value into an optional.
                 // This means we must zero the null-tag, and set the payload.
                 assert(multi_value.count == 2);
-                // set null-tag
-                try writer.writeByte(wasm.opcode(.i32_const));
-                try leb.writeULEB128(writer, @as(u32, 0));
-                try writer.writeByte(wasm.opcode(.local_set));
-                try leb.writeULEB128(writer, multi_value.index);
-
                 // set payload
                 try self.emitWValue(rhs);
-                try writer.writeByte(wasm.opcode(.local_set));
-                try leb.writeULEB128(writer, multi_value.index + 1);
+                _ = try self.addLabel(.local_set, multi_value.index + 1);
             },
             else => unreachable,
         },
         .local => |local| {
             try self.emitWValue(rhs);
-            try writer.writeByte(wasm.opcode(.local_set));
-            try leb.writeULEB128(writer, local);
+            _ = try self.addLabel(.local_set, local);
         },
         else => unreachable,
     }
@@ -1099,14 +1138,21 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             try writer.writeByte(wasm.opcode(opcode));
             const int_info = ty.intInfo(self.target);
             // write constant
-            switch (int_info.signedness) {
-                .signed => try leb.writeILEB128(writer, val.toSignedInt()),
-                .unsigned => switch (int_info.bits) {
-                    0...32 => try leb.writeILEB128(writer, @bitCast(i32, @intCast(u32, val.toUnsignedInt()))),
-                    33...64 => try leb.writeILEB128(writer, @bitCast(i64, val.toUnsignedInt())),
-                    else => |bits| return self.fail("Wasm TODO: emitConstant for integer with {d} bits", .{bits}),
+            _ = try self.addInst(.{
+                .tag = @intToEnum(Mir.Inst.Tag, wasm.opcode(opcode)),
+                .data = switch (int_info.signedness) {
+                    .signed => @as(Mir.Inst.Data, switch (int_info.bits) {
+                        0...32 => .{ .imm32 = @intCast(i32, val.toSignedInt()) },
+                        33...64 => .{ .imm64 = val.toSignedInt() },
+                        else => |bits| return self.fail("Wasm todo: emitConstant for integer with {d} bits", .{bits}),
+                    }),
+                    .unsigned => @as(Mir.Inst.Data, switch (int_info.bits) {
+                        0...32 => .{ .imm32 = @bitCast(i32, @intCast(u32, val.toUnsignedInt())) },
+                        33...64 => .{ .imm64 = @bitCast(i64, val.toUnsignedInt()) },
+                        else => |bits| return self.fail("Wasm TODO: emitConstant for integer with {d} bits", .{bits}),
+                    }),
                 },
-            }
+            });
         },
         .Bool => {
             // write opcode

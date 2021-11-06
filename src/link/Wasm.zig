@@ -226,6 +226,7 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
         .err_msg = undefined,
         .locals = .{},
         .target = self.base.options.target,
+        .bin_file = &self.base,
         .global_error_set = self.base.options.module.?.global_error_set,
     };
     defer codegen.deinit();
@@ -270,6 +271,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         .err_msg = undefined,
         .locals = .{},
         .target = self.base.options.target,
+        .bin_file = &self.base,
         .global_error_set = self.base.options.module.?.global_error_set,
     };
     defer codegen.deinit();
@@ -299,14 +301,7 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, cod
     };
 
     const block = &decl.link.wasm;
-    if (decl.ty.zigTypeTag() == .Fn) {
-        // as locals are patched afterwards, the offsets of funcidx's are off,
-        // here we update them to correct them
-        for (fn_data.idx_refs.items) |*func| {
-            // For each local, add 6 bytes (count + type)
-            func.offset += @intCast(u32, codegen.locals.items.len * 6);
-        }
-    } else {
+    if (decl.ty.zigTypeTag() != .Fn) {
         block.size = @intCast(u32, code.len);
         block.data = code.ptr;
     }
@@ -553,18 +548,11 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
             // Write the already generated code to the file, inserting
             // function indexes where required.
-            var current: u32 = 0;
             for (fn_data.idx_refs.items) |idx_ref| {
-                try writer.writeAll(fn_data.code.items[current..idx_ref.offset]);
-                current = idx_ref.offset;
-                // Use a fixed width here to make calculating the code size
-                // in codegen.wasm.gen() simpler.
-                var buf: [5]u8 = undefined;
-                leb.writeUnsignedFixed(5, &buf, self.getFuncidx(idx_ref.decl).?);
-                try writer.writeAll(&buf);
+                const index = self.getFuncidx(idx_ref.decl).?;
+                leb.writeUnsignedFixed(5, fn_data.code.items[idx_ref.offset..][0..5], index);
             }
-
-            try writer.writeAll(fn_data.code.items[current..]);
+            try writer.writeAll(fn_data.code.items);
         }
         try writeVecSectionHeader(
             file,

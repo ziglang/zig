@@ -50,11 +50,11 @@ pub const Inst = struct {
         end = 0x0B,
         /// Breaks from the current block to a label
         ///
-        /// Data is `index` where index represents the label to jump to
+        /// Data is `label` where index represents the label to jump to
         br = 0x0C,
         /// Breaks from the current block if the stack value is non-zero
         ///
-        /// Data is `index` where index represents the label to jump to
+        /// Data is `label` where index represents the label to jump to
         br_if = 0x0D,
         /// Jump table that takes the stack value as an index where each value
         /// represents the label to jump to.
@@ -67,26 +67,26 @@ pub const Inst = struct {
         @"return" = 0x0F,
         /// Loads a local at given index onto the stack.
         ///
-        /// Uses `index`
+        /// Uses `label`
         local_get = 0x20,
         /// Pops a value from the stack into the local at given index.
         /// Stack value must be of the same type as the local.
         ///
-        /// Uses `index`
+        /// Uses `label`
         local_set = 0x21,
         /// Sets a local at given index using the value at the top of the stack without popping the value.
         /// Stack value must have the same type as the local.
         ///
-        /// Uses `index`
+        /// Uses `label`
         local_tee = 0x22,
         /// Loads a (mutable) global at given index onto the stack
         ///
-        /// Uses `index`
+        /// Uses `label`
         global_get = 0x23,
         /// Pops a value from the stack and sets the global at given index.
         /// Note: Both types must be equal and global must be marked mutable.
         ///
-        /// Uses `index`.
+        /// Uses `label`.
         global_set = 0x24,
         /// Loads a 32-bit integer from memory (data section) onto the stack
         /// Pops the value from the stack which represents the offset into memory.
@@ -104,7 +104,7 @@ pub const Inst = struct {
         memory_size = 0x3F,
         /// Increases the memory at by given number of pages.
         ///
-        /// Uses `index`
+        /// Uses `label`
         memory_grow = 0x40,
         /// Loads a 32-bit signed immediate value onto the stack
         ///
@@ -138,7 +138,7 @@ pub const Inst = struct {
         /// Note: This is not an index to another instruction.
         ///
         /// Used by e.g. `local_get`, `local_set`, etc. 
-        index: u32,
+        label: u32,
         /// A 32-bit immediate value.
         ///
         /// Used by `i32_const`
