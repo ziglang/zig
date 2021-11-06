@@ -38,11 +38,11 @@ pub const Inst = struct {
         @"unreachable" = 0x00,
         /// Creates a new block that can be jump from.
         ///
-        /// Type of the block is given in data `blocktype`
+        /// Type of the block is given in data `block_type`
         block = 0x02,
         /// Creates a new loop.
         ///
-        /// Type of the loop is given in data `blocktype`
+        /// Type of the loop is given in data `block_type`
         loop = 0x03,
         /// Represents the end of a function body or an initialization expression
         ///
@@ -130,7 +130,7 @@ pub const Inst = struct {
     pub const Data = union {
         /// Uses no additional data
         no_op: void,
-        /// Contains a blocktype
+        /// Contains the result type of a block
         ///
         /// Used by `block` and `loop`
         block_type: u8,
