@@ -2182,6 +2182,25 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 else => unreachable, // unexpected register size
             }
         },
+        .compare_flags_unsigned,
+        .compare_flags_signed,
+        => |op| {
+            const condition = switch (mcv) {
+                .compare_flags_unsigned => Instruction.Condition.fromCompareOperatorUnsigned(op),
+                .compare_flags_signed => Instruction.Condition.fromCompareOperatorSigned(op),
+                else => unreachable,
+            };
+
+            _ = try self.addInst(.{
+                .tag = .cset,
+                .data = .{ .rrr_cond = .{
+                    .rd = reg,
+                    .rn = .xzr,
+                    .rm = .xzr,
+                    .cond = condition,
+                } },
+            });
+        },
         .immediate => |x| {
             _ = try self.addInst(.{
                 .tag = .movz,

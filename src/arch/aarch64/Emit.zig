@@ -81,6 +81,8 @@ pub fn emitMir(
 
             .cmp_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
 
+            .cset => try emit.mirConditionalSelect(inst),
+
             .dbg_line => try emit.mirDbgLine(inst),
 
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
@@ -473,6 +475,21 @@ fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
             rrr_imm6_shift.rm,
             rrr_imm6_shift.shift,
             rrr_imm6_shift.imm6,
+        )),
+        else => unreachable,
+    }
+}
+
+fn mirConditionalSelect(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rrr_cond = emit.mir.instructions.items(.data)[inst].rrr_cond;
+
+    switch (tag) {
+        .cset => try emit.writeInstruction(Instruction.csinc(
+            rrr_cond.rd,
+            rrr_cond.rn,
+            rrr_cond.rm,
+            rrr_cond.cond,
         )),
         else => unreachable,
     }

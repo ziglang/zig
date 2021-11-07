@@ -40,6 +40,8 @@ pub const Inst = struct {
         cmp_immediate,
         /// Compare (shifted register)
         cmp_shifted_register,
+        /// Conditional set
+        cset,
         /// Pseudo-instruction: End of prologue
         dbg_prologue_end,
         /// Pseudo-instruction: Beginning of epilogue
@@ -154,6 +156,15 @@ pub const Inst = struct {
             rm: Register,
             imm6: u6,
             shift: bits.Instruction.AddSubtractShiftedRegisterShift,
+        },
+        /// Three registers and a condition
+        ///
+        /// Used by e.g. cset
+        rrr_cond: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+            cond: bits.Instruction.Condition,
         },
         /// Three registers and a LoadStoreOffset
         ///
