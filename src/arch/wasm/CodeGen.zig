@@ -809,6 +809,7 @@ pub fn genFunc(self: *Self) InnerError!Result {
         .bin_file = self.bin_file,
         .code = &self.code,
         .locals = self.locals.items,
+        .decl = self.decl,
     };
 
     emit.emitMir() catch |err| switch (err) {
@@ -976,14 +977,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     }
 
     try self.addLabel(.call, target.link.wasm.symbol_index);
-
-    // The function index immediate argument will be filled in using this data
-    // in link.Wasm.flush().
-    // TODO: Remove this when `Emit` supports relocations
-    try self.decl.fn_link.wasm.idx_refs.append(self.gpa, .{
-        .offset = @intCast(u32, self.mir_instructions.len),
-        .decl = target,
-    });
 
     return .none;
 }

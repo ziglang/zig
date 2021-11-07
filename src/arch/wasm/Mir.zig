@@ -255,7 +255,7 @@ pub const Inst = struct {
         }
     };
 
-    /// All instructions contain a 4-byte payload, which is contained within
+    /// All instructions contain a 8-byte payload, which is contained within
     /// this union. `Opcode` determines which union tag is active, as well as
     /// how to interpret the data within.
     pub const Data = union {

@@ -54,6 +54,8 @@ offset_table_free_list: std.ArrayListUnmanaged(u32) = .{},
 /// This is ment for bookkeeping so we can safely cleanup all codegen memory
 /// when calling `deinit`
 symbols: std.ArrayListUnmanaged(*Module.Decl) = .{},
+/// List of symbol indexes which are free to be used.
+symbols_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 pub const FnData = struct {
     /// Generated code for the type of the function
@@ -62,7 +64,8 @@ pub const FnData = struct {
     code: std.ArrayListUnmanaged(u8),
     /// Locations in the generated code where function indexes must be filled in.
     /// This must be kept ordered by offset.
-    idx_refs: std.ArrayListUnmanaged(struct { offset: u32, decl: *Module.Decl }),
+    /// `decl` is the symbol_index of the target.
+    idx_refs: std.ArrayListUnmanaged(struct { offset: u32, decl: u32 }),
 
     pub const empty: FnData = .{
         .functype = .{},
@@ -156,6 +159,9 @@ pub fn deinit(self: *Wasm) void {
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
     }
+    while (self.symbols_free_list.popOrNull()) |index| {
+        _ = self.symbols.swapRemove(index);
+    }
     for (self.symbols.items) |decl| {
         decl.fn_link.wasm.functype.deinit(self.base.allocator);
         decl.fn_link.wasm.code.deinit(self.base.allocator);
@@ -167,6 +173,7 @@ pub fn deinit(self: *Wasm) void {
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
     self.symbols.deinit(self.base.allocator);
+    self.symbols_free_list.deinit(self.base.allocator);
 }
 
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
@@ -178,14 +185,19 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
     const block = &decl.link.wasm;
     block.init = true;
 
-    block.symbol_index = @intCast(u32, self.symbols.items.len);
-    self.symbols.appendAssumeCapacity(decl);
-
     if (self.offset_table_free_list.popOrNull()) |index| {
         block.offset_index = index;
     } else {
         block.offset_index = @intCast(u32, self.offset_table.items.len);
         _ = self.offset_table.addOneAssumeCapacity();
+    }
+
+    if (self.symbols_free_list.popOrNull()) |index| {
+        block.symbol_index = index;
+        self.symbols.items[block.symbol_index] = decl;
+    } else {
+        block.symbol_index = @intCast(u32, self.symbols.items.len);
+        self.symbols.appendAssumeCapacity(decl);
     }
 
     self.offset_table.items[block.offset_index] = 0;
@@ -354,11 +366,7 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     block.unplug();
 
     self.offset_table_free_list.append(self.base.allocator, decl.link.wasm.offset_index) catch {};
-    _ = self.symbols.swapRemove(block.symbol_index);
-
-    // update symbol_index as we swap removed the last symbol into the removed's position
-    if (block.symbol_index < self.symbols.items.len)
-        self.symbols.items[block.symbol_index].link.wasm.symbol_index = block.symbol_index;
+    self.symbols_free_list.append(self.base.allocator, block.symbol_index) catch {};
 
     block.init = false;
 
@@ -549,7 +557,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             // Write the already generated code to the file, inserting
             // function indexes where required.
             for (fn_data.idx_refs.items) |idx_ref| {
-                const index = self.getFuncidx(idx_ref.decl).?;
+                const relocatable_decl = self.symbols.items[idx_ref.decl];
+                const index = self.getFuncidx(relocatable_decl).?;
                 leb.writeUnsignedFixed(5, fn_data.code.items[idx_ref.offset..][0..5], index);
             }
             try writer.writeAll(fn_data.code.items);

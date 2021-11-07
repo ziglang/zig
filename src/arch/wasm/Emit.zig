@@ -20,6 +20,8 @@ error_msg: ?*ErrorMsg = null,
 code: *std.ArrayList(u8),
 /// List of allocated locals.
 locals: []const u8,
+/// The declaration that code is being generated for.
+decl: *Module.Decl,
 
 const InnerError = error{
     OutOfMemory,
@@ -232,9 +234,16 @@ fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
 fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
     const label = emit.mir.instructions.items(.data)[inst].label;
     try emit.code.append(std.wasm.opcode(.call));
+    const offset = @intCast(u32, emit.code.items.len);
     var buf: [5]u8 = undefined;
     leb128.writeUnsignedFixed(5, &buf, label);
     try emit.code.appendSlice(&buf);
 
-    // TODO: Add relocation entry
+    // The function index immediate argument will be filled in using this data
+    // in link.Wasm.flush().
+    // TODO: Replace this with proper relocations saved in the Atom.
+    try emit.decl.fn_link.wasm.idx_refs.append(emit.bin_file.allocator, .{
+        .offset = offset,
+        .decl = label,
+    });
 }
