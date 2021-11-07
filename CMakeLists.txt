@@ -104,9 +104,9 @@ else()
     set(ZIG_USE_LLVM_CONFIG OFF CACHE BOOL "use llvm-config to find LLVM libraries")
 endif()
 
-find_package(llvm)
-find_package(clang)
-find_package(lld)
+find_package(llvm 13)
+find_package(clang 13)
+find_package(lld 13)
 
 if(ZIG_STATIC_ZLIB)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
