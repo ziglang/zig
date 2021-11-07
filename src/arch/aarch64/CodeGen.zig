@@ -1634,8 +1634,6 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
-    _ = op;
-
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -1646,10 +1644,79 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
 
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
-    _ = lhs;
-    _ = rhs;
+    const result: MCValue = result: {
+        const lhs_is_register = lhs == .register;
+        const rhs_is_register = rhs == .register;
+        // lhs should always be a register
+        const rhs_should_be_register = switch (rhs) {
+            .immediate => |imm| imm < 0 or imm > std.math.maxInt(u12),
+            else => true,
+        };
 
-    return self.fail("TODO implement cmp for {}", .{self.target.cpu.arch});
+        var lhs_mcv = lhs;
+        var rhs_mcv = rhs;
+
+        // Allocate registers
+        if (rhs_should_be_register) {
+            if (!lhs_is_register and !rhs_is_register) {
+                const regs = try self.register_manager.allocRegs(2, .{
+                    Air.refToIndex(bin_op.rhs).?, Air.refToIndex(bin_op.lhs).?,
+                }, &.{});
+                lhs_mcv = MCValue{ .register = regs[0] };
+                rhs_mcv = MCValue{ .register = regs[1] };
+            } else if (!rhs_is_register) {
+                rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.rhs).?, &.{}) };
+            }
+        }
+        if (!lhs_is_register) {
+            lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.lhs).?, &.{}) };
+        }
+
+        // Move the operands to the newly allocated registers
+        const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+        if (lhs_mcv == .register and !lhs_is_register) {
+            try self.genSetReg(ty, lhs_mcv.register, lhs);
+            branch.inst_table.putAssumeCapacity(Air.refToIndex(bin_op.lhs).?, lhs);
+        }
+        if (rhs_mcv == .register and !rhs_is_register) {
+            try self.genSetReg(ty, rhs_mcv.register, rhs);
+            branch.inst_table.putAssumeCapacity(Air.refToIndex(bin_op.rhs).?, rhs);
+        }
+
+        // The destination register is not present in the cmp instruction
+        // The signedness of the integer does not matter for the cmp instruction
+        switch (rhs_mcv) {
+            .register => |reg| {
+                _ = try self.addInst(.{
+                    .tag = .cmp_shifted_register,
+                    .data = .{ .rrr_imm6_shift = .{
+                        .rd = .xzr,
+                        .rn = lhs_mcv.register,
+                        .rm = reg,
+                        .imm6 = 0,
+                        .shift = .lsl,
+                    } },
+                });
+            },
+            .immediate => |imm| {
+                _ = try self.addInst(.{
+                    .tag = .cmp_immediate,
+                    .data = .{ .rr_imm12_sh = .{
+                        .rd = .xzr,
+                        .rn = lhs_mcv.register,
+                        .imm12 = @intCast(u12, imm),
+                    } },
+                });
+            },
+            else => unreachable,
+        }
+
+        break :result switch (ty.isSignedInt()) {
+            true => MCValue{ .compare_flags_signed = op },
+            false => MCValue{ .compare_flags_unsigned = op },
+        };
+    };
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {

@@ -295,6 +295,18 @@ pub const Instruction = union(enum) {
         op: u1,
         sf: u1,
     },
+    add_subtract_shifted_register: packed struct {
+        rd: u5,
+        rn: u5,
+        imm6: u6,
+        rm: u5,
+        fixed_1: u1 = 0b0,
+        shift: u2,
+        fixed_2: u5 = 0b01011,
+        s: u1,
+        op: u1,
+        sf: u1,
+    },
     conditional_branch: struct {
         cond: u4,
         o0: u1,
@@ -391,6 +403,7 @@ pub const Instruction = union(enum) {
             .no_operation => |v| @bitCast(u32, v),
             .logical_shifted_register => |v| @bitCast(u32, v),
             .add_subtract_immediate => |v| @bitCast(u32, v),
+            .add_subtract_shifted_register => |v| @bitCast(u32, v),
             // TODO once packed structs work, this can be refactored
             .conditional_branch => |v| @as(u32, v.cond) | (@as(u32, v.o0) << 4) | (@as(u32, v.imm19) << 5) | (@as(u32, v.o1) << 24) | (@as(u32, v.fixed) << 25),
             .compare_and_branch => |v| @as(u32, v.rt) | (@as(u32, v.imm19) << 5) | (@as(u32, v.op) << 24) | (@as(u32, v.fixed) << 25) | (@as(u32, v.sf) << 31),
@@ -804,6 +817,35 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub const AddSubtractShiftedRegisterShift = enum(u2) { lsl, lsr, asr, _ };
+
+    fn addSubtractShiftedRegister(
+        op: u1,
+        s: u1,
+        shift: AddSubtractShiftedRegisterShift,
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        imm6: u6,
+    ) Instruction {
+        return Instruction{
+            .add_subtract_shifted_register = .{
+                .rd = rd.id(),
+                .rn = rn.id(),
+                .imm6 = imm6,
+                .rm = rm.id(),
+                .shift = @enumToInt(shift),
+                .s = s,
+                .op = op,
+                .sf = switch (rd.size()) {
+                    32 => 0b0,
+                    64 => 0b1,
+                    else => unreachable, // unexpected register size
+                },
+            },
+        };
+    }
+
     fn conditionalBranch(
         o0: u1,
         o1: u1,
@@ -1055,6 +1097,48 @@ pub const Instruction = union(enum) {
         return addSubtractImmediate(0b1, 0b1, rd, rn, imm, shift);
     }
 
+    // Add/subtract (shifted register)
+
+    pub fn addShiftedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        shift: AddSubtractShiftedRegisterShift,
+        imm6: u6,
+    ) Instruction {
+        return addSubtractShiftedRegister(0b0, 0b0, shift, rd, rn, rm, imm6);
+    }
+
+    pub fn addsShiftedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        shift: AddSubtractShiftedRegisterShift,
+        imm6: u6,
+    ) Instruction {
+        return addSubtractShiftedRegister(0b0, 0b1, shift, rd, rn, rm, imm6);
+    }
+
+    pub fn subShiftedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        shift: AddSubtractShiftedRegisterShift,
+        imm6: u6,
+    ) Instruction {
+        return addSubtractShiftedRegister(0b1, 0b0, shift, rd, rn, rm, imm6);
+    }
+
+    pub fn subsShiftedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        shift: AddSubtractShiftedRegisterShift,
+        imm6: u6,
+    ) Instruction {
+        return addSubtractShiftedRegister(0b1, 0b1, shift, rd, rn, rm, imm6);
+    }
+
     // Conditional branch
 
     pub fn bCond(cond: Condition, offset: i21) Instruction {
@@ -1230,6 +1314,10 @@ test "serialize instructions" {
         .{ // cbz x10, #40
             .inst = Instruction.cbz(.x10, 40),
             .expected = 0b1_011010_0_0000000000000001010_01010,
+        },
+        .{ // add x0, x1, x2, lsl #5
+            .inst = Instruction.addShiftedRegister(.x0, .x1, .x2, .lsl, 5),
+            .expected = 0b1_0_0_01011_00_0_00010_000101_00001_00000,
         },
     };
 

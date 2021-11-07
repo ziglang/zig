@@ -36,6 +36,10 @@ pub const Inst = struct {
         brk,
         /// Pseudo-instruction: Call extern
         call_extern,
+        /// Compare (immediate)
+        cmp_immediate,
+        /// Compare (shifted register)
+        cmp_shifted_register,
         /// Pseudo-instruction: End of prologue
         dbg_prologue_end,
         /// Pseudo-instruction: Beginning of epilogue
@@ -140,6 +144,16 @@ pub const Inst = struct {
             rn: Register,
             imm12: u12,
             sh: u1 = 0,
+        },
+        /// Three registers and a shift (shift type and 6-bit amount)
+        ///
+        /// Used by e.g. cmp_shifted_register
+        rrr_imm6_shift: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+            imm6: u6,
+            shift: bits.Instruction.AddSubtractShiftedRegisterShift,
         },
         /// Three registers and a LoadStoreOffset
         ///

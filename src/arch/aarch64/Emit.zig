@@ -65,6 +65,7 @@ pub fn emitMir(
         const inst = @intCast(u32, index);
         switch (tag) {
             .add_immediate => try emit.mirAddSubtractImmediate(inst),
+            .cmp_immediate => try emit.mirAddSubtractImmediate(inst),
             .sub_immediate => try emit.mirAddSubtractImmediate(inst),
 
             .b => try emit.mirBranch(inst),
@@ -77,6 +78,8 @@ pub fn emitMir(
             .svc => try emit.mirExceptionGeneration(inst),
 
             .call_extern => try emit.mirCallExtern(inst),
+
+            .cmp_shifted_register => try emit.mirAddSubtractShiftedRegister(inst),
 
             .dbg_line => try emit.mirDbgLine(inst),
 
@@ -347,6 +350,12 @@ fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
             rr_imm12_sh.imm12,
             rr_imm12_sh.sh == 1,
         )),
+        .cmp_immediate => try emit.writeInstruction(Instruction.subs(
+            rr_imm12_sh.rd,
+            rr_imm12_sh.rn,
+            rr_imm12_sh.imm12,
+            rr_imm12_sh.sh == 1,
+        )),
         .sub_immediate => try emit.writeInstruction(Instruction.sub(
             rr_imm12_sh.rd,
             rr_imm12_sh.rn,
@@ -450,6 +459,22 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
         });
     } else {
         return emit.fail("Implement call_extern for linking backends != MachO", .{});
+    }
+}
+
+fn mirAddSubtractShiftedRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const rrr_imm6_shift = emit.mir.instructions.items(.data)[inst].rrr_imm6_shift;
+
+    switch (tag) {
+        .cmp_shifted_register => try emit.writeInstruction(Instruction.subsShiftedRegister(
+            rrr_imm6_shift.rd,
+            rrr_imm6_shift.rn,
+            rrr_imm6_shift.rm,
+            rrr_imm6_shift.shift,
+            rrr_imm6_shift.imm6,
+        )),
+        else => unreachable,
     }
 }
 
