@@ -363,15 +363,8 @@ pub fn GetQueuedCompletionStatus(
             .OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Cancelled,
             .HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
 
-            //Ignore socket errors, they will be handled at frame callsite
-            .NETNAME_DELETED, .CONNECTION_ABORTED => {},
-
-            else => |err| {
-                if (std.debug.runtime_safety) {
-                    @setEvalBranchQuota(2500);
-                    std.debug.panic("unexpected error: {}\n", .{err});
-                }
-            },
+            //Ignore all unknown errors
+            else => {},
         }
     }
     return GetQueuedCompletionStatusResult.Normal;
@@ -1407,77 +1400,83 @@ pub fn closesocket(s: ws2_32.SOCKET) !void {
     }
 }
 
-pub fn accept(s: ws2_32.SOCKET, name: ?*ws2_32.sockaddr, namelen: ?*ws2_32.socklen_t) ws2_32.SOCKET {
-    assert((name == null) == (namelen == null));
-    if (std.io.is_async) {
-        const loop = std.event.Loop.instance.?;
+pub fn acceptEx(listening_s: ws2_32.SOCKET, accepting_s: ws2_32.SOCKET, name: ?*ws2_32.sockaddr, namelen: ?*ws2_32.socklen_t) ?ws2_32.WinsockError {
+    assert(std.io.is_async);
+    _ = namelen;
 
-        const off = 0;
-        var resume_node = std.event.Loop.ResumeNode.Basic{
-            .base = .{
-                .id = .Basic,
-                .handle = @frame(),
-                .overlapped = OVERLAPPED{
-                    .Internal = 0,
-                    .InternalHigh = 0,
-                    .DUMMYUNIONNAME = .{
-                        .DUMMYSTRUCTNAME = .{
-                            .Offset = @truncate(u32, off),
-                            .OffsetHigh = @truncate(u32, off >> 32),
-                        },
+    const loop = std.event.Loop.instance.?;
+
+    var resume_node = std.event.Loop.ResumeNode.Basic{
+        .base = .{
+            .id = .Basic,
+            .handle = @frame(),
+            .overlapped = OVERLAPPED{
+                .Internal = 0,
+                .InternalHigh = 0,
+                .DUMMYUNIONNAME = .{
+                    .DUMMYSTRUCTNAME = .{
+                        .Offset = 0,
+                        .OffsetHigh = 0,
                     },
-                    .hEvent = null,
                 },
+                .hEvent = null,
             },
-        };
+        },
+    };
 
-        const nonblock = if (std.io.is_async) ws2_32.SOCK.NONBLOCK else 0;
-        const sock_flags = ws2_32.SOCK.STREAM | ws2_32.SOCK.CLOEXEC | nonblock;
-        const proto = ws2_32.IPPROTO.TCP;
+    const addressSize = @sizeOf(std.net.Address);
+    const sizeOfAddressInBuffer = addressSize + 16;
+    var buffer: [sizeOfAddressInBuffer * 2]u8 = undefined;
+    var bytesRead: u32 = 0;
 
-        const sockfd = std.os.socket(ws2_32.AF.INET, sock_flags, proto) catch unreachable;
-        errdefer std.os.closeSocket(sockfd);
-
-        const addressSize = @sizeOf(std.net.Address);
-        const sizeOfAddressInBuffer = addressSize + 16;
-        var buffer: [sizeOfAddressInBuffer * 2]u8 = undefined;
-        var bytesRead: u32 = 0;
-
-        loop.beginOneEvent();
-        suspend {
-            if (ws2_32.AcceptEx(
-                s,
-                sockfd,
-                &buffer,
-                0,
-                addressSize + 16,
-                addressSize + 16,
-                &bytesRead,
-                &resume_node.base.overlapped,
-            ) == FALSE) {
-                switch (ws2_32.WSAGetLastError()) {
-                    .WSA_IO_PENDING => {},
-                    else => {
-                        resume @frame();
-                        loop.finishOneEvent();
-                        std.os.closeSocket(sockfd);
-                        return ws2_32.INVALID_SOCKET;
-                    },
-                }
+    loop.beginOneEvent();
+    
+    suspend {
+        if (ws2_32.AcceptEx(
+            listening_s,
+            accepting_s,
+            &buffer,
+            0,
+            addressSize + 16,
+            addressSize + 16,
+            &bytesRead,
+            &resume_node.base.overlapped,
+        ) == FALSE) {
+            switch (ws2_32.WSAGetLastError()) {
+                .WSA_IO_PENDING => {},
+                else => |err| {
+                    resume @frame();
+                    loop.finishOneEvent();
+                    return err;
+                },
             }
         }
-
-        _ = CreateIoCompletionPort(sockfd, loop.os_data.io_port, 0, 0) catch unreachable;
-
-        //Copy remote socket address to passed in location
-        if (name) |_name| {
-            std.mem.copy(u8, @ptrCast([*]u8, _name)[0..addressSize], buffer[addressSize + 16 .. addressSize * 2 + 16]);
+        else {
+            //Completed synchroniously
+            resume @frame();
+            loop.finishOneEvent();
         }
-
-        return sockfd;
-    } else {
-        return ws2_32.accept(s, name, @ptrCast(?*i32, namelen));
     }
+
+    var bytesTransfered: DWORD = undefined;
+    var completionFlags: DWORD = undefined;
+    if (ws2_32.WSAGetOverlappedResult(listening_s, &resume_node.base.overlapped, &bytesTransfered, @boolToInt(false), &completionFlags) == 0) {
+        switch (ws2_32.WSAGetLastError()) {
+            .WSA_IO_INCOMPLETE => unreachable,
+            else => |err| return err,
+        }
+    }
+
+    //Copy remote socket address to passed in location
+    if (name) |_name| {
+        std.mem.copy(u8, @ptrCast([*]u8, _name)[0..addressSize], buffer[addressSize + 16 .. addressSize * 2 + 16]);
+    }
+    return null;
+}
+
+pub fn accept(s: ws2_32.SOCKET, name: ?*ws2_32.sockaddr, namelen: ?*ws2_32.socklen_t) ws2_32.SOCKET {
+    assert((name == null) == (namelen == null));
+    return ws2_32.accept(s, name, @ptrCast(?*i32, namelen));
 }
 
 pub fn getsockname(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
@@ -2311,8 +2310,7 @@ pub const TransferType = enum(u2) {
     METHOD_NEITHER = 3,
 };
 
-pub const FileType = enum(DWORD) 
-{
+pub const FileType = enum(DWORD) {
     FILE_TYPE_UNKNOWN = 0x0000,
     FILE_TYPE_DISK = 0x0001,
     FILE_TYPE_CHAR = 0x0002,

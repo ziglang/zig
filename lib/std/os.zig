@@ -2875,10 +2875,10 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
         // NOTE: windows translates the SOCK.NONBLOCK/SOCK.CLOEXEC flags into
         // windows-analagous operations
         const filtered_sock_type = socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC);
-        const handleInherit : u32 = if ((socket_type & SOCK.CLOEXEC) != 0) windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT else 0;
-        const enableOverlapped : u32 = if ((socket_type & SOCK.NONBLOCK) != 0) windows.ws2_32.WSA_FLAG_OVERLAPPED else 0;
+        const handleInherit: u32 = if ((socket_type & SOCK.CLOEXEC) != 0) windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT else 0;
+        const enableOverlapped: u32 = if ((socket_type & SOCK.NONBLOCK) != 0) windows.ws2_32.WSA_FLAG_OVERLAPPED else 0;
         const flags: u32 = handleInherit | enableOverlapped;
-        
+
         const rc = try windows.WSASocketW(
             @bitCast(i32, domain),
             @bitCast(i32, filtered_sock_type),
@@ -3202,15 +3202,38 @@ pub fn accept(
     const have_accept4 = comptime !(builtin.target.isDarwin() or builtin.os.tag == .windows);
     assert(0 == (flags & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC))); // Unsupported flag(s)
 
-    const accepted_sock = while (true) {
-        const rc = if (have_accept4)
-            system.accept4(sock, addr, addr_size, flags)
-        else if (builtin.os.tag == .windows)
-            windows.accept(sock, addr, addr_size)
-        else
-            system.accept(sock, addr, addr_size);
+    const accepted_sock = if (builtin.os.tag == .windows) blk: {
+        if (std.io.is_async) {
+            var localSocket: sockaddr = undefined;
+            var adr_len: socklen_t = @sizeOf(sockaddr);
 
-        if (builtin.os.tag == .windows) {
+            getsockname(sock, &localSocket, &adr_len) catch unreachable;
+
+            const nonblock = if (std.io.is_async) SOCK.NONBLOCK else 0;
+            const sock_flags = SOCK.STREAM | SOCK.CLOEXEC | nonblock;
+            const proto = IPPROTO.TCP;
+
+            const rc = socket(localSocket.family, sock_flags, proto) catch unreachable;
+            errdefer closeSocket(rc);
+
+            if (windows.acceptEx(sock, rc, addr, addr_size)) |err| switch (err) {
+                .WSANOTINITIALISED => unreachable, // not initialized WSA
+                .WSAECONNRESET => return error.ConnectionResetByPeer,
+                .WSAEFAULT => unreachable,
+                .WSAEINVAL => return error.SocketNotListening,
+                .WSAEMFILE => return error.ProcessFdQuotaExceeded,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAENOBUFS => return error.FileDescriptorNotASocket,
+                .WSAEOPNOTSUPP => return error.OperationNotSupported,
+                .WSAEWOULDBLOCK => return error.WouldBlock,
+                else => return windows.unexpectedWSAError(err),
+            };
+
+            _ = windows.CreateIoCompletionPort(rc, std.event.Loop.instance.?.os_data.io_port, 0, 0) catch unreachable;
+
+            break :blk rc;
+        } else {
+            const rc = windows.accept(sock, addr, addr_size);
             if (rc == windows.ws2_32.INVALID_SOCKET) {
                 switch (windows.ws2_32.WSAGetLastError()) {
                     .WSANOTINITIALISED => unreachable, // not initialized WSA
@@ -3224,30 +3247,35 @@ pub fn accept(
                     .WSAEWOULDBLOCK => return error.WouldBlock,
                     else => |err| return windows.unexpectedWSAError(err),
                 }
-            } else {
-                break rc;
             }
-        } else {
-            switch (errno(rc)) {
-                .SUCCESS => {
-                    break @intCast(socket_t, rc);
-                },
-                .INTR => continue,
-                .AGAIN => return error.WouldBlock,
-                .BADF => unreachable, // always a race condition
-                .CONNABORTED => return error.ConnectionAborted,
-                .FAULT => unreachable,
-                .INVAL => return error.SocketNotListening,
-                .NOTSOCK => unreachable,
-                .MFILE => return error.ProcessFdQuotaExceeded,
-                .NFILE => return error.SystemFdQuotaExceeded,
-                .NOBUFS => return error.SystemResources,
-                .NOMEM => return error.SystemResources,
-                .OPNOTSUPP => unreachable,
-                .PROTO => return error.ProtocolFailure,
-                .PERM => return error.BlockedByFirewall,
-                else => |err| return unexpectedErrno(err),
-            }
+
+            break :blk rc;
+        }
+    } else while (true) {
+        const rc = if (have_accept4)
+            system.accept4(sock, addr, addr_size, flags)
+        else
+            system.accept(sock, addr, addr_size);
+
+        switch (errno(rc)) {
+            .SUCCESS => {
+                break @intCast(socket_t, rc);
+            },
+            .INTR => continue,
+            .AGAIN => return error.WouldBlock,
+            .BADF => unreachable, // always a race condition
+            .CONNABORTED => return error.ConnectionAborted,
+            .FAULT => unreachable,
+            .INVAL => return error.SocketNotListening,
+            .NOTSOCK => unreachable,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .OPNOTSUPP => unreachable,
+            .PROTO => return error.ProtocolFailure,
+            .PERM => return error.BlockedByFirewall,
+            else => |err| return unexpectedErrno(err),
         }
     } else unreachable;
 
