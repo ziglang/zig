@@ -199,9 +199,7 @@ pub extern "kernel32" fn GetFileInformationByHandleEx(
     in_dwBufferSize: DWORD,
 ) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn GetFileType(
-    hFile: HANDLE
-) callconv(WINAPI) FileType;
+pub extern "kernel32" fn GetFileType(hFile: HANDLE) callconv(WINAPI) FileType;
 
 pub extern "kernel32" fn GetFinalPathNameByHandleW(
     hFile: HANDLE,

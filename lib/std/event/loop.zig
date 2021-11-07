@@ -973,7 +973,7 @@ pub const Loop = struct {
         while (true) {
             return os.accept(sockfd, addr, addr_size, flags | os.SOCK.NONBLOCK) catch |err| switch (err) {
                 error.WouldBlock => {
-                    if(is_windows) unreachable;
+                    if (is_windows) unreachable;
                     self.waitUntilFdReadable(sockfd);
                     continue;
                 },
