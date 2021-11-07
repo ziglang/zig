@@ -159,10 +159,18 @@ pub fn deinit(self: *Wasm) void {
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
     }
-    while (self.symbols_free_list.popOrNull()) |index| {
-        _ = self.symbols.swapRemove(index);
-    }
-    for (self.symbols.items) |decl| {
+
+    for (self.symbols.items) |decl, symbol_index| {
+        // Check if we already freed all memory for the symbol
+        // TODO: Audit this when we refactor the linker.
+        var already_freed = false;
+        for (self.symbols_free_list.items) |index| {
+            if (symbol_index == index) {
+                already_freed = true;
+                break;
+            }
+        }
+        if (already_freed) continue;
         decl.fn_link.wasm.functype.deinit(self.base.allocator);
         decl.fn_link.wasm.code.deinit(self.base.allocator);
         decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
@@ -373,7 +381,6 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     decl.fn_link.wasm.functype.deinit(self.base.allocator);
     decl.fn_link.wasm.code.deinit(self.base.allocator);
     decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
-    decl.fn_link.wasm = undefined;
 }
 
 pub fn flush(self: *Wasm, comp: *Compilation) !void {

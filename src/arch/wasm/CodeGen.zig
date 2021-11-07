@@ -1563,11 +1563,12 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             try self.addTag(.i32_add);
         }
 
-        const depth = highest - lowest + @boolToInt(has_else_body);
-        const jump_table: Mir.JumpTable = .{ .length = @bitCast(u32, depth) };
+        // Account for default branch so always add '1'
+        const depth = @intCast(u32, highest - lowest + @boolToInt(has_else_body)) + 1;
+        const jump_table: Mir.JumpTable = .{ .length = depth };
         const table_extra_index = try self.addExtra(jump_table);
         try self.addInst(.{ .tag = .br_table, .data = .{ .payload = table_extra_index } });
-        try self.mir_extra.ensureUnusedCapacity(self.gpa, @bitCast(u32, depth));
+        try self.mir_extra.ensureUnusedCapacity(self.gpa, depth);
         while (lowest <= highest) : (lowest += 1) {
             // idx represents the branch we jump to
             const idx = blk: {
@@ -1692,20 +1693,15 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
-    const writer = self.code.writer();
 
     // load the null value which is positioned at multi_value's index
     try self.emitWValue(.{ .local = operand.multi_value.index });
-    // Compare the null value with '0'
-    try writer.writeByte(wasm.opcode(.i32_const));
-    try leb.writeILEB128(writer, @as(i32, 0));
-
-    try writer.writeByte(@enumToInt(opcode));
+    try self.addImm32(0);
+    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
 
     // we save the result in a new local
     const local = try self.allocLocal(Type.initTag(.i32));
-    try writer.writeByte(wasm.opcode(.local_set));
-    try leb.writeULEB128(writer, local.local);
+    try self.addLabel(.local_set, local.local);
 
     return local;
 }

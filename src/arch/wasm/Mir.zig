@@ -307,7 +307,7 @@ pub fn deinit(self: *Mir, gpa: *std.mem.Allocator) void {
 }
 
 pub const JumpTable = struct {
-    /// Length of the jump table and the amount of entries it contains
+    /// Length of the jump table and the amount of entries it contains (includes default)
     length: u32,
 };
 

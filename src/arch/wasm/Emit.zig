@@ -178,7 +178,7 @@ fn emitBrTable(emit: *Emit, inst: Mir.Inst.Index) !void {
     const writer = emit.code.writer();
 
     try emit.code.append(std.wasm.opcode(.br_table));
-    try leb128.writeULEB128(writer, extra.data.length);
+    try leb128.writeULEB128(writer, extra.data.length - 1); // Default label is not part of length/depth
     for (labels) |label| {
         try leb128.writeULEB128(writer, label);
     }
