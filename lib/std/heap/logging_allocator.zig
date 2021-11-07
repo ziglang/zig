@@ -77,7 +77,7 @@ pub fn ScopedLoggingAllocator(
             new_len: usize,
             len_align: u29,
             ra: usize,
-        ) error{OutOfMemory}!usize {
+        ) ?usize {
             if (self.parent_allocator.rawResize(buf, buf_align, new_len, len_align, ra)) |resized_len| {
                 if (new_len <= buf.len) {
                     logHelper(
@@ -94,15 +94,15 @@ pub fn ScopedLoggingAllocator(
                 }
 
                 return resized_len;
-            } else |err| {
-                std.debug.assert(new_len > buf.len);
-                logHelper(
-                    failure_log_level,
-                    "expand - failure: {s} - {} to {}, len_align: {}, buf_align: {}",
-                    .{ @errorName(err), buf.len, new_len, len_align, buf_align },
-                );
-                return err;
             }
+
+            std.debug.assert(new_len > buf.len);
+            logHelper(
+                failure_log_level,
+                "expand - failure - {} to {}, len_align: {}, buf_align: {}",
+                .{ buf.len, new_len, len_align, buf_align },
+            );
+            return null;
         }
 
         fn free(

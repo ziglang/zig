@@ -129,7 +129,7 @@ const CAllocator = struct {
         new_len: usize,
         len_align: u29,
         return_address: usize,
-    ) Allocator.Error!usize {
+    ) ?usize {
         _ = buf_align;
         _ = return_address;
         if (new_len <= buf.len) {
@@ -141,7 +141,7 @@ const CAllocator = struct {
                 return mem.alignAllocLen(full_len, new_len, len_align);
             }
         }
-        return error.OutOfMemory;
+        return null;
     }
 
     fn free(
@@ -205,13 +205,13 @@ fn rawCResize(
     new_len: usize,
     len_align: u29,
     ret_addr: usize,
-) Allocator.Error!usize {
+) ?usize {
     _ = old_align;
     _ = ret_addr;
     if (new_len <= buf.len) {
         return mem.alignAllocLen(buf.len, new_len, len_align);
     }
-    return error.OutOfMemory;
+    return null;
 }
 
 fn rawCFree(
@@ -361,7 +361,7 @@ const PageAllocator = struct {
         new_size: usize,
         len_align: u29,
         return_address: usize,
-    ) Allocator.Error!usize {
+    ) ?usize {
         _ = buf_align;
         _ = return_address;
         const new_size_aligned = mem.alignForward(new_size, mem.page_size);
@@ -387,7 +387,7 @@ const PageAllocator = struct {
             if (new_size_aligned <= old_size_aligned) {
                 return alignPageAllocLen(new_size_aligned, new_size, len_align);
             }
-            return error.OutOfMemory;
+            return null;
         }
 
         const buf_aligned_len = mem.alignForward(buf_unaligned.len, mem.page_size);
@@ -403,7 +403,7 @@ const PageAllocator = struct {
 
         // TODO: call mremap
         // TODO: if the next_mmap_addr_hint is within the remapped range, update it
-        return error.OutOfMemory;
+        return null;
     }
 
     fn free(_: *c_void, buf_unaligned: []u8, buf_align: u29, return_address: usize) void {
@@ -579,11 +579,11 @@ const WasmPageAllocator = struct {
         new_len: usize,
         len_align: u29,
         return_address: usize,
-    ) error{OutOfMemory}!usize {
+    ) ?usize {
         _ = buf_align;
         _ = return_address;
         const aligned_len = mem.alignForward(buf.len, mem.page_size);
-        if (new_len > aligned_len) return error.OutOfMemory;
+        if (new_len > aligned_len) return null;
         const current_n = nPages(aligned_len);
         const new_n = nPages(new_len);
         if (new_n != current_n) {
@@ -674,7 +674,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
             new_size: usize,
             len_align: u29,
             return_address: usize,
-        ) error{OutOfMemory}!usize {
+        ) ?usize {
             _ = buf_align;
             _ = return_address;
 
@@ -686,7 +686,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
                 os.windows.HEAP_REALLOC_IN_PLACE_ONLY,
                 @intToPtr(*c_void, root_addr),
                 amt,
-            ) orelse return error.OutOfMemory;
+            ) orelse return null;
             assert(new_ptr == @intToPtr(*c_void, root_addr));
             const return_len = init: {
                 if (len_align == 0) break :init new_size;
@@ -788,14 +788,13 @@ pub const FixedBufferAllocator = struct {
         new_size: usize,
         len_align: u29,
         return_address: usize,
-    ) Allocator.Error!usize {
+    ) ?usize {
         _ = buf_align;
         _ = return_address;
         assert(self.ownsSlice(buf)); // sanity check
 
         if (!self.isLastAllocation(buf)) {
-            if (new_size > buf.len)
-                return error.OutOfMemory;
+            if (new_size > buf.len) return null;
             return mem.alignAllocLen(buf.len, new_size, len_align);
         }
 
@@ -806,9 +805,8 @@ pub const FixedBufferAllocator = struct {
         }
 
         const add = new_size - buf.len;
-        if (add + self.end_index > self.buffer.len) {
-            return error.OutOfMemory;
-        }
+        if (add + self.end_index > self.buffer.len) return null;
+
         self.end_index += add;
         return new_size;
     }
@@ -891,7 +889,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             new_len: usize,
             len_align: u29,
             return_address: usize,
-        ) error{OutOfMemory}!usize {
+        ) ?usize {
             if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
                 return FixedBufferAllocator.resize(&self.fixed_buffer_allocator, buf, buf_align, new_len, len_align, return_address);
             } else {

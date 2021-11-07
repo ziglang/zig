@@ -78,26 +78,23 @@ pub const ArenaAllocator = struct {
 
             const bigger_buf_size = @sizeOf(BufNode) + new_end_index;
             // Try to grow the buffer in-place
-            cur_node.data = self.child_allocator.resize(cur_node.data, bigger_buf_size) catch |err| switch (err) {
-                error.OutOfMemory => {
-                    // Allocate a new node if that's not possible
-                    cur_node = try self.createNode(cur_buf.len, n + ptr_align);
-                    continue;
-                },
+            cur_node.data = self.child_allocator.resize(cur_node.data, bigger_buf_size) orelse {
+                // Allocate a new node if that's not possible
+                cur_node = try self.createNode(cur_buf.len, n + ptr_align);
+                continue;
             };
         }
     }
 
-    fn resize(self: *ArenaAllocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) Allocator.Error!usize {
+    fn resize(self: *ArenaAllocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize {
         _ = buf_align;
         _ = len_align;
         _ = ret_addr;
 
-        const cur_node = self.state.buffer_list.first orelse return error.OutOfMemory;
+        const cur_node = self.state.buffer_list.first orelse return null;
         const cur_buf = cur_node.data[@sizeOf(BufNode)..];
         if (@ptrToInt(cur_buf.ptr) + self.state.end_index != @ptrToInt(buf.ptr) + buf.len) {
-            if (new_len > buf.len)
-                return error.OutOfMemory;
+            if (new_len > buf.len) return null;
             return new_len;
         }
 
@@ -108,7 +105,7 @@ pub const ArenaAllocator = struct {
             self.state.end_index += new_len - buf.len;
             return new_len;
         } else {
-            return error.OutOfMemory;
+            return null;
         }
     }
 

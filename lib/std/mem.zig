@@ -88,14 +88,14 @@ pub fn ValidationAllocator(comptime T: type) type {
             new_len: usize,
             len_align: u29,
             ret_addr: usize,
-        ) Allocator.Error!usize {
+        ) ?usize {
             assert(buf.len > 0);
             if (len_align != 0) {
                 assert(mem.isAlignedAnyAlign(new_len, len_align));
                 assert(new_len >= len_align);
             }
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = try underlying.rawResize(buf, buf_align, new_len, len_align, ret_addr);
+            const result = underlying.rawResize(buf, buf_align, new_len, len_align, ret_addr) orelse return null;
             if (len_align == 0) {
                 assert(result == new_len);
             } else {
@@ -188,7 +188,7 @@ test "Allocator.resize" {
         defer testing.allocator.free(values);
 
         for (values) |*v, i| v.* = @intCast(T, i);
-        values = try testing.allocator.resize(values, values.len + 10);
+        values = testing.allocator.resize(values, values.len + 10) orelse return error.OutOfMemory;
         try testing.expect(values.len == 110);
     }
 
@@ -203,7 +203,7 @@ test "Allocator.resize" {
         defer testing.allocator.free(values);
 
         for (values) |*v, i| v.* = @intToFloat(T, i);
-        values = try testing.allocator.resize(values, values.len + 10);
+        values = testing.allocator.resize(values, values.len + 10) orelse return error.OutOfMemory;
         try testing.expect(values.len == 110);
     }
 }

@@ -1288,7 +1288,7 @@ fn parseDependentLibs(self: *MachO, syslibroot: ?[]const u8, dependent_libs: any
     // TODO this should not be performed if the user specifies `-flat_namespace` flag.
     // See ld64 manpages.
     var arena_alloc = std.heap.ArenaAllocator.init(self.base.allocator);
-    const arena = &arena_alloc.allocator;
+    const arena = arena_alloc.allocator();
     defer arena_alloc.deinit();
 
     while (dependent_libs.readItem()) |*id| {

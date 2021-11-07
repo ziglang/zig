@@ -517,7 +517,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             new_size: usize,
             len_align: u29,
             ret_addr: usize,
-        ) Error!usize {
+        ) ?usize {
             const entry = self.large_allocations.getEntry(@ptrToInt(old_mem.ptr)) orelse {
                 if (config.safety) {
                     @panic("Invalid free");
@@ -557,7 +557,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             if (config.enable_memory_limit) {
                 const new_req_bytes = prev_req_bytes + new_size - entry.value_ptr.requested_size;
                 if (new_req_bytes > prev_req_bytes and new_req_bytes > self.requested_memory_limit) {
-                    return error.OutOfMemory;
+                    return null;
                 }
                 self.total_requested_bytes = new_req_bytes;
             }
@@ -565,7 +565,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 self.total_requested_bytes = prev_req_bytes;
             };
 
-            const result_len = try self.backing_allocator.rawResize(old_mem, old_align, new_size, len_align, ret_addr);
+            const result_len = self.backing_allocator.rawResize(old_mem, old_align, new_size, len_align, ret_addr) orelse return null;
 
             if (config.enable_memory_limit) {
                 entry.value_ptr.requested_size = new_size;
@@ -650,7 +650,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             new_size: usize,
             len_align: u29,
             ret_addr: usize,
-        ) Error!usize {
+        ) ?usize {
             self.mutex.lock();
             defer self.mutex.unlock();
 
@@ -705,7 +705,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             if (config.enable_memory_limit) {
                 const new_req_bytes = prev_req_bytes + new_size - old_mem.len;
                 if (new_req_bytes > prev_req_bytes and new_req_bytes > self.requested_memory_limit) {
-                    return error.OutOfMemory;
+                    return null;
                 }
                 self.total_requested_bytes = new_req_bytes;
             }
@@ -726,7 +726,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 }
                 return new_size;
             }
-            return error.OutOfMemory;
+            return null;
         }
 
         fn free(
@@ -735,8 +735,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             old_align: u29,
             ret_addr: usize,
         ) void {
-            const held = self.mutex.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             assert(old_mem.len != 0);
 
@@ -850,7 +850,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             return true;
         }
 
-        fn alloc(self: Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
+        fn alloc(self: *Self, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
             self.mutex.lock();
             defer self.mutex.unlock();
 
@@ -1065,7 +1065,7 @@ test "shrink large object to large object" {
     slice[0] = 0x12;
     slice[60] = 0x34;
 
-    slice = try allocator.resize(slice, page_size * 2 + 1);
+    slice = allocator.resize(slice, page_size * 2 + 1) orelse return;
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[60] == 0x34);
 

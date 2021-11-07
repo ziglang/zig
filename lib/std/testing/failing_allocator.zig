@@ -68,11 +68,8 @@ pub const FailingAllocator = struct {
         new_len: usize,
         len_align: u29,
         ra: usize,
-    ) error{OutOfMemory}!usize {
-        const r = self.internal_allocator.rawResize(old_mem, old_align, new_len, len_align, ra) catch |e| {
-            std.debug.assert(new_len > old_mem.len);
-            return e;
-        };
+    ) ?usize {
+        const r = self.internal_allocator.rawResize(old_mem, old_align, new_len, len_align, ra) orelse return null;
         if (r < old_mem.len) {
             self.freed_bytes += old_mem.len - r;
         } else {

@@ -113,18 +113,14 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
 
         const Self = @This();
 
-        pub fn allocator(self: *Self) std.mem.Allocator {
-            return std.mem.Allocator.init(self, allocFn, resizeFn);
+        pub fn init(parent_allocator: std.mem.Allocator) Self {
+            return .{
+                .parent_allocator = parent_allocator,
+            };
         }
 
-        pub fn init(allocator: std.mem.Allocator) Self {
-            return .{
-                .parent_allocator = allocator,
-                .allocator = .{
-                    .allocFn = allocFn,
-                    .resizeFn = resizeFn,
-                },
-            };
+        pub fn allocator(self: *Self) std.mem.Allocator {
+            return std.mem.Allocator.init(self, allocFn, resizeFn, freeFn);
         }
 
         fn allocFn(self: *Self, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) std.mem.Allocator.Error![]u8 {
@@ -162,12 +158,11 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
                 }
 
                 return resized_len;
-            } else |err| {
-                // this is not really an error condition, during normal operation the compiler hits this case thousands of times
-                // due to this emitting messages for it is both slow and causes clutter
-                // messageColor("allocation resize failed", 0xFF0000);
-                return err;
             }
+
+            // during normal operation the compiler hits this case thousands of times due to this
+            // emitting messages for it is both slow and causes clutter
+            return null;
         }
 
         fn freeFn(self: *Self, buf: []u8, buf_align: u29, ret_addr: usize) void {

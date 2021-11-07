@@ -45,22 +45,23 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
             new_len: usize,
             len_align: u29,
             ra: usize,
-        ) error{OutOfMemory}!usize {
+        ) ?usize {
             if (new_len <= buf.len) {
                 self.writer.print("shrink: {} to {}\n", .{ buf.len, new_len }) catch {};
             } else {
                 self.writer.print("expand: {} to {}", .{ buf.len, new_len }) catch {};
             }
+
             if (self.parent_allocator.rawResize(buf, buf_align, new_len, len_align, ra)) |resized_len| {
                 if (new_len > buf.len) {
                     self.writer.print(" success!\n", .{}) catch {};
                 }
                 return resized_len;
-            } else |e| {
-                std.debug.assert(new_len > buf.len);
-                self.writer.print(" failure!\n", .{}) catch {};
-                return e;
             }
+
+            std.debug.assert(new_len > buf.len);
+            self.writer.print(" failure!\n", .{}) catch {};
+            return null;
         }
 
         fn free(
@@ -95,7 +96,7 @@ test "LogToWriterAllocator" {
     var a = try allocator.alloc(u8, 10);
     a = allocator.shrink(a, 5);
     try std.testing.expect(a.len == 5);
-    try std.testing.expectError(error.OutOfMemory, allocator.resize(a, 20));
+    try std.testing.expect(allocator.resize(a, 20) == null);
     allocator.free(a);
 
     try std.testing.expectEqualSlices(u8,

@@ -159,7 +159,7 @@ pub fn main() anyerror!void {
 
     if (tracy.enable_allocation) {
         var gpa_tracy = tracy.tracyAllocator(gpa);
-        return mainArgs(&gpa_tracy.allocator, arena, args);
+        return mainArgs(gpa_tracy.allocator(), arena, args);
     }
 
     return mainArgs(gpa, arena, args);

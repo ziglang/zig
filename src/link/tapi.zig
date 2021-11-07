@@ -138,7 +138,7 @@ pub const LibStub = struct {
             err: {
                 log.debug("trying to parse as []TbdV3", .{});
                 const inner = lib_stub.yaml.parse([]TbdV3) catch break :err;
-                var out = try lib_stub.yaml.arena.allocator.alloc(Tbd, inner.len);
+                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, inner.len);
                 for (inner) |doc, i| {
                     out[i] = .{ .v3 = doc };
                 }
