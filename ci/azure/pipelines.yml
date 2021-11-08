@@ -21,17 +21,6 @@ jobs:
   - script: ci/azure/macos_arm64_script
     name: main
     displayName: 'Build'
-- job: BuildLinux
-  pool:
-    vmImage: 'ubuntu-18.04'
-  timeoutInMinutes: 360
-  steps:
-  - task: DownloadSecureFile@1
-    inputs:
-      secureFile: s3cfg
-  - script: ci/azure/linux_script
-    name: main
-    displayName: 'Build and test'
 - job: BuildWindows
   pool:
     vmImage: 'windows-2019'
@@ -60,7 +49,6 @@ jobs:
   dependsOn:
   - BuildMacOS
   - BuildMacOS_arm64
-  - BuildLinux
   - BuildWindows
   condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))
   strategy:
@@ -68,7 +56,7 @@ jobs:
   pool:
     vmImage: 'ubuntu-18.04'
   variables:
-    version: $[ dependencies.BuildLinux.outputs['main.version'] ]
+    version: $[ dependencies.BuildMacOS.outputs['main.version'] ]
   steps:
   - task: DownloadSecureFile@1
     inputs:
