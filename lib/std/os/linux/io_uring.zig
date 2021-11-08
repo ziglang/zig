@@ -1170,21 +1170,8 @@ pub fn io_uring_prep_cancel(
     cancel_user_data: u64,
     flags: u32,
 ) void {
-    sqe.* = .{
-        .opcode = .ASYNC_CANCEL,
-        .flags = 0,
-        .ioprio = 0,
-        .fd = -1,
-        .off = 0,
-        .addr = cancel_user_data,
-        .len = 0,
-        .rw_flags = flags,
-        .user_data = 0,
-        .buf_index = 0,
-        .personality = 0,
-        .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
-    };
+    io_uring_prep_rw(.ASYNC_CANCEL, sqe, -1, cancel_user_data, 0, 0);
+    sqe.rw_flags = flags;
 }
 
 test "structs/offsets/entries" {
