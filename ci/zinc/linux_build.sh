@@ -3,13 +3,6 @@
 set -x
 set -e
 
-# Probe CPU/brand details.
-echo "lscpu:"
-(lscpu | sed 's,^,  : ,') 1>&2
-
-pwd
-(env | sort | sed 's,^,  : ,') 1>&2
-
 WORKSPACE="$DRONE_WORKSPACE"
 LOCAL="/deps/local"
 ZIG="$LOCAL/bin/zig"
