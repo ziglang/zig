@@ -395,7 +395,7 @@ pub const Edwards25519 = struct {
         const fe_f = Fe.fromBytes64(h);
         var elr = elligator2(fe_f);
 
-        const y_sign = elr.not_square;
+        const y_sign = !elr.not_square;
         const y_neg = elr.y.neg();
         elr.y.cMov(y_neg, @boolToInt(elr.y.isNegative()) ^ @boolToInt(y_sign));
         return montToEd(elr.x, elr.y).clearCofactor();
@@ -542,11 +542,11 @@ test "edwards25519 uniform-to-point" {
     try htest.assertEqual("f70718e68ef42d90ca1d936bb2d7e159be6c01d8095d39bd70487c82fe5c973a", p.toBytes()[0..]);
 }
 
-// Test vectors from draft-irtf-cfrg-hash-to-curve-10
+// Test vectors from draft-irtf-cfrg-hash-to-curve-12
 test "edwards25519 hash-to-curve operation" {
     var p = Edwards25519.fromString(true, "QUUX-V01-CS02-with-edwards25519_XMD:SHA-512_ELL2_RO_", "abc");
-    try htest.assertEqual("31558a26887f23fb8218f143e69d5f0af2e7831130bd5b432ef23883b895831a", p.toBytes()[0..]);
+    try htest.assertEqual("31558a26887f23fb8218f143e69d5f0af2e7831130bd5b432ef23883b895839a", p.toBytes()[0..]);
 
     p = Edwards25519.fromString(false, "QUUX-V01-CS02-with-edwards25519_XMD:SHA-512_ELL2_NU_", "abc");
-    try htest.assertEqual("42fa27c8f5a1ae0aa38bb59d5938e5145622ba5dedd11d11736fa2f9502d73e7", p.toBytes()[0..]);
+    try htest.assertEqual("42fa27c8f5a1ae0aa38bb59d5938e5145622ba5dedd11d11736fa2f9502d7367", p.toBytes()[0..]);
 }
