@@ -5823,7 +5823,8 @@ pub fn ppoll(fds: []pollfd, timeout: ?*const timespec, mask: ?*const sigset_t) P
         ts_ptr = &ts;
         ts = timeout_ns.*;
     }
-    const rc = system.ppoll(fds.ptr, fds.len, ts_ptr, mask);
+    const fds_count = math.cast(nfds_t, fds.len) catch return error.SystemResources;
+    const rc = system.ppoll(fds.ptr, fds_count, ts_ptr, mask);
     switch (errno(rc)) {
         .SUCCESS => return @intCast(usize, rc),
         .FAULT => unreachable,
