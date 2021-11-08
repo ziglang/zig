@@ -95,4 +95,5 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   echo "##vso[task.setvariable variable=tarball;isOutput=true]$TARBALL"
   echo "##vso[task.setvariable variable=shasum;isOutput=true]$SHASUM"
   echo "##vso[task.setvariable variable=bytesize;isOutput=true]$BYTESIZE"
+  echo "##vso[task.setvariable variable=version;isOutput=true]$VERSION"
 fi
