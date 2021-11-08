@@ -587,7 +587,6 @@ fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!void {
 /// Inserts a Mir instruction at the given `offset`.
 /// Asserts offset is within bound.
 fn addInstAt(self: *Self, offset: usize, inst: Mir.Inst) error{OutOfMemory}!void {
-    assert(offset < self.mir_instructions.len);
     try self.mir_instructions.ensureUnusedCapacity(self.gpa, 1);
     self.mir_instructions.insertAssumeCapacity(offset, inst);
 }
@@ -602,6 +601,19 @@ fn addLabel(self: *Self, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!void 
 
 fn addImm32(self: *Self, imm: i32) error{OutOfMemory}!void {
     try self.addInst(.{ .tag = .i32_const, .data = .{ .imm32 = imm } });
+}
+
+/// Accepts an unsigned 64bit integer rather than a signed integer to
+/// prevent us from having to bitcast multiple times as most values
+/// within codegen are represented as unsigned rather than signed.
+fn addImm64(self: *Self, imm: u64) error{OutOfMemory}!void {
+    const extra_index = try self.addExtra(Mir.Imm64.fromU64(imm));
+    try self.addInst(.{ .tag = .i64_const, .data = .{ .payload = extra_index } });
+}
+
+fn addFloat64(self: *Self, float: f64) error{OutOfMemory}!void {
+    const extra_index = try self.addExtra(Mir.Float64.fromFloat64(float));
+    try self.addInst(.{ .tag = .f64_const, .data = .{ .payload = extra_index } });
 }
 
 /// Appends entries to `mir_extra` based on the type of `extra`.
@@ -1112,10 +1124,7 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
                 try self.addImm32(@bitCast(i32, @intCast(u32, result)));
                 try self.addTag(.i32_and);
             } else {
-                try self.addInst(.{
-                    .tag = .i64_const,
-                    .data = .{ .imm64 = @bitCast(i64, result) },
-                });
+                try self.addImm64(result);
                 try self.addTag(.i64_and);
             }
         }
@@ -1129,45 +1138,29 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
 fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
     switch (ty.zigTypeTag()) {
         .Int => {
-            // write opcode
-            const opcode: wasm.Opcode = buildOpcode(.{
-                .op = .@"const",
-                .valtype1 = try self.typeToValtype(ty),
-            });
             const int_info = ty.intInfo(self.target);
             // write constant
-            try self.addInst(.{
-                .tag = Mir.Inst.Tag.fromOpcode(opcode),
-                .data = switch (int_info.signedness) {
-                    .signed => @as(Mir.Inst.Data, switch (int_info.bits) {
-                        0...32 => .{ .imm32 = @intCast(i32, val.toSignedInt()) },
-                        33...64 => .{ .imm64 = val.toSignedInt() },
-                        else => |bits| return self.fail("Wasm todo: emitConstant for integer with {d} bits", .{bits}),
-                    }),
-                    .unsigned => @as(Mir.Inst.Data, switch (int_info.bits) {
-                        0...32 => .{ .imm32 = @bitCast(i32, @intCast(u32, val.toUnsignedInt())) },
-                        33...64 => .{ .imm64 = @bitCast(i64, val.toUnsignedInt()) },
-                        else => |bits| return self.fail("Wasm TODO: emitConstant for integer with {d} bits", .{bits}),
-                    }),
+            switch (int_info.signedness) {
+                .signed => switch (int_info.bits) {
+                    0...32 => try self.addImm32(@intCast(i32, val.toSignedInt())),
+                    33...64 => try self.addImm64(@bitCast(u64, val.toSignedInt())),
+                    else => |bits| return self.fail("Wasm todo: emitConstant for integer with {d} bits", .{bits}),
                 },
-            });
+                .unsigned => switch (int_info.bits) {
+                    0...32 => try self.addImm32(@bitCast(i32, @intCast(u32, val.toUnsignedInt()))),
+                    33...64 => try self.addImm64(val.toUnsignedInt()),
+                    else => |bits| return self.fail("Wasm TODO: emitConstant for integer with {d} bits", .{bits}),
+                },
+            }
         },
         .Bool => try self.addImm32(@intCast(i32, val.toSignedInt())),
         .Float => {
-            // write opcode
-            const opcode: wasm.Opcode = buildOpcode(.{
-                .op = .@"const",
-                .valtype1 = try self.typeToValtype(ty),
-            });
             // write constant
-            try self.addInst(.{
-                .tag = Mir.Inst.Tag.fromOpcode(opcode),
-                .data = switch (ty.floatBits(self.target)) {
-                    0...32 => .{ .float32 = val.toFloat(f32) },
-                    64 => .{ .float64 = val.toFloat(f64) },
-                    else => |bits| return self.fail("Wasm TODO: emitConstant for float with {d} bits", .{bits}),
-                },
-            });
+            switch (ty.floatBits(self.target)) {
+                0...32 => try self.addInst(.{ .tag = .f32_const, .data = .{ .float32 = val.toFloat(f32) } }),
+                64 => try self.addFloat64(val.toFloat(f64)),
+                else => |bits| return self.fail("Wasm TODO: emitConstant for float with {d} bits", .{bits}),
+            }
         },
         .Pointer => {
             if (val.castTag(.decl_ref)) |payload| {
@@ -1180,10 +1173,8 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
 
                 // memory instruction followed by their memarg immediate
                 // memarg ::== x:u32, y:u32 => {align x, offset y}
-                try self.addInst(.{
-                    .tag = .i32_load,
-                    .data = .{ .mem_arg = .{ .offset = 0, .alignment = 0 } },
-                });
+                const extra_index = try self.addExtra(Mir.MemArg{ .offset = 0, .alignment = 0 });
+                try self.addInst(.{ .tag = .i32_load, .data = .{ .payload = extra_index } });
             } else return self.fail("Wasm TODO: emitConstant for other const pointer tag {s}", .{val.tag()});
         },
         .Void => {},
@@ -1308,17 +1299,11 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 /// appends a new wasm block to the code section and increases the `block_depth` by 1
 fn startBlock(self: *Self, block_tag: wasm.Opcode, valtype: u8, with_offset: ?usize) !void {
     self.block_depth += 1;
-    if (with_offset) |offset| {
-        try self.addInstAt(offset, .{
-            .tag = Mir.Inst.Tag.fromOpcode(block_tag),
-            .data = .{ .block_type = valtype },
-        });
-    } else {
-        try self.addInst(.{
-            .tag = Mir.Inst.Tag.fromOpcode(block_tag),
-            .data = .{ .block_type = valtype },
-        });
-    }
+    const offset = with_offset orelse self.mir_instructions.len;
+    try self.addInstAt(offset, .{
+        .tag = Mir.Inst.Tag.fromOpcode(block_tag),
+        .data = .{ .block_type = valtype },
+    });
 }
 
 /// Ends the current wasm block and decreases the `block_depth` by 1

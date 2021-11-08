@@ -6,7 +6,6 @@ const std = @import("std");
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
-const ErrorMsg = Module.ErrorMsg;
 const leb128 = std.leb;
 
 /// Contains our list of instructions
@@ -15,7 +14,7 @@ mir: Mir,
 bin_file: *link.File,
 /// Possible error message. When set, the value is allocated and
 /// must be freed manually.
-error_msg: ?*ErrorMsg = null,
+error_msg: ?*Module.ErrorMsg = null,
 /// The binary representation that will be emit by this module.
 code: *std.ArrayList(u8),
 /// List of allocated locals.
@@ -147,7 +146,7 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
     std.debug.assert(emit.error_msg == null);
     // TODO: Determine the source location.
-    emit.error_msg = try ErrorMsg.create(emit.bin_file.allocator, 0, format, args);
+    emit.error_msg = try Module.ErrorMsg.create(emit.bin_file.allocator, emit.decl.srcLoc(), format, args);
     return error.EmitFail;
 }
 
@@ -207,9 +206,10 @@ fn emitImm32(emit: *Emit, inst: Mir.Inst.Index) !void {
 }
 
 fn emitImm64(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const value: i64 = emit.mir.instructions.items(.data)[inst].imm64;
+    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
+    const value = emit.mir.extraData(Mir.Imm64, extra_index);
     try emit.code.append(std.wasm.opcode(.i64_const));
-    try leb128.writeILEB128(emit.code.writer(), value);
+    try leb128.writeULEB128(emit.code.writer(), value.data.toU64());
 }
 
 fn emitFloat32(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -219,13 +219,15 @@ fn emitFloat32(emit: *Emit, inst: Mir.Inst.Index) !void {
 }
 
 fn emitFloat64(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const value: f64 = emit.mir.instructions.items(.data)[inst].float64;
+    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
+    const value = emit.mir.extraData(Mir.Float64, extra_index);
     try emit.code.append(std.wasm.opcode(.f64_const));
-    try emit.code.writer().writeIntLittle(u64, @bitCast(u64, value));
+    try emit.code.writer().writeIntLittle(u64, value.data.toU64());
 }
 
 fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
-    const mem_arg = emit.mir.instructions.items(.data)[inst].mem_arg;
+    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
+    const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index).data;
     try emit.code.append(@enumToInt(tag));
     try leb128.writeULEB128(emit.code.writer(), mem_arg.alignment);
     try leb128.writeULEB128(emit.code.writer(), mem_arg.offset);

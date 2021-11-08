@@ -95,12 +95,12 @@ pub const Inst = struct {
         /// Loads a 32-bit integer from memory (data section) onto the stack
         /// Pops the value from the stack which represents the offset into memory.
         ///
-        /// Uses `mem_arg`.
+        /// Uses `payload` of type `MemArg`.
         i32_load = 0x28,
         /// Pops 2 values from the stack, where the first value represents the value to write into memory
         /// and the second value represents the offset into memory where the value must be written to.
         ///
-        /// Uses `mem_arg`.
+        /// Uses `payload` of type `MemArg`.
         i32_store = 0x36,
         /// Returns the memory size in amount of pages.
         ///
@@ -116,7 +116,7 @@ pub const Inst = struct {
         i32_const = 0x41,
         /// Loads a i64-bit signed immediate value onto the stack
         ///
-        /// Uses `imm64`
+        /// uses `payload` of type `Imm64`
         i64_const = 0x42,
         /// Loads a 32-bit float value onto the stack.
         ///
@@ -124,7 +124,7 @@ pub const Inst = struct {
         f32_const = 0x43,
         /// Loads a 64-bit float value onto the stack.
         ///
-        /// Uses `float64`
+        /// Uses `payload` of type `Float64`
         f64_const = 0x44,
         /// Uses `tag`
         i32_eqz = 0x45,
@@ -244,6 +244,7 @@ pub const Inst = struct {
         i64_extend16_s = 0xC3,
         /// Uses `tag`
         i64_extend32_s = 0xC4,
+
         /// From a given wasm opcode, returns a MIR tag.
         pub fn fromOpcode(opcode: std.wasm.Opcode) Tag {
             return @intToEnum(Tag, @enumToInt(opcode));
@@ -255,8 +256,8 @@ pub const Inst = struct {
         }
     };
 
-    /// All instructions contain a 8-byte payload, which is contained within
-    /// this union. `Opcode` determines which union tag is active, as well as
+    /// All instructions contain a 4-byte payload, which is contained within
+    /// this union. `Tag` determines which union tag is active, as well as
     /// how to interpret the data within.
     pub const Data = union {
         /// Uses no additional data
@@ -274,29 +275,14 @@ pub const Inst = struct {
         ///
         /// Used by `i32_const`
         imm32: i32,
-        /// A 64-bit immediate value.
-        ///
-        /// Used by `i64_const`
-        imm64: i64,
         /// A 32-bit float value
         ///
         /// Used by `f32_float`
         float32: f32,
-        /// A 64-bit float value
-        ///
-        /// Used by `f64_float`
-        float64: f64,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
         ///
         /// Used by e.g. `br_table`
         payload: u32,
-        /// Memory arguments to store or load data between the stack and memory section.
-        ///
-        /// Used by e.g. `i32_store`, `i32_load`
-        mem_arg: struct {
-            alignment: u32,
-            offset: u32,
-        },
     };
 };
 
@@ -305,11 +291,6 @@ pub fn deinit(self: *Mir, gpa: *std.mem.Allocator) void {
     gpa.free(self.extra);
     self.* = undefined;
 }
-
-pub const JumpTable = struct {
-    /// Length of the jump table and the amount of entries it contains (includes default)
-    length: u32,
-};
 
 pub fn extraData(self: Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
     const fields = std.meta.fields(T);
@@ -325,3 +306,62 @@ pub fn extraData(self: Mir, comptime T: type, index: usize) struct { data: T, en
 
     return .{ .data = result, .end = i };
 }
+
+pub const JumpTable = struct {
+    /// Length of the jump table and the amount of entries it contains (includes default)
+    length: u32,
+};
+
+/// Stores an unsigned 64bit integer
+/// into a 32bit most significant bits field
+/// and a 32bit least significant bits field.
+///
+/// This uses an unsigned integer rather than a signed integer
+/// as we can easily store those into `extra`
+pub const Imm64 = struct {
+    msb: u32,
+    lsb: u32,
+
+    pub fn fromU64(imm: u64) Imm64 {
+        return .{
+            .msb = @truncate(u32, imm >> 32),
+            .lsb = @truncate(u32, imm),
+        };
+    }
+
+    pub fn toU64(self: Imm64) u64 {
+        var result: u64 = 0;
+        result |= @as(u64, self.msb) << 32;
+        result |= @as(u64, self.lsb);
+        return result;
+    }
+};
+
+pub const Float64 = struct {
+    msb: u32,
+    lsb: u32,
+
+    pub fn fromFloat64(float: f64) Float64 {
+        const tmp = @bitCast(u64, float);
+        return .{
+            .msb = @truncate(u32, tmp >> 32),
+            .lsb = @truncate(u32, tmp),
+        };
+    }
+
+    pub fn toF64(self: Float64) f64 {
+        @bitCast(f64, self.toU64());
+    }
+
+    pub fn toU64(self: Float64) u64 {
+        var result: u64 = 0;
+        result |= @as(u64, self.msb) << 32;
+        result |= @as(u64, self.lsb);
+        return result;
+    }
+};
+
+pub const MemArg = struct {
+    offset: u32,
+    alignment: u32,
+};
