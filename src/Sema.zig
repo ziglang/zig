@@ -9642,9 +9642,29 @@ fn zirFrameSize(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
 fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    // TODO don't forget the safety check!
-    return sema.fail(block, src, "TODO: Sema.zirFloatToInt", .{});
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const dest_ty = try sema.resolveType(block, ty_src, extra.lhs);
+    const operand = sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
+
+    _ = try sema.checkIntType(block, ty_src, dest_ty);
+    try sema.checkFloatType(block, operand_src, operand_ty);
+
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        const target = sema.mod.getTarget();
+        const result_val = val.floatToInt(sema.arena, dest_ty, target) catch |err| switch (err) {
+            error.FloatCannotFit => {
+                return sema.fail(block, operand_src, "integer value {d} cannot be stored in type '{}'", .{ std.math.floor(val.toFloat(f64)), dest_ty });
+            },
+            else => |e| return e,
+        };
+        return sema.addConstant(dest_ty, result_val);
+    }
+
+    try sema.requireRuntimeBlock(block, operand_src);
+    return block.addTyOp(.float_to_int, dest_ty, operand);
 }
 
 fn zirIntToFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -12434,7 +12454,13 @@ fn coerceNum(
                 if (val.floatHasFraction()) {
                     return sema.fail(block, inst_src, "fractional component prevents float value {} from coercion to type '{}'", .{ val, dest_ty });
                 }
-                return sema.fail(block, inst_src, "TODO float to int", .{});
+                const result_val = val.floatToInt(sema.arena, dest_ty, target) catch |err| switch (err) {
+                    error.FloatCannotFit => {
+                        return sema.fail(block, inst_src, "integer value {d} cannot be stored in type '{}'", .{ std.math.floor(val.toFloat(f64)), dest_ty });
+                    },
+                    else => |e| return e,
+                };
+                return try sema.addConstant(dest_ty, result_val);
             },
             .Int, .ComptimeInt => {
                 if (!val.intFitsInType(dest_ty, target)) {
