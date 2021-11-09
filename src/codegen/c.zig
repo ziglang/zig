@@ -448,7 +448,14 @@ pub const DeclGen = struct {
                 try w.writeAll("ZIG_COLD ");
             }
         }
-        try dg.renderType(w, dg.decl.ty.fnReturnType());
+        const return_ty = dg.decl.ty.fnReturnType();
+        if (return_ty.hasCodeGenBits()) {
+            try dg.renderType(w, return_ty);
+        } else if (return_ty.zigTypeTag() == .NoReturn) {
+            try w.writeAll("zig_noreturn void");
+        } else {
+            try w.writeAll("void");
+        }
         try w.writeAll(" ");
         try dg.renderDeclName(dg.decl, w);
         try w.writeAll("(");
@@ -946,6 +953,10 @@ pub fn genDecl(o: *Object) !void {
             try o.dg.renderDeclName(o.dg.decl, fwd_decl_writer);
         }
         try fwd_decl_writer.writeAll(";\n");
+
+        if (variable.init.isUndef()) {
+            return;
+        }
 
         try o.indent_writer.insertNewline();
         const w = o.writer();
@@ -1886,6 +1897,9 @@ fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const operand = try f.resolveInst(ty_op.operand);
 
