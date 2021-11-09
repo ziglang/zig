@@ -209,6 +209,25 @@ pub const LOG = struct {
 
 pub const socket_t = if (builtin.os.tag == .windows) windows.ws2_32.SOCKET else fd_t;
 
+/// a clock ID that identifies that clock to use for querying system time
+pub const ClockId = if (builtin.os.tag == .windows) ClockIdWindows else ClockIdPosix;
+
+/// clock IDs for linux and the web assembly system interface
+const ClockIdPosix = enum(@TypeOf(std.os.CLOCK.REALTIME)) {
+    /// A realtime clock representing the machine's best estimate of wall-clock time
+    /// this is possibly not a monotinic clock
+    Realtime = std.os.CLOCK.REALTIME,
+    /// A monotiic clock
+    Monotonic = std.os.CLOCK.MONOTONIC,
+};
+
+/// clock IDs on the windows platform
+const ClockIdWindows = enum(@typeInfo(ClockIdPosix).Enum.tag_type) {
+    /// A realtime clock representing the machine's best estimate of wall-clock time
+    /// this is possibly not a monotinic clock
+    Realtime,
+};
+
 /// See also `getenv`. Populated by startup code before main().
 /// TODO this is a footgun because the value will be undefined when using `zig build-lib`.
 /// https://github.com/ziglang/zig/issues/4524
@@ -4804,8 +4823,47 @@ pub fn dl_iterate_phdr(
 
 pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
 
+pub fn clock_gettime2(clock_id: ClockId) ClockGetTimeError!timespec {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        var ts: timespec = undefined;
+        switch (system.clock_time_get(@bitCast(u32, clock_id), 1, &ts)) {
+            .SUCCESS => {
+                return .{
+                    .tv_sec = @intCast(i64, ts / std.time.ns_per_s),
+                    .tv_nsec = @intCast(isize, ts % std.time.ns_per_s),
+                };
+            },
+            .INVAL => return error.UnsupportedClock,
+            else => |err| return unexpectedErrno(err),
+        }
+        return;
+    } else if (builtin.os.tag == .windows) {} else if (builtin.os.tag == .windows) {
+        switch (clock_id) {
+            .Realtime => {
+                var ft: windows.FILETIME = undefined;
+                windows.kernel32.GetSystemTimeAsFileTime(&ft);
+                // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch.
+                const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+                const ft_per_s = std.time.ns_per_s / 100;
+                return .{
+                    .tv_sec = @intCast(i64, ft64 / ft_per_s) + std.time.epoch.windows,
+                    .tv_nsec = @intCast(c_long, ft64 % ft_per_s) * 100,
+                };
+            },
+        }
+    } else {
+        var tp : timespec = undefined;
+        switch (errno(system.clock_gettime(clock_id, &tp))) {
+            .SUCCESS => tp,
+            .FAULT => unreachable,
+            .INVAL => return error.UnsupportedClock,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
 /// TODO: change this to return the timespec as a return value
-/// TODO: look into making clk_id an enum
+/// TODO: look into making clk_id an e^um
 pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var ts: timestamp_t = undefined;

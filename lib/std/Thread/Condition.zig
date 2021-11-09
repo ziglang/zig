@@ -194,61 +194,97 @@ pub const AtomicCondition = struct {
     }
 };
 
-// verify that the condition variable unblocks when signalled
-test "AtomicCondition" {
-    if (!builtin.single_threaded) {
-        var wait_thread_alive = std.atomic.Atomic(bool).init(false);
-        var wait_thread_finished = std.atomic.Atomic(bool).init(false);
-        var run_condition = std.atomic.Atomic(bool).init(false);
-        var condvar = Condition{};
-        const test_thread = try std.Thread.spawn(.{}, conditionWaitThread, .{ &wait_thread_alive, &wait_thread_finished, &run_condition, &condvar });
-        test_thread.detach();
+const testing = std.testing;
 
-        // we give the waiting thread generous time to become alive, but
-        // in case it does not, we fail here rather than hang indefinitely
-        try waitUntilTrue(&wait_thread_alive, 10);
+test "Condition - wait/signal" {
+    if (builtin.single_threaded) return error.SkipZigTest;
 
-        // this does not really tell us much, but we might as well check it
-        try std.testing.expect(!wait_thread_finished.load(.SeqCst));
+    const Context = struct {
+        lock: Mutex = .{},
+        cond: Condition = .{},
+        signaled: bool = false,
 
-        run_condition.store(true, .SeqCst);
-        condvar.signal();
+        fn doWait(self: *@This()) void {
+            const held = self.lock.acquire();
+            defer held.release();
 
-        // similar as above we let the thread indicate it is finished or fail
-        try waitUntilTrue(&wait_thread_finished, 10);
+            while (!self.signaled) {
+                self.cond.wait(&self.lock);
+            }
+        }
+
+        fn doSignal(self: *@This(), do_broadcast: bool) void {
+            const held = self.lock.acquire();
+            defer held.release();
+
+            self.signaled = true;
+            switch (do_broadcast) {
+                true => self.cond.signal(),
+                else => self.cond.broadcast(),
+            }
+        }
+    };
+
+    for ([_]bool{ false, true }) |do_broadcast| {
+        var context = Context{};
+        const wait_signal = try std.Thread.spawn(.{}, Context.doWait, .{&context});
+
+        context.doSignal(do_broadcast);
+        wait_signal.join();
     }
 }
 
-/// a primitive helper method that blocks until an atomic boolean becomes true
-/// if the bool does not become true within the given amount of max seconds, this function failes
-fn waitUntilTrue(boolean: *std.atomic.Atomic(bool), max_wait_time_seconds: u32) !void {
-    var current_time: std.os.timespec = undefined;
-    try std.os.clock_gettime(std.os.CLOCK.REALTIME, &current_time);
-    const start_time = current_time;
-    while (!boolean.load(.SeqCst)) {
-        std.os.nanosleep(1, 250 * 1000);
-        try std.os.clock_gettime(std.os.CLOCK.REALTIME, &current_time);
-        if (current_time.tv_sec - start_time.tv_sec > max_wait_time_seconds) {
-            return error.Timeout;
+test "Condition - producer / consumer" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
+    const num_threads = 4;
+    const Context = struct {
+        lock: Mutex = .{},
+        send: Condition = .{},
+        recv: Condition = .{},
+        value: usize = 0,
+
+        fn doSend(self: *@This(), do_broadcast: bool) void {
+            const held = self.lock.acquire();
+            defer held.release();
+
+            assert(self.value == 0);
+            self.value = 1;
+            switch (do_broadcast) {
+                true => self.recv.broadcast(),
+                else => self.recv.signal(),
+            }
+
+            while (self.value != 0) {
+                self.send.wait(&self.lock);
+            }
+        }
+
+        fn doRecv(self: *@This(), do_broadcast: bool) void {
+            const held = self.lock.acquire();
+            defer held.release();
+
+            while (self.value == 0) {
+                self.recv.wait(&self.lock);
+            }
+
+            self.value -= 1;
+            switch (do_broadcast) {
+                true => self.send.broadcast(),
+                else => self.send.signal(),
+            }
+        }
+    };
+
+    for ([_]bool{ true, false }) |do_broadcast| {
+        var context = Context{};
+        var threads: [num_threads]std.Thread = undefined;
+        for (threads) |*t| t.* = try std.Thread.spawn(.{}, Context.doRecv, .{ &context, do_broadcast });
+        defer for (threads) |t| t.join();
+
+        var i: usize = num_threads;
+        while (i > 0) : (i -= 1) {
+            context.doSend(do_broadcast);
         }
     }
-}
-
-/// a helper thread for testing the condition variable. Both wait_... variables must be false when passed to the thread.
-/// when the thread starts it 
-fn conditionWaitThread(wait_thread_alive: *std.atomic.Atomic(bool), wait_thread_finished: *std.atomic.Atomic(bool), run_condition: *std.atomic.Atomic(bool), condvar: *Condition) void {
-    std.debug.assert(!wait_thread_alive.load(.SeqCst));
-    std.debug.assert(!wait_thread_finished.load(.SeqCst));
-
-    // indicate this thread has started up
-    wait_thread_alive.store(true, .SeqCst);
-    var mutex = std.Thread.Mutex{};
-    const held = mutex.acquire();
-    defer held.release();
-    // wait for the condition variable
-    while (!run_condition.load(.SeqCst)) {
-        condvar.wait(&mutex);
-    }
-    // and indicate that this thread has completed
-    wait_thread_finished.store(true, .SeqCst);
 }
