@@ -3178,6 +3178,9 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         },
         .Int => {
             const info = typed_value.ty.intInfo(self.target.*);
+            if (info.bits <= ptr_bits and info.signedness == .signed) {
+                return MCValue{ .immediate = @bitCast(u64, typed_value.val.toSignedInt()) };
+            }
             if (info.bits > ptr_bits or info.signedness == .signed) {
                 return self.fail("TODO const int bigger than ptr and signed int", .{});
             }
