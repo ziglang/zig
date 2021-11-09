@@ -5,6 +5,7 @@
 ZIG=$DEBUG_STAGING/bin/zig
 
 $ZIG test test/behavior.zig -fno-stage1 -fLLVM -I test
+$ZIG test test/behavior.zig -fno-stage1 -ofmt=c -I test
 
 $ZIG build test-behavior         -Denable-qemu -Denable-wasmtime
 $ZIG build test-compiler-rt      -Denable-qemu -Denable-wasmtime
