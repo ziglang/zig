@@ -1792,6 +1792,8 @@ test "statx" {
         // The filesystem containing the file referred to by fd does not support this operation;
         // or the mode is not supported by the filesystem containing the file referred to by fd:
         .OPNOTSUPP => return error.SkipZigTest,
+        // The kernel is too old to support FDCWD for dir_fd
+        .BADF => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
