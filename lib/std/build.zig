@@ -1439,6 +1439,10 @@ pub const LibExeObjStep = struct {
     disable_sanitize_c: bool,
     sanitize_thread: bool,
     rdynamic: bool,
+    import_memory: bool = false,
+    initial_memory: ?u64 = null,
+    max_memory: ?u64 = null,
+    global_base: ?u64 = null,
     c_std: Builder.CStd,
     override_lib_dir: ?[]const u8,
     main_pkg_path: ?[]const u8,
@@ -2430,6 +2434,18 @@ pub const LibExeObjStep = struct {
         }
         if (self.rdynamic) {
             try zig_args.append("-rdynamic");
+        }
+        if (self.import_memory) {
+            try zig_args.append("--import-memory");
+        }
+        if (self.initial_memory) |initial_memory| {
+            try zig_args.append(builder.fmt("--initial-memory={d}", .{initial_memory}));
+        }
+        if (self.max_memory) |max_memory| {
+            try zig_args.append(builder.fmt("--max-memory={d}", .{max_memory}));
+        }
+        if (self.global_base) |global_base| {
+            try zig_args.append(builder.fmt("--global-base={d}", .{global_base}));
         }
 
         if (self.code_model != .default) {
