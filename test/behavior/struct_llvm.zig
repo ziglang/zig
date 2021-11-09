@@ -53,24 +53,6 @@ const Val = struct {
     x: i32,
 };
 
-test "struct initializer" {
-    const val = Val{ .x = 42 };
-    try expect(val.x == 42);
-}
-
-const MemberFnTestFoo = struct {
-    x: i32,
-    fn member(foo: MemberFnTestFoo) i32 {
-        return foo.x;
-    }
-};
-
-test "call member function directly" {
-    const instance = MemberFnTestFoo{ .x = 1234 };
-    const result = MemberFnTestFoo.member(instance);
-    try expect(result == 1234);
-}
-
 test "struct point to self" {
     var root: Node = undefined;
     root.val.x = 1;
