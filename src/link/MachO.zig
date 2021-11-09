@@ -3285,6 +3285,7 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
                     .seg = self.data_const_segment_cmd_index.?,
                     .sect = self.got_section_index.?,
                 }).? + 1);
+                got_atom.dirty = true;
             }
 
             symbol.n_value = vaddr;

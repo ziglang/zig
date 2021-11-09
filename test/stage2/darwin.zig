@@ -45,18 +45,32 @@ pub fn addCases(ctx: *TestContext) !void {
                 "Hello, World!\n",
             );
 
+            // Now using start.zig without an explicit extern exit fn
+            case.addCompareOutput(
+                \\extern fn write(usize, usize, usize) usize;
+                \\
+                \\pub fn main() void {
+                \\    print();
+                \\}
+                \\
+                \\fn print() void {
+                \\    const msg = @ptrToInt("Hello, World!\n");
+                \\    const len = 14;
+                \\    _ = write(1, msg, len);
+                \\}
+            ,
+                "Hello, World!\n",
+            );
+
             // Print it 4 times and force growth and realloc.
             case.addCompareOutput(
                 \\extern fn write(usize, usize, usize) usize;
-                \\extern fn exit(usize) noreturn;
                 \\
-                \\pub export fn main() noreturn {
+                \\pub fn main() void {
                 \\    print();
                 \\    print();
                 \\    print();
                 \\    print();
-                \\
-                \\    exit(0);
                 \\}
                 \\
                 \\fn print() void {
@@ -75,12 +89,9 @@ pub fn addCases(ctx: *TestContext) !void {
             // Print it once, and change the message.
             case.addCompareOutput(
                 \\extern fn write(usize, usize, usize) usize;
-                \\extern fn exit(usize) noreturn;
                 \\
-                \\pub export fn main() noreturn {
+                \\pub fn main() void {
                 \\    print();
-                \\
-                \\    exit(0);
                 \\}
                 \\
                 \\fn print() void {
@@ -95,13 +106,10 @@ pub fn addCases(ctx: *TestContext) !void {
             // Now we print it twice.
             case.addCompareOutput(
                 \\extern fn write(usize, usize, usize) usize;
-                \\extern fn exit(usize) noreturn;
                 \\
-                \\pub export fn main() noreturn {
+                \\pub fn main() void {
                 \\    print();
                 \\    print();
-                \\
-                \\    exit(0);
                 \\}
                 \\
                 \\fn print() void {
