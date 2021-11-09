@@ -219,11 +219,36 @@ pub const DeclGen = struct {
         val: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
         if (val.isUndef()) {
-            // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
-            // lower to leaving variables uninitialized (that might need to be implemented
-            // outside of this function).
-            return writer.writeAll("{}");
-            //return dg.fail("TODO: C backend: implement renderValue undef", .{});
+            switch (ty.zigTypeTag()) {
+                // Using '{}' for integer and floats seemed to error C compilers (both GCC and Clang)
+                // with 'error: expected expression' (including when built with 'zig cc')
+                .Int => {
+                    const c_bits = toCIntBits(ty.intInfo(dg.module.getTarget()).bits) orelse
+                        return dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
+                    switch (c_bits) {
+                        8 => return writer.writeAll("0xaaU"),
+                        16 => return writer.writeAll("0xaaaaU"),
+                        32 => return writer.writeAll("0xaaaaaaaaU"),
+                        64 => return writer.writeAll("0xaaaaaaaaaaaaaaaaUL"),
+                        128 => return writer.writeAll("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaULL"),
+                        else => unreachable,
+                    }
+                },
+                .Float => {
+                    switch (ty.floatBits(dg.module.getTarget())) {
+                        32 => return writer.writeAll("zig_bitcast_f32_u32(0xaaaaaaaa)"),
+                        64 => return writer.writeAll("zig_bitcast_f64_u64(0xaaaaaaaaaaaaaaaa)"),
+                        else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
+                    }
+                },
+
+                else => {
+                    // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
+                    // lower to leaving variables uninitialized (that might need to be implemented
+                    // outside of this function).
+                    return writer.writeAll("{}");
+                },
+            }
         }
         switch (ty.zigTypeTag()) {
             .Int => {
@@ -233,7 +258,16 @@ pub const DeclGen = struct {
             },
             .Float => {
                 if (ty.floatBits(dg.module.getTarget()) <= 64) {
-                    return writer.print("{x}", .{val.toFloat(f64)});
+                    if (std.math.isNan(val.toFloat(f64)) or std.math.isInf(val.toFloat(f64))) {
+                        // just generate a bit cast (exactly like we do in airBitcast)
+                        switch (ty.tag()) {
+                            .f32 => return writer.print("zig_bitcast_f32_u32(0x{x})", .{@bitCast(u32, val.toFloat(f32))}),
+                            .f64 => return writer.print("zig_bitcast_f64_u64(0x{x})", .{@bitCast(u64, val.toFloat(f64))}),
+                            else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
+                        }
+                    } else {
+                        return writer.print("{x}", .{val.toFloat(f64)});
+                    }
                 }
                 return dg.fail("TODO: C backend: implement lowering large float values", .{});
             },
@@ -521,7 +555,16 @@ pub const DeclGen = struct {
                 }
             },
 
-            .Float => return dg.fail("TODO: C backend: implement type Float", .{}),
+            .Float => {
+                switch (t.tag()) {
+                    .f32 => try w.writeAll("float"),
+                    .f64 => try w.writeAll("double"),
+                    .c_longdouble => try w.writeAll("long double"),
+                    .f16 => return dg.fail("TODO: C backend: implement float type f16", .{}),
+                    .f128 => return dg.fail("TODO: C backend: implement float type f128", .{}),
+                    else => unreachable,
+                }
+            },
 
             .Pointer => {
                 if (t.isSlice()) {
