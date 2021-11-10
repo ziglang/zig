@@ -796,6 +796,11 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 try argv.append("--export-dynamic");
             }
         } else {
+            if (self.base.options.stack_size_override) |stack_size| {
+                try argv.append("-z");
+                const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
+                try argv.append(arg);
+            }
             try argv.append("--no-entry"); // So lld doesn't look for _start.
             try argv.append("--export-all");
         }
