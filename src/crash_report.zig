@@ -422,7 +422,7 @@ const PanicSwitch = struct {
 
         state.recover_stage = .release_ref_count;
 
-        _ = panic_mutex.acquire();
+        panic_mutex.lock();
 
         state.recover_stage = .release_mutex;
 
@@ -482,7 +482,7 @@ const PanicSwitch = struct {
     noinline fn releaseMutex(state: *volatile PanicState) noreturn {
         state.recover_stage = .abort;
 
-        panic_mutex.releaseDirect();
+        panic_mutex.unlock();
 
         goTo(releaseRefCount, .{state});
     }

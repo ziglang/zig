@@ -1796,8 +1796,9 @@ pub const FuncGen = struct {
                 .ptr_elem_val       => try self.airPtrElemVal(inst),
                 .ptr_elem_ptr       => try self.airPtrElemPtr(inst),
 
-                .optional_payload     => try self.airOptionalPayload(inst),
-                .optional_payload_ptr => try self.airOptionalPayloadPtr(inst),
+                .optional_payload         => try self.airOptionalPayload(inst),
+                .optional_payload_ptr     => try self.airOptionalPayloadPtr(inst),
+                .optional_payload_ptr_set => try self.airOptionalPayloadPtrSet(inst),
 
                 .unwrap_errunion_payload     => try self.airErrUnionPayload(inst, false),
                 .unwrap_errunion_payload_ptr => try self.airErrUnionPayload(inst, true),
@@ -2565,6 +2566,41 @@ pub const FuncGen = struct {
             return operand;
         }
         const index_type = self.context.intType(32);
+        const indices: [2]*const llvm.Value = .{
+            index_type.constNull(), // dereference the pointer
+            index_type.constNull(), // first field is the payload
+        };
+        return self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
+    }
+
+    fn airOptionalPayloadPtrSet(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = try self.resolveInst(ty_op.operand);
+        const optional_ty = self.air.typeOf(ty_op.operand).childType();
+        var buf: Type.Payload.ElemType = undefined;
+        const payload_ty = optional_ty.optionalChild(&buf);
+        const non_null_bit = self.context.intType(1).constAllOnes();
+        if (!payload_ty.hasCodeGenBits()) {
+            // We have a pointer to a i1. We need to set it to 1 and then return the same pointer.
+            _ = self.builder.buildStore(non_null_bit, operand);
+            return operand;
+        }
+        if (optional_ty.isPtrLikeOptional()) {
+            // The payload and the optional are the same value.
+            // Setting to non-null will be done when the payload is set.
+            return operand;
+        }
+        const index_type = self.context.intType(32);
+        {
+            // First set the non-null bit.
+            const indices: [2]*const llvm.Value = .{
+                index_type.constNull(), // dereference the pointer
+                index_type.constInt(1, .False), // second field is the payload
+            };
+            const non_null_ptr = self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
+            _ = self.builder.buildStore(non_null_bit, non_null_ptr);
+        }
+        // Then return the payload pointer.
         const indices: [2]*const llvm.Value = .{
             index_type.constNull(), // dereference the pointer
             index_type.constNull(), // first field is the payload

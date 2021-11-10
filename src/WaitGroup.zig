@@ -6,13 +6,13 @@
 const std = @import("std");
 const WaitGroup = @This();
 
-lock: std.Thread.Mutex = .{},
+mutex: std.Thread.Mutex = .{},
 counter: usize = 0,
 event: std.Thread.ResetEvent,
 
 pub fn init(self: *WaitGroup) !void {
     self.* = .{
-        .lock = .{},
+        .mutex = .{},
         .counter = 0,
         .event = undefined,
     };
@@ -25,15 +25,15 @@ pub fn deinit(self: *WaitGroup) void {
 }
 
 pub fn start(self: *WaitGroup) void {
-    const held = self.lock.acquire();
-    defer held.release();
+    self.mutex.lock();
+    defer self.mutex.unlock();
 
     self.counter += 1;
 }
 
 pub fn finish(self: *WaitGroup) void {
-    const held = self.lock.acquire();
-    defer held.release();
+    self.mutex.lock();
+    defer self.mutex.unlock();
 
     self.counter -= 1;
 
@@ -44,14 +44,14 @@ pub fn finish(self: *WaitGroup) void {
 
 pub fn wait(self: *WaitGroup) void {
     while (true) {
-        const held = self.lock.acquire();
+        self.mutex.lock();
 
         if (self.counter == 0) {
-            held.release();
+            self.mutex.unlock();
             return;
         }
 
-        held.release();
+        self.mutex.unlock();
         self.event.wait();
     }
 }

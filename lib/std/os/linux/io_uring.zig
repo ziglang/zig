@@ -650,6 +650,23 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform an `statx(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn statx(
+        self: *IO_Uring,
+        user_data: u64,
+        fd: os.fd_t,
+        path: [:0]const u8,
+        flags: u32,
+        mask: u32,
+        buf: *linux.Statx,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_statx(sqe, fd, path, flags, mask, buf);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Registers an array of file descriptors.
     /// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
     /// retrieve a reference to the file, and once I/O has completed the file reference must be
@@ -1114,6 +1131,18 @@ pub fn io_uring_prep_fallocate(
         .splice_fd_in = 0,
         .__pad2 = [2]u64{ 0, 0 },
     };
+}
+
+pub fn io_uring_prep_statx(
+    sqe: *io_uring_sqe,
+    fd: os.fd_t,
+    path: [*:0]const u8,
+    flags: u32,
+    mask: u32,
+    buf: *linux.Statx,
+) void {
+    io_uring_prep_rw(.STATX, sqe, fd, @ptrToInt(path), mask, @ptrToInt(buf));
+    sqe.rw_flags = flags;
 }
 
 test "structs/offsets/entries" {
@@ -1719,4 +1748,60 @@ test "fallocate" {
     }, cqe);
 
     try testing.expectEqual(len, (try file.stat()).size);
+}
+
+test "statx" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const path = "test_io_uring_statx";
+    const file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    defer file.close();
+    defer std.fs.cwd().deleteFile(path) catch {};
+
+    try testing.expectEqual(@as(u64, 0), (try file.stat()).size);
+
+    try file.writeAll("foobar");
+
+    var buf: linux.Statx = undefined;
+    const sqe = try ring.statx(
+        0xaaaaaaaa,
+        linux.AT.FDCWD,
+        path,
+        0,
+        linux.STATX_SIZE,
+        &buf,
+    );
+    try testing.expectEqual(linux.IORING_OP.STATX, sqe.opcode);
+    try testing.expectEqual(@as(i32, linux.AT.FDCWD), sqe.fd);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    const cqe = try ring.copy_cqe();
+    switch (cqe.err()) {
+        .SUCCESS => {},
+        // This kernel's io_uring does not yet implement statx():
+        .INVAL => return error.SkipZigTest,
+        // This kernel does not implement statx():
+        .NOSYS => return error.SkipZigTest,
+        // The filesystem containing the file referred to by fd does not support this operation;
+        // or the mode is not supported by the filesystem containing the file referred to by fd:
+        .OPNOTSUPP => return error.SkipZigTest,
+        // The kernel is too old to support FDCWD for dir_fd
+        .BADF => return error.SkipZigTest,
+        else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
+    }
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0xaaaaaaaa,
+        .res = 0,
+        .flags = 0,
+    }, cqe);
+
+    try testing.expect(buf.mask & os.linux.STATX_SIZE == os.linux.STATX_SIZE);
+    try testing.expectEqual(@as(u64, 6), buf.size);
 }

@@ -26,8 +26,8 @@ pub fn Once(comptime f: fn () void) type {
         fn callSlow(self: *@This()) void {
             @setCold(true);
 
-            const T = self.mutex.acquire();
-            defer T.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             // The first thread to acquire the mutex gets to run the initializer
             if (!self.done) {

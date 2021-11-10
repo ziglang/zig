@@ -219,11 +219,36 @@ pub const DeclGen = struct {
         val: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
         if (val.isUndef()) {
-            // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
-            // lower to leaving variables uninitialized (that might need to be implemented
-            // outside of this function).
-            return writer.writeAll("{}");
-            //return dg.fail("TODO: C backend: implement renderValue undef", .{});
+            switch (ty.zigTypeTag()) {
+                // Using '{}' for integer and floats seemed to error C compilers (both GCC and Clang)
+                // with 'error: expected expression' (including when built with 'zig cc')
+                .Int => {
+                    const c_bits = toCIntBits(ty.intInfo(dg.module.getTarget()).bits) orelse
+                        return dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
+                    switch (c_bits) {
+                        8 => return writer.writeAll("0xaaU"),
+                        16 => return writer.writeAll("0xaaaaU"),
+                        32 => return writer.writeAll("0xaaaaaaaaU"),
+                        64 => return writer.writeAll("0xaaaaaaaaaaaaaaaaUL"),
+                        128 => return writer.writeAll("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaULL"),
+                        else => unreachable,
+                    }
+                },
+                .Float => {
+                    switch (ty.floatBits(dg.module.getTarget())) {
+                        32 => return writer.writeAll("zig_bitcast_f32_u32(0xaaaaaaaa)"),
+                        64 => return writer.writeAll("zig_bitcast_f64_u64(0xaaaaaaaaaaaaaaaa)"),
+                        else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
+                    }
+                },
+
+                else => {
+                    // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
+                    // lower to leaving variables uninitialized (that might need to be implemented
+                    // outside of this function).
+                    return writer.writeAll("{}");
+                },
+            }
         }
         switch (ty.zigTypeTag()) {
             .Int => {
@@ -233,7 +258,16 @@ pub const DeclGen = struct {
             },
             .Float => {
                 if (ty.floatBits(dg.module.getTarget()) <= 64) {
-                    return writer.print("{x}", .{val.toFloat(f64)});
+                    if (std.math.isNan(val.toFloat(f64)) or std.math.isInf(val.toFloat(f64))) {
+                        // just generate a bit cast (exactly like we do in airBitcast)
+                        switch (ty.tag()) {
+                            .f32 => return writer.print("zig_bitcast_f32_u32(0x{x})", .{@bitCast(u32, val.toFloat(f32))}),
+                            .f64 => return writer.print("zig_bitcast_f64_u64(0x{x})", .{@bitCast(u64, val.toFloat(f64))}),
+                            else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
+                        }
+                    } else {
+                        return writer.print("{x}", .{val.toFloat(f64)});
+                    }
                 }
                 return dg.fail("TODO: C backend: implement lowering large float values", .{});
             },
@@ -448,7 +482,14 @@ pub const DeclGen = struct {
                 try w.writeAll("ZIG_COLD ");
             }
         }
-        try dg.renderType(w, dg.decl.ty.fnReturnType());
+        const return_ty = dg.decl.ty.fnReturnType();
+        if (return_ty.hasCodeGenBits()) {
+            try dg.renderType(w, return_ty);
+        } else if (return_ty.zigTypeTag() == .NoReturn) {
+            try w.writeAll("zig_noreturn void");
+        } else {
+            try w.writeAll("void");
+        }
         try w.writeAll(" ");
         try dg.renderDeclName(dg.decl, w);
         try w.writeAll("(");
@@ -514,7 +555,16 @@ pub const DeclGen = struct {
                 }
             },
 
-            .Float => return dg.fail("TODO: C backend: implement type Float", .{}),
+            .Float => {
+                switch (t.tag()) {
+                    .f32 => try w.writeAll("float"),
+                    .f64 => try w.writeAll("double"),
+                    .c_longdouble => try w.writeAll("long double"),
+                    .f16 => return dg.fail("TODO: C backend: implement float type f16", .{}),
+                    .f128 => return dg.fail("TODO: C backend: implement float type f128", .{}),
+                    else => unreachable,
+                }
+            },
 
             .Pointer => {
                 if (t.isSlice()) {
@@ -947,6 +997,10 @@ pub fn genDecl(o: *Object) !void {
         }
         try fwd_decl_writer.writeAll(";\n");
 
+        if (variable.init.isUndef()) {
+            return;
+        }
+
         try o.indent_writer.insertNewline();
         const w = o.writer();
         try o.dg.renderType(w, o.dg.decl.ty);
@@ -1071,8 +1125,9 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .shl, .shl_exact => try airBinOp(f, inst, " << "),
             .not             => try airNot  (f, inst),
 
-            .optional_payload     => try airOptionalPayload(f, inst),
-            .optional_payload_ptr => try airOptionalPayload(f, inst),
+            .optional_payload         => try airOptionalPayload(f, inst),
+            .optional_payload_ptr     => try airOptionalPayload(f, inst),
+            .optional_payload_ptr_set => try airOptionalPayloadPtrSet(f, inst),
 
             .is_err          => try airIsErr(f, inst, "", ".", "!="),
             .is_non_err      => try airIsErr(f, inst, "", ".", "=="),
@@ -1886,6 +1941,9 @@ fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const operand = try f.resolveInst(ty_op.operand);
 
@@ -2158,6 +2216,33 @@ fn airOptionalPayload(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, operand);
 
     try writer.print("){s}payload;\n", .{maybe_deref});
+    return local;
+}
+
+fn airOptionalPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const writer = f.object.writer();
+    const operand = try f.resolveInst(ty_op.operand);
+    const operand_ty = f.air.typeOf(ty_op.operand);
+
+    const opt_ty = operand_ty.elemType();
+
+    if (opt_ty.isPtrLikeOptional()) {
+        // The payload and the optional are the same value.
+        // Setting to non-null will be done when the payload is set.
+        return operand;
+    }
+
+    try writer.writeAll("(");
+    try f.writeCValue(writer, operand);
+    try writer.writeAll(")->is_null = false;\n");
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = &(");
+    try f.writeCValue(writer, operand);
+
+    try writer.writeAll(")->payload;\n");
     return local;
 }
 

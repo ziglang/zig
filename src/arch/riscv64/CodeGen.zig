@@ -505,6 +505,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
                     .optional_payload           => try self.airOptionalPayload(inst),
                     .optional_payload_ptr       => try self.airOptionalPayloadPtr(inst),
+                    .optional_payload_ptr_set   => try self.airOptionalPayloadPtrSet(inst),
                     .unwrap_errunion_err        => try self.airUnwrapErrErr(inst),
                     .unwrap_errunion_payload    => try self.airUnwrapErrPayload(inst),
                     .unwrap_errunion_err_ptr    => try self.airUnwrapErrErrPtr(inst),
@@ -923,6 +924,12 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
 fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement .optional_payload_ptr for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement .optional_payload_ptr_set for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 

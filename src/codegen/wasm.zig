@@ -881,6 +881,7 @@ pub const Context = struct {
 
             .optional_payload => self.airOptionalPayload(inst),
             .optional_payload_ptr => self.airOptionalPayload(inst),
+            .optional_payload_ptr_set => self.airOptionalPayloadPtrSet(inst),
             else => |tag| self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
         };
     }
@@ -1700,6 +1701,13 @@ pub const Context = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = self.resolveInst(ty_op.operand);
         return WValue{ .local = operand.multi_value.index + 1 };
+    }
+
+    fn airOptionalPayloadPtrSet(self: *Context, inst: Air.Inst.Index) InnerError!WValue {
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand = self.resolveInst(ty_op.operand);
+        _ = operand;
+        return self.fail("TODO - wasm codegen for optional_payload_ptr_set", .{});
     }
 
     fn airWrapOptional(self: *Context, inst: Air.Inst.Index) InnerError!WValue {

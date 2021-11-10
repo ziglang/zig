@@ -332,7 +332,7 @@ const usage_build_generic =
     \\  -mno-red-zone             Force-disable the "red-zone"
     \\  -fomit-frame-pointer      Omit the stack frame pointer
     \\  -fno-omit-frame-pointer   Store the stack frame pointer
-    \\  -mexec-model=[value]      Execution model (WASI only)
+    \\  -mexec-model=[value]      (WASI) Execution model
     \\  --name [name]             Override root name (not a file path)
     \\  -O [mode]                 Choose what to optimize for
     \\    Debug                   (default) Optimizations off, safety on
@@ -424,6 +424,10 @@ const usage_build_generic =
     \\  --image-base [addr]            Set base address for executable image
     \\  -framework [name]              (Darwin) link against framework
     \\  -F[dir]                        (Darwin) add search path for frameworks
+    \\  --import-memory                (WebAssembly) import memory from the environment
+    \\  --initial-memory=[bytes]       (WebAssembly) initial size of the linear memory
+    \\  --max-memory=[bytes]           (WebAssembly) maximum size of the linear memory
+    \\  --global-base=[addr]           (WebAssembly) where to start to place global data
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match filter
@@ -609,6 +613,10 @@ fn buildOutputType(
     var linker_gc_sections: ?bool = null;
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
+    var linker_import_memory: ?bool = null;
+    var linker_initial_memory: ?u64 = null;
+    var linker_max_memory: ?u64 = null;
+    var linker_global_base: ?u64 = null;
     var linker_z_nodelete = false;
     var linker_z_notext = false;
     var linker_z_defs = false;
@@ -1125,6 +1133,14 @@ fn buildOutputType(
                         } else {
                             warn("unsupported linker extension flag: -z {s}", .{z_arg});
                         }
+                    } else if (mem.eql(u8, arg, "--import-memory")) {
+                        linker_import_memory = true;
+                    } else if (mem.startsWith(u8, arg, "--initial-memory=")) {
+                        linker_initial_memory = parseIntSuffix(arg, "--initial-memory=".len);
+                    } else if (mem.startsWith(u8, arg, "--max-memory=")) {
+                        linker_max_memory = parseIntSuffix(arg, "--max-memory=".len);
+                    } else if (mem.startsWith(u8, arg, "--global-base=")) {
+                        linker_global_base = parseIntSuffix(arg, "--global-base=".len);
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
@@ -1453,6 +1469,14 @@ fn buildOutputType(
                     linker_allow_shlib_undefined = false;
                 } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                     linker_bind_global_refs_locally = true;
+                } else if (mem.eql(u8, arg, "--import-memory")) {
+                    linker_import_memory = true;
+                } else if (mem.startsWith(u8, arg, "--initial-memory=")) {
+                    linker_initial_memory = parseIntSuffix(arg, "--initial-memory=".len);
+                } else if (mem.startsWith(u8, arg, "--max-memory=")) {
+                    linker_max_memory = parseIntSuffix(arg, "--max-memory=".len);
+                } else if (mem.startsWith(u8, arg, "--global-base=")) {
+                    linker_global_base = parseIntSuffix(arg, "--global-base=".len);
                 } else if (mem.eql(u8, arg, "-z")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
@@ -2148,6 +2172,10 @@ fn buildOutputType(
         .linker_gc_sections = linker_gc_sections,
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
+        .linker_import_memory = linker_import_memory,
+        .linker_initial_memory = linker_initial_memory,
+        .linker_max_memory = linker_max_memory,
+        .linker_global_base = linker_global_base,
         .linker_z_nodelete = linker_z_nodelete,
         .linker_z_notext = linker_z_notext,
         .linker_z_defs = linker_z_defs,
@@ -4370,4 +4398,10 @@ pub fn cmdChangelist(
         }
     }
     try bw.flush();
+}
+
+fn parseIntSuffix(arg: []const u8, prefix_len: usize) u64 {
+    return std.fmt.parseUnsigned(u64, arg[prefix_len..], 0) catch |err| {
+        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+    };
 }

@@ -336,6 +336,9 @@ pub const Inst = struct {
         /// *?T => *T. If the value is null, undefined behavior.
         /// Uses the `ty_op` field.
         optional_payload_ptr,
+        /// *?T => *T. Sets the value to non-null with an undefined payload value.
+        /// Uses the `ty_op` field.
+        optional_payload_ptr_set,
         /// Given a payload value, wraps it in an optional type.
         /// Uses the `ty_op` field.
         wrap_optional,
@@ -728,6 +731,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .trunc,
         .optional_payload,
         .optional_payload_ptr,
+        .optional_payload_ptr_set,
         .wrap_optional,
         .unwrap_errunion_payload,
         .unwrap_errunion_err,
