@@ -41,8 +41,8 @@
 //!     const prefix = "[" ++ level.asText() ++ "] " ++ scope_prefix;
 //!
 //!     // Print the message to stderr, silently ignoring any errors
-//!     const held = std.debug.getStderrMutex().acquire();
-//!     defer held.release();
+//!     std.debug.getStderrMutex().lock();
+//!     defer std.debug.getStderrMutex().unlock();
 //!     const stderr = std.io.getStdErr().writer();
 //!     nosuspend stderr.print(prefix ++ format ++ "\n", args) catch return;
 //! }
@@ -165,8 +165,8 @@ pub fn defaultLog(
     const level_txt = comptime message_level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
     const stderr = std.io.getStdErr().writer();
-    const held = std.debug.getStderrMutex().acquire();
-    defer held.release();
+    std.debug.getStderrMutex().lock();
+    defer std.debug.getStderrMutex().unlock();
     nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
 }
 

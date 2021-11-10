@@ -925,8 +925,8 @@ pub const Loop = struct {
             }
 
             fn peekExpiringEntry(self: *Waiters) ?*Entry {
-                const held = self.entries.mutex.acquire();
-                defer held.release();
+                self.entries.mutex.lock();
+                defer self.entries.mutex.unlock();
 
                 // starting from the head
                 var head = self.entries.head orelse return null;

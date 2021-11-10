@@ -2629,8 +2629,8 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             // TODO don't report compile errors until Sema @importFile
             if (file.zir.hasCompileErrors()) {
                 {
-                    const lock = comp.mutex.acquire();
-                    defer lock.release();
+                    comp.mutex.lock();
+                    defer comp.mutex.unlock();
                     try mod.failed_files.putNoClobber(gpa, file, null);
                 }
                 file.status = .astgen_failure;
@@ -2742,8 +2742,8 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         }
 
         {
-            const lock = comp.mutex.acquire();
-            defer lock.release();
+            comp.mutex.lock();
+            defer comp.mutex.unlock();
             try mod.failed_files.putNoClobber(gpa, file, err_msg);
         }
         file.status = .parse_failure;
@@ -2817,8 +2817,8 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
 
     if (file.zir.hasCompileErrors()) {
         {
-            const lock = comp.mutex.acquire();
-            defer lock.release();
+            comp.mutex.lock();
+            defer comp.mutex.unlock();
             try mod.failed_files.putNoClobber(gpa, file, null);
         }
         file.status = .astgen_failure;
@@ -3701,8 +3701,8 @@ pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
     embed_file.stat_mtime = stat.mtime;
     embed_file.stat_inode = stat.inode;
 
-    const lock = mod.comp.mutex.acquire();
-    defer lock.release();
+    mod.comp.mutex.lock();
+    defer mod.comp.mutex.unlock();
     try mod.comp.work_queue.writeItem(.{ .update_embed_file = embed_file });
 }
 
@@ -4459,8 +4459,8 @@ fn lockAndClearFileCompileError(mod: *Module, file: *File) void {
     switch (file.status) {
         .success_zir, .retryable_failure => {},
         .never_loaded, .parse_failure, .astgen_failure => {
-            const lock = mod.comp.mutex.acquire();
-            defer lock.release();
+            mod.comp.mutex.lock();
+            defer mod.comp.mutex.unlock();
             if (mod.failed_files.fetchSwapRemove(file)) |kv| {
                 if (kv.value) |msg| msg.destroy(mod.gpa); // Delete previous error message.
             }

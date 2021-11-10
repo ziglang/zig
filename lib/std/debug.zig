@@ -62,8 +62,8 @@ pub const warn = print;
 /// Print to stderr, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging." Use `std.log` functions for proper logging.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
-    const held = stderr_mutex.acquire();
-    defer held.release();
+    stderr_mutex.lock();
+    defer stderr_mutex.unlock();
     const stderr = io.getStdErr().writer();
     nosuspend stderr.print(fmt, args) catch return;
 }
@@ -286,8 +286,8 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
 
             // Make sure to release the mutex when done
             {
-                const held = panic_mutex.acquire();
-                defer held.release();
+                panic_mutex.lock();
+                defer panic_mutex.unlock();
 
                 const stderr = io.getStdErr().writer();
                 if (builtin.single_threaded) {
