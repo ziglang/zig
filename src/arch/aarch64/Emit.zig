@@ -14,6 +14,7 @@ const DW = std.dwarf;
 const leb128 = std.leb;
 const Instruction = bits.Instruction;
 const Register = bits.Register;
+const log = std.log.scoped(.aarch64_emit);
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 
 mir: Mir,
@@ -47,9 +48,16 @@ const InnerError = error{
 };
 
 const BranchType = enum {
+    b_cond,
     unconditional_branch_immediate,
 
-    const default = BranchType.unconditional_branch_immediate;
+    fn default(tag: Mir.Inst.Tag) BranchType {
+        return switch (tag) {
+            .b, .bl => .unconditional_branch_immediate,
+            .b_cond => .b_cond,
+            else => unreachable,
+        };
+    }
 };
 
 pub fn emitMir(
@@ -67,6 +75,8 @@ pub fn emitMir(
             .add_immediate => try emit.mirAddSubtractImmediate(inst),
             .cmp_immediate => try emit.mirAddSubtractImmediate(inst),
             .sub_immediate => try emit.mirAddSubtractImmediate(inst),
+
+            .b_cond => try emit.mirConditionalBranchImmediate(inst),
 
             .b => try emit.mirBranch(inst),
             .bl => try emit.mirBranch(inst),
@@ -112,29 +122,50 @@ pub fn emitMir(
 }
 
 pub fn deinit(emit: *Emit) void {
+    var iter = emit.branch_forward_origins.valueIterator();
+    while (iter.next()) |origin_list| {
+        origin_list.deinit(emit.bin_file.allocator);
+    }
+
     emit.branch_types.deinit(emit.bin_file.allocator);
     emit.branch_forward_origins.deinit(emit.bin_file.allocator);
     emit.code_offset_mapping.deinit(emit.bin_file.allocator);
     emit.* = undefined;
 }
 
-fn optimalBranchType(emit: *Emit, offset: i64) !BranchType {
+fn optimalBranchType(emit: *Emit, tag: Mir.Inst.Tag, offset: i64) !BranchType {
     assert(offset & 0b11 == 0);
 
-    // TODO handle conditional branches
-    if (std.math.cast(i26, offset >> 2)) |_| {
-        return BranchType.unconditional_branch_immediate;
-    } else |_| {
-        return emit.fail("TODO support branches larger than +-128 MiB", .{});
+    switch (tag) {
+        .b, .bl => {
+            if (std.math.cast(i26, offset >> 2)) |_| {
+                return BranchType.unconditional_branch_immediate;
+            } else |_| {
+                return emit.fail("TODO support branches larger than +-128 MiB", .{});
+            }
+        },
+        .b_cond => {
+            if (std.math.cast(i19, offset >> 2)) |_| {
+                return BranchType.b_cond;
+            } else |_| {
+                return emit.fail("TODO support conditional branches larger than +-1 MiB", .{});
+            }
+        },
+        else => unreachable,
     }
 }
 
 fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    switch (tag) {
-        .b, .bl => switch (emit.branch_types.get(inst).?) {
+
+    if (isBranch(tag)) {
+        switch (emit.branch_types.get(inst).?) {
             .unconditional_branch_immediate => return 4,
-        },
+            .b_cond => return 4,
+        }
+    }
+
+    switch (tag) {
         .load_memory => {
             if (emit.bin_file.options.pie) {
                 // adrp, ldr
@@ -151,7 +182,29 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
                 return 5 * 4;
             }
         },
+        .call_extern => return 4,
+        .dbg_line,
+        .dbg_epilogue_begin,
+        .dbg_prologue_end,
+        => return 0,
         else => return 4,
+    }
+}
+
+fn isBranch(tag: Mir.Inst.Tag) bool {
+    return switch (tag) {
+        .b, .bl, .b_cond => true,
+        else => false,
+    };
+}
+
+fn branchTarget(emit: *Emit, inst: Mir.Inst.Index) Mir.Inst.Index {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+
+    switch (tag) {
+        .b, .bl => return emit.mir.instructions.items(.data)[inst].inst,
+        .b_cond => return emit.mir.instructions.items(.data)[inst].inst_cond.inst,
+        else => unreachable,
     }
 }
 
@@ -167,41 +220,38 @@ fn lowerBranches(emit: *Emit) !void {
     // generating MIR
     for (mir_tags) |tag, index| {
         const inst = @intCast(u32, index);
-        switch (tag) {
-            .b, .bl => {
-                const target_inst = emit.mir.instructions.items(.data)[inst].inst;
+        if (isBranch(tag)) {
+            const target_inst = emit.branchTarget(inst);
 
-                // Remember this branch instruction
-                try emit.branch_types.put(allocator, inst, BranchType.default);
+            // Remember this branch instruction
+            try emit.branch_types.put(allocator, inst, BranchType.default(tag));
 
-                // Forward branches require some extra stuff: We only
-                // know their offset once we arrive at the target
-                // instruction. Therefore, we need to be able to
-                // access the branch instruction when we visit the
-                // target instruction in order to manipulate its type
-                // etc.
-                if (target_inst > inst) {
-                    // Remember the branch instruction index
-                    try emit.code_offset_mapping.put(allocator, inst, 0);
+            // Forward branches require some extra stuff: We only
+            // know their offset once we arrive at the target
+            // instruction. Therefore, we need to be able to
+            // access the branch instruction when we visit the
+            // target instruction in order to manipulate its type
+            // etc.
+            if (target_inst > inst) {
+                // Remember the branch instruction index
+                try emit.code_offset_mapping.put(allocator, inst, 0);
 
-                    if (emit.branch_forward_origins.getPtr(target_inst)) |origin_list| {
-                        try origin_list.append(allocator, inst);
-                    } else {
-                        var origin_list: std.ArrayListUnmanaged(Mir.Inst.Index) = .{};
-                        try origin_list.append(allocator, inst);
-                        try emit.branch_forward_origins.put(allocator, target_inst, origin_list);
-                    }
+                if (emit.branch_forward_origins.getPtr(target_inst)) |origin_list| {
+                    try origin_list.append(allocator, inst);
+                } else {
+                    var origin_list: std.ArrayListUnmanaged(Mir.Inst.Index) = .{};
+                    try origin_list.append(allocator, inst);
+                    try emit.branch_forward_origins.put(allocator, target_inst, origin_list);
                 }
+            }
 
-                // Remember the target instruction index so that we
-                // update the real code offset in all future passes
-                //
-                // putNoClobber may not be used as the put operation
-                // may clobber the entry when multiple branches branch
-                // to the same target instruction
-                try emit.code_offset_mapping.put(allocator, target_inst, 0);
-            },
-            else => {}, // not a branch
+            // Remember the target instruction index so that we
+            // update the real code offset in all future passes
+            //
+            // putNoClobber may not be used as the put operation
+            // may clobber the entry when multiple branches branch
+            // to the same target instruction
+            try emit.code_offset_mapping.put(allocator, target_inst, 0);
         }
     }
 
@@ -225,21 +275,20 @@ fn lowerBranches(emit: *Emit) !void {
 
             // If this instruction is a backward branch, calculate the
             // offset, which may potentially update the branch type
-            switch (tag) {
-                .b, .bl => {
-                    const target_inst = emit.mir.instructions.items(.data)[inst].inst;
-                    if (target_inst < inst) {
-                        const target_offset = emit.code_offset_mapping.get(target_inst).?;
-                        const offset = @intCast(i64, target_offset) - @intCast(i64, current_code_offset + 8);
-                        const branch_type = emit.branch_types.getPtr(inst).?;
-                        const optimal_branch_type = try emit.optimalBranchType(offset);
-                        if (branch_type.* != optimal_branch_type) {
-                            branch_type.* = optimal_branch_type;
-                            all_branches_lowered = false;
-                        }
+            if (isBranch(tag)) {
+                const target_inst = emit.branchTarget(inst);
+                if (target_inst < inst) {
+                    const target_offset = emit.code_offset_mapping.get(target_inst).?;
+                    const offset = @intCast(i64, target_offset) - @intCast(i64, current_code_offset);
+                    const branch_type = emit.branch_types.getPtr(inst).?;
+                    const optimal_branch_type = try emit.optimalBranchType(tag, offset);
+                    if (branch_type.* != optimal_branch_type) {
+                        branch_type.* = optimal_branch_type;
+                        all_branches_lowered = false;
                     }
-                },
-                else => {},
+
+                    log.debug("lowerBranches: branch {} has offset {}", .{ inst, offset });
+                }
             }
 
             // If this instruction is the target of one or more
@@ -247,14 +296,17 @@ fn lowerBranches(emit: *Emit) !void {
             // potentially update the branch type
             if (emit.branch_forward_origins.get(inst)) |origin_list| {
                 for (origin_list.items) |forward_branch_inst| {
+                    const branch_tag = emit.mir.instructions.items(.tag)[forward_branch_inst];
                     const forward_branch_inst_offset = emit.code_offset_mapping.get(forward_branch_inst).?;
-                    const offset = @intCast(i64, forward_branch_inst_offset) - @intCast(i64, current_code_offset + 8);
+                    const offset = @intCast(i64, current_code_offset) - @intCast(i64, forward_branch_inst_offset);
                     const branch_type = emit.branch_types.getPtr(forward_branch_inst).?;
-                    const optimal_branch_type = try emit.optimalBranchType(offset);
+                    const optimal_branch_type = try emit.optimalBranchType(branch_tag, offset);
                     if (branch_type.* != optimal_branch_type) {
                         branch_type.* = optimal_branch_type;
                         all_branches_lowered = false;
                     }
+
+                    log.debug("lowerBranches: branch {} has offset {}", .{ forward_branch_inst, offset });
                 }
             }
 
@@ -368,12 +420,37 @@ fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
+fn mirConditionalBranchImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const inst_cond = emit.mir.instructions.items(.data)[inst].inst_cond;
+
+    const offset = @intCast(i64, emit.code_offset_mapping.get(inst_cond.inst).?) - @intCast(i64, emit.code.items.len);
+    const branch_type = emit.branch_types.get(inst).?;
+    log.debug("mirConditionalBranchImmediate: {} offset={}", .{ inst, offset });
+
+    switch (branch_type) {
+        .b_cond => switch (tag) {
+            .b_cond => try emit.writeInstruction(Instruction.bCond(inst_cond.cond, @intCast(i21, offset))),
+            else => unreachable,
+        },
+        else => unreachable,
+    }
+}
+
 fn mirBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const target_inst = emit.mir.instructions.items(.data)[inst].inst;
 
-    const offset = @intCast(i64, emit.code_offset_mapping.get(target_inst).?) - @intCast(i64, emit.code.items.len + 8);
+    log.debug("branch {}(tag: {}) -> {}(tag: {})", .{
+        inst,
+        tag,
+        target_inst,
+        emit.mir.instructions.items(.tag)[target_inst],
+    });
+
+    const offset = @intCast(i64, emit.code_offset_mapping.get(target_inst).?) - @intCast(i64, emit.code.items.len);
     const branch_type = emit.branch_types.get(inst).?;
+    log.debug("mirBranch: {} offset={}", .{ inst, offset });
 
     switch (branch_type) {
         .unconditional_branch_immediate => switch (tag) {
@@ -381,6 +458,7 @@ fn mirBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
             .bl => try emit.writeInstruction(Instruction.bl(@intCast(i28, offset))),
             else => unreachable,
         },
+        else => unreachable,
     }
 }
 

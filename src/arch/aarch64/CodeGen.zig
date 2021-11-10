@@ -177,24 +177,12 @@ const StackAllocation = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Reloc),
+    relocs: std.ArrayListUnmanaged(Mir.Inst.Index),
     /// The first break instruction encounters `null` here and chooses a
     /// machine code value for the block result, populating this field.
     /// Following break instructions encounter that value and use it for
     /// the location to store their block results.
     mcv: MCValue,
-};
-
-const Reloc = union(enum) {
-    /// The value is an offset into the `Function` `code` from the beginning.
-    /// To perform the reloc, write 32-bit signed little-endian integer
-    /// which is a relative jump, based on the address following the reloc.
-    rel32: usize,
-    /// A branch in the ARM instruction set
-    arm_branch: struct {
-        pos: usize,
-        cond: @import("../arm/bits.zig").Condition,
-    },
 };
 
 const BigTomb = struct {
@@ -426,6 +414,12 @@ fn gen(self: *Self) !void {
             });
         }
 
+        // add sp, sp, #stack_size
+        _ = try self.addInst(.{
+            .tag = .add_immediate,
+            .data = .{ .rr_imm12_sh = .{ .rd = .xzr, .rn = .xzr, .imm12 = @intCast(u12, aligned_stack_end) } },
+        });
+
         // ldp fp, lr, [sp], #16
         _ = try self.addInst(.{
             .tag = .ldp,
@@ -435,12 +429,6 @@ fn gen(self: *Self) !void {
                 .rn = Register.sp,
                 .offset = Instruction.LoadStorePairOffset.post_index(16),
             } },
-        });
-
-        // add sp, sp, #stack_size
-        _ = try self.addInst(.{
-            .tag = .add_immediate,
-            .data = .{ .rr_imm12_sh = .{ .rd = .xzr, .rn = .xzr, .imm12 = @intCast(u12, aligned_stack_end) } },
         });
 
         // ret lr
@@ -1358,7 +1346,9 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
             const stack_offset = try self.allocMem(inst, abi_size, abi_align);
             try self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
 
-            break :blk MCValue{ .stack_offset = stack_offset };
+            // TODO correct loading and storing from memory
+            // break :blk MCValue{ .stack_offset = stack_offset };
+            break :blk result;
         },
         else => result,
     };
@@ -1734,9 +1724,153 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const cond = try self.resolveInst(pl_op.operand);
+    const extra = self.air.extraData(Air.CondBr, pl_op.payload);
+    const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
+    const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+    const liveness_condbr = self.liveness.getCondBr(inst);
 
-    return self.fail("TODO implement condbr {}", .{self.target.cpu.arch});
+    const reloc: Mir.Inst.Index = switch (cond) {
+        .compare_flags_signed,
+        .compare_flags_unsigned,
+        => try self.addInst(.{
+            .tag = .b_cond,
+            .data = .{
+                .inst_cond = .{
+                    .inst = undefined, // populated later through performReloc
+                    .cond = switch (cond) {
+                        .compare_flags_signed => |cmp_op| blk: {
+                            // Here we map to the opposite condition because the jump is to the false branch.
+                            const condition = Instruction.Condition.fromCompareOperatorSigned(cmp_op);
+                            break :blk condition.negate();
+                        },
+                        .compare_flags_unsigned => |cmp_op| blk: {
+                            // Here we map to the opposite condition because the jump is to the false branch.
+                            const condition = Instruction.Condition.fromCompareOperatorUnsigned(cmp_op);
+                            break :blk condition.negate();
+                        },
+                        else => unreachable,
+                    },
+                },
+            },
+        }),
+        else => return self.fail("TODO implement condr when condition is {s}", .{@tagName(cond)}),
+    };
+
+    // Capture the state of register and stack allocation state so that we can revert to it.
+    const parent_next_stack_offset = self.next_stack_offset;
+    const parent_free_registers = self.register_manager.free_registers;
+    var parent_stack = try self.stack.clone(self.gpa);
+    defer parent_stack.deinit(self.gpa);
+    const parent_registers = self.register_manager.registers;
+
+    try self.branch_stack.append(.{});
+
+    try self.ensureProcessDeathCapacity(liveness_condbr.then_deaths.len);
+    for (liveness_condbr.then_deaths) |operand| {
+        self.processDeath(operand);
+    }
+    try self.genBody(then_body);
+
+    // Revert to the previous register and stack allocation state.
+
+    var saved_then_branch = self.branch_stack.pop();
+    defer saved_then_branch.deinit(self.gpa);
+
+    self.register_manager.registers = parent_registers;
+
+    self.stack.deinit(self.gpa);
+    self.stack = parent_stack;
+    parent_stack = .{};
+
+    self.next_stack_offset = parent_next_stack_offset;
+    self.register_manager.free_registers = parent_free_registers;
+
+    try self.performReloc(reloc);
+    const else_branch = self.branch_stack.addOneAssumeCapacity();
+    else_branch.* = .{};
+
+    try self.ensureProcessDeathCapacity(liveness_condbr.else_deaths.len);
+    for (liveness_condbr.else_deaths) |operand| {
+        self.processDeath(operand);
+    }
+    try self.genBody(else_body);
+
+    // At this point, each branch will possibly have conflicting values for where
+    // each instruction is stored. They agree, however, on which instructions are alive/dead.
+    // We use the first ("then") branch as canonical, and here emit
+    // instructions into the second ("else") branch to make it conform.
+    // We continue respect the data structure semantic guarantees of the else_branch so
+    // that we can use all the code emitting abstractions. This is why at the bottom we
+    // assert that parent_branch.free_registers equals the saved_then_branch.free_registers
+    // rather than assigning it.
+    const parent_branch = &self.branch_stack.items[self.branch_stack.items.len - 2];
+    try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, else_branch.inst_table.count());
+
+    const else_slice = else_branch.inst_table.entries.slice();
+    const else_keys = else_slice.items(.key);
+    const else_values = else_slice.items(.value);
+    for (else_keys) |else_key, else_idx| {
+        const else_value = else_values[else_idx];
+        const canon_mcv = if (saved_then_branch.inst_table.fetchSwapRemove(else_key)) |then_entry| blk: {
+            // The instruction's MCValue is overridden in both branches.
+            parent_branch.inst_table.putAssumeCapacity(else_key, then_entry.value);
+            if (else_value == .dead) {
+                assert(then_entry.value == .dead);
+                continue;
+            }
+            break :blk then_entry.value;
+        } else blk: {
+            if (else_value == .dead)
+                continue;
+            // The instruction is only overridden in the else branch.
+            var i: usize = self.branch_stack.items.len - 2;
+            while (true) {
+                i -= 1; // If this overflows, the question is: why wasn't the instruction marked dead?
+                if (self.branch_stack.items[i].inst_table.get(else_key)) |mcv| {
+                    assert(mcv != .dead);
+                    break :blk mcv;
+                }
+            }
+        };
+        log.debug("consolidating else_entry {d} {}=>{}", .{ else_key, else_value, canon_mcv });
+        // TODO make sure the destination stack offset / register does not already have something
+        // going on there.
+        try self.setRegOrMem(self.air.typeOfIndex(else_key), canon_mcv, else_value);
+        // TODO track the new register / stack allocation
+    }
+    try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, saved_then_branch.inst_table.count());
+    const then_slice = saved_then_branch.inst_table.entries.slice();
+    const then_keys = then_slice.items(.key);
+    const then_values = then_slice.items(.value);
+    for (then_keys) |then_key, then_idx| {
+        const then_value = then_values[then_idx];
+        // We already deleted the items from this table that matched the else_branch.
+        // So these are all instructions that are only overridden in the then branch.
+        parent_branch.inst_table.putAssumeCapacity(then_key, then_value);
+        if (then_value == .dead)
+            continue;
+        const parent_mcv = blk: {
+            var i: usize = self.branch_stack.items.len - 2;
+            while (true) {
+                i -= 1;
+                if (self.branch_stack.items[i].inst_table.get(then_key)) |mcv| {
+                    assert(mcv != .dead);
+                    break :blk mcv;
+                }
+            }
+        };
+        log.debug("consolidating then_entry {d} {}=>{}", .{ then_key, parent_mcv, then_value });
+        // TODO make sure the destination stack offset / register does not already have something
+        // going on there.
+        try self.setRegOrMem(self.air.typeOfIndex(then_key), parent_mcv, then_value);
+        // TODO track the new register / stack allocation
+    }
+
+    self.branch_stack.pop().deinit(self.gpa);
+
+    return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
 }
 
 fn isNull(self: *Self, operand: MCValue) !MCValue {
@@ -1927,10 +2061,12 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     return self.fail("TODO airSwitch for {}", .{self.target.cpu.arch});
 }
 
-fn performReloc(self: *Self, reloc: Reloc) !void {
-    switch (reloc) {
-        .rel32 => return self.fail("TODO reloc.rel32 for {}", .{self.target.cpu.arch}),
-        .arm_branch => return self.fail("TODO reloc.arm_branch for {}", .{self.target.cpu.arch}),
+fn performReloc(self: *Self, inst: Mir.Inst.Index) !void {
+    const tag = self.mir_instructions.items(.tag)[inst];
+    switch (tag) {
+        .b_cond => self.mir_instructions.items(.data)[inst].inst_cond.inst = @intCast(Air.Inst.Index, self.mir_instructions.len),
+        .b => self.mir_instructions.items(.data)[inst].inst = @intCast(Air.Inst.Index, self.mir_instructions.len),
+        else => unreachable,
     }
 }
 
@@ -1970,7 +2106,10 @@ fn brVoid(self: *Self, block: Air.Inst.Index) !void {
     // Emit a jump with a relocation. It will be patched up after the block ends.
     try block_data.relocs.ensureUnusedCapacity(self.gpa, 1);
 
-    return self.fail("TODO implement brvoid for {}", .{self.target.cpu.arch});
+    block_data.relocs.appendAssumeCapacity(try self.addInst(.{
+        .tag = .b,
+        .data = .{ .inst = undefined }, // populated later through performReloc
+    }));
 }
 
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
@@ -2117,8 +2256,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             return self.fail("TODO implement set stack variable from embedded_in_code", .{});
         },
         .register => |reg| {
-            _ = reg;
-
             const abi_size = ty.abiSize(self.target.*);
             const adj_off = stack_offset + abi_size;
 

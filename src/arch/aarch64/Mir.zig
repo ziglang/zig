@@ -26,6 +26,8 @@ pub const Inst = struct {
     pub const Tag = enum(u16) {
         /// Add (immediate)
         add_immediate,
+        /// Branch conditionally
+        b_cond,
         /// Branch
         b,
         /// Branch with Link
@@ -48,7 +50,7 @@ pub const Inst = struct {
         dbg_epilogue_begin,
         /// Pseudo-instruction: Update debug line
         dbg_line,
-        /// Psuedo-instruction: Load memory
+        /// Pseudo-instruction: Load memory
         ///
         /// Payload is `LoadMemory`
         load_memory,
@@ -103,7 +105,7 @@ pub const Inst = struct {
         ///
         /// Used by e.g. nop
         nop: void,
-        /// Another instruction.
+        /// Another instruction
         ///
         /// Used by e.g. b
         inst: Index,
@@ -123,6 +125,13 @@ pub const Inst = struct {
         ///
         /// Used by e.g. blr
         reg: Register,
+        /// Another instruction and a condition
+        ///
+        /// Used by e.g. b_cond
+        inst_cond: struct {
+            inst: Index,
+            cond: bits.Instruction.Condition,
+        },
         /// A register, an unsigned 16-bit immediate, and an optional shift
         ///
         /// Used by e.g. movz
