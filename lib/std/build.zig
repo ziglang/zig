@@ -2529,7 +2529,7 @@ pub const LibExeObjStep = struct {
                 }
             }
         } else switch (self.target.getExternalExecutor()) {
-            .native, .unavailable => {},
+            .native, .rosetta, .unavailable => {},
             .qemu => |bin_name| if (self.enable_qemu) qemu: {
                 const need_cross_glibc = self.target.isGnuLibC() and self.is_linking_libc;
                 const glibc_dir_arg = if (need_cross_glibc)

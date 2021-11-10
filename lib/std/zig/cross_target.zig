@@ -596,6 +596,7 @@ pub const CrossTarget = struct {
 
     pub const Executor = union(enum) {
         native,
+        rosetta,
         qemu: []const u8,
         wine: []const u8,
         wasmtime: []const u8,
@@ -626,10 +627,13 @@ pub const CrossTarget = struct {
                 return .native;
             }
         }
-        // If the OS match and OS is macOS and CPU is arm64, treat always as native
-        // since we'll be running the foreign architecture tests using Rosetta2.
+        // If the OS match and OS is macOS and CPU is arm64, we can use Rosetta 2
+        // to emulate the foreign architecture.
         if (os_match and os_tag == .macos and builtin.cpu.arch == .aarch64) {
-            return .native;
+            return switch (cpu_arch) {
+                .x86_64 => .rosetta,
+                else => .unavailable,
+            };
         }
 
         // If the OS matches, we can use QEMU to emulate a foreign architecture.
