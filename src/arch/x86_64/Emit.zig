@@ -197,7 +197,10 @@ fn mirPushPop(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!v
                 .pop => 0x58,
                 else => unreachable,
             };
-            const encoder = try Encoder.init(emit.code, 1);
+            const encoder = try Encoder.init(emit.code, 2);
+            encoder.rex(.{
+                .b = ops.reg1.isExtended(),
+            });
             encoder.opcode_withReg(opc, ops.reg1.lowId());
         },
         0b01 => {
