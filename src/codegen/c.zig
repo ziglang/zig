@@ -1125,8 +1125,9 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .shl, .shl_exact => try airBinOp(f, inst, " << "),
             .not             => try airNot  (f, inst),
 
-            .optional_payload     => try airOptionalPayload(f, inst),
-            .optional_payload_ptr => try airOptionalPayload(f, inst),
+            .optional_payload         => try airOptionalPayload(f, inst),
+            .optional_payload_ptr     => try airOptionalPayload(f, inst),
+            .optional_payload_ptr_set => try airOptionalPayloadPtrSet(f, inst),
 
             .is_err          => try airIsErr(f, inst, "", ".", "!="),
             .is_non_err      => try airIsErr(f, inst, "", ".", "=="),
@@ -2215,6 +2216,33 @@ fn airOptionalPayload(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, operand);
 
     try writer.print("){s}payload;\n", .{maybe_deref});
+    return local;
+}
+
+fn airOptionalPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const writer = f.object.writer();
+    const operand = try f.resolveInst(ty_op.operand);
+    const operand_ty = f.air.typeOf(ty_op.operand);
+
+    const opt_ty = operand_ty.elemType();
+
+    if (opt_ty.isPtrLikeOptional()) {
+        // The payload and the optional are the same value.
+        // Setting to non-null will be done when the payload is set.
+        return operand;
+    }
+
+    try writer.writeAll("(");
+    try f.writeCValue(writer, operand);
+    try writer.writeAll(")->is_null = false;\n");
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = &(");
+    try f.writeCValue(writer, operand);
+
+    try writer.writeAll(")->payload;\n");
     return local;
 }
 
