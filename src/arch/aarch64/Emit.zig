@@ -587,12 +587,11 @@ fn mirLoadMemory(emit: *Emit, inst: Mir.Inst.Index) !void {
         try emit.writeInstruction(Instruction.adrp(reg, 0));
 
         // ldr reg, reg, offset
-        try emit.writeInstruction(Instruction.ldr(reg, .{
-            .register = .{
-                .rn = reg,
-                .offset = Instruction.LoadStoreOffset.imm(0),
-            },
-        }));
+        try emit.writeInstruction(Instruction.ldr(
+            reg,
+            reg,
+            Instruction.LoadStoreOffset.imm(0),
+        ));
 
         if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
             // TODO I think the reloc might be in the wrong place.
@@ -626,7 +625,8 @@ fn mirLoadMemory(emit: *Emit, inst: Mir.Inst.Index) !void {
         try emit.moveImmediate(reg, addr);
         try emit.writeInstruction(Instruction.ldr(
             reg,
-            .{ .register = .{ .rn = reg, .offset = Instruction.LoadStoreOffset.none } },
+            reg,
+            Instruction.LoadStoreOffset.none,
         ));
     }
 }
@@ -659,32 +659,33 @@ fn mirLoadStoreRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (tag) {
         .ldr => try emit.writeInstruction(Instruction.ldr(
             load_store_register.rt,
-            .{ .register = .{ .rn = load_store_register.rn, .offset = load_store_register.offset } },
+            load_store_register.rn,
+            load_store_register.offset,
         )),
         .ldrb => try emit.writeInstruction(Instruction.ldrb(
             load_store_register.rt,
             load_store_register.rn,
-            .{ .offset = load_store_register.offset },
+            load_store_register.offset,
         )),
         .ldrh => try emit.writeInstruction(Instruction.ldrh(
             load_store_register.rt,
             load_store_register.rn,
-            .{ .offset = load_store_register.offset },
+            load_store_register.offset,
         )),
         .str => try emit.writeInstruction(Instruction.str(
             load_store_register.rt,
             load_store_register.rn,
-            .{ .offset = load_store_register.offset },
+            load_store_register.offset,
         )),
         .strb => try emit.writeInstruction(Instruction.strb(
             load_store_register.rt,
             load_store_register.rn,
-            .{ .offset = load_store_register.offset },
+            load_store_register.offset,
         )),
         .strh => try emit.writeInstruction(Instruction.strh(
             load_store_register.rt,
             load_store_register.rn,
-            .{ .offset = load_store_register.offset },
+            load_store_register.offset,
         )),
         else => unreachable,
     }
