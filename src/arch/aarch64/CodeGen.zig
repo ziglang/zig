@@ -315,6 +315,8 @@ pub fn generate(
         .prev_di_line = module_fn.lbrace_line,
         .prev_di_column = module_fn.lbrace_column,
     };
+    defer emit.deinit();
+
     emit.emitMir() catch |err| switch (err) {
         error.EmitFail => return FnResult{ .fail = emit.err_msg.? },
         else => |e| return e,
@@ -590,6 +592,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
                     .optional_payload           => try self.airOptionalPayload(inst),
                     .optional_payload_ptr       => try self.airOptionalPayloadPtr(inst),
+                    .optional_payload_ptr_set   => try self.airOptionalPayloadPtrSet(inst),
                     .unwrap_errunion_err        => try self.airUnwrapErrErr(inst),
                     .unwrap_errunion_payload    => try self.airUnwrapErrPayload(inst),
                     .unwrap_errunion_err_ptr    => try self.airUnwrapErrErrPtr(inst),
@@ -1005,6 +1008,12 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
 fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement .optional_payload_ptr for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement .optional_payload_ptr_set for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -2384,6 +2393,9 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         },
         .Int => {
             const info = typed_value.ty.intInfo(self.target.*);
+            if (info.bits <= ptr_bits and info.signedness == .signed) {
+                return MCValue{ .immediate = @bitCast(u64, typed_value.val.toSignedInt()) };
+            }
             if (info.bits > ptr_bits or info.signedness == .signed) {
                 return self.fail("TODO const int bigger than ptr and signed int", .{});
             }

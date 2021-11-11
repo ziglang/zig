@@ -73,3 +73,33 @@ test "optional with void type" {
     var x = Foo{ .x = null };
     try expect(x.x == null);
 }
+
+test "address of unwrap optional" {
+    const S = struct {
+        const Foo = struct {
+            a: i32,
+        };
+
+        var global: ?Foo = null;
+
+        pub fn getFoo() anyerror!*Foo {
+            return &global.?;
+        }
+    };
+    S.global = S.Foo{ .a = 1234 };
+    const foo = S.getFoo() catch unreachable;
+    try expect(foo.a == 1234);
+}
+
+test "nested optional field in struct" {
+    const S2 = struct {
+        y: u8,
+    };
+    const S1 = struct {
+        x: ?S2,
+    };
+    var s = S1{
+        .x = S2{ .y = 127 },
+    };
+    try expect(s.x.?.y == 127);
+}

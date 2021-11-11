@@ -250,3 +250,45 @@ test "volatile load and store" {
     ptr.* += 1;
     try expect(ptr.* == 1235);
 }
+
+fn fA() []const u8 {
+    return "a";
+}
+fn fB() []const u8 {
+    return "b";
+}
+
+test "call function pointer in struct" {
+    try expect(mem.eql(u8, f3(true), "a"));
+    try expect(mem.eql(u8, f3(false), "b"));
+}
+
+fn f3(x: bool) []const u8 {
+    var wrapper: FnPtrWrapper = .{
+        .fn_ptr = fB,
+    };
+
+    if (x) {
+        wrapper.fn_ptr = fA;
+    }
+
+    return wrapper.fn_ptr();
+}
+
+const FnPtrWrapper = struct {
+    fn_ptr: fn () []const u8,
+};
+
+test "const ptr from var variable" {
+    var x: u64 = undefined;
+    var y: u64 = undefined;
+
+    x = 78;
+    copy(&x, &y);
+
+    try expect(x == y);
+}
+
+fn copy(src: *const u64, dst: *u64) void {
+    dst.* = src.*;
+}

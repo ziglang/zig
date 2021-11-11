@@ -3,23 +3,6 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "address of unwrap optional" {
-    const S = struct {
-        const Foo = struct {
-            a: i32,
-        };
-
-        var global: ?Foo = null;
-
-        pub fn getFoo() anyerror!*Foo {
-            return &global.?;
-        }
-    };
-    S.global = S.Foo{ .a = 1234 };
-    const foo = S.getFoo() catch unreachable;
-    try expect(foo.a == 1234);
-}
-
 test "equality compare optional with non-optional" {
     try test_cmp_optional_non_optional();
     comptime try test_cmp_optional_non_optional();
@@ -197,17 +180,4 @@ test "array of optional unaligned types" {
     try expectEqual(Enum.two, values[i].?.Num);
     i += 1;
     try expectEqual(Enum.three, values[i].?.Num);
-}
-
-test "nested optional field in struct" {
-    const S2 = struct {
-        y: u8,
-    };
-    const S1 = struct {
-        x: ?S2,
-    };
-    var s = S1{
-        .x = S2{ .y = 127 },
-    };
-    try expect(s.x.?.y == 127);
 }

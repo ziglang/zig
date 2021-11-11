@@ -1805,7 +1805,13 @@ pub const Type = extern union {
             .void,
             => 0,
 
-            .@"struct" => return self.structFieldOffset(self.structFieldCount(), target),
+            .@"struct" => {
+                const field_count = self.structFieldCount();
+                if (field_count == 0) {
+                    return 0;
+                }
+                return self.structFieldOffset(field_count, target);
+            },
             .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
                 var buffer: Payload.Bits = undefined;
                 const int_tag_ty = self.intTagType(&buffer);

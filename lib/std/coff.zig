@@ -276,7 +276,7 @@ pub const Coff = struct {
         if (self.sections.items.len == self.coff_header.number_of_sections)
             return;
 
-        try self.sections.ensureTotalCapacity(self.coff_header.number_of_sections);
+        try self.sections.ensureTotalCapacityPrecise(self.coff_header.number_of_sections);
 
         const in = self.in_file.reader();
 
@@ -297,7 +297,7 @@ pub const Coff = struct {
                 std.mem.set(u8, name[8..], 0);
             }
 
-            try self.sections.append(Section{
+            self.sections.appendAssumeCapacity(Section{
                 .header = SectionHeader{
                     .name = name,
                     .misc = SectionHeader.Misc{ .virtual_size = try in.readIntLittle(u32) },

@@ -1,7 +1,7 @@
 const __truncsfhf2 = @import("truncXfYf2.zig").__truncsfhf2;
 
 fn test__truncsfhf2(a: u32, expected: u16) !void {
-    const actual = __truncsfhf2(@bitCast(f32, a));
+    const actual = @bitCast(u16, __truncsfhf2(@bitCast(f32, a)));
 
     if (actual == expected) {
         return;
@@ -82,7 +82,7 @@ fn test__truncdfhf2(a: f64, expected: u16) void {
 }
 
 fn test__truncdfhf2_raw(a: u64, expected: u16) void {
-    const actual = __truncdfhf2(@bitCast(f64, a));
+    const actual = @bitCast(u16, __truncdfhf2(@bitCast(f64, a)));
 
     if (actual == expected) {
         return;

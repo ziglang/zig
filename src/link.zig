@@ -82,6 +82,10 @@ pub const Options = struct {
     nxcompat: bool,
     dynamicbase: bool,
     bind_global_refs_locally: bool,
+    import_memory: bool,
+    initial_memory: ?u64,
+    max_memory: ?u64,
+    global_base: ?u64,
     is_native_os: bool,
     is_native_abi: bool,
     pic: bool,
@@ -650,10 +654,10 @@ pub const File = struct {
             };
         }
 
-        var object_files = std.ArrayList([*:0]const u8).init(base.allocator);
+        const num_object_files = base.options.objects.len + comp.c_object_table.count() + 2;
+        var object_files = try std.ArrayList([*:0]const u8).initCapacity(base.allocator, num_object_files);
         defer object_files.deinit();
 
-        try object_files.ensureTotalCapacity(base.options.objects.len + comp.c_object_table.count() + 2);
         for (base.options.objects) |obj_path| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, obj_path));
         }

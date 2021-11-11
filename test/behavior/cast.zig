@@ -107,6 +107,28 @@ test "comptime_int @intToFloat" {
     }
 }
 
+test "@floatToInt" {
+    try testFloatToInts();
+    comptime try testFloatToInts();
+}
+
+fn testFloatToInts() !void {
+    const x = @as(i32, 1e4);
+    try expect(x == 10000);
+    const y = @floatToInt(i32, @as(f32, 1e4));
+    try expect(y == 10000);
+    try expectFloatToInt(f16, 255.1, u8, 255);
+    try expectFloatToInt(f16, 127.2, i8, 127);
+    try expectFloatToInt(f16, -128.2, i8, -128);
+    try expectFloatToInt(f32, 255.1, u8, 255);
+    try expectFloatToInt(f32, 127.2, i8, 127);
+    try expectFloatToInt(f32, -128.2, i8, -128);
+}
+
+fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) !void {
+    try expect(@floatToInt(I, f) == i);
+}
+
 test "implicit cast from [*]T to ?*c_void" {
     var a = [_]u8{ 3, 2, 1 };
     var runtime_zero: usize = 0;

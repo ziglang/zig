@@ -31,8 +31,8 @@ pub fn Queue(comptime T: type) type {
         pub fn put(self: *Self, node: *Node) void {
             node.next = null;
 
-            const held = self.mutex.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             node.prev = self.tail;
             self.tail = node;
@@ -48,8 +48,8 @@ pub fn Queue(comptime T: type) type {
         /// It is safe to `get()` a node from the queue while another thread tries
         /// to `remove()` the same node at the same time.
         pub fn get(self: *Self) ?*Node {
-            const held = self.mutex.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             const head = self.head orelse return null;
             self.head = head.next;
@@ -67,8 +67,8 @@ pub fn Queue(comptime T: type) type {
         pub fn unget(self: *Self, node: *Node) void {
             node.prev = null;
 
-            const held = self.mutex.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             const opt_head = self.head;
             self.head = node;
@@ -84,8 +84,8 @@ pub fn Queue(comptime T: type) type {
         /// It is safe to `remove()` a node from the queue while another thread tries
         /// to `get()` the same node at the same time.
         pub fn remove(self: *Self, node: *Node) bool {
-            const held = self.mutex.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             if (node.prev == null and node.next == null and self.head != node) {
                 return false;
@@ -110,8 +110,8 @@ pub fn Queue(comptime T: type) type {
         /// Note that in a multi-consumer environment a return value of `false`
         /// does not mean that `get` will yield a non-`null` value!
         pub fn isEmpty(self: *Self) bool {
-            const held = self.mutex.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
             return self.head == null;
         }
 
@@ -144,8 +144,8 @@ pub fn Queue(comptime T: type) type {
                     }
                 }
             };
-            const held = self.mutex.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             try stream.print("head: ", .{});
             try S.dumpRecursive(stream, self.head, 0, 4);

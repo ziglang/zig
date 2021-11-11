@@ -56,7 +56,7 @@ done: bool = true,
 /// Protects the `refresh` function, as well as `node.recently_updated_child`.
 /// Without this, callsites would call `Node.end` and then free `Node` memory
 /// while it was still being accessed by the `refresh` function.
-update_lock: std.Thread.Mutex = .{},
+update_mutex: std.Thread.Mutex = .{},
 
 /// Keeps track of how many columns in the terminal have been output, so that
 /// we can move the cursor back later.
@@ -103,14 +103,14 @@ pub const Node = struct {
         self.context.maybeRefresh();
         if (self.parent) |parent| {
             {
-                const held = self.context.update_lock.acquire();
-                defer held.release();
+                self.context.update_mutex.lock();
+                defer self.context.update_mutex.unlock();
                 _ = @cmpxchgStrong(?*Node, &parent.recently_updated_child, self, null, .Monotonic, .Monotonic);
             }
             parent.completeOne();
         } else {
-            const held = self.context.update_lock.acquire();
-            defer held.release();
+            self.context.update_mutex.lock();
+            defer self.context.update_mutex.unlock();
             self.context.done = true;
             self.context.refreshWithHeldLock();
         }
@@ -170,8 +170,8 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) !*
 pub fn maybeRefresh(self: *Progress) void {
     const now = self.timer.read();
     if (now < self.initial_delay_ns) return;
-    const held = self.update_lock.tryAcquire() orelse return;
-    defer held.release();
+    if (!self.update_mutex.tryLock()) return;
+    defer self.update_mutex.unlock();
     // TODO I have observed this to happen sometimes. I think we need to follow Rust's
     // lead and guarantee monotonically increasing times in the std lib itself.
     if (now < self.prev_refresh_timestamp) return;
@@ -181,8 +181,8 @@ pub fn maybeRefresh(self: *Progress) void {
 
 /// Updates the terminal and resets `self.next_refresh_timestamp`. Thread-safe.
 pub fn refresh(self: *Progress) void {
-    const held = self.update_lock.tryAcquire() orelse return;
-    defer held.release();
+    if (!self.update_mutex.tryLock()) return;
+    defer self.update_mutex.unlock();
 
     return self.refreshWithHeldLock();
 }

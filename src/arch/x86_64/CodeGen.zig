@@ -14,11 +14,12 @@ const Allocator = mem.Allocator;
 const Compilation = @import("../../Compilation.zig");
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const DW = std.dwarf;
-const Encoder = @import("bits.zig").Encoder;
+const Emit = @import("Emit.zig");
 const ErrorMsg = Module.ErrorMsg;
 const FnResult = @import("../../codegen.zig").FnResult;
 const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
 const Liveness = @import("../../Liveness.zig");
+const Mir = @import("Mir.zig");
 const Module = @import("../../Module.zig");
 const RegisterManager = @import("../../register_manager.zig").RegisterManager;
 const Target = std.Target;
@@ -32,15 +33,12 @@ const InnerError = error{
     CodegenFail,
 };
 
-arch: std.Target.Cpu.Arch,
 gpa: *Allocator,
 air: Air,
 liveness: Liveness,
 bin_file: *link.File,
 target: *const std.Target,
 mod_fn: *const Module.Fn,
-code: *std.ArrayList(u8),
-debug_output: DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
@@ -49,18 +47,19 @@ arg_index: usize,
 src_loc: Module.SrcLoc,
 stack_align: u32,
 
-prev_di_line: u32,
-prev_di_column: u32,
+/// MIR Instructions
+mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
+/// MIR extra data
+mir_extra: std.ArrayListUnmanaged(u32) = .{},
+
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
 end_di_column: u32,
-/// Relative to the beginning of `code`.
-prev_di_pc: usize,
 
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
+exitlude_jump_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -89,7 +88,7 @@ air_bookkeeping: @TypeOf(air_bookkeeping_init) = air_bookkeeping_init,
 
 const air_bookkeeping_init = if (std.debug.runtime_safety) @as(usize, 0) else {};
 
-const MCValue = union(enum) {
+pub const MCValue = union(enum) {
     /// No runtime bits. `void` types, empty structs, u0, enums with 1 tag, etc.
     /// TODO Look into deleting this tag and using `dead` instead, since every use
     /// of MCValue.none should be instead looking at the type and noticing it is 0 bits.
@@ -178,24 +177,12 @@ const StackAllocation = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Reloc),
+    relocs: std.ArrayListUnmanaged(Mir.Inst.Index),
     /// The first break instruction encounters `null` here and chooses a
     /// machine code value for the block result, populating this field.
     /// Following break instructions encounter that value and use it for
     /// the location to store their block results.
     mcv: MCValue,
-};
-
-const Reloc = union(enum) {
-    /// The value is an offset into the `Function` `code` from the beginning.
-    /// To perform the reloc, write 32-bit signed little-endian integer
-    /// which is a relative jump, based on the address following the reloc.
-    rel32: usize,
-    /// A branch in the ARM instruction set
-    arm_branch: struct {
-        pos: usize,
-        cond: @import("../../arch/arm/bits.zig").Condition,
-    },
 };
 
 const BigTomb = struct {
@@ -238,7 +225,6 @@ const BigTomb = struct {
 const Self = @This();
 
 pub fn generate(
-    arch: std.Target.Cpu.Arch,
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
     module_fn: *Module.Fn,
@@ -247,7 +233,7 @@ pub fn generate(
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
 ) GenerateSymbolError!FnResult {
-    if (build_options.skip_non_native and builtin.cpu.arch != arch) {
+    if (build_options.skip_non_native and builtin.cpu.arch != bin_file.options.target.cpu.arch) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
@@ -263,15 +249,12 @@ pub fn generate(
     try branch_stack.append(.{});
 
     var function = Self{
-        .arch = arch,
         .gpa = bin_file.allocator,
         .air = air,
         .liveness = liveness,
         .target = &bin_file.options.target,
         .bin_file = bin_file,
         .mod_fn = module_fn,
-        .code = code,
-        .debug_output = debug_output,
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
@@ -280,15 +263,14 @@ pub fn generate(
         .branch_stack = &branch_stack,
         .src_loc = src_loc,
         .stack_align = undefined,
-        .prev_di_pc = 0,
-        .prev_di_line = module_fn.lbrace_line,
-        .prev_di_column = module_fn.lbrace_column,
         .end_di_line = module_fn.rbrace_line,
         .end_di_column = module_fn.rbrace_column,
     };
     defer function.stack.deinit(bin_file.allocator);
     defer function.blocks.deinit(bin_file.allocator);
     defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
+    defer function.mir_instructions.deinit(bin_file.allocator);
+    defer function.mir_extra.deinit(bin_file.allocator);
 
     var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
         error.CodegenFail => return FnResult{ .fail = function.err_msg.? },
@@ -306,6 +288,30 @@ pub fn generate(
         else => |e| return e,
     };
 
+    var mir = Mir{
+        .function = &function,
+        .instructions = function.mir_instructions.toOwnedSlice(),
+        .extra = function.mir_extra.toOwnedSlice(bin_file.allocator),
+    };
+    defer mir.deinit(bin_file.allocator);
+
+    var emit = Emit{
+        .mir = mir,
+        .bin_file = bin_file,
+        .debug_output = debug_output,
+        .target = &bin_file.options.target,
+        .src_loc = src_loc,
+        .code = code,
+        .prev_di_pc = 0,
+        .prev_di_line = module_fn.lbrace_line,
+        .prev_di_column = module_fn.lbrace_column,
+    };
+    defer emit.deinit();
+    emit.emitMir() catch |err| switch (err) {
+        error.EmitFail => return FnResult{ .fail = emit.err_msg.? },
+        else => |e| return e,
+    };
+
     if (function.err_msg) |em| {
         return FnResult{ .fail = em };
     } else {
@@ -313,71 +319,143 @@ pub fn generate(
     }
 }
 
-fn gen(self: *Self) !void {
-    try self.code.ensureUnusedCapacity(11);
+fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
+    const gpa = self.gpa;
+    try self.mir_instructions.ensureUnusedCapacity(gpa, 1);
+    const result_index = @intCast(Air.Inst.Index, self.mir_instructions.len);
+    self.mir_instructions.appendAssumeCapacity(inst);
+    return result_index;
+}
 
+pub fn addExtra(self: *Self, extra: anytype) Allocator.Error!u32 {
+    const fields = std.meta.fields(@TypeOf(extra));
+    try self.mir_extra.ensureUnusedCapacity(self.gpa, fields.len);
+    return self.addExtraAssumeCapacity(extra);
+}
+
+pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
+    const fields = std.meta.fields(@TypeOf(extra));
+    const result = @intCast(u32, self.mir_extra.items.len);
+    inline for (fields) |field| {
+        self.mir_extra.appendAssumeCapacity(switch (field.field_type) {
+            u32 => @field(extra, field.name),
+            i32 => @bitCast(u32, @field(extra, field.name)),
+            else => @compileError("bad field type"),
+        });
+    }
+    return result;
+}
+
+fn gen(self: *Self) InnerError!void {
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
+        _ = try self.addInst(.{
+            .tag = .push,
+            .ops = (Mir.Ops{
+                .reg1 = .rbp,
+            }).encode(),
+            .data = undefined, // unused for push reg,
+        });
+        _ = try self.addInst(.{
+            .tag = .mov,
+            .ops = (Mir.Ops{
+                .reg1 = .rsp,
+                .reg2 = .rbp,
+            }).encode(),
+            .data = undefined,
+        });
         // We want to subtract the aligned stack frame size from rsp here, but we don't
         // yet know how big it will be, so we leave room for a 4-byte stack size.
         // TODO During semantic analysis, check if there are no function calls. If there
         // are none, here we can omit the part where we subtract and then add rsp.
-        self.code.appendSliceAssumeCapacity(&[_]u8{
-            0x55, // push rbp
-            0x48, 0x89, 0xe5, // mov rbp, rsp
-            0x48, 0x81, 0xec, // sub rsp, imm32 (with reloc)
+        const backpatch_reloc = try self.addInst(.{
+            .tag = .sub,
+            .ops = (Mir.Ops{
+                .reg1 = .rsp,
+            }).encode(),
+            .data = .{ .imm = 0 },
         });
-        const reloc_index = self.code.items.len;
-        self.code.items.len += 4;
 
-        try self.dbgSetPrologueEnd();
+        _ = try self.addInst(.{
+            .tag = .dbg_prologue_end,
+            .ops = undefined,
+            .data = undefined,
+        });
+
         try self.genBody(self.air.getMainBody());
 
         const stack_end = self.max_end_stack;
-        if (stack_end > math.maxInt(i32))
+        if (stack_end > math.maxInt(i32)) {
             return self.failSymbol("too much stack used in call parameters", .{});
+        }
         const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
-        mem.writeIntLittle(u32, self.code.items[reloc_index..][0..4], @intCast(u32, aligned_stack_end));
-
-        if (self.code.items.len >= math.maxInt(i32)) {
-            return self.failSymbol("unable to perform relocation: jump too far", .{});
+        if (aligned_stack_end > 0) {
+            self.mir_instructions.items(.data)[backpatch_reloc].imm = @intCast(i32, aligned_stack_end);
         }
+
         if (self.exitlude_jump_relocs.items.len == 1) {
-            self.code.items.len -= 5;
+            self.mir_instructions.len -= 1;
         } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
-            const amt = self.code.items.len - (jmp_reloc + 4);
-            const s32_amt = @intCast(i32, amt);
-            mem.writeIntLittle(i32, self.code.items[jmp_reloc..][0..4], s32_amt);
+            self.mir_instructions.items(.data)[jmp_reloc].inst = @intCast(u32, self.mir_instructions.len);
         }
 
-        // Important to be after the possible self.code.items.len -= 5 above.
-        try self.dbgSetEpilogueBegin();
+        _ = try self.addInst(.{
+            .tag = .dbg_epilogue_begin,
+            .ops = undefined,
+            .data = undefined,
+        });
 
-        try self.code.ensureUnusedCapacity(9);
-        // add rsp, x
-        if (aligned_stack_end > math.maxInt(i8)) {
-            // example: 48 81 c4 ff ff ff 7f  add    rsp,0x7fffffff
-            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x48, 0x81, 0xc4 });
-            const x = @intCast(u32, aligned_stack_end);
-            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), x);
-        } else if (aligned_stack_end != 0) {
-            // example: 48 83 c4 7f           add    rsp,0x7f
-            const x = @intCast(u8, aligned_stack_end);
-            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x48, 0x83, 0xc4, x });
+        if (aligned_stack_end > 0) {
+            // add rsp, x
+            _ = try self.addInst(.{
+                .tag = .add,
+                .ops = (Mir.Ops{
+                    .reg1 = .rsp,
+                }).encode(),
+                .data = .{ .imm = @intCast(i32, aligned_stack_end) },
+            });
         }
 
-        self.code.appendSliceAssumeCapacity(&[_]u8{
-            0x5d, // pop rbp
-            0xc3, // ret
+        _ = try self.addInst(.{
+            .tag = .pop,
+            .ops = (Mir.Ops{
+                .reg1 = .rbp,
+            }).encode(),
+            .data = undefined,
+        });
+        _ = try self.addInst(.{
+            .tag = .ret,
+            .ops = (Mir.Ops{
+                .flags = 0b11,
+            }).encode(),
+            .data = undefined,
         });
     } else {
-        try self.dbgSetPrologueEnd();
+        _ = try self.addInst(.{
+            .tag = .dbg_prologue_end,
+            .ops = undefined,
+            .data = undefined,
+        });
+
         try self.genBody(self.air.getMainBody());
-        try self.dbgSetEpilogueBegin();
+
+        _ = try self.addInst(.{
+            .tag = .dbg_epilogue_begin,
+            .ops = undefined,
+            .data = undefined,
+        });
     }
 
     // Drop them off at the rbrace.
-    try self.dbgAdvancePCAndLine(self.end_di_line, self.end_di_column);
+    const payload = try self.addExtra(Mir.DbgLineColumn{
+        .line = self.end_di_line,
+        .column = self.end_di_column,
+    });
+    _ = try self.addInst(.{
+        .tag = .dbg_line,
+        .ops = undefined,
+        .data = .{ .payload = payload },
+    });
 }
 
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
@@ -500,6 +578,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
                     .optional_payload           => try self.airOptionalPayload(inst),
                     .optional_payload_ptr       => try self.airOptionalPayloadPtr(inst),
+                    .optional_payload_ptr_set   => try self.airOptionalPayloadPtrSet(inst),
                     .unwrap_errunion_err        => try self.airUnwrapErrErr(inst),
                     .unwrap_errunion_payload    => try self.airUnwrapErrPayload(inst),
                     .unwrap_errunion_err_ptr    => try self.airUnwrapErrErrPtr(inst),
@@ -515,79 +594,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                 std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[inst] });
             }
         }
-    }
-}
-
-fn dbgSetPrologueEnd(self: *Self) InnerError!void {
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
-fn dbgSetEpilogueBegin(self: *Self) InnerError!void {
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
-fn dbgAdvancePCAndLine(self: *Self, line: u32, column: u32) InnerError!void {
-    const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
-    const delta_pc: usize = self.code.items.len - self.prev_di_pc;
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            // TODO Look into using the DWARF special opcodes to compress this data.
-            // It lets you emit single-byte opcodes that add different numbers to
-            // both the PC and the line number at the same time.
-            try dbg_out.dbg_line.ensureUnusedCapacity(11);
-            dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
-            leb128.writeULEB128(dbg_out.dbg_line.writer(), delta_pc) catch unreachable;
-            if (delta_line != 0) {
-                dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-                leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
-            }
-            dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
-            self.prev_di_pc = self.code.items.len;
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
-        },
-        .plan9 => |dbg_out| {
-            if (delta_pc <= 0) return; // only do this when the pc changes
-            // we have already checked the target in the linker to make sure it is compatable
-            const quant = @import("../../link/Plan9/aout.zig").getPCQuant(self.target.cpu.arch) catch unreachable;
-
-            // increasing the line number
-            try @import("../../link/Plan9.zig").changeLine(dbg_out.dbg_line, delta_line);
-            // increasing the pc
-            const d_pc_p9 = @intCast(i64, delta_pc) - quant;
-            if (d_pc_p9 > 0) {
-                // minus one because if its the last one, we want to leave space to change the line which is one quanta
-                try dbg_out.dbg_line.append(@intCast(u8, @divExact(d_pc_p9, quant) + 128) - quant);
-                if (dbg_out.pcop_change_index.*) |pci|
-                    dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index.* = @intCast(u32, dbg_out.dbg_line.items.len - 1);
-            } else if (d_pc_p9 == 0) {
-                // we don't need to do anything, because adding the quant does it for us
-            } else unreachable;
-            if (dbg_out.start_line.* == null)
-                dbg_out.start_line.* = self.prev_di_line;
-            dbg_out.end_line.* = line;
-            // only do this if the pc changed
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
-        },
-        .none => {},
     }
 }
 
@@ -652,29 +658,6 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
 fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
     const table = &self.branch_stack.items[self.branch_stack.items.len - 1].inst_table;
     try table.ensureUnusedCapacity(self.gpa, additional_count);
-}
-
-/// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
-/// after codegen for this symbol is done.
-fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            assert(ty.hasCodeGenBits());
-            const index = dbg_out.dbg_info.items.len;
-            try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
-
-            const gop = try dbg_out.dbg_info_type_relocs.getOrPut(self.gpa, ty);
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{
-                    .off = undefined,
-                    .relocs = .{},
-                };
-            }
-            try gop.value_ptr.relocs.append(self.gpa, @intCast(u32, index));
-        },
-        .plan9 => {},
-        .none => {},
-    }
 }
 
 fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u32 {
@@ -848,7 +831,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
             },
             else => {},
         }
-        break :result try self.genX8664BinMath(inst, ty_op.operand, .bool_true);
+        break :result try self.genBinMathOp(inst, ty_op.operand, .bool_true);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -886,7 +869,7 @@ fn airAdd(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
-        try self.genX8664BinMath(inst, bin_op.lhs, bin_op.rhs);
+        try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -913,7 +896,7 @@ fn airSub(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
-        try self.genX8664BinMath(inst, bin_op.lhs, bin_op.rhs);
+        try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -940,7 +923,7 @@ fn airMul(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
-        try self.genX8664BinMath(inst, bin_op.lhs, bin_op.rhs);
+        try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -994,7 +977,7 @@ fn airBitAnd(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
-        try self.genX8664BinMath(inst, bin_op.lhs, bin_op.rhs);
+        try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1003,7 +986,7 @@ fn airBitOr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
-        try self.genX8664BinMath(inst, bin_op.lhs, bin_op.rhs);
+        try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs);
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1058,6 +1041,15 @@ fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) !void {
         .dead
     else
         return self.fail("TODO implement .optional_payload_ptr for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else
+        return self.fail("TODO implement .optional_payload_ptr_set for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1415,7 +1407,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 /// Perform "binary" operators, excluding comparisons.
 /// Currently, the following ops are supported:
 /// ADD, SUB, XOR, OR, AND
-fn genX8664BinMath(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref) !MCValue {
+fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Air.Inst.Ref) !MCValue {
     // We'll handle these ops in two steps.
     // 1) Prepare an output location (register or memory)
     //    This location will be the location of the operand that dies (if one exists)
@@ -1425,9 +1417,6 @@ fn genX8664BinMath(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_r
     //    In this case, copy that location to a register, then perform the op to that register instead.
     //
     // TODO: make this algorithm less bad
-
-    try self.code.ensureUnusedCapacity(8);
-
     const lhs = try self.resolveInst(op_lhs);
     const rhs = try self.resolveInst(op_rhs);
 
@@ -1486,107 +1475,28 @@ fn genX8664BinMath(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_r
         else => {},
     }
 
-    // Now for step 2, we perform the actual op
-    const inst_ty = self.air.typeOfIndex(inst);
+    // Now for step 2, we assing an MIR instruction
+    const dst_ty = self.air.typeOfIndex(inst);
     const air_tags = self.air.instructions.items(.tag);
     switch (air_tags[inst]) {
-        // TODO: Generate wrapping and non-wrapping versions separately
-        .add, .addwrap => try self.genX8664BinMathCode(inst_ty, dst_mcv, src_mcv, 0, 0x00),
-        .bool_or, .bit_or => try self.genX8664BinMathCode(inst_ty, dst_mcv, src_mcv, 1, 0x08),
-        .bool_and, .bit_and => try self.genX8664BinMathCode(inst_ty, dst_mcv, src_mcv, 4, 0x20),
-        .sub, .subwrap => try self.genX8664BinMathCode(inst_ty, dst_mcv, src_mcv, 5, 0x28),
-        .xor, .not => try self.genX8664BinMathCode(inst_ty, dst_mcv, src_mcv, 6, 0x30),
-
-        .mul, .mulwrap => try self.genX8664Imul(inst_ty, dst_mcv, src_mcv),
+        .add, .addwrap => try self.genBinMathOpMir(.add, dst_ty, dst_mcv, src_mcv),
+        .bool_or, .bit_or => try self.genBinMathOpMir(.@"or", dst_ty, dst_mcv, src_mcv),
+        .bool_and, .bit_and => try self.genBinMathOpMir(.@"and", dst_ty, dst_mcv, src_mcv),
+        .sub, .subwrap => try self.genBinMathOpMir(.sub, dst_ty, dst_mcv, src_mcv),
+        .xor, .not => try self.genBinMathOpMir(.xor, dst_ty, dst_mcv, src_mcv),
+        .mul, .mulwrap => try self.genIMulOpMir(dst_ty, dst_mcv, src_mcv),
         else => unreachable,
     }
 
     return dst_mcv;
 }
 
-/// Wrap over Instruction.encodeInto to translate errors
-fn encodeX8664Instruction(self: *Self, inst: Instruction) !void {
-    inst.encodeInto(self.code) catch |err| {
-        if (err == error.OutOfMemory)
-            return error.OutOfMemory
-        else
-            return self.fail("Instruction.encodeInto failed because {s}", .{@errorName(err)});
-    };
-}
-
-/// This function encodes a binary operation for x86_64
-/// intended for use with the following opcode ranges
-/// because they share the same structure.
-///
-/// Thus not all binary operations can be used here
-/// -- multiplication needs to be done with imul,
-/// which doesn't have as convenient an interface.
-///
-/// "opx"-style instructions use the opcode extension field to indicate which instruction to execute:
-///
-/// opx = /0: add
-/// opx = /1: or
-/// opx = /2: adc
-/// opx = /3: sbb
-/// opx = /4: and
-/// opx = /5: sub
-/// opx = /6: xor
-/// opx = /7: cmp
-///
-/// opcode  | operand shape
-/// --------+----------------------
-/// 80 /opx | *r/m8*,        imm8
-/// 81 /opx | *r/m16/32/64*, imm16/32
-/// 83 /opx | *r/m16/32/64*, imm8
-///
-/// "mr"-style instructions use the low bits of opcode to indicate shape of instruction:
-///
-/// mr = 00: add
-/// mr = 08: or
-/// mr = 10: adc
-/// mr = 18: sbb
-/// mr = 20: and
-/// mr = 28: sub
-/// mr = 30: xor
-/// mr = 38: cmp
-///
-/// opcode | operand shape
-/// -------+-------------------------
-/// mr + 0 | *r/m8*,        r8
-/// mr + 1 | *r/m16/32/64*, r16/32/64
-/// mr + 2 | *r8*,          r/m8
-/// mr + 3 | *r16/32/64*,   r/m16/32/64
-/// mr + 4 | *AL*,          imm8
-/// mr + 5 | *rAX*,         imm16/32
-///
-/// TODO: rotates and shifts share the same structure, so we can potentially implement them
-///       at a later date with very similar code.
-///       They have "opx"-style instructions, but no "mr"-style instructions.
-///
-/// opx = /0: rol,
-/// opx = /1: ror,
-/// opx = /2: rcl,
-/// opx = /3: rcr,
-/// opx = /4: shl sal,
-/// opx = /5: shr,
-/// opx = /6: sal shl,
-/// opx = /7: sar,
-///
-/// opcode  | operand shape
-/// --------+------------------
-/// c0 /opx | *r/m8*,        imm8
-/// c1 /opx | *r/m16/32/64*, imm8
-/// d0 /opx | *r/m8*,        1
-/// d1 /opx | *r/m16/32/64*, 1
-/// d2 /opx | *r/m8*,        CL    (for context, CL is register 1)
-/// d3 /opx | *r/m16/32/64*, CL    (for context, CL is register 1)
-fn genX8664BinMathCode(
+fn genBinMathOpMir(
     self: *Self,
+    mir_tag: Mir.Inst.Tag,
     dst_ty: Type,
     dst_mcv: MCValue,
     src_mcv: MCValue,
-    opx: u3,
-    mr: u8,
 ) !void {
     switch (dst_mcv) {
         .none => unreachable,
@@ -1604,84 +1514,43 @@ fn genX8664BinMathCode(
                 .ptr_stack_offset => unreachable,
                 .ptr_embedded_in_code => unreachable,
                 .register => |src_reg| {
-                    // for register, register use mr + 1
-                    // addressing mode: *r/m16/32/64*, r16/32/64
-                    const abi_size = dst_ty.abiSize(self.target.*);
-                    const encoder = try Encoder.init(self.code, 3);
-                    encoder.rex(.{
-                        .w = abi_size == 8,
-                        .r = src_reg.isExtended(),
-                        .b = dst_reg.isExtended(),
+                    _ = try self.addInst(.{
+                        .tag = mir_tag,
+                        .ops = (Mir.Ops{
+                            .reg1 = src_reg,
+                            .reg2 = dst_reg,
+                            .flags = 0b11,
+                        }).encode(),
+                        .data = undefined,
                     });
-                    encoder.opcode_1byte(mr + 1);
-                    encoder.modRm_direct(
-                        src_reg.low_id(),
-                        dst_reg.low_id(),
-                    );
                 },
                 .immediate => |imm| {
-                    // register, immediate use opx = 81 or 83 addressing modes:
-                    // opx = 81: r/m16/32/64, imm16/32
-                    // opx = 83: r/m16/32/64, imm8
-                    const imm32 = @intCast(i32, imm); // This case must be handled before calling genX8664BinMathCode.
-                    if (imm32 <= math.maxInt(i8)) {
-                        const abi_size = dst_ty.abiSize(self.target.*);
-                        const encoder = try Encoder.init(self.code, 4);
-                        encoder.rex(.{
-                            .w = abi_size == 8,
-                            .b = dst_reg.isExtended(),
-                        });
-                        encoder.opcode_1byte(0x83);
-                        encoder.modRm_direct(
-                            opx,
-                            dst_reg.low_id(),
-                        );
-                        encoder.imm8(@intCast(i8, imm32));
-                    } else {
-                        const abi_size = dst_ty.abiSize(self.target.*);
-                        const encoder = try Encoder.init(self.code, 7);
-                        encoder.rex(.{
-                            .w = abi_size == 8,
-                            .b = dst_reg.isExtended(),
-                        });
-                        encoder.opcode_1byte(0x81);
-                        encoder.modRm_direct(
-                            opx,
-                            dst_reg.low_id(),
-                        );
-                        encoder.imm32(@intCast(i32, imm32));
-                    }
+                    _ = try self.addInst(.{
+                        .tag = mir_tag,
+                        .ops = (Mir.Ops{
+                            .reg1 = dst_reg,
+                        }).encode(),
+                        .data = .{ .imm = @intCast(i32, imm) },
+                    });
                 },
                 .embedded_in_code, .memory => {
                     return self.fail("TODO implement x86 ADD/SUB/CMP source memory", .{});
                 },
                 .stack_offset => |off| {
-                    // register, indirect use mr + 3
-                    // addressing mode: *r16/32/64*, r/m16/32/64
-                    const abi_size = dst_ty.abiSize(self.target.*);
-                    const adj_off = off + abi_size;
                     if (off > math.maxInt(i32)) {
                         return self.fail("stack offset too large", .{});
                     }
-                    const encoder = try Encoder.init(self.code, 7);
-                    encoder.rex(.{
-                        .w = abi_size == 8,
-                        .r = dst_reg.isExtended(),
+                    const abi_size = dst_ty.abiSize(self.target.*);
+                    const adj_off = off + abi_size;
+                    _ = try self.addInst(.{
+                        .tag = mir_tag,
+                        .ops = (Mir.Ops{
+                            .reg1 = dst_reg,
+                            .reg2 = .ebp,
+                            .flags = 0b01,
+                        }).encode(),
+                        .data = .{ .imm = -@intCast(i32, adj_off) },
                     });
-                    encoder.opcode_1byte(mr + 3);
-                    if (adj_off <= std.math.maxInt(i8)) {
-                        encoder.modRm_indirectDisp8(
-                            dst_reg.low_id(),
-                            Register.ebp.low_id(),
-                        );
-                        encoder.disp8(-@intCast(i8, adj_off));
-                    } else {
-                        encoder.modRm_indirectDisp32(
-                            dst_reg.low_id(),
-                            Register.ebp.low_id(),
-                        );
-                        encoder.disp32(-@intCast(i32, adj_off));
-                    }
                 },
                 .compare_flags_unsigned => {
                     return self.fail("TODO implement x86 ADD/SUB/CMP source compare flag (unsigned)", .{});
@@ -1699,7 +1568,20 @@ fn genX8664BinMathCode(
                 .ptr_stack_offset => unreachable,
                 .ptr_embedded_in_code => unreachable,
                 .register => |src_reg| {
-                    try self.genX8664ModRMRegToStack(dst_ty, off, src_reg, mr + 0x1);
+                    if (off > math.maxInt(i32)) {
+                        return self.fail("stack offset too large", .{});
+                    }
+                    const abi_size = dst_ty.abiSize(self.target.*);
+                    const adj_off = off + abi_size;
+                    _ = try self.addInst(.{
+                        .tag = mir_tag,
+                        .ops = (Mir.Ops{
+                            .reg1 = src_reg,
+                            .reg2 = .ebp,
+                            .flags = 0b10,
+                        }).encode(),
+                        .data = .{ .imm = -@intCast(i32, adj_off) },
+                    });
                 },
                 .immediate => |imm| {
                     _ = imm;
@@ -1722,13 +1604,8 @@ fn genX8664BinMathCode(
     }
 }
 
-/// Performs integer multiplication between dst_mcv and src_mcv, storing the result in dst_mcv.
-fn genX8664Imul(
-    self: *Self,
-    dst_ty: Type,
-    dst_mcv: MCValue,
-    src_mcv: MCValue,
-) !void {
+// Performs integer multiplication between dst_mcv and src_mcv, storing the result in dst_mcv.
+fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
     switch (dst_mcv) {
         .none => unreachable,
         .undef => unreachable,
@@ -1746,68 +1623,30 @@ fn genX8664Imul(
                 .ptr_embedded_in_code => unreachable,
                 .register => |src_reg| {
                     // register, register
-                    //
-                    // Use the following imul opcode
-                    // 0F AF /r: IMUL r32/64, r/m32/64
-                    const abi_size = dst_ty.abiSize(self.target.*);
-                    const encoder = try Encoder.init(self.code, 4);
-                    encoder.rex(.{
-                        .w = abi_size == 8,
-                        .r = dst_reg.isExtended(),
-                        .b = src_reg.isExtended(),
+                    _ = try self.addInst(.{
+                        .tag = .imul_complex,
+                        .ops = (Mir.Ops{
+                            .reg1 = dst_reg,
+                            .reg2 = src_reg,
+                        }).encode(),
+                        .data = undefined,
                     });
-                    encoder.opcode_2byte(0x0f, 0xaf);
-                    encoder.modRm_direct(
-                        dst_reg.low_id(),
-                        src_reg.low_id(),
-                    );
                 },
                 .immediate => |imm| {
-                    // register, immediate:
-                    // depends on size of immediate.
-                    //
-                    // immediate fits in i8:
-                    // 6B /r ib: IMUL r32/64, r/m32/64, imm8
-                    //
-                    // immediate fits in i32:
-                    // 69 /r id: IMUL r32/64, r/m32/64, imm32
-                    //
-                    // immediate is huge:
-                    // split into 2 instructions
-                    // 1) copy the 64 bit immediate into a tmp register
-                    // 2) perform register,register mul
-                    // 0F AF /r: IMUL r32/64, r/m32/64
-                    if (math.minInt(i8) <= imm and imm <= math.maxInt(i8)) {
-                        const abi_size = dst_ty.abiSize(self.target.*);
-                        const encoder = try Encoder.init(self.code, 4);
-                        encoder.rex(.{
-                            .w = abi_size == 8,
-                            .r = dst_reg.isExtended(),
-                            .b = dst_reg.isExtended(),
+                    // register, immediate
+                    if (imm <= math.maxInt(i32)) {
+                        _ = try self.addInst(.{
+                            .tag = .imul_complex,
+                            .ops = (Mir.Ops{
+                                .reg1 = dst_reg,
+                                .reg2 = dst_reg,
+                                .flags = 0b10,
+                            }).encode(),
+                            .data = .{ .imm = @intCast(i32, imm) },
                         });
-                        encoder.opcode_1byte(0x6B);
-                        encoder.modRm_direct(
-                            dst_reg.low_id(),
-                            dst_reg.low_id(),
-                        );
-                        encoder.imm8(@intCast(i8, imm));
-                    } else if (math.minInt(i32) <= imm and imm <= math.maxInt(i32)) {
-                        const abi_size = dst_ty.abiSize(self.target.*);
-                        const encoder = try Encoder.init(self.code, 7);
-                        encoder.rex(.{
-                            .w = abi_size == 8,
-                            .r = dst_reg.isExtended(),
-                            .b = dst_reg.isExtended(),
-                        });
-                        encoder.opcode_1byte(0x69);
-                        encoder.modRm_direct(
-                            dst_reg.low_id(),
-                            dst_reg.low_id(),
-                        );
-                        encoder.imm32(@intCast(i32, imm));
                     } else {
                         const src_reg = try self.copyToTmpRegister(dst_ty, src_mcv);
-                        return self.genX8664Imul(dst_ty, dst_mcv, MCValue{ .register = src_reg });
+                        return self.genIMulOpMir(dst_ty, dst_mcv, MCValue{ .register = src_reg });
                     }
                 },
                 .embedded_in_code, .memory, .stack_offset => {
@@ -1833,20 +1672,14 @@ fn genX8664Imul(
                     const dst_reg = try self.copyToTmpRegister(dst_ty, dst_mcv);
                     // multiply into dst_reg
                     // register, register
-                    // Use the following imul opcode
-                    // 0F AF /r: IMUL r32/64, r/m32/64
-                    const abi_size = dst_ty.abiSize(self.target.*);
-                    const encoder = try Encoder.init(self.code, 4);
-                    encoder.rex(.{
-                        .w = abi_size == 8,
-                        .r = dst_reg.isExtended(),
-                        .b = src_reg.isExtended(),
+                    _ = try self.addInst(.{
+                        .tag = .imul_complex,
+                        .ops = (Mir.Ops{
+                            .reg1 = dst_reg,
+                            .reg2 = src_reg,
+                        }).encode(),
+                        .data = undefined,
                     });
-                    encoder.opcode_2byte(0x0f, 0xaf);
-                    encoder.modRm_direct(
-                        dst_reg.low_id(),
-                        src_reg.low_id(),
-                    );
                     // copy dst_reg back out
                     return self.genSetStack(dst_ty, off, MCValue{ .register = dst_reg });
                 },
@@ -1871,73 +1704,6 @@ fn genX8664Imul(
     }
 }
 
-fn genX8664ModRMRegToStack(self: *Self, ty: Type, off: u32, reg: Register, opcode: u8) !void {
-    const abi_size = ty.abiSize(self.target.*);
-    const adj_off = off + abi_size;
-    if (off > math.maxInt(i32)) {
-        return self.fail("stack offset too large", .{});
-    }
-
-    const i_adj_off = -@intCast(i32, adj_off);
-    const encoder = try Encoder.init(self.code, 7);
-    encoder.rex(.{
-        .w = abi_size == 8,
-        .r = reg.isExtended(),
-    });
-    encoder.opcode_1byte(opcode);
-    if (i_adj_off < std.math.maxInt(i8)) {
-        // example: 48 89 55 7f           mov    QWORD PTR [rbp+0x7f],rdx
-        encoder.modRm_indirectDisp8(
-            reg.low_id(),
-            Register.ebp.low_id(),
-        );
-        encoder.disp8(@intCast(i8, i_adj_off));
-    } else {
-        // example: 48 89 95 80 00 00 00  mov    QWORD PTR [rbp+0x80],rdx
-        encoder.modRm_indirectDisp32(
-            reg.low_id(),
-            Register.ebp.low_id(),
-        );
-        encoder.disp32(i_adj_off);
-    }
-}
-
-fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const ty_str = self.air.instructions.items(.data)[inst].ty_str;
-    const zir = &self.mod_fn.owner_decl.getFileScope().zir;
-    const name = zir.nullTerminatedString(ty_str.str);
-    const name_with_null = name.ptr[0 .. name.len + 1];
-    const ty = self.air.getRefType(ty_str.ty);
-
-    switch (mcv) {
-        .register => |reg| {
-            switch (self.debug_output) {
-                .dwarf => |dbg_out| {
-                    try dbg_out.dbg_info.ensureUnusedCapacity(3);
-                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                        1, // ULEB128 dwarf expression length
-                        reg.dwarfLocOp(),
-                    });
-                    try dbg_out.dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-                },
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        .stack_offset => {
-            switch (self.debug_output) {
-                .dwarf => {},
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        else => {},
-    }
-}
-
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const arg_index = self.arg_index;
     self.arg_index += 1;
@@ -1946,8 +1712,15 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     _ = ty;
 
     const mcv = self.args[arg_index];
-    try self.genArgDbgInfo(inst, mcv);
-
+    const payload = try self.addExtra(Mir.ArgDbgInfo{
+        .air_inst = inst,
+        .arg_index = @intCast(u32, arg_index), // TODO can arg_index: u32?
+    });
+    _ = try self.addInst(.{
+        .tag = .arg_dbg_info,
+        .ops = undefined,
+        .data = .{ .payload = payload },
+    });
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();
 
@@ -1962,7 +1735,11 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airBreakpoint(self: *Self) !void {
-    try self.code.append(0xcc); // int3
+    _ = try self.addInst(.{
+        .tag = .brk,
+        .ops = undefined,
+        .data = undefined,
+    });
     return self.finishAirBookkeeping();
 }
 
@@ -2021,7 +1798,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
         if (self.air.value(callee)) |func_value| {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
-
                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
@@ -2031,11 +1807,13 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                     @intCast(u32, coff_file.offset_table_virtual_address + func.owner_decl.link.coff.offset_table_index * ptr_bytes)
                 else
                     unreachable;
-
-                // ff 14 25 xx xx xx xx    call [addr]
-                try self.code.ensureUnusedCapacity(7);
-                self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
-                mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), got_addr);
+                _ = try self.addInst(.{
+                    .tag = .call,
+                    .ops = (Mir.Ops{
+                        .flags = 0b01,
+                    }).encode(),
+                    .data = .{ .imm = @bitCast(i32, got_addr) },
+                });
             } else if (func_value.castTag(.extern_fn)) |_| {
                 return self.fail("TODO implement calling extern functions", .{});
             } else {
@@ -2089,26 +1867,21 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                     .memory = func.owner_decl.link.macho.local_sym_index,
                 });
                 // callq *%rax
-                try self.code.ensureUnusedCapacity(2);
-                self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
+                _ = try self.addInst(.{
+                    .tag = .call,
+                    .ops = (Mir.Ops{
+                        .reg1 = .rax,
+                        .flags = 0b01,
+                    }).encode(),
+                    .data = undefined,
+                });
             } else if (func_value.castTag(.extern_fn)) |func_payload| {
                 const decl = func_payload.data;
                 const n_strx = try macho_file.addExternFn(mem.spanZ(decl.name));
-                const offset = blk: {
-                    // callq
-                    try self.code.ensureUnusedCapacity(5);
-                    self.code.appendSliceAssumeCapacity(&[5]u8{ 0xe8, 0x0, 0x0, 0x0, 0x0 });
-                    break :blk @intCast(u32, self.code.items.len) - 4;
-                };
-                // Add relocation to the decl.
-                try macho_file.active_decl.?.link.macho.relocs.append(self.bin_file.allocator, .{
-                    .offset = offset,
-                    .target = .{ .global = n_strx },
-                    .addend = 0,
-                    .subtractor = null,
-                    .pcrel = true,
-                    .length = 2,
-                    .@"type" = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
+                _ = try self.addInst(.{
+                    .tag = .call_extern,
+                    .ops = undefined,
+                    .data = .{ .extern_fn = n_strx },
                 });
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
@@ -2157,11 +1930,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 const got_addr = p9.bases.data;
                 const got_index = func_payload.data.owner_decl.link.plan9.got_index.?;
-                // ff 14 25 xx xx xx xx    call [addr]
-                try self.code.ensureUnusedCapacity(7);
-                self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
                 const fn_got_addr = got_addr + got_index * ptr_bytes;
-                mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), @intCast(u32, fn_got_addr));
+                _ = try self.addInst(.{
+                    .tag = .call,
+                    .ops = (Mir.Ops{
+                        .flags = 0b01,
+                    }).encode(),
+                    .data = .{ .imm = @bitCast(i32, @intCast(u32, fn_got_addr)) },
+                });
             } else return self.fail("TODO implement calling extern fn on plan9", .{});
         } else {
             return self.fail("TODO implement calling runtime known function pointer", .{});
@@ -2201,9 +1977,14 @@ fn ret(self: *Self, mcv: MCValue) !void {
     // TODO when implementing defer, this will need to jump to the appropriate defer expression.
     // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
     // which is available if the jump is 127 bytes or less forward.
-    try self.code.resize(self.code.items.len + 5);
-    self.code.items[self.code.items.len - 5] = 0xe9; // jmp rel32
-    try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
+    const jmp_reloc = try self.addInst(.{
+        .tag = .jmp,
+        .ops = (Mir.Ops{
+            .flags = 0b00,
+        }).encode(),
+        .data = .{ .inst = undefined },
+    });
+    try self.exitlude_jump_relocs.append(self.gpa, jmp_reloc);
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
@@ -2233,8 +2014,6 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
     const result: MCValue = result: {
-        try self.code.ensureUnusedCapacity(8);
-
         // There are 2 operands, destination and source.
         // Either one, but not both, can be a memory operand.
         // Source operand can be an immediate, 8 bits or 32 bits.
@@ -2245,7 +2024,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         // This instruction supports only signed 32-bit immediates at most.
         const src_mcv = try self.limitImmediateType(bin_op.rhs, i32);
 
-        try self.genX8664BinMathCode(Type.initTag(.bool), dst_mcv, src_mcv, 7, 0x38);
+        try self.genBinMathOpMir(.cmp, Type.initTag(.bool), dst_mcv, src_mcv);
         break :result switch (ty.isSignedInt()) {
             true => MCValue{ .compare_flags_signed = op },
             false => MCValue{ .compare_flags_unsigned = op },
@@ -2256,7 +2035,15 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
 
 fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
     const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
-    try self.dbgAdvancePCAndLine(dbg_stmt.line, dbg_stmt.column);
+    const payload = try self.addExtra(Mir.DbgLineColumn{
+        .line = dbg_stmt.line,
+        .column = dbg_stmt.column,
+    });
+    _ = try self.addInst(.{
+        .tag = .dbg_line,
+        .ops = undefined,
+        .data = .{ .payload = payload },
+    });
     return self.finishAirBookkeeping();
 }
 
@@ -2268,58 +2055,77 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
     const liveness_condbr = self.liveness.getCondBr(inst);
 
-    const reloc: Reloc = reloc: {
-        try self.code.ensureUnusedCapacity(6);
-
-        const opcode: u8 = switch (cond) {
-            .compare_flags_signed => |cmp_op| blk: {
-                // Here we map to the opposite opcode because the jump is to the false branch.
-                const opcode: u8 = switch (cmp_op) {
-                    .gte => 0x8c,
-                    .gt => 0x8e,
-                    .neq => 0x84,
-                    .lt => 0x8d,
-                    .lte => 0x8f,
-                    .eq => 0x85,
+    const reloc: Mir.Inst.Index = reloc: {
+        switch (cond) {
+            .compare_flags_signed => |cmp_op| {
+                // Here we map the opposites since the jump is to the false branch.
+                const flags: u2 = switch (cmp_op) {
+                    .gte => 0b10,
+                    .gt => 0b11,
+                    .neq => 0b01,
+                    .lt => 0b00,
+                    .lte => 0b01,
+                    .eq => 0b00,
                 };
-                break :blk opcode;
-            },
-            .compare_flags_unsigned => |cmp_op| blk: {
-                // Here we map to the opposite opcode because the jump is to the false branch.
-                const opcode: u8 = switch (cmp_op) {
-                    .gte => 0x82,
-                    .gt => 0x86,
-                    .neq => 0x84,
-                    .lt => 0x83,
-                    .lte => 0x87,
-                    .eq => 0x85,
-                };
-                break :blk opcode;
-            },
-            .register => |reg| blk: {
-                // test reg, 1
-                // TODO detect al, ax, eax
-                const encoder = try Encoder.init(self.code, 4);
-                encoder.rex(.{
-                    // TODO audit this codegen: we force w = true here to make
-                    // the value affect the big register
-                    .w = true,
-                    .b = reg.isExtended(),
+                const tag: Mir.Inst.Tag = if (cmp_op == .neq or cmp_op == .eq)
+                    .cond_jmp_eq_ne
+                else
+                    .cond_jmp_greater_less;
+                const reloc = try self.addInst(.{
+                    .tag = tag,
+                    .ops = (Mir.Ops{
+                        .flags = flags,
+                    }).encode(),
+                    .data = .{ .inst = undefined },
                 });
-                encoder.opcode_1byte(0xf6);
-                encoder.modRm_direct(
-                    0,
-                    reg.low_id(),
-                );
-                encoder.disp8(1);
-                break :blk 0x84;
+                break :reloc reloc;
             },
-            else => return self.fail("TODO implement condbr {s} when condition is {s}", .{ self.target.cpu.arch, @tagName(cond) }),
-        };
-        self.code.appendSliceAssumeCapacity(&[_]u8{ 0x0f, opcode });
-        const reloc = Reloc{ .rel32 = self.code.items.len };
-        self.code.items.len += 4;
-        break :reloc reloc;
+            .compare_flags_unsigned => |cmp_op| {
+                // Here we map the opposites since the jump is to the false branch.
+                const flags: u2 = switch (cmp_op) {
+                    .gte => 0b10,
+                    .gt => 0b11,
+                    .neq => 0b01,
+                    .lt => 0b00,
+                    .lte => 0b01,
+                    .eq => 0b00,
+                };
+                const tag: Mir.Inst.Tag = if (cmp_op == .neq or cmp_op == .eq)
+                    .cond_jmp_eq_ne
+                else
+                    .cond_jmp_above_below;
+                const reloc = try self.addInst(.{
+                    .tag = tag,
+                    .ops = (Mir.Ops{
+                        .flags = flags,
+                    }).encode(),
+                    .data = .{ .inst = undefined },
+                });
+                break :reloc reloc;
+            },
+            .register => |reg| {
+                _ = try self.addInst(.{
+                    .tag = .@"test",
+                    .ops = (Mir.Ops{
+                        .reg1 = reg,
+                        .flags = 0b00,
+                    }).encode(),
+                    .data = .{ .imm = 1 },
+                });
+                const reloc = try self.addInst(.{
+                    .tag = .cond_jmp_eq_ne,
+                    .ops = (Mir.Ops{
+                        .flags = 0b01,
+                    }).encode(),
+                    .data = .{ .inst = undefined },
+                });
+                break :reloc reloc;
+            },
+            else => return self.fail("TODO implement condbr {s} when condition is {s}", .{
+                self.target.cpu.arch,
+                @tagName(cond),
+            }),
+        }
     };
 
     // Capture the state of register and stack allocation state so that we can revert to it.
@@ -2578,23 +2384,16 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const loop = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[loop.end..][0..loop.data.body_len];
-    const start_index = self.code.items.len;
+    const jmp_target = @intCast(u32, self.mir_instructions.len);
     try self.genBody(body);
-    try self.jump(start_index);
+    _ = try self.addInst(.{
+        .tag = .jmp,
+        .ops = (Mir.Ops{
+            .flags = 0b00,
+        }).encode(),
+        .data = .{ .inst = jmp_target },
+    });
     return self.finishAirBookkeeping();
-}
-
-/// Send control flow to the `index` of `self.code`.
-fn jump(self: *Self, index: usize) !void {
-    try self.code.ensureUnusedCapacity(5);
-    if (math.cast(i8, @intCast(i32, index) - (@intCast(i32, self.code.items.len + 2)))) |delta| {
-        self.code.appendAssumeCapacity(0xeb); // jmp rel8
-        self.code.appendAssumeCapacity(@bitCast(u8, delta));
-    } else |_| {
-        const delta = @intCast(i32, index) - (@intCast(i32, self.code.items.len + 5));
-        self.code.appendAssumeCapacity(0xe9); // jmp rel32
-        mem.writeIntLittle(i32, self.code.addManyAsArrayAssumeCapacity(4), delta);
-    }
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
@@ -2630,22 +2429,9 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     // return self.finishAir(inst, .dead, .{ condition, .none, .none });
 }
 
-fn performReloc(self: *Self, reloc: Reloc) !void {
-    switch (reloc) {
-        .rel32 => |pos| {
-            const amt = self.code.items.len - (pos + 4);
-            // Here it would be tempting to implement testing for amt == 0 and then elide the
-            // jump. However, that will cause a problem because other jumps may assume that they
-            // can jump to this code. Or maybe I didn't understand something when I was debugging.
-            // It could be worth another look. Anyway, that's why that isn't done here. Probably the
-            // best place to elide jumps will be in semantic analysis, by inlining blocks that only
-            // only have 1 break instruction.
-            const s32_amt = math.cast(i32, amt) catch
-                return self.fail("unable to perform relocation: jump too far", .{});
-            mem.writeIntLittle(i32, self.code.items[pos..][0..4], s32_amt);
-        },
-        .arm_branch => unreachable,
-    }
+fn performReloc(self: *Self, reloc: Mir.Inst.Index) !void {
+    const next_inst = @intCast(u32, self.mir_instructions.len);
+    self.mir_instructions.items(.data)[reloc].inst = next_inst;
 }
 
 fn airBr(self: *Self, inst: Air.Inst.Index) !void {
@@ -2661,9 +2447,9 @@ fn airBoolOp(self: *Self, inst: Air.Inst.Index) !void {
         .dead
     else switch (air_tags[inst]) {
         // lhs AND rhs
-        .bool_and => try self.genX8664BinMath(inst, bin_op.lhs, bin_op.rhs),
+        .bool_and => try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs),
         // lhs OR rhs
-        .bool_or => try self.genX8664BinMath(inst, bin_op.lhs, bin_op.rhs),
+        .bool_or => try self.genBinMathOp(inst, bin_op.lhs, bin_op.rhs),
         else => unreachable, // Not a boolean operation
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -2688,12 +2474,15 @@ fn brVoid(self: *Self, block: Air.Inst.Index) !void {
     const block_data = self.blocks.getPtr(block).?;
     // Emit a jump with a relocation. It will be patched up after the block ends.
     try block_data.relocs.ensureUnusedCapacity(self.gpa, 1);
-    // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
-    // which is available if the jump is 127 bytes or less forward.
-    try self.code.resize(self.code.items.len + 5);
-    self.code.items[self.code.items.len - 5] = 0xe9; // jmp rel32
     // Leave the jump offset undefined
-    block_data.relocs.appendAssumeCapacity(.{ .rel32 = self.code.items.len - 4 });
+    const jmp_reloc = try self.addInst(.{
+        .tag = .jmp,
+        .ops = (Mir.Ops{
+            .flags = 0b00,
+        }).encode(),
+        .data = .{ .inst = undefined },
+    });
+    block_data.relocs.appendAssumeCapacity(jmp_reloc);
 }
 
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
@@ -2750,22 +2539,35 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             var iter = std.mem.tokenize(u8, asm_source, "\n\r");
             while (iter.next()) |ins| {
                 if (mem.eql(u8, ins, "syscall")) {
-                    try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
+                    _ = try self.addInst(.{
+                        .tag = .syscall,
+                        .ops = undefined,
+                        .data = undefined,
+                    });
                 } else if (mem.indexOf(u8, ins, "push")) |_| {
                     const arg = ins[4..];
                     if (mem.indexOf(u8, arg, "$")) |l| {
-                        const n = std.fmt.parseInt(u8, ins[4 + l + 1 ..], 10) catch return self.fail("TODO implement more inline asm int parsing", .{});
-                        try self.code.appendSlice(&.{ 0x6a, n });
+                        const n = std.fmt.parseInt(u8, ins[4 + l + 1 ..], 10) catch {
+                            return self.fail("TODO implement more inline asm int parsing", .{});
+                        };
+                        _ = try self.addInst(.{
+                            .tag = .push,
+                            .ops = (Mir.Ops{
+                                .flags = 0b10,
+                            }).encode(),
+                            .data = .{ .imm = n },
+                        });
                     } else if (mem.indexOf(u8, arg, "%%")) |l| {
                         const reg_name = ins[4 + l + 2 ..];
                         const reg = parseRegName(reg_name) orelse
                             return self.fail("unrecognized register: '{s}'", .{reg_name});
-                        const low_id: u8 = reg.low_id();
-                        if (reg.isExtended()) {
-                            try self.code.appendSlice(&.{ 0x41, 0b1010000 | low_id });
-                        } else {
-                            try self.code.append(0b1010000 | low_id);
-                        }
+                        _ = try self.addInst(.{
+                            .tag = .push,
+                            .ops = (Mir.Ops{
+                                .reg1 = reg,
+                            }).encode(),
+                            .data = undefined,
+                        });
                     } else return self.fail("TODO more push operands", .{});
                 } else if (mem.indexOf(u8, ins, "pop")) |_| {
                     const arg = ins[3..];
@@ -2773,12 +2575,13 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                         const reg_name = ins[3 + l + 2 ..];
                         const reg = parseRegName(reg_name) orelse
                             return self.fail("unrecognized register: '{s}'", .{reg_name});
-                        const low_id: u8 = reg.low_id();
-                        if (reg.isExtended()) {
-                            try self.code.appendSlice(&.{ 0x41, 0b1011000 | low_id });
-                        } else {
-                            try self.code.append(0b1011000 | low_id);
-                        }
+                        _ = try self.addInst(.{
+                            .tag = .pop,
+                            .ops = (Mir.Ops{
+                                .reg1 = reg,
+                            }).encode(),
+                            .data = undefined,
+                        });
                     } else return self.fail("TODO more pop operands", .{});
                 } else {
                     return self.fail("TODO implement support for more x86 assembly instructions", .{});
@@ -2870,7 +2673,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             if (adj_off > 128) {
                 return self.fail("TODO implement set stack variable with large stack offset", .{});
             }
-            try self.code.ensureUnusedCapacity(8);
             switch (abi_size) {
                 1 => {
                     return self.fail("TODO implement set abi_size=1 stack variable with immediate", .{});
@@ -2879,34 +2681,57 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     return self.fail("TODO implement set abi_size=2 stack variable with immediate", .{});
                 },
                 4 => {
-                    const x = @intCast(u32, x_big);
                     // We have a positive stack offset value but we want a twos complement negative
                     // offset from rbp, which is at the top of the stack frame.
-                    const negative_offset = @intCast(i8, -@intCast(i32, adj_off));
-                    const twos_comp = @bitCast(u8, negative_offset);
                     // mov    DWORD PTR [rbp+offset], immediate
-                    self.code.appendSliceAssumeCapacity(&[_]u8{ 0xc7, 0x45, twos_comp });
-                    mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), x);
+                    const payload = try self.addExtra(Mir.ImmPair{
+                        .dest_off = -@intCast(i32, adj_off),
+                        .operand = @bitCast(i32, @intCast(u32, x_big)),
+                    });
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .ops = (Mir.Ops{
+                            .reg1 = .rbp,
+                            .flags = 0b11,
+                        }).encode(),
+                        .data = .{ .payload = payload },
+                    });
                 },
                 8 => {
                     // We have a positive stack offset value but we want a twos complement negative
                     // offset from rbp, which is at the top of the stack frame.
-                    const negative_offset = @intCast(i8, -@intCast(i32, adj_off));
-                    const twos_comp = @bitCast(u8, negative_offset);
+                    const negative_offset = -@intCast(i32, adj_off);
 
                     // 64 bit write to memory would take two mov's anyways so we
                     // insted just use two 32 bit writes to avoid register allocation
-                    try self.code.ensureUnusedCapacity(14);
-                    var buf: [8]u8 = undefined;
-                    mem.writeIntLittle(u64, &buf, x_big);
-
-                    // mov    DWORD PTR [rbp+offset+4], immediate
-                    self.code.appendSliceAssumeCapacity(&[_]u8{ 0xc7, 0x45, twos_comp + 4 });
-                    self.code.appendSliceAssumeCapacity(buf[4..8]);
-
-                    // mov    DWORD PTR [rbp+offset], immediate
-                    self.code.appendSliceAssumeCapacity(&[_]u8{ 0xc7, 0x45, twos_comp });
-                    self.code.appendSliceAssumeCapacity(buf[0..4]);
+                    {
+                        const payload = try self.addExtra(Mir.ImmPair{
+                            .dest_off = negative_offset + 4,
+                            .operand = @bitCast(i32, @truncate(u32, x_big >> 32)),
+                        });
+                        _ = try self.addInst(.{
+                            .tag = .mov,
+                            .ops = (Mir.Ops{
+                                .reg1 = .rbp,
+                                .flags = 0b11,
+                            }).encode(),
+                            .data = .{ .payload = payload },
+                        });
+                    }
+                    {
+                        const payload = try self.addExtra(Mir.ImmPair{
+                            .dest_off = negative_offset,
+                            .operand = @bitCast(i32, @truncate(u32, x_big)),
+                        });
+                        _ = try self.addInst(.{
+                            .tag = .mov,
+                            .ops = (Mir.Ops{
+                                .reg1 = .rbp,
+                                .flags = 0b11,
+                            }).encode(),
+                            .data = .{ .payload = payload },
+                        });
+                    }
                 },
                 else => {
                     return self.fail("TODO implement set abi_size=large stack variable with immediate", .{});
@@ -2920,7 +2745,20 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
         },
         .register => |reg| {
-            try self.genX8664ModRMRegToStack(ty, stack_offset, reg, 0x89);
+            if (stack_offset > math.maxInt(i32)) {
+                return self.fail("stack offset too large", .{});
+            }
+            const abi_size = ty.abiSize(self.target.*);
+            const adj_off = stack_offset + abi_size;
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                    .reg2 = .ebp,
+                    .flags = 0b10,
+                }).encode(),
+                .data = .{ .imm = -@intCast(i32, adj_off) },
+            });
         },
         .memory => |vaddr| {
             _ = vaddr;
@@ -2958,25 +2796,26 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             }
         },
         .compare_flags_unsigned => |op| {
-            const encoder = try Encoder.init(self.code, 7);
-            // TODO audit this codegen: we force w = true here to make
-            // the value affect the big register
-            encoder.rex(.{
-                .w = true,
-                .b = reg.isExtended(),
+            const tag: Mir.Inst.Tag = switch (op) {
+                .gte, .gt, .lt, .lte => .cond_set_byte_above_below,
+                .eq, .neq => .cond_set_byte_eq_ne,
+            };
+            const flags: u2 = switch (op) {
+                .gte => 0b00,
+                .gt => 0b01,
+                .lt => 0b10,
+                .lte => 0b11,
+                .eq => 0b01,
+                .neq => 0b00,
+            };
+            _ = try self.addInst(.{
+                .tag = tag,
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                    .flags = flags,
+                }).encode(),
+                .data = undefined,
             });
-            encoder.opcode_2byte(0x0f, switch (op) {
-                .gte => 0x93,
-                .gt => 0x97,
-                .neq => 0x95,
-                .lt => 0x92,
-                .lte => 0x96,
-                .eq => 0x94,
-            });
-            encoder.modRm_direct(
-                0,
-                reg.low_id(),
-            );
         },
         .compare_flags_signed => |op| {
             _ = op;
@@ -2986,44 +2825,25 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // 32-bit moves zero-extend to 64-bit, so xoring the 32-bit
             // register is the fastest way to zero a register.
             if (x == 0) {
-                // The encoding for `xor r32, r32` is `0x31 /r`.
-                const encoder = try Encoder.init(self.code, 3);
-
-                // If we're accessing e.g. r8d, we need to use a REX prefix before the actual operation. Since
-                // this is a 32-bit operation, the W flag is set to zero. X is also zero, as we're not using a SIB.
-                // Both R and B are set, as we're extending, in effect, the register bits *and* the operand.
-                encoder.rex(.{
-                    .r = reg.isExtended(),
-                    .b = reg.isExtended(),
+                _ = try self.addInst(.{
+                    .tag = .xor,
+                    .ops = (Mir.Ops{
+                        .reg1 = reg,
+                        .reg2 = reg,
+                    }).encode(),
+                    .data = undefined,
                 });
-                encoder.opcode_1byte(0x31);
-                // Section 3.1.1.1 of the Intel x64 Manual states that "/r indicates that the
-                // ModR/M byte of the instruction contains a register operand and an r/m operand."
-                encoder.modRm_direct(
-                    reg.low_id(),
-                    reg.low_id(),
-                );
-
                 return;
             }
             if (x <= math.maxInt(i32)) {
                 // Next best case: if we set the lower four bytes, the upper four will be zeroed.
-                //
-                // The encoding for `mov IMM32 -> REG` is (0xB8 + R) IMM.
-
-                const encoder = try Encoder.init(self.code, 6);
-                // Just as with XORing, we need a REX prefix. This time though, we only
-                // need the B bit set, as we're extending the opcode's register field,
-                // and there is no Mod R/M byte.
-                encoder.rex(.{
-                    .b = reg.isExtended(),
+                _ = try self.addInst(.{
+                    .tag = .mov,
+                    .ops = (Mir.Ops{
+                        .reg1 = reg,
+                    }).encode(),
+                    .data = .{ .imm = @intCast(i32, x) },
                 });
-                encoder.opcode_withReg(0xB8, reg.low_id());
-
-                // no ModR/M byte
-
-                // IMM
-                encoder.imm32(@intCast(i32, x));
                 return;
             }
             // Worst case: we need to load the 64-bit register with the IMM. GNU's assemblers calls
@@ -3033,137 +2853,87 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // This encoding is, in fact, the *same* as the one used for 32-bit loads. The only
             // difference is that we set REX.W before the instruction, which extends the load to
             // 64-bit and uses the full bit-width of the register.
-            {
-                const encoder = try Encoder.init(self.code, 10);
-                encoder.rex(.{
-                    .w = true,
-                    .b = reg.isExtended(),
-                });
-                encoder.opcode_withReg(0xB8, reg.low_id());
-                encoder.imm64(x);
-            }
+            const payload = try self.addExtra(Mir.Imm64.encode(x));
+            _ = try self.addInst(.{
+                .tag = .movabs,
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                }).encode(),
+                .data = .{ .payload = payload },
+            });
         },
         .embedded_in_code => |code_offset| {
             // We need the offset from RIP in a signed i32 twos complement.
-            // The instruction is 7 bytes long and RIP points to the next instruction.
-
-            // 64-bit LEA is encoded as REX.W 8D /r.
-            const rip = self.code.items.len + 7;
-            const big_offset = @intCast(i64, code_offset) - @intCast(i64, rip);
-            const offset = @intCast(i32, big_offset);
-            const encoder = try Encoder.init(self.code, 7);
-
-            // byte 1, always exists because w = true
-            encoder.rex(.{
-                .w = true,
-                .r = reg.isExtended(),
+            const payload = try self.addExtra(Mir.Imm64.encode(code_offset));
+            _ = try self.addInst(.{
+                .tag = .lea_rip,
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                }).encode(),
+                .data = .{ .payload = payload },
             });
-            // byte 2
-            encoder.opcode_1byte(0x8D);
-            // byte 3
-            encoder.modRm_RIPDisp32(reg.low_id());
-            // byte 4-7
-            encoder.disp32(offset);
-
-            // Double check that we haven't done any math errors
-            assert(rip == self.code.items.len);
         },
         .register => |src_reg| {
             // If the registers are the same, nothing to do.
             if (src_reg.id() == reg.id())
                 return;
 
-            // This is a variant of 8B /r.
-            const abi_size = ty.abiSize(self.target.*);
-            const encoder = try Encoder.init(self.code, 3);
-            encoder.rex(.{
-                .w = abi_size == 8,
-                .r = reg.isExtended(),
-                .b = src_reg.isExtended(),
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                    .reg2 = src_reg,
+                    .flags = 0b11,
+                }).encode(),
+                .data = undefined,
             });
-            encoder.opcode_1byte(0x8B);
-            encoder.modRm_direct(reg.low_id(), src_reg.low_id());
         },
         .memory => |x| {
+            // TODO can we move this entire logic into Emit.zig like with aarch64?
             if (self.bin_file.options.pie) {
-                // RIP-relative displacement to the entry in the GOT table.
-                const abi_size = ty.abiSize(self.target.*);
-                const encoder = try Encoder.init(self.code, 10);
-
-                // LEA reg, [<offset>]
-
-                // We encode the instruction FIRST because prefixes may or may not appear.
-                // After we encode the instruction, we will know that the displacement bytes
-                // for [<offset>] will be at self.code.items.len - 4.
-                encoder.rex(.{
-                    .w = true, // force 64 bit because loading an address (to the GOT)
-                    .r = reg.isExtended(),
+                // TODO we should flag up `x` as GOT symbol entry explicitly rather than as a hack.
+                _ = try self.addInst(.{
+                    .tag = .lea_rip,
+                    .ops = (Mir.Ops{
+                        .reg1 = reg,
+                        .flags = 0b01,
+                    }).encode(),
+                    .data = .{ .got_entry = @intCast(u32, x) },
                 });
-                encoder.opcode_1byte(0x8D);
-                encoder.modRm_RIPDisp32(reg.low_id());
-                encoder.disp32(0);
-
-                const offset = @intCast(u32, self.code.items.len);
-
-                if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                    // TODO I think the reloc might be in the wrong place.
-                    const decl = macho_file.active_decl.?;
-                    // Load reloc for LEA instruction.
-                    try decl.link.macho.relocs.append(self.bin_file.allocator, .{
-                        .offset = offset - 4,
-                        .target = .{ .local = @intCast(u32, x) },
-                        .addend = 0,
-                        .subtractor = null,
-                        .pcrel = true,
-                        .length = 2,
-                        .@"type" = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_GOT),
-                    });
-                } else {
-                    return self.fail("TODO implement genSetReg for PIE GOT indirection on this platform", .{});
-                }
-
                 // MOV reg, [reg]
-                encoder.rex(.{
-                    .w = abi_size == 8,
-                    .r = reg.isExtended(),
-                    .b = reg.isExtended(),
+                _ = try self.addInst(.{
+                    .tag = .mov,
+                    .ops = (Mir.Ops{
+                        .reg1 = reg,
+                        .reg2 = reg,
+                        .flags = 0b01,
+                    }).encode(),
+                    .data = .{ .imm = 0 },
                 });
-                encoder.opcode_1byte(0x8B);
-                encoder.modRm_indirectDisp0(reg.low_id(), reg.low_id());
             } else if (x <= math.maxInt(i32)) {
-                // Moving from memory to a register is a variant of `8B /r`.
-                // Since we're using 64-bit moves, we require a REX.
-                // This variant also requires a SIB, as it would otherwise be RIP-relative.
-                // We want mode zero with the lower three bits set to four to indicate an SIB with no other displacement.
-                // The SIB must be 0x25, to indicate a disp32 with no scaled index.
-                // 0b00RRR100, where RRR is the lower three bits of the register ID.
-                // The instruction is thus eight bytes; REX 0x8B 0b00RRR100 0x25 followed by a four-byte disp32.
-                const abi_size = ty.abiSize(self.target.*);
-                const encoder = try Encoder.init(self.code, 8);
-                encoder.rex(.{
-                    .w = abi_size == 8,
-                    .r = reg.isExtended(),
+                // mov reg, [ds:imm32]
+                _ = try self.addInst(.{
+                    .tag = .mov,
+                    .ops = (Mir.Ops{
+                        .reg1 = reg,
+                        .flags = 0b01,
+                    }).encode(),
+                    .data = .{ .imm = @intCast(i32, x) },
                 });
-                encoder.opcode_1byte(0x8B);
-                // effective address = [SIB]
-                encoder.modRm_SIBDisp0(reg.low_id());
-                // SIB = disp32
-                encoder.sib_disp32();
-                encoder.disp32(@intCast(i32, x));
             } else {
-                // If this is RAX, we can use a direct load; otherwise, we need to load the address, then indirectly load
-                // the value.
+                // If this is RAX, we can use a direct load.
+                // Otherwise, we need to load the address, then indirectly load the value.
                 if (reg.id() == 0) {
-                    // REX.W 0xA1 moffs64*
-                    // moffs64* is a 64-bit offset "relative to segment base", which really just means the
-                    // absolute address for all practical purposes.
-
-                    const encoder = try Encoder.init(self.code, 10);
-                    encoder.rex(.{
-                        .w = true,
+                    // movabs rax, ds:moffs64
+                    const payload = try self.addExtra(Mir.Imm64.encode(x));
+                    _ = try self.addInst(.{
+                        .tag = .movabs,
+                        .ops = (Mir.Ops{
+                            .reg1 = .rax,
+                            .flags = 0b01, // imm64 will become moffs64
+                        }).encode(),
+                        .data = .{ .payload = payload },
                     });
-                    encoder.opcode_1byte(0xA1);
-                    encoder.writeIntLittle(u64, x);
                 } else {
                     // This requires two instructions; a move imm as used above, followed by an indirect load using the register
                     // as the address and the register as the destination.
@@ -3181,16 +2951,16 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     // Currently, we're only allowing 64-bit registers, so we need the `REX.W 8B /r` variant.
                     // TODO: determine whether to allow other sized registers, and if so, handle them properly.
 
-                    // mov reg, [reg]
-                    const abi_size = ty.abiSize(self.target.*);
-                    const encoder = try Encoder.init(self.code, 3);
-                    encoder.rex(.{
-                        .w = abi_size == 8,
-                        .r = reg.isExtended(),
-                        .b = reg.isExtended(),
+                    // mov reg, [reg + 0x0]
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .ops = (Mir.Ops{
+                            .reg1 = reg,
+                            .reg2 = reg,
+                            .flags = 0b01,
+                        }).encode(),
+                        .data = .{ .imm = 0 },
                     });
-                    encoder.opcode_1byte(0x8B);
-                    encoder.modRm_indirectDisp0(reg.low_id(), reg.low_id());
                 }
             }
         },
@@ -3201,21 +2971,15 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 return self.fail("stack offset too large", .{});
             }
             const ioff = -@intCast(i32, off);
-            const encoder = try Encoder.init(self.code, 3);
-            encoder.rex(.{
-                .w = abi_size == 8,
-                .r = reg.isExtended(),
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                    .reg2 = .ebp,
+                    .flags = 0b01,
+                }).encode(),
+                .data = .{ .imm = ioff },
             });
-            encoder.opcode_1byte(0x8B);
-            if (std.math.minInt(i8) <= ioff and ioff <= std.math.maxInt(i8)) {
-                // Example: 48 8b 4d 7f           mov    rcx,QWORD PTR [rbp+0x7f]
-                encoder.modRm_indirectDisp8(reg.low_id(), Register.ebp.low_id());
-                encoder.disp8(@intCast(i8, ioff));
-            } else {
-                // Example: 48 8b 8d 80 00 00 00  mov    rcx,QWORD PTR [rbp+0x80]
-                encoder.modRm_indirectDisp32(reg.low_id(), Register.ebp.low_id());
-                encoder.disp32(ioff);
-            }
         },
     }
 }
@@ -3414,6 +3178,9 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         },
         .Int => {
             const info = typed_value.ty.intInfo(self.target.*);
+            if (info.bits <= ptr_bits and info.signedness == .signed) {
+                return MCValue{ .immediate = @bitCast(u64, typed_value.val.toSignedInt()) };
+            }
             if (info.bits > ptr_bits or info.signedness == .signed) {
                 return self.fail("TODO const int bigger than ptr and signed int", .{});
             }

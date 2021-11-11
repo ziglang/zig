@@ -851,12 +851,11 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
         const last_dbg_info_decl = self.dbg_info_decl_last.?;
         const debug_info_sect = &self.sections.items[self.debug_info_section_index.?];
 
-        var di_buf = std.ArrayList(u8).init(self.base.allocator);
-        defer di_buf.deinit();
-
         // We have a function to compute the upper bound size, because it's needed
         // for determining where to put the offset of the first `LinkBlock`.
-        try di_buf.ensureTotalCapacity(self.dbgInfoNeededHeaderBytes());
+        const needed_bytes = self.dbgInfoNeededHeaderBytes();
+        var di_buf = try std.ArrayList(u8).initCapacity(self.base.allocator, needed_bytes);
+        defer di_buf.deinit();
 
         // initial length - length of the .debug_info contribution for this compilation unit,
         // not including the initial length itself.
@@ -920,12 +919,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     if (self.debug_aranges_section_dirty) {
         const debug_aranges_sect = &self.sections.items[self.debug_aranges_section_index.?];
 
-        var di_buf = std.ArrayList(u8).init(self.base.allocator);
-        defer di_buf.deinit();
-
         // Enough for all the data without resizing. When support for more compilation units
         // is added, the size of this section will become more variable.
-        try di_buf.ensureTotalCapacity(100);
+        var di_buf = try std.ArrayList(u8).initCapacity(self.base.allocator, 100);
+        defer di_buf.deinit();
 
         // initial length - length of the .debug_aranges contribution for this compilation unit,
         // not including the initial length itself.
@@ -998,13 +995,12 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
 
         const debug_line_sect = &self.sections.items[self.debug_line_section_index.?];
 
-        var di_buf = std.ArrayList(u8).init(self.base.allocator);
-        defer di_buf.deinit();
-
         // The size of this header is variable, depending on the number of directories,
         // files, and padding. We have a function to compute the upper bound size, however,
         // because it's needed for determining where to put the offset of the first `SrcFn`.
-        try di_buf.ensureTotalCapacity(self.dbgLineNeededHeaderBytes());
+        const needed_bytes = self.dbgLineNeededHeaderBytes();
+        var di_buf = try std.ArrayList(u8).initCapacity(self.base.allocator, needed_bytes);
+        defer di_buf.deinit();
 
         // initial length - length of the .debug_line contribution for this compilation unit,
         // not including the initial length itself.
@@ -2300,7 +2296,8 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var dbg_line_buffer = std.ArrayList(u8).init(self.base.allocator);
+    // For functions we need to add a prologue to the debug line program.
+    var dbg_line_buffer = try std.ArrayList(u8).initCapacity(self.base.allocator, 26);
     defer dbg_line_buffer.deinit();
 
     var dbg_info_buffer = std.ArrayList(u8).init(self.base.allocator);
@@ -2308,9 +2305,6 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
 
     var dbg_info_type_relocs: File.DbgInfoTypeRelocsTable = .{};
     defer deinitRelocs(self.base.allocator, &dbg_info_type_relocs);
-
-    // For functions we need to add a prologue to the debug line program.
-    try dbg_line_buffer.ensureTotalCapacity(26);
 
     const decl = func.owner_decl;
     const line_off = @intCast(u28, decl.src_line + func.lbrace_line);

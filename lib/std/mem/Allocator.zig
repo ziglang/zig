@@ -80,7 +80,7 @@ pub fn noResize(
 /// as `old_mem` was when `reallocFn` is called. The bytes of
 /// `return_value[old_mem.len..]` have undefined values.
 /// The returned slice must have its pointer aligned at least to `new_alignment` bytes.
-fn reallocBytes(
+pub fn reallocBytes(
     self: *Allocator,
     /// Guaranteed to be the same as what was returned from most recent call to
     /// `allocFn` or `resizeFn`.

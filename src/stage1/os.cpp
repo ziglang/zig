@@ -473,6 +473,11 @@ static Buf os_path_resolve_windows(Buf **paths_ptr, size_t paths_len) {
         result_disk_designator = parsed_cwd.disk_designator;
         if (parsed_cwd.kind == WindowsPathKindDrive) {
             result.ptr[0] = asciiUpper(result.ptr[0]);
+            // Remove the trailing slash if present, eg. if the cwd is a root
+            // directory.
+            if (buf_ends_with_mem(&cwd, "\\", 1)) {
+                result_index -= 1;
+            }
         }
         have_drive_kind = parsed_cwd.kind;
     }

@@ -32,10 +32,13 @@ pub fn main() !void {
 
     // This is many times larger than any line objdump produces should ever be
     var buf: [4096]u8 = undefined;
+    var line_number: usize = 0;
 
     // Sample input line:
     // 00000000000241b0 g    DF .text	000000000000001b copy_file_range
     while (try stdin.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+        line_number += 1;
+
         // the lines we want all start with a 16 digit hex value
         if (line.len < 16) continue;
         _ = std.fmt.parseInt(u64, line[0..16], 16) catch continue;
@@ -57,7 +60,7 @@ pub fn main() !void {
             else if (line[17] == ' ' and line[18] == 'w')
                 .weak
             else
-                unreachable,
+                std.debug.panic("unexpected kind on line {d}:\n{s}", .{ line_number, line }),
 
             .type = switch (line[23]) {
                 'F' => .function,

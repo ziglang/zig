@@ -7,7 +7,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const ThreadPool = @This();
 
-lock: std.Thread.Mutex = .{},
+mutex: std.Thread.Mutex = .{},
 is_running: bool = true,
 allocator: *std.mem.Allocator,
 workers: []Worker,
@@ -28,26 +28,28 @@ const Worker = struct {
     idle_node: IdleQueue.Node,
 
     fn run(worker: *Worker) void {
-        while (true) {
-            const held = worker.pool.lock.acquire();
+        const pool = worker.pool;
 
-            if (worker.pool.run_queue.popFirst()) |run_node| {
-                held.release();
+        while (true) {
+            pool.mutex.lock();
+
+            if (pool.run_queue.popFirst()) |run_node| {
+                pool.mutex.unlock();
                 (run_node.data.runFn)(&run_node.data);
                 continue;
             }
 
-            if (worker.pool.is_running) {
+            if (pool.is_running) {
                 worker.idle_node.data.reset();
 
-                worker.pool.idle_queue.prepend(&worker.idle_node);
-                held.release();
+                pool.idle_queue.prepend(&worker.idle_node);
+                pool.mutex.unlock();
 
                 worker.idle_node.data.wait();
                 continue;
             }
 
-            held.release();
+            pool.mutex.unlock();
             return;
         }
     }
@@ -88,8 +90,8 @@ fn destroyWorkers(self: *ThreadPool, spawned: usize) void {
 
 pub fn deinit(self: *ThreadPool) void {
     {
-        const held = self.lock.acquire();
-        defer held.release();
+        self.mutex.lock();
+        defer self.mutex.unlock();
 
         self.is_running = false;
         while (self.idle_queue.popFirst()) |idle_node|
@@ -117,14 +119,15 @@ pub fn spawn(self: *ThreadPool, comptime func: anytype, args: anytype) !void {
             const closure = @fieldParentPtr(@This(), "run_node", run_node);
             @call(.{}, func, closure.arguments);
 
-            const held = closure.pool.lock.acquire();
-            defer held.release();
+            const mutex = &closure.pool.mutex;
+            mutex.lock();
+            defer mutex.unlock();
             closure.pool.allocator.destroy(closure);
         }
     };
 
-    const held = self.lock.acquire();
-    defer held.release();
+    self.mutex.lock();
+    defer self.mutex.unlock();
 
     const closure = try self.allocator.create(Closure);
     closure.* = .{

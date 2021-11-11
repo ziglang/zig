@@ -1319,8 +1319,8 @@ pub const Value = union(enum) {
     }
 
     pub fn dump(self: Value) void {
-        var held = std.debug.getStderrMutex().acquire();
-        defer held.release();
+        std.debug.getStderrMutex().lock();
+        defer std.debug.getStderrMutex().unlock();
 
         const stderr = std.io.getStdErr().writer();
         std.json.stringify(self, std.json.StringifyOptions{ .whitespace = null }, stderr) catch return;

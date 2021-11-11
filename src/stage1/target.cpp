@@ -680,6 +680,8 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsSolaris:
         case OsEmscripten:
         case OsPlan9:
+        case OsCUDA:
+        case OsNVCL:
             switch (id) {
                 case CIntTypeShort:
                 case CIntTypeUShort:
@@ -741,8 +743,6 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsRTEMS:
         case OsNaCl:
         case OsAIX:
-        case OsCUDA:
-        case OsNVCL:
         case OsAMDHSA:
         case OsPS4:
         case OsELFIAMCU:

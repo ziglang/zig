@@ -22,7 +22,7 @@ const DW = std.dwarf;
 ///
 /// The ID can be easily determined by figuring out what range the register is
 /// in, and then subtracting the base.
-pub const Register = enum(u8) {
+pub const Register = enum(u7) {
     // 0 through 15, 64-bit registers. 8-15 are extended.
     // id is just the int value.
     rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi,
@@ -42,6 +42,10 @@ pub const Register = enum(u8) {
     // id is int value - 48.
     al, cl, dl, bl, ah, ch, dh, bh,
     r8b, r9b, r10b, r11b, r12b, r13b, r14b, r15b,
+
+    // Pseudo, used only for MIR to signify that the
+    // operand is not a register but an immediate, etc.
+    none,
 
     /// Returns the bit-width of the register.
     pub fn size(self: Register) u7 {
@@ -73,7 +77,7 @@ pub const Register = enum(u8) {
     }
 
     /// Like id, but only returns the lower 3 bits.
-    pub fn low_id(self: Register) u3 {
+    pub fn lowId(self: Register) u3 {
         return @truncate(u3, @enumToInt(self));
     }
 
@@ -577,8 +581,8 @@ test "x86_64 Encoder helpers" {
         });
         encoder.opcode_2byte(0x0f, 0xaf);
         encoder.modRm_direct(
-            Register.eax.low_id(),
-            Register.edi.low_id(),
+            Register.eax.lowId(),
+            Register.edi.lowId(),
         );
 
         try testing.expectEqualSlices(u8, &[_]u8{ 0x0f, 0xaf, 0xc7 }, code.items);
@@ -597,8 +601,8 @@ test "x86_64 Encoder helpers" {
         });
         encoder.opcode_1byte(0x89);
         encoder.modRm_direct(
-            Register.edi.low_id(),
-            Register.eax.low_id(),
+            Register.edi.lowId(),
+            Register.eax.lowId(),
         );
 
         try testing.expectEqualSlices(u8, &[_]u8{ 0x89, 0xf8 }, code.items);
@@ -624,7 +628,7 @@ test "x86_64 Encoder helpers" {
         encoder.opcode_1byte(0x81);
         encoder.modRm_direct(
             0,
-            Register.rcx.low_id(),
+            Register.rcx.lowId(),
         );
         encoder.imm32(2147483647);
 

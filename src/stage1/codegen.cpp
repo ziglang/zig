@@ -8901,6 +8901,10 @@ static void define_builtin_types(CodeGen *g) {
         case ZigLLVM_bpfeb:
             add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
             break;
+        case ZigLLVM_nvptx:
+        case ZigLLVM_nvptx64:
+            add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
+            break;
         default:
             zig_panic("TODO implement mapping for c_longdouble");
     }
