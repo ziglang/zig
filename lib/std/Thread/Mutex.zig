@@ -8,13 +8,13 @@
 //! Example usage:
 //! var m = Mutex{};
 //!
-//! const lock = m.acquire();
-//! defer lock.release();
+//! m.lock();
+//! defer m.release();
 //! ... critical code
 //!
 //! Non-blocking:
-//! if (m.tryAcquire) |lock| {
-//!     defer lock.release();
+//! if (m.tryLock()) {
+//!     defer m.unlock();
 //!     // ... critical section
 //! } else {
 //!     // ... lock not acquired
@@ -32,29 +32,21 @@ const linux = os.linux;
 const testing = std.testing;
 const StaticResetEvent = std.thread.StaticResetEvent;
 
-/// Try to acquire the mutex without blocking. Returns `null` if the mutex is
-/// unavailable. Otherwise returns `Held`. Call `release` on `Held`, or use
-/// releaseDirect().
-pub fn tryAcquire(m: *Mutex) ?Held {
-    return m.impl.tryAcquire();
+/// Try to acquire the mutex without blocking. Returns `false` if the mutex is
+/// unavailable. Otherwise returns `true`. Call `unlock` on the mutex to release.
+pub fn tryLock(m: *Mutex) bool {
+    return m.impl.tryLock();
 }
 
 /// Acquire the mutex. Deadlocks if the mutex is already
 /// held by the calling thread.
-pub fn acquire(m: *Mutex) Held {
-    return m.impl.acquire();
+pub fn lock(m: *Mutex) void {
+    m.impl.lock();
 }
 
-/// Release the mutex. Prefer Held.release() if available.
-pub fn releaseDirect(m: *Mutex) void {
-    return m.impl.releaseDirect();
+pub fn unlock(m: *Mutex) void {
+    m.impl.unlock();
 }
-
-/// A held mutex handle.  Call release to allow other threads to
-/// take the mutex.  Do not call release() more than once.
-/// For more complex scenarios, this handle can be discarded
-/// and Mutex.releaseDirect can be called instead.
-pub const Held = Impl.Held;
 
 const Impl = if (builtin.single_threaded)
     Dummy
@@ -65,32 +57,6 @@ else if (std.Thread.use_pthreads)
 else
     AtomicMutex;
 
-fn HeldInterface(comptime MutexType: type) type {
-    return struct {
-        const Mixin = @This();
-        pub const Held = struct {
-            mutex: *MutexType,
-
-            pub fn release(held: Mixin.Held) void {
-                held.mutex.releaseDirect();
-            }
-        };
-
-        pub fn tryAcquire(m: *MutexType) ?Mixin.Held {
-            if (m.tryAcquireDirect()) {
-                return Mixin.Held{ .mutex = m };
-            } else {
-                return null;
-            }
-        }
-
-        pub fn acquire(m: *MutexType) Mixin.Held {
-            m.acquireDirect();
-            return Mixin.Held{ .mutex = m };
-        }
-    };
-}
-
 pub const AtomicMutex = struct {
     state: State = .unlocked,
 
@@ -100,9 +66,7 @@ pub const AtomicMutex = struct {
         waiting,
     };
 
-    pub usingnamespace HeldInterface(@This());
-
-    fn tryAcquireDirect(m: *AtomicMutex) bool {
+    pub fn tryLock(m: *AtomicMutex) bool {
         return @cmpxchgStrong(
             State,
             &m.state,
@@ -113,14 +77,14 @@ pub const AtomicMutex = struct {
         ) == null;
     }
 
-    fn acquireDirect(m: *AtomicMutex) void {
+    pub fn lock(m: *AtomicMutex) void {
         switch (@atomicRmw(State, &m.state, .Xchg, .locked, .Acquire)) {
             .unlocked => {},
             else => |s| m.lockSlow(s),
         }
     }
 
-    fn releaseDirect(m: *AtomicMutex) void {
+    pub fn unlock(m: *AtomicMutex) void {
         switch (@atomicRmw(State, &m.state, .Xchg, .unlocked, .Release)) {
             .unlocked => unreachable,
             .locked => {},
@@ -202,18 +166,16 @@ pub const AtomicMutex = struct {
 pub const PthreadMutex = struct {
     pthread_mutex: std.c.pthread_mutex_t = .{},
 
-    pub usingnamespace HeldInterface(@This());
-
     /// Try to acquire the mutex without blocking. Returns true if
     /// the mutex is unavailable. Otherwise returns false. Call
     /// release when done.
-    fn tryAcquireDirect(m: *PthreadMutex) bool {
+    pub fn tryLock(m: *PthreadMutex) bool {
         return std.c.pthread_mutex_trylock(&m.pthread_mutex) == .SUCCESS;
     }
 
     /// Acquire the mutex. Will deadlock if the mutex is already
     /// held by the calling thread.
-    fn acquireDirect(m: *PthreadMutex) void {
+    pub fn lock(m: *PthreadMutex) void {
         switch (std.c.pthread_mutex_lock(&m.pthread_mutex)) {
             .SUCCESS => {},
             .INVAL => unreachable,
@@ -225,7 +187,7 @@ pub const PthreadMutex = struct {
         }
     }
 
-    fn releaseDirect(m: *PthreadMutex) void {
+    pub fn unlock(m: *PthreadMutex) void {
         switch (std.c.pthread_mutex_unlock(&m.pthread_mutex)) {
             .SUCCESS => return,
             .INVAL => unreachable,
@@ -239,51 +201,47 @@ pub const PthreadMutex = struct {
 /// This has the sematics as `Mutex`, however it does not actually do any
 /// synchronization. Operations are safety-checked no-ops.
 pub const Dummy = struct {
-    lock: @TypeOf(lock_init) = lock_init,
-
-    pub usingnamespace HeldInterface(@This());
+    locked: @TypeOf(lock_init) = lock_init,
 
     const lock_init = if (std.debug.runtime_safety) false else {};
 
     /// Try to acquire the mutex without blocking. Returns false if
     /// the mutex is unavailable. Otherwise returns true.
-    fn tryAcquireDirect(m: *Dummy) bool {
+    pub fn tryLock(m: *Dummy) bool {
         if (std.debug.runtime_safety) {
-            if (m.lock) return false;
-            m.lock = true;
+            if (m.locked) return false;
+            m.locked = true;
         }
         return true;
     }
 
     /// Acquire the mutex. Will deadlock if the mutex is already
     /// held by the calling thread.
-    fn acquireDirect(m: *Dummy) void {
-        if (!m.tryAcquireDirect()) {
+    pub fn lock(m: *Dummy) void {
+        if (!m.tryLock()) {
             @panic("deadlock detected");
         }
     }
 
-    fn releaseDirect(m: *Dummy) void {
+    pub fn unlock(m: *Dummy) void {
         if (std.debug.runtime_safety) {
-            m.lock = false;
+            m.locked = false;
         }
     }
 };
 
-const WindowsMutex = struct {
+pub const WindowsMutex = struct {
     srwlock: windows.SRWLOCK = windows.SRWLOCK_INIT,
 
-    pub usingnamespace HeldInterface(@This());
-
-    fn tryAcquireDirect(m: *WindowsMutex) bool {
+    pub fn tryLock(m: *WindowsMutex) bool {
         return windows.kernel32.TryAcquireSRWLockExclusive(&m.srwlock) != windows.FALSE;
     }
 
-    fn acquireDirect(m: *WindowsMutex) void {
+    pub fn lock(m: *WindowsMutex) void {
         windows.kernel32.AcquireSRWLockExclusive(&m.srwlock);
     }
 
-    fn releaseDirect(m: *WindowsMutex) void {
+    pub fn unlock(m: *WindowsMutex) void {
         windows.kernel32.ReleaseSRWLockExclusive(&m.srwlock);
     }
 };
@@ -322,8 +280,8 @@ test "basic usage" {
 fn worker(ctx: *TestContext) void {
     var i: usize = 0;
     while (i != TestContext.incr_count) : (i += 1) {
-        const held = ctx.mutex.acquire();
-        defer held.release();
+        ctx.mutex.lock();
+        defer ctx.mutex.unlock();
 
         ctx.data += 1;
     }

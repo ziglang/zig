@@ -13,8 +13,8 @@ const Mutex = std.Thread.Mutex;
 const Condition = std.Thread.Condition;
 
 pub fn wait(sem: *Semaphore) void {
-    const held = sem.mutex.acquire();
-    defer held.release();
+    sem.mutex.lock();
+    defer sem.mutex.unlock();
 
     while (sem.permits == 0)
         sem.cond.wait(&sem.mutex);
@@ -25,8 +25,8 @@ pub fn wait(sem: *Semaphore) void {
 }
 
 pub fn post(sem: *Semaphore) void {
-    const held = sem.mutex.acquire();
-    defer held.release();
+    sem.mutex.lock();
+    defer sem.mutex.unlock();
 
     sem.permits += 1;
     sem.cond.signal();

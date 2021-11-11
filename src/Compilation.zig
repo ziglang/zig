@@ -339,8 +339,8 @@ pub const AllErrors = struct {
         },
 
         pub fn renderToStdErr(msg: Message, ttyconf: std.debug.TTY.Config) void {
-            const held = std.debug.getStderrMutex().acquire();
-            defer held.release();
+            std.debug.getStderrMutex().lock();
+            defer std.debug.getStderrMutex().unlock();
             const stderr = std.io.getStdErr();
             return msg.renderToStdErrInner(ttyconf, stderr, "error:", .Red, 0) catch return;
         }
@@ -716,6 +716,10 @@ pub const InitOptions = struct {
     linker_gc_sections: ?bool = null,
     linker_allow_shlib_undefined: ?bool = null,
     linker_bind_global_refs_locally: ?bool = null,
+    linker_import_memory: ?bool = null,
+    linker_initial_memory: ?u64 = null,
+    linker_max_memory: ?u64 = null,
+    linker_global_base: ?u64 = null,
     each_lib_rpath: ?bool = null,
     disable_c_depfile: bool = false,
     linker_z_nodelete: bool = false,
@@ -1401,6 +1405,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .function_sections = options.function_sections,
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
+            .import_memory = options.linker_import_memory orelse false,
+            .initial_memory = options.linker_initial_memory,
+            .max_memory = options.linker_max_memory,
+            .global_base = options.linker_global_base,
             .z_nodelete = options.linker_z_nodelete,
             .z_notext = options.linker_z_notext,
             .z_defs = options.linker_z_defs,
@@ -2683,8 +2691,8 @@ fn workerAstGenFile(
             const import_path = file.zir.nullTerminatedString(item.data.name);
 
             const import_result = blk: {
-                const lock = comp.mutex.acquire();
-                defer lock.release();
+                comp.mutex.lock();
+                defer comp.mutex.unlock();
 
                 break :blk mod.importFile(file, import_path) catch continue;
             };
@@ -2925,8 +2933,8 @@ fn reportRetryableCObjectError(
         .column = 0,
     };
     {
-        const lock = comp.mutex.acquire();
-        defer lock.release();
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
         try comp.failed_c_objects.putNoClobber(comp.gpa, c_object, c_obj_err_msg);
     }
 }
@@ -2973,8 +2981,8 @@ fn reportRetryableAstGenError(
     errdefer err_msg.destroy(gpa);
 
     {
-        const lock = comp.mutex.acquire();
-        defer lock.release();
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
         try mod.failed_files.putNoClobber(gpa, file, err_msg);
     }
 }
@@ -3003,8 +3011,8 @@ fn reportRetryableEmbedFileError(
     errdefer err_msg.destroy(gpa);
 
     {
-        const lock = comp.mutex.acquire();
-        defer lock.release();
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
         try mod.failed_embed_files.putNoClobber(gpa, embed_file, err_msg);
     }
 }
@@ -3023,8 +3031,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 
     if (c_object.clearStatus(comp.gpa)) {
         // There was previous failure.
-        const lock = comp.mutex.acquire();
-        defer lock.release();
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
         // If the failure was OOM, there will not be an entry here, so we do
         // not assert discard.
         _ = comp.failed_c_objects.swapRemove(c_object);
@@ -3568,8 +3576,8 @@ fn failCObjWithOwnedErrorMsg(
 ) SemaError {
     @setCold(true);
     {
-        const lock = comp.mutex.acquire();
-        defer lock.release();
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
         {
             errdefer err_msg.destroy(comp.gpa);
             try comp.failed_c_objects.ensureUnusedCapacity(comp.gpa, 1);

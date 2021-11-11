@@ -32,7 +32,7 @@ pub const Lock = struct {
     }
 
     pub fn acquire(self: *Lock) Held {
-        const held = self.mutex.acquire();
+        self.mutex.lock();
 
         // self.head transitions from multiple stages depending on the value:
         // UNLOCKED -> LOCKED:
@@ -44,7 +44,7 @@ pub const Lock = struct {
 
         if (self.head == UNLOCKED) {
             self.head = LOCKED;
-            held.release();
+            self.mutex.unlock();
             return Held{ .lock = self };
         }
 
@@ -71,7 +71,7 @@ pub const Lock = struct {
                 .next = undefined,
                 .data = @frame(),
             };
-            held.release();
+            self.mutex.unlock();
         }
 
         return Held{ .lock = self };
@@ -82,8 +82,8 @@ pub const Lock = struct {
 
         pub fn release(self: Held) void {
             const waiter = blk: {
-                const held = self.lock.mutex.acquire();
-                defer held.release();
+                self.lock.mutex.lock();
+                defer self.lock.mutex.unlock();
 
                 // self.head goes through the reverse transition from acquire():
                 // <head ptr> -> <new head ptr>:

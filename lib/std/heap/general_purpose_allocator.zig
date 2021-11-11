@@ -615,8 +615,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         ) Error!usize {
             const self = @fieldParentPtr(Self, "allocator", allocator);
 
-            const held = self.mutex.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             assert(old_mem.len != 0);
 
@@ -758,8 +758,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         fn alloc(allocator: *Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
             const self = @fieldParentPtr(Self, "allocator", allocator);
 
-            const held = self.mutex.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             if (!self.isAllocationAllowed(len)) {
                 return error.OutOfMemory;

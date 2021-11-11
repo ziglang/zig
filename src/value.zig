@@ -1929,6 +1929,52 @@ pub const Value = extern union {
         }
     }
 
+    pub fn floatToInt(val: Value, arena: *Allocator, dest_ty: Type, target: Target) error{ FloatCannotFit, OutOfMemory }!Value {
+        const Limb = std.math.big.Limb;
+
+        var value = val.toFloat(f64); // TODO: f128 ?
+        if (std.math.isNan(value) or std.math.isInf(value)) {
+            return error.FloatCannotFit;
+        }
+
+        const isNegative = std.math.signbit(value);
+        value = std.math.fabs(value);
+
+        const floored = std.math.floor(value);
+
+        var rational = try std.math.big.Rational.init(arena);
+        defer rational.deinit();
+        rational.setFloat(f64, floored) catch |err| switch (err) {
+            error.NonFiniteFloat => unreachable,
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+
+        // The float is reduced in rational.setFloat, so we assert that denominator is equal to one
+        const bigOne = std.math.big.int.Const{ .limbs = &.{1}, .positive = true };
+        assert(rational.q.toConst().eqAbs(bigOne));
+
+        const result_limbs = try arena.dupe(Limb, rational.p.toConst().limbs);
+        const result = if (isNegative)
+            try Value.Tag.int_big_negative.create(arena, result_limbs)
+        else
+            try Value.Tag.int_big_positive.create(arena, result_limbs);
+
+        if (result.intFitsInType(dest_ty, target)) {
+            return result;
+        } else {
+            return error.FloatCannotFit;
+        }
+    }
+
+    fn calcLimbLenFloat(scalar: anytype) usize {
+        if (scalar == 0) {
+            return 1;
+        }
+
+        const w_value = std.math.fabs(scalar);
+        return @divFloor(@floatToInt(std.math.big.Limb, std.math.log2(w_value)), @typeInfo(std.math.big.Limb).Int.bits) + 1;
+    }
+
     /// Supports both floats and ints; handles undefined.
     pub fn numberAddWrap(
         lhs: Value,

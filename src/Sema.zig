@@ -1414,9 +1414,10 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const pointee_ty = try sema.resolveType(block, src, bin_inst.lhs);
     const ptr = sema.resolveInst(bin_inst.rhs);
 
+    const addr_space = target_util.defaultAddressSpace(sema.mod.getTarget(), .local);
     const ptr_ty = try Type.ptr(sema.arena, .{
         .pointee_type = pointee_ty,
-        .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+        .@"addrspace" = addr_space,
     });
 
     if (Air.refToIndex(ptr)) |ptr_inst| {
@@ -1430,8 +1431,15 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     // for the inferred allocation.
                     // This instruction will not make it to codegen; it is only to participate
                     // in the `stored_inst_list` of the `inferred_alloc`.
-                    const operand = try block.addBitCast(pointee_ty, .void_value);
+                    var trash_block = block.makeSubBlock();
+                    defer trash_block.instructions.deinit(sema.gpa);
+                    const operand = try trash_block.addBitCast(pointee_ty, .void_value);
+
                     try inferred_alloc.stored_inst_list.append(sema.arena, operand);
+
+                    try sema.requireRuntimeBlock(block, src);
+                    const bitcasted_ptr = try block.addBitCast(ptr_ty, ptr);
+                    return bitcasted_ptr;
                 },
                 .inferred_alloc_comptime => {
                     const iac = ptr_val.castTag(.inferred_alloc_comptime).?;
@@ -1456,9 +1464,78 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
             }
         }
     }
+
     try sema.requireRuntimeBlock(block, src);
-    const bitcasted_ptr = try block.addBitCast(ptr_ty, ptr);
-    return bitcasted_ptr;
+
+    // Make a dummy store through the pointer to test the coercion.
+    // We will then use the generated instructions to decide what
+    // kind of transformations to make on the result pointer.
+    var trash_block = block.makeSubBlock();
+    defer trash_block.instructions.deinit(sema.gpa);
+
+    const dummy_operand = try trash_block.addBitCast(pointee_ty, .void_value);
+    try sema.storePtr(&trash_block, src, ptr, dummy_operand);
+
+    {
+        const air_tags = sema.air_instructions.items(.tag);
+
+        //std.debug.print("dummy storePtr instructions:\n", .{});
+        //for (trash_block.instructions.items) |item| {
+        //    std.debug.print("  {s}\n", .{@tagName(air_tags[item])});
+        //}
+
+        // The last one is always `store`.
+        const trash_inst = trash_block.instructions.pop();
+        assert(air_tags[trash_inst] == .store);
+        assert(trash_inst == sema.air_instructions.len - 1);
+        sema.air_instructions.len -= 1;
+    }
+
+    var new_ptr = ptr;
+
+    while (true) {
+        const air_tags = sema.air_instructions.items(.tag);
+        const air_datas = sema.air_instructions.items(.data);
+        const trash_inst = trash_block.instructions.pop();
+        switch (air_tags[trash_inst]) {
+            .bitcast => {
+                if (Air.indexToRef(trash_inst) == dummy_operand) {
+                    return block.addBitCast(ptr_ty, new_ptr);
+                }
+                const ty_op = air_datas[trash_inst].ty_op;
+                const operand_ty = sema.getTmpAir().typeOf(ty_op.operand);
+                const ptr_operand_ty = try Type.ptr(sema.arena, .{
+                    .pointee_type = operand_ty,
+                    .@"addrspace" = addr_space,
+                });
+                new_ptr = try block.addBitCast(ptr_operand_ty, new_ptr);
+            },
+            .wrap_optional => {
+                const ty_op = air_datas[trash_inst].ty_op;
+                const payload_ty = sema.getTmpAir().typeOf(ty_op.operand);
+                const ptr_payload_ty = try Type.ptr(sema.arena, .{
+                    .pointee_type = payload_ty,
+                    .@"addrspace" = addr_space,
+                });
+                new_ptr = try block.addTyOp(.optional_payload_ptr_set, ptr_payload_ty, new_ptr);
+            },
+            .wrap_errunion_err => {
+                return sema.fail(block, src, "TODO coerce_result_ptr wrap_errunion_err", .{});
+            },
+            .wrap_errunion_payload => {
+                return sema.fail(block, src, "TODO coerce_result_ptr wrap_errunion_payload", .{});
+            },
+            else => {
+                if (std.debug.runtime_safety) {
+                    std.debug.panic("unexpected AIR tag for coerce_result_ptr: {s}", .{
+                        air_tags[trash_inst],
+                    });
+                } else {
+                    unreachable;
+                }
+            },
+        }
+    } else unreachable; // TODO should not need else unreachable
 }
 
 pub fn analyzeStructDecl(
@@ -2365,7 +2442,13 @@ fn validateUnionInit(
             // Otherwise, the bitcast should be preserved and a store instruction should be
             // emitted to store the constant union value through the bitcast.
         },
-        else => unreachable,
+        else => |t| {
+            if (std.debug.runtime_safety) {
+                std.debug.panic("unexpected AIR tag for union pointer: {s}", .{@tagName(t)});
+            } else {
+                unreachable;
+            }
+        },
     }
 
     // Otherwise, we set the new union tag now.
@@ -9642,9 +9725,29 @@ fn zirFrameSize(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
 fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    // TODO don't forget the safety check!
-    return sema.fail(block, src, "TODO: Sema.zirFloatToInt", .{});
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const dest_ty = try sema.resolveType(block, ty_src, extra.lhs);
+    const operand = sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
+
+    _ = try sema.checkIntType(block, ty_src, dest_ty);
+    try sema.checkFloatType(block, operand_src, operand_ty);
+
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        const target = sema.mod.getTarget();
+        const result_val = val.floatToInt(sema.arena, dest_ty, target) catch |err| switch (err) {
+            error.FloatCannotFit => {
+                return sema.fail(block, operand_src, "integer value {d} cannot be stored in type '{}'", .{ std.math.floor(val.toFloat(f64)), dest_ty });
+            },
+            else => |e| return e,
+        };
+        return sema.addConstant(dest_ty, result_val);
+    }
+
+    try sema.requireRuntimeBlock(block, operand_src);
+    return block.addTyOp(.float_to_int, dest_ty, operand);
 }
 
 fn zirIntToFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -12434,7 +12537,13 @@ fn coerceNum(
                 if (val.floatHasFraction()) {
                     return sema.fail(block, inst_src, "fractional component prevents float value {} from coercion to type '{}'", .{ val, dest_ty });
                 }
-                return sema.fail(block, inst_src, "TODO float to int", .{});
+                const result_val = val.floatToInt(sema.arena, dest_ty, target) catch |err| switch (err) {
+                    error.FloatCannotFit => {
+                        return sema.fail(block, inst_src, "integer value {d} cannot be stored in type '{}'", .{ std.math.floor(val.toFloat(f64)), dest_ty });
+                    },
+                    else => |e| return e,
+                };
+                return try sema.addConstant(dest_ty, result_val);
             },
             .Int, .ComptimeInt => {
                 if (!val.intFitsInType(dest_ty, target)) {
