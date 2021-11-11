@@ -43,6 +43,13 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        : "rcx", "rbp", "r11", "memory"
             \\    );
             \\}
-        , "");
+        , "Hello World\n");
+        case.addCompareOutput(
+            \\const std = @import("std");
+            \\pub fn main() void {
+            \\    const str = "Hello World!\n";
+            \\    _ = std.os.plan9.pwrite(1, str, str.len, 0);
+            \\}
+        , "Hello World\n");
     }
 }
