@@ -2165,7 +2165,10 @@ fn airIsNull(
 
     const ty = f.air.typeOf(un_op);
     var opt_buf: Type.Payload.ElemType = undefined;
-    const payload_type = ty.optionalChild(&opt_buf);
+    const payload_type = if (ty.zigTypeTag() == .Pointer)
+        ty.childType().optionalChild(&opt_buf)
+    else
+        ty.optionalChild(&opt_buf);
 
     if (ty.isPtrLikeOptional()) {
         // operand is a regular pointer, test `operand !=/== NULL`
