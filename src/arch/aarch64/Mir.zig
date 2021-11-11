@@ -26,6 +26,8 @@ pub const Inst = struct {
     pub const Tag = enum(u16) {
         /// Add (immediate)
         add_immediate,
+        /// Branch conditionally
+        b_cond,
         /// Branch
         b,
         /// Branch with Link
@@ -36,13 +38,19 @@ pub const Inst = struct {
         brk,
         /// Pseudo-instruction: Call extern
         call_extern,
+        /// Compare (immediate)
+        cmp_immediate,
+        /// Compare (shifted register)
+        cmp_shifted_register,
+        /// Conditional set
+        cset,
         /// Pseudo-instruction: End of prologue
         dbg_prologue_end,
         /// Pseudo-instruction: Beginning of epilogue
         dbg_epilogue_begin,
         /// Pseudo-instruction: Update debug line
         dbg_line,
-        /// Psuedo-instruction: Load memory
+        /// Pseudo-instruction: Load memory
         ///
         /// Payload is `LoadMemory`
         load_memory,
@@ -97,7 +105,7 @@ pub const Inst = struct {
         ///
         /// Used by e.g. nop
         nop: void,
-        /// Another instruction.
+        /// Another instruction
         ///
         /// Used by e.g. b
         inst: Index,
@@ -117,6 +125,13 @@ pub const Inst = struct {
         ///
         /// Used by e.g. blr
         reg: Register,
+        /// Another instruction and a condition
+        ///
+        /// Used by e.g. b_cond
+        inst_cond: struct {
+            inst: Index,
+            cond: bits.Instruction.Condition,
+        },
         /// A register, an unsigned 16-bit immediate, and an optional shift
         ///
         /// Used by e.g. movz
@@ -140,6 +155,25 @@ pub const Inst = struct {
             rn: Register,
             imm12: u12,
             sh: u1 = 0,
+        },
+        /// Three registers and a shift (shift type and 6-bit amount)
+        ///
+        /// Used by e.g. cmp_shifted_register
+        rrr_imm6_shift: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+            imm6: u6,
+            shift: bits.Instruction.AddSubtractShiftedRegisterShift,
+        },
+        /// Three registers and a condition
+        ///
+        /// Used by e.g. cset
+        rrr_cond: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+            cond: bits.Instruction.Condition,
         },
         /// Three registers and a LoadStoreOffset
         ///

@@ -295,6 +295,18 @@ pub const Instruction = union(enum) {
         op: u1,
         sf: u1,
     },
+    add_subtract_shifted_register: packed struct {
+        rd: u5,
+        rn: u5,
+        imm6: u6,
+        rm: u5,
+        fixed_1: u1 = 0b0,
+        shift: u2,
+        fixed_2: u5 = 0b01011,
+        s: u1,
+        op: u1,
+        sf: u1,
+    },
     conditional_branch: struct {
         cond: u4,
         o0: u1,
@@ -307,6 +319,17 @@ pub const Instruction = union(enum) {
         imm19: u19,
         op: u1,
         fixed: u6 = 0b011010,
+        sf: u1,
+    },
+    conditional_select: struct {
+        rd: u5,
+        rn: u5,
+        op2: u2,
+        cond: u4,
+        rm: u5,
+        fixed: u8 = 0b11010100,
+        s: u1,
+        op: u1,
         sf: u1,
     },
 
@@ -376,6 +399,57 @@ pub const Instruction = union(enum) {
         /// Integer: Always
         /// Floating point: Always
         nv,
+
+        /// Converts a std.math.CompareOperator into a condition flag,
+        /// i.e. returns the condition that is true iff the result of the
+        /// comparison is true. Assumes signed comparison
+        pub fn fromCompareOperatorSigned(op: std.math.CompareOperator) Condition {
+            return switch (op) {
+                .gte => .ge,
+                .gt => .gt,
+                .neq => .ne,
+                .lt => .lt,
+                .lte => .le,
+                .eq => .eq,
+            };
+        }
+
+        /// Converts a std.math.CompareOperator into a condition flag,
+        /// i.e. returns the condition that is true iff the result of the
+        /// comparison is true. Assumes unsigned comparison
+        pub fn fromCompareOperatorUnsigned(op: std.math.CompareOperator) Condition {
+            return switch (op) {
+                .gte => .cs,
+                .gt => .hi,
+                .neq => .ne,
+                .lt => .cc,
+                .lte => .ls,
+                .eq => .eq,
+            };
+        }
+
+        /// Returns the condition which is true iff the given condition is
+        /// false (if such a condition exists)
+        pub fn negate(cond: Condition) Condition {
+            return switch (cond) {
+                .eq => .ne,
+                .ne => .eq,
+                .cs => .cc,
+                .cc => .cs,
+                .mi => .pl,
+                .pl => .mi,
+                .vs => .vc,
+                .vc => .vs,
+                .hi => .ls,
+                .ls => .hi,
+                .ge => .lt,
+                .lt => .ge,
+                .gt => .le,
+                .le => .gt,
+                .al => unreachable,
+                .nv => unreachable,
+            };
+        }
     };
 
     pub fn toU32(self: Instruction) u32 {
@@ -391,9 +465,11 @@ pub const Instruction = union(enum) {
             .no_operation => |v| @bitCast(u32, v),
             .logical_shifted_register => |v| @bitCast(u32, v),
             .add_subtract_immediate => |v| @bitCast(u32, v),
+            .add_subtract_shifted_register => |v| @bitCast(u32, v),
             // TODO once packed structs work, this can be refactored
             .conditional_branch => |v| @as(u32, v.cond) | (@as(u32, v.o0) << 4) | (@as(u32, v.imm19) << 5) | (@as(u32, v.o1) << 24) | (@as(u32, v.fixed) << 25),
             .compare_and_branch => |v| @as(u32, v.rt) | (@as(u32, v.imm19) << 5) | (@as(u32, v.op) << 24) | (@as(u32, v.fixed) << 25) | (@as(u32, v.sf) << 31),
+            .conditional_select => |v| @as(u32, v.rd) | @as(u32, v.rn) << 5 | @as(u32, v.op2) << 10 | @as(u32, v.cond) << 12 | @as(u32, v.rm) << 16 | @as(u32, v.fixed) << 21 | @as(u32, v.s) << 29 | @as(u32, v.op) << 30 | @as(u32, v.sf) << 31,
         };
     }
 
@@ -804,6 +880,35 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub const AddSubtractShiftedRegisterShift = enum(u2) { lsl, lsr, asr, _ };
+
+    fn addSubtractShiftedRegister(
+        op: u1,
+        s: u1,
+        shift: AddSubtractShiftedRegisterShift,
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        imm6: u6,
+    ) Instruction {
+        return Instruction{
+            .add_subtract_shifted_register = .{
+                .rd = rd.id(),
+                .rn = rn.id(),
+                .imm6 = imm6,
+                .rm = rm.id(),
+                .shift = @enumToInt(shift),
+                .s = s,
+                .op = op,
+                .sf = switch (rd.size()) {
+                    32 => 0b0,
+                    64 => 0b1,
+                    else => unreachable, // unexpected register size
+                },
+            },
+        };
+    }
+
     fn conditionalBranch(
         o0: u1,
         o1: u1,
@@ -833,6 +938,33 @@ pub const Instruction = union(enum) {
                 .imm19 = @bitCast(u19, @intCast(i19, offset >> 2)),
                 .op = op,
                 .sf = switch (rt.size()) {
+                    32 => 0b0,
+                    64 => 0b1,
+                    else => unreachable, // unexpected register size
+                },
+            },
+        };
+    }
+
+    fn conditionalSelect(
+        op2: u2,
+        op: u1,
+        s: u1,
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        cond: Condition,
+    ) Instruction {
+        return Instruction{
+            .conditional_select = .{
+                .rd = rd.id(),
+                .rn = rn.id(),
+                .op2 = op2,
+                .cond = @enumToInt(cond),
+                .rm = rm.id(),
+                .s = s,
+                .op = op,
+                .sf = switch (rd.size()) {
                     32 => 0b0,
                     64 => 0b1,
                     else => unreachable, // unexpected register size
@@ -1055,6 +1187,48 @@ pub const Instruction = union(enum) {
         return addSubtractImmediate(0b1, 0b1, rd, rn, imm, shift);
     }
 
+    // Add/subtract (shifted register)
+
+    pub fn addShiftedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        shift: AddSubtractShiftedRegisterShift,
+        imm6: u6,
+    ) Instruction {
+        return addSubtractShiftedRegister(0b0, 0b0, shift, rd, rn, rm, imm6);
+    }
+
+    pub fn addsShiftedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        shift: AddSubtractShiftedRegisterShift,
+        imm6: u6,
+    ) Instruction {
+        return addSubtractShiftedRegister(0b0, 0b1, shift, rd, rn, rm, imm6);
+    }
+
+    pub fn subShiftedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        shift: AddSubtractShiftedRegisterShift,
+        imm6: u6,
+    ) Instruction {
+        return addSubtractShiftedRegister(0b1, 0b0, shift, rd, rn, rm, imm6);
+    }
+
+    pub fn subsShiftedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        shift: AddSubtractShiftedRegisterShift,
+        imm6: u6,
+    ) Instruction {
+        return addSubtractShiftedRegister(0b1, 0b1, shift, rd, rn, rm, imm6);
+    }
+
     // Conditional branch
 
     pub fn bCond(cond: Condition, offset: i21) Instruction {
@@ -1069,6 +1243,24 @@ pub const Instruction = union(enum) {
 
     pub fn cbnz(rt: Register, offset: i21) Instruction {
         return compareAndBranch(0b1, rt, offset);
+    }
+
+    // Conditional select
+
+    pub fn csel(rd: Register, rn: Register, rm: Register, cond: Condition) Instruction {
+        return conditionalSelect(0b00, 0b0, 0b0, rd, rn, rm, cond);
+    }
+
+    pub fn csinc(rd: Register, rn: Register, rm: Register, cond: Condition) Instruction {
+        return conditionalSelect(0b01, 0b0, 0b0, rd, rn, rm, cond);
+    }
+
+    pub fn csinv(rd: Register, rn: Register, rm: Register, cond: Condition) Instruction {
+        return conditionalSelect(0b00, 0b1, 0b0, rd, rn, rm, cond);
+    }
+
+    pub fn csneg(rd: Register, rn: Register, rm: Register, cond: Condition) Instruction {
+        return conditionalSelect(0b01, 0b1, 0b0, rd, rn, rm, cond);
     }
 };
 
@@ -1230,6 +1422,14 @@ test "serialize instructions" {
         .{ // cbz x10, #40
             .inst = Instruction.cbz(.x10, 40),
             .expected = 0b1_011010_0_0000000000000001010_01010,
+        },
+        .{ // add x0, x1, x2, lsl #5
+            .inst = Instruction.addShiftedRegister(.x0, .x1, .x2, .lsl, 5),
+            .expected = 0b1_0_0_01011_00_0_00010_000101_00001_00000,
+        },
+        .{ // csinc x1, x2, x4, eq
+            .inst = Instruction.csinc(.x1, .x2, .x4, .eq),
+            .expected = 0b1_0_0_11010100_00100_0000_0_1_00010_00001,
         },
     };
 
