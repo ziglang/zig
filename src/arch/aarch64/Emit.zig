@@ -42,6 +42,8 @@ branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUn
 /// instruction
 code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
 
+stack_size: u32,
+
 const InnerError = error{
     OutOfMemory,
     EmitFail,
@@ -102,6 +104,13 @@ pub fn emitMir(
 
             .ldp => try emit.mirLoadStoreRegisterPair(inst),
             .stp => try emit.mirLoadStoreRegisterPair(inst),
+
+            .ldr_stack => try emit.mirLoadStoreStack(inst),
+            .ldrb_stack => try emit.mirLoadStoreStack(inst),
+            .ldrh_stack => try emit.mirLoadStoreStack(inst),
+            .str_stack => try emit.mirLoadStoreStack(inst),
+            .strb_stack => try emit.mirLoadStoreStack(inst),
+            .strh_stack => try emit.mirLoadStoreStack(inst),
 
             .ldr => try emit.mirLoadStoreRegister(inst),
             .ldrb => try emit.mirLoadStoreRegister(inst),
@@ -647,6 +656,79 @@ fn mirLoadStoreRegisterPair(emit: *Emit, inst: Mir.Inst.Index) !void {
             load_store_register_pair.rt2,
             load_store_register_pair.rn,
             load_store_register_pair.offset,
+        )),
+        else => unreachable,
+    }
+}
+
+fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const load_store_stack = emit.mir.instructions.items(.data)[inst].load_store_stack;
+
+    const raw_offset = emit.stack_size - load_store_stack.offset;
+    const offset = switch (tag) {
+        .ldrb_stack, .strb_stack => blk: {
+            if (math.cast(u12, raw_offset)) |imm| {
+                break :blk Instruction.LoadStoreOffset.imm(imm);
+            } else |_| {
+                return emit.fail("TODO load/store stack byte with larger offset", .{});
+            }
+        },
+        .ldrh_stack, .strh_stack => blk: {
+            assert(std.mem.isAlignedGeneric(u32, raw_offset, 2)); // misaligned stack entry
+            if (math.cast(u12, @divExact(raw_offset, 2))) |imm| {
+                break :blk Instruction.LoadStoreOffset.imm(imm);
+            } else |_| {
+                return emit.fail("TODO load/store stack halfword with larger offset", .{});
+            }
+        },
+        .ldr_stack, .str_stack => blk: {
+            const alignment: u32 = switch (load_store_stack.rt.size()) {
+                32 => 4,
+                64 => 8,
+                else => unreachable,
+            };
+
+            assert(std.mem.isAlignedGeneric(u32, raw_offset, alignment)); // misaligned stack entry
+            if (math.cast(u12, @divExact(raw_offset, alignment))) |imm| {
+                break :blk Instruction.LoadStoreOffset.imm(imm);
+            } else |_| {
+                return emit.fail("TODO load/store stack with larger offset", .{});
+            }
+        },
+        else => unreachable,
+    };
+
+    switch (tag) {
+        .ldr_stack => try emit.writeInstruction(Instruction.ldr(
+            load_store_stack.rt,
+            Register.sp,
+            offset,
+        )),
+        .ldrb_stack => try emit.writeInstruction(Instruction.ldrb(
+            load_store_stack.rt,
+            Register.sp,
+            offset,
+        )),
+        .ldrh_stack => try emit.writeInstruction(Instruction.ldrh(
+            load_store_stack.rt,
+            Register.sp,
+            offset,
+        )),
+        .str_stack => try emit.writeInstruction(Instruction.str(
+            load_store_stack.rt,
+            Register.sp,
+            offset,
+        )),
+        .strb_stack => try emit.writeInstruction(Instruction.strb(
+            load_store_stack.rt,
+            Register.sp,
+            offset,
+        )),
+        .strh_stack => try emit.writeInstruction(Instruction.strh(
+            load_store_stack.rt,
+            Register.sp,
+            offset,
         )),
         else => unreachable,
     }

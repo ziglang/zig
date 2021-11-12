@@ -302,6 +302,7 @@ pub fn generate(
         .prev_di_pc = 0,
         .prev_di_line = module_fn.lbrace_line,
         .prev_di_column = module_fn.lbrace_column,
+        .stack_size = mem.alignForwardGeneric(u32, function.max_end_stack, function.stack_align),
     };
     defer emit.deinit();
 
@@ -1346,9 +1347,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
             const stack_offset = try self.allocMem(inst, abi_size, abi_align);
             try self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
 
-            // TODO correct loading and storing from memory
-            // break :blk MCValue{ .stack_offset = stack_offset };
-            break :blk result;
+            break :blk MCValue{ .stack_offset = stack_offset };
         },
         else => result,
     };
@@ -2261,28 +2260,23 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
 
             switch (abi_size) {
                 1, 2, 4, 8 => {
-                    const offset = if (math.cast(i9, adj_off)) |imm|
-                        Instruction.LoadStoreOffset.imm_post_index(-imm)
-                    else |_|
-                        Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(Type.initTag(.u64), MCValue{ .immediate = adj_off }));
-                    const rn: Register = switch (self.target.cpu.arch) {
-                        .aarch64, .aarch64_be => .x29,
-                        .aarch64_32 => .w29,
-                        else => unreachable,
-                    };
                     const tag: Mir.Inst.Tag = switch (abi_size) {
-                        1 => .strb,
-                        2 => .strh,
-                        4, 8 => .str,
+                        1 => .strb_stack,
+                        2 => .strh_stack,
+                        4, 8 => .str_stack,
+                        else => unreachable, // unexpected abi size
+                    };
+                    const rt: Register = switch (abi_size) {
+                        1, 2, 4 => reg.to32(),
+                        8 => reg.to64(),
                         else => unreachable, // unexpected abi size
                     };
 
                     _ = try self.addInst(.{
                         .tag = tag,
-                        .data = .{ .load_store_register = .{
-                            .rt = reg,
-                            .rn = rn,
-                            .offset = offset,
+                        .data = .{ .load_store_stack = .{
+                            .rt = rt,
+                            .offset = @intCast(u32, adj_off),
                         } },
                     });
                 },
@@ -2384,36 +2378,28 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             });
         },
         .stack_offset => |unadjusted_off| {
-            // TODO: maybe addressing from sp instead of fp
             const abi_size = ty.abiSize(self.target.*);
             const adj_off = unadjusted_off + abi_size;
-
-            const rn: Register = switch (self.target.cpu.arch) {
-                .aarch64, .aarch64_be => .x29,
-                .aarch64_32 => .w29,
-                else => unreachable,
-            };
-
-            const offset = if (math.cast(i9, adj_off)) |imm|
-                Instruction.LoadStoreOffset.imm_post_index(-imm)
-            else |_|
-                Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(Type.initTag(.u64), MCValue{ .immediate = adj_off }));
 
             switch (abi_size) {
                 1, 2, 4, 8 => {
                     const tag: Mir.Inst.Tag = switch (abi_size) {
-                        1 => .ldrb,
-                        2 => .ldrh,
-                        4, 8 => .ldr,
+                        1 => .ldrb_stack,
+                        2 => .ldrh_stack,
+                        4, 8 => .ldr_stack,
+                        else => unreachable, // unexpected abi size
+                    };
+                    const rt: Register = switch (abi_size) {
+                        1, 2, 4 => reg.to32(),
+                        8 => reg.to64(),
                         else => unreachable, // unexpected abi size
                     };
 
                     _ = try self.addInst(.{
                         .tag = tag,
-                        .data = .{ .load_store_register = .{
-                            .rt = reg,
-                            .rn = rn,
-                            .offset = offset,
+                        .data = .{ .load_store_stack = .{
+                            .rt = rt,
+                            .offset = @intCast(u32, adj_off),
                         } },
                     });
                 },

@@ -56,12 +56,18 @@ pub const Inst = struct {
         load_memory,
         /// Load Pair of Registers
         ldp,
+        /// Pseudo-instruction: Load from stack
+        ldr_stack,
         /// Load Register
         // TODO: split into ldr_immediate and ldr_register
         ldr,
+        /// Pseudo-instruction: Load byte from stack
+        ldrb_stack,
         /// Load Register Byte
         // TODO: split into ldrb_immediate and ldrb_register
         ldrb,
+        /// Pseudo-instruction: Load halfword from stack
+        ldrh_stack,
         /// Load Register Halfword
         // TODO: split into ldrh_immediate and ldrh_register
         ldrh,
@@ -79,12 +85,18 @@ pub const Inst = struct {
         ret,
         /// Store Pair of Registers
         stp,
+        /// Pseudo-instruction: Store to stack
+        str_stack,
         /// Store Register
         // TODO: split into str_immediate and str_register
         str,
+        /// Pseudo-instruction: Store byte to stack
+        strb_stack,
         /// Store Register Byte
         // TODO: split into strb_immediate and strb_register
         strb,
+        /// Pseudo-instruction: Store halfword to stack
+        strh_stack,
         /// Store Register Halfword
         // TODO: split into strh_immediate and strh_register
         strh,
@@ -175,13 +187,20 @@ pub const Inst = struct {
             rm: Register,
             cond: bits.Instruction.Condition,
         },
-        /// Three registers and a LoadStoreOffset
+        /// Two registers and a LoadStoreOffset
         ///
         /// Used by e.g. str_register
         load_store_register: struct {
             rt: Register,
             rn: Register,
             offset: bits.Instruction.LoadStoreOffset,
+        },
+        /// A registers and a stack offset
+        ///
+        /// Used by e.g. str_register
+        load_store_stack: struct {
+            rt: Register,
+            offset: u32,
         },
         /// Three registers and a LoadStorePairOffset
         ///
