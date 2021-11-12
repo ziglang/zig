@@ -162,7 +162,10 @@ strtab: std.ArrayListUnmanaged(u8) = .{},
 strtab_dir: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
 
 got_entries_map: std.AutoArrayHashMapUnmanaged(Atom.Relocation.Target, *Atom) = .{},
+got_entries_map_free_list: std.ArrayListUnmanaged(u32) = .{},
+
 stubs_map: std.AutoArrayHashMapUnmanaged(u32, *Atom) = .{},
+stubs_map_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
@@ -175,6 +178,7 @@ has_stabs: bool = false,
 /// TODO once we add opening a prelinked output binary from file, this will become
 /// obsolete as we will carry on where we left off.
 cold_start: bool = false,
+invalidate_relocs: bool = false,
 
 section_ordinals: std.AutoArrayHashMapUnmanaged(MatchingSection, void) = .{},
 
@@ -610,9 +614,24 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                                 sym.n_desc = 0;
                             },
                         }
+                        if (self.got_entries_map.getIndex(.{ .global = entry.key })) |i| {
+                            self.got_entries_map_free_list.append(
+                                self.base.allocator,
+                                @intCast(u32, i),
+                            ) catch {};
+                            self.got_entries_map.keys()[i] = .{ .local = 0 };
+                        }
+                        if (self.stubs_map.getIndex(entry.key)) |i| {
+                            self.stubs_map_free_list.append(self.base.allocator, @intCast(u32, i)) catch {};
+                            self.stubs_map.keys()[i] = 0;
+                        }
                     }
                 }
             }
+            // Invalidate all relocs
+            // TODO we only need to invalidate the backlinks to the relinked atoms from
+            // the relocatable object files.
+            self.invalidate_relocs = true;
 
             // Positional arguments to the linker such as object files and static archives.
             var positionals = std.ArrayList([]const u8).init(arena);
@@ -887,6 +906,19 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             while (it.next()) |entry| {
                 log.debug("  {s} => {}", .{ self.getString(entry.key_ptr.*), entry.value_ptr.* });
             }
+        }
+
+        log.debug("GOT entries:", .{});
+        for (self.got_entries_map.keys()) |key| {
+            switch (key) {
+                .local => |sym_index| log.debug("  {} => {d}", .{ key, sym_index }),
+                .global => |n_strx| log.debug("  {} => {s}", .{ key, self.getString(n_strx) }),
+            }
+        }
+
+        log.debug("stubs:", .{});
+        for (self.stubs_map.keys()) |key| {
+            log.debug("  {} => {s}", .{ key, self.getString(key) });
         }
 
         try self.writeAtoms();
@@ -1838,7 +1870,7 @@ fn writeAtoms(self: *MachO) !void {
         }
 
         while (true) {
-            if (atom.dirty) {
+            if (atom.dirty or self.invalidate_relocs) {
                 const atom_sym = self.locals.items[atom.local_sym_index];
                 const padding_size: u64 = if (atom.next) |next| blk: {
                     const next_sym = self.locals.items[next.local_sym_index];
@@ -2907,7 +2939,9 @@ pub fn deinit(self: *MachO) void {
 
     self.section_ordinals.deinit(self.base.allocator);
     self.got_entries_map.deinit(self.base.allocator);
+    self.got_entries_map_free_list.deinit(self.base.allocator);
     self.stubs_map.deinit(self.base.allocator);
+    self.stubs_map_free_list.deinit(self.base.allocator);
     self.strtab_dir.deinit(self.base.allocator);
     self.strtab.deinit(self.base.allocator);
     self.undefs.deinit(self.base.allocator);
@@ -3091,8 +3125,22 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
 
     // TODO try popping from free list first before allocating a new GOT atom.
     const target = Atom.Relocation.Target{ .local = decl.link.macho.local_sym_index };
-    const got_atom = try self.createGotAtom(target);
-    try self.got_entries_map.put(self.base.allocator, target, got_atom);
+    const value_ptr = blk: {
+        if (self.got_entries_map_free_list.popOrNull()) |i| {
+            log.debug("reusing GOT entry index {d} for {s}", .{ i, decl.name });
+            self.got_entries_map.keys()[i] = target;
+            const value_ptr = self.got_entries_map.getPtr(target).?;
+            break :blk value_ptr;
+        } else {
+            const res = try self.got_entries_map.getOrPut(self.base.allocator, target);
+            log.debug("creating new GOT entry at index {d} for {s}", .{
+                self.got_entries_map.getIndex(target).?,
+                decl.name,
+            });
+            break :blk res.value_ptr;
+        }
+    };
+    value_ptr.* = try self.createGotAtom(target);
 }
 
 pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -3516,7 +3564,9 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
     if (decl.link.macho.local_sym_index != 0) {
         self.locals_free_list.append(self.base.allocator, decl.link.macho.local_sym_index) catch {};
 
-        // TODO free GOT atom here.
+        // Try freeing GOT atom
+        const got_index = self.got_entries_map.getIndex(.{ .local = decl.link.macho.local_sym_index }).?;
+        self.got_entries_map_free_list.append(self.base.allocator, @intCast(u32, got_index)) catch {};
 
         self.locals.items[decl.link.macho.local_sym_index].n_type = 0;
         decl.link.macho.local_sym_index = 0;
@@ -4907,7 +4957,7 @@ fn writeSymbolTable(self: *MachO) !void {
 
     stubs.reserved1 = 0;
     for (self.stubs_map.keys()) |key| {
-        const resolv = self.symbol_resolver.get(key).?;
+        const resolv = self.symbol_resolver.get(key) orelse continue;
         switch (resolv.where) {
             .global => try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL),
             .undef => try writer.writeIntLittle(u32, dysymtab.iundefsym + resolv.where_index),
@@ -4919,7 +4969,7 @@ fn writeSymbolTable(self: *MachO) !void {
         switch (key) {
             .local => try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL),
             .global => |n_strx| {
-                const resolv = self.symbol_resolver.get(n_strx).?;
+                const resolv = self.symbol_resolver.get(n_strx) orelse continue;
                 switch (resolv.where) {
                     .global => try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL),
                     .undef => try writer.writeIntLittle(u32, dysymtab.iundefsym + resolv.where_index),
@@ -4930,7 +4980,7 @@ fn writeSymbolTable(self: *MachO) !void {
 
     la_symbol_ptr.reserved1 = got.reserved1 + ngot_entries;
     for (self.stubs_map.keys()) |key| {
-        const resolv = self.symbol_resolver.get(key).?;
+        const resolv = self.symbol_resolver.get(key) orelse continue;
         switch (resolv.where) {
             .global => try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL),
             .undef => try writer.writeIntLittle(u32, dysymtab.iundefsym + resolv.where_index),
@@ -5346,7 +5396,7 @@ fn snapshotState(self: *MachO) !void {
                     };
 
                     if (is_via_got) {
-                        const got_atom = self.got_entries_map.get(rel.target).?;
+                        const got_atom = self.got_entries_map.get(rel.target) orelse break :blk 0;
                         break :blk self.locals.items[got_atom.local_sym_index].n_value;
                     }
 

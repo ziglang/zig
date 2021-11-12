@@ -524,8 +524,28 @@ fn addPtrBindingOrRebase(
 
 fn addGotEntry(target: Relocation.Target, context: RelocContext) !void {
     if (context.macho_file.got_entries_map.contains(target)) return;
+
+    const value_ptr = blk: {
+        if (context.macho_file.got_entries_map_free_list.popOrNull()) |i| {
+            log.debug("reusing GOT entry index {d} for {}", .{ i, target });
+            context.macho_file.got_entries_map.keys()[i] = target;
+            const value_ptr = context.macho_file.got_entries_map.getPtr(target).?;
+            break :blk value_ptr;
+        } else {
+            const res = try context.macho_file.got_entries_map.getOrPut(
+                context.macho_file.base.allocator,
+                target,
+            );
+            log.debug("creating new GOT entry at index {d} for {}", .{
+                context.macho_file.got_entries_map.getIndex(target).?,
+                target,
+            });
+            break :blk res.value_ptr;
+        }
+    };
     const atom = try context.macho_file.createGotAtom(target);
-    try context.macho_file.got_entries_map.putNoClobber(context.macho_file.base.allocator, target, atom);
+    value_ptr.* = atom;
+
     const match = MachO.MatchingSection{
         .seg = context.macho_file.data_const_segment_cmd_index.?,
         .sect = context.macho_file.got_section_index.?,
@@ -545,6 +565,26 @@ fn addGotEntry(target: Relocation.Target, context: RelocContext) !void {
 fn addStub(target: Relocation.Target, context: RelocContext) !void {
     if (target != .global) return;
     if (context.macho_file.stubs_map.contains(target.global)) return;
+
+    const value_ptr = blk: {
+        if (context.macho_file.stubs_map_free_list.popOrNull()) |i| {
+            log.debug("reusing stubs entry index {d} for {}", .{ i, target });
+            context.macho_file.stubs_map.keys()[i] = target.global;
+            const value_ptr = context.macho_file.stubs_map.getPtr(target.global).?;
+            break :blk value_ptr;
+        } else {
+            const res = try context.macho_file.stubs_map.getOrPut(
+                context.macho_file.base.allocator,
+                target.global,
+            );
+            log.debug("creating new stubs entry at index {d} for {}", .{
+                context.macho_file.stubs_map.getIndex(target.global).?,
+                target,
+            });
+            break :blk res.value_ptr;
+        }
+    };
+
     // TODO clean this up!
     const stub_helper_atom = atom: {
         const atom = try context.macho_file.createStubHelperAtom();
@@ -600,7 +640,7 @@ fn addStub(target: Relocation.Target, context: RelocContext) !void {
     } else {
         try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
     }
-    try context.macho_file.stubs_map.putNoClobber(context.allocator, target.global, atom);
+    value_ptr.* = atom;
 }
 
 pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
