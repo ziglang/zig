@@ -5442,12 +5442,12 @@ fn snapshotState(self: *MachO) !void {
                     contained_node.payload.aliases = inner_aliases.toOwnedSlice();
                     try nodes.append(contained_node);
 
-                    for (relocs.items[last_rel..]) |rel, rel_i| {
+                    for (relocs.items[last_rel..]) |rel| {
                         if (rel.address >= cont_sym.n_value + cont_size) {
-                            last_rel = rel_i;
                             break;
                         }
                         try nodes.append(rel);
+                        last_rel += 1;
                     }
 
                     try nodes.append(.{
