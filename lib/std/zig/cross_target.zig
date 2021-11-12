@@ -41,6 +41,9 @@ pub const CrossTarget = struct {
     /// based on the `os_tag`.
     dynamic_linker: DynamicLinker = DynamicLinker{},
 
+    /// `null` means no vendor was passed
+    vendor_tag: ?Target.Vendor = null,
+
     pub const CpuModel = union(enum) {
         /// Always native
         native,
@@ -165,6 +168,7 @@ pub const CrossTarget = struct {
     pub fn toTarget(self: CrossTarget) Target {
         return .{
             .cpu = self.getCpu(),
+            .vendor = self.vendor_tag,
             .os = self.getOs(),
             .abi = self.getAbi(),
         };
@@ -200,6 +204,9 @@ pub const CrossTarget = struct {
         /// so that user-friendly error messages can be delivered.
         diagnostics: ?*Diagnostics = null,
 
+        /// If being passed through to clang
+        clang_passthrough: bool = false,
+
         pub const Diagnostics = struct {
             /// If the architecture was determined, this will be populated.
             arch: ?Target.Cpu.Arch = null,
@@ -218,6 +225,8 @@ pub const CrossTarget = struct {
 
             /// If error.UnknownCpuFeature is returned, this will be populated.
             unknown_feature_name: ?[]const u8 = null,
+
+            vendor_tag: ?Target.Vendor = null,
         };
     };
 
@@ -240,7 +249,22 @@ pub const CrossTarget = struct {
         diags.arch = arch;
 
         if (it.next()) |os_text| {
-            try parseOs(&result, diags, os_text);
+            parseOs(&result, diags, os_text) catch |err| switch (err) {
+                error.UnknownOperatingSystem => {
+                    // if not pass through we don't care
+                    if (!args.clang_passthrough) return err;
+
+                    try parseVendor(&result, diags, os_text);
+
+                    // Next should be the os so check again.
+                    if (it.next()) |ven_os_text| {
+                        try parseOs(&result, diags, ven_os_text);
+                    } else if (!arch_is_native) {
+                        return error.MissingOperatingSystem;
+                    }
+                },
+                else => return err,
+            };
         } else if (!arch_is_native) {
             return error.MissingOperatingSystem;
         }
@@ -694,6 +718,14 @@ pub const CrossTarget = struct {
         set.removeFeatureSet(self.cpu_features_sub);
     }
 
+    /// This is a dumb parser to essentially validate that the vendor provided is one Clang will accept.
+    fn parseVendor(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const u8) !void {
+        result.vendor_tag = std.meta.stringToEnum(Target.Vendor, text) orelse
+            return error.UnknownVendor;
+
+        diags.vendor_tag = result.vendor_tag;
+    }
+
     fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const u8) !void {
         var it = mem.split(u8, text, ".");
         const os_name = it.next().?;
@@ -833,6 +865,7 @@ test "CrossTarget.parse" {
         const target = cross_target.toTarget();
 
         try std.testing.expect(target.os.tag == .linux);
+        try std.testing.expect(target.vendor orelse null == null);
         try std.testing.expect(target.abi == .gnu);
         try std.testing.expect(target.cpu.arch == .x86_64);
         try std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .sse));
@@ -858,6 +891,7 @@ test "CrossTarget.parse" {
         const target = cross_target.toTarget();
 
         try std.testing.expect(target.os.tag == .linux);
+        try std.testing.expect(target.vendor orelse null == null);
         try std.testing.expect(target.abi == .musleabihf);
         try std.testing.expect(target.cpu.arch == .arm);
         try std.testing.expect(target.cpu.model == &Target.arm.cpu.generic);
@@ -875,6 +909,7 @@ test "CrossTarget.parse" {
         const target = cross_target.toTarget();
 
         try std.testing.expect(target.cpu.arch == .aarch64);
+        try std.testing.expect(target.vendor orelse null == null);
         try std.testing.expect(target.os.tag == .linux);
         try std.testing.expect(target.os.version_range.linux.range.min.major == 3);
         try std.testing.expect(target.os.version_range.linux.range.min.minor == 10);
@@ -890,5 +925,14 @@ test "CrossTarget.parse" {
         const text = try cross_target.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         try std.testing.expectEqualSlices(u8, "aarch64-linux.3.10...4.4.1-gnu.2.27", text);
+    }
+    {
+        const cross_target = try CrossTarget.parse(.{ .arch_os_abi = "x86_64-suse-linux-gnu", .cpu_features = "generic", .clang_passthrough = true });
+        const target = cross_target.toTarget();
+
+        try std.testing.expect(target.cpu.arch == .x86_64);
+        try std.testing.expect(target.vendor.? == .suse);
+        try std.testing.expect(target.os.tag == .linux);
+        try std.testing.expect(target.abi == .gnu);
     }
 }

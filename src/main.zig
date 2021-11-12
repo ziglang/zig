@@ -1705,10 +1705,16 @@ fn buildOutputType(
         }
     };
 
+    const clang_passthrough_mode = switch (arg_mode) {
+        .cc, .cpp, .translate_c => true,
+        else => false,
+    };
+
     const cross_target = try parseCrossTargetOrReportFatalError(arena, .{
         .arch_os_abi = target_arch_os_abi,
         .cpu_features = target_mcpu,
         .dynamic_linker = target_dynamic_linker,
+        .clang_passthrough = clang_passthrough_mode,
     });
 
     const target_info = try detectNativeTargetInfo(gpa, cross_target);
@@ -2104,11 +2110,6 @@ fn buildOutputType(
         const argv = [_][*:0]const u8{ "zig (LLVM option parsing)", "--x86-asm-syntax=intel" };
         @import("codegen/llvm/bindings.zig").ParseCommandLineOptions(argv.len, &argv);
     }
-
-    const clang_passthrough_mode = switch (arg_mode) {
-        .cc, .cpp, .translate_c => true,
-        else => false,
-    };
 
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 

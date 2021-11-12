@@ -7,6 +7,7 @@ const Version = std.builtin.Version;
 /// was solved.
 pub const Target = struct {
     cpu: Cpu,
+    vendor: ?Vendor = null,
     os: Os,
     abi: Abi,
 
@@ -447,6 +448,24 @@ pub const Target = struct {
     pub const ve = @import("target/ve.zig");
     pub const wasm = @import("target/wasm.zig");
     pub const x86 = @import("target/x86.zig");
+
+    pub const Vendor = enum {
+        unknownvendor, 
+        apple, 
+        pc, 
+        scei,
+        freescale,
+        ibm, 
+        imaginationtechnologies, 
+        mipstechnologies,  
+        nvidia, 
+        csr, 
+        myriad, 
+        amd, 
+        mesa, 
+        suse, 
+        openembedded 
+    };
 
     pub const Abi = enum {
         none,
