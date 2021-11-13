@@ -2041,12 +2041,11 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
                 .@"type" = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
             });
             // ldr x16, [x16, 0]
-            mem.writeIntLittle(u32, atom.code.items[16..][0..4], aarch64.Instruction.ldr(.x16, .{
-                .register = .{
-                    .rn = .x16,
-                    .offset = aarch64.Instruction.LoadStoreOffset.imm(0),
-                },
-            }).toU32());
+            mem.writeIntLittle(u32, atom.code.items[16..][0..4], aarch64.Instruction.ldr(
+                .x16,
+                .x16,
+                aarch64.Instruction.LoadStoreOffset.imm(0),
+            ).toU32());
             atom.relocs.appendAssumeCapacity(.{
                 .offset = 16,
                 .target = .{ .global = self.undefs.items[self.dyld_stub_binder_index.?].n_strx },
@@ -2119,9 +2118,10 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
                 break :blk try math.cast(u18, div_res);
             };
             // ldr w16, literal
-            mem.writeIntLittle(u32, atom.code.items[0..4], aarch64.Instruction.ldr(.w16, .{
-                .literal = literal,
-            }).toU32());
+            mem.writeIntLittle(u32, atom.code.items[0..4], aarch64.Instruction.ldrLiteral(
+                .w16,
+                literal,
+            ).toU32());
             // b disp
             mem.writeIntLittle(u32, atom.code.items[4..8], aarch64.Instruction.b(0).toU32());
             atom.relocs.appendAssumeCapacity(.{
@@ -2222,12 +2222,11 @@ pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*Atom {
                 .@"type" = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_PAGE21),
             });
             // ldr x16, x16, offset
-            mem.writeIntLittle(u32, atom.code.items[4..8], aarch64.Instruction.ldr(.x16, .{
-                .register = .{
-                    .rn = .x16,
-                    .offset = aarch64.Instruction.LoadStoreOffset.imm(0),
-                },
-            }).toU32());
+            mem.writeIntLittle(u32, atom.code.items[4..8], aarch64.Instruction.ldr(
+                .x16,
+                .x16,
+                aarch64.Instruction.LoadStoreOffset.imm(0),
+            ).toU32());
             atom.relocs.appendAssumeCapacity(.{
                 .offset = 4,
                 .target = .{ .local = laptr_sym_index },
