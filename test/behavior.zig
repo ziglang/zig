@@ -5,12 +5,15 @@ test {
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/bitcast.zig");
     _ = @import("behavior/bool.zig");
+    _ = @import("behavior/bugs/624.zig");
     _ = @import("behavior/bugs/655.zig");
     _ = @import("behavior/bugs/679.zig");
     _ = @import("behavior/bugs/704.zig");
     _ = @import("behavior/bugs/1486.zig");
     _ = @import("behavior/bugs/2346.zig");
+    _ = @import("behavior/bugs/2692.zig");
     _ = @import("behavior/bugs/2889.zig");
+    _ = @import("behavior/bugs/3586.zig");
     _ = @import("behavior/bugs/4560.zig");
     _ = @import("behavior/bugs/4769_a.zig");
     _ = @import("behavior/bugs/4769_b.zig");
@@ -30,6 +33,9 @@ test {
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/usingnamespace.zig");
     _ = @import("behavior/while.zig");
+    _ = @import("behavior/this.zig");
+    _ = @import("behavior/member_func.zig");
+    _ = @import("behavior/translate_c_macros.zig");
 
     if (builtin.object_format != .c) {
         // Tests that pass for stage1 and stage2 but not the C backend.
@@ -38,14 +44,11 @@ test {
         _ = @import("behavior/atomics.zig");
         _ = @import("behavior/basic_llvm.zig");
         _ = @import("behavior/bugs/394.zig");
-        _ = @import("behavior/bugs/624.zig");
         _ = @import("behavior/bugs/1277.zig");
         _ = @import("behavior/bugs/1500.zig");
         _ = @import("behavior/bugs/1741.zig");
         _ = @import("behavior/bugs/2006.zig");
-        _ = @import("behavior/bugs/2692.zig");
         _ = @import("behavior/bugs/3112.zig");
-        _ = @import("behavior/bugs/3586.zig");
         _ = @import("behavior/cast.zig");
         _ = @import("behavior/error.zig");
         _ = @import("behavior/eval.zig");
@@ -55,7 +58,6 @@ test {
         _ = @import("behavior/generics.zig");
         _ = @import("behavior/math.zig");
         _ = @import("behavior/maximum_minimum.zig");
-        _ = @import("behavior/member_func.zig");
         _ = @import("behavior/null_llvm.zig");
         _ = @import("behavior/optional.zig");
         _ = @import("behavior/pointers.zig");
@@ -65,8 +67,6 @@ test {
         _ = @import("behavior/slice.zig");
         _ = @import("behavior/struct_llvm.zig");
         _ = @import("behavior/switch.zig");
-        _ = @import("behavior/this.zig");
-        _ = @import("behavior/translate_c_macros.zig");
         _ = @import("behavior/union.zig");
         _ = @import("behavior/widening.zig");
 
