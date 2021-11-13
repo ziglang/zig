@@ -349,6 +349,13 @@ pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
 fn gen(self: *Self) InnerError!void {
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
+        // push the callee_preserved_regs that were used
+        const backpatch_push_callee_preserved_regs_i = try self.addInst(.{
+            .tag = .push_regs_from_callee_preserved_regs,
+            .ops = undefined,
+            .data = .{ .regs_to_push_or_pop = undefined }, // to be backpatched
+        });
+
         _ = try self.addInst(.{
             .tag = .push,
             .ops = (Mir.Ops{
@@ -422,6 +429,22 @@ fn gen(self: *Self) InnerError!void {
                 .reg1 = .rbp,
             }).encode(),
             .data = undefined,
+        });
+        // calculate the data for callee_preserved_regs to be pushed and popped
+        var callee_preserved_regs_push_data: u32 = 0x0;
+        inline for (callee_preserved_regs) |reg, i| {
+            if (self.register_manager.isRegAllocated(reg)) {
+                callee_preserved_regs_push_data |= 1 << @intCast(u5, i);
+            }
+        }
+        const data = self.mir_instructions.items(.data);
+        // backpatch the push instruction
+        data[backpatch_push_callee_preserved_regs_i].regs_to_push_or_pop = callee_preserved_regs_push_data;
+        // pop the callee_preserved_regs
+        _ = try self.addInst(.{
+            .tag = .pop_regs_from_callee_preserved_regs,
+            .ops = undefined,
+            .data = .{ .regs_to_push_or_pop = callee_preserved_regs_push_data },
         });
         _ = try self.addInst(.{
             .tag = .ret,
