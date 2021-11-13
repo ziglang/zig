@@ -1470,11 +1470,50 @@ fn airBoolToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
+fn airStoreUndefined(f: *Function, dest_ptr: CValue) !CValue {
+    const is_debug_build = f.object.dg.module.optimizeMode() == .Debug;
+    if (!is_debug_build)
+        return CValue.none;
+
+    const writer = f.object.writer();
+    switch (dest_ptr) {
+        .local_ref => |i| {
+            const dest: CValue = .{ .local = i };
+            try writer.writeAll("memset(&");
+            try f.writeCValue(writer, dest);
+            try writer.writeAll(", 0xaa, sizeof(");
+            try f.writeCValue(writer, dest);
+            try writer.writeAll("));\n");
+        },
+        .decl_ref => |decl| {
+            const dest: CValue = .{ .decl = decl };
+            try writer.writeAll("memset(&");
+            try f.writeCValue(writer, dest);
+            try writer.writeAll(", 0xaa, sizeof(");
+            try f.writeCValue(writer, dest);
+            try writer.writeAll("));\n");
+        },
+        else => {
+            try writer.writeAll("memset(");
+            try f.writeCValue(writer, dest_ptr);
+            try writer.writeAll(", 0xaa, sizeof(*");
+            try f.writeCValue(writer, dest_ptr);
+            try writer.writeAll("));\n");
+        },
+    }
+    return CValue.none;
+}
+
 fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
     // *a = b;
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
     const dest_ptr = try f.resolveInst(bin_op.lhs);
     const src_val = try f.resolveInst(bin_op.rhs);
+
+    const src_val_is_undefined =
+        if (f.air.value(bin_op.rhs)) |v| v.isUndef() else false;
+    if (src_val_is_undefined)
+        return try airStoreUndefined(f, dest_ptr);
 
     const writer = f.object.writer();
     switch (dest_ptr) {
