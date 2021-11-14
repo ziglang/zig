@@ -362,7 +362,7 @@ fn flushDecl(self: *C, f: *Flush, decl: *const Module.Decl) FlushDeclError!void 
     const decl_block = self.decl_table.getPtr(decl).?;
     const gpa = self.base.allocator;
 
-    if (decl_block.fwd_decl.items.len != 0) {
+    if (decl_block.typedefs.count() != 0) {
         try f.typedefs.ensureUnusedCapacity(gpa, @intCast(u32, decl_block.typedefs.count()));
         var it = decl_block.typedefs.iterator();
         while (it.next()) |new| {
@@ -371,6 +371,9 @@ fn flushDecl(self: *C, f: *Flush, decl: *const Module.Decl) FlushDeclError!void 
                 try f.err_typedef_buf.appendSlice(gpa, new.value_ptr.rendered);
             }
         }
+    }
+
+    if (decl_block.fwd_decl.items.len != 0) {
         const buf = decl_block.fwd_decl.items;
         try f.all_buffers.append(gpa, .{
             .iov_base = buf.ptr,
@@ -397,10 +400,9 @@ pub fn flushEmitH(module: *Module) !void {
     const emit_h = module.emit_h orelse return;
 
     // We collect a list of buffers to write, and write them all at once with pwritev 😎
-    var all_buffers = std.ArrayList(std.os.iovec_const).init(module.gpa);
+    const num_buffers = emit_h.decl_table.count() + 1;
+    var all_buffers = try std.ArrayList(std.os.iovec_const).initCapacity(module.gpa, num_buffers);
     defer all_buffers.deinit();
-
-    try all_buffers.ensureTotalCapacity(emit_h.decl_table.count() + 1);
 
     var file_size: u64 = zig_h.len;
     all_buffers.appendAssumeCapacity(.{

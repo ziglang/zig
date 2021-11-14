@@ -145,8 +145,8 @@ pub const AtomicCondition = struct {
         var waiter = QueueList.Node{ .data = .{} };
 
         {
-            const held = cond.queue_mutex.acquire();
-            defer held.release();
+            cond.queue_mutex.lock();
+            defer cond.queue_mutex.unlock();
 
             cond.queue_list.prepend(&waiter);
             @atomicStore(bool, &cond.pending, true, .SeqCst);
@@ -162,8 +162,8 @@ pub const AtomicCondition = struct {
             return;
 
         const maybe_waiter = blk: {
-            const held = cond.queue_mutex.acquire();
-            defer held.release();
+            cond.queue_mutex.lock();
+            defer cond.queue_mutex.unlock();
 
             const maybe_waiter = cond.queue_list.popFirst();
             @atomicStore(bool, &cond.pending, cond.queue_list.first != null, .SeqCst);
@@ -181,8 +181,8 @@ pub const AtomicCondition = struct {
         @atomicStore(bool, &cond.pending, false, .SeqCst);
 
         var waiters = blk: {
-            const held = cond.queue_mutex.acquire();
-            defer held.release();
+            cond.queue_mutex.lock();
+            defer cond.queue_mutex.unlock();
 
             const waiters = cond.queue_list;
             cond.queue_list = .{};

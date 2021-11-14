@@ -348,12 +348,11 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
         const debug_info_sect = &dwarf_segment.sections.items[self.debug_info_section_index.?];
 
-        var di_buf = std.ArrayList(u8).init(allocator);
-        defer di_buf.deinit();
-
         // We have a function to compute the upper bound size, because it's needed
         // for determining where to put the offset of the first `LinkBlock`.
-        try di_buf.ensureTotalCapacity(self.dbgInfoNeededHeaderBytes());
+        const needed_bytes = self.dbgInfoNeededHeaderBytes();
+        var di_buf = try std.ArrayList(u8).initCapacity(allocator, needed_bytes);
+        defer di_buf.deinit();
 
         // initial length - length of the .debug_info contribution for this compilation unit,
         // not including the initial length itself.
@@ -403,12 +402,10 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
         const debug_aranges_sect = &dwarf_segment.sections.items[self.debug_aranges_section_index.?];
 
-        var di_buf = std.ArrayList(u8).init(allocator);
-        defer di_buf.deinit();
-
         // Enough for all the data without resizing. When support for more compilation units
         // is added, the size of this section will become more variable.
-        try di_buf.ensureTotalCapacity(100);
+        var di_buf = try std.ArrayList(u8).initCapacity(allocator, 100);
+        defer di_buf.deinit();
 
         // initial length - length of the .debug_aranges contribution for this compilation unit,
         // not including the initial length itself.
@@ -473,13 +470,12 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
         const debug_line_sect = &dwarf_segment.sections.items[self.debug_line_section_index.?];
 
-        var di_buf = std.ArrayList(u8).init(allocator);
-        defer di_buf.deinit();
-
         // The size of this header is variable, depending on the number of directories,
         // files, and padding. We have a function to compute the upper bound size, however,
         // because it's needed for determining where to put the offset of the first `SrcFn`.
-        try di_buf.ensureTotalCapacity(self.dbgLineNeededHeaderBytes(module));
+        const needed_bytes = self.dbgLineNeededHeaderBytes(module);
+        var di_buf = try std.ArrayList(u8).initCapacity(allocator, needed_bytes);
+        defer di_buf.deinit();
 
         // initial length - length of the .debug_line contribution for this compilation unit,
         // not including the initial length itself.

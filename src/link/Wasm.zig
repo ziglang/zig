@@ -681,6 +681,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         try man.addOptionalFile(compiler_rt_path);
         man.hash.addOptional(self.base.options.stack_size_override);
         man.hash.addListOfBytes(self.base.options.extra_lld_args);
+        man.hash.add(self.base.options.import_memory);
+        man.hash.addOptional(self.base.options.initial_memory);
+        man.hash.addOptional(self.base.options.max_memory);
+        man.hash.addOptional(self.base.options.global_base);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -754,6 +758,25 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             }
         }
 
+        if (self.base.options.import_memory) {
+            try argv.append("--import-memory");
+        }
+
+        if (self.base.options.initial_memory) |initial_memory| {
+            const arg = try std.fmt.allocPrint(arena, "--initial-memory={d}", .{initial_memory});
+            try argv.append(arg);
+        }
+
+        if (self.base.options.max_memory) |max_memory| {
+            const arg = try std.fmt.allocPrint(arena, "--max-memory={d}", .{max_memory});
+            try argv.append(arg);
+        }
+
+        if (self.base.options.global_base) |global_base| {
+            const arg = try std.fmt.allocPrint(arena, "--global-base={d}", .{global_base});
+            try argv.append(arg);
+        }
+
         if (self.base.options.output_mode == .Exe) {
             // Increase the default stack size to a more reasonable value of 1MB instead of
             // the default of 1 Wasm page being 64KB, unless overridden by the user.
@@ -773,6 +796,11 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 try argv.append("--export-dynamic");
             }
         } else {
+            if (self.base.options.stack_size_override) |stack_size| {
+                try argv.append("-z");
+                const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
+                try argv.append(arg);
+            }
             try argv.append("--no-entry"); // So lld doesn't look for _start.
             try argv.append("--export-all");
         }

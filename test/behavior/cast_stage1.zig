@@ -191,29 +191,6 @@ fn testPeerErrorAndArray2(x: u8) anyerror![]const u8 {
     };
 }
 
-test "@floatToInt" {
-    try testFloatToInts();
-    comptime try testFloatToInts();
-}
-
-fn testFloatToInts() !void {
-    const x = @as(i32, 1e4);
-    try expect(x == 10000);
-    const y = @floatToInt(i32, @as(f32, 1e4));
-    try expect(y == 10000);
-    try expectFloatToInt(f16, 255.1, u8, 255);
-    try expectFloatToInt(f16, 127.2, i8, 127);
-    try expectFloatToInt(f16, -128.2, i8, -128);
-    try expectFloatToInt(f32, 255.1, u8, 255);
-    try expectFloatToInt(f32, 127.2, i8, 127);
-    try expectFloatToInt(f32, -128.2, i8, -128);
-    try expectFloatToInt(comptime_int, 1234, i16, 1234);
-}
-
-fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) !void {
-    try expect(@floatToInt(I, f) == i);
-}
-
 test "cast u128 to f128 and back" {
     comptime try testCast128();
     try testCast128();
@@ -261,6 +238,32 @@ test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
     try expect(mem.eql(u8, std.mem.spanZ(@ptrCast([*:0]const u8, x[0].?)), "window name"));
+}
+
+test "cast f16 to wider types" {
+    const S = struct {
+        fn doTheTest() !void {
+            var x: f16 = 1234.0;
+            try std.testing.expectEqual(@as(f32, 1234.0), x);
+            try std.testing.expectEqual(@as(f64, 1234.0), x);
+            try std.testing.expectEqual(@as(f128, 1234.0), x);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "cast f128 to narrower types" {
+    const S = struct {
+        fn doTheTest() !void {
+            var x: f128 = 1234.0;
+            try std.testing.expectEqual(@as(f16, 1234.0), @floatCast(f16, x));
+            try std.testing.expectEqual(@as(f32, 1234.0), @floatCast(f32, x));
+            try std.testing.expectEqual(@as(f64, 1234.0), @floatCast(f64, x));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "vector casts" {
@@ -638,6 +641,13 @@ test "comptime float casts" {
     const b = @floatToInt(comptime_int, 2);
     try expect(b == 2);
     try expect(@TypeOf(b) == comptime_int);
+
+    try expectFloatToInt(comptime_int, 1234, i16, 1234);
+    try expectFloatToInt(comptime_float, 12.3, comptime_int, 12);
+}
+
+fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) !void {
+    try expect(@floatToInt(I, f) == i);
 }
 
 test "cast from ?[*]T to ??[*]T" {

@@ -33,6 +33,7 @@ pub const netbsd = std.c;
 pub const openbsd = std.c;
 pub const solaris = std.c;
 pub const linux = @import("os/linux.zig");
+pub const plan9 = @import("os/plan9.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
 pub const windows = @import("os/windows.zig");
@@ -5823,7 +5824,8 @@ pub fn ppoll(fds: []pollfd, timeout: ?*const timespec, mask: ?*const sigset_t) P
         ts_ptr = &ts;
         ts = timeout_ns.*;
     }
-    const rc = system.ppoll(fds.ptr, fds.len, ts_ptr, mask);
+    const fds_count = math.cast(nfds_t, fds.len) catch return error.SystemResources;
+    const rc = system.ppoll(fds.ptr, fds_count, ts_ptr, mask);
     switch (errno(rc)) {
         .SUCCESS => return @intCast(usize, rc),
         .FAULT => unreachable,

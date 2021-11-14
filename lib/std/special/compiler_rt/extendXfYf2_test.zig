@@ -3,6 +3,7 @@ const __extendhfsf2 = @import("extendXfYf2.zig").__extendhfsf2;
 const __extendhftf2 = @import("extendXfYf2.zig").__extendhftf2;
 const __extendsftf2 = @import("extendXfYf2.zig").__extendsftf2;
 const __extenddftf2 = @import("extendXfYf2.zig").__extenddftf2;
+const F16T = @import("extendXfYf2.zig").F16T;
 
 fn test__extenddftf2(a: f64, expectedHi: u64, expectedLo: u64) !void {
     const x = __extenddftf2(a);
@@ -27,7 +28,7 @@ fn test__extenddftf2(a: f64, expectedHi: u64, expectedLo: u64) !void {
 }
 
 fn test__extendhfsf2(a: u16, expected: u32) !void {
-    const x = __extendhfsf2(a);
+    const x = __extendhfsf2(@bitCast(F16T, a));
     const rep = @bitCast(u32, x);
 
     if (rep == expected) {
@@ -159,7 +160,7 @@ fn makeInf32() f32 {
 }
 
 fn test__extendhftf2(a: u16, expectedHi: u64, expectedLo: u64) !void {
-    const x = __extendhftf2(a);
+    const x = __extendhftf2(@bitCast(F16T, a));
 
     const rep = @bitCast(u128, x);
     const hi = @intCast(u64, rep >> 64);

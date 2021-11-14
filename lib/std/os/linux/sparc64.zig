@@ -719,7 +719,7 @@ pub const Stat = extern struct {
 
 pub const timeval = extern struct {
     tv_sec: isize,
-    tv_usec: isize,
+    tv_usec: i32,
 };
 
 pub const timezone = extern struct {

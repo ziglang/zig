@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const DW = std.dwarf;
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -58,10 +59,19 @@ pub const Register = enum(u6) {
 
 // zig fmt: on
 
-pub const callee_preserved_regs = [_]Register{
-    .x19, .x20, .x21, .x22, .x23,
-    .x24, .x25, .x26, .x27, .x28,
+const callee_preserved_regs_impl = if (builtin.os.tag.isDarwin()) struct {
+    pub const callee_preserved_regs = [_]Register{
+        .x20, .x21, .x22, .x23,
+        .x24, .x25, .x26, .x27,
+        .x28,
+    };
+} else struct {
+    pub const callee_preserved_regs = [_]Register{
+        .x19, .x20, .x21, .x22, .x23,
+        .x24, .x25, .x26, .x27, .x28,
+    };
 };
+pub const callee_preserved_regs = callee_preserved_regs_impl.callee_preserved_regs;
 
 pub const c_abi_int_param_regs = [_]Register{ .x0, .x1, .x2, .x3, .x4, .x5, .x6, .x7 };
 pub const c_abi_int_return_regs = [_]Register{ .x0, .x1, .x2, .x3, .x4, .x5, .x6, .x7 };
@@ -285,6 +295,18 @@ pub const Instruction = union(enum) {
         op: u1,
         sf: u1,
     },
+    add_subtract_shifted_register: packed struct {
+        rd: u5,
+        rn: u5,
+        imm6: u6,
+        rm: u5,
+        fixed_1: u1 = 0b0,
+        shift: u2,
+        fixed_2: u5 = 0b01011,
+        s: u1,
+        op: u1,
+        sf: u1,
+    },
     conditional_branch: struct {
         cond: u4,
         o0: u1,
@@ -297,6 +319,17 @@ pub const Instruction = union(enum) {
         imm19: u19,
         op: u1,
         fixed: u6 = 0b011010,
+        sf: u1,
+    },
+    conditional_select: struct {
+        rd: u5,
+        rn: u5,
+        op2: u2,
+        cond: u4,
+        rm: u5,
+        fixed: u8 = 0b11010100,
+        s: u1,
+        op: u1,
         sf: u1,
     },
 
@@ -366,6 +399,57 @@ pub const Instruction = union(enum) {
         /// Integer: Always
         /// Floating point: Always
         nv,
+
+        /// Converts a std.math.CompareOperator into a condition flag,
+        /// i.e. returns the condition that is true iff the result of the
+        /// comparison is true. Assumes signed comparison
+        pub fn fromCompareOperatorSigned(op: std.math.CompareOperator) Condition {
+            return switch (op) {
+                .gte => .ge,
+                .gt => .gt,
+                .neq => .ne,
+                .lt => .lt,
+                .lte => .le,
+                .eq => .eq,
+            };
+        }
+
+        /// Converts a std.math.CompareOperator into a condition flag,
+        /// i.e. returns the condition that is true iff the result of the
+        /// comparison is true. Assumes unsigned comparison
+        pub fn fromCompareOperatorUnsigned(op: std.math.CompareOperator) Condition {
+            return switch (op) {
+                .gte => .cs,
+                .gt => .hi,
+                .neq => .ne,
+                .lt => .cc,
+                .lte => .ls,
+                .eq => .eq,
+            };
+        }
+
+        /// Returns the condition which is true iff the given condition is
+        /// false (if such a condition exists)
+        pub fn negate(cond: Condition) Condition {
+            return switch (cond) {
+                .eq => .ne,
+                .ne => .eq,
+                .cs => .cc,
+                .cc => .cs,
+                .mi => .pl,
+                .pl => .mi,
+                .vs => .vc,
+                .vc => .vs,
+                .hi => .ls,
+                .ls => .hi,
+                .ge => .lt,
+                .lt => .ge,
+                .gt => .le,
+                .le => .gt,
+                .al => unreachable,
+                .nv => unreachable,
+            };
+        }
     };
 
     pub fn toU32(self: Instruction) u32 {
@@ -381,9 +465,11 @@ pub const Instruction = union(enum) {
             .no_operation => |v| @bitCast(u32, v),
             .logical_shifted_register => |v| @bitCast(u32, v),
             .add_subtract_immediate => |v| @bitCast(u32, v),
+            .add_subtract_shifted_register => |v| @bitCast(u32, v),
             // TODO once packed structs work, this can be refactored
             .conditional_branch => |v| @as(u32, v.cond) | (@as(u32, v.o0) << 4) | (@as(u32, v.imm19) << 5) | (@as(u32, v.o1) << 24) | (@as(u32, v.fixed) << 25),
             .compare_and_branch => |v| @as(u32, v.rt) | (@as(u32, v.imm19) << 5) | (@as(u32, v.op) << 24) | (@as(u32, v.fixed) << 25) | (@as(u32, v.sf) << 31),
+            .conditional_select => |v| @as(u32, v.rd) | @as(u32, v.rn) << 5 | @as(u32, v.op2) << 10 | @as(u32, v.cond) << 12 | @as(u32, v.rm) << 16 | @as(u32, v.fixed) << 21 | @as(u32, v.s) << 29 | @as(u32, v.op) << 30 | @as(u32, v.sf) << 31,
         };
     }
 
@@ -656,27 +742,17 @@ pub const Instruction = union(enum) {
     }
 
     fn loadLiteral(rt: Register, imm19: u19) Instruction {
-        switch (rt.size()) {
-            32 => {
-                return Instruction{
-                    .load_literal = .{
-                        .rt = rt.id(),
-                        .imm19 = imm19,
-                        .opc = 0b00,
-                    },
-                };
+        return Instruction{
+            .load_literal = .{
+                .rt = rt.id(),
+                .imm19 = imm19,
+                .opc = switch (rt.size()) {
+                    32 => 0b00,
+                    64 => 0b01,
+                    else => unreachable, // unexpected register size
+                },
             },
-            64 => {
-                return Instruction{
-                    .load_literal = .{
-                        .rt = rt.id(),
-                        .imm19 = imm19,
-                        .opc = 0b01,
-                    },
-                };
-            },
-            else => unreachable, // unexpected register size
-        }
+        };
     }
 
     fn exceptionGeneration(
@@ -794,6 +870,35 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub const AddSubtractShiftedRegisterShift = enum(u2) { lsl, lsr, asr, _ };
+
+    fn addSubtractShiftedRegister(
+        op: u1,
+        s: u1,
+        shift: AddSubtractShiftedRegisterShift,
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        imm6: u6,
+    ) Instruction {
+        return Instruction{
+            .add_subtract_shifted_register = .{
+                .rd = rd.id(),
+                .rn = rn.id(),
+                .imm6 = imm6,
+                .rm = rm.id(),
+                .shift = @enumToInt(shift),
+                .s = s,
+                .op = op,
+                .sf = switch (rd.size()) {
+                    32 => 0b0,
+                    64 => 0b1,
+                    else => unreachable, // unexpected register size
+                },
+            },
+        };
+    }
+
     fn conditionalBranch(
         o0: u1,
         o1: u1,
@@ -831,6 +936,33 @@ pub const Instruction = union(enum) {
         };
     }
 
+    fn conditionalSelect(
+        op2: u2,
+        op: u1,
+        s: u1,
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        cond: Condition,
+    ) Instruction {
+        return Instruction{
+            .conditional_select = .{
+                .rd = rd.id(),
+                .rn = rn.id(),
+                .op2 = op2,
+                .cond = @enumToInt(cond),
+                .rm = rm.id(),
+                .s = s,
+                .op = op,
+                .sf = switch (rd.size()) {
+                    32 => 0b0,
+                    64 => 0b1,
+                    else => unreachable, // unexpected register size
+                },
+            },
+        };
+    }
+
     // Helper functions for assembly syntax functions
 
     // Move wide (immediate)
@@ -859,43 +991,32 @@ pub const Instruction = union(enum) {
 
     // Load or store register
 
-    pub const LdrArgs = union(enum) {
-        register: struct {
-            rn: Register,
-            offset: LoadStoreOffset = LoadStoreOffset.none,
-        },
-        literal: u19,
-    };
-
-    pub fn ldr(rt: Register, args: LdrArgs) Instruction {
-        switch (args) {
-            .register => |info| return loadStoreRegister(rt, info.rn, info.offset, .ldr),
-            .literal => |literal| return loadLiteral(rt, literal),
-        }
+    pub fn ldrLiteral(rt: Register, literal: u19) Instruction {
+        return loadLiteral(rt, literal);
     }
 
-    pub fn ldrh(rt: Register, rn: Register, args: StrArgs) Instruction {
-        return loadStoreRegister(rt, rn, args.offset, .ldrh);
+    pub fn ldr(rt: Register, rn: Register, offset: LoadStoreOffset) Instruction {
+        return loadStoreRegister(rt, rn, offset, .ldr);
     }
 
-    pub fn ldrb(rt: Register, rn: Register, args: StrArgs) Instruction {
-        return loadStoreRegister(rt, rn, args.offset, .ldrb);
+    pub fn ldrh(rt: Register, rn: Register, offset: LoadStoreOffset) Instruction {
+        return loadStoreRegister(rt, rn, offset, .ldrh);
     }
 
-    pub const StrArgs = struct {
-        offset: LoadStoreOffset = LoadStoreOffset.none,
-    };
-
-    pub fn str(rt: Register, rn: Register, args: StrArgs) Instruction {
-        return loadStoreRegister(rt, rn, args.offset, .str);
+    pub fn ldrb(rt: Register, rn: Register, offset: LoadStoreOffset) Instruction {
+        return loadStoreRegister(rt, rn, offset, .ldrb);
     }
 
-    pub fn strh(rt: Register, rn: Register, args: StrArgs) Instruction {
-        return loadStoreRegister(rt, rn, args.offset, .strh);
+    pub fn str(rt: Register, rn: Register, offset: LoadStoreOffset) Instruction {
+        return loadStoreRegister(rt, rn, offset, .str);
     }
 
-    pub fn strb(rt: Register, rn: Register, args: StrArgs) Instruction {
-        return loadStoreRegister(rt, rn, args.offset, .strb);
+    pub fn strh(rt: Register, rn: Register, offset: LoadStoreOffset) Instruction {
+        return loadStoreRegister(rt, rn, offset, .strh);
+    }
+
+    pub fn strb(rt: Register, rn: Register, offset: LoadStoreOffset) Instruction {
+        return loadStoreRegister(rt, rn, offset, .strb);
     }
 
     // Load or store pair of registers
@@ -1045,6 +1166,48 @@ pub const Instruction = union(enum) {
         return addSubtractImmediate(0b1, 0b1, rd, rn, imm, shift);
     }
 
+    // Add/subtract (shifted register)
+
+    pub fn addShiftedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        shift: AddSubtractShiftedRegisterShift,
+        imm6: u6,
+    ) Instruction {
+        return addSubtractShiftedRegister(0b0, 0b0, shift, rd, rn, rm, imm6);
+    }
+
+    pub fn addsShiftedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        shift: AddSubtractShiftedRegisterShift,
+        imm6: u6,
+    ) Instruction {
+        return addSubtractShiftedRegister(0b0, 0b1, shift, rd, rn, rm, imm6);
+    }
+
+    pub fn subShiftedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        shift: AddSubtractShiftedRegisterShift,
+        imm6: u6,
+    ) Instruction {
+        return addSubtractShiftedRegister(0b1, 0b0, shift, rd, rn, rm, imm6);
+    }
+
+    pub fn subsShiftedRegister(
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        shift: AddSubtractShiftedRegisterShift,
+        imm6: u6,
+    ) Instruction {
+        return addSubtractShiftedRegister(0b1, 0b1, shift, rd, rn, rm, imm6);
+    }
+
     // Conditional branch
 
     pub fn bCond(cond: Condition, offset: i21) Instruction {
@@ -1059,6 +1222,24 @@ pub const Instruction = union(enum) {
 
     pub fn cbnz(rt: Register, offset: i21) Instruction {
         return compareAndBranch(0b1, rt, offset);
+    }
+
+    // Conditional select
+
+    pub fn csel(rd: Register, rn: Register, rm: Register, cond: Condition) Instruction {
+        return conditionalSelect(0b00, 0b0, 0b0, rd, rn, rm, cond);
+    }
+
+    pub fn csinc(rd: Register, rn: Register, rm: Register, cond: Condition) Instruction {
+        return conditionalSelect(0b01, 0b0, 0b0, rd, rn, rm, cond);
+    }
+
+    pub fn csinv(rd: Register, rn: Register, rm: Register, cond: Condition) Instruction {
+        return conditionalSelect(0b00, 0b1, 0b0, rd, rn, rm, cond);
+    }
+
+    pub fn csneg(rd: Register, rn: Register, rm: Register, cond: Condition) Instruction {
+        return conditionalSelect(0b01, 0b1, 0b0, rd, rn, rm, cond);
     }
 };
 
@@ -1122,47 +1303,47 @@ test "serialize instructions" {
             .expected = 0b1_00101_00_0000_0000_0000_0000_0000_0100,
         },
         .{ // ldr x2, [x1]
-            .inst = Instruction.ldr(.x2, .{ .register = .{ .rn = .x1 } }),
+            .inst = Instruction.ldr(.x2, .x1, Instruction.LoadStoreOffset.none),
             .expected = 0b11_111_0_01_01_000000000000_00001_00010,
         },
         .{ // ldr x2, [x1, #1]!
-            .inst = Instruction.ldr(.x2, .{ .register = .{ .rn = .x1, .offset = Instruction.LoadStoreOffset.imm_pre_index(1) } }),
+            .inst = Instruction.ldr(.x2, .x1, Instruction.LoadStoreOffset.imm_pre_index(1)),
             .expected = 0b11_111_0_00_01_0_000000001_11_00001_00010,
         },
         .{ // ldr x2, [x1], #-1
-            .inst = Instruction.ldr(.x2, .{ .register = .{ .rn = .x1, .offset = Instruction.LoadStoreOffset.imm_post_index(-1) } }),
+            .inst = Instruction.ldr(.x2, .x1, Instruction.LoadStoreOffset.imm_post_index(-1)),
             .expected = 0b11_111_0_00_01_0_111111111_01_00001_00010,
         },
         .{ // ldr x2, [x1], (x3)
-            .inst = Instruction.ldr(.x2, .{ .register = .{ .rn = .x1, .offset = Instruction.LoadStoreOffset.reg(.x3) } }),
+            .inst = Instruction.ldr(.x2, .x1, Instruction.LoadStoreOffset.reg(.x3)),
             .expected = 0b11_111_0_00_01_1_00011_011_0_10_00001_00010,
         },
         .{ // ldr x2, label
-            .inst = Instruction.ldr(.x2, .{ .literal = 0x1 }),
+            .inst = Instruction.ldrLiteral(.x2, 0x1),
             .expected = 0b01_011_0_00_0000000000000000001_00010,
         },
         .{ // ldrh x7, [x4], #0xaa
-            .inst = Instruction.ldrh(.x7, .x4, .{ .offset = Instruction.LoadStoreOffset.imm_post_index(0xaa) }),
+            .inst = Instruction.ldrh(.x7, .x4, Instruction.LoadStoreOffset.imm_post_index(0xaa)),
             .expected = 0b01_111_0_00_01_0_010101010_01_00100_00111,
         },
         .{ // ldrb x9, [x15, #0xff]!
-            .inst = Instruction.ldrb(.x9, .x15, .{ .offset = Instruction.LoadStoreOffset.imm_pre_index(0xff) }),
+            .inst = Instruction.ldrb(.x9, .x15, Instruction.LoadStoreOffset.imm_pre_index(0xff)),
             .expected = 0b00_111_0_00_01_0_011111111_11_01111_01001,
         },
         .{ // str x2, [x1]
-            .inst = Instruction.str(.x2, .x1, .{}),
+            .inst = Instruction.str(.x2, .x1, Instruction.LoadStoreOffset.none),
             .expected = 0b11_111_0_01_00_000000000000_00001_00010,
         },
         .{ // str x2, [x1], (x3)
-            .inst = Instruction.str(.x2, .x1, .{ .offset = Instruction.LoadStoreOffset.reg(.x3) }),
+            .inst = Instruction.str(.x2, .x1, Instruction.LoadStoreOffset.reg(.x3)),
             .expected = 0b11_111_0_00_00_1_00011_011_0_10_00001_00010,
         },
         .{ // strh w0, [x1]
-            .inst = Instruction.strh(.w0, .x1, .{}),
+            .inst = Instruction.strh(.w0, .x1, Instruction.LoadStoreOffset.none),
             .expected = 0b01_111_0_01_00_000000000000_00001_00000,
         },
         .{ // strb w8, [x9]
-            .inst = Instruction.strb(.w8, .x9, .{}),
+            .inst = Instruction.strb(.w8, .x9, Instruction.LoadStoreOffset.none),
             .expected = 0b00_111_0_01_00_000000000000_01001_01000,
         },
         .{ // adr x2, #0x8
@@ -1220,6 +1401,14 @@ test "serialize instructions" {
         .{ // cbz x10, #40
             .inst = Instruction.cbz(.x10, 40),
             .expected = 0b1_011010_0_0000000000000001010_01010,
+        },
+        .{ // add x0, x1, x2, lsl #5
+            .inst = Instruction.addShiftedRegister(.x0, .x1, .x2, .lsl, 5),
+            .expected = 0b1_0_0_01011_00_0_00010_000101_00001_00000,
+        },
+        .{ // csinc x1, x2, x4, eq
+            .inst = Instruction.csinc(.x1, .x2, .x4, .eq),
+            .expected = 0b1_0_0_11010100_00100_0000_0_1_00010_00001,
         },
     };
 

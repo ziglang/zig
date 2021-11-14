@@ -1324,8 +1324,8 @@ pub fn WSASocketW(
                     if (!first) return error.Unexpected;
                     first = false;
 
-                    var held = wsa_startup_mutex.acquire();
-                    defer held.release();
+                    wsa_startup_mutex.lock();
+                    defer wsa_startup_mutex.unlock();
 
                     // Here we could use a flag to prevent multiple threads to prevent
                     // multiple calls to WSAStartup, but it doesn't matter. We're globally
