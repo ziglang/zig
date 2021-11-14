@@ -715,6 +715,10 @@ export fn expf(a: f32) f32 {
     return math.exp(a);
 }
 
+export fn expq(a: f128) f128 {
+    return math.exp(a);
+}
+
 export fn exp2(a: f64) f64 {
     return math.exp2(a);
 }
