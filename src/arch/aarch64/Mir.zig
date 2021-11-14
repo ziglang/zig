@@ -26,6 +26,8 @@ pub const Inst = struct {
     pub const Tag = enum(u16) {
         /// Add (immediate)
         add_immediate,
+        /// Branch conditionally
+        b_cond,
         /// Branch
         b,
         /// Branch with Link
@@ -36,24 +38,36 @@ pub const Inst = struct {
         brk,
         /// Pseudo-instruction: Call extern
         call_extern,
+        /// Compare (immediate)
+        cmp_immediate,
+        /// Compare (shifted register)
+        cmp_shifted_register,
+        /// Conditional set
+        cset,
         /// Pseudo-instruction: End of prologue
         dbg_prologue_end,
         /// Pseudo-instruction: Beginning of epilogue
         dbg_epilogue_begin,
         /// Pseudo-instruction: Update debug line
         dbg_line,
-        /// Psuedo-instruction: Load memory
+        /// Pseudo-instruction: Load memory
         ///
         /// Payload is `LoadMemory`
         load_memory,
         /// Load Pair of Registers
         ldp,
+        /// Pseudo-instruction: Load from stack
+        ldr_stack,
         /// Load Register
         // TODO: split into ldr_immediate and ldr_register
         ldr,
+        /// Pseudo-instruction: Load byte from stack
+        ldrb_stack,
         /// Load Register Byte
         // TODO: split into ldrb_immediate and ldrb_register
         ldrb,
+        /// Pseudo-instruction: Load halfword from stack
+        ldrh_stack,
         /// Load Register Halfword
         // TODO: split into ldrh_immediate and ldrh_register
         ldrh,
@@ -71,12 +85,18 @@ pub const Inst = struct {
         ret,
         /// Store Pair of Registers
         stp,
+        /// Pseudo-instruction: Store to stack
+        str_stack,
         /// Store Register
         // TODO: split into str_immediate and str_register
         str,
+        /// Pseudo-instruction: Store byte to stack
+        strb_stack,
         /// Store Register Byte
         // TODO: split into strb_immediate and strb_register
         strb,
+        /// Pseudo-instruction: Store halfword to stack
+        strh_stack,
         /// Store Register Halfword
         // TODO: split into strh_immediate and strh_register
         strh,
@@ -97,7 +117,7 @@ pub const Inst = struct {
         ///
         /// Used by e.g. nop
         nop: void,
-        /// Another instruction.
+        /// Another instruction
         ///
         /// Used by e.g. b
         inst: Index,
@@ -117,6 +137,13 @@ pub const Inst = struct {
         ///
         /// Used by e.g. blr
         reg: Register,
+        /// Another instruction and a condition
+        ///
+        /// Used by e.g. b_cond
+        inst_cond: struct {
+            inst: Index,
+            cond: bits.Instruction.Condition,
+        },
         /// A register, an unsigned 16-bit immediate, and an optional shift
         ///
         /// Used by e.g. movz
@@ -141,13 +168,39 @@ pub const Inst = struct {
             imm12: u12,
             sh: u1 = 0,
         },
-        /// Three registers and a LoadStoreOffset
+        /// Three registers and a shift (shift type and 6-bit amount)
+        ///
+        /// Used by e.g. cmp_shifted_register
+        rrr_imm6_shift: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+            imm6: u6,
+            shift: bits.Instruction.AddSubtractShiftedRegisterShift,
+        },
+        /// Three registers and a condition
+        ///
+        /// Used by e.g. cset
+        rrr_cond: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+            cond: bits.Instruction.Condition,
+        },
+        /// Two registers and a LoadStoreOffset
         ///
         /// Used by e.g. str_register
         load_store_register: struct {
             rt: Register,
             rn: Register,
             offset: bits.Instruction.LoadStoreOffset,
+        },
+        /// A registers and a stack offset
+        ///
+        /// Used by e.g. str_register
+        load_store_stack: struct {
+            rt: Register,
+            offset: u32,
         },
         /// Three registers and a LoadStorePairOffset
         ///
