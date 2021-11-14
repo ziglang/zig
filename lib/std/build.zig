@@ -2338,7 +2338,7 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.femit_bin) |name| {
-          try zig_args.append(try std.fmt.allocPrint(builder.allocator, "-femit-bin={s}", .{name}));
+            try zig_args.append(try std.fmt.allocPrint(builder.allocator, "-femit-bin={s}", .{name}));
         }
         if (self.test_no_exec) try zig_args.append("--test-no-exec");
 
