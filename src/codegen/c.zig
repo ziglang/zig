@@ -248,10 +248,10 @@ pub const DeclGen = struct {
         if (is_neg) try writer.writeByte('-');
 
         assert(high > 0);
-        try writer.print("(((uint128_t)0x{x}u<<64)", .{ high });
+        try writer.print("(((uint128_t)0x{x}u<<64)", .{high});
 
         if (low > 0)
-            try writer.print("+(uint128_t)0x{x}u", .{ low });
+            try writer.print("+(uint128_t)0x{x}u", .{low});
 
         return writer.writeByte(')');
     }
@@ -306,7 +306,7 @@ pub const DeclGen = struct {
                     if (ty.isSignedInt())
                         return writer.print("{d}", .{val.toSignedInt()});
                     return writer.print("{d}u", .{val.toUnsignedInt()});
-                }
+                },
             },
             .Float => {
                 if (ty.floatBits(dg.module.getTarget()) <= 64) {
