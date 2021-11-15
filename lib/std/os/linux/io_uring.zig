@@ -634,6 +634,22 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to update the user data of an existing poll
+    /// operation. Returns a pointer to the SQE.
+    pub fn poll_update(
+        self: *IO_Uring,
+        user_data: u64,
+        old_user_data: u64,
+        new_user_data: u64,
+        poll_mask: u32,
+        flags: u32,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_poll_update(sqe, old_user_data, new_user_data, poll_mask, flags);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Queues (but does not submit) an SQE to perform an `fallocate(2)`.
     /// Returns a pointer to the SQE.
     pub fn fallocate(
@@ -993,6 +1009,16 @@ pub fn io_uring_prep_write_fixed(sqe: *io_uring_sqe, fd: os.fd_t, buffer: *os.io
     sqe.buf_index = buffer_index;
 }
 
+/// Poll masks previously used to comprise of 16 bits in the flags union of
+/// a SQE, but were then extended to comprise of 32 bits in order to make
+/// room for additional option flags. To ensure that the correct bits of
+/// poll masks are consistently and properly read across multiple kernel
+/// versions, poll masks are enforced to be little-endian.
+/// https://www.spinics.net/lists/io-uring/msg02848.html
+pub inline fn __io_uring_prep_poll_mask(poll_mask: u32) u32 {
+    return std.mem.nativeToLittle(u32, poll_mask);
+}
+
 pub fn io_uring_prep_accept(
     sqe: *io_uring_sqe,
     fd: os.fd_t,
@@ -1099,7 +1125,7 @@ pub fn io_uring_prep_poll_add(
     poll_mask: u32,
 ) void {
     io_uring_prep_rw(.POLL_ADD, sqe, fd, @ptrToInt(@as(?*c_void, null)), 0, 0);
-    sqe.rw_flags = std.mem.nativeToLittle(u32, poll_mask);
+    sqe.rw_flags = __io_uring_prep_poll_mask(poll_mask);
 }
 
 pub fn io_uring_prep_poll_remove(
@@ -1107,6 +1133,17 @@ pub fn io_uring_prep_poll_remove(
     target_user_data: u64,
 ) void {
     io_uring_prep_rw(.POLL_REMOVE, sqe, -1, target_user_data, 0, 0);
+}
+
+pub fn io_uring_prep_poll_update(
+    sqe: *io_uring_sqe,
+    old_user_data: u64,
+    new_user_data: u64,
+    poll_mask: u32,
+    flags: u32,
+) void {
+    io_uring_prep_rw(.POLL_REMOVE, sqe, -1, old_user_data, flags, new_user_data);
+    sqe.rw_flags = __io_uring_prep_poll_mask(poll_mask);
 }
 
 pub fn io_uring_prep_fallocate(
