@@ -19,6 +19,7 @@ const Zir = @import("../Zir.zig");
 const Liveness = @import("../Liveness.zig");
 
 const Mutability = enum { Const, Mut };
+const BigIntConst = std.math.big.int.Const;
 
 pub const CValue = union(enum) {
     none: void,
@@ -226,8 +227,7 @@ pub const DeclGen = struct {
         try dg.renderDeclName(decl, writer);
     }
 
-    /// Assumes that int_val is an int greater than maxInt(u64) and has > 64 and <= 128 bits.
-    fn renderBigInt(
+    fn renderInt128(
         writer: anytype,
         int_val: anytype,
     ) error{ OutOfMemory, AnalysisFail }!void {
@@ -256,6 +256,23 @@ pub const DeclGen = struct {
         return writer.writeByte(')');
     }
 
+    fn renderBigIntConst(
+        dg: *DeclGen,
+        writer: anytype,
+        val: BigIntConst,
+        signed: bool,
+    ) error{ OutOfMemory, AnalysisFail }!void {
+        if (signed) {
+            try renderInt128(writer, val.to(i128) catch {
+                return dg.fail("TODO implement integer constants larger than 128 bits", .{});
+            });
+        } else {
+            try renderInt128(writer, val.to(u128) catch {
+                return dg.fail("TODO implement integer constants larger than 128 bits", .{});
+            });
+        }
+    }
+
     fn renderValue(
         dg: *DeclGen,
         writer: anytype,
@@ -274,7 +291,7 @@ pub const DeclGen = struct {
                         16 => return writer.writeAll("0xaaaau"),
                         32 => return writer.writeAll("0xaaaaaaaau"),
                         64 => return writer.writeAll("0xaaaaaaaaaaaaaaaau"),
-                        128 => return renderBigInt(writer, @as(u128, 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)),
+                        128 => return renderInt128(writer, @as(u128, 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)),
                         else => unreachable,
                     }
                 },
@@ -296,12 +313,8 @@ pub const DeclGen = struct {
         }
         switch (ty.zigTypeTag()) {
             .Int => switch (val.tag()) {
-                .int_big_positive => try renderBigInt(writer, val.castTag(.int_big_positive).?.asBigInt().to(u128) catch {
-                    return dg.fail("TODO implement integer constants larger than 128 bits", .{});
-                }),
-                .int_big_negative => try renderBigInt(writer, val.castTag(.int_big_negative).?.asBigInt().to(i128) catch {
-                    return dg.fail("TODO implement integer constants larger than 128 bits", .{});
-                }),
+                .int_big_positive => try dg.renderBigIntConst(writer, val.castTag(.int_big_positive).?.asBigInt(), ty.isSignedInt()),
+                .int_big_negative => try dg.renderBigIntConst(writer, val.castTag(.int_big_negative).?.asBigInt(), true),
                 else => {
                     if (ty.isSignedInt())
                         return writer.print("{d}", .{val.toSignedInt()});
