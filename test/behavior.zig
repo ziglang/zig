@@ -38,6 +38,7 @@ test {
     _ = @import("behavior/this.zig");
     _ = @import("behavior/member_func.zig");
     _ = @import("behavior/translate_c_macros.zig");
+    _ = @import("behavior/generics.zig");
 
     if (builtin.object_format != .c) {
         // Tests that pass for stage1 and stage2 but not the C backend.
@@ -57,7 +58,6 @@ test {
         _ = @import("behavior/floatop.zig");
         _ = @import("behavior/fn.zig");
         _ = @import("behavior/for.zig");
-        _ = @import("behavior/generics.zig");
         _ = @import("behavior/math.zig");
         _ = @import("behavior/maximum_minimum.zig");
         _ = @import("behavior/null_llvm.zig");
