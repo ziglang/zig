@@ -1431,6 +1431,8 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     if (!is_volatile and f.liveness.isUnused(inst))
         return CValue.none;
     const inst_ty = f.air.typeOfIndex(inst);
+    if (inst_ty.zigTypeTag() == .Array)
+        return f.fail("TODO: C backend: implement airLoad for arrays", .{});
     const operand = try f.resolveInst(ty_op.operand);
     const writer = f.object.writer();
     const local = try f.allocLocal(inst_ty, .Const);
@@ -1557,7 +1559,7 @@ fn airBoolToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airStoreUndefined(f: *Function, dest_ptr: CValue) !CValue {
+fn airStoreUndefined(f: *Function, dest_ptr: CValue, dest_type: Type) !CValue {
     const is_debug_build = f.object.dg.module.optimizeMode() == .Debug;
     if (!is_debug_build)
         return CValue.none;
@@ -1581,9 +1583,11 @@ fn airStoreUndefined(f: *Function, dest_ptr: CValue) !CValue {
             try writer.writeAll("));\n");
         },
         else => {
+            const indirection = if (dest_type.zigTypeTag() == .Array) "" else "*";
+
             try writer.writeAll("memset(");
             try f.writeCValue(writer, dest_ptr);
-            try writer.writeAll(", 0xaa, sizeof(*");
+            try writer.print(", 0xaa, sizeof({s}", .{indirection});
             try f.writeCValue(writer, dest_ptr);
             try writer.writeAll("));\n");
         },
@@ -1596,11 +1600,16 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
     const dest_ptr = try f.resolveInst(bin_op.lhs);
     const src_val = try f.resolveInst(bin_op.rhs);
+    const lhs_type = f.air.typeOf(bin_op.lhs);
 
     const src_val_is_undefined =
         if (f.air.value(bin_op.rhs)) |v| v.isUndef() else false;
     if (src_val_is_undefined)
-        return try airStoreUndefined(f, dest_ptr);
+        return try airStoreUndefined(f, dest_ptr, lhs_type);
+
+    // Don't check this for airStoreUndefined as that will work for arrays already
+    if (lhs_type.zigTypeTag() == .Array)
+        return f.fail("TODO: C backend: implement airStore for arrays", .{});
 
     const writer = f.object.writer();
     switch (dest_ptr) {
@@ -2420,15 +2429,17 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
     const writer = f.object.writer();
     const struct_obj = struct_ptr_ty.elemType().castTag(.@"struct").?.data;
     const field_name = struct_obj.fields.keys()[index];
+    const field_val = struct_obj.fields.values()[index];
+    const addrof = if (field_val.ty.zigTypeTag() == .Array) "" else "&";
 
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
     switch (struct_ptr) {
         .local_ref => |i| {
-            try writer.print(" = &t{d}.{};\n", .{ i, fmtIdent(field_name) });
+            try writer.print(" = {s}t{d}.{};\n", .{ addrof, i, fmtIdent(field_name) });
         },
         else => {
-            try writer.writeAll(" = &");
+            try writer.print(" = {s}", .{addrof});
             try f.writeCValue(writer, struct_ptr);
             try writer.print("->{};\n", .{fmtIdent(field_name)});
         },
