@@ -2,30 +2,36 @@ const builtin = @import("builtin");
 
 test {
     // Tests that pass for stage1, stage2, and the C backend.
+    _ = @import("behavior/align.zig");
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/bitcast.zig");
     _ = @import("behavior/bool.zig");
+    _ = @import("behavior/bugs/624.zig");
     _ = @import("behavior/bugs/655.zig");
     _ = @import("behavior/bugs/679.zig");
     _ = @import("behavior/bugs/704.zig");
     _ = @import("behavior/bugs/1486.zig");
     _ = @import("behavior/bugs/2346.zig");
+    _ = @import("behavior/bugs/2692.zig");
     _ = @import("behavior/bugs/2889.zig");
+    _ = @import("behavior/bugs/3586.zig");
     _ = @import("behavior/bugs/4560.zig");
     _ = @import("behavior/bugs/4769_a.zig");
     _ = @import("behavior/bugs/4769_b.zig");
     _ = @import("behavior/bugs/6850.zig");
     _ = @import("behavior/call.zig");
+    _ = @import("behavior/cast_c.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/if.zig");
-    _ = @import("behavior/struct.zig");
-    _ = @import("behavior/truncate.zig");
+    _ = @import("behavior/int128.zig");
     _ = @import("behavior/null.zig");
+    _ = @import("behavior/pointers.zig");
     _ = @import("behavior/ptrcast.zig");
     _ = @import("behavior/pub_enum.zig");
+    _ = @import("behavior/struct.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/usingnamespace.zig");
@@ -33,19 +39,15 @@ test {
 
     if (builtin.object_format != .c) {
         // Tests that pass for stage1 and stage2 but not the C backend.
-        _ = @import("behavior/align.zig");
         _ = @import("behavior/array.zig");
         _ = @import("behavior/atomics.zig");
         _ = @import("behavior/basic_llvm.zig");
         _ = @import("behavior/bugs/394.zig");
-        _ = @import("behavior/bugs/624.zig");
         _ = @import("behavior/bugs/1277.zig");
         _ = @import("behavior/bugs/1500.zig");
         _ = @import("behavior/bugs/1741.zig");
         _ = @import("behavior/bugs/2006.zig");
-        _ = @import("behavior/bugs/2692.zig");
         _ = @import("behavior/bugs/3112.zig");
-        _ = @import("behavior/bugs/3586.zig");
         _ = @import("behavior/cast.zig");
         _ = @import("behavior/error.zig");
         _ = @import("behavior/eval.zig");
@@ -58,7 +60,6 @@ test {
         _ = @import("behavior/member_func.zig");
         _ = @import("behavior/null_llvm.zig");
         _ = @import("behavior/optional.zig");
-        _ = @import("behavior/pointers.zig");
         _ = @import("behavior/popcount.zig");
         _ = @import("behavior/saturating_arithmetic.zig");
         _ = @import("behavior/sizeof_and_typeof.zig");

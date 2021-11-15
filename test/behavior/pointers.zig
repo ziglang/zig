@@ -61,12 +61,16 @@ test "initialize const optional C pointer to null" {
 
 test "assigning integer to C pointer" {
     var x: i32 = 0;
+    var y: i32 = 1;
     var ptr: [*c]u8 = 0;
     var ptr2: [*c]u8 = x;
-    if (false) {
-        ptr;
-        ptr2;
-    }
+    var ptr3: [*c]u8 = 1;
+    var ptr4: [*c]u8 = y;
+
+    try expect(ptr == ptr2);
+    try expect(ptr3 == ptr4);
+    try expect(ptr3 > ptr and ptr4 > ptr2 and y > x);
+    try expect(1 > ptr and y > ptr2 and 0 < ptr3 and x < ptr4);
 }
 
 test "C pointer comparison and arithmetic" {
