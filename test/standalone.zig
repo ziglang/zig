@@ -13,18 +13,27 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/main_pkg_path/build.zig", .{});
     cases.addBuildFile("test/standalone/shared_library/build.zig", .{});
     cases.addBuildFile("test/standalone/mix_o_files/build.zig", .{});
-    if (std.Target.current.os.tag == .macos) {
-        // TODO zld cannot link llvm-ir object files for LTO yet.
-        cases.addBuildFile("test/standalone/mix_c_files/build.zig", .{ .build_modes = false, .cross_targets = true });
+    if (builtin.os.tag == .macos) {
+        // Zig's macOS linker does not yet support LTO for LLVM IR files:
+        // https://github.com/ziglang/zig/issues/8680
+        cases.addBuildFile("test/standalone/mix_c_files/build.zig", .{
+            .build_modes = false,
+            .cross_targets = true,
+        });
     } else {
-        cases.addBuildFile("test/standalone/mix_c_files/build.zig", .{ .build_modes = true, .cross_targets = true });
+        cases.addBuildFile("test/standalone/mix_c_files/build.zig", .{
+            .build_modes = true,
+            .cross_targets = true,
+        });
     }
     cases.addBuildFile("test/standalone/global_linkage/build.zig", .{});
     cases.addBuildFile("test/standalone/static_c_lib/build.zig", .{});
     cases.addBuildFile("test/standalone/link_interdependent_static_c_libs/build.zig", .{});
     cases.addBuildFile("test/standalone/link_static_lib_as_system_lib/build.zig", .{});
     cases.addBuildFile("test/standalone/link_common_symbols/build.zig", .{});
-    cases.addBuildFile("test/standalone/link_frameworks/build.zig", .{ .requires_macos_sdk = true });
+    cases.addBuildFile("test/standalone/link_frameworks/build.zig", .{
+        .requires_macos_sdk = true,
+    });
     cases.addBuildFile("test/standalone/issue_339/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_8550/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_794/build.zig", .{});
@@ -39,10 +48,14 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     if (builtin.os.tag != .wasi) {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
     }
-    if (builtin.cpu.arch == .x86_64) { // TODO add C ABI support for other architectures
+    // C ABI compatibility issue: https://github.com/ziglang/zig/issues/1481
+    if (builtin.cpu.arch == .x86_64) {
         cases.addBuildFile("test/stage1/c_abi/build.zig", .{});
     }
-    cases.addBuildFile("test/standalone/c_compiler/build.zig", .{ .build_modes = true, .cross_targets = true });
+    cases.addBuildFile("test/standalone/c_compiler/build.zig", .{
+        .build_modes = true,
+        .cross_targets = true,
+    });
 
     if (builtin.os.tag == .windows) {
         cases.addC("test/standalone/issue_9402/main.zig");
@@ -52,7 +65,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         cases.addBuildFile("test/standalone/pie/build.zig", .{});
     }
     // Try to build and run an Objective-C executable.
-    cases.addBuildFile("test/standalone/objc/build.zig", .{ .build_modes = true, .requires_macos_sdk = true });
+    cases.addBuildFile("test/standalone/objc/build.zig", .{
+        .build_modes = true,
+        .requires_macos_sdk = true,
+    });
 
     // Ensure the development tools are buildable.
     cases.add("tools/gen_spirv_spec.zig");

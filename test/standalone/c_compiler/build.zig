@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const Builder = std.build.Builder;
 const CrossTarget = std.zig.CrossTarget;
 
+// TODO integrate this with the std.build executor API
 fn isRunnableTarget(t: CrossTarget) bool {
     if (t.isNative()) return true;
 
@@ -30,12 +31,9 @@ pub fn build(b: *Builder) void {
     exe_cpp.setTarget(target);
     exe_cpp.linkSystemLibrary("c++");
 
-    // disable broken LTO links:
     switch (target.getOsTag()) {
-        .windows => {
-            exe_cpp.want_lto = false;
-        },
         .macos => {
+            // https://github.com/ziglang/zig/issues/8680
             exe_cpp.want_lto = false;
             exe_c.want_lto = false;
         },
