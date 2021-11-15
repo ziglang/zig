@@ -1123,15 +1123,14 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .unreach    => try airUnreach(f),
             .fence      => try airFence(f, inst),
 
-            .ptr_add => try airPtrAddSub (f, inst, " + "),
-            .ptr_sub => try airPtrAddSub (f, inst, " - "),
-
             // TODO use a different strategy for add that communicates to the optimizer
             // that wrapping is UB.
             .add => try airBinOp (f, inst, " + "),
+            .ptr_add => try airPtrAddSub (f, inst, " + "),
             // TODO use a different strategy for sub that communicates to the optimizer
             // that wrapping is UB.
             .sub => try airBinOp (f, inst, " - "),
+            .ptr_sub => try airPtrAddSub (f, inst, " - "),
             // TODO use a different strategy for mul that communicates to the optimizer
             // that wrapping is UB.
             .mul           => try airBinOp (f, inst, " * "),
