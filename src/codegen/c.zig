@@ -342,12 +342,6 @@ pub const DeclGen = struct {
                 // to the assigned pointer type. Note this is just a hack to fix warnings from ordered comparisons (<, >, etc)
                 // between pointers and 0, which is an extension to begin with.
                 .zero => try writer.writeByte('0'),
-                .one => {
-                    // int constants like 1 will not cast to the pointer however.
-                    try writer.writeAll("((");
-                    try dg.renderType(writer, ty);
-                    return writer.writeAll(")1)");
-                },
                 .decl_ref => {
                     const decl = val.castTag(.decl_ref).?.data;
                     return dg.renderDeclValue(writer, ty, val, decl);
@@ -376,7 +370,7 @@ pub const DeclGen = struct {
                     const decl = val.castTag(.extern_fn).?.data;
                     try dg.renderDeclName(decl, writer);
                 },
-                .int_u64 => {
+                .int_u64, .one => {
                     try writer.writeAll("((");
                     try dg.renderType(writer, ty);
                     try writer.print(")0x{x}u)", .{val.toUnsignedInt()});
