@@ -1583,7 +1583,7 @@ fn airStoreUndefined(f: *Function, dest_ptr: CValue, dest_type: Type) !CValue {
             try writer.writeAll("));\n");
         },
         else => {
-            const indirection = if (dest_type.zigTypeTag() == .Array) "" else "*";
+            const indirection = if (dest_type.childType().zigTypeTag() == .Array) "" else "*";
 
             try writer.writeAll("memset(");
             try f.writeCValue(writer, dest_ptr);
@@ -1608,7 +1608,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
         return try airStoreUndefined(f, dest_ptr, lhs_type);
 
     // Don't check this for airStoreUndefined as that will work for arrays already
-    if (lhs_type.zigTypeTag() == .Array)
+    if (lhs_type.childType().zigTypeTag() == .Array)
         return f.fail("TODO: C backend: implement airStore for arrays", .{});
 
     const writer = f.object.writer();

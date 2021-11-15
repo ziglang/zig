@@ -247,3 +247,14 @@ test "*const ?[*]const T to [*c]const [*c]const T" {
     try expect(b.*[0] == 'o');
     try expect(b[0][1] == 'k');
 }
+
+test "array coersion to undefined at runtime" {
+    @setRuntimeSafety(true);
+
+    var array = [4]u8{ 3, 4, 5, 6 };
+    var undefined_val = [4]u8{ 0xAA, 0xAA, 0xAA, 0xAA };
+
+    try expect(std.mem.eql(u8, &array, &array));
+    array = undefined;
+    try expect(std.mem.eql(u8, &array, &undefined_val));
+}
