@@ -842,7 +842,7 @@ pub const DeclGen = struct {
             .Array => {
                 // We are referencing the array so it will decay to a C pointer.
                 // NB: arrays are not really types in C so they are either specified in the declaration
-                // or are already pointed to; our only job is to render the element's type.
+                // or are already pointed to; our only job is to render the element type.
                 return dg.renderType(w, t.elemType());
             },
             .Optional => {

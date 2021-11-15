@@ -32,9 +32,6 @@ test "int128" {
 
     buff = minInt(i128);
     try expect(buff < 0);
-
-    // This should be uncommented once wrapping arithmetic is implemented for 128 bit ints:
-    // try expect(buff < 0 and (buff -% 1) > 0)
 }
 
 test "truncate int128" {
