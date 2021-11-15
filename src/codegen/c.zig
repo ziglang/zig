@@ -1143,7 +1143,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .mul           => try airBinOp (f, inst, " * "),
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
-            .div_float, .div_exact, .div_trunc => try airBinOp( f, inst, " / "),
+            .div_float, .div_exact, => try airBinOp( f, inst, " / "),
+            .div_trunc => try airDivTrunc(f, inst),
             .div_floor                         => try airBinOp( f, inst, " divfloor "),
             .rem           => try airBinOp( f, inst, " % "),
             .mod           => try airBinOp( f, inst, " mod "), // TODO implement modulus division
@@ -1933,6 +1934,43 @@ fn airPtrAddSub(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CV
     try writer.print(")));\n", .{});
 
     return local;
+}
+
+fn airDivTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    switch (inst_ty.zigTypeTag()) {
+        .Int => {
+            return try airBinOp(f, inst, " / ");
+        },
+        .Float => {
+            const dg = f.object.dg;
+            const float_bits = inst_ty.floatBits(dg.module.getTarget());
+            if (float_bits == 16 or float_bits == 128) {
+                return f.object.dg.fail("TODO: implement divTrunc for f16 and f128", .{});
+            }
+            const trunc_func = switch (float_bits) {
+                32 => "truncf",
+                64 => "trunc",
+                else => unreachable,
+            };
+
+            const writer = f.object.writer();
+            const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+            const lhs = try f.resolveInst(bin_op.lhs);
+            const rhs = try f.resolveInst(bin_op.rhs);
+            const local = try f.allocLocal(inst_ty, .Const);
+            try writer.print(" = {s}(", .{trunc_func});
+            try f.writeCValue(writer, lhs);
+            try writer.writeAll(" / ");
+            try f.writeCValue(writer, rhs);
+            try writer.writeAll(");\n");
+            return local;
+        },
+        else => unreachable,
+    }
 }
 
 fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValue {
