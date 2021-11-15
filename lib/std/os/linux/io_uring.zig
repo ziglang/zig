@@ -607,6 +607,34 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to add a link timeout operation.
+    /// Returns a pointer to the SQE.
+    ///
+    /// You need to set linux.IOSQE_IO_LINK to flags of the target operation
+    /// and then call this method right after the target operation.
+    /// See https://lwn.net/Articles/803932/ for detail.
+    ///
+    /// If the dependent request finishes before the linked timeout, the timeout
+    /// is canceled. If the timeout finishes before the dependent request, the
+    /// dependent request will be canceled.
+    ///
+    /// The completion event result of the link_timeout will be
+    /// `-ETIME` if the timeout finishes before the dependent request
+    /// (in this case, the completion event result of the dependent request will
+    /// be `-ECANCELED`), or
+    /// `-EALREADY` if the dependent request finishes before the linked timeout.
+    pub fn link_timeout(
+        self: *IO_Uring,
+        user_data: u64,
+        ts: *const os.linux.kernel_timespec,
+        flags: u32,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_link_timeout(sqe, ts, flags);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Queues (but does not submit) an SQE to perform a `poll(2)`.
     /// Returns a pointer to the SQE.
     pub fn poll_add(
@@ -1137,6 +1165,15 @@ pub fn io_uring_prep_timeout_remove(sqe: *io_uring_sqe, timeout_user_data: u64, 
         .splice_fd_in = 0,
         .__pad2 = [2]u64{ 0, 0 },
     };
+}
+
+pub fn io_uring_prep_link_timeout(
+    sqe: *io_uring_sqe,
+    ts: *const os.linux.kernel_timespec,
+    flags: u32,
+) void {
+    linux.io_uring_prep_rw(.LINK_TIMEOUT, sqe, -1, @ptrToInt(ts), 1, 0);
+    sqe.rw_flags = flags;
 }
 
 pub fn io_uring_prep_poll_add(
@@ -1770,6 +1807,69 @@ test "timeout_remove" {
         .res = 0,
         .flags = 0,
     }, cqe_timeout_remove);
+}
+
+test "timeout_link_chain1" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(8, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    var fds = try os.pipe();
+    defer {
+        os.close(fds[0]);
+        os.close(fds[1]);
+    }
+
+    var buffer = [_]u8{0} ** 128;
+    const iovecs = [_]os.iovec{os.iovec{ .iov_base = &buffer, .iov_len = buffer.len }};
+    const sqe_readv = try ring.readv(0x11111111, fds[0], &iovecs, 0);
+    sqe_readv.flags |= linux.IOSQE_IO_LINK;
+
+    const ts = os.linux.kernel_timespec{ .tv_sec = 0, .tv_nsec = 1000000 };
+    const seq_link_timeout = try ring.link_timeout(0x22222222, &ts, 0);
+    seq_link_timeout.flags |= linux.IOSQE_IO_LINK;
+
+    _ = try ring.nop(0x33333333);
+
+    const nr_wait = try ring.submit();
+    try testing.expectEqual(@as(u32, 3), nr_wait);
+
+    var i: usize = 0;
+    while (i < nr_wait) : (i += 1) {
+        const cqe = try ring.copy_cqe();
+        switch (cqe.user_data) {
+            // poll cancel really should return -ECANCEL...
+            0x11111111 => {
+                if (cqe.res != -@as(i32, @enumToInt(linux.E.INTR)) and
+                    cqe.res != -@as(i32, @enumToInt(linux.E.CANCELED)))
+                {
+                    std.debug.print("Req 0x{x} got {d}\n", .{ cqe.user_data, cqe.res });
+                    try testing.expect(false);
+                }
+            },
+            0x22222222 => {
+                // FASTPOLL kernels can cancel successfully
+                if (cqe.res != -@as(i32, @enumToInt(linux.E.ALREADY)) and
+                    cqe.res != -@as(i32, @enumToInt(linux.E.TIME)))
+                {
+                    std.debug.print("Req 0x{x} got {d}\n", .{ cqe.user_data, cqe.res });
+                    try testing.expect(false);
+                }
+            },
+            0x33333333 => {
+                if (cqe.res != -@as(i32, @enumToInt(linux.E.CANCELED))) {
+                    std.debug.print("Req 0x{x} got {d}\n", .{ cqe.user_data, cqe.res });
+                    try testing.expect(false);
+                }
+            },
+            else => @panic("should not happen"),
+        }
+    }
 }
 
 test "fallocate" {
