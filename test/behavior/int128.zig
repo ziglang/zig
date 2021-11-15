@@ -32,6 +32,9 @@ test "int128" {
 
     buff = minInt(i128);
     try expect(buff < 0);
+
+    buff = -0x12341234123412341234123412341234;
+    try expect(-buff == 0x12341234123412341234123412341234);
 }
 
 test "truncate int128" {
