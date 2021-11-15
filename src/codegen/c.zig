@@ -1222,7 +1222,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .memcpy           => try airMemcpy(f, inst),
             .set_union_tag    => try airSetUnionTag(f, inst),
             .get_union_tag    => try airGetUnionTag(f, inst),
-            .clz              => try airBuiltinCall(f, inst, "clz"),
+            .clz              => try airBuiltinCall(f, inst, "zig_clz"),
             .ctz              => try airBuiltinCall(f, inst, "ctz"),
             .popcount         => try airBuiltinCall(f, inst, "popcount"),
 
@@ -2672,10 +2672,27 @@ fn airBuiltinCall(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8) !C
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const writer = f.object.writer();
     const operand = try f.resolveInst(ty_op.operand);
+    const operand_ty = f.air.typeOf(ty_op.operand);
 
-    // TODO implement the function in zig.h and call it here
+    const target = f.object.dg.module.getTarget();
+    const intInfo = operand_ty.intInfo(target);
+    const sign_prefix = switch (intInfo.signedness) {
+        .unsigned => "u",
+        .signed => "s",
+    };
+    const c_bits = toCIntBits(intInfo.bits) orelse
+        return f.object.dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
+    const size_prefix = switch (c_bits) {
+        1 => "8",
+        8 => "8",
+        16 => "16",
+        32 => "32",
+        64 => "64",
+        128 => "128",
+        else => unreachable,
+    };
 
-    try writer.print(" = {s}(", .{fn_name});
+    try writer.print(" = {s}_{s}{s}(", .{fn_name, sign_prefix, size_prefix});
     try f.writeCValue(writer, operand);
     try writer.writeAll(");\n");
     return local;

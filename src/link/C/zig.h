@@ -463,3 +463,26 @@ zig_shl_sat_s(isize, intptr_t, ((sizeof(intptr_t)) * CHAR_BIT - 1))
 zig_shl_sat_s(short,    short, ((sizeof(short   )) * CHAR_BIT - 1))
 zig_shl_sat_s(int,        int, ((sizeof(int     )) * CHAR_BIT - 1))
 zig_shl_sat_s(long,      long, ((sizeof(long    )) * CHAR_BIT - 1))
+
+#define zig_clz(ZT, T, bits) \
+    static inline uint8_t zig_clz_##ZT(T x) { \
+        uint8_t count = 0; \
+        for (uint8_t i = bits; i > 0; i--) { \
+            if ((x >> (i-1)) & 1) { \
+                break; \
+            } \
+            count++; \
+        }  \
+        return count; \
+    }
+
+zig_clz(u8, uint8_t, 8)
+zig_clz(s8, int8_t, 8)
+zig_clz(u16, uint16_t, 16)
+zig_clz(s16, int16_t, 16)
+zig_clz(u32, uint32_t, 32)
+zig_clz(s32, int32_t, 32)
+zig_clz(u64, uint64_t, 64)
+zig_clz(s64, int64_t, 64)
+zig_clz(u128, uint128_t, 128)
+zig_clz(s128, int128_t, 128)
