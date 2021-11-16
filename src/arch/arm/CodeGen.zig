@@ -5,6 +5,8 @@ const math = std.math;
 const assert = std.debug.assert;
 const Air = @import("../../Air.zig");
 const Zir = @import("../../Zir.zig");
+const Mir = @import("Mir.zig");
+const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../value.zig").Value;
@@ -22,9 +24,9 @@ const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 const RegisterManager = @import("../../register_manager.zig").RegisterManager;
 
-pub const FnResult = @import("../../codegen.zig").FnResult;
-pub const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
-pub const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
+const FnResult = @import("../../codegen.zig").FnResult;
+const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
+const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 
 const InnerError = error{
     OutOfMemory,
@@ -37,8 +39,6 @@ liveness: Liveness,
 bin_file: *link.File,
 target: *const std.Target,
 mod_fn: *const Module.Fn,
-code: *std.ArrayList(u8),
-debug_output: DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
@@ -47,13 +47,14 @@ arg_index: usize,
 src_loc: Module.SrcLoc,
 stack_align: u32,
 
-prev_di_line: u32,
-prev_di_column: u32,
+/// MIR Instructions
+mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
+/// MIR extra data
+mir_extra: std.ArrayListUnmanaged(u32) = .{},
+
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
 end_di_column: u32,
-/// Relative to the beginning of `code`.
-prev_di_pc: usize,
 
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
@@ -176,24 +177,12 @@ const StackAllocation = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Reloc),
+    relocs: std.ArrayListUnmanaged(Mir.Inst.Index),
     /// The first break instruction encounters `null` here and chooses a
     /// machine code value for the block result, populating this field.
     /// Following break instructions encounter that value and use it for
     /// the location to store their block results.
     mcv: MCValue,
-};
-
-const Reloc = union(enum) {
-    /// The value is an offset into the `Function` `code` from the beginning.
-    /// To perform the reloc, write 32-bit signed little-endian integer
-    /// which is a relative jump, based on the address following the reloc.
-    rel32: usize,
-    /// A branch in the ARM instruction set
-    arm_branch: struct {
-        pos: usize,
-        cond: @import("bits.zig").Condition,
-    },
 };
 
 const BigTomb = struct {
@@ -266,8 +255,6 @@ pub fn generate(
         .target = &bin_file.options.target,
         .bin_file = bin_file,
         .mod_fn = module_fn,
-        .code = code,
-        .debug_output = debug_output,
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
@@ -276,9 +263,6 @@ pub fn generate(
         .branch_stack = &branch_stack,
         .src_loc = src_loc,
         .stack_align = undefined,
-        .prev_di_pc = 0,
-        .prev_di_line = module_fn.lbrace_line,
-        .prev_di_column = module_fn.lbrace_column,
         .end_di_line = module_fn.rbrace_line,
         .end_di_column = module_fn.rbrace_column,
     };
@@ -302,6 +286,30 @@ pub fn generate(
         else => |e| return e,
     };
 
+    var mir = Mir{
+        .instructions = function.mir_instructions.toOwnedSlice(),
+        .extra = function.mir_extra.toOwnedSlice(bin_file.allocator),
+    };
+    defer mir.deinit(bin_file.allocator);
+
+    var emit = Emit{
+        .mir = mir,
+        .bin_file = bin_file,
+        .debug_output = debug_output,
+        .target = &bin_file.options.target,
+        .src_loc = src_loc,
+        .code = code,
+        .prev_di_pc = 0,
+        .prev_di_line = module_fn.lbrace_line,
+        .prev_di_column = module_fn.lbrace_column,
+    };
+    defer emit.deinit();
+
+    emit.emitMir() catch |err| switch (err) {
+        error.EmitFail => return FnResult{ .fail = emit.err_msg.? },
+        else => |e| return e,
+    };
+
     if (function.err_msg) |em| {
         return FnResult{ .fail = em };
     } else {
@@ -309,17 +317,68 @@ pub fn generate(
     }
 }
 
+fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
+    const gpa = self.gpa;
+
+    try self.mir_instructions.ensureUnusedCapacity(gpa, 1);
+
+    const result_index = @intCast(Air.Inst.Index, self.mir_instructions.len);
+    self.mir_instructions.appendAssumeCapacity(inst);
+    return result_index;
+}
+
+fn addNop(self: *Self) error{OutOfMemory}!Mir.Inst.Index {
+    return try self.addInst(.{
+        .tag = .nop,
+        .cond = .al,
+        .data = .{ .nop = {} },
+    });
+}
+
+pub fn addExtra(self: *Self, extra: anytype) Allocator.Error!u32 {
+    const fields = std.meta.fields(@TypeOf(extra));
+    try self.mir_extra.ensureUnusedCapacity(self.gpa, fields.len);
+    return self.addExtraAssumeCapacity(extra);
+}
+
+pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
+    const fields = std.meta.fields(@TypeOf(extra));
+    const result = @intCast(u32, self.mir_extra.items.len);
+    inline for (fields) |field| {
+        self.mir_extra.appendAssumeCapacity(switch (field.field_type) {
+            u32 => @field(extra, field.name),
+            i32 => @bitCast(u32, @field(extra, field.name)),
+            else => @compileError("bad field type"),
+        });
+    }
+    return result;
+}
+
 fn gen(self: *Self) !void {
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
         // push {fp, lr}
-        // mov fp, sp
-        // sub sp, sp, #reloc
-        const prologue_reloc = self.code.items.len;
-        try self.code.resize(prologue_reloc + 12);
-        self.writeInt(u32, self.code.items[prologue_reloc + 4 ..][0..4], Instruction.mov(.al, .fp, Instruction.Operand.reg(.sp, Instruction.Operand.Shift.none)).toU32());
+        const push_reloc = try self.addNop();
 
-        try self.dbgSetPrologueEnd();
+        // mov fp, sp
+        _ = try self.addInst(.{
+            .tag = .mov,
+            .cond = .al,
+            .data = .{ .rr_op = .{
+                .rd = .fp,
+                .rn = .r0,
+                .op = Instruction.Operand.reg(.sp, Instruction.Operand.Shift.none),
+            } },
+        });
+
+        // sub sp, sp, #reloc
+        const sub_reloc = try self.addNop();
+
+        _ = try self.addInst(.{
+            .tag = .dbg_prologue_end,
+            .cond = undefined,
+            .data = .{ .nop = {} },
+        });
 
         try self.genBody(self.air.getMainBody());
 
@@ -333,18 +392,30 @@ fn gen(self: *Self) !void {
                 @field(saved_regs, @tagName(reg)) = true;
             }
         }
-        self.writeInt(u32, self.code.items[prologue_reloc..][0..4], Instruction.stmdb(.al, .sp, true, saved_regs).toU32());
+        self.mir_instructions.set(push_reloc, .{
+            .tag = .push,
+            .cond = .al,
+            .data = .{ .register_list = saved_regs },
+        });
 
         // Backpatch stack offset
         const stack_end = self.max_end_stack;
         const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
         if (Instruction.Operand.fromU32(@intCast(u32, aligned_stack_end))) |op| {
-            self.writeInt(u32, self.code.items[prologue_reloc + 8 ..][0..4], Instruction.sub(.al, .sp, .sp, op).toU32());
+            self.mir_instructions.set(sub_reloc, .{
+                .tag = .sub,
+                .cond = .al,
+                .data = .{ .rr_op = .{ .rd = .sp, .rn = .sp, .op = op } },
+            });
         } else {
             return self.failSymbol("TODO ARM: allow larger stacks", .{});
         }
 
-        try self.dbgSetEpilogueBegin();
+        _ = try self.addInst(.{
+            .tag = .dbg_epilogue_begin,
+            .cond = undefined,
+            .data = .{ .nop = {} },
+        });
 
         // exitlude jumps
         if (self.exitlude_jump_relocs.items.len == 1) {
@@ -353,23 +424,13 @@ fn gen(self: *Self) !void {
             // the code. Therefore, we can just delete
             // the space initially reserved for the
             // jump
-            self.code.items.len -= 4;
+            self.mir_instructions.len -= 1;
         } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
-            const amt = @intCast(i32, self.code.items.len) - @intCast(i32, jmp_reloc + 8);
-            if (amt == -4) {
-                // This return is at the end of the
-                // code block. We can't just delete
-                // the space because there may be
-                // other jumps we already relocated to
-                // the address. Instead, insert a nop
-                self.writeInt(u32, self.code.items[jmp_reloc..][0..4], Instruction.nop().toU32());
-            } else {
-                if (math.cast(i26, amt)) |offset| {
-                    self.writeInt(u32, self.code.items[jmp_reloc..][0..4], Instruction.b(.al, offset).toU32());
-                } else |_| {
-                    return self.failSymbol("exitlude jump is too large", .{});
-                }
-            }
+            self.mir_instructions.set(jmp_reloc, .{
+                .tag = .b,
+                .cond = .al,
+                .data = .{ .inst = @intCast(u32, self.mir_instructions.len) },
+            });
         }
 
         // Epilogue: pop callee saved registers (swap lr with pc in saved_regs)
@@ -377,17 +438,47 @@ fn gen(self: *Self) !void {
         saved_regs.r15 = true; // pc
 
         // mov sp, fp
+        _ = try self.addInst(.{
+            .tag = .mov,
+            .cond = .al,
+            .data = .{ .rr_op = .{
+                .rd = .sp,
+                .rn = .r0,
+                .op = Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none),
+            } },
+        });
+
         // pop {fp, pc}
-        self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .sp, Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none)).toU32());
-        self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldm(.al, .sp, true, saved_regs).toU32());
+        _ = try self.addInst(.{
+            .tag = .pop,
+            .cond = .al,
+            .data = .{ .register_list = saved_regs },
+        });
     } else {
-        try self.dbgSetPrologueEnd();
+        _ = try self.addInst(.{
+            .tag = .dbg_prologue_end,
+            .cond = undefined,
+            .data = .{ .nop = {} },
+        });
+
         try self.genBody(self.air.getMainBody());
-        try self.dbgSetEpilogueBegin();
+
+        _ = try self.addInst(.{
+            .tag = .dbg_epilogue_begin,
+            .cond = undefined,
+            .data = .{ .nop = {} },
+        });
     }
 
     // Drop them off at the rbrace.
-    try self.dbgAdvancePCAndLine(self.end_di_line, self.end_di_column);
+    _ = try self.addInst(.{
+        .tag = .dbg_line,
+        .cond = undefined,
+        .data = .{ .dbg_line_column = .{
+            .line = self.end_di_line,
+            .column = self.end_di_column,
+        } },
+    });
 }
 
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
@@ -532,79 +623,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 fn writeInt(self: *Self, comptime T: type, buf: *[@divExact(@typeInfo(T).Int.bits, 8)]u8, value: T) void {
     const endian = self.target.cpu.arch.endian();
     std.mem.writeInt(T, buf, value, endian);
-}
-
-fn dbgSetPrologueEnd(self: *Self) InnerError!void {
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
-fn dbgSetEpilogueBegin(self: *Self) InnerError!void {
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
-fn dbgAdvancePCAndLine(self: *Self, line: u32, column: u32) InnerError!void {
-    const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
-    const delta_pc: usize = self.code.items.len - self.prev_di_pc;
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            // TODO Look into using the DWARF special opcodes to compress this data.
-            // It lets you emit single-byte opcodes that add different numbers to
-            // both the PC and the line number at the same time.
-            try dbg_out.dbg_line.ensureUnusedCapacity(11);
-            dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
-            leb128.writeULEB128(dbg_out.dbg_line.writer(), delta_pc) catch unreachable;
-            if (delta_line != 0) {
-                dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-                leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
-            }
-            dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
-            self.prev_di_pc = self.code.items.len;
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
-        },
-        .plan9 => |dbg_out| {
-            if (delta_pc <= 0) return; // only do this when the pc changes
-            // we have already checked the target in the linker to make sure it is compatable
-            const quant = @import("../../link/Plan9/aout.zig").getPCQuant(self.target.cpu.arch) catch unreachable;
-
-            // increasing the line number
-            try @import("../../link/Plan9.zig").changeLine(dbg_out.dbg_line, delta_line);
-            // increasing the pc
-            const d_pc_p9 = @intCast(i64, delta_pc) - quant;
-            if (d_pc_p9 > 0) {
-                // minus one because if its the last one, we want to leave space to change the line which is one quanta
-                try dbg_out.dbg_line.append(@intCast(u8, @divExact(d_pc_p9, quant) + 128) - quant);
-                if (dbg_out.pcop_change_index.*) |pci|
-                    dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index.* = @intCast(u32, dbg_out.dbg_line.items.len - 1);
-            } else if (d_pc_p9 == 0) {
-                // we don't need to do anything, because adding the quant does it for us
-            } else unreachable;
-            if (dbg_out.start_line.* == null)
-                dbg_out.start_line.* = self.prev_di_line;
-            dbg_out.end_line.* = line;
-            // only do this if the pc changed
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
-        },
-        .none => {},
-    }
 }
 
 /// Asserts there is already capacity to insert into top branch inst_table.
@@ -1217,7 +1235,15 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 .compare_flags_signed, .compare_flags_unsigned => unreachable,
                 .embedded_in_code => unreachable,
                 .register => |dst_reg| {
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, dst_reg, reg, .{ .offset = Instruction.Offset.none }).toU32());
+                    _ = try self.addInst(.{
+                        .tag = .ldr,
+                        .cond = .al,
+                        .data = .{ .rr_offset = .{
+                            .rt = dst_reg,
+                            .rn = reg,
+                            .offset = .{ .offset = Instruction.Offset.none },
+                        } },
+                    });
                 },
                 else => return self.fail("TODO load from register into {}", .{dst_mcv}),
             }
@@ -1513,48 +1539,81 @@ fn genArmBinOpCode(
     };
 
     switch (op) {
-        .add => {
-            self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.add(.al, dst_reg, op1, operand).toU32());
+        .add,
+        .bool_and,
+        .bit_and,
+        .bool_or,
+        .bit_or,
+        .not,
+        .xor,
+        => {
+            const tag: Mir.Inst.Tag = switch (op) {
+                .add => .add,
+                .bool_and, .bit_and => .@"and",
+                .bool_or, .bit_or => .orr,
+                .not, .xor => .eor,
+                else => unreachable,
+            };
+
+            _ = try self.addInst(.{
+                .tag = tag,
+                .cond = .al,
+                .data = .{ .rr_op = .{
+                    .rd = dst_reg,
+                    .rn = op1,
+                    .op = operand,
+                } },
+            });
         },
         .sub => {
-            if (swap_lhs_and_rhs) {
-                self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.rsb(.al, dst_reg, op1, operand).toU32());
-            } else {
-                self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.sub(.al, dst_reg, op1, operand).toU32());
-            }
-        },
-        .bool_and, .bit_and => {
-            self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.@"and"(.al, dst_reg, op1, operand).toU32());
-        },
-        .bool_or, .bit_or => {
-            self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, dst_reg, op1, operand).toU32());
-        },
-        .not, .xor => {
-            self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.eor(.al, dst_reg, op1, operand).toU32());
+            const tag: Mir.Inst.Tag = if (swap_lhs_and_rhs) .rsb else .sub;
+
+            _ = try self.addInst(.{
+                .tag = tag,
+                .cond = .al,
+                .data = .{ .rr_op = .{
+                    .rd = dst_reg,
+                    .rn = op1,
+                    .op = operand,
+                } },
+            });
         },
         .cmp_eq => {
-            self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.cmp(.al, op1, operand).toU32());
+            _ = try self.addInst(.{
+                .tag = .cmp,
+                .cond = .al,
+                .data = .{ .rr_op = .{
+                    .rd = .r0,
+                    .rn = op1,
+                    .op = operand,
+                } },
+            });
         },
-        .shl => {
-            assert(!swap_lhs_and_rhs);
-            const shift_amount = switch (operand) {
-                .Register => |reg_op| Instruction.ShiftAmount.reg(@intToEnum(Register, reg_op.rm)),
-                .Immediate => |imm_op| Instruction.ShiftAmount.imm(@intCast(u5, imm_op.imm)),
-            };
-            self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.lsl(.al, dst_reg, op1, shift_amount).toU32());
-        },
-        .shr => {
+        .shl, .shr => {
             assert(!swap_lhs_and_rhs);
             const shift_amount = switch (operand) {
                 .Register => |reg_op| Instruction.ShiftAmount.reg(@intToEnum(Register, reg_op.rm)),
                 .Immediate => |imm_op| Instruction.ShiftAmount.imm(@intCast(u5, imm_op.imm)),
             };
 
-            const shr = switch (signedness) {
-                .signed => Instruction.asr,
-                .unsigned => Instruction.lsr,
+            const tag: Mir.Inst.Tag = switch (op) {
+                .shl => .lsl,
+                .shr => switch (signedness) {
+                    .signed => Mir.Inst.Tag.asr,
+                    .unsigned => Mir.Inst.Tag.lsr,
+                },
+                else => unreachable,
             };
-            self.writeInt(u32, try self.code.addManyAsArray(4), shr(.al, dst_reg, op1, shift_amount).toU32());
+
+            _ = try self.addInst(.{
+                .tag = tag,
+                .cond = .al,
+                .data = .{ .rr_shift = .{
+                    .rd = dst_reg,
+                    .rm = op1,
+                    .shift_amount = shift_amount,
+                } },
+            });
         },
         else => unreachable, // not a binary instruction
     }
@@ -1623,7 +1682,15 @@ fn genArmMul(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Ai
         try self.genSetReg(self.air.typeOf(op_rhs), rhs_mcv.register, rhs);
     }
 
-    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.mul(.al, dst_mcv.register, lhs_mcv.register, rhs_mcv.register).toU32());
+    _ = try self.addInst(.{
+        .tag = .mul,
+        .cond = .al,
+        .data = .{ .rrr = .{
+            .rd = dst_mcv.register,
+            .rn = lhs_mcv.register,
+            .rm = rhs_mcv.register,
+        } },
+    });
     return dst_mcv;
 }
 
@@ -1707,7 +1774,8 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
         },
         else => result,
     };
-    try self.genArgDbgInfo(inst, mcv);
+    // TODO generate debug info
+    // try self.genArgDbgInfo(inst, mcv);
 
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();
@@ -1723,7 +1791,11 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airBreakpoint(self: *Self) !void {
-    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.bkpt(0).toU32());
+    _ = try self.addInst(.{
+        .tag = .bkpt,
+        .cond = .al,
+        .data = .{ .imm16 = 0 },
+    });
     return self.finishAirBookkeeping();
 }
 
@@ -1794,10 +1866,27 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 // TODO: add Instruction.supportedOn
                 // function for ARM
                 if (Target.arm.featureSetHas(self.target.cpu.features, .has_v5t)) {
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.blx(.al, .lr).toU32());
+                    _ = try self.addInst(.{
+                        .tag = .blx,
+                        .cond = .al,
+                        .data = .{ .reg = .lr },
+                    });
                 } else {
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .lr, Instruction.Operand.reg(.pc, Instruction.Operand.Shift.none)).toU32());
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.bx(.al, .lr).toU32());
+                    return self.fail("TODO fix blx emulatio for ARM <v5", .{});
+                    // _ = try self.addInst(.{
+                    //     .tag = .mov,
+                    //     .cond = .al,
+                    //     .data = .{ .rr_op = .{
+                    //         .rd = .lr,
+                    //         .rn = .r0,
+                    //         .op = Instruction.Operand.reg(.pc, Instruction.Operand.Shift.none),
+                    //     } },
+                    // });
+                    // _ = try self.addInst(.{
+                    //     .tag = .bx,
+                    //     .cond = .al,
+                    //     .data = .{ .reg = .lr },
+                    // });
                 }
             } else if (func_value.castTag(.extern_fn)) |_| {
                 return self.fail("TODO implement calling extern functions", .{});
@@ -1845,8 +1934,7 @@ fn ret(self: *Self, mcv: MCValue) !void {
     try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
 
     // Just add space for an instruction, patch this later
-    try self.code.resize(self.code.items.len + 4);
-    try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
+    try self.exitlude_jump_relocs.append(self.gpa, try self.addNop());
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
@@ -1925,7 +2013,16 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
 
 fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
     const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
-    try self.dbgAdvancePCAndLine(dbg_stmt.line, dbg_stmt.column);
+
+    _ = try self.addInst(.{
+        .tag = .dbg_line,
+        .cond = undefined,
+        .data = .{ .dbg_line_column = .{
+            .line = dbg_stmt.line,
+            .column = dbg_stmt.column,
+        } },
+    });
+
     return self.finishAirBookkeeping();
 }
 
@@ -1937,7 +2034,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
     const liveness_condbr = self.liveness.getCondBr(inst);
 
-    const reloc: Reloc = reloc: {
+    const reloc: Mir.Inst.Index = reloc: {
         const condition: Condition = switch (cond) {
             .compare_flags_signed => |cmp_op| blk: {
                 // Here we map to the opposite condition because the jump is to the false branch.
@@ -1952,21 +2049,26 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
             .register => |reg| blk: {
                 // cmp reg, 1
                 // bne ...
-                const op = Instruction.Operand.imm(1, 0);
-                self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.cmp(.al, reg, op).toU32());
+                _ = try self.addInst(.{
+                    .tag = .cmp,
+                    .cond = .al,
+                    .data = .{ .rr_op = .{
+                        .rd = .r0,
+                        .rn = reg,
+                        .op = Instruction.Operand.imm(1, 0),
+                    } },
+                });
+
                 break :blk .ne;
             },
             else => return self.fail("TODO implement condbr {} when condition is {s}", .{ self.target.cpu.arch, @tagName(cond) }),
         };
 
-        const reloc = Reloc{
-            .arm_branch = .{
-                .pos = self.code.items.len,
-                .cond = condition,
-            },
-        };
-        try self.code.resize(self.code.items.len + 4);
-        break :reloc reloc;
+        break :reloc try self.addInst(.{
+            .tag = .b,
+            .cond = condition,
+            .data = .{ .inst = undefined }, // populated later through performReloc
+        });
     };
 
     // Capture the state of register and stack allocation state so that we can revert to it.
@@ -2225,19 +2327,19 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const loop = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[loop.end..][0..loop.data.body_len];
-    const start_index = self.code.items.len;
+    const start_index = @intCast(Mir.Inst.Index, self.mir_instructions.len);
     try self.genBody(body);
     try self.jump(start_index);
     return self.finishAirBookkeeping();
 }
 
-/// Send control flow to the `index` of `self.code`.
-fn jump(self: *Self, index: usize) !void {
-    if (math.cast(i26, @intCast(i32, index) - @intCast(i32, self.code.items.len + 8))) |delta| {
-        self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.b(.al, delta).toU32());
-    } else |_| {
-        return self.fail("TODO: enable larger branch offset", .{});
-    }
+/// Send control flow to `inst`.
+fn jump(self: *Self, inst: Mir.Inst.Index) !void {
+    _ = try self.addInst(.{
+        .tag = .b,
+        .cond = .al,
+        .data = .{ .inst = inst },
+    });
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
@@ -2273,28 +2375,11 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     // return self.finishAir(inst, .dead, .{ condition, .none, .none });
 }
 
-fn performReloc(self: *Self, reloc: Reloc) !void {
-    switch (reloc) {
-        .rel32 => |pos| {
-            const amt = self.code.items.len - (pos + 4);
-            // Here it would be tempting to implement testing for amt == 0 and then elide the
-            // jump. However, that will cause a problem because other jumps may assume that they
-            // can jump to this code. Or maybe I didn't understand something when I was debugging.
-            // It could be worth another look. Anyway, that's why that isn't done here. Probably the
-            // best place to elide jumps will be in semantic analysis, by inlining blocks that only
-            // only have 1 break instruction.
-            const s32_amt = math.cast(i32, amt) catch
-                return self.fail("unable to perform relocation: jump too far", .{});
-            mem.writeIntLittle(i32, self.code.items[pos..][0..4], s32_amt);
-        },
-        .arm_branch => |info| {
-            const amt = @intCast(i32, self.code.items.len) - @intCast(i32, info.pos + 8);
-            if (math.cast(i26, amt)) |delta| {
-                self.writeInt(u32, self.code.items[info.pos..][0..4], Instruction.b(info.cond, delta).toU32());
-            } else |_| {
-                return self.fail("TODO: enable larger branch offset", .{});
-            }
-        },
+fn performReloc(self: *Self, inst: Mir.Inst.Index) !void {
+    const tag = self.mir_instructions.items(.tag)[inst];
+    switch (tag) {
+        .b => self.mir_instructions.items(.data)[inst].inst = @intCast(Air.Inst.Index, self.mir_instructions.len),
+        else => unreachable,
     }
 }
 
@@ -2334,15 +2419,11 @@ fn brVoid(self: *Self, block: Air.Inst.Index) !void {
     const block_data = self.blocks.getPtr(block).?;
 
     // Emit a jump with a relocation. It will be patched up after the block ends.
-    try block_data.relocs.ensureUnusedCapacity(self.gpa, 1);
-
-    try self.code.resize(self.code.items.len + 4);
-    block_data.relocs.appendAssumeCapacity(.{
-        .arm_branch = .{
-            .pos = self.code.items.len - 4,
-            .cond = .al,
-        },
-    });
+    try block_data.relocs.append(self.gpa, try self.addInst(.{
+        .tag = .b,
+        .cond = .al,
+        .data = .{ .inst = undefined }, // populated later through performReloc
+    }));
 }
 
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
@@ -2394,7 +2475,11 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         }
 
         if (mem.eql(u8, asm_source, "svc #0")) {
-            self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.svc(.al, 0).toU32());
+            _ = try self.addInst(.{
+                .tag = .svc,
+                .cond = .al,
+                .data = .{ .imm24 = 0 },
+            });
         } else {
             return self.fail("TODO implement support for more arm assembly instructions", .{});
         }
@@ -2490,26 +2575,43 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     const offset = if (math.cast(u12, adj_off)) |imm| blk: {
                         break :blk Instruction.Offset.imm(imm);
                     } else |_| Instruction.Offset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = adj_off }), 0);
-                    const str = switch (abi_size) {
-                        1 => Instruction.strb,
-                        4 => Instruction.str,
+
+                    const tag: Mir.Inst.Tag = switch (abi_size) {
+                        1 => .strb,
+                        4 => .str,
                         else => unreachable,
                     };
 
-                    self.writeInt(u32, try self.code.addManyAsArray(4), str(.al, reg, .fp, .{
-                        .offset = offset,
-                        .positive = false,
-                    }).toU32());
+                    _ = try self.addInst(.{
+                        .tag = tag,
+                        .cond = .al,
+                        .data = .{ .rr_offset = .{
+                            .rt = reg,
+                            .rn = .fp,
+                            .offset = .{
+                                .offset = offset,
+                                .positive = false,
+                            },
+                        } },
+                    });
                 },
                 2 => {
                     const offset = if (adj_off <= math.maxInt(u8)) blk: {
                         break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, adj_off));
                     } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = adj_off }));
 
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.strh(.al, reg, .fp, .{
-                        .offset = offset,
-                        .positive = false,
-                    }).toU32());
+                    _ = try self.addInst(.{
+                        .tag = .strh,
+                        .cond = .al,
+                        .data = .{ .rr_extra_offset = .{
+                            .rt = reg,
+                            .rn = .fp,
+                            .offset = .{
+                                .offset = offset,
+                                .positive = false,
+                            },
+                        } },
+                    });
                 },
                 else => return self.fail("TODO implement storing other types abi_size={}", .{abi_size}),
             }
@@ -2549,26 +2651,83 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 else => unreachable,
             };
 
-            // mov reg, 0
-            // moveq reg, 1
             const zero = Instruction.Operand.imm(0, 0);
             const one = Instruction.Operand.imm(1, 0);
-            self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, zero).toU32());
-            self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(condition, reg, one).toU32());
+
+            // mov reg, 0
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .cond = .al,
+                .data = .{ .rr_op = .{
+                    .rd = reg,
+                    .rn = .r0,
+                    .op = zero,
+                } },
+            });
+
+            // moveq reg, 1
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .cond = condition,
+                .data = .{ .rr_op = .{
+                    .rd = reg,
+                    .rn = .r0,
+                    .op = one,
+                } },
+            });
         },
         .immediate => |x| {
             if (x > math.maxInt(u32)) return self.fail("ARM registers are 32-bit wide", .{});
 
             if (Instruction.Operand.fromU32(@intCast(u32, x))) |op| {
-                self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, op).toU32());
+                _ = try self.addInst(.{
+                    .tag = .mov,
+                    .cond = .al,
+                    .data = .{ .rr_op = .{
+                        .rd = reg,
+                        .rn = .r0,
+                        .op = op,
+                    } },
+                });
             } else if (Instruction.Operand.fromU32(~@intCast(u32, x))) |op| {
-                self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.mvn(.al, reg, op).toU32());
+                _ = try self.addInst(.{
+                    .tag = .mvn,
+                    .cond = .al,
+                    .data = .{ .rr_op = .{
+                        .rd = reg,
+                        .rn = .r0,
+                        .op = op,
+                    } },
+                });
             } else if (x <= math.maxInt(u16)) {
                 if (Target.arm.featureSetHas(self.target.cpu.features, .has_v7)) {
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.movw(.al, reg, @intCast(u16, x)).toU32());
+                    _ = try self.addInst(.{
+                        .tag = .movw,
+                        .cond = .al,
+                        .data = .{ .r_imm16 = .{
+                            .rd = reg,
+                            .imm16 = @intCast(u16, x),
+                        } },
+                    });
                 } else {
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .cond = .al,
+                        .data = .{ .rr_op = .{
+                            .rd = reg,
+                            .rn = .r0,
+                            .op = Instruction.Operand.imm(@truncate(u8, x), 0),
+                        } },
+                    });
+                    _ = try self.addInst(.{
+                        .tag = .orr,
+                        .cond = .al,
+                        .data = .{ .rr_op = .{
+                            .rd = reg,
+                            .rn = reg,
+                            .op = Instruction.Operand.imm(@truncate(u8, x >> 8), 12),
+                        } },
+                    });
                 }
             } else {
                 // TODO write constant to code and load
@@ -2577,18 +2736,64 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     // immediate: 0xaaaabbbb
                     // movw reg, #0xbbbb
                     // movt reg, #0xaaaa
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.movw(.al, reg, @truncate(u16, x)).toU32());
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.movt(.al, reg, @truncate(u16, x >> 16)).toU32());
+                    _ = try self.addInst(.{
+                        .tag = .movw,
+                        .cond = .al,
+                        .data = .{ .r_imm16 = .{
+                            .rd = reg,
+                            .imm16 = @truncate(u16, x),
+                        } },
+                    });
+                    _ = try self.addInst(.{
+                        .tag = .movt,
+                        .cond = .al,
+                        .data = .{ .r_imm16 = .{
+                            .rd = reg,
+                            .imm16 = @truncate(u16, x >> 16),
+                        } },
+                    });
                 } else {
                     // immediate: 0xaabbccdd
                     // mov reg, #0xaa
                     // orr reg, reg, #0xbb, 24
                     // orr reg, reg, #0xcc, 16
                     // orr reg, reg, #0xdd, 8
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 16), 8)).toU32());
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 24), 4)).toU32());
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .cond = .al,
+                        .data = .{ .rr_op = .{
+                            .rd = reg,
+                            .rn = .r0,
+                            .op = Instruction.Operand.imm(@truncate(u8, x), 0),
+                        } },
+                    });
+                    _ = try self.addInst(.{
+                        .tag = .orr,
+                        .cond = .al,
+                        .data = .{ .rr_op = .{
+                            .rd = reg,
+                            .rn = reg,
+                            .op = Instruction.Operand.imm(@truncate(u8, x >> 8), 12),
+                        } },
+                    });
+                    _ = try self.addInst(.{
+                        .tag = .orr,
+                        .cond = .al,
+                        .data = .{ .rr_op = .{
+                            .rd = reg,
+                            .rn = reg,
+                            .op = Instruction.Operand.imm(@truncate(u8, x >> 16), 8),
+                        } },
+                    });
+                    _ = try self.addInst(.{
+                        .tag = .orr,
+                        .cond = .al,
+                        .data = .{ .rr_op = .{
+                            .rd = reg,
+                            .rn = reg,
+                            .op = Instruction.Operand.imm(@truncate(u8, x >> 24), 4),
+                        } },
+                    });
                 }
             }
         },
@@ -2598,13 +2803,29 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 return;
 
             // mov reg, src_reg
-            self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.reg(src_reg, Instruction.Operand.Shift.none)).toU32());
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .cond = .al,
+                .data = .{ .rr_op = .{
+                    .rd = reg,
+                    .rn = .r0,
+                    .op = Instruction.Operand.reg(src_reg, Instruction.Operand.Shift.none),
+                } },
+            });
         },
         .memory => |addr| {
             // The value is in memory at a hard-coded address.
             // If the type is a pointer, it means the pointer address is at this memory location.
             try self.genSetReg(ty, reg, .{ .immediate = addr });
-            self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, reg, .{ .offset = Instruction.Offset.none }).toU32());
+            _ = try self.addInst(.{
+                .tag = .ldr,
+                .cond = .al,
+                .data = .{ .rr_offset = .{
+                    .rt = reg,
+                    .rn = reg,
+                    .offset = .{ .offset = Instruction.Offset.none },
+                } },
+            });
         },
         .stack_offset => |unadjusted_off| {
             // TODO: maybe addressing from sp instead of fp
@@ -2616,26 +2837,43 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     const offset = if (adj_off <= math.maxInt(u12)) blk: {
                         break :blk Instruction.Offset.imm(@intCast(u12, adj_off));
                     } else Instruction.Offset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = adj_off }), 0);
-                    const ldr = switch (abi_size) {
-                        1 => Instruction.ldrb,
-                        4 => Instruction.ldr,
+
+                    const tag: Mir.Inst.Tag = switch (abi_size) {
+                        1 => .ldrb,
+                        4 => .ldr,
                         else => unreachable,
                     };
 
-                    self.writeInt(u32, try self.code.addManyAsArray(4), ldr(.al, reg, .fp, .{
-                        .offset = offset,
-                        .positive = false,
-                    }).toU32());
+                    _ = try self.addInst(.{
+                        .tag = tag,
+                        .cond = .al,
+                        .data = .{ .rr_offset = .{
+                            .rt = reg,
+                            .rn = .fp,
+                            .offset = .{
+                                .offset = offset,
+                                .positive = false,
+                            },
+                        } },
+                    });
                 },
                 2 => {
                     const offset = if (adj_off <= math.maxInt(u8)) blk: {
                         break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, adj_off));
                     } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = adj_off }));
 
-                    self.writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldrh(.al, reg, .fp, .{
-                        .offset = offset,
-                        .positive = false,
-                    }).toU32());
+                    _ = try self.addInst(.{
+                        .tag = .ldrh,
+                        .cond = .al,
+                        .data = .{ .rr_extra_offset = .{
+                            .rt = reg,
+                            .rn = .fp,
+                            .offset = .{
+                                .offset = offset,
+                                .positive = false,
+                            },
+                        } },
+                    });
                 },
                 else => return self.fail("TODO a type of size {} is not allowed in a register", .{abi_size}),
             }
