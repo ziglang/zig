@@ -14,8 +14,8 @@ const Condition = @This();
 
 impl: Impl = .{},
 
-pub fn wait(self: *Condition, held: Mutex.Held, timeout: ?u64) error{TimedOut}!void {
-    return self.impl.wait(held, timeout);
+pub fn wait(self: *Condition, mutex: *Mutex, timeout: ?u64) error{TimedOut}!void {
+    return self.impl.wait(mutex, timeout);
 }
 
 pub fn signal(self: *Condition) void {
@@ -36,9 +36,9 @@ else
     Futex32Impl;
 
 const SerialImpl = struct {
-    fn wait(self: *Impl, held: Mutex.Held, timeout: ?u64) error{TimedOut}!void {
+    fn wait(self: *Impl, mutex: *Mutex, timeout: ?u64) error{TimedOut}!void {
         _ = self;
-        _ = held;
+        _ = mutex;
 
         const timeout_ns = timeout orelse unreachable; // deadlock detected
         std.time.sleep(timeout_ns);
@@ -54,7 +54,7 @@ const SerialImpl = struct {
 const WindowsImpl = struct {
     cond: os.windows.CONDITION_VARIABLE = os.windows.CONDITION_VARIABLE_INIT,
 
-    fn wait(self: *Impl, held: Mutex.Held, timeout: ?u64) error{TimedOut}!void {
+    fn wait(self: *Impl, mutex: *Mutex, timeout: ?u64) error{TimedOut}!void {
         var timeout_ms: os.windows.DWORD = os.windows.INFINITE;
         var timeout_overflow = false;
 
@@ -65,7 +65,7 @@ const WindowsImpl = struct {
 
         const rc = os.windows.kernel32.SleepConditionVariableSRW(
             &self.cond,
-            &held.mutex.impl.srwlock,
+            &mutex.impl.srwlock,
             timeout_ms,
             0, // Mutex acquires the SRWLOCK exclusively
         );
@@ -106,7 +106,7 @@ const Futex64Impl = struct {
         signals: u16,
     };
 
-    fn wait(self: *Impl, held: Mutex.Held, timeout: ?u64) error{TimedOut}!void {
+    fn wait(self: *Impl, mutex: *Mutex, timeout: ?u64) error{TimedOut}!void {
         // Add a waiter atomically
         const one_waiter = 1 << @bitOffsetOf(State, "waiters");
         var cond = self.cond.qword.fetchAdd(one_waiter, .Monotonic);
@@ -133,8 +133,8 @@ const Futex64Impl = struct {
             }
         }
 
-        held.mutex.impl.release();
-        defer held.mutex.impl.acquire();
+        mutex.impl.unlock();
+        defer mutex.impl.lock();
 
         return Futex.wait(
             &self.cond.state.seq,
@@ -191,7 +191,7 @@ const Futex32Impl = struct {
         signals: u16 = 0,
     };
 
-    fn wait(self: *Impl, held: Mutex.Held, timeout: ?u64) error{TimedOut}!void {
+    fn wait(self: *Impl, mutex: *Mutex, timeout: ?u64) error{TimedOut}!void {
         const one_waiter = @bitCast(u32, State{ .waiters = 1 });
         var sync = self.sync.fetchAdd(one_waiter, .Monotonic);
 
@@ -221,8 +221,8 @@ const Futex32Impl = struct {
         // "atomically with respect to access by another thread to the mutex and then the condition variable".
         // This means that it's ok if a wake() (sequence increment) is missed while the mutex is still held.
         const sequence = self.seq.load(.Monotonic);
-        held.mutex.impl.release();
-        defer held.mutex.impl.acquire();
+        mutex.impl.unlock();
+        defer mutex.impl.lock();
 
         return Futex.wait(
             &self.seq,
@@ -274,43 +274,43 @@ test "Condition - basic" {
     var cond: Condition = .{};
 
     // Test that mutex is exclusive
-    var held = mutex.acquire();
-    try testing.expectEqual(mutex.tryAcquire(), null);
+    mutex.lock();
+    try testing.expect(!mutex.tryLock());
 
     // Test conditional wait + that the mutex is still locked after
-    try testing.expectError(error.TimedOut, cond.wait(held, 1));
-    try testing.expectEqual(mutex.tryAcquire(), null);
+    try testing.expectError(error.TimedOut, cond.wait(&mutex, 1));
+    try testing.expect(!mutex.tryLock());
 
     // Same thing but for a larger timeout (we can't test null timeout given nothing to wake us up).
-    try testing.expectError(error.TimedOut, cond.wait(held, 10 * std.time.ns_per_ms));
-    try testing.expectEqual(mutex.tryAcquire(), null);
+    try testing.expectError(error.TimedOut, cond.wait(&mutex, 10 * std.time.ns_per_ms));
+    try testing.expect(!mutex.tryLock());
 
     // Test again that the mutex can still be acquired after releasing following a wait
-    held.release();
-    held = mutex.tryAcquire() orelse return error.MutexTryAcquire;
-    held.release();
+    mutex.unlock();
+    try testing.expect(mutex.tryLock());
+    mutex.unlock();
 }
 
 test "Condition - wait/signal" {
     if (single_threaded) return error.SkipZigTest;
 
     const Context = struct {
-        lock: Mutex = .{},
+        mutex: Mutex = .{},
         cond: Condition = .{},
         signaled: bool = false,
 
         fn doWait(self: *@This()) void {
-            const held = self.lock.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             while (!self.signaled) {
-                self.cond.wait(held, null) catch unreachable;
+                self.cond.wait(&self.mutex, null) catch unreachable;
             }
         }
 
         fn doSignal(self: *@This(), do_broadcast: bool) void {
-            const held = self.lock.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             self.signaled = true;
             switch (do_broadcast) {
@@ -322,10 +322,12 @@ test "Condition - wait/signal" {
 
     for ([_]bool{ false, true }) |do_broadcast| {
         var context = Context{};
-        const wait_signal = try std.Thread.spawn(.{}, Context.doWait, .{&context});
+        const wait_thread = try std.Thread.spawn(.{}, Context.doWait, .{&context});
 
         context.doSignal(do_broadcast);
-        wait_signal.join();
+        wait_thread.join();
+
+        try testing.expect(context.signaled);
     }
 }
 
@@ -334,15 +336,16 @@ test "Condition - producer / consumer" {
 
     const num_threads = 4;
     const Context = struct {
-        lock: Mutex = .{},
+        mutex: Mutex = .{},
         send: Condition = .{},
         recv: Condition = .{},
         value: usize = 0,
 
         fn doSend(self: *@This(), do_broadcast: bool) void {
-            const held = self.lock.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
+            // Bump the value by one and wake up a pending receiver
             assert(self.value == 0);
             self.value = 1;
             switch (do_broadcast) {
@@ -350,19 +353,27 @@ test "Condition - producer / consumer" {
                 else => self.recv.signal(),
             }
 
-            while (self.value != 0) {
-                self.send.wait(held, null) catch unreachable;
+            // Wait for a receiver to consume the value
+            while (true) {
+                self.send.wait(&self.mutex, null) catch unreachable;
+                switch (self.value) {
+                    0 => break, // value was consumed by a receiver
+                    1 => continue, // spurious wakeup
+                    else => unreachable, // invalid context state
+                }
             }
         }
 
         fn doRecv(self: *@This(), do_broadcast: bool) void {
-            const held = self.lock.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
+            // Wait for the value to change by the sender
             while (self.value == 0) {
-                self.recv.wait(held, null) catch unreachable;
+                self.recv.wait(&self.mutex, null) catch unreachable;
             }
 
+            // Consume a value and notify the sender
             self.value -= 1;
             switch (do_broadcast) {
                 true => self.send.broadcast(),
@@ -373,10 +384,13 @@ test "Condition - producer / consumer" {
 
     for ([_]bool{ true, false }) |do_broadcast| {
         var context = Context{};
+
+        // Spawn the receivers
         var threads: [num_threads]std.Thread = undefined;
         for (threads) |*t| t.* = try std.Thread.spawn(.{}, Context.doRecv, .{ &context, do_broadcast });
         defer for (threads) |t| t.join();
 
+        // Run the sender for each receiver
         var i: usize = num_threads;
         while (i > 0) : (i -= 1) {
             context.doSend(do_broadcast);

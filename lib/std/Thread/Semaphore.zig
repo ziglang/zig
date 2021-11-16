@@ -55,14 +55,17 @@ const SerialImpl = struct {
     }
 
     pub fn wait(self: *Impl, timeout: ?u64) error{TimedOut}!void {
-        if (self.tryWait()) return;
+        // Try to consume from the value counter
+        if (self.tryWait()) 
+            return;
+
         const timeout_ns = timeout orelse unreachable; // deadlock detected
         std.time.sleep(timeout_ns);
         return error.TimedOut;
     }
 
     pub fn post(self: *Impl, count: u31) void {
-        self.value += count;
+        self.value += count; // detects overflows by default
     }
 };
 
@@ -78,7 +81,10 @@ const WindowsImpl = struct {
     /// Try to consume 1 from the semaphore value as usual.
     pub fn tryWait(self: *Impl) bool {
         var value = self.value.load(.Monotonic);
-        while (value > 0) {
+        while (true) {
+            if (value <= 0)
+                return false;
+
             value = self.value.tryCompareAndSwap(
                 value,
                 value - 1,
@@ -86,13 +92,13 @@ const WindowsImpl = struct {
                 .Monotonic,
             ) orelse return true;
         }
-        return false;
     }
 
     pub fn wait(self: *Impl, timeout: ?u64) error{TimedOut}!void {
         // Fast path: preemptively consume 1 from the semaphore value.
         const value = self.value.fetchSub(1, .Acquire);
         assert(value > std.math.minInt(i32));
+        
         if (value <= 0) {
             return self.waitSlow(timeout);
         }
@@ -123,6 +129,7 @@ const WindowsImpl = struct {
         // Fast path: bump the semaphore value by the count.
         const value = self.value.fetchAdd(count, .Release);
         assert(value <= std.math.maxInt(i32) - count);
+        
         if (value < 0) {
             self.postSlow(count, value);
         }
@@ -491,53 +498,77 @@ const FutexDeadline = struct {
 };
 
 test "Semaphore - basic" {
+    // Test empty semaphore
     var sema = Semaphore{};
-    try testing.expectEqual(sema.tryWait(), false);
+    try testing.expect(!sema.tryWait());
+    try testing.expect(!sema.tryWait());
 
+    // Semaphore with 1 value posted
     sema.post(1);
-    try testing.expectEqual(sema.tryWait(), true);
-    try testing.expectEqual(sema.tryWait(), false);
+    try testing.expect(sema.tryWait());
+    try testing.expect(!sema.tryWait());
 
+    // Semaphore with 1 value initialized
     sema = Semaphore.init(1);
-    try testing.expectEqual(sema.tryWait(), true);
-    try testing.expectEqual(sema.tryWait(), false);
+    try testing.expect(sema.tryWait());
+    try testing.expect(!sema.tryWait());
 
+    // Semaphore wait() + more values posted
     sema.post(3);
     try sema.wait(null);
-    try testing.expectEqual(sema.tryWait(), true);
+    try testing.expect(sema.tryWait());
     try sema.wait(std.math.maxInt(u64));
 
+    // Semaphore timeout
     try testing.expectError(error.TimedOut, sema.wait(1));
     try testing.expectError(error.TimedOut, sema.wait(10 * std.time.ns_per_ms));
 }
 
 test "Semaphore - barrier/broadcast" {
-    if (single_threaded) return error.SkipZigTest;
+    if (single_threaded) 
+        return error.SkipZigTest;
 
+    // This is basically a `std::sync::Barrier` from Rust.
     const num_threads = 4;
-    const Context = struct {
-        count: Atomic(usize) = Atomic(usize).init(num_threads + 1),
+    const Barrier = struct {
+        value: usize,
+        count: Atomic(usize),
         sema: Semaphore = .{},
 
+        fn init(value: usize) @This() {
+            return .{
+                .value = value,
+                .count = Atomic(usize).init(value),
+            };
+        }
+
         fn wait(self: *@This()) void {
-            switch (self.count.fetchSub(1, .SeqCst)) {
-                0 => unreachable,
-                1 => self.sema.post(num_threads),
-                else => self.sema.wait(null) catch unreachable,
+            var count = self.count.fetchSub(1, .SeqCst);
+            assert(count > 0);
+
+            // Last thread to wait() wakes everyone up
+            if (count == 1) {
+                self.sema.post(@intCast(u31, self.value));
             }
+
+            // Wait for the last thread to call wait()
+            self.sema.wait(null) catch unreachable;
         }
     };
 
-    var context = Context{};
+    // +1 to account for this thread's .wait() below
+    var barrier = Barrier.init(num_threads + 1);
+
     var threads: [num_threads]std.Thread = undefined;
-    for (threads) |*t| t.* = try std.Thread.spawn(.{}, Context.wait, .{&context});
+    for (threads) |*t| t.* = try std.Thread.spawn(.{}, Barrier.wait, .{&barrier});
     defer for (threads) |t| t.join();
 
-    context.wait();
+    barrier.wait();
 }
 
 test "Semaphore - producer/consumer" {
-    if (single_threaded) return error.SkipZigTest;
+    if (single_threaded) 
+        return error.SkipZigTest;
 
     const num_threads = 4;
     const Context = struct {
@@ -555,7 +586,7 @@ test "Semaphore - producer/consumer" {
         fn consumer(self: *@This(), index: usize) void {
             var rng = std.rand.DefaultPrng.init(0xdeadbeef + index);
             while (true) {
-                const rand_timeout = rng.random.uintLessThanBiased(u64, 1 * std.time.ns_per_ms);
+                const rand_timeout = rng.random().uintLessThanBiased(u64, 1 * std.time.ns_per_ms);
                 self.recv_sema.wait(rand_timeout) catch continue;
                 return self.send_sema.post(1);
             }

@@ -6,7 +6,7 @@
 const std = @import("std");
 const WaitGroup = @This();
 
-lock: std.Thread.Mutex = .{},
+mutex: std.Thread.Mutex = .{},
 cond: std.Thread.Condition = .{},
 counter: usize = 0,
 
@@ -29,11 +29,11 @@ pub fn finish(self: *WaitGroup) void {
 }
 
 pub fn wait(self: *WaitGroup) void {
-    const held = self.lock.acquire();
-    defer held.release();
+    self.mutex.lock();
+    defer self.mutex.release();
 
     while (self.counter == 0) {
-        self.cond.wait(held, null) catch unreachable;
+        self.cond.wait(&self.mutex, null) catch unreachable;
     }
 }
 

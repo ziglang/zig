@@ -14,23 +14,17 @@ const Mutex = @This();
 
 impl: Impl = .{},
 
-pub fn tryAcquire(self: *Mutex) ?Held {
-    if (self.impl.tryAcquire()) return Held{ .mutex = self };
-    return null;
+pub fn tryLock(self: *Mutex) bool {
+    return self.impl.tryLock();
 }
 
-pub fn acquire(self: *Mutex) Held {
-    self.impl.acquire();
-    return Held{ .mutex = self };
+pub fn lock(self: *Mutex) void {
+    self.impl.lock();
 }
 
-pub const Held = struct {
-    mutex: *Mutex,
-
-    pub fn release(self: Held) void {
-        self.mutex.impl.release();
-    }
-};
+pub fn unlock(self: *Mutex) void {
+    self.impl.unlock();
+}
 
 pub const Impl = if (single_threaded)
     SerialImpl
@@ -44,19 +38,19 @@ else
 const SerialImpl = struct {
     is_locked: bool = false,
 
-    pub fn tryAcquire(self: *Impl) bool {
+    pub fn tryLock(self: *Impl) bool {
         if (self.is_locked) return false;
         self.is_locked = true;
         return true;
     }
 
-    pub fn acquire(self: *Impl) void {
+    pub fn lock(self: *Impl) void {
         if (self.is_locked) unreachable; // deadlock detected
         self.is_locked = true;
     }
 
-    pub fn release(self: *Impl) void {
-        if (!self.is_locked) unreachable; // released when not acquired
+    pub fn unlock(self: *Impl) void {
+        if (!self.is_locked) unreachable; // unlocked when not locked
         self.is_locked = false;
     }
 };
@@ -64,15 +58,15 @@ const SerialImpl = struct {
 const WindowsImpl = struct {
     srwlock: os.windows.SRWLOCK = os.windows.SRWLOCK_INIT,
 
-    pub fn tryAcquire(self: *Impl) bool {
+    pub fn tryLock(self: *Impl) bool {
         return os.windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != os.windows.FALSE;
     }
 
-    pub fn acquire(self: *Impl) void {
+    pub fn lock(self: *Impl) void {
         os.windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
     }
 
-    pub fn release(self: *Impl) void {
+    pub fn unlock(self: *Impl) void {
         os.windows.kernel32.ReleaseSRWLockExclusive(&self.srwlock);
     }
 };
@@ -80,15 +74,15 @@ const WindowsImpl = struct {
 const DarwinImpl = struct {
     oul: os.darwin.os_unfair_lock = .{},
 
-    pub fn tryAcquire(self: *Impl) bool {
+    pub fn tryLock(self: *Impl) bool {
         return os.darwin.os_unfair_lock_trylock(&self.oul);
     }
 
-    pub fn acquire(self: *Impl) void {
+    pub fn lock(self: *Impl) void {
         return os.darwin.os_unfair_lock_lock(&self.oul);
     }
 
-    pub fn release(self: *Impl) void {
+    pub fn unlock(self: *Impl) void {
         return os.darwin.os_unfair_lock_unlock(&self.oul);
     }
 };
@@ -101,28 +95,31 @@ const FutexImpl = struct {
 
     const UNLOCKED = 0;
     const LOCKED = 0b01;
-    const CONTENDED = 0b11;
+    const CONTENDED = 0b11; // must have same bit set as LOCKED for x86
+
     const is_x86 = target.cpu.arch.isX86();
 
-    pub fn tryAcquire(self: *Impl) bool {
-        return self.acquireFast(true);
+    pub fn tryLock(self: *Impl) bool {
+        return self.lockFast(true);
     }
 
-    pub fn acquire(self: *Impl) void {
-        if (!self.acquireFast(false)) {
-            self.acquireSlow();
+    pub fn lock(self: *Impl) void {
+        if (!self.lockFast(false)) {
+            self.lockSlow();
         }
     }
 
-    inline fn acquireFast(self: *Impl, comptime strong: bool) bool {
+    const LockRetry = enum { weak, strong };
+
+    inline fn lockFast(self: *Impl, comptime lock_retry: LockRetry) bool {
         // On x86, "lock bts" uses less i-cache & can be faster than "lock cmpxchg" below.
         if (is_x86) {
             return self.state.bitSet(@ctz(u32, LOCKED), .Acquire) == UNLOCKED;
         }
 
-        const cas_fn = switch (strong) {
-            true => "compareAndSwap",
-            else => "tryCompareAndSwap",
+        const cas_fn = switch (lock_retry) {
+            .weak => "tryCompareAndSwap",
+            .strong => "compareAndSwap",
         };
 
         return @field(self.state, cas_fn)(
@@ -133,31 +130,38 @@ const FutexImpl = struct {
         ) == null;
     }
 
-    noinline fn acquireSlow(self: *Impl) void {
+    noinline fn lockSlow(self: *Impl) void {
         // Spin a little bit on the Mutex state in the hopes that
-        // we can acquire it without having to call Futex.wait().
-        // Give up spinning if the Mutex is contended.
-        // This helps acquire() latency under micro-contention.
+        // we can lock it without having to call Futex.wait().
         var spin = SpinWait{};
         while (spin.yield()) {
             switch (self.state.load(.Monotonic)) {
-                UNLOCKED => _ = self.state.tryCompareAndSwap(
-                    UNLOCKED,
-                    LOCKED,
-                    .Acquire,
-                    .Monotonic,
-                ) orelse return,
-                LOCKED => continue,
-                CONTENDED => break,
+                UNLOCKED => {
+                    // Only try to grab the Mutex when it's unlocked
+                    _ = self.state.tryCompareAndSwap(
+                        UNLOCKED,
+                        LOCKED,
+                        .Acquire,
+                        .Monotonic,
+                    ) orelse return;
+                },
+                LOCKED => {
+                    continue;
+                },
+                CONTENDED => {
+                    // Give up spinning if the Mutex is contended.
+                    // This helps bound spin latency under contention.
+                    break;
+                },
                 else => unreachable, // invalid Mutex state
             }
         }
 
-        // Make sure the state is CONTENDED before sleeping with Futex so release() can wake us up.
-        // Transitioning to CONTENDED may also acquire the mutex in the process.
+        // Make sure the state is CONTENDED before sleeping with Futex so unlock() can wake us up.
+        // Transitioning to CONTENDED may also lock the mutex in the process.
         //
-        // If we sleep, we must acquire the Mutex with CONTENDED to ensure that other threads
-        // sleeping on the Futex having seen CONTENDED before are eventually woken up by release().
+        // If we sleep, we must lock the Mutex with CONTENDED to ensure that other threads sleeping 
+        // on the Futex that have seen state=CONTENDED before are eventually woken up by unlock().
         // This unfortunately ends up in an extra Futex.wake() for the last thread but that's ok.
         while (true) : (Futex.wait(&self.state, CONTENDED, null) catch unreachable) {
             // On x86, "xchg" can be faster than "lock cmpxchg" below.
@@ -169,6 +173,9 @@ const FutexImpl = struct {
                 }
             }
 
+            // UNLOCKED -> CONTENDED (acquires the lock)
+            // LOCKED -> CONTENDED (marks that there's threads waiting)
+            // CONTENDED -> nothing (just go to sleep)
             var state = self.state.load(.Monotonic);
             while (state != CONTENDED) {
                 state = switch (state) {
@@ -181,9 +188,9 @@ const FutexImpl = struct {
         }
     }
 
-    pub fn release(self: *Impl) void {
+    pub fn unlock(self: *Impl) void {
         switch (self.state.swap(UNLOCKED, .Release)) {
-            UNLOCKED => unreachable, // released without being acquired
+            UNLOCKED => unreachable, // unlocked without being locked
             LOCKED => {},
             CONTENDED => Futex.wake(&self.state, 1),
             else => unreachable, // invalid Mutex state
@@ -194,16 +201,16 @@ const FutexImpl = struct {
 test "Mutex - basic" {
     var mutex = Mutex{};
 
-    // Test that tryAcquire() is mutually exclusive
-    var held = mutex.tryAcquire() orelse return error.MutexTryAcquire;
-    try testing.expectEqual(mutex.tryAcquire(), null);
-    try testing.expectEqual(mutex.tryAcquire(), null);
-    held.release();
+    // Test that tryLock() is mutually exclusive
+    try testing.expect(mutex.tryLock());
+    try testing.expect(!mutex.tryLock());
+    try testing.expect(!mutex.tryLock());
+    mutex.unlock();
 
-    // Also test with acquire()
-    held = mutex.acquire();
-    try testing.expectEqual(mutex.tryAcquire(), null);
-    held.release();
+    // Also test with lock()
+    mutex.lock();
+    try testing.expect(!mutex.tryLock());
+    mutex.unlock();
 }
 
 test "Mutex - racy" {
@@ -214,13 +221,14 @@ test "Mutex - racy" {
 
     const Context = struct {
         mutex: Mutex = .{},
-        value: u128 = 0, // u128 to hint at disabling atomic updates
+        // u128 >= to hint at disabling atomic reads/writes as entire value shouldn't fit in native registers
+        value: u128 = 0, 
 
         fn run(self: *@This()) void {
             var i: usize = 0;
             while (i < num_iters_per_thread) : (i += 1) {
-                const held = self.mutex.acquire();
-                defer held.release();
+                self.mutex.lock();
+                defer self.mutex.unlock();
 
                 const value = self.value;
                 std.os.sched_yield() catch {}; // hint to increase chance of thread interleaving
