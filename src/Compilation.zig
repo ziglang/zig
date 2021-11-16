@@ -982,6 +982,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 break :blk false;
             } else if (options.c_source_files.len == 0) {
                 break :blk false;
+            } else if (options.target.os.tag == .windows and link_libcpp) {
+                // https://github.com/ziglang/zig/issues/8531
+                break :blk false;
             } else switch (options.output_mode) {
                 .Lib, .Obj => break :blk false,
                 .Exe => switch (options.optimize_mode) {
