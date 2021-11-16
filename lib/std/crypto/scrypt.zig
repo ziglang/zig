@@ -1,5 +1,6 @@
 // https://tools.ietf.org/html/rfc7914
 // https://github.com/golang/crypto/blob/master/scrypt/scrypt.go
+// https://github.com/Tarsnap/scrypt
 
 const std = @import("std");
 const crypto = std.crypto;
@@ -119,11 +120,19 @@ fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16)
     }
 }
 
+/// Scrypt parameters
 pub const Params = struct {
     const Self = @This();
 
+    /// The CPU/Memory cost parameter [ln] is log2(N).
     ln: u6,
+
+    /// The [r]esource usage parameter specifies the block size.
     r: u30,
+
+    /// The [p]arallelization parameter.
+    /// A large value of [p] can be used to increase the computational cost of scrypt without 
+    /// increasing the memory usage.
     p: u30,
 
     /// Baseline parameters for interactive logins
@@ -132,7 +141,7 @@ pub const Params = struct {
     /// Baseline parameters for offline usage
     pub const sensitive = Self.fromLimits(33554432, 1073741824);
 
-    /// Create parameters from ops and mem limits
+    /// Create parameters from ops and mem limits, where mem_limit given in bytes
     pub fn fromLimits(ops_limit: u64, mem_limit: usize) Self {
         const ops = math.max(32768, ops_limit);
         const r: u30 = 8;
@@ -170,7 +179,8 @@ pub fn kdf(
     salt: []const u8,
     params: Params,
 ) KdfError!void {
-    if (derived_key.len == 0 or derived_key.len / 32 > 0xffff_ffff) return KdfError.OutputTooLong;
+    if (derived_key.len == 0) return KdfError.WeakParameters;
+    if (derived_key.len / 32 > 0xffff_ffff) return KdfError.OutputTooLong;
     if (params.ln == 0 or params.r == 0 or params.p == 0) return KdfError.WeakParameters;
 
     const n64 = @as(u64, 1) << params.ln;
@@ -484,6 +494,8 @@ const CryptFormatHasher = struct {
 };
 
 /// Options for hashing a password.
+///
+/// Allocator is required for scrypt.
 pub const HashOptions = struct {
     allocator: ?*mem.Allocator,
     params: Params,
@@ -505,6 +517,8 @@ pub fn strHash(
 }
 
 /// Options for hash verification.
+///
+/// Allocator is required for scrypt.
 pub const VerifyOptions = struct {
     allocator: ?*mem.Allocator,
 };
@@ -609,14 +623,16 @@ test "kdf rfc 4" {
 test "password hashing (crypt format)" {
     if (!run_long_tests) return error.SkipZigTest;
 
+    const alloc = std.testing.allocator;
+
     const str = "$7$A6....1....TrXs5Zk6s8sWHpQgWDIXTR8kUU3s6Jc3s.DtdS8M2i4$a4ik5hGDN7foMuHOW.cp.CtX01UyCeO0.JAG.AHPpx5";
     const password = "Y0!?iQa9M%5ekffW(`";
-    try CryptFormatHasher.verify(std.testing.allocator, str, password);
+    try CryptFormatHasher.verify(alloc, str, password);
 
     const params = Params.interactive;
     var buf: [CryptFormatHasher.pwhash_str_length]u8 = undefined;
-    const str2 = try CryptFormatHasher.create(std.testing.allocator, password, params, &buf);
-    try CryptFormatHasher.verify(std.testing.allocator, str2, password);
+    const str2 = try CryptFormatHasher.create(alloc, password, params, &buf);
+    try CryptFormatHasher.verify(alloc, str2, password);
 }
 
 test "strHash and strVerify" {
@@ -625,22 +641,26 @@ test "strHash and strVerify" {
     const alloc = std.testing.allocator;
 
     const password = "testpass";
+    const params = Params.interactive;
     const verify_options = VerifyOptions{ .allocator = alloc };
     var buf: [128]u8 = undefined;
 
-    const s = try strHash(
-        password,
-        HashOptions{ .allocator = alloc, .params = Params.interactive, .encoding = .crypt },
-        &buf,
-    );
-    try strVerify(s, password, verify_options);
-
-    const s1 = try strHash(
-        password,
-        HashOptions{ .allocator = alloc, .params = Params.interactive, .encoding = .phc },
-        &buf,
-    );
-    try strVerify(s1, password, verify_options);
+    {
+        const str = try strHash(
+            password,
+            .{ .allocator = alloc, .params = params, .encoding = .crypt },
+            &buf,
+        );
+        try strVerify(str, password, verify_options);
+    }
+    {
+        const str = try strHash(
+            password,
+            .{ .allocator = alloc, .params = params, .encoding = .phc },
+            &buf,
+        );
+        try strVerify(str, password, verify_options);
+    }
 }
 
 test "unix-scrypt" {
@@ -668,4 +688,29 @@ test "crypt format" {
     var buf: [str.len]u8 = undefined;
     const s1 = try crypt_format.serialize(params, &buf);
     try std.testing.expectEqualStrings(s1, str);
+}
+
+test "kdf fast" {
+    const TestVector = struct {
+        password: []const u8,
+        salt: []const u8,
+        params: Params,
+        want: []const u8,
+    };
+    const test_vectors = [_]TestVector{
+        .{
+            .password = "p",
+            .salt = "s",
+            .params = .{ .ln = 1, .r = 1, .p = 1 },
+            .want = &([_]u8{
+                0x48, 0xb0, 0xd2, 0xa8, 0xa3, 0x27, 0x26, 0x11,
+                0x98, 0x4c, 0x50, 0xeb, 0xd6, 0x30, 0xaf, 0x52,
+            }),
+        },
+    };
+    inline for (test_vectors) |v| {
+        var dk: [v.want.len]u8 = undefined;
+        try kdf(std.testing.allocator, &dk, v.password, v.salt, v.params);
+        try std.testing.expectEqualSlices(u8, &dk, v.want);
+    }
 }
