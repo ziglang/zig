@@ -15,27 +15,27 @@ const Once = @This();
 
 impl: Impl = .{},
 
-pub fn call(self: *Once, comptime f: fn () void) void {
-    self.impl.call(f);
+pub fn call(self: *Once, comptime func: anytype, args: anytype) void {
+    self.impl.call(func, args);
 }
 
+// pthread_once() doesn't support arguments
+// and can be simulated with std.Thread.Futex.
 pub const Impl = if (single_threaded)
     SerialImpl
 else if (target.os.tag == .windows)
     WindowsImpl
 else if (target.os.tag.isDarwin())
     DarwinImpl
-else if (std.Thread.use_pthreads)
-    PosixImpl
 else
     FutexImpl;
 
 const SerialImpl = struct {
     was_called: bool = false,
 
-    fn call(self: *Impl, f: fn () void) void {
+    fn call(self: *Impl, comptime func: anytype, args: anytype) void {
         if (self.was_called) return;
-        f();
+        @call(.{}, func, args);
         self.was_called = true;
     }
 };
@@ -43,44 +43,57 @@ const SerialImpl = struct {
 const DarwinImpl = struct {
     once: os.darwin.dispatch_once_t = 0,
 
-    fn call(self: *Impl, comptime f: fn () void) void {
+    fn call(self: *Impl, comptime func: anytype, args: anytype) void {
+        const Args = @TypeOf(args);
         const InitFn = struct {
-            fn init(ctx: ?*c_void) callconv(.C) void {
-                _ = ctx;
-                f();
+            fn init(context: ?*c_void) callconv(.C) void {
+                _ = @call(.{}, func, blk: {
+                    // @alignCast() below doesn't support zero-sized-types (ZST)
+                    if (@sizeOf(Args) == 0)
+                        break :blk @as(Args, undefined);
+
+                    const ptr = context orelse unreachable;
+                    const args_ptr = @ptrCast(*Args, @alignCast(@alignOf(Args), ptr));
+                    break :blk args_ptr.*;
+                });
             }
         };
-        os.darwin.dispatch_once_f(&self.once, null, InitFn.init);
+
+        var args_ptr: *c_void = undefined;
+        if (@sizeOf(Args) > 0)
+            args_ptr = @intToPtr(*c_void, @ptrToInt(&args));
+
+        os.darwin.dispatch_once_f(&self.once, args_ptr, InitFn.init);
     }
 };
 
 const WindowsImpl = struct {
     once: os.windows.INIT_ONCE = os.windows.INIT_ONCE_STATIC_INIT,
 
-    fn call(self: *Impl, comptime f: fn () void) void {
+    fn call(self: *Impl, comptime func: anytype, args: anytype) void {
+        const Args = @TypeOf(args);
         const InitFn = struct {
-            fn init(once: *os.windows.INIT_ONCE, param: ?*c_void, ctx: ?*c_void) callconv(.C) os.windows.BOOL {
+            fn init(once: *os.windows.INIT_ONCE, parameter: ?*c_void, context: ?*c_void) callconv(.C) os.windows.BOOL {
                 _ = once;
-                _ = param;
-                _ = ctx;
-                f();
+                _ = context;                
+                _ = @call(.{}, func, blk: {
+                    // @alignCast() below doesn't support zero-sized-types (ZST)
+                    if (@sizeOf(Args) == 0)
+                        break :blk @as(Args, undefined);
+
+                    const ptr = parameter orelse unreachable;
+                    const args_ptr = @ptrCast(*Args, @alignCast(@alignOf(Args), ptr));
+                    break :blk args_ptr.*;
+                });
                 return os.windows.TRUE;
             }
         };
-        os.windows.InitOnceExecuteOnce(&self.once, InitFn.init, null, null);
-    }
-};
 
-const PosixImpl = extern struct {
-    once: c.pthread_once_t = .{},
+        var args_ptr: *c_void = undefined;
+        if (@sizeOf(Args) > 0)
+            args_ptr = @intToPtr(*c_void, @ptrToInt(&args));
 
-    fn call(self: *Impl, comptime f: fn () void) void {
-        const InitFn = struct {
-            fn init() callconv(.C) void {
-                f();
-            }
-        };
-        assert(c.pthread_once(&self.once, InitFn.init) == .SUCCESS);
+        os.windows.InitOnceExecuteOnce(&self.once, InitFn.init, args_ptr, null);
     }
 };
 
@@ -92,20 +105,23 @@ const FutexImpl = extern struct {
     const WAITING = 2;
     const CALLED = 3;
 
-    fn call(self: *Impl, f: fn () void) void {
-        if (self.state.load(.Acquire) == CALLED) return;
-        self.callSlow(f);
+    fn call(self: *Impl, comptime func: anytype, args: anytype) void {
+        // Fast path, Acquire barrier to ensure callSlow changes are seen on return.
+        if (self.state.load(.Acquire) == CALLED) 
+            return;
+
+        self.callSlow(func, args);
     }
 
-    noinline fn callSlow(self: *Impl, f: fn () void) void {
+    noinline fn callSlow(self: *Impl, comptime func: anytype, args: anytype) void {
         @setCold(true);
 
-        // Try to transition from UNCALLED -> CALLING in order to call f().
+        // Try to transition from UNCALLED -> CALLING in order to call func().
         // Once called, transition to CALLED and wake up waiting threads if WAITING.
         var state = self.state.load(.Acquire);
         if (state == UNCALLED) {
             state = self.state.compareAndSwap(UNCALLED, CALLING, .Acquire, .Acquire) orelse {
-                f();
+                _ = @call(.{}, func, args);
                 return switch (self.state.swap(CALLED, .Release)) {
                     UNCALLED => unreachable, // invoked function while not CALLING
                     CALLING => {},
@@ -151,12 +167,12 @@ test "Once" {
         var once = Once{};
         var number: i32 = 0;
 
-        fn inc() void {
-            number += 1;
+        fn inc(value: i32) void {
+            number += value;
         }
 
         fn call() void {
-            once.call(inc);
+            once.call(inc, .{1});
         }
     };
 

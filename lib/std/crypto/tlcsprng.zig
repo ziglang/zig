@@ -143,7 +143,7 @@ fn tlsCsprngFill(_: *c_void, buffer: []u8) void {
 }
 
 fn setupPthreadAtforkAndFill(buffer: []u8) void {
-    install_atfork_handler_once.call(installAtForkHandler);
+    install_atfork_handler_once.call(installAtForkHandler, .{});
     return initAndFill(buffer);
 }
 

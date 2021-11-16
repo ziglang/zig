@@ -299,7 +299,7 @@ const emutls_control = extern struct {
     /// Get the pointer on allocated storage for emutls variable.
     pub fn getPointer(self: *emutls_control) *c_void {
         // ensure current_thread_storage initialization is done
-        current_thread_storage.init_once.call(current_thread_storage.init);
+        current_thread_storage.init_once.call(current_thread_storage.init, .{});
 
         const index = self.getIndex();
         var array = current_thread_storage.getArray(index);
