@@ -175,7 +175,11 @@ pub const Type = extern union {
             => false,
 
             .Pointer => is_equality_cmp or ty.isCPtr(),
-            .Optional => is_equality_cmp and ty.isPtrLikeOptional(),
+            .Optional => {
+                if (!is_equality_cmp) return false;
+                var buf: Payload.ElemType = undefined;
+                return ty.optionalChild(&buf).isSelfComparable(is_equality_cmp);
+            },
         };
     }
 

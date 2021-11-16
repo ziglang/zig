@@ -3,40 +3,6 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "equality compare optional with non-optional" {
-    try test_cmp_optional_non_optional();
-    comptime try test_cmp_optional_non_optional();
-}
-
-fn test_cmp_optional_non_optional() !void {
-    var ten: i32 = 10;
-    var opt_ten: ?i32 = 10;
-    var five: i32 = 5;
-    var int_n: ?i32 = null;
-
-    try expect(int_n != ten);
-    try expect(opt_ten == ten);
-    try expect(opt_ten != five);
-
-    // test evaluation is always lexical
-    // ensure that the optional isn't always computed before the non-optional
-    var mutable_state: i32 = 0;
-    _ = blk1: {
-        mutable_state += 1;
-        break :blk1 @as(?f64, 10.0);
-    } != blk2: {
-        try expect(mutable_state == 1);
-        break :blk2 @as(f64, 5.0);
-    };
-    _ = blk1: {
-        mutable_state += 1;
-        break :blk1 @as(f64, 10.0);
-    } != blk2: {
-        try expect(mutable_state == 2);
-        break :blk2 @as(?f64, 5.0);
-    };
-}
-
 test "unwrap function call with optional pointer return value" {
     const S = struct {
         fn entry() !void {
