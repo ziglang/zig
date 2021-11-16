@@ -19,7 +19,7 @@ test {
     _ = @import("behavior/bugs/4769_b.zig");
     _ = @import("behavior/bugs/6850.zig");
     _ = @import("behavior/call.zig");
-    _ = @import("behavior/cast_c.zig");
+    _ = @import("behavior/cast.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/hasdecl.zig");
@@ -52,7 +52,7 @@ test {
         _ = @import("behavior/bugs/1741.zig");
         _ = @import("behavior/bugs/2006.zig");
         _ = @import("behavior/bugs/3112.zig");
-        _ = @import("behavior/cast.zig");
+        _ = @import("behavior/cast_llvm.zig");
         _ = @import("behavior/error.zig");
         _ = @import("behavior/eval.zig");
         _ = @import("behavior/floatop.zig");
