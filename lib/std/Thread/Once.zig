@@ -40,6 +40,29 @@ const SerialImpl = struct {
     }
 };
 
+/// Simple cross-platform Once implementation 
+/// for maintainers in case the others become buggy or break somehow.
+const SimpleFutexImpl = struct {
+    mutex: std.Thread.Mutex = .{},
+    called: Atomic(bool) = Atomic(bool).init(false),
+
+    fn call(self: *Impl, comptime func: anytype, args: anytype) void {
+        if (self.called.load(.Acquire))
+            return;
+
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (!self.called.loadUnchecked()) {
+            _ = @call(.{}, func, args);
+            self.called.store(true, .Release);
+        }
+    }
+};
+
+/// Darwin implementation which relies on dispatch_once
+/// which does some COMM_PAGE access magic 
+/// and waits more efficiently than FutexImpl.
 const DarwinImpl = struct {
     once: os.darwin.dispatch_once_t = 0,
 
@@ -67,6 +90,9 @@ const DarwinImpl = struct {
     }
 };
 
+/// Windows implementation relying on INIT_ONCE 
+/// which uses NtWaitForAlertByThreadId
+/// and waits for efficiently than FutexImpl.
 const WindowsImpl = struct {
     once: os.windows.INIT_ONCE = os.windows.INIT_ONCE_STATIC_INIT,
 
@@ -97,6 +123,7 @@ const WindowsImpl = struct {
     }
 };
 
+/// Futex implementation heavily optimized for fast paths
 const FutexImpl = extern struct {
     state: Atomic(u32) = Atomic(u32).init(UNCALLED),
 

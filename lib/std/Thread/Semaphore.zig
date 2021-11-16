@@ -69,6 +69,49 @@ const SerialImpl = struct {
     }
 };
 
+/// Simple cross-platform Semaphore implementation 
+/// for maintainers in case the others become buggy or break somehow.
+const SimpleFutexImpl = struct {
+    value: Atomic(u32) = Atomic(u32).init(0),
+
+    pub fn init(count: u31) Impl {
+        return .{ .value = Atomic(u32).init(count) };
+    }
+
+    pub fn tryWait(self: *Impl) bool {
+        var value = self.value.load(.Monotonic);
+        while (value > 0)
+            value = self.value.tryCompareAndSwap(
+                value, 
+                value - 1, 
+                .Acquire, 
+                .Monotonic,
+            ) orelse return true;
+        return false;
+    }
+
+    pub fn wait(self: *Impl, timeout: ?u64) error{TimedOut}!void {
+        var deadline: ?i128 = null;
+        if (timeout) |timeout_ns|
+            deadline = std.time.nanoTimestamp() + timeout_ns;
+
+        while (!self.tryWait()) {
+            _ = Futex.wait(&self.value, 0, blk: {
+                const deadline_ns = deadline orelse break :blk null;
+                const now_ns = std.time.nanoTimestamp();
+                if (now_ns >= deadline_ns) return error.TimedOut;
+                break :blk @intCast(u64, deadline_ns - now_ns);
+            });
+        }
+    }
+
+    pub fn post(self: *Impl, count: u31) void {
+        const value = self.value.fetchAdd(count, .Release);
+        assert(value < std.math.maxInt(u31) - count);
+        Futex.wake(&self.value, count);
+    }
+};
+
 /// Modified implementation of dispatch_semaphore_t but for Windows.
 /// https://github.com/apple/swift-corelibs-libdispatch/blob/main/src/semaphore.c 
 const WindowsImpl = struct {

@@ -55,6 +55,39 @@ const SerialImpl = struct {
     }
 };
 
+/// Simple cross-platform Mutex implementation 
+/// for maintainers in case the others become buggy or break somehow.
+const SimpleFutexImpl = struct {
+    state: Atomic(u32) = Atomic(u32).init(UNLOCKED),
+
+    const UNLOCKED = 0;
+    const LOCKED = 1;
+    const WAITING = 2;
+
+    pub fn tryLock(self: *Impl) bool {
+        return self.state.compareAndSwap(
+            UNLOCKED,
+            LOCKED,
+            .Acquire,
+            .Monotonic,
+        ) == null;
+    }
+
+    pub fn lock(self: *Impl) void {
+        if (self.tryLock())
+            return;
+
+        while (self.state.swap(WAITING, .Acquire) != UNLOCKED)
+            Futex.wait(&self.state, WAITING, null) catch unreachable;
+    }
+
+    pub fn unlock(self: *Impl) void {
+        if (self.state.swap(UNLOCKED, .Release) == WAITING)
+            Futex.wake(&self.state, 1);
+    }
+};
+
+/// SRWLOCK appears to scale better generically on windows in mutex benchmarks.
 const WindowsImpl = struct {
     srwlock: os.windows.SRWLOCK = os.windows.SRWLOCK_INIT,
 
@@ -71,6 +104,7 @@ const WindowsImpl = struct {
     }
 };
 
+/// os_unfair_lock appears to be the fastest option generically in benchmarks on darwin.
 const DarwinImpl = struct {
     oul: os.darwin.os_unfair_lock = .{},
 

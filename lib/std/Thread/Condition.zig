@@ -51,6 +51,32 @@ const SerialImpl = struct {
     }
 };
 
+/// Simple but slow cross-platform Condition implementation 
+/// for maintainers in case the others become buggy or break somehow.
+const SimpleFutexImpl = struct {
+    state: Atomic(u32) = Atomic(u32).init(0),
+
+    fn wait(self: *Impl, mutex: *Mutex, timeout: ?u64) error{TimedOut}!void {
+        const wait_state = self.state.load(.Monotonic);
+        defer _ = self.state.load(.Acquire); // synchronize with wake() since it doesn't lock mutex
+
+        mutex.unlock();
+        defer mutex.lock();
+
+        try Futex.wait(&self.state, wait_state, timeout);
+    }
+
+    fn wake(self: *Impl, notify_all: bool) void {
+        _ = self.state.fetchAdd(1, .Release);
+
+        const waiters = if (notify_all) std.math.maxInt(u32) else 1;
+        Futex.wake(&self.state, waiters);
+    }
+};
+
+/// No need to implement a custom Condition variable
+/// when Windows provides one that's tightly coupled with SRWLOCK
+/// which most likely sleeps more efficiently (untested claim).
 const WindowsImpl = struct {
     cond: os.windows.CONDITION_VARIABLE = os.windows.CONDITION_VARIABLE_INIT,
 
