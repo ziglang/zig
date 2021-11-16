@@ -1306,15 +1306,15 @@ fn airPtrSliceFieldPtr(f: *Function, inst: Air.Inst.Index, suffix: []const u8) !
 
 fn airPtrElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
-    const slice_ty = f.air.typeOf(bin_op.lhs);
-    if (!slice_ty.isVolatilePtr() and f.liveness.isUnused(inst)) return CValue.none;
+    const ptr_ty = f.air.typeOf(bin_op.lhs);
+    if (!ptr_ty.isVolatilePtr() and f.liveness.isUnused(inst)) return CValue.none;
 
-    const arr = try f.resolveInst(bin_op.lhs);
+    const ptr = try f.resolveInst(bin_op.lhs);
     const index = try f.resolveInst(bin_op.rhs);
     const writer = f.object.writer();
     const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
     try writer.writeAll(" = ");
-    try f.writeCValue(writer, arr);
+    try f.writeCValue(writer, ptr);
     try writer.writeByte('[');
     try f.writeCValue(writer, index);
     try writer.writeAll("];\n");
@@ -1327,12 +1327,12 @@ fn airPtrElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
 
-    const arr = try f.resolveInst(bin_op.lhs);
+    const ptr = try f.resolveInst(bin_op.lhs);
     const index = try f.resolveInst(bin_op.rhs);
     const writer = f.object.writer();
     const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
     try writer.writeAll(" = &");
-    try f.writeCValue(writer, arr);
+    try f.writeCValue(writer, ptr);
     try writer.writeByte('[');
     try f.writeCValue(writer, index);
     try writer.writeAll("];\n");
