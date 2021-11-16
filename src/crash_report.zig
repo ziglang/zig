@@ -505,8 +505,8 @@ const PanicSwitch = struct {
             // and call abort()
 
             // Sleep forever without hammering the CPU
-            var event: std.Thread.StaticResetEvent = .{};
-            event.wait();
+            while (true) std.time.sleep(std.math.maxInt(u64));
+
             // This should be unreachable, recurse into recoverAbort.
             @panic("event.wait() returned");
         }
