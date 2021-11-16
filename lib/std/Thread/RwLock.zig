@@ -13,47 +13,29 @@ const RwLock = @This();
 
 impl: Impl = .{},
 
-pub fn tryAcquire(self: *RwLock) ?Held {
-    if (self.impl.tryAcquireWriter()) return Held.initExclusive(self);
-    return null;
+pub fn tryLock(self: *RwLock) bool {
+    return self.impl.tryAcquireWriter();
 }
 
-pub fn acquire(self: *RwLock) Held {
+pub fn lock(self: *RwLock) void {
     self.impl.acquireWriter();
-    return Held.initExclusive(self);
 }
 
-pub fn tryAcquireShared(self: *RwLock) ?Held {
-    if (self.impl.tryAcquireReader()) return Held.initShared(self);
-    return null;
+pub fn unlock(self: *RwLock) void {
+    self.impl.releaseWriter();
 }
 
-pub fn acquireShared(self: *RwLock) Held {
+pub fn tryLockShared(self: *RwLock) bool {
+    return self.impl.tryAcquireReader();
+}
+
+pub fn lockShared(self: *RwLock) void {
     self.impl.acquireReader();
-    return Held.initShared(self);
 }
 
-pub const Held = struct {
-    ptr: usize,
-
-    fn initExclusive(rwlock: *RwLock) Held {
-        return .{ .ptr = @ptrToInt(rwlock) };
-    }
-
-    fn initShared(rwlock: *RwLock) Held {
-        return .{ .ptr = @ptrToInt(rwlock) | 1 };
-    }
-
-    pub fn release(self: Held) void {
-        const is_shared = self.ptr & 1 != 0;
-        const rwlock = @intToPtr(*RwLock, self.ptr & ~@as(usize, 1));
-
-        switch (is_shared) {
-            true => rwlock.impl.releaseReader(),
-            else => rwlock.impl.releaseWriter(),
-        }
-    }
-};
+pub fn unlockShared(self: *RwLock) void {
+    self.impl.releaseReader();
+}
 
 pub const Impl = if (single_threaded)
     SerialImpl
@@ -106,6 +88,8 @@ const SerialImpl = struct {
     }
 };
 
+/// In parking_lot benchmarks, SRWLOCK seems to scale better in throughput
+/// compared to the FutexImpl based on parking_lot down below.
 const WindowsImpl = struct {
     srwlock: os.windows.SRWLOCK = os.windows.SRWLOCK_INIT,
 
@@ -147,14 +131,6 @@ const FutexImpl = struct {
     const READER = 1 << 3;
     const READER_MASK = ~@as(usize, READER - 1);
 
-    fn tryAcquireReader(self: *Impl) bool {
-        var state = self.state.load(.Monotonic);
-        while (true) {
-            const result = self.tryAcquireReaderWith(state) catch return false;
-            state = result orelse return true;
-        }
-    }
-
     inline fn tryAcquireReaderWith(self: *Impl, state: usize) error{ Writer, Overflow }!?usize {
         if (state & WRITER != 0) {
             return error.Writer;
@@ -171,6 +147,14 @@ const FutexImpl = struct {
             .Acquire,
             .Monotonic,
         );
+    }
+
+    fn tryAcquireReader(self: *Impl) bool {
+        var state = self.state.load(.Monotonic);
+        while (true) {
+            const result = self.tryAcquireReaderWith(state) catch return false;
+            state = result orelse return true;
+        }
     }
 
     fn acquireReader(self: *Impl) void {
@@ -253,12 +237,14 @@ const FutexImpl = struct {
     }
 
     fn acquireWriter(self: *Impl) void {
+        // acquireWriterFast()
         _ = self.state.tryCompareAndSwap(
             UNLOCKED,
             WRITER,
             .Acquire,
             .Monotonic,
         ) orelse return;
+
         self.acquireWriterSlow();
     }
 
@@ -289,16 +275,15 @@ const FutexImpl = struct {
         // Having acquired the WRITER bit, wait for all pending readers to exit.
         self.acquireWith(WRITER, WRITER_PARKED, struct {
             pub fn tryAcquireWith(impl: *Impl) ?usize {
-                // Acquire to synchronize with the Release of readers
+                // Acquire barrier to synchronize with the Release of readers
                 // which ensures the loads done by the readers happen
                 // before this writer fully acquires the RwLock and starts writing.
                 const state = impl.state.load(.Acquire);
                 assert(state & WRITER != 0);
 
-                return switch (state & READER_MASK) {
-                    0 => null,
-                    else => state,
-                };
+                // Terminate `acquireWith` when there's no readers
+                if (state & READER_MASK == 0) return null;
+                return state;
             }
 
             pub fn shouldWait(state: usize) bool {
@@ -314,12 +299,14 @@ const FutexImpl = struct {
     }
 
     fn releaseWriter(self: *Impl) void {
+        // releaseWriterFast()
         _ = self.state.compareAndSwap(
             WRITER,
             UNLOCKED,
             .Release,
             .Monotonic,
         ) orelse return;
+
         self.releaseWriterSlow();
     }
 
