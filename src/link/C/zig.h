@@ -127,6 +127,8 @@
 #define int128_t __int128
 #define uint128_t unsigned __int128
 
+ZIG_EXTERN_C float floorf (float arg);
+ZIG_EXTERN_C double floor (double arg);
 ZIG_EXTERN_C void *memcpy (void *ZIG_RESTRICT, const void *ZIG_RESTRICT, size_t);
 ZIG_EXTERN_C void *memset (void *, int, size_t);
 ZIG_EXTERN_C float truncf (float arg);
@@ -489,3 +491,25 @@ zig_clz(u64, uint64_t, 64)
 zig_clz(s64, int64_t, 64)
 zig_clz(u128, uint128_t, 128)
 zig_clz(s128, int128_t, 128)
+
+#define zig_divfloor_s(bits, T) \
+    static inline T zig_divfloor_s##bits(T a, T b) { \
+        /* if (b == 0) error */ \
+        T div = a/b; \
+        if ((a >= 0 && b > 0) || (a <= 0 && b < 0)) { \
+            return div;  \
+        } else { \
+            T remainder = a % b; \
+            if (remainder % b != 0) { \
+                return div - 1; \
+            } else { \
+                return div; \
+            } \
+        } \
+    }
+
+zig_divfloor_s(8, int8_t)
+zig_divfloor_s(16, int16_t)
+zig_divfloor_s(32, int32_t)
+zig_divfloor_s(64, int64_t)
+zig_divfloor_s(128, int128_t)
