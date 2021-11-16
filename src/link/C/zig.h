@@ -492,6 +492,28 @@ zig_clz(s64, int64_t, 64)
 zig_clz(u128, uint128_t, 128)
 zig_clz(s128, int128_t, 128)
 
+#define zig_popcount(ZT, T, bits) \
+    static inline uint8_t zig_popcount_##ZT(T x) { \
+        uint8_t count = 0; \
+        for (uint8_t i = bits; i > 0; i--) { \
+            if ((x >> (i-1)) & 1) { \
+                count++; \
+            } \
+        }  \
+        return count; \
+    }
+
+zig_popcount(u8, uint8_t, 8)
+zig_popcount(s8, int8_t, 8)
+zig_popcount(u16, uint16_t, 16)
+zig_popcount(s16, int16_t, 16)
+zig_popcount(u32, uint32_t, 32)
+zig_popcount(s32, int32_t, 32)
+zig_popcount(u64, uint64_t, 64)
+zig_popcount(s64, int64_t, 64)
+zig_popcount(u128, uint128_t, 128)
+zig_popcount(s128, int128_t, 128)
+
 #define zig_divfloor_s(bits, T) \
     static inline T zig_divfloor_s##bits(T a, T b) { \
         /* if (b == 0) error */ \

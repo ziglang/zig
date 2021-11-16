@@ -1225,7 +1225,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .get_union_tag    => try airGetUnionTag(f, inst),
             .clz              => try airBuiltinCall(f, inst, "zig_clz"),
             .ctz              => try airBuiltinCall(f, inst, "ctz"),
-            .popcount         => try airBuiltinCall(f, inst, "popcount"),
+            .popcount         => try airBuiltinCall(f, inst, "zig_popcount"),
 
             .int_to_float,
             .float_to_int,
