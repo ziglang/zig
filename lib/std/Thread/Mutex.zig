@@ -100,11 +100,11 @@ const FutexImpl = struct {
     const is_x86 = target.cpu.arch.isX86();
 
     pub fn tryLock(self: *Impl) bool {
-        return self.lockFast(true);
+        return self.lockFast(.strong);
     }
 
     pub fn lock(self: *Impl) void {
-        if (!self.lockFast(false)) {
+        if (!self.lockFast(.weak)) {
             self.lockSlow();
         }
     }
@@ -214,7 +214,8 @@ test "Mutex - basic" {
 }
 
 test "Mutex - racy" {
-    if (single_threaded) return error.SkipZigTest;
+    if (single_threaded) 
+        return error.SkipZigTest;
 
     const num_threads = 4;
     const num_iters_per_thread = 100;

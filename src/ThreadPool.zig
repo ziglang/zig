@@ -7,7 +7,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const ThreadPool = @This();
 
-mtuex: std.Thread.Mutex = .{},
+mutex: std.Thread.Mutex = .{},
 cond: std.Thread.Condition = .{},
 is_running: bool = true,
 allocator: *std.mem.Allocator,
