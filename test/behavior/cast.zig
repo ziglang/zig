@@ -251,6 +251,9 @@ test "*const ?[*]const T to [*c]const [*c]const T" {
 test "array coersion to undefined at runtime" {
     @setRuntimeSafety(true);
 
+    // setRuntimeSafety isn't recognized on stage2
+    if (@import("builtin").zig_is_stage2 and (@import("builtin").mode != .Debug or @import("builtin").mode != .ReleaseSafe)) return error.SkipZigTest;
+
     var array = [4]u8{ 3, 4, 5, 6 };
     var undefined_val = [4]u8{ 0xAA, 0xAA, 0xAA, 0xAA };
 
