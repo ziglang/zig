@@ -20,6 +20,9 @@ test "uint128" {
 test "undefined 128 bit int" {
     @setRuntimeSafety(true);
 
+    // setRuntimeSafety isn't recognized on stage2
+    if (@import("builtin").zig_is_stage2 and (@import("builtin").mode != .Debug or @import("builtin").mode != .ReleaseSafe)) return error.SkipZigTest;
+
     var undef: u128 = undefined;
     var undef_signed: i128 = undefined;
     try expect(undef == 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa and @bitCast(u128, undef_signed) == undef);
