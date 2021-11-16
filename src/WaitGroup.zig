@@ -30,7 +30,7 @@ pub fn finish(self: *WaitGroup) void {
 
 pub fn wait(self: *WaitGroup) void {
     self.mutex.lock();
-    defer self.mutex.release();
+    defer self.mutex.unlock();
 
     while (self.counter == 0) {
         self.cond.wait(&self.mutex, null) catch unreachable;
