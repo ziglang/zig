@@ -374,6 +374,52 @@ static inline float zig_bitcast_f64_u64(uint64_t arg) {
     return dest;
 }
 
+#define zig_clz(ZT, T, bits) \
+    static inline uint8_t zig_clz_##ZT(T x) { \
+        uint8_t count = 0; \
+        for (uint8_t i = bits; i > 0; i--) { \
+            if ((x >> (i-1)) & 1) { \
+                break; \
+            } \
+            count++; \
+        }  \
+        return count; \
+    }
+
+zig_clz(u8, uint8_t, 8)
+zig_clz(s8, int8_t, 8)
+zig_clz(u16, uint16_t, 16)
+zig_clz(s16, int16_t, 16)
+zig_clz(u32, uint32_t, 32)
+zig_clz(s32, int32_t, 32)
+zig_clz(u64, uint64_t, 64)
+zig_clz(s64, int64_t, 64)
+zig_clz(u128, uint128_t, 128)
+zig_clz(s128, int128_t, 128)
+zig_clz(ll, unsigned long long, sizeof(unsigned long long) * CHAR_BIT);
+
+#define zig_popcount(ZT, T, bits) \
+    static inline uint8_t zig_popcount_##ZT(T x) { \
+        uint8_t count = 0; \
+        for (uint8_t i = bits; i > 0; i--) { \
+            if ((x >> (i-1)) & 1) { \
+                count++; \
+            } \
+        }  \
+        return count; \
+    }
+
+zig_popcount(u8, uint8_t, 8)
+zig_popcount(s8, int8_t, 8)
+zig_popcount(u16, uint16_t, 16)
+zig_popcount(s16, int16_t, 16)
+zig_popcount(u32, uint32_t, 32)
+zig_popcount(s32, int32_t, 32)
+zig_popcount(u64, uint64_t, 64)
+zig_popcount(s64, int64_t, 64)
+zig_popcount(u128, uint128_t, 128)
+zig_popcount(s128, int128_t, 128)
+
 #define zig_add_sat_u(ZT, T) static inline T zig_adds_##ZT(T x, T y, T max) { \
     return (x > max - y) ? max : x + y; \
 }
@@ -444,14 +490,14 @@ zig_mul_sat_s(long,      long, long long)
 
 #define zig_shl_sat_u(ZT, T, bits) static inline T zig_shls_##ZT(T x, T y, T max) { \
     if(x == 0) return 0; \
-    T bits_set = 64 - __builtin_clzll(x); \
+    T bits_set = 64 - zig_clz_ll(x); \
     return (bits_set + y > bits) ? max : x << y; \
 }
 
 #define zig_shl_sat_s(ZT, T, bits) static inline T zig_shls_##ZT(T x, T y, T min, T max) { \
     if(x == 0) return 0; \
     T x_twos_comp = x < 0 ? -x : x; \
-    T bits_set = 64 - __builtin_clzll(x_twos_comp); \
+    T bits_set = 64 - zig_clz_ll(x_twos_comp); \
     T min_or_max = (x < 0) ? min : max; \
     return (y + bits_set > bits ) ?  min_or_max : x << y; \
 }
@@ -468,51 +514,6 @@ zig_shl_sat_s(isize, intptr_t, ((sizeof(intptr_t)) * CHAR_BIT - 1))
 zig_shl_sat_s(short,    short, ((sizeof(short   )) * CHAR_BIT - 1))
 zig_shl_sat_s(int,        int, ((sizeof(int     )) * CHAR_BIT - 1))
 zig_shl_sat_s(long,      long, ((sizeof(long    )) * CHAR_BIT - 1))
-
-#define zig_clz(ZT, T, bits) \
-    static inline uint8_t zig_clz_##ZT(T x) { \
-        uint8_t count = 0; \
-        for (uint8_t i = bits; i > 0; i--) { \
-            if ((x >> (i-1)) & 1) { \
-                break; \
-            } \
-            count++; \
-        }  \
-        return count; \
-    }
-
-zig_clz(u8, uint8_t, 8)
-zig_clz(s8, int8_t, 8)
-zig_clz(u16, uint16_t, 16)
-zig_clz(s16, int16_t, 16)
-zig_clz(u32, uint32_t, 32)
-zig_clz(s32, int32_t, 32)
-zig_clz(u64, uint64_t, 64)
-zig_clz(s64, int64_t, 64)
-zig_clz(u128, uint128_t, 128)
-zig_clz(s128, int128_t, 128)
-
-#define zig_popcount(ZT, T, bits) \
-    static inline uint8_t zig_popcount_##ZT(T x) { \
-        uint8_t count = 0; \
-        for (uint8_t i = bits; i > 0; i--) { \
-            if ((x >> (i-1)) & 1) { \
-                count++; \
-            } \
-        }  \
-        return count; \
-    }
-
-zig_popcount(u8, uint8_t, 8)
-zig_popcount(s8, int8_t, 8)
-zig_popcount(u16, uint16_t, 16)
-zig_popcount(s16, int16_t, 16)
-zig_popcount(u32, uint32_t, 32)
-zig_popcount(s32, int32_t, 32)
-zig_popcount(u64, uint64_t, 64)
-zig_popcount(s64, int64_t, 64)
-zig_popcount(u128, uint128_t, 128)
-zig_popcount(s128, int128_t, 128)
 
 #define zig_divfloor_s(bits, T) \
     static inline T zig_divfloor_s##bits(T a, T b) { \
