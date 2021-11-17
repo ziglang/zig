@@ -19,16 +19,18 @@ test {
     _ = @import("behavior/bugs/4769_b.zig");
     _ = @import("behavior/bugs/6850.zig");
     _ = @import("behavior/call.zig");
+    _ = @import("behavior/cast.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/if.zig");
-    _ = @import("behavior/struct.zig");
-    _ = @import("behavior/truncate.zig");
+    _ = @import("behavior/int128.zig");
     _ = @import("behavior/null.zig");
+    _ = @import("behavior/pointers.zig");
     _ = @import("behavior/ptrcast.zig");
     _ = @import("behavior/pub_enum.zig");
+    _ = @import("behavior/struct.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/usingnamespace.zig");
@@ -36,6 +38,7 @@ test {
     _ = @import("behavior/this.zig");
     _ = @import("behavior/member_func.zig");
     _ = @import("behavior/translate_c_macros.zig");
+    _ = @import("behavior/generics.zig");
 
     if (builtin.object_format != .c) {
         // Tests that pass for stage1 and stage2 but not the C backend.
@@ -49,18 +52,16 @@ test {
         _ = @import("behavior/bugs/1741.zig");
         _ = @import("behavior/bugs/2006.zig");
         _ = @import("behavior/bugs/3112.zig");
-        _ = @import("behavior/cast.zig");
+        _ = @import("behavior/cast_llvm.zig");
         _ = @import("behavior/error.zig");
         _ = @import("behavior/eval.zig");
         _ = @import("behavior/floatop.zig");
         _ = @import("behavior/fn.zig");
         _ = @import("behavior/for.zig");
-        _ = @import("behavior/generics.zig");
         _ = @import("behavior/math.zig");
         _ = @import("behavior/maximum_minimum.zig");
         _ = @import("behavior/null_llvm.zig");
         _ = @import("behavior/optional.zig");
-        _ = @import("behavior/pointers.zig");
         _ = @import("behavior/popcount.zig");
         _ = @import("behavior/saturating_arithmetic.zig");
         _ = @import("behavior/sizeof_and_typeof.zig");

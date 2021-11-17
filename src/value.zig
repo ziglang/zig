@@ -1802,6 +1802,13 @@ pub const Value = extern union {
         return self.tag() == .undef;
     }
 
+    /// TODO: check for cases such as array that is not marked undef but all the element
+    /// values are marked undef, or struct that is not marked undef but all fields are marked
+    /// undef, etc.
+    pub fn isUndefDeep(self: Value) bool {
+        return self.isUndef();
+    }
+
     /// Asserts the value is not undefined and not unreachable.
     /// Integer value 0 is considered null because of C pointers.
     pub fn isNull(self: Value) bool {

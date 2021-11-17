@@ -19,6 +19,7 @@ const Zir = @import("../Zir.zig");
 const Liveness = @import("../Liveness.zig");
 
 const Mutability = enum { Const, Mut };
+const BigIntConst = std.math.big.int.Const;
 
 pub const CValue = union(enum) {
     none: void,
@@ -226,13 +227,59 @@ pub const DeclGen = struct {
         try dg.renderDeclName(decl, writer);
     }
 
+    fn renderInt128(
+        writer: anytype,
+        int_val: anytype,
+    ) error{ OutOfMemory, AnalysisFail }!void {
+        const int_info = @typeInfo(@TypeOf(int_val)).Int;
+        const is_signed = int_info.signedness == .signed;
+        const is_neg = int_val < 0;
+        comptime assert(int_info.bits > 64 and int_info.bits <= 128);
+
+        // Clang and GCC don't support 128-bit integer constants but will hopefully unfold them
+        // if we construct one manually.
+        const magnitude = std.math.absCast(int_val);
+
+        const high = @truncate(u64, magnitude >> 64);
+        const low = @truncate(u64, magnitude);
+
+        // (int128_t)/<->( ( (uint128_t)( val_high << 64 )u ) + (uint128_t)val_low/u )
+        if (is_signed) try writer.writeAll("(int128_t)");
+        if (is_neg) try writer.writeByte('-');
+
+        assert(high > 0);
+        try writer.print("(((uint128_t)0x{x}u<<64)", .{high});
+
+        if (low > 0)
+            try writer.print("+(uint128_t)0x{x}u", .{low});
+
+        return writer.writeByte(')');
+    }
+
+    fn renderBigIntConst(
+        dg: *DeclGen,
+        writer: anytype,
+        val: BigIntConst,
+        signed: bool,
+    ) error{ OutOfMemory, AnalysisFail }!void {
+        if (signed) {
+            try renderInt128(writer, val.to(i128) catch {
+                return dg.fail("TODO implement integer constants larger than 128 bits", .{});
+            });
+        } else {
+            try renderInt128(writer, val.to(u128) catch {
+                return dg.fail("TODO implement integer constants larger than 128 bits", .{});
+            });
+        }
+    }
+
     fn renderValue(
         dg: *DeclGen,
         writer: anytype,
         ty: Type,
         val: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
-        if (val.isUndef()) {
+        if (val.isUndefDeep()) {
             switch (ty.zigTypeTag()) {
                 // Using '{}' for integer and floats seemed to error C compilers (both GCC and Clang)
                 // with 'error: expected expression' (including when built with 'zig cc')
@@ -240,18 +287,18 @@ pub const DeclGen = struct {
                     const c_bits = toCIntBits(ty.intInfo(dg.module.getTarget()).bits) orelse
                         return dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
                     switch (c_bits) {
-                        8 => return writer.writeAll("0xaaU"),
-                        16 => return writer.writeAll("0xaaaaU"),
-                        32 => return writer.writeAll("0xaaaaaaaaU"),
-                        64 => return writer.writeAll("0xaaaaaaaaaaaaaaaaUL"),
-                        128 => return writer.writeAll("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaULL"),
+                        8 => return writer.writeAll("0xaau"),
+                        16 => return writer.writeAll("0xaaaau"),
+                        32 => return writer.writeAll("0xaaaaaaaau"),
+                        64 => return writer.writeAll("0xaaaaaaaaaaaaaaaau"),
+                        128 => return renderInt128(writer, @as(u128, 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)),
                         else => unreachable,
                     }
                 },
                 .Float => {
                     switch (ty.floatBits(dg.module.getTarget())) {
-                        32 => return writer.writeAll("zig_bitcast_f32_u32(0xaaaaaaaa)"),
-                        64 => return writer.writeAll("zig_bitcast_f64_u64(0xaaaaaaaaaaaaaaaa)"),
+                        32 => return writer.writeAll("zig_bitcast_f32_u32(0xaaaaaaaau)"),
+                        64 => return writer.writeAll("zig_bitcast_f64_u64(0xaaaaaaaaaaaaaaaau)"),
                         else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
                     }
                 },
@@ -265,10 +312,14 @@ pub const DeclGen = struct {
             }
         }
         switch (ty.zigTypeTag()) {
-            .Int => {
-                if (ty.isSignedInt())
-                    return writer.print("{d}", .{val.toSignedInt()});
-                return writer.print("{d}", .{val.toUnsignedInt()});
+            .Int => switch (val.tag()) {
+                .int_big_positive => try dg.renderBigIntConst(writer, val.castTag(.int_big_positive).?.asBigInt(), ty.isSignedInt()),
+                .int_big_negative => try dg.renderBigIntConst(writer, val.castTag(.int_big_negative).?.asBigInt(), true),
+                else => {
+                    if (ty.isSignedInt())
+                        return writer.print("{d}", .{val.toSignedInt()});
+                    return writer.print("{d}u", .{val.toUnsignedInt()});
+                },
             },
             .Float => {
                 if (ty.floatBits(dg.module.getTarget()) <= 64) {
@@ -286,8 +337,11 @@ pub const DeclGen = struct {
                 return dg.fail("TODO: C backend: implement lowering large float values", .{});
             },
             .Pointer => switch (val.tag()) {
-                .null_value, .zero => try writer.writeAll("NULL"),
-                .one => try writer.writeAll("1"),
+                .null_value => try writer.writeAll("NULL"),
+                // Technically this should produce NULL but the integer literal 0 will always coerce
+                // to the assigned pointer type. Note this is just a hack to fix warnings from ordered comparisons (<, >, etc)
+                // between pointers and 0, which is an extension to begin with.
+                .zero => try writer.writeByte('0'),
                 .decl_ref => {
                     const decl = val.castTag(.decl_ref).?.data;
                     return dg.renderDeclValue(writer, ty, val, decl);
@@ -315,6 +369,11 @@ pub const DeclGen = struct {
                 .extern_fn => {
                     const decl = val.castTag(.extern_fn).?.data;
                     try dg.renderDeclName(decl, writer);
+                },
+                .int_u64, .one => {
+                    try writer.writeAll("((");
+                    try dg.renderType(writer, ty);
+                    try writer.print(")0x{x}u)", .{val.toUnsignedInt()});
                 },
                 else => unreachable,
             },
@@ -728,6 +787,8 @@ pub const DeclGen = struct {
                     .i32 => try w.writeAll("int32_t"),
                     .u64 => try w.writeAll("uint64_t"),
                     .i64 => try w.writeAll("int64_t"),
+                    .u128 => try w.writeAll("uint128_t"),
+                    .i128 => try w.writeAll("int128_t"),
                     .usize => try w.writeAll("uintptr_t"),
                     .isize => try w.writeAll("intptr_t"),
                     .c_short => try w.writeAll("short"),
@@ -787,8 +848,9 @@ pub const DeclGen = struct {
             },
             .Array => {
                 // We are referencing the array so it will decay to a C pointer.
-                try dg.renderType(w, t.elemType());
-                return w.writeAll(" *");
+                // NB: arrays are not really types in C so they are either specified in the declaration
+                // or are already pointed to; our only job is to render the element type.
+                return dg.renderType(w, t.elemType());
             },
             .Optional => {
                 var opt_buf: Type.Payload.ElemType = undefined;
@@ -987,7 +1049,7 @@ pub fn genDecl(o: *Object) !void {
         }
         try fwd_decl_writer.writeAll(";\n");
 
-        if (variable.init.isUndef()) {
+        if (variable.init.isUndefDeep()) {
             return;
         }
 
@@ -1070,10 +1132,12 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
 
             // TODO use a different strategy for add that communicates to the optimizer
             // that wrapping is UB.
-            .add, .ptr_add => try airBinOp (f, inst, " + "),
+            .add => try airBinOp (f, inst, " + "),
+            .ptr_add => try airPtrAddSub (f, inst, " + "),
             // TODO use a different strategy for sub that communicates to the optimizer
             // that wrapping is UB.
-            .sub, .ptr_sub => try airBinOp (f, inst, " - "),
+            .sub => try airBinOp (f, inst, " - "),
+            .ptr_sub => try airPtrAddSub (f, inst, " - "),
             // TODO use a different strategy for mul that communicates to the optimizer
             // that wrapping is UB.
             .mul           => try airBinOp (f, inst, " * "),
@@ -1187,7 +1251,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .ptr_slice_len_ptr => try airPtrSliceFieldPtr(f, inst, ".len;\n"),
             .ptr_slice_ptr_ptr => try airPtrSliceFieldPtr(f, inst, ".ptr;\n"),
 
-            .ptr_elem_val       => try airPtrElemVal(f, inst, "["),
+            .ptr_elem_val       => try airPtrElemVal(f, inst),
             .ptr_elem_ptr       => try airPtrElemPtr(f, inst),
             .slice_elem_val     => try airSliceElemVal(f, inst),
             .slice_elem_ptr     => try airSliceElemPtr(f, inst),
@@ -1240,20 +1304,39 @@ fn airPtrSliceFieldPtr(f: *Function, inst: Air.Inst.Index, suffix: []const u8) !
     return f.fail("TODO: C backend: airPtrSliceFieldPtr", .{});
 }
 
-fn airPtrElemVal(f: *Function, inst: Air.Inst.Index, prefix: []const u8) !CValue {
-    const is_volatile = false; // TODO
-    if (!is_volatile and f.liveness.isUnused(inst))
-        return CValue.none;
+fn airPtrElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const ptr_ty = f.air.typeOf(bin_op.lhs);
+    if (!ptr_ty.isVolatilePtr() and f.liveness.isUnused(inst)) return CValue.none;
 
-    _ = prefix;
-    return f.fail("TODO: C backend: airPtrElemVal", .{});
+    const ptr = try f.resolveInst(bin_op.lhs);
+    const index = try f.resolveInst(bin_op.rhs);
+    const writer = f.object.writer();
+    const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
+    try writer.writeAll(" = ");
+    try f.writeCValue(writer, ptr);
+    try writer.writeByte('[');
+    try f.writeCValue(writer, index);
+    try writer.writeAll("];\n");
+    return local;
 }
 
 fn airPtrElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
+    if (f.liveness.isUnused(inst)) return CValue.none;
 
-    return f.fail("TODO: C backend: airPtrElemPtr", .{});
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
+
+    const ptr = try f.resolveInst(bin_op.lhs);
+    const index = try f.resolveInst(bin_op.rhs);
+    const writer = f.object.writer();
+    const local = try f.allocLocal(f.air.typeOfIndex(inst), .Const);
+    try writer.writeAll(" = &");
+    try f.writeCValue(writer, ptr);
+    try writer.writeByte('[');
+    try f.writeCValue(writer, index);
+    try writer.writeAll("];\n");
+    return local;
 }
 
 fn airSliceElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -1317,6 +1400,10 @@ fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocLocal(elem_type, mutability);
     try writer.writeAll(";\n");
 
+    // Arrays are already pointers so they don't need to be referenced.
+    if (elem_type.zigTypeTag() == .Array)
+        return CValue{ .local = local.local };
+
     return CValue{ .local_ref = local.local };
 }
 
@@ -1344,6 +1431,8 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     if (!is_volatile and f.liveness.isUnused(inst))
         return CValue.none;
     const inst_ty = f.air.typeOfIndex(inst);
+    if (inst_ty.zigTypeTag() == .Array)
+        return f.fail("TODO: C backend: implement airLoad for arrays", .{});
     const operand = try f.resolveInst(ty_op.operand);
     const writer = f.object.writer();
     const local = try f.allocLocal(inst_ty, .Const);
@@ -1470,7 +1559,7 @@ fn airBoolToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airStoreUndefined(f: *Function, dest_ptr: CValue) !CValue {
+fn airStoreUndefined(f: *Function, dest_ptr: CValue, dest_type: Type) !CValue {
     const is_debug_build = f.object.dg.module.optimizeMode() == .Debug;
     if (!is_debug_build)
         return CValue.none;
@@ -1494,9 +1583,11 @@ fn airStoreUndefined(f: *Function, dest_ptr: CValue) !CValue {
             try writer.writeAll("));\n");
         },
         else => {
+            const indirection = if (dest_type.childType().zigTypeTag() == .Array) "" else "*";
+
             try writer.writeAll("memset(");
             try f.writeCValue(writer, dest_ptr);
-            try writer.writeAll(", 0xaa, sizeof(*");
+            try writer.print(", 0xaa, sizeof({s}", .{indirection});
             try f.writeCValue(writer, dest_ptr);
             try writer.writeAll("));\n");
         },
@@ -1509,11 +1600,18 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
     const dest_ptr = try f.resolveInst(bin_op.lhs);
     const src_val = try f.resolveInst(bin_op.rhs);
+    const lhs_type = f.air.typeOf(bin_op.lhs);
 
+    // TODO Sema should emit a different instruction when the store should
+    // possibly do the safety 0xaa bytes for undefined.
     const src_val_is_undefined =
-        if (f.air.value(bin_op.rhs)) |v| v.isUndef() else false;
+        if (f.air.value(bin_op.rhs)) |v| v.isUndefDeep() else false;
     if (src_val_is_undefined)
-        return try airStoreUndefined(f, dest_ptr);
+        return try airStoreUndefined(f, dest_ptr, lhs_type);
+
+    // Don't check this for airStoreUndefined as that will work for arrays already
+    if (lhs_type.childType().zigTypeTag() == .Array)
+        return f.fail("TODO: C backend: implement airStore for arrays", .{});
 
     const writer = f.object.writer();
     switch (dest_ptr) {
@@ -1806,6 +1904,33 @@ fn airBinOp(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValue
     try writer.print("{s}", .{operator});
     try f.writeCValue(writer, rhs);
     try writer.writeAll(";\n");
+
+    return local;
+}
+
+fn airPtrAddSub(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const lhs = try f.resolveInst(bin_op.lhs);
+    const rhs = try f.resolveInst(bin_op.rhs);
+
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+
+    // We must convert to and from integer types to prevent UB if the operation results in a NULL pointer,
+    // or if LHS is NULL. The operation is only UB if the result is NULL and then dereferenced.
+    try writer.writeAll(" = (");
+    try f.renderType(writer, inst_ty);
+    try writer.writeAll(")(((uintptr_t)");
+    try f.writeCValue(writer, lhs);
+    try writer.print("){s}(", .{operator});
+    try f.writeCValue(writer, rhs);
+    try writer.writeAll("*sizeof(");
+    try f.renderType(writer, inst_ty.childType());
+    try writer.print(")));\n", .{});
 
     return local;
 }
@@ -2306,15 +2431,17 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
     const writer = f.object.writer();
     const struct_obj = struct_ptr_ty.elemType().castTag(.@"struct").?.data;
     const field_name = struct_obj.fields.keys()[index];
+    const field_val = struct_obj.fields.values()[index];
+    const addrof = if (field_val.ty.zigTypeTag() == .Array) "" else "&";
 
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
     switch (struct_ptr) {
         .local_ref => |i| {
-            try writer.print(" = &t{d}.{};\n", .{ i, fmtIdent(field_name) });
+            try writer.print(" = {s}t{d}.{};\n", .{ addrof, i, fmtIdent(field_name) });
         },
         else => {
-            try writer.writeAll(" = &");
+            try writer.print(" = {s}", .{addrof});
             try f.writeCValue(writer, struct_ptr);
             try writer.print("->{};\n", .{fmtIdent(field_name)});
         },
@@ -2529,7 +2656,9 @@ fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
     const operand = try f.resolveInst(un_op);
 
-    try writer.writeAll(" = ");
+    try writer.writeAll(" = (");
+    try f.renderType(writer, inst_ty);
+    try writer.writeAll(")");
     try f.writeCValue(writer, operand);
     try writer.writeAll(";\n");
     return local;

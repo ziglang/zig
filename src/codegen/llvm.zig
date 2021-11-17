@@ -1078,7 +1078,7 @@ pub const DeclGen = struct {
                     };
                     return self.context.constStruct(&fields, fields.len, .False);
                 },
-                .int_u64 => {
+                .int_u64, .one, .int_big_positive => {
                     const llvm_usize = try self.llvmType(Type.usize);
                     const llvm_int = llvm_usize.constInt(tv.val.toUnsignedInt(), .False);
                     return llvm_int.constIntToPtr(try self.llvmType(tv.ty));
@@ -3464,8 +3464,30 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const dest_ptr = try self.resolveInst(bin_op.lhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
-        const src_operand = try self.resolveInst(bin_op.rhs);
-        self.store(dest_ptr, ptr_ty, src_operand, .NotAtomic);
+
+        // TODO Sema should emit a different instruction when the store should
+        // possibly do the safety 0xaa bytes for undefined.
+        const val_is_undef = if (self.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
+        if (val_is_undef) {
+            const elem_ty = ptr_ty.childType();
+            const target = self.dg.module.getTarget();
+            const elem_size = elem_ty.abiSize(target);
+            const u8_llvm_ty = self.context.intType(8);
+            const ptr_u8_llvm_ty = u8_llvm_ty.pointerType(0);
+            const dest_ptr_u8 = self.builder.buildBitCast(dest_ptr, ptr_u8_llvm_ty, "");
+            const fill_char = u8_llvm_ty.constInt(0xaa, .False);
+            const dest_ptr_align = ptr_ty.ptrAlignment(target);
+            const usize_llvm_ty = try self.dg.llvmType(Type.usize);
+            const len = usize_llvm_ty.constInt(elem_size, .False);
+            _ = self.builder.buildMemSet(dest_ptr_u8, fill_char, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+            if (self.dg.module.comp.bin_file.options.valgrind) {
+                // TODO generate valgrind client request to mark byte range as undefined
+                // see gen_valgrind_undef() in codegen.cpp
+            }
+        } else {
+            const src_operand = try self.resolveInst(bin_op.rhs);
+            self.store(dest_ptr, ptr_ty, src_operand, .NotAtomic);
+        }
         return null;
     }
 
@@ -3651,7 +3673,7 @@ pub const FuncGen = struct {
         const dest_ptr = try self.resolveInst(pl_op.operand);
         const ptr_ty = self.air.typeOf(pl_op.operand);
         const value = try self.resolveInst(extra.lhs);
-        const val_is_undef = if (self.air.value(extra.lhs)) |val| val.isUndef() else false;
+        const val_is_undef = if (self.air.value(extra.lhs)) |val| val.isUndefDeep() else false;
         const len = try self.resolveInst(extra.rhs);
         const u8_llvm_ty = self.context.intType(8);
         const ptr_u8_llvm_ty = u8_llvm_ty.pointerType(0);
