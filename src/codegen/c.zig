@@ -1146,8 +1146,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .div_float, .div_exact, => try airBinOp( f, inst, " / "),
             .div_trunc => try airDivTrunc(f, inst),
             .div_floor => try airDivFloor(f, inst),
-            .rem => try airBinOp( f, inst, " % "),
-            .mod => try airBinOp( f, inst, " mod "), // TODO implement modulus division
+            .rem => try airBinOp(f, inst, " % "),
+            .mod => try airMod(f, inst),
 
             .addwrap => try airWrapOp(f, inst, " + ", "addw_"),
             .subwrap => try airWrapOp(f, inst, " - ", "subw_"),
@@ -2032,6 +2032,54 @@ fn airDivFloor(f: *Function, inst: Air.Inst.Index) !CValue {
             try f.writeCValue(writer, rhs);
             try writer.writeAll(");\n");
             return local;
+        },
+        else => unreachable,
+    }
+}
+
+fn airMod(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst))
+        return CValue.none;
+
+    const writer = f.object.writer();
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const lhs = try f.resolveInst(bin_op.lhs);
+    const rhs = try f.resolveInst(bin_op.rhs);
+    const inst_ty = f.air.typeOfIndex(inst);
+
+    switch (inst_ty.zigTypeTag()) {
+        .Int => {
+            const intInfo = inst_ty.intInfo(f.object.dg.module.getTarget());
+            const c_bits = toCIntBits(intInfo.bits) orelse
+                return f.object.dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
+            const size_prefix = switch (c_bits) {
+                1 => "8",
+                8 => "8",
+                16 => "16",
+                32 => "32",
+                64 => "64",
+                128 => "128",
+                else => unreachable,
+            };
+
+            const local = try f.allocLocal(inst_ty, .Const);
+            if (intInfo.signedness == .unsigned) {
+                try writer.writeAll(" = ");
+                try f.writeCValue(writer, lhs);
+                try writer.writeAll(" % ");
+                try f.writeCValue(writer, rhs);
+                try writer.writeAll(";\n");
+            } else {
+                try writer.print(" = zig_mod_s{s}(", .{size_prefix});
+                try f.writeCValue(writer, lhs);
+                try writer.writeAll(", ");
+                try f.writeCValue(writer, rhs);
+                try writer.writeAll(");\n");
+            }
+            return local;
+        },
+        .Float => {
+            return f.object.dg.fail("TODO: implement @mod for floating points", .{});
         },
         else => unreachable,
     }

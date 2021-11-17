@@ -535,3 +535,20 @@ zig_divfloor_s(16, int16_t)
 zig_divfloor_s(32, int32_t)
 zig_divfloor_s(64, int64_t)
 zig_divfloor_s(128, int128_t)
+
+#define zig_mod_s(bits, T) \
+    static inline T zig_mod_s##bits(T a, T b) { \
+        if ((a >= 0 && b > 0) || (a <= 0 && b < 0)) { \
+            return a % b;  \
+        } else { \
+            T floored_div = zig_divfloor_s##bits(a, b); \
+            T trunc_div = a / b; \
+            return (a%b) - (floored_div-trunc_div)*b; \
+        } \
+    }
+
+zig_mod_s(8, int8_t)
+zig_mod_s(16, int16_t)
+zig_mod_s(32, int32_t)
+zig_mod_s(64, int64_t)
+zig_mod_s(128, int128_t)
