@@ -41,6 +41,7 @@
 #include <io.h>
 #include <fcntl.h>
 #include <ntsecapi.h>
+#include <math.h>
 
 // Workaround an upstream LLVM issue.
 // See https://github.com/ziglang/zig/issues/7614#issuecomment-752939981

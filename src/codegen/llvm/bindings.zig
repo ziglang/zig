@@ -98,7 +98,12 @@ pub const Value = opaque {
     extern fn LLVMAppendExistingBasicBlock(Fn: *const Value, BB: *const BasicBlock) void;
 
     pub const addIncoming = LLVMAddIncoming;
-    extern fn LLVMAddIncoming(PhiNode: *const Value, IncomingValues: [*]*const Value, IncomingBlocks: [*]*const BasicBlock, Count: c_uint) void;
+    extern fn LLVMAddIncoming(
+        PhiNode: *const Value,
+        IncomingValues: [*]const *const Value,
+        IncomingBlocks: [*]const *const BasicBlock,
+        Count: c_uint,
+    ) void;
 
     pub const getNextInstruction = LLVMGetNextInstruction;
     extern fn LLVMGetNextInstruction(Inst: *const Value) ?*const Value;

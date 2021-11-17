@@ -32,6 +32,10 @@ pub fn build(b: *Builder) void {
     exe_cpp.linkSystemLibrary("c++");
 
     switch (target.getOsTag()) {
+        .windows => {
+            // https://github.com/ziglang/zig/issues/8531
+            exe_cpp.want_lto = false;
+        },
         .macos => {
             // https://github.com/ziglang/zig/issues/8680
             exe_cpp.want_lto = false;
