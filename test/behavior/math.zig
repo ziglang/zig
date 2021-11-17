@@ -300,17 +300,13 @@ fn testDivision() !void {
     try expect(divTrunc(i32, -14, 12) == -1);
     try expect(divTrunc(i32, -2, 12) == 0);
 
-    try expect(mod(i32, 10, 12) == 10);
-    try expect(mod(i32, -14, 12) == 10);
-    try expect(mod(i32, -2, 12) == 10);
+    try expect(divExact2(i32, i16, 10, 5) == 2);
+    try expect(divFloor2(i64, i16, 33, 7) == 4);
+    try expect(divTrunc2(i64, i16, 33, 7) == 4);
+
+    try expect(divTrunc2(f64, f32, 33.0, 7.0) == 4.0);
 
     comptime {
-        try expect(
-            1194735857077236777412821811143690633098347576 % 508740759824825164163191790951174292733114988 == 177254337427586449086438229241342047632117600,
-        );
-        try expect(
-            @rem(-1194735857077236777412821811143690633098347576, 508740759824825164163191790951174292733114988) == -177254337427586449086438229241342047632117600,
-        );
         try expect(
             1194735857077236777412821811143690633098347576 / 508740759824825164163191790951174292733114988 == 2,
         );
@@ -323,15 +319,17 @@ fn testDivision() !void {
         try expect(
             @divTrunc(-1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == 2,
         );
-        try expect(
-            4126227191251978491697987544882340798050766755606969681711 % 10 == 1,
-        );
     }
 }
+
 fn div(comptime T: type, a: T, b: T) T {
     return a / b;
 }
+
 fn divExact(comptime T: type, a: T, b: T) T {
+    return @divExact(a, b);
+}
+fn divExact2(comptime T1: type, comptime T2: type, a: T1, b: T2) @TypeOf(a, b) {
     return @divExact(a, b);
 }
 fn divFloor(comptime T: type, a: T, b: T) T {
@@ -339,6 +337,47 @@ fn divFloor(comptime T: type, a: T, b: T) T {
 }
 fn divTrunc(comptime T: type, a: T, b: T) T {
     return @divTrunc(a, b);
+}
+// these versions test for correct result when peer type resolution is involved
+fn divFloor2(comptime T1: type, comptime T2: type, a: T1, b: T2) @TypeOf(a, b) {
+    return @divFloor(a, b);
+}
+fn divTrunc2(comptime T1: type, comptime T2: type, a: T1, b: T2) @TypeOf(a, b) {
+    return @divTrunc(a, b);
+}
+
+test "remainder and mod" {
+    try testRemainderAndMod();
+    comptime try testRemainderAndMod();
+}
+
+fn testRemainderAndMod() !void {
+    try expect(rem(i32, -2, 5) == -2);
+    try expect(rem(i32, -7, 2) == -1);
+    try expect(rem(i32, -7, 2) == -1);
+
+    try expect(mod(i8, 127, 2) == 1);
+    try expect(mod(i8, -127, 2) == 1);
+    try expect(mod(i8, -128, 3) == 1);
+    try expect(mod(i32, 10, 12) == 10);
+    try expect(mod(i32, -14, 12) == 10);
+    try expect(mod(i32, -2, 12) == 10);
+
+    comptime {
+        try expect(
+            4126227191251978491697987544882340798050766755606969681711 % 10 == 1,
+        );
+        try expect(
+            1194735857077236777412821811143690633098347576 % 508740759824825164163191790951174292733114988 == 177254337427586449086438229241342047632117600,
+        );
+        try expect(
+            @rem(-1194735857077236777412821811143690633098347576, 508740759824825164163191790951174292733114988) == -177254337427586449086438229241342047632117600,
+        );
+    }
+}
+
+fn rem(comptime T: type, a: T, b: T) T {
+    return @rem(a, b);
 }
 fn mod(comptime T: type, a: T, b: T) T {
     return @mod(a, b);
