@@ -279,7 +279,7 @@ pub const DeclGen = struct {
         ty: Type,
         val: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
-        if (val.isUndef()) {
+        if (val.isUndefDeep()) {
             switch (ty.zigTypeTag()) {
                 // Using '{}' for integer and floats seemed to error C compilers (both GCC and Clang)
                 // with 'error: expected expression' (including when built with 'zig cc')
@@ -1049,7 +1049,7 @@ pub fn genDecl(o: *Object) !void {
         }
         try fwd_decl_writer.writeAll(";\n");
 
-        if (variable.init.isUndef()) {
+        if (variable.init.isUndefDeep()) {
             return;
         }
 
@@ -1602,8 +1602,10 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
     const src_val = try f.resolveInst(bin_op.rhs);
     const lhs_type = f.air.typeOf(bin_op.lhs);
 
+    // TODO Sema should emit a different instruction when the store should
+    // possibly do the safety 0xaa bytes for undefined.
     const src_val_is_undefined =
-        if (f.air.value(bin_op.rhs)) |v| v.isUndef() else false;
+        if (f.air.value(bin_op.rhs)) |v| v.isUndefDeep() else false;
     if (src_val_is_undefined)
         return try airStoreUndefined(f, dest_ptr, lhs_type);
 
