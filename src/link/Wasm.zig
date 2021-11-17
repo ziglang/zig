@@ -404,6 +404,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     // The table contains all decl's with its corresponding offset into
     // the 'data' section
     const offset_table_size = @intCast(u32, self.offset_table.items.len * ptr_width);
+    // The size of the emulated stack
+    const stack_size = @intCast(u32, self.base.options.stack_size_override orelse std.wasm.page_size);
 
     // The size of the data, this together with `offset_table_size` amounts to the
     // total size of the 'data' section
@@ -487,7 +489,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     }
 
     // Memory section
-    if (data_size != 0) {
+    {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
 
@@ -498,7 +500,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             writer,
             try std.math.divCeil(
                 u32,
-                offset_table_size + data_size,
+                offset_table_size + data_size + stack_size,
                 std.wasm.page_size,
             ),
         );
@@ -508,6 +510,34 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             .memory,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @as(u32, 1), // wasm currently only supports 1 linear memory segment
+        );
+    }
+
+    // Global section (used to emit stack pointer)
+    {
+        // We emit the emulated stack at the end of the data section,
+        // 'growing' downwards towards the program memory.
+        // TODO: Have linker resolve the offset table, so we can emit the stack
+        // at the start so we can't overwrite program memory with the stack.
+        const sp_value = offset_table_size + data_size + std.wasm.page_size;
+        const mutable = true; // stack pointer MUST be mutable
+        const header_offset = try reserveVecSectionHeader(file);
+        const writer = file.writer();
+
+        try writer.writeByte(wasm.valtype(.i32));
+        try writer.writeByte(@boolToInt(mutable));
+
+        // set the initial value of the stack pointer to the data size + stack size
+        try writer.writeByte(wasm.opcode(.i32_const));
+        try leb.writeILEB128(writer, @bitCast(i32, sp_value));
+        try writer.writeByte(wasm.opcode(.end));
+
+        try writeVecSectionHeader(
+            file,
+            header_offset,
+            .global,
+            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @as(u32, 1),
         );
     }
 
