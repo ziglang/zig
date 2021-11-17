@@ -210,7 +210,12 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
                 },
                 32 => switch (args.valtype1.?) {
                     .i64 => return .i64_store32,
-                    .i32, .f32, .f64 => unreachable,
+                    .i32 => return .i32_store,
+                    .f32, .f64 => unreachable,
+                },
+                64 => switch (args.valtype1.?) {
+                    .i64 => return .i64_store,
+                    else => unreachable,
                 },
                 else => unreachable,
             }
@@ -529,6 +534,9 @@ global_error_set: std.StringHashMapUnmanaged(Module.ErrorInt),
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// Contains extra data for MIR
 mir_extra: std.ArrayListUnmanaged(u32) = .{},
+/// When a function is executing, we store the the current stack pointer's value within this local.
+/// This value is then used to restore the stack pointer to the original value at the return of the function.
+initial_stack_value: WValue = .none,
 
 const InnerError = error{
     OutOfMemory,
@@ -686,9 +694,7 @@ fn emitWValue(self: *Self, val: WValue) InnerError!void {
     switch (val) {
         .multi_value => unreachable, // multi_value can never be written directly, and must be accessed individually
         .none, .mir_offset => {}, // no-op
-        .local => |idx| {
-            try self.addLabel(.local_get, idx);
-        },
+        .local => |idx| try self.addLabel(.local_get, idx),
         .constant => |tv| try self.emitConstant(tv.val, tv.ty), // Creates a new constant on the stack
     }
 }
@@ -884,6 +890,59 @@ pub fn gen(self: *Self, ty: Type, val: Value) InnerError!Result {
     }
 }
 
+/// Retrieves the stack pointer's value from the global variable and stores
+/// it in a local
+fn initializeStack(self: *Self) !void {
+    // reserve space for immediate value
+    // get stack pointer global
+    // TODO: For now, we hardcode the stack pointer to index '0',
+    // once the linker is further implemented, we can replace this by inserting
+    // a relocation and have the linker resolve the correct index to the stack pointer global.
+    // NOTE: relocations of the type GLOBAL_INDEX_LEB are 5-bytes big
+    try self.addLabel(.global_get, 0);
+
+    // Reserve a local to store the current stack pointer
+    // We can later use this local to set the stack pointer back to the value
+    // we have stored here.
+    self.initial_stack_value = try self.allocLocal(Type.initTag(.i32));
+
+    // save the value to the local
+    try self.addLabel(.local_set, self.initial_stack_value.local);
+}
+
+/// Reads the stack pointer from `Context.initial_stack_value` and writes it
+/// to the global stack pointer variable
+fn restoreStackPointer(self: *Self) !void {
+    // only restore the pointer if it was initialized
+    if (self.initial_stack_value == .none) return;
+    // Get the original stack pointer's value
+    try self.emitWValue(self.initial_stack_value);
+
+    // save its value in the global stack pointer
+    try self.addLabel(.global_set, 0);
+}
+
+/// Moves the stack pointer by given `offset`
+/// It does this by retrieving the stack pointer, subtracting `offset` and storing
+/// the result back into the stack pointer.
+fn moveStack(self: *Self, offset: u32, local: u32) !void {
+    if (offset == 0) return;
+    // Generates the following code:
+    //
+    // global.get 0
+    // i32.const [offset]
+    // i32.sub
+    // global.set 0
+
+    // TODO: Rather than hardcode the stack pointer to position 0,
+    // have the linker resolve it.
+    try self.addLabel(.global_get, 0);
+    try self.addImm32(@bitCast(i32, offset));
+    try self.addTag(.i32_sub);
+    try self.addLabel(.local_tee, local);
+    try self.addLabel(.global_set, 0);
+}
+
 fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
     const air_tags = self.air.instructions.items(.tag);
     return switch (air_tags[inst]) {
@@ -963,6 +1022,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
     try self.emitWValue(operand);
+    try self.restoreStackPointer();
     try self.addTag(.@"return");
     return .none;
 }
@@ -989,13 +1049,24 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     }
 
     try self.addLabel(.call, target.link.wasm.symbol_index);
-
     return .none;
 }
 
 fn airAlloc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const elem_type = self.air.typeOfIndex(inst).elemType();
-    return self.allocLocal(elem_type);
+
+    // Initialize the stack
+    if (self.initial_stack_value == .none) {
+        try self.initializeStack();
+    }
+
+    const abi_size = elem_type.abiSize(self.target);
+    if (abi_size == 0) return WValue{ .none = {} };
+
+    const local = try self.allocLocal(elem_type);
+    try self.moveStack(@intCast(u32, abi_size), local.local);
+
+    return local;
 }
 
 fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1004,48 +1075,35 @@ fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const lhs = self.resolveInst(bin_op.lhs);
     const rhs = self.resolveInst(bin_op.rhs);
 
-    switch (lhs) {
-        .multi_value => |multi_value| switch (rhs) {
-            // When assigning a value to a multi_value such as a struct,
-            // we simply assign the local_index to the rhs one.
-            // This allows us to update struct fields without having to individually
-            // set each local as each field's index will be calculated off the struct's base index
-            .multi_value => self.values.put(self.gpa, Air.refToIndex(bin_op.lhs).?, rhs) catch unreachable, // Instruction does not dominate all uses!
-            .constant, .none => {
-                // emit all values onto the stack if constant
-                try self.emitWValue(rhs);
+    // get lhs stack position
+    try self.emitWValue(lhs);
+    // get rhs value
+    try self.emitWValue(rhs);
 
-                // for each local, pop the stack value into the local
-                // As the last element is on top of the stack, we must populate the locals
-                // in reverse.
-                var i: u32 = multi_value.count;
-                while (i > 0) : (i -= 1) {
-                    try self.addLabel(.local_set, multi_value.index + i - 1);
-                }
-            },
-            .local => {
-                // This can occur when we wrap a single value into a multi-value,
-                // such as wrapping a non-optional value into an optional.
-                // This means we must zero the null-tag, and set the payload.
-                assert(multi_value.count == 2);
-                // set payload
-                try self.emitWValue(rhs);
-                try self.addLabel(.local_set, multi_value.index + 1);
-            },
-            else => unreachable,
-        },
-        .local => |local| {
-            try self.emitWValue(rhs);
-            try self.addLabel(.local_set, local);
-        },
-        else => unreachable,
-    }
+    const ty = self.air.typeOf(bin_op.lhs);
+    const valtype = try self.typeToValtype(ty);
+
+    const opcode = buildOpcode(.{
+        .valtype1 = valtype,
+        .width = @intCast(u8, Type.abiSize(ty, self.target) * 8), // use bitsize instead of byte size
+        .op = .store,
+    });
+    // store rhs value at stack pointer's location in memory
+    const mem_arg_index = try self.addExtra(Mir.MemArg{ .offset = 0, .alignment = 0 });
+    try self.addInst(.{ .tag = Mir.Inst.Tag.fromOpcode(opcode), .data = .{ .payload = mem_arg_index } });
+
     return .none;
 }
 
 fn airLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    return self.resolveInst(ty_op.operand);
+    const lhs = self.resolveInst(ty_op.operand);
+
+    // load local's value from memory by its stack position
+    try self.emitWValue(lhs);
+    const mem_arg_index = try self.addExtra(Mir.MemArg{ .offset = 0, .alignment = 0 });
+    try self.addInst(.{ .tag = .i32_load, .data = .{ .payload = mem_arg_index } });
+    return .none;
 }
 
 fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1060,14 +1118,6 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     const lhs = self.resolveInst(bin_op.lhs);
     const rhs = self.resolveInst(bin_op.rhs);
 
-    // it's possible for both lhs and/or rhs to return an offset as well,
-    // in which case we return the first offset occurrence we find.
-    const offset = blk: {
-        if (lhs == .mir_offset) break :blk lhs.mir_offset;
-        if (rhs == .mir_offset) break :blk rhs.mir_offset;
-        break :blk self.mir_instructions.len;
-    };
-
     try self.emitWValue(lhs);
     try self.emitWValue(rhs);
 
@@ -1078,21 +1128,17 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
         .signedness = if (bin_ty.isSignedInt()) .signed else .unsigned,
     });
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
-    return WValue{ .mir_offset = offset };
+
+    // save the result in a temporary
+    const bin_local = try self.allocLocal(bin_ty);
+    try self.addLabel(.local_set, bin_local.local);
+    return bin_local;
 }
 
 fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const lhs = self.resolveInst(bin_op.lhs);
     const rhs = self.resolveInst(bin_op.rhs);
-
-    // it's possible for both lhs and/or rhs to return an offset as well,
-    // in which case we return the first offset occurrence we find.
-    const offset = blk: {
-        if (lhs == .mir_offset) break :blk lhs.mir_offset;
-        if (rhs == .mir_offset) break :blk rhs.mir_offset;
-        break :blk self.mir_instructions.len;
-    };
 
     try self.emitWValue(lhs);
     try self.emitWValue(rhs);
@@ -1132,7 +1178,10 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
         return self.fail("TODO wasm: Integer wrapping for bitsizes larger than 64", .{});
     }
 
-    return WValue{ .mir_offset = offset };
+    // save the result in a temporary
+    const bin_local = try self.allocLocal(bin_ty);
+    try self.addLabel(.local_set, bin_local.local);
+    return bin_local;
 }
 
 fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
