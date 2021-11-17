@@ -639,21 +639,6 @@ export fn fmod(x: f64, y: f64) f64 {
     return generic_fmod(f64, x, y);
 }
 
-// TODO add intrinsics for these (and probably the double version too)
-// and have the math stuff use the intrinsic. same as @mod and @rem
-export fn floorf(x: f32) f32 {
-    return math.floor(x);
-}
-export fn floor(x: f64) f64 {
-    return math.floor(x);
-}
-export fn floorl(x: c_longdouble) c_longdouble {
-    if (!long_double_is_f128) {
-        @panic("TODO implement this");
-    }
-    return math.floor(x);
-}
-
 export fn ceilf(x: f32) f32 {
     return math.ceil(x);
 }
