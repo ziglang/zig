@@ -28,16 +28,15 @@ const WValue = union(enum) {
     local: u32,
     /// Holds a memoized typed value
     constant: TypedValue,
-    /// Offset position in the list of MIR instructions
-    mir_offset: usize,
-    /// Used for variables that create multiple locals on the stack when allocated
-    /// such as structs and optionals.
-    multi_value: struct {
-        /// The index of the first local variable
-        index: u32,
-        /// The count of local variables this `WValue` consists of.
-        /// i.e. an ErrorUnion has a 'count' of 2.
-        count: u32,
+    /// Used for types that contains of multiple areas within
+    /// a memory region in the stack.
+    /// The local represents the position in the stack,
+    /// whereas the offset represents the offset from that position.
+    local_with_offset: struct {
+        /// Index of the local variable
+        local: u32,
+        /// The offset from the local's stack position
+        offset: u32,
     },
 };
 
@@ -187,7 +186,8 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
             },
             32 => switch (args.valtype1.?) {
                 .i64 => if (args.signedness.? == .signed) return .i64_load32_s else return .i64_load32_u,
-                .i32, .f32, .f64 => unreachable,
+                .i32 => return .i32_load,
+                .f32, .f64 => unreachable,
             },
             else => unreachable,
         } else switch (args.valtype1.?) {
@@ -668,9 +668,10 @@ fn typeToValtype(self: *Self, ty: Type) InnerError!wasm.Valtype {
         .Bool,
         .Pointer,
         .ErrorSet,
+        .Struct,
+        .ErrorUnion,
         => wasm.Valtype.i32,
-        .Struct, .ErrorUnion, .Optional => unreachable, // Multi typed, must be handled individually.
-        else => |tag| self.fail("TODO - Wasm valtype for type '{s}'", .{tag}),
+        else => self.fail("TODO - Wasm valtype for type '{}'", .{ty}),
     };
 }
 
@@ -692,76 +693,21 @@ fn genBlockType(self: *Self, ty: Type) InnerError!u8 {
 /// Writes the bytecode depending on the given `WValue` in `val`
 fn emitWValue(self: *Self, val: WValue) InnerError!void {
     switch (val) {
-        .multi_value => unreachable, // multi_value can never be written directly, and must be accessed individually
-        .none, .mir_offset => {}, // no-op
+        .none => {}, // no-op
+        .local_with_offset => |with_off| try self.addLabel(.local_get, with_off.local),
         .local => |idx| try self.addLabel(.local_get, idx),
         .constant => |tv| try self.emitConstant(tv.val, tv.ty), // Creates a new constant on the stack
     }
 }
 
-/// Creates one or multiple locals for a given `Type`.
-/// Returns a corresponding `Wvalue` that can either be of tag
-/// local or multi_value
+/// Creates one locals for a given `Type`.
+/// Returns a corresponding `Wvalue` with `local` as active tag
 fn allocLocal(self: *Self, ty: Type) InnerError!WValue {
     const initial_index = self.local_index;
-    switch (ty.zigTypeTag()) {
-        .Struct => {
-            // for each struct field, generate a local
-            const struct_data: *Module.Struct = ty.castTag(.@"struct").?.data;
-            const fields_len = @intCast(u32, struct_data.fields.count());
-            try self.locals.ensureUnusedCapacity(self.gpa, fields_len);
-            for (struct_data.fields.values()) |*value| {
-                const val_type = try self.genValtype(value.ty);
-                self.locals.appendAssumeCapacity(val_type);
-                self.local_index += 1;
-            }
-            return WValue{ .multi_value = .{
-                .index = initial_index,
-                .count = fields_len,
-            } };
-        },
-        .ErrorUnion => {
-            const payload_type = ty.errorUnionPayload();
-            const val_type = try self.genValtype(payload_type);
-
-            // we emit the error value as the first local, and the payload as the following.
-            // The first local is also used to find the index of the error and payload.
-            //
-            // TODO: Add support where the payload is a type that contains multiple locals such as a struct.
-            try self.locals.ensureUnusedCapacity(self.gpa, 2);
-            self.locals.appendAssumeCapacity(wasm.valtype(.i32)); // error values are always i32
-            self.locals.appendAssumeCapacity(val_type);
-            self.local_index += 2;
-
-            return WValue{ .multi_value = .{
-                .index = initial_index,
-                .count = 2,
-            } };
-        },
-        .Optional => {
-            var opt_buf: Type.Payload.ElemType = undefined;
-            const child_type = ty.optionalChild(&opt_buf);
-            if (ty.isPtrLikeOptional()) {
-                return self.fail("TODO: wasm optional pointer", .{});
-            }
-
-            try self.locals.ensureUnusedCapacity(self.gpa, 2);
-            self.locals.appendAssumeCapacity(wasm.valtype(.i32)); // optional 'tag' for null-checking is always i32
-            self.locals.appendAssumeCapacity(try self.genValtype(child_type));
-            self.local_index += 2;
-
-            return WValue{ .multi_value = .{
-                .index = initial_index,
-                .count = 2,
-            } };
-        },
-        else => {
-            const valtype = try self.genValtype(ty);
-            try self.locals.append(self.gpa, valtype);
-            self.local_index += 1;
-            return WValue{ .local = initial_index };
-        },
-    }
+    const valtype = try self.genValtype(ty);
+    try self.locals.append(self.gpa, valtype);
+    self.local_index += 1;
+    return WValue{ .local = initial_index };
 }
 
 fn genFunctype(self: *Self) InnerError!void {
@@ -857,7 +803,7 @@ pub fn gen(self: *Self, ty: Type, val: Value) InnerError!Result {
                 if (ty.sentinel()) |sentinel| {
                     try self.code.appendSlice(payload.data);
 
-                    switch (try self.gen(ty.elemType(), sentinel)) {
+                    switch (try self.gen(ty.childType(), sentinel)) {
                         .appended => return Result.appended,
                         .externally_managed => |data| {
                             try self.code.appendSlice(data);
@@ -927,15 +873,8 @@ fn restoreStackPointer(self: *Self) !void {
 /// the result back into the stack pointer.
 fn moveStack(self: *Self, offset: u32, local: u32) !void {
     if (offset == 0) return;
-    // Generates the following code:
-    //
-    // global.get 0
-    // i32.const [offset]
-    // i32.sub
-    // global.set 0
-
     // TODO: Rather than hardcode the stack pointer to position 0,
-    // have the linker resolve it.
+    // have the linker resolve its relocation
     try self.addLabel(.global_get, 0);
     try self.addImm32(@bitCast(i32, offset));
     try self.addTag(.i32_sub);
@@ -1053,17 +992,18 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 }
 
 fn airAlloc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
-    const elem_type = self.air.typeOfIndex(inst).elemType();
+    const child_type = self.air.typeOfIndex(inst).childType();
 
     // Initialize the stack
     if (self.initial_stack_value == .none) {
         try self.initializeStack();
     }
 
-    const abi_size = elem_type.abiSize(self.target);
+    const abi_size = child_type.abiSize(self.target);
     if (abi_size == 0) return WValue{ .none = {} };
 
-    const local = try self.allocLocal(elem_type);
+    // local, containing the offset to the stack position
+    const local = try self.allocLocal(child_type);
     try self.moveStack(@intCast(u32, abi_size), local.local);
 
     return local;
@@ -1074,43 +1014,100 @@ fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const lhs = self.resolveInst(bin_op.lhs);
     const rhs = self.resolveInst(bin_op.rhs);
+    const ty = self.air.typeOf(bin_op.lhs).childType();
 
-    // get lhs stack position
+    const offset: u32 = switch (lhs) {
+        .local_with_offset => |with_off| with_off.offset,
+        else => 0,
+    };
+
+    switch (ty.zigTypeTag()) {
+        .ErrorUnion, .Optional => {
+            var buf: Type.Payload.ElemType = undefined;
+            const payload_ty = if (ty.zigTypeTag() == .ErrorUnion) ty.errorUnionPayload() else ty.optionalChild(&buf);
+            const tag_ty = if (ty.zigTypeTag() == .ErrorUnion) ty.errorUnionSet() else Type.initTag(.i8);
+            const payload_offset = @intCast(u32, tag_ty.abiSize(self.target) / 8);
+            if (rhs == .constant) {
+                // constant will contain both tag and payload,
+                // so save those in 2 temporary locals before storing them
+                // in memory
+                try self.emitWValue(rhs);
+                const tag_local = try self.allocLocal(Type.initTag(.i32));
+                const payload_local = try self.allocLocal(payload_ty);
+
+                try self.addLabel(.local_set, payload_local.local);
+                try self.addLabel(.local_set, tag_local.local);
+
+                try self.store(lhs, tag_local, tag_ty, 0);
+                try self.store(lhs, payload_local, payload_ty, payload_offset);
+            } else if (offset == 0) {
+                // tag is being set
+                try self.store(lhs, rhs, tag_ty, 0);
+            } else {
+                // payload is being set
+                try self.store(lhs, rhs, payload_ty, payload_offset);
+            }
+        },
+        else => try self.store(lhs, rhs, ty, offset),
+    }
+
+    return .none;
+}
+
+fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerError!void {
     try self.emitWValue(lhs);
-    // get rhs value
     try self.emitWValue(rhs);
-
-    const ty = self.air.typeOf(bin_op.lhs);
     const valtype = try self.typeToValtype(ty);
-
     const opcode = buildOpcode(.{
         .valtype1 = valtype,
         .width = @intCast(u8, Type.abiSize(ty, self.target) * 8), // use bitsize instead of byte size
         .op = .store,
     });
-    // store rhs value at stack pointer's location in memory
-    const mem_arg_index = try self.addExtra(Mir.MemArg{ .offset = 0, .alignment = 0 });
-    try self.addInst(.{ .tag = Mir.Inst.Tag.fromOpcode(opcode), .data = .{ .payload = mem_arg_index } });
 
-    return .none;
+    // store rhs value at stack pointer's location in memory
+    const mem_arg_index = try self.addExtra(Mir.MemArg{ .offset = offset, .alignment = 0 });
+    try self.addInst(.{ .tag = Mir.Inst.Tag.fromOpcode(opcode), .data = .{ .payload = mem_arg_index } });
 }
 
 fn airLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const lhs = self.resolveInst(ty_op.operand);
+    const operand = self.resolveInst(ty_op.operand);
+    const ty = self.air.getRefType(ty_op.ty);
 
+    return switch (ty.zigTypeTag()) {
+        .Struct, .ErrorUnion => operand,
+        else => self.load(operand, ty, 0),
+    };
+}
+
+fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
     // load local's value from memory by its stack position
-    try self.emitWValue(lhs);
-    const mem_arg_index = try self.addExtra(Mir.MemArg{ .offset = 0, .alignment = 0 });
-    try self.addInst(.{ .tag = .i32_load, .data = .{ .payload = mem_arg_index } });
-    return .none;
+    try self.emitWValue(operand);
+    // Build the opcode with the right bitsize
+    const signedness: std.builtin.Signedness = if (ty.isUnsignedInt()) .unsigned else .signed;
+    const opcode = buildOpcode(.{
+        .valtype1 = try self.typeToValtype(ty),
+        .width = @intCast(u8, Type.abiSize(ty, self.target) * 8), // use bitsize instead of byte size
+        .op = .load,
+        .signedness = signedness,
+    });
+
+    const mem_arg_index = try self.addExtra(Mir.MemArg{ .offset = offset, .alignment = 0 });
+    try self.addInst(.{
+        .tag = Mir.Inst.Tag.fromOpcode(opcode),
+        .data = .{ .payload = mem_arg_index },
+    });
+
+    // store the result in a local
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
 }
 
 fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     _ = inst;
-    // arguments share the index with locals
-    defer self.local_index += 1;
-    return WValue{ .local = self.local_index };
+    defer self.arg_index += 1;
+    return self.args[self.arg_index];
 }
 
 fn airBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
@@ -1388,14 +1385,8 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     // insert blocks at the position of `offset` so
     // the condition can jump to it
-    const offset = switch (condition) {
-        .mir_offset => |offset| offset,
-        else => blk: {
-            const offset = self.mir_instructions.len;
-            try self.emitWValue(condition);
-            break :blk offset;
-        },
-    };
+    const offset = self.mir_instructions.len;
+    try self.emitWValue(condition);
 
     // result type is always noreturn, so use `block_empty` as type.
     try self.startBlock(.block, wasm.block_empty, offset);
@@ -1415,10 +1406,6 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 }
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) InnerError!WValue {
-    // save offset, so potential conditions can insert blocks in front of
-    // the comparison that we can later jump back to
-    const offset = self.mir_instructions.len;
-
     const data: Air.Inst.Data = self.air.instructions.items(.data)[inst];
     const lhs = self.resolveInst(data.bin_op.lhs);
     const rhs = self.resolveInst(data.bin_op.rhs);
@@ -1447,7 +1434,10 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) Inner
         .signedness = signedness,
     });
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
-    return WValue{ .mir_offset = offset };
+
+    const cmp_tmp = try self.allocLocal(lhs_ty);
+    try self.addLabel(.local_set, cmp_tmp.local);
+    return cmp_tmp;
 }
 
 fn airBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1468,7 +1458,6 @@ fn airBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airNot(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const offset = self.mir_instructions.len;
 
     const operand = self.resolveInst(ty_op.operand);
     try self.emitWValue(operand);
@@ -1478,7 +1467,10 @@ fn airNot(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     try self.addImm32(0);
     try self.addTag(.i32_eq);
 
-    return WValue{ .mir_offset = offset };
+    // save the result in the local
+    const not_tmp = try self.allocLocal(self.air.getRefType(ty_op.ty));
+    try self.addLabel(.local_set, not_tmp.local);
+    return not_tmp;
 }
 
 fn airBreakpoint(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1504,24 +1496,45 @@ fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload);
     const struct_ptr = self.resolveInst(extra.data.struct_operand);
-    return structFieldPtr(struct_ptr, extra.data.field_index);
+    const struct_ty = self.air.typeOf(extra.data.struct_operand).childType();
+    const offset = std.math.cast(u32, struct_ty.structFieldOffset(extra.data.field_index, self.target)) catch {
+        return self.fail("Field type '{}' too big to fit into stack frame", .{
+            struct_ty.structFieldType(extra.data.field_index),
+        });
+    };
+    return structFieldPtr(struct_ptr, offset);
 }
+
 fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u32) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const struct_ptr = self.resolveInst(ty_op.operand);
-    return structFieldPtr(struct_ptr, index);
+    const struct_ty = self.air.typeOf(ty_op.operand).childType();
+    const offset = std.math.cast(u32, struct_ty.structFieldOffset(index, self.target)) catch {
+        return self.fail("Field type '{}' too big to fit into stack frame", .{
+            struct_ty.structFieldType(index),
+        });
+    };
+    return structFieldPtr(struct_ptr, offset);
 }
-fn structFieldPtr(struct_ptr: WValue, index: u32) InnerError!WValue {
-    return WValue{ .local = struct_ptr.multi_value.index + index };
+
+fn structFieldPtr(struct_ptr: WValue, offset: u32) InnerError!WValue {
+    return WValue{ .local_with_offset = .{ .local = struct_ptr.local, .offset = offset } };
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue.none;
 
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-    const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-    const struct_multivalue = self.resolveInst(extra.struct_operand).multi_value;
-    return WValue{ .local = struct_multivalue.index + extra.field_index };
+    const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
+    const struct_ty = self.air.typeOf(struct_field.struct_operand);
+    const operand = self.resolveInst(struct_field.struct_operand);
+    const field_index = struct_field.field_index;
+    const field_ty = struct_ty.structFieldType(field_index);
+    if (!field_ty.hasCodeGenBits()) return WValue.none;
+    const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, self.target)) catch {
+        return self.fail("Field type '{}' too big to fit into stack frame", .{field_ty});
+    };
+    return try self.load(operand, field_ty, offset);
 }
 
 fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1675,25 +1688,32 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
-    const offset = self.mir_instructions.len;
+    const err_ty = self.air.typeOf(un_op).errorUnionSet();
 
-    // load the error value which is positioned at multi_value's index
-    try self.emitWValue(.{ .local = operand.multi_value.index });
+    // load the error tag value
+    try self.emitWValue(operand);
+    const mem_arg_index = try self.addExtra(Mir.MemArg{ .offset = 0, .alignment = 0 });
+    try self.addInst(.{
+        .tag = .i32_load,
+        .data = .{ .payload = mem_arg_index },
+    });
+
     // Compare the error value with '0'
     try self.addImm32(0);
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
 
-    return WValue{ .mir_offset = offset };
+    const is_err_tmp = try self.allocLocal(err_ty);
+    try self.addLabel(.local_set, is_err_tmp.local);
+    return is_err_tmp;
 }
 
 fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = self.resolveInst(ty_op.operand);
-    // The index of multi_value contains the error code. To get the initial index of the payload we get
-    // the following index. Next, convert it to a `WValue.local`
-    //
-    // TODO: Check if payload is a type that requires a multi_value as well and emit that instead. i.e. a struct.
-    return WValue{ .local = operand.multi_value.index + 1 };
+    const err_ty = self.air.typeOf(ty_op.operand);
+    const offset = @intCast(u32, err_ty.errorUnionSet().abiSize(self.target) / 8);
+
+    return self.load(operand, self.air.getRefType(ty_op.ty), offset);
 }
 
 fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1728,8 +1748,8 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
 
-    // load the null value which is positioned at multi_value's index
-    try self.emitWValue(.{ .local = operand.multi_value.index });
+    // load the null value which is positioned at local_with_offset's index
+    try self.emitWValue(.{ .local = operand.local_with_offset.local });
     try self.addImm32(0);
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
 
@@ -1743,7 +1763,7 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!
 fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = self.resolveInst(ty_op.operand);
-    return WValue{ .local = operand.multi_value.index + 1 };
+    return WValue{ .local = operand.local_with_offset.local + 1 };
 }
 
 fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
