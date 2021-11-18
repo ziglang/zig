@@ -3235,6 +3235,12 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
+    if (decl.val.castTag(.variable)) |payload| {
+        const variable = payload.data;
+        if (variable.is_extern) {
+            return; // TODO Should we do more when front-end analyzed extern decl?
+        }
+    }
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -3258,10 +3264,11 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
 
     self.active_decl = decl;
 
+    const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
     const res = if (debug_buffers) |dbg|
         try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
-            .val = decl.val,
+            .val = decl_val,
         }, &code_buffer, .{
             .dwarf = .{
                 .dbg_line = &dbg.dbg_line_buffer,
@@ -3272,7 +3279,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     else
         try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
-            .val = decl.val,
+            .val = decl_val,
         }, &code_buffer, .none);
 
     const code = blk: {
