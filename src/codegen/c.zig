@@ -989,7 +989,15 @@ pub const DeclGen = struct {
             const gpa = dg.module.gpa;
             const name = try decl.getFullyQualifiedName(gpa);
             defer gpa.free(name);
-            return writer.print("{}", .{fmtIdent(name)});
+            // full test identifiers can clash with normal functions e.g.
+            // test "xor" {}i and fn test_xor() in the same zig file
+            // will resolve to a function with the same name.
+            // As a stop-gap measure, append a TEST prefix on tests
+            if (dg.module.test_functions.contains(decl)) {
+                return writer.print("TEST_{}", .{fmtIdent(name)});
+            } else {
+                return writer.print("{}", .{fmtIdent(name)});
+            }
         }
     }
 };
@@ -2842,7 +2850,7 @@ fn airBuiltinCall(f: *Function, inst: Air.Inst.Index, fn_name: [*:0]const u8) !C
         else => unreachable,
     };
 
-    try writer.print(" = {s}_{s}{s}(", .{fn_name, sign_prefix, size_prefix});
+    try writer.print(" = {s}_{s}{s}(", .{ fn_name, sign_prefix, size_prefix });
     try f.writeCValue(writer, operand);
     try writer.writeAll(");\n");
     return local;
