@@ -1545,7 +1545,7 @@ fn genBinMathOpMir(
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = dst_reg,
+                            .reg1 = registerAlias(dst_reg, @intCast(u32, abi_size)),
                             .reg2 = .ebp,
                             .flags = 0b01,
                         }).encode(),
@@ -1576,7 +1576,7 @@ fn genBinMathOpMir(
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = src_reg,
+                            .reg1 = registerAlias(src_reg, @intCast(u32, abi_size)),
                             .reg2 = .ebp,
                             .flags = 0b10,
                         }).encode(),
@@ -2749,7 +2749,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
-                    .reg1 = reg,
+                    .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
                     .reg2 = .ebp,
                     .flags = 0b10,
                 }).encode(),
@@ -2970,7 +2970,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
-                    .reg1 = reg,
+                    .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
                     .reg2 = .ebp,
                     .flags = 0b01,
                 }).encode(),
