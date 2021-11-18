@@ -2,12 +2,8 @@ const clz = @import("count0bits.zig");
 const testing = @import("std").testing;
 
 fn test__clzdi2(a: u64, expected: i64) !void {
-    // XXX At high optimization levels this test may be horribly miscompiled if
-    // one of the naked implementations is selected.
-    var nakedClzdi2 = clz.__clzdi2;
-    var actualClzdi2 = @ptrCast(fn (a: i64) callconv(.C) i32, nakedClzdi2);
     var x = @bitCast(i64, a);
-    var result = actualClzdi2(x);
+    var result = clz.__clzdi2(x);
     try testing.expectEqual(expected, result);
 }
 

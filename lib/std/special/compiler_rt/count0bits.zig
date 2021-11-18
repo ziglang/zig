@@ -2,9 +2,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 // clz - count leading zeroes
-// - clzXi2_generic for little endian
+// - clzXi2_generic for unoptimized little and big endian
 // - __clzsi2_thumb1: assume a != 0
 // - __clzsi2_arm32: assume a != 0
+
+// ctz - count trailing zeroes
+// - ctzXi2_generic for unoptimized little and big endian
 
 fn clzXi2_generic(comptime T: type) fn (a: T) callconv(.C) i32 {
     return struct {
@@ -139,22 +142,51 @@ pub const __clzsi2 = impl: {
     }
 };
 
-pub const __clzdi2 = impl: {
-    switch (builtin.cpu.arch) {
-        // TODO architecture optimised versions
-        else => break :impl clzXi2_generic(i64),
-    }
-};
+pub const __clzdi2 = clzXi2_generic(i64);
 
-pub const __clzti2 = impl: {
-    switch (builtin.cpu.arch) {
-        // TODO architecture optimised versions
-        else => break :impl clzXi2_generic(i128),
-    }
-};
+pub const __clzti2 = clzXi2_generic(i128);
+
+fn ctzXi2_generic(comptime T: type) fn (a: T) callconv(.C) i32 {
+    return struct {
+        fn f(a: T) callconv(.C) i32 {
+            @setRuntimeSafety(builtin.is_test);
+
+            var x = switch (@bitSizeOf(T)) {
+                32 => @bitCast(u32, a),
+                64 => @bitCast(u64, a),
+                128 => @bitCast(u128, a),
+                else => unreachable,
+            };
+            var n: T = 1;
+            // Number of trailing zeroes as binary search, from Hacker's Delight
+            var mask: @TypeOf(x) = std.math.maxInt(@TypeOf(x));
+            comptime var shift = @bitSizeOf(T);
+            if (x == 0) return shift;
+            inline while (shift > 1) {
+                shift = shift >> 1;
+                mask = mask >> shift;
+                if ((x & mask) == 0) {
+                    n = n + shift;
+                    x = x >> shift;
+                }
+            }
+            return @intCast(i32, n - @bitCast(T, (x & 1)));
+        }
+    }.f;
+}
+
+pub const __ctzsi2 = ctzXi2_generic(i32);
+
+pub const __ctzdi2 = ctzXi2_generic(i64);
+
+pub const __ctzti2 = ctzXi2_generic(i128);
 
 test {
     _ = @import("clzsi2_test.zig");
     _ = @import("clzdi2_test.zig");
     _ = @import("clzti2_test.zig");
+
+    _ = @import("ctzsi2_test.zig");
+    _ = @import("ctzdi2_test.zig");
+    _ = @import("ctzti2_test.zig");
 }
