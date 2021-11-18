@@ -383,6 +383,12 @@ comptime {
         @export(__clzdi2, .{ .name = "__clzdi2", .linkage = linkage });
         const __clzti2 = @import("compiler_rt/count0bits.zig").__clzti2;
         @export(__clzti2, .{ .name = "__clzti2", .linkage = linkage });
+        const __ctzsi2 = @import("compiler_rt/count0bits.zig").__ctzsi2;
+        @export(__ctzsi2, .{ .name = "__ctzsi2", .linkage = linkage });
+        const __ctzdi2 = @import("compiler_rt/count0bits.zig").__ctzdi2;
+        @export(__ctzdi2, .{ .name = "__ctzdi2", .linkage = linkage });
+        const __ctzti2 = @import("compiler_rt/count0bits.zig").__ctzti2;
+        @export(__ctzti2, .{ .name = "__ctzti2", .linkage = linkage });
 
         if (builtin.link_libc and os_tag == .openbsd) {
             const __emutls_get_address = @import("compiler_rt/emutls.zig").__emutls_get_address;
