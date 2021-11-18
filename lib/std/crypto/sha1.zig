@@ -256,6 +256,18 @@ pub const Sha1 = struct {
         d.s[3] +%= v[3];
         d.s[4] +%= v[4];
     }
+
+    pub const Error = error{};
+    pub const Writer = std.io.Writer(*Self, Error, write);
+
+    fn write(self: *Self, bytes: []const u8) Error!usize {
+        self.update(bytes);
+        return bytes.len;
+    }
+
+    pub fn writer(self: *Self) Writer {
+        return .{ .context = self };
+    }
 };
 
 const htest = @import("test.zig");
