@@ -103,11 +103,8 @@ pub const PR = linux.PR;
 
 pub const _errno = switch (native_abi) {
     .android => struct {
-        extern "c" var __errno: c_int;
-        fn getErrno() *c_int {
-            return &__errno;
-        }
-    }.getErrno,
+        extern fn __errno() *c_int;
+    }.__errno,
     else => struct {
         extern "c" fn __errno_location() *c_int;
     }.__errno_location,
