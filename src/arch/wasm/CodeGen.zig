@@ -514,6 +514,9 @@ func_type_data: ArrayList(u8),
 /// NOTE: arguments share the index with locals therefore the first variable
 /// will have the index that comes after the last argument's index
 local_index: u32 = 0,
+/// The index of the current argument.
+/// Used to track which argument is being referenced in `airArg`.
+arg_index: u32 = 0,
 /// If codegen fails, an error messages will be allocated and saved in `err_msg`
 err_msg: *Module.ErrorMsg,
 /// Current block depth. Used to calculate the relative difference between a break
@@ -537,6 +540,13 @@ mir_extra: std.ArrayListUnmanaged(u32) = .{},
 /// When a function is executing, we store the the current stack pointer's value within this local.
 /// This value is then used to restore the stack pointer to the original value at the return of the function.
 initial_stack_value: WValue = .none,
+/// Arguments of this function declaration
+/// This will be set after `resolveCallingConventionValues`
+args: []WValue = undefined,
+/// This will only be `.none` if the function returns void, or returns an immediate.
+/// When it returns a pointer to the stack, the `.local` tag will be active and must be populated
+/// before this function returns its execution to the caller.
+return_value: WValue = .none,
 
 const InnerError = error{
     OutOfMemory,
@@ -736,17 +746,8 @@ fn genFunctype(self: *Self) InnerError!void {
         .Void, .NoReturn => try leb.writeULEB128(writer, @as(u32, 0)),
         .Struct => return self.fail("TODO: Implement struct as return type for wasm", .{}),
         .Optional => return self.fail("TODO: Implement optionals as return type for wasm", .{}),
-        .ErrorUnion => {
-            const val_type = try self.genValtype(return_type.errorUnionPayload());
-
-            // write down the amount of return values
-            try leb.writeULEB128(writer, @as(u32, 2));
-            try writer.writeByte(wasm.valtype(.i32)); // error code is always an i32 integer.
-            try writer.writeByte(val_type);
-        },
         else => {
             try leb.writeULEB128(writer, @as(u32, 1));
-            // Can we maybe get the source index of the return type?
             const val_type = try self.genValtype(return_type);
             try writer.writeByte(val_type);
         },
@@ -756,6 +757,12 @@ fn genFunctype(self: *Self) InnerError!void {
 pub fn genFunc(self: *Self) InnerError!Result {
     try self.genFunctype();
     // TODO: check for and handle death of instructions
+
+    var cc_result = try self.resolveCallingConventionValues(self.decl.ty);
+    defer cc_result.deinit(self.gpa);
+
+    self.args = cc_result.args;
+    self.return_value = cc_result.return_value;
 
     // Generate MIR for function body
     try self.genBody(self.air.getMainBody());
@@ -836,9 +843,67 @@ pub fn gen(self: *Self, ty: Type, val: Value) InnerError!Result {
     }
 }
 
+const CallWValues = struct {
+    args: []WValue,
+    return_value: WValue,
+
+    fn deinit(self: *CallWValues, gpa: *Allocator) void {
+        gpa.free(self.args);
+        self.* = undefined;
+    }
+};
+
+fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValues {
+    const cc = fn_ty.fnCallingConvention();
+    const param_types = try self.gpa.alloc(Type, fn_ty.fnParamLen());
+    defer self.gpa.free(param_types);
+    fn_ty.fnParamTypes(param_types);
+    var result: CallWValues = .{
+        .args = try self.gpa.alloc(WValue, param_types.len),
+        .return_value = .none,
+    };
+    errdefer self.gpa.free(result.args);
+    switch (cc) {
+        .Naked => return result,
+        .Unspecified, .C => {
+            for (param_types) |ty, ty_index| {
+                if (!ty.hasCodeGenBits()) {
+                    result.args[ty_index] = .{ .none = {} };
+                    continue;
+                }
+
+                result.args[ty_index] = .{ .local = self.local_index };
+                self.local_index += 1;
+            }
+
+            const ret_ty = fn_ty.fnReturnType();
+            switch (ret_ty.zigTypeTag()) {
+                .ErrorUnion => result.return_value = try self.allocLocal(Type.initTag(.i32)),
+                .Int, .Float, .Bool, .Void, .NoReturn => {},
+                else => return self.fail("TODO: Implement function return type {}", .{ret_ty}),
+            }
+
+            // Check if we store the result as a pointer to the stack rather than
+            // by value
+            if (result.return_value != .none) {
+                if (self.initial_stack_value == .none) try self.initializeStack();
+                const offset = std.math.cast(u32, ret_ty.abiSize(self.target)) catch {
+                    return self.fail("Return type '{}' too big for stack frame", .{ret_ty});
+                };
+
+                try self.moveStack(offset, result.return_value.local);
+            }
+        },
+        else => return self.fail("TODO implement function parameters for cc '{}' on wasm", .{cc}),
+    }
+    return result;
+}
+
 /// Retrieves the stack pointer's value from the global variable and stores
 /// it in a local
+/// Asserts `initial_stack_value` is `.none`
 fn initializeStack(self: *Self) !void {
+    assert(self.initial_stack_value == .none);
     // reserve space for immediate value
     // get stack pointer global
     // TODO: For now, we hardcode the stack pointer to index '0',
@@ -917,8 +982,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .dbg_stmt => WValue.none,
         .intcast => self.airIntcast(inst),
 
-        .is_err => self.airIsErr(inst, .i32_ne),
-        .is_non_err => self.airIsErr(inst, .i32_eq),
+        .is_err => self.airIsErr(inst, .i32_eq),
+        .is_non_err => self.airIsErr(inst, .i32_ne),
 
         .is_null => self.airIsNull(inst, .i32_ne),
         .is_non_null => self.airIsNull(inst, .i32_eq),
@@ -960,7 +1025,14 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 fn airRet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
-    try self.emitWValue(operand);
+    // result must be stored in the stack and we return a pointer
+    // to the stack instead
+    if (self.return_value != .none) {
+        try self.store(self.return_value, operand, self.decl.ty.fnReturnType(), 0);
+        try self.emitWValue(self.return_value);
+    } else {
+        try self.emitWValue(operand);
+    }
     try self.restoreStackPointer();
     try self.addTag(.@"return");
     return .none;
@@ -988,7 +1060,16 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     }
 
     try self.addLabel(.call, target.link.wasm.symbol_index);
-    return .none;
+
+    const ret_ty = target.ty.fnReturnType();
+    switch (ret_ty.zigTypeTag()) {
+        .ErrorUnion => {
+            const result_local = try self.allocLocal(ret_ty);
+            try self.addLabel(.local_set, result_local.local);
+            return result_local;
+        },
+        else => return WValue.none,
+    }
 }
 
 fn airAlloc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1021,6 +1102,11 @@ fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         else => 0,
     };
 
+    try self.store(lhs, rhs, ty, offset);
+    return .none;
+}
+
+fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerError!void {
     switch (ty.zigTypeTag()) {
         .ErrorUnion, .Optional => {
             var buf: Type.Payload.ElemType = undefined;
@@ -1039,22 +1125,18 @@ fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                 try self.addLabel(.local_set, tag_local.local);
 
                 try self.store(lhs, tag_local, tag_ty, 0);
-                try self.store(lhs, payload_local, payload_ty, payload_offset);
-            } else if (offset == 0) {
-                // tag is being set
-                try self.store(lhs, rhs, tag_ty, 0);
+                return try self.store(lhs, payload_local, payload_ty, payload_offset);
             } else {
-                // payload is being set
-                try self.store(lhs, rhs, payload_ty, payload_offset);
+                // Load values from `rhs` stack position and store in `lhs` instead
+                const tag_local = try self.load(rhs, tag_ty, 0);
+                const payload_local = try self.load(rhs, payload_ty, payload_offset);
+
+                try self.store(lhs, tag_local, tag_ty, 0);
+                return try self.store(lhs, payload_local, payload_ty, payload_offset);
             }
         },
-        else => try self.store(lhs, rhs, ty, offset),
+        else => {},
     }
-
-    return .none;
-}
-
-fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerError!void {
     try self.emitWValue(lhs);
     try self.emitWValue(rhs);
     const valtype = try self.typeToValtype(ty);
