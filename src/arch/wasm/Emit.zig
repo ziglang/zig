@@ -251,7 +251,10 @@ fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index).data;
     try emit.code.append(@enumToInt(tag));
-    try leb128.writeULEB128(emit.code.writer(), mem_arg.alignment);
+
+    // wasm encodes alignment as power of 2, rather than natural alignment
+    const encoded_alignment = mem_arg.alignment >> 1;
+    try leb128.writeULEB128(emit.code.writer(), encoded_alignment);
     try leb128.writeULEB128(emit.code.writer(), mem_arg.offset);
 }
 
