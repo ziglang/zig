@@ -264,8 +264,21 @@ pub const Inst = struct {
 
         /// arg debug info
         arg_dbg_info,
-    };
 
+        /// push registers from the callee_preserved_regs
+        /// data is the bitfield of which regs to push 
+        /// for example on x86_64, the callee_preserved_regs are [_]Register{ .rcx, .rsi, .rdi, .r8, .r9, .r10, .r11 };    };
+        /// so to push rcx and r8 one would make data 0b00000000_00000000_00000000_00001001 (the first and fourth bits are set)
+        /// ops is unused
+        push_regs_from_callee_preserved_regs,
+
+        /// pop registers from the callee_preserved_regs
+        /// data is the bitfield of which regs to pop
+        /// for example on x86_64, the callee_preserved_regs are [_]Register{ .rcx, .rsi, .rdi, .r8, .r9, .r10, .r11 };    };
+        /// so to pop rcx and r8 one would make data 0b00000000_00000000_00000000_00001001 (the first and fourth bits are set)
+        /// ops is unused
+        pop_regs_from_callee_preserved_regs,
+    };
     /// The position of an MIR instruction within the `Mir` instructions array.
     pub const Index = u32;
 
@@ -284,6 +297,8 @@ pub const Inst = struct {
         got_entry: u32,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
         payload: u32,
+        /// A bitfield of which callee_preserved_regs to push
+        regs_to_push_or_pop: u32,
     };
 
     // Make sure we don't accidentally make instructions bigger than expected.
