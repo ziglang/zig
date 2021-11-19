@@ -12,15 +12,15 @@ const linux_x64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    try @import("compile_errors.zig").addCases(ctx);
-    try @import("stage2/cbe.zig").addCases(ctx);
-    try @import("stage2/arm.zig").addCases(ctx);
-    try @import("stage2/aarch64.zig").addCases(ctx);
-    try @import("stage2/llvm.zig").addCases(ctx);
-    try @import("stage2/wasm.zig").addCases(ctx);
-    try @import("stage2/darwin.zig").addCases(ctx);
-    try @import("stage2/riscv64.zig").addCases(ctx);
-    try @import("stage2/plan9.zig").addCases(ctx);
+    // try @import("compile_errors.zig").addCases(ctx);
+    // try @import("stage2/cbe.zig").addCases(ctx);
+    // try @import("stage2/arm.zig").addCases(ctx);
+    // try @import("stage2/aarch64.zig").addCases(ctx);
+    // try @import("stage2/llvm.zig").addCases(ctx);
+    // try @import("stage2/wasm.zig").addCases(ctx);
+    // try @import("stage2/darwin.zig").addCases(ctx);
+    // try @import("stage2/riscv64.zig").addCases(ctx);
+    // try @import("stage2/plan9.zig").addCases(ctx);
 
     {
         var case = ctx.exe("hello world with updates", linux_x64);

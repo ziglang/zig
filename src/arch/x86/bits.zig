@@ -32,9 +32,11 @@ pub const Register = enum(u8) {
     /// Returns the index into `callee_preserved_regs`.
     pub fn allocIndex(self: Register) ?u4 {
         return switch (self) {
-            .ebx, .bx, .bl => 0,
-            .esi, .si  => 1,
-            .edi, .di => 2,
+            .eax, .ax, .al => 0,
+            .ecx, .cx, .cl => 1,
+            .edx, .dx, .dl => 2,
+            .esi, .si  => 3,
+            .edi, .di => 4,
             else => null,
         };
     }
@@ -72,11 +74,8 @@ pub const Register = enum(u8) {
 
 // zig fmt: on
 
-/// These registers need to be preserved (saved on the stack) and restored by the callee before getting clobbered
-/// and when the callee returns.
-/// Note that .esp and .ebp also belong to this set, however, we never expect to use them
-/// for anything else but stack offset tracking therefore we exclude them from this set.
-pub const callee_preserved_regs = [_]Register{ .ebx, .esi, .edi };
+/// TODO this set is actually a set of caller-saved registers.
+pub const callee_preserved_regs = [_]Register{ .eax, .ecx, .edx, .esi, .edi };
 
 // TODO add these to Register enum and corresponding dwarfLocOp
 //  // Return Address register. This is stored in `0(%esp, "")` and is not a physical register.
