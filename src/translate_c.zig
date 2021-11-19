@@ -1620,10 +1620,10 @@ fn transBinaryOperator(
         },
         .Rem => {
             if (cIsSignedInteger(qt)) {
-                // signed integer division uses @rem
+                // signed integer remainder uses std.zig.c_translation.signedRemainder
                 const lhs = try transExpr(c, scope, stmt.getLHS(), .used);
                 const rhs = try transExpr(c, scope, stmt.getRHS(), .used);
-                const rem = try Tag.rem.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                const rem = try Tag.signed_remainder.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
                 return maybeSuppressResult(c, scope, result_used, rem);
             }
         },
@@ -3831,7 +3831,7 @@ fn transCreateCompoundAssign(
             if (requires_int_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
             const operands = .{ .lhs = lhs_node, .rhs = rhs_node };
             const builtin = if (is_mod)
-                try Tag.rem.create(c.arena, operands)
+                try Tag.signed_remainder.create(c.arena, operands)
             else
                 try Tag.div_trunc.create(c.arena, operands);
 
@@ -3871,7 +3871,7 @@ fn transCreateCompoundAssign(
         if (requires_int_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
         const operands = .{ .lhs = ref_node, .rhs = rhs_node };
         const builtin = if (is_mod)
-            try Tag.rem.create(c.arena, operands)
+            try Tag.signed_remainder.create(c.arena, operands)
         else
             try Tag.div_trunc.create(c.arena, operands);
 
