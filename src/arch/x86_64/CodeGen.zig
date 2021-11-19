@@ -159,6 +159,13 @@ pub const MCValue = union(enum) {
             => true,
         };
     }
+
+    fn isRegister(mcv: MCValue) bool {
+        return switch (mcv) {
+            .register => true,
+            else => false,
+        };
+    }
 };
 
 const Branch = struct {
@@ -756,6 +763,19 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, mcv: MCValue) !MCValue {
     const reg = try self.register_manager.allocReg(reg_owner, &.{});
+    try self.genSetReg(self.air.typeOfIndex(reg_owner), reg, mcv);
+    return MCValue{ .register = reg };
+}
+
+/// Like `copyToNewRegister` but allows to specify a list of excluded registers which
+/// will not be selected for allocation. This can be done via `exceptions` slice.
+fn copyToNewRegisterWithExceptions(
+    self: *Self,
+    reg_owner: Air.Inst.Index,
+    mcv: MCValue,
+    exceptions: []const Register,
+) !MCValue {
+    const reg = try self.register_manager.allocReg(reg_owner, exceptions);
     try self.genSetReg(self.air.typeOfIndex(reg_owner), reg, mcv);
     return MCValue{ .register = reg };
 }
@@ -1450,11 +1470,9 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     // as the result MCValue.
     var dst_mcv: MCValue = undefined;
     var src_mcv: MCValue = undefined;
-    var src_inst: Air.Inst.Ref = undefined;
     if (self.reuseOperand(inst, op_lhs, 0, lhs)) {
         // LHS dies; use it as the destination.
         // Both operands cannot be memory.
-        src_inst = op_rhs;
         if (lhs.isMemory() and rhs.isMemory()) {
             dst_mcv = try self.copyToNewRegister(inst, lhs);
             src_mcv = rhs;
@@ -1465,7 +1483,6 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     } else if (self.reuseOperand(inst, op_rhs, 1, rhs)) {
         // RHS dies; use it as the destination.
         // Both operands cannot be memory.
-        src_inst = op_lhs;
         if (lhs.isMemory() and rhs.isMemory()) {
             dst_mcv = try self.copyToNewRegister(inst, rhs);
             src_mcv = lhs;
@@ -1475,13 +1492,23 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
         }
     } else {
         if (lhs.isMemory()) {
-            dst_mcv = try self.copyToNewRegister(inst, lhs);
+            dst_mcv = if (rhs.isRegister())
+                // If the allocated register is the same as the rhs register, don't allocate that one
+                // and instead spill a subsequent one. Otherwise, this can result in a miscompilation
+                // in the presence of several binary operations performed in a single block.
+                try self.copyToNewRegisterWithExceptions(inst, lhs, &.{rhs.register})
+            else
+                try self.copyToNewRegister(inst, lhs);
             src_mcv = rhs;
-            src_inst = op_rhs;
         } else {
-            dst_mcv = try self.copyToNewRegister(inst, rhs);
+            dst_mcv = if (lhs.isRegister())
+                // If the allocated register is the same as the rhs register, don't allocate that one
+                // and instead spill a subsequent one. Otherwise, this can result in a miscompilation
+                // in the presence of several binary operations performed in a single block.
+                try self.copyToNewRegisterWithExceptions(inst, rhs, &.{lhs.register})
+            else
+                try self.copyToNewRegister(inst, rhs);
             src_mcv = lhs;
-            src_inst = op_lhs;
         }
     }
     // This instruction supports only signed 32-bit immediates at most. If the immediate

@@ -84,13 +84,11 @@ pub const Register = enum(u7) {
     /// Returns the index into `callee_preserved_regs`.
     pub fn allocIndex(self: Register) ?u4 {
         return switch (self) {
-            .rcx, .ecx, .cx, .cl => 0,
-            .rsi, .esi, .si  => 1,
-            .rdi, .edi, .di => 2,
-            .r8, .r8d, .r8w, .r8b => 3,
-            .r9, .r9d, .r9w, .r9b => 4,
-            .r10, .r10d, .r10w, .r10b => 5,
-            .r11, .r11d, .r11w, .r11b => 6,
+            .rbx, .ebx, .bx, .bl => 0,
+            .r12, .r12d, .r12w, .r12b => 1,
+            .r13, .r13d, .r13w, .r13b => 2,
+            .r14, .r14d, .r14w, .r14b => 3,
+            .r15, .r15d, .r15w, .r15b => 4,
             else => null,
         };
     }
@@ -142,9 +140,15 @@ pub const Register = enum(u7) {
 
 // zig fmt: on
 
-/// These registers belong to the called function.
-/// TODO should the return_regs be in this array?
-pub const callee_preserved_regs = [_]Register{ .rcx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
+/// These registers need to be preserved (saved on the stack) and restored by the callee before getting clobbered
+/// and when the callee returns.
+/// Note that .rsp and .rbp also belong to this set, however, we never expect to use them
+/// for anything else but stack offset tracking therefore we exclude them from this set.
+pub const callee_preserved_regs = [_]Register{ .rbx, .r12, .r13, .r14, .r15 };
+/// These registers need to be preserved (saved on the stack) and restored by the caller before
+/// the caller relinquishes control to a subroutine via call instruction (or similar).
+/// In other words, these registers are free to use by the callee.
+pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
 pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
 pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
 
