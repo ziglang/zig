@@ -363,17 +363,114 @@ pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
 }
 
 fn gen(self: *Self) !void {
-    _ = try self.addInst(.{
-        .tag = .dbg_prologue_end,
-        .data = .{ .nop = {} },
-    });
+    const cc = self.fn_type.fnCallingConvention();
+    if (cc != .Naked) {
+        // TODO Finish function prologue and epilogue for riscv64.
 
-    try self.genBody(self.air.getMainBody());
+        // TODO Backpatch stack offset
+        // addi sp, sp, -16
+        _ = try self.addInst(.{
+            .tag = .addi,
+            .data = .{ .i_type = .{
+                .rd = .sp,
+                .rs1 = .sp,
+                .imm12 = -16,
+            } },
+        });
 
-    _ = try self.addInst(.{
-        .tag = .dbg_epilogue_begin,
-        .data = .{ .nop = {} },
-    });
+        // sd ra, 8(sp)
+        _ = try self.addInst(.{
+            .tag = .sd,
+            .data = .{ .i_type = .{
+                .rd = .ra,
+                .rs1 = .sp,
+                .imm12 = 8,
+            } },
+        });
+
+        // sd s0, 0(sp)
+        _ = try self.addInst(.{
+            .tag = .sd,
+            .data = .{ .i_type = .{
+                .rd = .s0,
+                .rs1 = .sp,
+                .imm12 = 0,
+            } },
+        });
+
+        _ = try self.addInst(.{
+            .tag = .dbg_prologue_end,
+            .data = .{ .nop = {} },
+        });
+
+        try self.genBody(self.air.getMainBody());
+
+        _ = try self.addInst(.{
+            .tag = .dbg_epilogue_begin,
+            .data = .{ .nop = {} },
+        });
+
+        // exitlude jumps
+        if (self.exitlude_jump_relocs.items.len == 1) {
+            // There is only one relocation. Hence,
+            // this relocation must be at the end of
+            // the code. Therefore, we can just delete
+            // the space initially reserved for the
+            // jump
+            self.mir_instructions.len -= 1;
+        } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
+            _ = jmp_reloc;
+            return self.fail("TODO add branches in RISCV64", .{});
+        }
+
+        // ld ra, 8(sp)
+        _ = try self.addInst(.{
+            .tag = .ld,
+            .data = .{ .i_type = .{
+                .rd = .ra,
+                .rs1 = .sp,
+                .imm12 = 8,
+            } },
+        });
+
+        // ld s0, 0(sp)
+        _ = try self.addInst(.{
+            .tag = .ld,
+            .data = .{ .i_type = .{
+                .rd = .s0,
+                .rs1 = .sp,
+                .imm12 = 0,
+            } },
+        });
+
+        // addi sp, sp, 16
+        _ = try self.addInst(.{
+            .tag = .addi,
+            .data = .{ .i_type = .{
+                .rd = .sp,
+                .rs1 = .sp,
+                .imm12 = 16,
+            } },
+        });
+
+        // ret
+        _ = try self.addInst(.{
+            .tag = .ret,
+            .data = .{ .nop = {} },
+        });
+    } else {
+        _ = try self.addInst(.{
+            .tag = .dbg_prologue_end,
+            .data = .{ .nop = {} },
+        });
+
+        try self.genBody(self.air.getMainBody());
+
+        _ = try self.addInst(.{
+            .tag = .dbg_epilogue_begin,
+            .data = .{ .nop = {} },
+        });
+    }
 
     // Drop them off at the rbrace.
     _ = try self.addInst(.{
@@ -1317,7 +1414,36 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
     if (self.bin_file.tag == link.File.Elf.base_tag or self.bin_file.tag == link.File.Coff.base_tag) {
-        if (info.args.len > 0) return self.fail("TODO implement fn args for {}", .{self.target.cpu.arch});
+        for (info.args) |mc_arg, arg_i| {
+            const arg = args[arg_i];
+            const arg_ty = self.air.typeOf(arg);
+            const arg_mcv = try self.resolveInst(args[arg_i]);
+
+            switch (mc_arg) {
+                .none => continue,
+                .undef => unreachable,
+                .immediate => unreachable,
+                .unreach => unreachable,
+                .dead => unreachable,
+                .embedded_in_code => unreachable,
+                .memory => unreachable,
+                .compare_flags_signed => unreachable,
+                .compare_flags_unsigned => unreachable,
+                .register => |reg| {
+                    try self.register_manager.getReg(reg, null);
+                    try self.genSetReg(arg_ty, reg, arg_mcv);
+                },
+                .stack_offset => {
+                    return self.fail("TODO implement calling with parameters in memory", .{});
+                },
+                .ptr_stack_offset => {
+                    return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+                },
+                .ptr_embedded_in_code => {
+                    return self.fail("TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
+                },
+            }
+        }
 
         if (self.air.value(callee)) |func_value| {
             if (func_value.castTag(.function)) |func_payload| {
@@ -1386,14 +1512,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
 fn ret(self: *Self, mcv: MCValue) !void {
     const ret_ty = self.fn_type.fnReturnType();
     try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
-    _ = try self.addInst(.{
-        .tag = .jalr,
-        .data = .{ .i_type = .{
-            .rd = .zero,
-            .rs1 = .ra,
-            .imm12 = 0,
-        } },
+    // Just add space for an instruction, patch this later
+    const index = try self.addInst(.{
+        .tag = .nop,
+        .data = .{ .nop = {} },
     });
+    try self.exitlude_jump_relocs.append(self.gpa, index);
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
@@ -2156,7 +2280,6 @@ const CallMCValues = struct {
 /// Caller must call `CallMCValues.deinit`.
 fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
     const cc = fn_ty.fnCallingConvention();
-    _ = cc;
     const param_types = try self.gpa.alloc(Type, fn_ty.fnParamLen());
     defer self.gpa.free(param_types);
     fn_ty.fnParamTypes(param_types);
@@ -2171,15 +2294,73 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
     const ret_ty = fn_ty.fnReturnType();
 
-    if (param_types.len != 0) {
-        return self.fail("TODO implement codegen parameters for {}", .{self.target.cpu.arch});
+    switch (cc) {
+        .Naked => {
+            assert(result.args.len == 0);
+            result.return_value = .{ .unreach = {} };
+            result.stack_byte_count = 0;
+            result.stack_align = 1;
+            return result;
+        },
+        .Unspecified, .C => {
+            // LP64D ABI
+            //
+            // TODO make this generic with other ABIs, in particular
+            // with different hardware floating-point calling
+            // conventions
+            var next_register: usize = 0;
+            var next_stack_offset: u32 = 0;
+            const argument_registers = [_]Register{ .a0, .a1, .a2, .a3, .a4, .a5, .a6, .a7 };
+
+            for (param_types) |ty, i| {
+                const param_size = @intCast(u32, ty.abiSize(self.target.*));
+                if (param_size <= 8) {
+                    if (next_register < argument_registers.len) {
+                        result.args[i] = .{ .register = argument_registers[next_register] };
+                        next_register += 1;
+                    } else {
+                        result.args[i] = .{ .stack_offset = next_stack_offset };
+                        next_register += next_stack_offset;
+                    }
+                } else if (param_size <= 16) {
+                    if (next_register < argument_registers.len - 1) {
+                        return self.fail("TODO MCValues with 2 registers", .{});
+                    } else if (next_register < argument_registers.len) {
+                        return self.fail("TODO MCValues split register + stack", .{});
+                    } else {
+                        result.args[i] = .{ .stack_offset = next_stack_offset };
+                        next_register += next_stack_offset;
+                    }
+                } else {
+                    result.args[i] = .{ .stack_offset = next_stack_offset };
+                    next_register += next_stack_offset;
+                }
+            }
+
+            result.stack_byte_count = next_stack_offset;
+            result.stack_align = 16;
+        },
+        else => return self.fail("TODO implement function parameters for {} on aarch64", .{cc}),
     }
 
     if (ret_ty.zigTypeTag() == .NoReturn) {
         result.return_value = .{ .unreach = {} };
     } else if (!ret_ty.hasCodeGenBits()) {
         result.return_value = .{ .none = {} };
-    } else return self.fail("TODO implement codegen return values for {}", .{self.target.cpu.arch});
+    } else switch (cc) {
+        .Naked => unreachable,
+        .Unspecified, .C => {
+            const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+            if (ret_ty_size <= 8) {
+                result.return_value = .{ .register = .a0 };
+            } else if (ret_ty_size <= 16) {
+                return self.fail("TODO support MCValue 2 registers", .{});
+            } else {
+                return self.fail("TODO support return by reference", .{});
+            }
+        },
+        else => return self.fail("TODO implement function return values for {}", .{cc}),
+    }
     return result;
 }
 
