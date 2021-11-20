@@ -2995,7 +2995,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\};
     , &[_][]const u8{
         "tmp.zig:2:5: error: type 'anyerror' not allowed in packed struct; no guaranteed in-memory representation",
-        "tmp.zig:5:5: error: array of 'u24' not allowed in packed struct due to padding bits",
+        "tmp.zig:5:5: error: array of 'u24' not allowed in packed struct due to padding bits (must be padded from 48 to 64 bits)",
         "tmp.zig:8:5: error: type 'anyerror' not allowed in packed struct; no guaranteed in-memory representation",
         "tmp.zig:11:5: error: non-packed, non-extern struct 'S' not allowed in packed struct; no guaranteed in-memory representation",
         "tmp.zig:14:5: error: non-packed, non-extern struct 'U' not allowed in packed struct; no guaranteed in-memory representation",
