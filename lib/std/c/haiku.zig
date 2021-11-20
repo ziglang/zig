@@ -28,12 +28,12 @@ pub extern "c" fn _kern_read_stat(fd: c_int, path_ptr: [*]u8, traverse_link: boo
 pub extern "c" fn _kern_get_current_team() i32;
 
 pub const sem_t = extern struct {
-    _magic: u32,
-    _kern: extern struct {
-        _count: u32,
-        _flags: u32,
+    type: i32,
+    u: extern union {
+        named_sem_id: ?i32,
+        unnamed_sem: ?i32,
     },
-    _padding: u32,
+    padding: [2]i32,
 };
 
 pub const pthread_attr_t = extern struct {
@@ -51,21 +51,13 @@ pub const pthread_mutex_t = extern struct {
     owner: i32 = -1,
     owner_count: i32 = 0,
 };
+
 pub const pthread_cond_t = extern struct {
     flags: u32 = 0,
     unused: i32 = -42,
     mutex: ?*c_void = null,
     waiter_count: i32 = 0,
     lock: i32 = 0,
-};
-pub const pthread_rwlock_t = extern struct {
-    flags: u32 = 0,
-    owner: i32 = -1,
-    lock_sem: i32 = 0,
-    lock_count: i32 = 0,
-    reader_count: i32 = 0,
-    writer_count: i32 = 0,
-    waiters: [2]?*c_void = [_]?*c_void{ null, null },
 };
 
 pub const EAI = enum(c_int) {
@@ -130,17 +122,6 @@ pub const mode_t = c_uint;
 
 pub const socklen_t = u32;
 
-/// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
-pub const Kevent = extern struct {
-    ident: usize,
-    filter: i16,
-    flags: u16,
-    fflags: u32,
-    data: i64,
-    udata: usize,
-    // TODO ext
-};
-
 // Modes and flags for dlopen()
 // include/dlfcn.h
 
@@ -178,13 +159,11 @@ pub const dl_phdr_info = extern struct {
 };
 
 pub const Flock = extern struct {
+    l_type: c_short,
+    l_whence: c_short,
     l_start: off_t,
     l_len: off_t,
     l_pid: pid_t,
-    l_type: i16,
-    l_whence: i16,
-    l_sysid: i32,
-    __unused: [4]u8,
 };
 
 pub const msghdr = extern struct {
@@ -196,29 +175,6 @@ pub const msghdr = extern struct {
 
     /// scatter/gather array
     msg_iov: [*]iovec,
-
-    /// # elements in msg_iov
-    msg_iovlen: i32,
-
-    /// ancillary data
-    msg_control: ?*c_void,
-
-    /// ancillary data buffer len
-    msg_controllen: socklen_t,
-
-    /// flags on received message
-    msg_flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    /// optional address
-    msg_name: ?*const sockaddr,
-
-    /// size of address
-    msg_namelen: socklen_t,
-
-    /// scatter/gather array
-    msg_iov: [*]iovec_const,
 
     /// # elements in msg_iov
     msg_iovlen: i32,
@@ -1001,24 +957,15 @@ pub const IPPROTO = struct {
 };
 
 pub const rlimit_resource = enum(c_int) {
-    CPU = 0,
-    FSIZE = 1,
+    CORE = 0,
+    CPU = 1,
     DATA = 2,
-    STACK = 3,
-    CORE = 4,
-    RSS = 5,
-    MEMLOCK = 6,
-    NPROC = 7,
-    NOFILE = 8,
-    SBSIZE = 9,
-    VMEM = 10,
-    NPTS = 11,
-    SWAP = 12,
-    KQUEUES = 13,
-    UMTXP = 14,
+    FSIZE = 3,
+    NOFILE = 4,
+    STACK = 5,
+    AS = 6,
+    NOVMON = 7,
     _,
-
-    pub const AS: rlimit_resource = .VMEM;
 };
 
 pub const rlim_t = i64;
@@ -1055,7 +1002,7 @@ pub const cc_t = u8;
 pub const speed_t = u8;
 pub const tcflag_t = u32;
 
-pub const NCCS = 32;
+pub const NCCS = 11;
 
 pub const termios = extern struct {
     c_iflag: tcflag_t,
