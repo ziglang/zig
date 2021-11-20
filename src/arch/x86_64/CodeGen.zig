@@ -159,6 +159,13 @@ pub const MCValue = union(enum) {
             => true,
         };
     }
+
+    fn isRegister(mcv: MCValue) bool {
+        return switch (mcv) {
+            .register => true,
+            else => false,
+        };
+    }
 };
 
 const Branch = struct {
@@ -349,6 +356,13 @@ pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
 fn gen(self: *Self) InnerError!void {
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
+        // push the callee_preserved_regs that were used
+        const backpatch_push_callee_preserved_regs_i = try self.addInst(.{
+            .tag = .push_regs_from_callee_preserved_regs,
+            .ops = undefined,
+            .data = .{ .regs_to_push_or_pop = undefined }, // to be backpatched
+        });
+
         _ = try self.addInst(.{
             .tag = .push,
             .ops = (Mir.Ops{
@@ -422,6 +436,22 @@ fn gen(self: *Self) InnerError!void {
                 .reg1 = .rbp,
             }).encode(),
             .data = undefined,
+        });
+        // calculate the data for callee_preserved_regs to be pushed and popped
+        var callee_preserved_regs_push_data: u32 = 0x0;
+        inline for (callee_preserved_regs) |reg, i| {
+            if (self.register_manager.isRegAllocated(reg)) {
+                callee_preserved_regs_push_data |= 1 << @intCast(u5, i);
+            }
+        }
+        const data = self.mir_instructions.items(.data);
+        // backpatch the push instruction
+        data[backpatch_push_callee_preserved_regs_i].regs_to_push_or_pop = callee_preserved_regs_push_data;
+        // pop the callee_preserved_regs
+        _ = try self.addInst(.{
+            .tag = .pop_regs_from_callee_preserved_regs,
+            .ops = undefined,
+            .data = .{ .regs_to_push_or_pop = callee_preserved_regs_push_data },
         });
         _ = try self.addInst(.{
             .tag = .ret,
@@ -733,6 +763,19 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, mcv: MCValue) !MCValue {
     const reg = try self.register_manager.allocReg(reg_owner, &.{});
+    try self.genSetReg(self.air.typeOfIndex(reg_owner), reg, mcv);
+    return MCValue{ .register = reg };
+}
+
+/// Like `copyToNewRegister` but allows to specify a list of excluded registers which
+/// will not be selected for allocation. This can be done via `exceptions` slice.
+fn copyToNewRegisterWithExceptions(
+    self: *Self,
+    reg_owner: Air.Inst.Index,
+    mcv: MCValue,
+    exceptions: []const Register,
+) !MCValue {
+    const reg = try self.register_manager.allocReg(reg_owner, exceptions);
     try self.genSetReg(self.air.typeOfIndex(reg_owner), reg, mcv);
     return MCValue{ .register = reg };
 }
@@ -1427,11 +1470,9 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     // as the result MCValue.
     var dst_mcv: MCValue = undefined;
     var src_mcv: MCValue = undefined;
-    var src_inst: Air.Inst.Ref = undefined;
     if (self.reuseOperand(inst, op_lhs, 0, lhs)) {
         // LHS dies; use it as the destination.
         // Both operands cannot be memory.
-        src_inst = op_rhs;
         if (lhs.isMemory() and rhs.isMemory()) {
             dst_mcv = try self.copyToNewRegister(inst, lhs);
             src_mcv = rhs;
@@ -1442,7 +1483,6 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     } else if (self.reuseOperand(inst, op_rhs, 1, rhs)) {
         // RHS dies; use it as the destination.
         // Both operands cannot be memory.
-        src_inst = op_lhs;
         if (lhs.isMemory() and rhs.isMemory()) {
             dst_mcv = try self.copyToNewRegister(inst, rhs);
             src_mcv = lhs;
@@ -1452,13 +1492,23 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
         }
     } else {
         if (lhs.isMemory()) {
-            dst_mcv = try self.copyToNewRegister(inst, lhs);
+            dst_mcv = if (rhs.isRegister())
+                // If the allocated register is the same as the rhs register, don't allocate that one
+                // and instead spill a subsequent one. Otherwise, this can result in a miscompilation
+                // in the presence of several binary operations performed in a single block.
+                try self.copyToNewRegisterWithExceptions(inst, lhs, &.{rhs.register})
+            else
+                try self.copyToNewRegister(inst, lhs);
             src_mcv = rhs;
-            src_inst = op_rhs;
         } else {
-            dst_mcv = try self.copyToNewRegister(inst, rhs);
+            dst_mcv = if (lhs.isRegister())
+                // If the allocated register is the same as the rhs register, don't allocate that one
+                // and instead spill a subsequent one. Otherwise, this can result in a miscompilation
+                // in the presence of several binary operations performed in a single block.
+                try self.copyToNewRegisterWithExceptions(inst, rhs, &.{lhs.register})
+            else
+                try self.copyToNewRegister(inst, rhs);
             src_mcv = lhs;
-            src_inst = op_lhs;
         }
     }
     // This instruction supports only signed 32-bit immediates at most. If the immediate
@@ -1902,10 +1952,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                     try self.register_manager.getReg(reg, null);
                     try self.genSetReg(arg_ty, reg, arg_mcv);
                 },
-                .stack_offset => {
+                .stack_offset => |off| {
                     // Here we need to emit instructions like this:
                     // mov     qword ptr [rsp + stack_offset], x
-                    return self.fail("TODO implement calling with parameters in memory", .{});
+                    try self.genSetStack(arg_ty, off, arg_mcv);
                 },
                 .ptr_stack_offset => {
                     return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});

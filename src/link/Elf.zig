@@ -2604,12 +2604,12 @@ fn addDbgInfoType(self: *Elf, ty: Type, dbg_info_buffer: *std.ArrayList(u8)) !vo
                 // DW.AT.name,  DW.FORM.string
                 try dbg_info_buffer.writer().print("{}\x00", .{ty});
             } else {
-                log.err("TODO implement .debug_info for type '{}'", .{ty});
+                log.debug("TODO implement .debug_info for type '{}'", .{ty});
                 try dbg_info_buffer.append(abbrev_pad1);
             }
         },
         else => {
-            log.err("TODO implement .debug_info for type '{}'", .{ty});
+            log.debug("TODO implement .debug_info for type '{}'", .{ty});
             try dbg_info_buffer.append(abbrev_pad1);
         },
     }
