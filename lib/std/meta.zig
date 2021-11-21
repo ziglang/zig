@@ -866,6 +866,19 @@ pub fn Int(comptime signedness: std.builtin.Signedness, comptime bit_count: u16)
     });
 }
 
+pub fn Float(comptime bit_count: u8) type {
+    return @Type(TypeInfo{
+        .Float = .{ .bits = bit_count },
+    });
+}
+
+test "std.meta.Float" {
+    try testing.expectEqual(f16, Float(16));
+    try testing.expectEqual(f32, Float(32));
+    try testing.expectEqual(f64, Float(64));
+    try testing.expectEqual(f128, Float(128));
+}
+
 pub fn Vector(comptime len: u32, comptime child: type) type {
     return @Type(TypeInfo{
         .Vector = .{
