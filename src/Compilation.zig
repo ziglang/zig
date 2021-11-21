@@ -627,6 +627,8 @@ pub const ClangPreprocessorMode = enum {
     stdout,
 };
 
+pub const SystemLib = link.SystemLib;
+
 pub const InitOptions = struct {
     zig_lib_directory: Directory,
     local_cache_directory: Directory,
@@ -672,7 +674,8 @@ pub const InitOptions = struct {
     link_objects: []const []const u8 = &[0][]const u8{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
     frameworks: []const []const u8 = &[0][]const u8{},
-    system_libs: []const []const u8 = &[0][]const u8{},
+    system_lib_names: []const []const u8 = &.{},
+    system_lib_infos: []const SystemLib = &.{},
     /// These correspond to the WASI libc emulated subcomponents including:
     /// * process clocks
     /// * getpid
@@ -935,7 +938,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             if (options.link_objects.len != 0 or
                 options.c_source_files.len != 0 or
                 options.frameworks.len != 0 or
-                options.system_libs.len != 0 or
+                options.system_lib_names.len != 0 or
                 options.link_libc or options.link_libcpp or
                 link_eh_frame_hdr or
                 options.link_emit_relocs or
@@ -1003,7 +1006,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 break :dl true;
             }
             const any_dyn_libs: bool = x: {
-                if (options.system_libs.len != 0)
+                if (options.system_lib_names.len != 0)
                     break :x true;
                 for (options.link_objects) |obj| {
                     switch (classifyFileExt(obj)) {
@@ -1050,7 +1053,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             options.target,
             options.is_native_abi,
             link_libc,
-            options.system_libs.len != 0 or options.frameworks.len != 0,
+            options.system_lib_names.len != 0 or options.frameworks.len != 0,
             options.libc_installation,
         );
 
@@ -1372,11 +1375,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             };
         };
 
-        var system_libs: std.StringArrayHashMapUnmanaged(void) = .{};
+        var system_libs: std.StringArrayHashMapUnmanaged(SystemLib) = .{};
         errdefer system_libs.deinit(gpa);
-        try system_libs.ensureTotalCapacity(gpa, options.system_libs.len);
-        for (options.system_libs) |lib_name| {
-            system_libs.putAssumeCapacity(lib_name, {});
+        try system_libs.ensureTotalCapacity(gpa, options.system_lib_names.len);
+        for (options.system_lib_names) |lib_name, i| {
+            system_libs.putAssumeCapacity(lib_name, options.system_lib_infos[i]);
         }
 
         const bin_file = try link.File.openPath(gpa, .{

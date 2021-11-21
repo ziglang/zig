@@ -471,7 +471,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         if (is_dyn_lib) {
             man.hash.addOptional(self.base.options.version);
         }
-        man.hash.addStringSet(self.base.options.system_libs);
+        link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
         man.hash.addOptionalBytes(self.base.options.sysroot);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.

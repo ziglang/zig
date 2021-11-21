@@ -18,6 +18,22 @@ const wasi_libc = @import("wasi_libc.zig");
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
 
+pub const SystemLib = struct {
+    needed: bool = false,
+};
+
+pub fn hashAddSystemLibs(
+    hh: *Cache.HashHelper,
+    hm: std.StringArrayHashMapUnmanaged(SystemLib),
+) void {
+    const keys = hm.keys();
+    hh.add(keys.len);
+    hh.addListOfBytes(keys);
+    for (hm.values()) |value| {
+        hh.add(value.needed);
+    }
+}
+
 pub const producer_string = if (builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
 pub const Emit = struct {
@@ -121,7 +137,7 @@ pub const Options = struct {
     objects: []const []const u8,
     framework_dirs: []const []const u8,
     frameworks: []const []const u8,
-    system_libs: std.StringArrayHashMapUnmanaged(void),
+    system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
     wasi_emulated_libs: []const wasi_libc.CRTFile,
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,

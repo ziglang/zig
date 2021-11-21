@@ -90,14 +90,6 @@ pub const HashHelper = struct {
         for (list_of_bytes) |bytes| hh.addBytes(bytes);
     }
 
-    pub fn addStringSet(hh: *HashHelper, hm: std.StringArrayHashMapUnmanaged(void)) void {
-        const keys = hm.keys();
-        hh.add(keys.len);
-        for (keys) |key| {
-            hh.addBytes(key);
-        }
-    }
-
     /// Convert the input value into bytes and record it as a dependency of the process being cached.
     pub fn add(hh: *HashHelper, x: anytype) void {
         switch (@TypeOf(x)) {
