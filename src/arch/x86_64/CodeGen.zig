@@ -405,6 +405,12 @@ fn gen(self: *Self) InnerError!void {
         const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
         if (aligned_stack_end > 0) {
             self.mir_instructions.items(.data)[backpatch_reloc].imm = @intCast(i32, aligned_stack_end);
+        } else {
+            self.mir_instructions.set(backpatch_reloc, .{
+                .tag = .nop,
+                .ops = undefined,
+                .data = undefined,
+            });
         }
 
         if (self.exitlude_jump_relocs.items.len == 1) {

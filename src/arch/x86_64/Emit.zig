@@ -134,6 +134,7 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .@"test" => try emit.mirTest(inst),
 
             .brk => try emit.mirBrk(),
+            .nop => try emit.mirNop(),
 
             .call_extern => try emit.mirCallExtern(inst),
 
@@ -183,6 +184,11 @@ fn fixupRelocs(emit: *Emit) InnerError!void {
 fn mirBrk(emit: *Emit) InnerError!void {
     const encoder = try Encoder.init(emit.code, 1);
     encoder.opcode_1byte(0xcc);
+}
+
+fn mirNop(emit: *Emit) InnerError!void {
+    const encoder = try Encoder.init(emit.code, 1);
+    encoder.opcode_1byte(0x90);
 }
 
 fn mirSyscall(emit: *Emit) InnerError!void {

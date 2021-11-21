@@ -247,6 +247,9 @@ pub const Inst = struct {
         /// Breakpoint
         brk,
 
+        /// Nop
+        nop,
+
         /// Pseudo-instructions
         /// call extern function
         /// Notes:
