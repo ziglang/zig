@@ -1,5 +1,5 @@
 //! Machine Intermediate Representation.
-//! This data is produced by RISCV64 Codegen or RISCV64 assembly parsing
+//! This data is produced by ARM Codegen or ARM assembly parsing
 //! These instructions have a 1:1 correspondence with machine code instructions
 //! for the target. MIR can be lowered to source-annotated textual assembly code
 //! instructions, or it can be lowered to machine code.
@@ -20,69 +20,161 @@ extra: []const u32,
 
 pub const Inst = struct {
     tag: Tag,
+    cond: bits.Condition,
     /// The meaning of this depends on `tag`.
     data: Data,
 
     pub const Tag = enum(u16) {
-        addi,
+        /// Add
+        add,
+        /// Bitwise AND
+        @"and",
+        /// Arithmetic Shift Right
+        asr,
+        /// Branch
+        b,
+        /// Breakpoint
+        bkpt,
+        /// Branch with Link and Exchange
+        blx,
+        /// Branch and Exchange
+        bx,
+        /// Compare
+        cmp,
         /// Pseudo-instruction: End of prologue
         dbg_prologue_end,
         /// Pseudo-instruction: Beginning of epilogue
         dbg_epilogue_begin,
         /// Pseudo-instruction: Update debug line
         dbg_line,
-        ebreak,
-        ecall,
-        jalr,
-        ld,
-        lui,
+        /// Bitwise Exclusive OR
+        eor,
+        /// Load Register
+        ldr,
+        /// Load Register Byte
+        ldrb,
+        /// Load Register Halfword
+        ldrh,
+        /// Logical Shift Left
+        lsl,
+        /// Logical Shift Right
+        lsr,
+        /// Move
+        mov,
+        /// Move
+        movw,
+        /// Move Top
+        movt,
+        /// Multiply
+        mul,
+        /// Bitwise NOT
+        mvn,
+        /// No Operation
         nop,
-        ret,
-        sd,
+        /// Bitwise OR
+        orr,
+        /// Pop multiple registers from Stack
+        pop,
+        /// Push multiple registers to Stack
+        push,
+        /// Reverse Subtract
+        rsb,
+        /// Store Register
+        str,
+        /// Store Register Byte
+        strb,
+        /// Store Register Halfword
+        strh,
+        /// Subtract
+        sub,
+        /// Supervisor Call
+        svc,
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
     pub const Index = u32;
 
-    /// All instructions have a 4-byte payload, which is contained within
+    /// All instructions have a 8-byte payload, which is contained within
     /// this union. `Tag` determines which union field is active, as well as
     /// how to interpret the data within.
+    // TODO flatten down Data (remove use of tagged unions) to make it
+    // 8 bytes only
     pub const Data = union {
         /// No additional data
         ///
-        /// Used by e.g. ebreak
+        /// Used by e.g. nop
         nop: void,
-        /// Another instruction.
+        /// Another instruction
         ///
         /// Used by e.g. b
         inst: Index,
         /// A 16-bit immediate value.
         ///
-        /// Used by e.g. svc
+        /// Used by e.g. bkpt
         imm16: u16,
+        /// A 24-bit immediate value.
+        ///
+        /// Used by e.g. svc
+        imm24: u24,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
         ///
         /// Used by e.g. load_memory
         payload: u32,
         /// A register
         ///
-        /// Used by e.g. blr
+        /// Used by e.g. blx
         reg: Register,
-        /// I-Type
+        /// A register and a 16-bit unsigned immediate
         ///
-        /// Used by e.g. jalr
-        i_type: struct {
+        /// Used by e.g. movw
+        r_imm16: struct {
             rd: Register,
-            rs1: Register,
-            imm12: i12,
+            imm16: u16,
         },
-        /// U-Type
+        /// Two registers and a shift amount
         ///
-        /// Used by e.g. lui
-        u_type: struct {
+        /// Used by e.g. lsl
+        rr_shift: struct {
             rd: Register,
-            imm20: i20,
+            rm: Register,
+            shift_amount: bits.Instruction.ShiftAmount,
         },
+        /// Two registers and an operand
+        ///
+        /// Used by e.g. sub
+        rr_op: struct {
+            rd: Register,
+            rn: Register,
+            op: bits.Instruction.Operand,
+        },
+        /// Two registers and an offset
+        ///
+        /// Used by e.g. ldr
+        rr_offset: struct {
+            rt: Register,
+            rn: Register,
+            offset: bits.Instruction.OffsetArgs,
+        },
+        /// Two registers and an extra load/store offset
+        ///
+        /// Used by e.g. ldrh
+        rr_extra_offset: struct {
+            rt: Register,
+            rn: Register,
+            offset: bits.Instruction.ExtraLoadStoreOffsetArgs,
+        },
+        /// Three registers
+        ///
+        /// Used by e.g. mul
+        rrr: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+        },
+        /// An unordered list of registers
+        ///
+        /// Used by e.g. push
+        register_list: bits.Instruction.RegisterList,
         /// Debug info: line and column
         ///
         /// Used by e.g. dbg_line
@@ -96,7 +188,7 @@ pub const Inst = struct {
     // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
     // comptime {
     //     if (builtin.mode != .Debug) {
-    //         assert(@sizeOf(Inst) == 8);
+    //         assert(@sizeOf(Data) == 8);
     //     }
     // }
 };

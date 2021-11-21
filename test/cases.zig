@@ -1819,4 +1819,36 @@ pub fn addCases(ctx: *TestContext) !void {
             ":2:28: error: cannot set address space of local variable 'foo'",
         });
     }
+    {
+        var case = ctx.exe("issue 10138: callee preserved regs working", linux_x64);
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    const fd = open();
+            \\    _ = write(fd, "a", 1);
+            \\    _ = close(fd);
+            \\}
+            \\
+            \\fn open() usize {
+            \\    return 42;
+            \\}
+            \\
+            \\fn write(fd: usize, a: [*]const u8, len: usize) usize {
+            \\    return syscall4(.WRITE, fd, @ptrToInt(a), len);
+            \\}
+            \\
+            \\fn syscall4(n: enum { WRITE }, a: usize, b: usize, c: usize) usize {
+            \\    _ = n;
+            \\    _ = a;
+            \\    _ = b;
+            \\    _ = c;
+            \\    return 23;
+            \\}
+            \\
+            \\fn close(fd: usize) usize {
+            \\    if (fd != 42)
+            \\        unreachable;
+            \\    return 0;
+            \\}
+        , "");
+    }
 }

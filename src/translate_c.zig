@@ -1620,10 +1620,10 @@ fn transBinaryOperator(
         },
         .Rem => {
             if (cIsSignedInteger(qt)) {
-                // signed integer division uses @rem
+                // signed integer remainder uses std.zig.c_translation.signedRemainder
                 const lhs = try transExpr(c, scope, stmt.getLHS(), .used);
                 const rhs = try transExpr(c, scope, stmt.getRHS(), .used);
-                const rem = try Tag.rem.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
+                const rem = try Tag.signed_remainder.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
                 return maybeSuppressResult(c, scope, result_used, rem);
             }
         },
@@ -3648,7 +3648,13 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
         .Plus => return transExpr(c, scope, op_expr, used),
         .Minus => {
             if (!qualTypeHasWrappingOverflow(op_expr.getType())) {
-                return Tag.negate.create(c.arena, try transExpr(c, scope, op_expr, .used));
+                const sub_expr_node = try transExpr(c, scope, op_expr, .used);
+                const to_negate = if (isBoolRes(sub_expr_node)) blk: {
+                    const ty_node = try Tag.type.create(c.arena, "c_int");
+                    const int_node = try Tag.bool_to_int.create(c.arena, sub_expr_node);
+                    break :blk try Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = int_node });
+                } else sub_expr_node;
+                return Tag.negate.create(c.arena, to_negate);
             } else if (cIsUnsignedInteger(op_expr.getType())) {
                 // use -% x for unsigned integers
                 return Tag.negate_wrap.create(c.arena, try transExpr(c, scope, op_expr, .used));
@@ -3831,7 +3837,7 @@ fn transCreateCompoundAssign(
             if (requires_int_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
             const operands = .{ .lhs = lhs_node, .rhs = rhs_node };
             const builtin = if (is_mod)
-                try Tag.rem.create(c.arena, operands)
+                try Tag.signed_remainder.create(c.arena, operands)
             else
                 try Tag.div_trunc.create(c.arena, operands);
 
@@ -3871,7 +3877,7 @@ fn transCreateCompoundAssign(
         if (requires_int_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
         const operands = .{ .lhs = ref_node, .rhs = rhs_node };
         const builtin = if (is_mod)
-            try Tag.rem.create(c.arena, operands)
+            try Tag.signed_remainder.create(c.arena, operands)
         else
             try Tag.div_trunc.create(c.arena, operands);
 

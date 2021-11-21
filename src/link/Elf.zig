@@ -1345,7 +1345,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         }
         man.hash.addOptionalBytes(self.base.options.soname);
         man.hash.addOptional(self.base.options.version);
-        man.hash.addStringSet(self.base.options.system_libs);
+        link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
         man.hash.add(allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
         man.hash.add(self.base.options.tsan);
@@ -1550,7 +1550,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 for (self.base.options.system_libs.keys()) |link_lib| {
                     test_path.shrinkRetainingCapacity(0);
                     const sep = fs.path.sep_str;
-                    try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, link_lib });
+                    try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{
+                        lib_dir_path, link_lib,
+                    });
                     fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
                         error.FileNotFound => continue,
                         else => |e| return e,
@@ -1627,14 +1629,40 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
             const system_libs = self.base.options.system_libs.keys();
-            try argv.ensureUnusedCapacity(system_libs.len);
-            for (system_libs) |link_lib| {
-                // By this time, we depend on these libs being dynamically linked libraries and not static libraries
-                // (the check for that needs to be earlier), but they could be full paths to .so files, in which
-                // case we want to avoid prepending "-l".
+            const system_libs_values = self.base.options.system_libs.values();
+
+            // Worst-case, we need an --as-needed argument for every lib, as well
+            // as one before and one after.
+            try argv.ensureUnusedCapacity(system_libs.len * 2 + 2);
+            argv.appendAssumeCapacity("--as-needed");
+            var as_needed = true;
+
+            for (system_libs) |link_lib, i| {
+                const lib_as_needed = !system_libs_values[i].needed;
+                switch ((@as(u2, @boolToInt(lib_as_needed)) << 1) | @boolToInt(as_needed)) {
+                    0b00, 0b11 => {},
+                    0b01 => {
+                        argv.appendAssumeCapacity("--no-as-needed");
+                        as_needed = false;
+                    },
+                    0b10 => {
+                        argv.appendAssumeCapacity("--as-needed");
+                        as_needed = true;
+                    },
+                }
+
+                // By this time, we depend on these libs being dynamically linked
+                // libraries and not static libraries (the check for that needs to be earlier),
+                // but they could be full paths to .so files, in which case we
+                // want to avoid prepending "-l".
                 const ext = Compilation.classifyFileExt(link_lib);
                 const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{s}", .{link_lib});
                 argv.appendAssumeCapacity(arg);
+            }
+
+            if (!as_needed) {
+                argv.appendAssumeCapacity("--as-needed");
+                as_needed = true;
             }
 
             // libc++ dep
@@ -2604,12 +2632,12 @@ fn addDbgInfoType(self: *Elf, ty: Type, dbg_info_buffer: *std.ArrayList(u8)) !vo
                 // DW.AT.name,  DW.FORM.string
                 try dbg_info_buffer.writer().print("{}\x00", .{ty});
             } else {
-                log.err("TODO implement .debug_info for type '{}'", .{ty});
+                log.debug("TODO implement .debug_info for type '{}'", .{ty});
                 try dbg_info_buffer.append(abbrev_pad1);
             }
         },
         else => {
-            log.err("TODO implement .debug_info for type '{}'", .{ty});
+            log.debug("TODO implement .debug_info for type '{}'", .{ty});
             try dbg_info_buffer.append(abbrev_pad1);
         },
     }

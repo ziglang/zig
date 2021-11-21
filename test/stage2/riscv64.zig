@@ -11,10 +11,8 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("riscv64 hello world", linux_riscv64);
         // Regular old hello world
         case.addCompareOutput(
-            \\pub export fn _start() noreturn {
+            \\pub fn main() void {
             \\    print();
-            \\
-            \\    exit();
             \\}
             \\
             \\fn print() void {
@@ -27,16 +25,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        : "rcx", "r11", "memory"
             \\    );
             \\    return;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("ecall"
-            \\        :
-            \\        : [number] "{a7}" (94),
-            \\          [arg1] "{a0}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "Hello, World!\n",

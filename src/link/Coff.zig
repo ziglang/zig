@@ -940,7 +940,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
                 }
             }
         }
-        man.hash.addStringSet(self.base.options.system_libs);
+        link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
         man.hash.addOptional(self.base.options.subsystem);
         man.hash.add(self.base.options.is_test);
         man.hash.add(self.base.options.tsaware);

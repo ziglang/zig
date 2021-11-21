@@ -78,6 +78,18 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
 
             mem.copy(u8, out[op..], d.s[0..len]);
         }
+
+        pub const Error = error{};
+        pub const Writer = std.io.Writer(*Self, Error, write);
+
+        fn write(self: *Self, bytes: []const u8) Error!usize {
+            self.update(bytes);
+            return bytes.len;
+        }
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
     };
 }
 

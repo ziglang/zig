@@ -84,15 +84,13 @@ pub const Register = enum(u7) {
     /// Returns the index into `callee_preserved_regs`.
     pub fn allocIndex(self: Register) ?u4 {
         return switch (self) {
-            .rax, .eax, .ax, .al => 0,
-            .rcx, .ecx, .cx, .cl => 1,
-            .rdx, .edx, .dx, .dl => 2,
-            .rsi, .esi, .si  => 3,
-            .rdi, .edi, .di => 4,
-            .r8, .r8d, .r8w, .r8b => 5,
-            .r9, .r9d, .r9w, .r9b => 6,
-            .r10, .r10d, .r10w, .r10b => 7,
-            .r11, .r11d, .r11w, .r11b => 8,
+            .rcx, .ecx, .cx, .cl => 0,
+            .rsi, .esi, .si => 1,
+            .rdi, .edi, .di => 2,
+            .r8, .r8d, .r8w, .r8b => 3,
+            .r9, .r9d, .r9w, .r9b => 4,
+            .r10, .r10d, .r10w, .r10b => 5,
+            .r11, .r11d, .r11w, .r11b => 6,
             else => null,
         };
     }
@@ -144,8 +142,10 @@ pub const Register = enum(u7) {
 
 // zig fmt: on
 
-/// These registers belong to the called function.
-pub const callee_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
+/// TODO this set is actually a set of caller-saved registers.
+/// These registers need to be preserved (saved on the stack) and restored by the callee before getting clobbered
+/// and when the callee returns.
+pub const callee_preserved_regs = [_]Register{ .rcx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
 pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
 pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
 

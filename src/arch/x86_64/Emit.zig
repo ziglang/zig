@@ -134,6 +134,7 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .@"test" => try emit.mirTest(inst),
 
             .brk => try emit.mirBrk(),
+            .nop => try emit.mirNop(),
 
             .call_extern => try emit.mirCallExtern(inst),
 
@@ -141,6 +142,9 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .dbg_prologue_end => try emit.mirDbgPrologueEnd(inst),
             .dbg_epilogue_begin => try emit.mirDbgEpilogueBegin(inst),
             .arg_dbg_info => try emit.mirArgDbgInfo(inst),
+
+            .push_regs_from_callee_preserved_regs => try emit.mirPushPopRegsFromCalleePreservedRegs(.push, inst),
+            .pop_regs_from_callee_preserved_regs => try emit.mirPushPopRegsFromCalleePreservedRegs(.pop, inst),
 
             else => {
                 return emit.fail("Implement MIR->Isel lowering for x86_64 for pseudo-inst: {s}", .{tag});
@@ -180,6 +184,11 @@ fn fixupRelocs(emit: *Emit) InnerError!void {
 fn mirBrk(emit: *Emit) InnerError!void {
     const encoder = try Encoder.init(emit.code, 1);
     encoder.opcode_1byte(0xcc);
+}
+
+fn mirNop(emit: *Emit) InnerError!void {
+    const encoder = try Encoder.init(emit.code, 1);
+    encoder.opcode_1byte(0x90);
 }
 
 fn mirSyscall(emit: *Emit) InnerError!void {
@@ -242,6 +251,39 @@ fn mirPushPop(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!v
             }
         },
         0b11 => unreachable,
+    }
+}
+fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+    const callee_preserved_regs = bits.callee_preserved_regs;
+    // PUSH/POP reg
+    const opc: u8 = switch (tag) {
+        .push => 0x50,
+        .pop => 0x58,
+        else => unreachable,
+    };
+
+    const regs = emit.mir.instructions.items(.data)[inst].regs_to_push_or_pop;
+    if (tag == .push) {
+        for (callee_preserved_regs) |reg, i| {
+            if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
+            const encoder = try Encoder.init(emit.code, 2);
+            encoder.rex(.{
+                .b = reg.isExtended(),
+            });
+            encoder.opcode_withReg(opc, reg.lowId());
+        }
+    } else {
+        // pop in the reverse direction
+        var i = callee_preserved_regs.len;
+        while (i > 0) : (i -= 1) {
+            const reg = callee_preserved_regs[i - 1];
+            if ((regs >> @intCast(u5, i - 1)) & 1 == 0) continue;
+            const encoder = try Encoder.init(emit.code, 2);
+            encoder.rex(.{
+                .b = reg.isExtended(),
+            });
+            encoder.opcode_withReg(opc, reg.lowId());
+        }
     }
 }
 

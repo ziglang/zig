@@ -309,13 +309,18 @@ const pwhashes = [_]CryptoPwhash{
         .params = crypto.pwhash.scrypt.Params.interactive,
         .name = "scrypt",
     },
+    .{
+        .hashFn = crypto.pwhash.argon2.strHash,
+        .params = crypto.pwhash.argon2.Params.interactive_2id,
+        .name = "argon2",
+    },
 };
 
 fn benchmarkPwhash(
     comptime hashFn: anytype,
     comptime params: anytype,
     comptime count: comptime_int,
-) !u64 {
+) !f64 {
     const password = "testpass" ** 2;
     const opts = .{ .allocator = std.testing.allocator, .params = params, .encoding = .phc };
     var buf: [256]u8 = undefined;
@@ -332,7 +337,7 @@ fn benchmarkPwhash(
     const end = timer.read();
 
     const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, count / elapsed_s);
+    const throughput = elapsed_s / count;
 
     return throughput;
 }
@@ -459,7 +464,7 @@ pub fn main() !void {
     inline for (pwhashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             const throughput = try benchmarkPwhash(H.hashFn, H.params, mode(64));
-            try stdout.print("{s:>17}: {:10} ops/s\n", .{ H.name, throughput });
+            try stdout.print("{s:>17}: {d:.3} s/ops\n", .{ H.name, throughput });
         }
     }
 }

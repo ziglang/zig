@@ -2178,6 +2178,37 @@ pub const Dir = struct {
         };
         return file.stat();
     }
+
+    pub const ChmodError = File.ChmodError;
+
+    /// Changes the mode of the directory.
+    /// The process must have the correct privileges in order to do this
+    /// successfully, or must have the effective user ID matching the owner
+    /// of the directory. Additionally, the directory must have been opened
+    /// with `OpenDirOptions{ .iterate = true }`.
+    pub fn chmod(self: Dir, new_mode: File.Mode) ChmodError!void {
+        const file: File = .{
+            .handle = self.fd,
+            .capable_io_mode = .blocking,
+        };
+        try file.chmod(new_mode);
+    }
+
+    /// Changes the owner and group of the directory.
+    /// The process must have the correct privileges in order to do this
+    /// successfully. The group may be changed by the owner of the directory to
+    /// any group of which the owner is a member. Additionally, the directory
+    /// must have been opened with `OpenDirOptions{ .iterate = true }`. If the
+    /// owner or group is specified as `null`, the ID is not changed.
+    pub fn chown(self: Dir, owner: ?File.Uid, group: ?File.Gid) ChownError!void {
+        const file: File = .{
+            .handle = self.fd,
+            .capable_io_mode = .blocking,
+        };
+        try file.chown(owner, group);
+    }
+
+    pub const ChownError = File.ChownError;
 };
 
 /// Returns a handle to the current working directory. It is not opened with iteration capability.

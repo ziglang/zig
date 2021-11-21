@@ -5175,11 +5175,13 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *expr_type, BuiltinFn
         n_args = 2;
         key.id = ZigLLVMFnIdCtz;
         key.data.ctz.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.ctz.vector_len = vector_len;
     } else if (fn_id == BuiltinFnIdClz) {
         fn_name = "ctlz";
         n_args = 2;
         key.id = ZigLLVMFnIdClz;
         key.data.clz.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.clz.vector_len = vector_len;
     } else if (fn_id == BuiltinFnIdPopCount) {
         fn_name = "ctpop";
         n_args = 1;
@@ -5197,6 +5199,7 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *expr_type, BuiltinFn
         n_args = 1;
         key.id = ZigLLVMFnIdBitReverse;
         key.data.bit_reverse.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.bit_reverse.vector_len = vector_len;
     } else {
         zig_unreachable();
     }

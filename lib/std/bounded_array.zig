@@ -34,7 +34,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
         }
 
         /// View the internal array as a constant slice whose size was previously set.
-        pub fn constSlice(self: Self) []const T {
+        pub fn constSlice(self: *const Self) []const T {
             return self.buffer[0..self.len];
         }
 
@@ -169,6 +169,13 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
             new_item_ptr.* = item;
         }
 
+        /// Extend the slice by 1 element, asserting the capacity is already
+        /// enough to store the new item.
+        pub fn appendAssumeCapacity(self: *Self, item: T) void {
+            const new_item_ptr = self.addOneAssumeCapacity();
+            new_item_ptr.* = item;
+        }
+
         /// Remove the element at index `i`, shift elements after index
         /// `i` forward, and return the removed element.
         /// Asserts the slice has at least one item.
@@ -259,6 +266,10 @@ test "BoundedArray" {
     try testing.expectEqual(a.len, 5);
 
     try a.append(0xff);
+    try testing.expectEqual(a.len, 6);
+    try testing.expectEqual(a.pop(), 0xff);
+
+    a.appendAssumeCapacity(0xff);
     try testing.expectEqual(a.len, 6);
     try testing.expectEqual(a.pop(), 0xff);
 

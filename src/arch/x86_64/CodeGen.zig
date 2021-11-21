@@ -159,6 +159,13 @@ pub const MCValue = union(enum) {
             => true,
         };
     }
+
+    fn isRegister(mcv: MCValue) bool {
+        return switch (mcv) {
+            .register => true,
+            else => false,
+        };
+    }
 };
 
 const Branch = struct {
@@ -349,6 +356,13 @@ pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
 fn gen(self: *Self) InnerError!void {
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
+        // push the callee_preserved_regs that were used
+        const backpatch_push_callee_preserved_regs_i = try self.addInst(.{
+            .tag = .push_regs_from_callee_preserved_regs,
+            .ops = undefined,
+            .data = .{ .regs_to_push_or_pop = undefined }, // to be backpatched
+        });
+
         _ = try self.addInst(.{
             .tag = .push,
             .ops = (Mir.Ops{
@@ -368,12 +382,10 @@ fn gen(self: *Self) InnerError!void {
         // yet know how big it will be, so we leave room for a 4-byte stack size.
         // TODO During semantic analysis, check if there are no function calls. If there
         // are none, here we can omit the part where we subtract and then add rsp.
-        const backpatch_reloc = try self.addInst(.{
-            .tag = .sub,
-            .ops = (Mir.Ops{
-                .reg1 = .rsp,
-            }).encode(),
-            .data = .{ .imm = 0 },
+        const backpatch_stack_sub = try self.addInst(.{
+            .tag = .nop,
+            .ops = undefined,
+            .data = undefined,
         });
 
         _ = try self.addInst(.{
@@ -383,15 +395,6 @@ fn gen(self: *Self) InnerError!void {
         });
 
         try self.genBody(self.air.getMainBody());
-
-        const stack_end = self.max_end_stack;
-        if (stack_end > math.maxInt(i32)) {
-            return self.failSymbol("too much stack used in call parameters", .{});
-        }
-        const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
-        if (aligned_stack_end > 0) {
-            self.mir_instructions.items(.data)[backpatch_reloc].imm = @intCast(i32, aligned_stack_end);
-        }
 
         if (self.exitlude_jump_relocs.items.len == 1) {
             self.mir_instructions.len -= 1;
@@ -405,16 +408,12 @@ fn gen(self: *Self) InnerError!void {
             .data = undefined,
         });
 
-        if (aligned_stack_end > 0) {
-            // add rsp, x
-            _ = try self.addInst(.{
-                .tag = .add,
-                .ops = (Mir.Ops{
-                    .reg1 = .rsp,
-                }).encode(),
-                .data = .{ .imm = @intCast(i32, aligned_stack_end) },
-            });
-        }
+        // Maybe add rsp, x if required. This is backpatched later.
+        const backpatch_stack_add = try self.addInst(.{
+            .tag = .nop,
+            .ops = undefined,
+            .data = undefined,
+        });
 
         _ = try self.addInst(.{
             .tag = .pop,
@@ -423,6 +422,37 @@ fn gen(self: *Self) InnerError!void {
             }).encode(),
             .data = undefined,
         });
+
+        // calculate the data for callee_preserved_regs to be pushed and popped
+        var callee_preserved_regs_push_data: u32 = 0x0;
+        // TODO this is required on macOS since macOS actively checks for stack alignment
+        // at every extern call site. As far as I can tell, macOS accounts for the typical
+        // function prologue first 2 instructions of:
+        // ...
+        // push rbp
+        // mov rsp, rbp
+        // ...
+        // Thus we don't need to adjust the stack for the first push instruction. However,
+        // any subsequent push of values on the stack such as when preserving registers,
+        // needs to be taken into account here.
+        var stack_adjustment: i32 = 0;
+        inline for (callee_preserved_regs) |reg, i| {
+            if (self.register_manager.isRegAllocated(reg)) {
+                callee_preserved_regs_push_data |= 1 << @intCast(u5, i);
+                if (self.target.isDarwin()) {
+                    stack_adjustment += @divExact(reg.size(), 8);
+                }
+            }
+        }
+        const data = self.mir_instructions.items(.data);
+        // backpatch the push instruction
+        data[backpatch_push_callee_preserved_regs_i].regs_to_push_or_pop = callee_preserved_regs_push_data;
+        // pop the callee_preserved_regs
+        _ = try self.addInst(.{
+            .tag = .pop_regs_from_callee_preserved_regs,
+            .ops = undefined,
+            .data = .{ .regs_to_push_or_pop = callee_preserved_regs_push_data },
+        });
         _ = try self.addInst(.{
             .tag = .ret,
             .ops = (Mir.Ops{
@@ -430,6 +460,29 @@ fn gen(self: *Self) InnerError!void {
             }).encode(),
             .data = undefined,
         });
+
+        // Adjust the stack
+        const stack_end = self.max_end_stack;
+        if (stack_end > math.maxInt(i32) - stack_adjustment) {
+            return self.failSymbol("too much stack used in call parameters", .{});
+        }
+        const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
+        if (aligned_stack_end > 0 or stack_adjustment > 0) {
+            self.mir_instructions.set(backpatch_stack_sub, .{
+                .tag = .sub,
+                .ops = (Mir.Ops{
+                    .reg1 = .rsp,
+                }).encode(),
+                .data = .{ .imm = @intCast(i32, aligned_stack_end) + stack_adjustment },
+            });
+            self.mir_instructions.set(backpatch_stack_add, .{
+                .tag = .add,
+                .ops = (Mir.Ops{
+                    .reg1 = .rsp,
+                }).encode(),
+                .data = .{ .imm = @intCast(i32, aligned_stack_end) + stack_adjustment },
+            });
+        }
     } else {
         _ = try self.addInst(.{
             .tag = .dbg_prologue_end,
@@ -733,6 +786,19 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, mcv: MCValue) !MCValue {
     const reg = try self.register_manager.allocReg(reg_owner, &.{});
+    try self.genSetReg(self.air.typeOfIndex(reg_owner), reg, mcv);
+    return MCValue{ .register = reg };
+}
+
+/// Like `copyToNewRegister` but allows to specify a list of excluded registers which
+/// will not be selected for allocation. This can be done via `exceptions` slice.
+fn copyToNewRegisterWithExceptions(
+    self: *Self,
+    reg_owner: Air.Inst.Index,
+    mcv: MCValue,
+    exceptions: []const Register,
+) !MCValue {
+    const reg = try self.register_manager.allocReg(reg_owner, exceptions);
     try self.genSetReg(self.air.typeOfIndex(reg_owner), reg, mcv);
     return MCValue{ .register = reg };
 }
@@ -1427,11 +1493,9 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     // as the result MCValue.
     var dst_mcv: MCValue = undefined;
     var src_mcv: MCValue = undefined;
-    var src_inst: Air.Inst.Ref = undefined;
     if (self.reuseOperand(inst, op_lhs, 0, lhs)) {
         // LHS dies; use it as the destination.
         // Both operands cannot be memory.
-        src_inst = op_rhs;
         if (lhs.isMemory() and rhs.isMemory()) {
             dst_mcv = try self.copyToNewRegister(inst, lhs);
             src_mcv = rhs;
@@ -1442,7 +1506,6 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     } else if (self.reuseOperand(inst, op_rhs, 1, rhs)) {
         // RHS dies; use it as the destination.
         // Both operands cannot be memory.
-        src_inst = op_lhs;
         if (lhs.isMemory() and rhs.isMemory()) {
             dst_mcv = try self.copyToNewRegister(inst, rhs);
             src_mcv = lhs;
@@ -1452,13 +1515,23 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
         }
     } else {
         if (lhs.isMemory()) {
-            dst_mcv = try self.copyToNewRegister(inst, lhs);
+            dst_mcv = if (rhs.isRegister())
+                // If the allocated register is the same as the rhs register, don't allocate that one
+                // and instead spill a subsequent one. Otherwise, this can result in a miscompilation
+                // in the presence of several binary operations performed in a single block.
+                try self.copyToNewRegisterWithExceptions(inst, lhs, &.{rhs.register})
+            else
+                try self.copyToNewRegister(inst, lhs);
             src_mcv = rhs;
-            src_inst = op_rhs;
         } else {
-            dst_mcv = try self.copyToNewRegister(inst, rhs);
+            dst_mcv = if (lhs.isRegister())
+                // If the allocated register is the same as the rhs register, don't allocate that one
+                // and instead spill a subsequent one. Otherwise, this can result in a miscompilation
+                // in the presence of several binary operations performed in a single block.
+                try self.copyToNewRegisterWithExceptions(inst, rhs, &.{lhs.register})
+            else
+                try self.copyToNewRegister(inst, rhs);
             src_mcv = lhs;
-            src_inst = op_lhs;
         }
     }
     // This instruction supports only signed 32-bit immediates at most. If the immediate
@@ -1545,7 +1618,7 @@ fn genBinMathOpMir(
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = dst_reg,
+                            .reg1 = registerAlias(dst_reg, @intCast(u32, abi_size)),
                             .reg2 = .ebp,
                             .flags = 0b01,
                         }).encode(),
@@ -1576,7 +1649,7 @@ fn genBinMathOpMir(
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = src_reg,
+                            .reg1 = registerAlias(src_reg, @intCast(u32, abi_size)),
                             .reg2 = .ebp,
                             .flags = 0b10,
                         }).encode(),
@@ -1902,10 +1975,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                     try self.register_manager.getReg(reg, null);
                     try self.genSetReg(arg_ty, reg, arg_mcv);
                 },
-                .stack_offset => {
+                .stack_offset => |off| {
                     // Here we need to emit instructions like this:
                     // mov     qword ptr [rsp + stack_offset], x
-                    return self.fail("TODO implement calling with parameters in memory", .{});
+                    try self.genSetStack(arg_ty, off, arg_mcv);
                 },
                 .ptr_stack_offset => {
                     return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
@@ -2749,7 +2822,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
-                    .reg1 = reg,
+                    .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
                     .reg2 = .ebp,
                     .flags = 0b10,
                 }).encode(),
@@ -2970,7 +3043,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
-                    .reg1 = reg,
+                    .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
                     .reg2 = .ebp,
                     .flags = 0b01,
                 }).encode(),

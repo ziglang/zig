@@ -92,6 +92,12 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-D_WIN32_WINNT=0x0f00",
                     "-D__MSVCRT_VERSION__=0x700",
                 });
+                if (std.mem.eql(u8, dep, "tlssup.c") and comp.bin_file.options.lto) {
+                    // LLD will incorrectly drop the `_tls_index` symbol. Here we work
+                    // around it by not using LTO for this one file.
+                    // https://github.com/ziglang/zig/issues/8531
+                    try args.append("-fno-lto");
+                }
                 c_source_files[i] = .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "mingw", "crt", dep,
@@ -702,6 +708,7 @@ const mingwex_generic_src = [_][]const u8{
     "math" ++ path.sep_str ++ "fpclassify.c",
     "math" ++ path.sep_str ++ "fpclassifyf.c",
     "math" ++ path.sep_str ++ "fpclassifyl.c",
+    "math" ++ path.sep_str ++ "frexp.c",
     "math" ++ path.sep_str ++ "frexpf.c",
     "math" ++ path.sep_str ++ "frexpl.c",
     "math" ++ path.sep_str ++ "hypot.c",

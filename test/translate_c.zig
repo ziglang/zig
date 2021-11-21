@@ -885,7 +885,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    c = a - b;
         \\    c = a * b;
         \\    c = @divTrunc(a, b);
-        \\    c = @rem(a, b);
+        \\    c = @import("std").zig.c_translation.signedRemainder(a, b);
         \\    return 0;
         \\}
         \\pub export fn u() c_uint {
@@ -2932,9 +2932,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        ref.* = @divTrunc(ref.*, @as(c_int, 1));
         \\        break :blk ref.*;
         \\    });
-        \\    a = @rem(a, blk: {
+        \\    a = @import("std").zig.c_translation.signedRemainder(a, blk: {
         \\        const ref = &a;
-        \\        ref.* = @rem(ref.*, @as(c_int, 1));
+        \\        ref.* = @import("std").zig.c_translation.signedRemainder(ref.*, @as(c_int, 1));
         \\        break :blk ref.*;
         \\    });
         \\    b /= blk: {

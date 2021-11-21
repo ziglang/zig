@@ -133,6 +133,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         try cflags.append("-DLIBCXX_BUILDING_LIBCXXABI");
         try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
+        try cflags.append("-D_LIBCPP_DISABLE_NEW_DELETE_DEFINITIONS");
         try cflags.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
