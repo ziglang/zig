@@ -382,12 +382,10 @@ fn gen(self: *Self) InnerError!void {
         // yet know how big it will be, so we leave room for a 4-byte stack size.
         // TODO During semantic analysis, check if there are no function calls. If there
         // are none, here we can omit the part where we subtract and then add rsp.
-        const backpatch_reloc = try self.addInst(.{
-            .tag = .sub,
-            .ops = (Mir.Ops{
-                .reg1 = .rsp,
-            }).encode(),
-            .data = .{ .imm = 0 },
+        const backpatch_stack_sub = try self.addInst(.{
+            .tag = .nop,
+            .ops = undefined,
+            .data = undefined,
         });
 
         _ = try self.addInst(.{
@@ -397,21 +395,6 @@ fn gen(self: *Self) InnerError!void {
         });
 
         try self.genBody(self.air.getMainBody());
-
-        const stack_end = self.max_end_stack;
-        if (stack_end > math.maxInt(i32)) {
-            return self.failSymbol("too much stack used in call parameters", .{});
-        }
-        const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
-        if (aligned_stack_end > 0) {
-            self.mir_instructions.items(.data)[backpatch_reloc].imm = @intCast(i32, aligned_stack_end);
-        } else {
-            self.mir_instructions.set(backpatch_reloc, .{
-                .tag = .nop,
-                .ops = undefined,
-                .data = undefined,
-            });
-        }
 
         if (self.exitlude_jump_relocs.items.len == 1) {
             self.mir_instructions.len -= 1;
@@ -425,16 +408,12 @@ fn gen(self: *Self) InnerError!void {
             .data = undefined,
         });
 
-        if (aligned_stack_end > 0) {
-            // add rsp, x
-            _ = try self.addInst(.{
-                .tag = .add,
-                .ops = (Mir.Ops{
-                    .reg1 = .rsp,
-                }).encode(),
-                .data = .{ .imm = @intCast(i32, aligned_stack_end) },
-            });
-        }
+        // Maybe add rsp, x if required. This is backpatched later.
+        const backpatch_stack_add = try self.addInst(.{
+            .tag = .nop,
+            .ops = undefined,
+            .data = undefined,
+        });
 
         _ = try self.addInst(.{
             .tag = .pop,
@@ -443,11 +422,26 @@ fn gen(self: *Self) InnerError!void {
             }).encode(),
             .data = undefined,
         });
+
         // calculate the data for callee_preserved_regs to be pushed and popped
         var callee_preserved_regs_push_data: u32 = 0x0;
+        // TODO this is required on macOS since macOS actively checks for stack alignment
+        // at every extern call site. As far as I can tell, macOS accounts for the typical
+        // function prologue first 2 instructions of:
+        // ...
+        // push rbp
+        // mov rsp, rbp
+        // ...
+        // Thus we don't need to adjust the stack for the first push instruction. However,
+        // any subsequent push of values on the stack such as when preserving registers,
+        // needs to be taken into account here.
+        var stack_adjustment: i32 = 0;
         inline for (callee_preserved_regs) |reg, i| {
             if (self.register_manager.isRegAllocated(reg)) {
                 callee_preserved_regs_push_data |= 1 << @intCast(u5, i);
+                if (self.target.isDarwin()) {
+                    stack_adjustment += @divExact(reg.size(), 8);
+                }
             }
         }
         const data = self.mir_instructions.items(.data);
@@ -466,6 +460,29 @@ fn gen(self: *Self) InnerError!void {
             }).encode(),
             .data = undefined,
         });
+
+        // Adjust the stack
+        const stack_end = self.max_end_stack;
+        if (stack_end > math.maxInt(i32) - stack_adjustment) {
+            return self.failSymbol("too much stack used in call parameters", .{});
+        }
+        const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
+        if (aligned_stack_end > 0 or stack_adjustment > 0) {
+            self.mir_instructions.set(backpatch_stack_sub, .{
+                .tag = .sub,
+                .ops = (Mir.Ops{
+                    .reg1 = .rsp,
+                }).encode(),
+                .data = .{ .imm = @intCast(i32, aligned_stack_end) + stack_adjustment },
+            });
+            self.mir_instructions.set(backpatch_stack_add, .{
+                .tag = .add,
+                .ops = (Mir.Ops{
+                    .reg1 = .rsp,
+                }).encode(),
+                .data = .{ .imm = @intCast(i32, aligned_stack_end) + stack_adjustment },
+            });
+        }
     } else {
         _ = try self.addInst(.{
             .tag = .dbg_prologue_end,
