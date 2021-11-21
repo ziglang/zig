@@ -20,8 +20,10 @@ pub const TbdV3 = struct {
     current_version: ?VersionField,
     compatibility_version: ?VersionField,
     objc_constraint: ?[]const u8,
+    parent_umbrella: ?[]const u8,
     exports: ?[]const struct {
         archs: []const []const u8,
+        allowable_clients: ?[]const []const u8,
         re_exports: ?[]const []const u8,
         symbols: ?[]const []const u8,
         objc_classes: ?[]const []const u8,
