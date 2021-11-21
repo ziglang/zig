@@ -3648,7 +3648,13 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
         .Plus => return transExpr(c, scope, op_expr, used),
         .Minus => {
             if (!qualTypeHasWrappingOverflow(op_expr.getType())) {
-                return Tag.negate.create(c.arena, try transExpr(c, scope, op_expr, .used));
+                const sub_expr_node = try transExpr(c, scope, op_expr, .used);
+                const to_negate = if (isBoolRes(sub_expr_node)) blk: {
+                    const ty_node = try Tag.type.create(c.arena, "c_int");
+                    const int_node = try Tag.bool_to_int.create(c.arena, sub_expr_node);
+                    break :blk try Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = int_node });
+                } else sub_expr_node;
+                return Tag.negate.create(c.arena, to_negate);
             } else if (cIsUnsignedInteger(op_expr.getType())) {
                 // use -% x for unsigned integers
                 return Tag.negate_wrap.create(c.arena, try transExpr(c, scope, op_expr, .used));
