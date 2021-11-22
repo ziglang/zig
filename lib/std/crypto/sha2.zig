@@ -277,6 +277,18 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             d.s[6] +%= v[6];
             d.s[7] +%= v[7];
         }
+
+        pub const Error = error{};
+        pub const Writer = std.io.Writer(*Self, Error, write);
+
+        fn write(self: *Self, bytes: []const u8) Error!usize {
+            self.update(bytes);
+            return bytes.len;
+        }
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
     };
 }
 

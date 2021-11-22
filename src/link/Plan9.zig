@@ -71,9 +71,9 @@ entry_val: ?u64 = null,
 got_len: usize = 0,
 // A list of all the free got indexes, so when making a new decl
 // don't make a new one, just use one from here.
-got_index_free_list: std.ArrayListUnmanaged(u64) = .{},
+got_index_free_list: std.ArrayListUnmanaged(usize) = .{},
 
-syms_index_free_list: std.ArrayListUnmanaged(u64) = .{},
+syms_index_free_list: std.ArrayListUnmanaged(usize) = .{},
 
 const Bases = struct {
     text: u64,
@@ -356,8 +356,8 @@ pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
     }
 }
 
-fn declCount(self: *Plan9) u64 {
-    var fn_decl_count: u64 = 0;
+fn declCount(self: *Plan9) usize {
+    var fn_decl_count: usize = 0;
     var itf_files = self.fn_decl_table.iterator();
     while (itf_files.next()) |ent| {
         // get the submap

@@ -7020,7 +7020,7 @@ fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         if (val.isUndef()) {
             return sema.addConstUndef(scalar_type);
         } else if (operand_type.zigTypeTag() == .Vector) {
-            const vec_len = operand_type.arrayLen();
+            const vec_len = try sema.usizeCast(block, operand_src, operand_type.arrayLen());
             var elem_val_buf: Value.ElemValueBuffer = undefined;
             const elems = try sema.arena.alloc(Value, vec_len);
             for (elems) |*elem, i| {
@@ -7073,7 +7073,9 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
         if (try sema.resolveDefinedValue(block, rhs_src, rhs)) |rhs_val| {
-            const final_len = lhs_info.len + rhs_info.len;
+            const lhs_len = try sema.usizeCast(block, lhs_src, lhs_info.len);
+            const rhs_len = try sema.usizeCast(block, lhs_src, rhs_info.len);
+            const final_len = lhs_len + rhs_len;
             const final_len_including_sent = final_len + @boolToInt(res_sent != null);
             const is_pointer = lhs_ty.zigTypeTag() == .Pointer;
             const lhs_sub_val = if (is_pointer) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
@@ -7083,17 +7085,17 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const buf = try anon_decl.arena().alloc(Value, final_len_including_sent);
             {
-                var i: u64 = 0;
-                while (i < lhs_info.len) : (i += 1) {
+                var i: usize = 0;
+                while (i < lhs_len) : (i += 1) {
                     const val = try lhs_sub_val.elemValue(sema.arena, i);
                     buf[i] = try val.copy(anon_decl.arena());
                 }
             }
             {
-                var i: u64 = 0;
-                while (i < rhs_info.len) : (i += 1) {
+                var i: usize = 0;
+                while (i < rhs_len) : (i += 1) {
                     const val = try rhs_sub_val.elemValue(sema.arena, i);
-                    buf[lhs_info.len + i] = try val.copy(anon_decl.arena());
+                    buf[lhs_len + i] = try val.copy(anon_decl.arena());
                 }
             }
             const ty = if (res_sent) |rs| ty: {
@@ -7143,6 +7145,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const lhs = sema.resolveInst(extra.lhs);
     const lhs_ty = sema.typeOf(lhs);
+    const src: LazySrcLoc = inst_data.src();
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
 
@@ -7151,11 +7154,14 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const mulinfo = getArrayCatInfo(lhs_ty) orelse
         return sema.fail(block, lhs_src, "expected array, found '{}'", .{lhs_ty});
 
-    const final_len = std.math.mul(u64, mulinfo.len, factor) catch
+    const final_len_u64 = std.math.mul(u64, mulinfo.len, factor) catch
         return sema.fail(block, rhs_src, "operation results in overflow", .{});
-    const final_len_including_sent = final_len + @boolToInt(mulinfo.sentinel != null);
 
     if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
+        const final_len = try sema.usizeCast(block, src, final_len_u64);
+        const final_len_including_sent = final_len + @boolToInt(mulinfo.sentinel != null);
+        const lhs_len = try sema.usizeCast(block, lhs_src, mulinfo.len);
+
         const lhs_sub_val = if (lhs_ty.zigTypeTag() == .Pointer) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
 
         var anon_decl = try block.startAnonDecl();
@@ -7176,18 +7182,18 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
         // Optimization for the common pattern of a single element repeated N times, such
         // as zero-filling a byte array.
-        const val = if (mulinfo.len == 1) blk: {
+        const val = if (lhs_len == 1) blk: {
             const elem_val = try lhs_sub_val.elemValue(sema.arena, 0);
             const copied_val = try elem_val.copy(anon_decl.arena());
             break :blk try Value.Tag.repeated.create(anon_decl.arena(), copied_val);
         } else blk: {
             // the actual loop
-            var i: u64 = 0;
+            var i: usize = 0;
             while (i < factor) : (i += 1) {
-                var j: u64 = 0;
-                while (j < mulinfo.len) : (j += 1) {
+                var j: usize = 0;
+                while (j < lhs_len) : (j += 1) {
                     const val = try lhs_sub_val.elemValue(sema.arena, j);
-                    buf[mulinfo.len * i + j] = try val.copy(anon_decl.arena());
+                    buf[lhs_len * i + j] = try val.copy(anon_decl.arena());
                 }
             }
             if (mulinfo.sentinel) |sent| {
@@ -8122,7 +8128,7 @@ fn analyzePtrArithmetic(
                     return sema.addConstUndef(new_ptr_ty);
                 }
 
-                const offset_int = offset_val.toUnsignedInt();
+                const offset_int = try sema.usizeCast(block, offset_src, offset_val.toUnsignedInt());
                 if (ptr_val.getUnsignedInt()) |addr| {
                     const target = sema.mod.getTarget();
                     const ptr_child_ty = ptr_ty.childType();
@@ -10204,7 +10210,7 @@ fn checkComptimeVarStore(
 }
 
 const SimdBinOp = struct {
-    len: ?u64,
+    len: ?usize,
     /// Coerced to `result_ty`.
     lhs: Air.Inst.Ref,
     /// Coerced to `result_ty`.
@@ -10230,7 +10236,7 @@ fn checkSimdBinOp(
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
 
-    var vec_len: ?u64 = null;
+    var vec_len: ?usize = null;
     if (lhs_zig_ty_tag == .Vector and rhs_zig_ty_tag == .Vector) {
         const lhs_len = lhs_ty.arrayLen();
         const rhs_len = rhs_ty.arrayLen();
@@ -10244,7 +10250,7 @@ fn checkSimdBinOp(
             };
             return sema.failWithOwnedErrorMsg(msg);
         }
-        vec_len = lhs_len;
+        vec_len = try sema.usizeCast(block, lhs_src, lhs_len);
     } else if (lhs_zig_ty_tag == .Vector or rhs_zig_ty_tag == .Vector) {
         const msg = msg: {
             const msg = try sema.errMsg(block, src, "mixed scalar and vector operands: {} and {}", .{
@@ -12671,8 +12677,7 @@ fn storePtrVal(
     var kit = try beginComptimePtrMutation(sema, block, src, ptr_val);
     try sema.checkComptimeVarStore(block, src, kit.decl_ref_mut);
 
-    const target = sema.mod.getTarget();
-    const bitcasted_val = try operand_val.bitCast(operand_ty, kit.ty, target, sema.gpa, sema.arena);
+    const bitcasted_val = try sema.bitCastVal(block, src, operand_val, operand_ty, kit.ty);
 
     const arena = kit.beginArena(sema.gpa);
     defer kit.finishArena();
@@ -12724,7 +12729,9 @@ fn beginComptimePtrMutation(
                     const arena = parent.beginArena(sema.gpa);
                     defer parent.finishArena();
 
-                    const elems = try arena.alloc(Value, parent.ty.arrayLenIncludingSentinel());
+                    const array_len_including_sentinel =
+                        try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel());
+                    const elems = try arena.alloc(Value, array_len_including_sentinel);
                     mem.set(Value, elems, Value.undef);
 
                     parent.val.* = try Value.Tag.array.create(arena, elems);
@@ -12771,7 +12778,9 @@ fn beginComptimePtrMutation(
                     defer parent.finishArena();
 
                     const repeated_val = try parent.val.castTag(.repeated).?.data.copy(arena);
-                    const elems = try arena.alloc(Value, parent.ty.arrayLenIncludingSentinel());
+                    const array_len_including_sentinel =
+                        try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel());
+                    const elems = try arena.alloc(Value, array_len_including_sentinel);
                     mem.set(Value, elems, repeated_val);
 
                     parent.val.* = try Value.Tag.array.create(arena, elems);
@@ -12925,7 +12934,7 @@ fn beginComptimePtrLoad(
                 .root_val = parent.root_val,
                 .val = try parent.val.elemValue(sema.arena, elem_ptr.index),
                 .ty = elem_ty,
-                .byte_offset = parent.byte_offset + elem_size * elem_ptr.index,
+                .byte_offset = try sema.usizeCast(block, src, parent.byte_offset + elem_size * elem_ptr.index),
                 .is_mutable = parent.is_mutable,
             };
         },
@@ -12939,7 +12948,7 @@ fn beginComptimePtrLoad(
                 .root_val = parent.root_val,
                 .val = try parent.val.fieldValue(sema.arena, field_index),
                 .ty = parent.ty.structFieldType(field_index),
-                .byte_offset = parent.byte_offset + field_offset,
+                .byte_offset = try sema.usizeCast(block, src, parent.byte_offset + field_offset),
                 .is_mutable = parent.is_mutable,
             };
         },
@@ -12990,13 +12999,32 @@ fn bitCast(
 ) CompileError!Air.Inst.Ref {
     // TODO validate the type size and other compile errors
     if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
-        const target = sema.mod.getTarget();
         const old_ty = sema.typeOf(inst);
-        const result_val = try val.bitCast(old_ty, dest_ty, target, sema.gpa, sema.arena);
+        const result_val = try sema.bitCastVal(block, inst_src, val, old_ty, dest_ty);
         return sema.addConstant(dest_ty, result_val);
     }
     try sema.requireRuntimeBlock(block, inst_src);
     return block.addBitCast(dest_ty, inst);
+}
+
+pub fn bitCastVal(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    val: Value,
+    old_ty: Type,
+    new_ty: Type,
+) !Value {
+    if (old_ty.eql(new_ty)) return val;
+
+    // For types with well-defined memory layouts, we serialize them a byte buffer,
+    // then deserialize to the new type.
+    const target = sema.mod.getTarget();
+    const abi_size = try sema.usizeCast(block, src, old_ty.abiSize(target));
+    const buffer = try sema.gpa.alloc(u8, abi_size);
+    defer sema.gpa.free(buffer);
+    val.writeToMemory(old_ty, target, buffer);
+    return Value.readFromMemory(new_ty, target, buffer, sema.arena);
 }
 
 fn coerceArrayPtrToSlice(
@@ -15103,11 +15131,19 @@ fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr
         // The Type it is stored as in the compiler has an ABI size greater or equal to
         // the ABI size of `load_ty`. We may perform the bitcast based on
         // `parent.val` alone (more efficient).
-        return try parent.val.bitCast(parent.ty, load_ty, target, sema.gpa, sema.arena);
+        return try sema.bitCastVal(block, src, parent.val, parent.ty, load_ty);
     }
 
     // The Type it is stored as in the compiler has an ABI size less than the ABI size
     // of `load_ty`. The bitcast must be performed based on the `parent.root_val`
     // and reinterpreted starting at `parent.byte_offset`.
     return sema.fail(block, src, "TODO: implement bitcast with index offset", .{});
+}
+
+/// Used to convert a u64 value to a usize value, emitting a compile error if the number
+/// is too big to fit.
+fn usizeCast(sema: *Sema, block: *Block, src: LazySrcLoc, int: u64) CompileError!usize {
+    return std.math.cast(usize, int) catch |err| switch (err) {
+        error.Overflow => return sema.fail(block, src, "expression produces integer value {d} which is too big for this compiler implementation to handle", .{int}),
+    };
 }

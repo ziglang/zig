@@ -995,24 +995,6 @@ pub const Value = extern union {
         };
     }
 
-    pub fn bitCast(
-        val: Value,
-        old_ty: Type,
-        new_ty: Type,
-        target: Target,
-        gpa: *Allocator,
-        arena: *Allocator,
-    ) !Value {
-        if (old_ty.eql(new_ty)) return val;
-
-        // For types with well-defined memory layouts, we serialize them a byte buffer,
-        // then deserialize to the new type.
-        const buffer = try gpa.alloc(u8, old_ty.abiSize(target));
-        defer gpa.free(buffer);
-        val.writeToMemory(old_ty, target, buffer);
-        return Value.readFromMemory(new_ty, target, buffer, arena);
-    }
-
     pub fn writeToMemory(val: Value, ty: Type, target: Target, buffer: []u8) void {
         switch (ty.zigTypeTag()) {
             .Int => {
@@ -1039,7 +1021,7 @@ pub const Value = extern union {
             .Array, .Vector => {
                 const len = ty.arrayLen();
                 const elem_ty = ty.childType();
-                const elem_size = elem_ty.abiSize(target);
+                const elem_size = @intCast(usize, elem_ty.abiSize(target));
                 var elem_i: usize = 0;
                 var elem_value_buf: ElemValueBuffer = undefined;
                 var buf_off: usize = 0;
@@ -2494,7 +2476,7 @@ pub const Value = extern union {
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
         const lhs_bigint = lhs.toBigInt(&lhs_space);
-        const shift = rhs.toUnsignedInt();
+        const shift = @intCast(usize, rhs.toUnsignedInt());
         const limbs = try allocator.alloc(
             std.math.big.Limb,
             lhs_bigint.limbs.len + (shift / (@sizeOf(std.math.big.Limb) * 8)) + 1,
@@ -2521,7 +2503,7 @@ pub const Value = extern union {
 
         var lhs_space: Value.BigIntSpace = undefined;
         const lhs_bigint = lhs.toBigInt(&lhs_space);
-        const shift = rhs.toUnsignedInt();
+        const shift = @intCast(usize, rhs.toUnsignedInt());
         const limbs = try arena.alloc(
             std.math.big.Limb,
             std.math.big.int.calcTwosCompLimbCount(info.bits),
@@ -2540,7 +2522,7 @@ pub const Value = extern union {
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
         const lhs_bigint = lhs.toBigInt(&lhs_space);
-        const shift = rhs.toUnsignedInt();
+        const shift = @intCast(usize, rhs.toUnsignedInt());
         const limbs = try allocator.alloc(
             std.math.big.Limb,
             lhs_bigint.limbs.len - (shift / (@sizeOf(std.math.big.Limb) * 8)),

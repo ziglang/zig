@@ -18,6 +18,22 @@ const wasi_libc = @import("wasi_libc.zig");
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
 
+pub const SystemLib = struct {
+    needed: bool = false,
+};
+
+pub fn hashAddSystemLibs(
+    hh: *Cache.HashHelper,
+    hm: std.StringArrayHashMapUnmanaged(SystemLib),
+) void {
+    const keys = hm.keys();
+    hh.add(keys.len);
+    hh.addListOfBytes(keys);
+    for (hm.values()) |value| {
+        hh.add(value.needed);
+    }
+}
+
 pub const producer_string = if (builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
 pub const Emit = struct {
@@ -121,7 +137,7 @@ pub const Options = struct {
     objects: []const []const u8,
     framework_dirs: []const []const u8,
     frameworks: []const []const u8,
-    system_libs: std.StringArrayHashMapUnmanaged(void),
+    system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
     wasi_emulated_libs: []const wasi_libc.CRTFile,
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
@@ -334,9 +350,39 @@ pub const File = struct {
         }
     }
 
+    pub const UpdateDeclError = error{
+        OutOfMemory,
+        Overflow,
+        Underflow,
+        FileTooBig,
+        InputOutput,
+        FilesOpenedWithWrongFlags,
+        IsDir,
+        NoSpaceLeft,
+        Unseekable,
+        PermissionDenied,
+        FileBusy,
+        SystemResources,
+        OperationAborted,
+        BrokenPipe,
+        ConnectionResetByPeer,
+        ConnectionTimedOut,
+        NotOpenForReading,
+        WouldBlock,
+        AccessDenied,
+        Unexpected,
+        DiskQuota,
+        NotOpenForWriting,
+        AnalysisFail,
+        CodegenFail,
+        EmitFail,
+        NameTooLong,
+        CurrentWorkingDirectoryUnlinked,
+    };
+
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
-    pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
+    pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) UpdateDeclError!void {
         log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty });
         assert(decl.has_tv);
         switch (base.tag) {
@@ -354,7 +400,7 @@ pub const File = struct {
 
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
-    pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+    pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
         log.debug("updateFunc {*} ({s}), type={}", .{
             func.owner_decl, func.owner_decl.name, func.owner_decl.ty,
         });
@@ -371,7 +417,7 @@ pub const File = struct {
         }
     }
 
-    pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) !void {
+    pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) UpdateDeclError!void {
         log.debug("updateDeclLineNumber {*} ({s}), line={}", .{
             decl, decl.name, decl.src_line + 1,
         });
@@ -391,12 +437,17 @@ pub const File = struct {
     /// TODO we're transitioning to deleting this function and instead having
     /// each linker backend notice the first time updateDecl or updateFunc is called, or
     /// a callee referenced from AIR.
-    pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
+    pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) error{OutOfMemory}!void {
         log.debug("allocateDeclIndexes {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
-            .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
+            .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl) catch |err| switch (err) {
+                // remap this error code because we are transitioning away from
+                // `allocateDeclIndexes`.
+                error.Overflow => return error.OutOfMemory,
+                error.OutOfMemory => return error.OutOfMemory,
+            },
             .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl),
             .c, .spirv => {},

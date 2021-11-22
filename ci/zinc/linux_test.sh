@@ -21,6 +21,7 @@ $ZIG build test-translate-c      -Denable-qemu -Denable-wasmtime
 $ZIG build test-run-translated-c -Denable-qemu -Denable-wasmtime
 $ZIG build docs                  -Denable-qemu -Denable-wasmtime
 $ZIG build # test building self-hosted without LLVM
+$ZIG build -Dtarget=arm-linux-musleabihf # test building self-hosted for 32-bit arm
 $ZIG build test-fmt              -Denable-qemu -Denable-wasmtime
 $ZIG build test-stage2           -Denable-qemu -Denable-wasmtime
 

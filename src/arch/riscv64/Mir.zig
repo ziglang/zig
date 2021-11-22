@@ -36,6 +36,9 @@ pub const Inst = struct {
         jalr,
         ld,
         lui,
+        nop,
+        ret,
+        sd,
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.

@@ -257,6 +257,18 @@ pub const Hash = struct {
 
         self.state.squeeze(out);
     }
+
+    pub const Error = error{};
+    pub const Writer = std.io.Writer(*Self, Error, write);
+
+    fn write(self: *Self, bytes: []const u8) Error!usize {
+        self.update(bytes);
+        return bytes.len;
+    }
+
+    pub fn writer(self: *Self) Writer {
+        return .{ .context = self };
+    }
 };
 
 pub fn hash(out: []u8, in: []const u8, options: Hash.Options) void {

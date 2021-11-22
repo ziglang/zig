@@ -74,6 +74,7 @@ pub const Register = enum(u8) {
 
 // zig fmt: on
 
+/// TODO this set is actually a set of caller-saved registers.
 pub const callee_preserved_regs = [_]Register{ .eax, .ecx, .edx, .esi, .edi };
 
 // TODO add these to Register enum and corresponding dwarfLocOp

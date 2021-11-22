@@ -34,7 +34,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
         }
 
         /// View the internal array as a constant slice whose size was previously set.
-        pub fn constSlice(self: Self) []const T {
+        pub fn constSlice(self: *const Self) []const T {
             return self.buffer[0..self.len];
         }
 

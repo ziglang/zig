@@ -37,6 +37,7 @@ pub const Result = union(enum) {
 
 pub const GenerateSymbolError = error{
     OutOfMemory,
+    Overflow,
     /// A Decl that this symbol depends on had a semantic analysis failure.
     AnalysisFail,
 };
@@ -289,7 +290,8 @@ pub fn generateSymbol(
             const field_vals = typed_value.val.castTag(.@"struct").?.data;
             _ = field_vals; // TODO write the fields for real
             const target = bin_file.options.target;
-            try code.writer().writeByteNTimes(0xaa, typed_value.ty.abiSize(target));
+            const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
+            try code.writer().writeByteNTimes(0xaa, abi_size);
             return Result{ .appended = {} };
         },
         else => |t| {

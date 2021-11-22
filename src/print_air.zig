@@ -234,7 +234,7 @@ const Writer = struct {
     fn writeTyStr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_str = w.air.instructions.items(.data)[inst].ty_str;
         const name = w.zir.nullTerminatedString(ty_str.str);
-        try s.print("\"{}\", {}", .{ std.zig.fmtEscapes(name), ty_str.ty });
+        try s.print("\"{}\", {}", .{ std.zig.fmtEscapes(name), w.air.getRefType(ty_str.ty) });
     }
 
     fn writeBinOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

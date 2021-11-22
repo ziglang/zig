@@ -130,6 +130,14 @@ fn exit2(code: usize) noreturn {
                     : "memory", "cc"
                 );
             },
+            .riscv64 => {
+                asm volatile ("ecall"
+                    :
+                    : [number] "{a7}" (94),
+                      [arg1] "{a0}" (0),
+                    : "rcx", "r11", "memory"
+                );
+            },
             else => @compileError("TODO"),
         },
         // exits(0)

@@ -1784,4 +1784,29 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Remainder operator with negative integers. Issue #10176",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int denominator = -2;
+        \\    int numerator = 5;
+        \\    if (numerator % denominator != 1) abort();
+        \\    numerator = -5; denominator = 2;
+        \\    if (numerator % denominator != -1) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Boolean expression coerced to int. Issue #10175",
+        \\#include <stdlib.h>
+        \\int sign(int v) {
+        \\    return -(v < 0);
+        \\}
+        \\int main(void) {
+        \\    if (sign(-5) != -1) abort();
+        \\    if (sign(5) != 0) abort();
+        \\    if (sign(0) != 0) abort();
+        \\    return 0;
+        \\}
+    , "");
 }

@@ -1006,10 +1006,18 @@ pub const DeclGen = struct {
                 const int_info = tv.ty.intInfo(target);
                 const llvm_type = self.context.intType(int_info.bits);
 
-                const unsigned_val = if (bigint.limbs.len == 1)
-                    llvm_type.constInt(bigint.limbs[0], .False)
-                else
-                    llvm_type.constIntOfArbitraryPrecision(@intCast(c_uint, bigint.limbs.len), bigint.limbs.ptr);
+                const unsigned_val = v: {
+                    if (bigint.limbs.len == 1) {
+                        break :v llvm_type.constInt(bigint.limbs[0], .False);
+                    }
+                    if (@sizeOf(usize) == @sizeOf(u64)) {
+                        break :v llvm_type.constIntOfArbitraryPrecision(
+                            @intCast(c_uint, bigint.limbs.len),
+                            bigint.limbs.ptr,
+                        );
+                    }
+                    @panic("TODO implement bigint to llvm int for 32-bit compiler builds");
+                };
                 if (!bigint.positive) {
                     return llvm.constNeg(unsigned_val);
                 }
@@ -1026,10 +1034,18 @@ pub const DeclGen = struct {
                 const int_info = tv.ty.intInfo(target);
                 const llvm_type = self.context.intType(int_info.bits);
 
-                const unsigned_val = if (bigint.limbs.len == 1)
-                    llvm_type.constInt(bigint.limbs[0], .False)
-                else
-                    llvm_type.constIntOfArbitraryPrecision(@intCast(c_uint, bigint.limbs.len), bigint.limbs.ptr);
+                const unsigned_val = v: {
+                    if (bigint.limbs.len == 1) {
+                        break :v llvm_type.constInt(bigint.limbs[0], .False);
+                    }
+                    if (@sizeOf(usize) == @sizeOf(u64)) {
+                        break :v llvm_type.constIntOfArbitraryPrecision(
+                            @intCast(c_uint, bigint.limbs.len),
+                            bigint.limbs.ptr,
+                        );
+                    }
+                    @panic("TODO implement bigint to llvm int for 32-bit compiler builds");
+                };
                 if (!bigint.positive) {
                     return llvm.constNeg(unsigned_val);
                 }
@@ -1144,7 +1160,7 @@ pub const DeclGen = struct {
                     const val = tv.val.castTag(.repeated).?.data;
                     const elem_ty = tv.ty.elemType();
                     const sentinel = tv.ty.sentinel();
-                    const len = tv.ty.arrayLen();
+                    const len = @intCast(usize, tv.ty.arrayLen());
                     const len_including_sent = len + @boolToInt(sentinel != null);
                     const gpa = self.gpa;
                     const llvm_elems = try gpa.alloc(*const llvm.Value, len_including_sent);
@@ -1317,7 +1333,7 @@ pub const DeclGen = struct {
                 .bytes => {
                     // Note, sentinel is not stored even if the type has a sentinel.
                     const bytes = tv.val.castTag(.bytes).?.data;
-                    const vector_len = tv.ty.arrayLen();
+                    const vector_len = @intCast(usize, tv.ty.arrayLen());
                     assert(vector_len == bytes.len or vector_len + 1 == bytes.len);
 
                     const elem_ty = tv.ty.elemType();
@@ -1343,7 +1359,7 @@ pub const DeclGen = struct {
                     // Note, sentinel is not stored even if the type has a sentinel.
                     // The value includes the sentinel in those cases.
                     const elem_vals = tv.val.castTag(.array).?.data;
-                    const vector_len = tv.ty.arrayLen();
+                    const vector_len = @intCast(usize, tv.ty.arrayLen());
                     assert(vector_len == elem_vals.len or vector_len + 1 == elem_vals.len);
                     const elem_ty = tv.ty.elemType();
                     const llvm_elems = try self.gpa.alloc(*const llvm.Value, vector_len);
@@ -1360,7 +1376,7 @@ pub const DeclGen = struct {
                     // Note, sentinel is not stored even if the type has a sentinel.
                     const val = tv.val.castTag(.repeated).?.data;
                     const elem_ty = tv.ty.elemType();
-                    const len = tv.ty.arrayLen();
+                    const len = @intCast(usize, tv.ty.arrayLen());
                     const llvm_elems = try self.gpa.alloc(*const llvm.Value, len);
                     defer self.gpa.free(llvm_elems);
                     for (llvm_elems) |*elem| {
