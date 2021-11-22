@@ -134,3 +134,32 @@ test "use generic param in generic param" {
 fn aGenericFn(comptime T: type, comptime a: T, b: T) T {
     return a + b;
 }
+
+test "generic fn with implicit cast" {
+    try expect(getFirstByte(u8, &[_]u8{13}) == 13);
+    try expect(getFirstByte(u16, &[_]u16{
+        0,
+        13,
+    }) == 0);
+}
+fn getByte(ptr: ?*const u8) u8 {
+    return ptr.?.*;
+}
+fn getFirstByte(comptime T: type, mem: []const T) u8 {
+    return getByte(@ptrCast(*const u8, &mem[0]));
+}
+
+test "generic fn keeps non-generic parameter types" {
+    const A = 128;
+
+    const S = struct {
+        fn f(comptime T: type, s: []T) !void {
+            try expect(A != @typeInfo(@TypeOf(s)).Pointer.alignment);
+        }
+    };
+
+    // The compiler monomorphizes `S.f` for `T=u8` on its first use, check that
+    // `x` type not affect `s` parameter type.
+    var x: [16]u8 align(A) = undefined;
+    try S.f(u8, &x);
+}
