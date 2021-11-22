@@ -97,11 +97,125 @@ pub const Inst = struct {
         ///
         /// Uses `payload` of type `MemArg`.
         i32_load = 0x28,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        i64_load = 0x29,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        f32_load = 0x2A,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        f64_load = 0x2B,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        i32_load8_s = 0x2C,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        i32_load8_u = 0x2D,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        i32_load16_s = 0x2E,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        i32_load16_u = 0x2F,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        i64_load8_s = 0x30,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        i64_load8_u = 0x31,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        i64_load16_s = 0x32,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        i64_load16_u = 0x33,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        i64_load32_s = 0x34,
+        /// Loads a value from memory onto the stack, based on the signedness
+        /// and bitsize of the type.
+        ///
+        /// Uses `payload` with type `MemArg`
+        i64_load32_u = 0x35,
         /// Pops 2 values from the stack, where the first value represents the value to write into memory
         /// and the second value represents the offset into memory where the value must be written to.
+        /// This opcode is typed and expects the stack value's type to be equal to this opcode's type.
         ///
         /// Uses `payload` of type `MemArg`.
         i32_store = 0x36,
+        /// Pops 2 values from the stack, where the first value represents the value to write into memory
+        /// and the second value represents the offset into memory where the value must be written to.
+        /// This opcode is typed and expects the stack value's type to be equal to this opcode's type.
+        ///
+        /// Uses `Payload` with type `MemArg`
+        i64_store = 0x37,
+        /// Pops 2 values from the stack, where the first value represents the value to write into memory
+        /// and the second value represents the offset into memory where the value must be written to.
+        /// This opcode is typed and expects the stack value's type to be equal to this opcode's type.
+        ///
+        /// Uses `Payload` with type `MemArg`
+        f32_store = 0x38,
+        /// Pops 2 values from the stack, where the first value represents the value to write into memory
+        /// and the second value represents the offset into memory where the value must be written to.
+        /// This opcode is typed and expects the stack value's type to be equal to this opcode's type.
+        ///
+        /// Uses `Payload` with type `MemArg`
+        f64_store = 0x39,
+        /// Pops 2 values from the stack, where the first value represents the value to write into memory
+        /// and the second value represents the offset into memory where the value must be written to.
+        /// This opcode is typed and expects the stack value's type to be equal to this opcode's type.
+        ///
+        /// Uses `Payload` with type `MemArg`
+        i32_store8 = 0x3A,
+        /// Pops 2 values from the stack, where the first value represents the value to write into memory
+        /// and the second value represents the offset into memory where the value must be written to.
+        /// This opcode is typed and expects the stack value's type to be equal to this opcode's type.
+        ///
+        /// Uses `Payload` with type `MemArg`
+        i32_store16 = 0x3B,
+        /// Pops 2 values from the stack, where the first value represents the value to write into memory
+        /// and the second value represents the offset into memory where the value must be written to.
+        /// This opcode is typed and expects the stack value's type to be equal to this opcode's type.
+        ///
+        /// Uses `Payload` with type `MemArg`
+        i64_store8 = 0x3C,
+        /// Pops 2 values from the stack, where the first value represents the value to write into memory
+        /// and the second value represents the offset into memory where the value must be written to.
+        /// This opcode is typed and expects the stack value's type to be equal to this opcode's type.
+        ///
+        /// Uses `Payload` with type `MemArg`
+        i64_store16 = 0x3D,
+        /// Pops 2 values from the stack, where the first value represents the value to write into memory
+        /// and the second value represents the offset into memory where the value must be written to.
+        /// This opcode is typed and expects the stack value's type to be equal to this opcode's type.
+        ///
+        /// Uses `Payload` with type `MemArg`
+        i64_store32 = 0x3E,
         /// Returns the memory size in amount of pages.
         ///
         /// Uses `nop`
@@ -247,7 +361,7 @@ pub const Inst = struct {
 
         /// From a given wasm opcode, returns a MIR tag.
         pub fn fromOpcode(opcode: std.wasm.Opcode) Tag {
-            return @intToEnum(Tag, @enumToInt(opcode));
+            return @intToEnum(Tag, @enumToInt(opcode)); // Given `Opcode` is not present as a tag for MIR yet
         }
 
         /// Returns a wasm opcode from a given MIR tag.

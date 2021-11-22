@@ -60,8 +60,30 @@ pub fn emitMir(emit: *Emit) InnerError!void {
 
             // memory instructions
             .i32_load => try emit.emitMemArg(tag, inst),
+            .i64_load => try emit.emitMemArg(tag, inst),
+            .f32_load => try emit.emitMemArg(tag, inst),
+            .f64_load => try emit.emitMemArg(tag, inst),
+            .i32_load8_s => try emit.emitMemArg(tag, inst),
+            .i32_load8_u => try emit.emitMemArg(tag, inst),
+            .i32_load16_s => try emit.emitMemArg(tag, inst),
+            .i32_load16_u => try emit.emitMemArg(tag, inst),
+            .i64_load8_s => try emit.emitMemArg(tag, inst),
+            .i64_load8_u => try emit.emitMemArg(tag, inst),
+            .i64_load16_s => try emit.emitMemArg(tag, inst),
+            .i64_load16_u => try emit.emitMemArg(tag, inst),
+            .i64_load32_s => try emit.emitMemArg(tag, inst),
+            .i64_load32_u => try emit.emitMemArg(tag, inst),
             .i32_store => try emit.emitMemArg(tag, inst),
+            .i64_store => try emit.emitMemArg(tag, inst),
+            .f32_store => try emit.emitMemArg(tag, inst),
+            .f64_store => try emit.emitMemArg(tag, inst),
+            .i32_store8 => try emit.emitMemArg(tag, inst),
+            .i32_store16 => try emit.emitMemArg(tag, inst),
+            .i64_store8 => try emit.emitMemArg(tag, inst),
+            .i64_store16 => try emit.emitMemArg(tag, inst),
+            .i64_store32 => try emit.emitMemArg(tag, inst),
 
+            // Instructions with an index that do not require relocations
             .local_get => try emit.emitLabel(tag, inst),
             .local_set => try emit.emitLabel(tag, inst),
             .local_tee => try emit.emitLabel(tag, inst),
@@ -229,7 +251,10 @@ fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index).data;
     try emit.code.append(@enumToInt(tag));
-    try leb128.writeULEB128(emit.code.writer(), mem_arg.alignment);
+
+    // wasm encodes alignment as power of 2, rather than natural alignment
+    const encoded_alignment = mem_arg.alignment >> 1;
+    try leb128.writeULEB128(emit.code.writer(), encoded_alignment);
     try leb128.writeULEB128(emit.code.writer(), mem_arg.offset);
 }
 
