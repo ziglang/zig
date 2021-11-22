@@ -27,6 +27,8 @@ pub const TbdV3 = struct {
         re_exports: ?[]const []const u8,
         symbols: ?[]const []const u8,
         objc_classes: ?[]const []const u8,
+        objc_ivars: ?[]const []const u8,
+        objc_eh_types: ?[]const []const u8,
     },
 };
 
@@ -52,17 +54,23 @@ pub const TbdV4 = struct {
         targets: []const []const u8,
         symbols: ?[]const []const u8,
         objc_classes: ?[]const []const u8,
+        objc_ivars: ?[]const []const u8,
+        objc_eh_types: ?[]const []const u8,
     },
     reexports: ?[]const struct {
         targets: []const []const u8,
         symbols: ?[]const []const u8,
         objc_classes: ?[]const []const u8,
+        objc_ivars: ?[]const []const u8,
+        objc_eh_types: ?[]const []const u8,
     },
     allowable_clients: ?[]const struct {
         targets: []const []const u8,
         clients: []const []const u8,
     },
     objc_classes: ?[]const []const u8,
+    objc_ivars: ?[]const []const u8,
+    objc_eh_types: ?[]const []const u8,
 };
 
 pub const Tbd = union(enum) {
