@@ -12358,31 +12358,6 @@ fn coerce(
             // T to E!T or E to E!T
             return sema.wrapErrorUnion(block, dest_ty, inst, inst_src);
         },
-        .ErrorSet => switch (inst_ty.zigTypeTag()) {
-            .ErrorSet => {
-                // Coercion to `anyerror`. Note that this check can return false positives
-                // in case the error sets did not get resolved.
-                if (dest_ty.isAnyError()) {
-                    return sema.coerceCompatibleErrorSets(block, inst, inst_src);
-                }
-                // If both are inferred error sets of functions, and
-                // the dest includes the source function, the coercion is OK.
-                // This check is important because it works without forcing a full resolution
-                // of inferred error sets.
-                if (inst_ty.castTag(.error_set_inferred)) |src_payload| {
-                    if (dest_ty.castTag(.error_set_inferred)) |dst_payload| {
-                        const src_func = src_payload.data.func;
-                        const dst_func = dst_payload.data.func;
-
-                        if (src_func == dst_func or dst_payload.data.functions.contains(src_func)) {
-                            return sema.coerceCompatibleErrorSets(block, inst, inst_src);
-                        }
-                    }
-                }
-                // TODO full error set resolution and compare sets by names.
-            },
-            else => {},
-        },
         .Union => switch (inst_ty.zigTypeTag()) {
             .Enum, .EnumLiteral => return sema.coerceEnumToUnion(block, dest_ty, dest_ty_src, inst, inst_src),
             else => {},
@@ -12440,12 +12415,44 @@ fn coerceInMemoryAllowed(dest_ty: Type, src_ty: Type, dest_is_mut: bool, target:
         return coerceInMemoryAllowedFns(dest_ty, src_ty, target);
     }
 
+    // Error Sets
+    if (dest_ty.zigTypeTag() == .ErrorSet and src_ty.zigTypeTag() == .ErrorSet) {
+        return coerceInMemoryAllowedErrorSets(dest_ty, src_ty);
+    }
+
     // TODO: arrays
     // TODO: non-pointer-like optionals
     // TODO: error unions
-    // TODO: error sets
     // TODO: vectors
 
+    return .no_match;
+}
+
+fn coerceInMemoryAllowedErrorSets(
+    dest_ty: Type,
+    src_ty: Type,
+) InMemoryCoercionResult {
+    // Coercion to `anyerror`. Note that this check can return false positives
+    // in case the error sets did not get resolved.
+    if (dest_ty.isAnyError()) {
+        return .ok;
+    }
+    // If both are inferred error sets of functions, and
+    // the dest includes the source function, the coercion is OK.
+    // This check is important because it works without forcing a full resolution
+    // of inferred error sets.
+    if (src_ty.castTag(.error_set_inferred)) |src_payload| {
+        if (dest_ty.castTag(.error_set_inferred)) |dst_payload| {
+            const src_func = src_payload.data.func;
+            const dst_func = dst_payload.data.func;
+
+            if (src_func == dst_func or dst_payload.data.functions.contains(src_func)) {
+                return .ok;
+            }
+        }
+    }
+
+    // TODO full error set resolution and compare sets by names.
     return .no_match;
 }
 
@@ -13222,26 +13229,6 @@ fn coerceVectorInMemory(
 
     try sema.requireRuntimeBlock(block, inst_src);
     return block.addBitCast(dest_ty, inst);
-}
-
-fn coerceCompatibleErrorSets(
-    sema: *Sema,
-    block: *Block,
-    err_set: Air.Inst.Ref,
-    err_set_src: LazySrcLoc,
-) !Air.Inst.Ref {
-    if (try sema.resolveDefinedValue(block, err_set_src, err_set)) |err_set_val| {
-        // Same representation works.
-        return sema.addConstant(Type.anyerror, err_set_val);
-    }
-    try sema.requireRuntimeBlock(block, err_set_src);
-    return block.addInst(.{
-        .tag = .bitcast,
-        .data = .{ .ty_op = .{
-            .ty = Air.Inst.Ref.anyerror_type,
-            .operand = err_set,
-        } },
-    });
 }
 
 fn analyzeDeclVal(
