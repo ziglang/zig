@@ -538,6 +538,8 @@ const InnerError = error{
     AnalysisFail,
     /// Failed to emit MIR instructions to binary/textual representation.
     EmitFail,
+    /// Compiler implementation could not handle a large integer.
+    Overflow,
 };
 
 pub fn deinit(self: *Self) void {
@@ -877,7 +879,8 @@ pub fn gen(self: *Self, ty: Type, val: Value) InnerError!Result {
         },
         .Struct => {
             // TODO write the fields for real
-            try self.code.writer().writeByteNTimes(0xaa, ty.abiSize(self.target));
+            const abi_size = try std.math.cast(usize, ty.abiSize(self.target));
+            try self.code.writer().writeByteNTimes(0xaa, abi_size);
             return Result{ .appended = {} };
         },
         else => |tag| return self.fail("TODO: Implement zig type codegen for type: '{s}'", .{tag}),

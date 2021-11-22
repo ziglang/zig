@@ -1788,19 +1788,18 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
 }
 
 pub fn createEmptyAtom(self: *MachO, local_sym_index: u32, size: u64, alignment: u32) !*Atom {
-    const code = try self.base.allocator.alloc(u8, size);
-    defer self.base.allocator.free(code);
-    mem.set(u8, code, 0);
-
+    const size_usize = try math.cast(usize, size);
     const atom = try self.base.allocator.create(Atom);
     errdefer self.base.allocator.destroy(atom);
     atom.* = Atom.empty;
     atom.local_sym_index = local_sym_index;
     atom.size = size;
     atom.alignment = alignment;
-    try atom.code.appendSlice(self.base.allocator, code);
-    try self.managed_atoms.append(self.base.allocator, atom);
 
+    try atom.code.resize(self.base.allocator, size_usize);
+    mem.set(u8, atom.code.items, 0);
+
+    try self.managed_atoms.append(self.base.allocator, atom);
     return atom;
 }
 
@@ -1872,9 +1871,10 @@ fn writeAtoms(self: *MachO) !void {
         while (true) {
             if (atom.dirty or self.invalidate_relocs) {
                 const atom_sym = self.locals.items[atom.local_sym_index];
-                const padding_size: u64 = if (atom.next) |next| blk: {
+                const padding_size: usize = if (atom.next) |next| blk: {
                     const next_sym = self.locals.items[next.local_sym_index];
-                    break :blk next_sym.n_value - (atom_sym.n_value + atom.size);
+                    const size = next_sym.n_value - (atom_sym.n_value + atom.size);
+                    break :blk try math.cast(usize, size);
                 } else 0;
 
                 log.debug("  (adding atom {s} to buffer: {})", .{ self.getString(atom_sym.n_strx), atom_sym });

@@ -3661,7 +3661,8 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     defer file.close();
 
     const stat = try file.stat();
-    const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), stat.size, 1, 0);
+    const size_usize = try std.math.cast(usize, stat.size);
+    const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
 
     log.debug("new embedFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, rel_file_path={s}", .{
         resolved_root_path, resolved_path, sub_file_path, rel_file_path,
@@ -3694,7 +3695,8 @@ pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
     if (unchanged_metadata) return;
 
     const gpa = mod.gpa;
-    const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), stat.size, 1, 0);
+    const size_usize = try std.math.cast(usize, stat.size);
+    const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
     gpa.free(embed_file.bytes);
     embed_file.bytes = bytes;
     embed_file.stat_size = stat.size;

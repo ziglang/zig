@@ -42,6 +42,7 @@ relocs: std.ArrayListUnmanaged(Reloc) = .{},
 
 const InnerError = error{
     OutOfMemory,
+    Overflow,
     EmitFail,
 };
 
@@ -174,10 +175,11 @@ fn fixupRelocs(emit: *Emit) InnerError!void {
     // possible resolution, i.e., 8bit, and iteratively converge on the minimum required resolution
     // until the entire decl is correctly emitted with all JMP/CALL instructions within range.
     for (emit.relocs.items) |reloc| {
+        const offset = try math.cast(usize, reloc.offset);
         const target = emit.code_offset_mapping.get(reloc.target) orelse
             return emit.fail("JMP/CALL relocation target not found!", .{});
         const disp = @intCast(i32, @intCast(i64, target) - @intCast(i64, reloc.source + reloc.length));
-        mem.writeIntLittle(i32, emit.code.items[reloc.offset..][0..4], disp);
+        mem.writeIntLittle(i32, emit.code.items[offset..][0..4], disp);
     }
 }
 

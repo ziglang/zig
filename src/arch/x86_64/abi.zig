@@ -207,7 +207,7 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
                         // "Otherwise class SSE is used."
                         result[result_i] = .sse;
                     }
-                    byte_i += field_size;
+                    byte_i += @intCast(usize, field_size);
                     if (byte_i == 8) {
                         byte_i = 0;
                         result_i += 1;
@@ -222,7 +222,7 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
                     result_i += field_class.len;
                     // If there are any bytes leftover, we have to try to combine
                     // the next field with them.
-                    byte_i = field_size % 8;
+                    byte_i = @intCast(usize, field_size % 8);
                     if (byte_i != 0) result_i -= 1;
                 }
             }
