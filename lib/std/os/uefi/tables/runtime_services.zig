@@ -25,7 +25,7 @@ pub const RuntimeServices = extern struct {
     setWakeupTime: Status, // TODO
 
     /// Changes the runtime addressing mode of EFI firmware from physical to virtual.
-    setVirtualAddressMap: fn (usize, usize, u32, *MemoryDescriptor) callconv(.C) Status,
+    setVirtualAddressMap: fn (usize, usize, u32, [*]MemoryDescriptor) callconv(.C) Status,
 
     /// Determines the new virtual address that is to be used on subsequent memory accesses.
     convertPointer: fn (usize, **c_void) callconv(.C) Status,
