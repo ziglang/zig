@@ -1290,6 +1290,8 @@ fn buildOutputType(
                     .no_red_zone => want_red_zone = false,
                     .omit_frame_pointer => omit_frame_pointer = true,
                     .no_omit_frame_pointer => omit_frame_pointer = false,
+                    .function_sections => function_sections = true,
+                    .no_function_sections => function_sections = false,
                     .unwind_tables => want_unwind_tables = true,
                     .no_unwind_tables => want_unwind_tables = false,
                     .nostdlib => ensure_libc_on_non_freestanding = false,
@@ -3821,6 +3823,8 @@ pub const ClangArgIterator = struct {
         strip,
         exec_model,
         emit_llvm,
+        function_sections,
+        no_function_sections,
     };
 
     const Args = struct {
