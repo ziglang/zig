@@ -30,6 +30,8 @@ comptime {
                 }
             } else if (builtin.os.tag == .windows) {
                 @export(wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
+            } else if (builtin.os.tag == .wasi) {
+                @export(wasmMain2, .{ .name = "_start" });
             } else {
                 if (!@hasDecl(root, "_start")) {
                     @export(_start2, .{ .name = "_start" });
@@ -96,6 +98,11 @@ fn callMain2() noreturn {
     @setAlignStack(16);
     root.main();
     exit2(0);
+}
+
+fn wasmMain2() u8 {
+    root.main();
+    return 0;
 }
 
 fn wWinMainCRTStartup2() callconv(.C) noreturn {
