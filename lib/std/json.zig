@@ -1779,7 +1779,7 @@ fn parseInternal(
             }
 
             // support for field_aliases
-            const FieldAliases = std.enums.EnumFieldStruct(T, ?[]const u8, @as(?[]const u8, null));
+            const FieldAliases = std.enums.EnumFieldStruct(T, ?[*:0]const u8, @as(?[*:0]const u8, null));
             const field_aliases: FieldAliases = if (@hasDecl(T, "__field_aliases")) T.__field_aliases else .{};
 
             while (true) {
@@ -1791,18 +1791,15 @@ fn parseInternal(
                         child_options.allow_trailing_data = true;
                         var found = false;
                         inline for (structInfo.fields) |field, i| {
-                            // TODO: using switches here segfault the compiler (#2727?)
-                            if ((stringToken.escapes == .None and
-                                // no escapes, no alias
-                                (mem.eql(u8, field.name, key_source_slice) or
-                                // no escapes, yes alias - the key may be an unescaped alias
-                                if (@field(field_aliases, field.name)) |alias| mem.eql(u8, alias, key_source_slice) else false) or
-                                (stringToken.escapes == .Some and
-                                // yes escapes, no alias
-                                ((field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)) or
-                                // yes escapes, yes alias  - the key may be an escaped alias.
-                                if (@field(field_aliases, field.name)) |alias| alias.len == stringToken.decodedLength() and encodesTo(alias, key_source_slice) else false))))
+                            const field_name = comptime if (@field(field_aliases, field.name)) |alias|
+                                mem.span(alias)
+                            else
+                                field.name;
+
+                            if ((stringToken.escapes == .None and mem.eql(u8, field_name, key_source_slice)) or
+                                (stringToken.escapes == .Some and ((field_name.len == stringToken.decodedLength() and encodesTo(field_name, key_source_slice)))))
                             {
+                                // TODO: using switches here segfault the compiler (#2727?)
                                 // if (switch (stringToken.escapes) {
                                 //     .None => mem.eql(u8, field.name, key_source_slice),
                                 //     .Some => (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)),
