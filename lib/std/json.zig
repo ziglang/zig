@@ -1489,17 +1489,6 @@ pub const ParseOptions = struct {
     ignore_unknown_fields: bool = false,
 
     allow_trailing_data: bool = false,
-
-    /// Provide if struct field names are different from json key names
-    field_aliases: []const FieldAlias = &.{},
-};
-
-pub const FieldAlias = struct {
-    /// the struct field name
-    field: []const u8,
-
-    /// the json key name
-    alias: []const u8,
 };
 
 const SkipValueError = error{UnexpectedJsonDepth} || TokenStream.Error;
@@ -1567,72 +1556,51 @@ test "skipValue" {
 }
 
 test "field aliases" {
-    const S = struct { value: u8 };
-    const text =
-        \\{"__value": 42}
-    ;
-
-    const s = try parse(S, &TokenStream.init(text), .{
-        .field_aliases = &.{.{ .field = "value", .alias = "__value" }},
-    });
-    try testing.expectEqual(@as(u8, 42), s.value);
-}
-
-test "many field aliases" {
-    const S = struct { value: u8, a: u8, z: u8 };
+    const S = struct {
+        value: u8,
+        a: u8,
+        z: u8,
+        pub const __field_aliases = .{
+            .value = "__value",
+            .a = "__a",
+            .z = "__z",
+        };
+    };
     const text =
         \\{"__value": 42, "__a": 43, "__z": 44}
     ;
 
-    // too many aliases
-    try testing.expectError(
-        error.TooManyFieldAliases,
-        parse(S, &TokenStream.init(text), .{ .field_aliases = &.{
-            .{ .field = "value", .alias = "__value" },
-            .{ .field = "a", .alias = "__a" },
-            .{ .field = "z", .alias = "__z" },
-            .{ .field = "oops", .alias = "__oops" },
-        } }),
-    );
-
-    const s = try parse(S, &TokenStream.init(text), .{
-        .field_aliases = &.{
-            .{ .field = "value", .alias = "__value" },
-            .{ .field = "a", .alias = "__a" },
-            .{ .field = "z", .alias = "__z" },
-        },
-    });
+    const s = try parse(S, &TokenStream.init(text), .{});
     try testing.expectEqual(@as(u8, 42), s.value);
     try testing.expectEqual(@as(u8, 43), s.a);
     try testing.expectEqual(@as(u8, 44), s.z);
 }
 
 test "field alias escapes" {
-    const S = struct { foo: u8 };
     const text =
         \\{"__f\u006fo": 42}
     ;
 
-    // match alias, mismatched field
-    try testing.expectError(
-        error.UnknownField,
-        parse(S, &TokenStream.init(text), .{
-            .field_aliases = &.{.{ .field = "bar", .alias = "__foo" }},
-        }),
-    );
-
-    // match field, mismatched alias
-    try testing.expectError(
-        error.UnknownField,
-        parse(S, &TokenStream.init(text), .{
-            .field_aliases = &.{.{ .field = "foo", .alias = "__bar" }},
-        }),
-    );
-
-    const s = try parse(S, &TokenStream.init(text), .{
-        .field_aliases = &.{.{ .field = "foo", .alias = "__foo" }},
-    });
-    try testing.expectEqual(@as(u8, 42), s.foo);
+    {
+        // match field, mismatched alias
+        const S = struct {
+            foo: u8,
+            pub const __field_aliases = .{ .foo = "__bar" };
+        };
+        try testing.expectError(
+            error.UnknownField,
+            parse(S, &TokenStream.init(text), .{}),
+        );
+    }
+    {
+        // match field, match alias
+        const S = struct {
+            foo: u8,
+            pub const __field_aliases = .{ .foo = "__foo" };
+        };
+        const s = try parse(S, &TokenStream.init(text), .{});
+        try testing.expectEqual(@as(u8, 42), s.foo);
+    }
 }
 
 fn ParseInternalError(comptime T: type) type {
@@ -1677,7 +1645,6 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
                 UnexpectedValue,
                 UnknownField,
                 MissingField,
-                TooManyFieldAliases,
             } || SkipValueError || TokenStream.Error;
             for (structInfo.fields) |field| {
                 errors = errors || ParseInternalErrorImpl(field.field_type, inferred_types ++ [_]type{T});
@@ -1811,20 +1778,9 @@ fn parseInternal(
                 }
             }
 
-            // support for options.field_aliases
-            const fields_len = structInfo.fields.len;
-            if (options.field_aliases.len > fields_len) return error.TooManyFieldAliases;
-            // construct field_alias_map: field_enum => field_alias.alias
-            const FieldsEnum = if (fields_len > 0) std.meta.FieldEnum(T) else void;
-            const field_alias_map = if (fields_len > 0) blk: {
-                var map = std.enums.EnumMap(FieldsEnum, []const u8){};
-                for (options.field_aliases) |field_alias| {
-                    const field_enum = std.meta.stringToEnum(FieldsEnum, field_alias.field) orelse
-                        return error.UnknownField;
-                    map.put(field_enum, field_alias.alias);
-                }
-                break :blk map;
-            } else {};
+            // support for field_aliases
+            const FieldAliases = std.enums.EnumFieldStruct(T, ?[]const u8, @as(?[]const u8, null));
+            const field_aliases: FieldAliases = if (@hasDecl(T, "__field_aliases")) T.__field_aliases else .{};
 
             while (true) {
                 switch ((try tokens.next()) orelse return error.UnexpectedEndOfJson) {
@@ -1836,17 +1792,16 @@ fn parseInternal(
                         var found = false;
                         inline for (structInfo.fields) |field, i| {
                             // TODO: using switches here segfault the compiler (#2727?)
-                            const field_enum = std.meta.stringToEnum(FieldsEnum, field.name) orelse unreachable;
                             if ((stringToken.escapes == .None and
                                 // no escapes, no alias
                                 (mem.eql(u8, field.name, key_source_slice) or
                                 // no escapes, yes alias - the key may be an unescaped alias
-                                if (field_alias_map.get(field_enum)) |alias| mem.eql(u8, alias, key_source_slice) else false) or
+                                if (@field(field_aliases, field.name)) |alias| mem.eql(u8, alias, key_source_slice) else false) or
                                 (stringToken.escapes == .Some and
                                 // yes escapes, no alias
                                 ((field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)) or
                                 // yes escapes, yes alias  - the key may be an escaped alias.
-                                if (field_alias_map.get(field_enum)) |alias| alias.len == stringToken.decodedLength() and encodesTo(alias, key_source_slice) else false))))
+                                if (@field(field_aliases, field.name)) |alias| alias.len == stringToken.decodedLength() and encodesTo(alias, key_source_slice) else false))))
                             {
                                 // if (switch (stringToken.escapes) {
                                 //     .None => mem.eql(u8, field.name, key_source_slice),
