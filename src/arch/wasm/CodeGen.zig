@@ -1015,6 +1015,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .loop => self.airLoop(inst),
         .not => self.airNot(inst),
         .ret => self.airRet(inst),
+        .slice_len => self.airSliceLen(inst),
+        .slice_elem_val => self.airSliceElemVal(inst),
         .store => self.airStore(inst),
         .struct_field_ptr => self.airStructFieldPtr(inst),
         .struct_field_ptr_index_0 => self.airStructFieldPtrIndex(inst, 0),
@@ -1145,13 +1147,16 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                     // in memory
                     try self.emitWValue(rhs);
                     const tag_local = try self.allocLocal(tag_ty);
-                    const payload_local = try self.allocLocal(payload_ty);
 
-                    try self.addLabel(.local_set, payload_local.local);
+                    if (payload_ty.hasCodeGenBits()) {
+                        const payload_local = try self.allocLocal(payload_ty);
+                        try self.addLabel(.local_set, payload_local.local);
+                        try self.store(lhs, payload_local, payload_ty, payload_offset);
+                    }
                     try self.addLabel(.local_set, tag_local.local);
 
                     try self.store(lhs, tag_local, tag_ty, 0);
-                    return try self.store(lhs, payload_local, payload_ty, payload_offset);
+                    return;
                 },
                 .local => {
                     // Load values from `rhs` stack position and store in `lhs` instead
@@ -1197,9 +1202,16 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
     try self.emitWValue(lhs);
     try self.emitWValue(rhs);
     const valtype = try self.typeToValtype(ty);
+    // check if we should pass by pointer or value based on ABI size
+    // TODO: Implement a way to get ABI values from a given type,
+    // that is portable across the backend, rather than copying logic.
+    const abi_size = if ((ty.isInt() or ty.isAnyFloat()) and ty.abiSize(self.target) <= 8)
+        @intCast(u8, ty.abiSize(self.target))
+    else
+        @as(u8, 4);
     const opcode = buildOpcode(.{
         .valtype1 = valtype,
-        .width = @intCast(u8, Type.abiSize(ty, self.target) * 8), // use bitsize instead of byte size
+        .width = abi_size * 8, // use bitsize instead of byte size
         .op = .store,
     });
 
@@ -1220,7 +1232,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty = self.air.getRefType(ty_op.ty);
 
     return switch (ty.zigTypeTag()) {
-        .Struct, .ErrorUnion, .Optional => operand, // pass as pointer
+        .Struct, .ErrorUnion, .Optional, .Pointer => operand, // pass as pointer
         else => switch (operand) {
             .local_with_offset => |with_offset| try self.load(operand, ty, with_offset.offset),
             else => try self.load(operand, ty, 0),
@@ -1233,9 +1245,17 @@ fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
     try self.emitWValue(operand);
     // Build the opcode with the right bitsize
     const signedness: std.builtin.Signedness = if (ty.isUnsignedInt()) .unsigned else .signed;
+    // check if we should pass by pointer or value based on ABI size
+    // TODO: Implement a way to get ABI values from a given type,
+    // that is portable across the backend, rather than copying logic.
+    const abi_size = if ((ty.isInt() or ty.isAnyFloat()) and ty.abiSize(self.target) <= 8)
+        @intCast(u8, ty.abiSize(self.target))
+    else
+        @as(u8, 4);
+
     const opcode = buildOpcode(.{
         .valtype1 = try self.typeToValtype(ty),
-        .width = @intCast(u8, Type.abiSize(ty, self.target) * 8), // use bitsize instead of byte size
+        .width = abi_size * 8, // use bitsize instead of byte size
         .op = .load,
         .signedness = signedness,
     });
@@ -1399,14 +1419,19 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 const payload_val = pl.data;
                 // no error, so write a '0' const
                 try self.addImm32(0);
-                // after the error code, we emit the payload
-                try self.emitConstant(payload_val, payload_type);
+
+                if (payload_type.hasCodeGenBits()) {
+                    // after the error code, we emit the payload
+                    try self.emitConstant(payload_val, payload_type);
+                }
             } else {
                 // write the error val
                 try self.emitConstant(val, error_type);
 
-                // no payload, so write a '0' const
-                try self.addImm32(0);
+                if (payload_type.hasCodeGenBits()) {
+                    // no payload, so write a '0' const
+                    try self.addImm32(0);
+                }
             }
         },
         .Optional => {
@@ -1867,8 +1892,10 @@ fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = self.resolveInst(ty_op.operand);
     const err_ty = self.air.typeOf(ty_op.operand);
+    const payload_ty = err_ty.errorUnionPayload();
+    if (!payload_ty.hasCodeGenBits()) return WValue.none;
     const offset = @intCast(u32, err_ty.errorUnionSet().abiSize(self.target));
-    return self.load(operand, err_ty.errorUnionPayload(), offset);
+    return try self.load(operand, payload_ty, offset);
 }
 
 fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1960,4 +1987,68 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         .local = operand.local,
         .offset = @intCast(u32, offset),
     } };
+}
+
+fn airSliceLen(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue.none;
+
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const operand = self.resolveInst(ty_op.operand);
+    const pointer_width = self.target.cpu.arch.ptrBitWidth() / 8;
+
+    // Get pointer to slice
+    try self.emitWValue(operand);
+    // length of slice is stored after the pointer of the slice
+    const extra_index = try self.addExtra(Mir.MemArg{
+        .offset = pointer_width,
+        .alignment = pointer_width,
+    });
+    try self.addInst(.{ .tag = .i32_load, .data = .{ .payload = extra_index } });
+
+    const result = try self.allocLocal(Type.initTag(.i32)); // pointer is always i32
+    // store slice length in local
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue.none;
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const slice_ty = self.air.typeOf(bin_op.lhs);
+    const slice = self.resolveInst(bin_op.lhs);
+    const index = self.resolveInst(bin_op.rhs);
+    const elem_ty = slice_ty.childType();
+    const elem_size = elem_ty.abiSize(self.target);
+
+    // load pointer onto stack
+    try self.emitWValue(slice);
+
+    // calculate index into slice
+    try self.emitWValue(index);
+    try self.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
+    try self.addTag(.i32_mul);
+    try self.addTag(.i32_add);
+
+    const abi_size = if (elem_size < 8)
+        @intCast(u8, elem_size)
+    else
+        @as(u8, 4); // elements larger than 8 bytes will be passed by pointer
+
+    const extra_index = try self.addExtra(Mir.MemArg{
+        .offset = 0,
+        .alignment = elem_ty.abiAlignment(self.target),
+    });
+    const signedness: std.builtin.Signedness = if (elem_ty.isUnsignedInt()) .unsigned else .signed;
+    const opcode = buildOpcode(.{
+        .valtype1 = try self.typeToValtype(elem_ty),
+        .width = abi_size * 8,
+        .op = .load,
+        .signedness = signedness,
+    });
+    try self.addInst(.{ .tag = Mir.Inst.Tag.fromOpcode(opcode), .data = .{ .payload = extra_index } });
+
+    const result = try self.allocLocal(elem_ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
 }
