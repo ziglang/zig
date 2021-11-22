@@ -12435,14 +12435,68 @@ fn coerceInMemoryAllowed(dest_ty: Type, src_ty: Type, dest_is_mut: bool, target:
         return coerceInMemoryAllowedPtrs(dest_ty, src_ty, dest_ty, src_ty, dest_is_mut, target);
     }
 
+    // Functions
+    if (dest_ty.zigTypeTag() == .Fn and src_ty.zigTypeTag() == .Fn) {
+        return coerceInMemoryAllowedFns(dest_ty, src_ty, target);
+    }
+
     // TODO: arrays
     // TODO: non-pointer-like optionals
     // TODO: error unions
     // TODO: error sets
-    // TODO: functions
     // TODO: vectors
 
     return .no_match;
+}
+
+fn coerceInMemoryAllowedFns(
+    dest_ty: Type,
+    src_ty: Type,
+    target: std.Target,
+) InMemoryCoercionResult {
+    const dest_info = dest_ty.fnInfo();
+    const src_info = src_ty.fnInfo();
+
+    if (dest_info.is_var_args != src_info.is_var_args) {
+        return .no_match;
+    }
+
+    if (dest_info.is_generic != src_info.is_generic) {
+        return .no_match;
+    }
+
+    if (!src_info.return_type.isNoReturn()) {
+        const rt = coerceInMemoryAllowed(dest_info.return_type, src_info.return_type, false, target);
+        if (rt == .no_match) {
+            return rt;
+        }
+    }
+
+    if (dest_info.param_types.len != src_info.param_types.len) {
+        return .no_match;
+    }
+
+    for (dest_info.param_types) |dest_param_ty, i| {
+        const src_param_ty = src_info.param_types[i];
+
+        if (dest_info.comptime_params[i] != src_info.comptime_params[i]) {
+            return .no_match;
+        }
+
+        // TODO: nolias
+
+        // Note: Cast direction is reversed here.
+        const param = coerceInMemoryAllowed(src_param_ty, dest_param_ty, false, target);
+        if (param == .no_match) {
+            return param;
+        }
+    }
+
+    if (dest_info.cc != src_info.cc) {
+        return .no_match;
+    }
+
+    return .ok;
 }
 
 fn coerceInMemoryAllowedPtrs(
