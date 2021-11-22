@@ -12415,6 +12415,15 @@ fn coerceInMemoryAllowed(dest_ty: Type, src_ty: Type, dest_is_mut: bool, target:
         return coerceInMemoryAllowedFns(dest_ty, src_ty, target);
     }
 
+    // Error Unions
+    if (dest_ty.zigTypeTag() == .ErrorUnion and src_ty.zigTypeTag() == .ErrorUnion) {
+        const child = coerceInMemoryAllowed(dest_ty.errorUnionPayload(), src_ty.errorUnionPayload(), dest_is_mut, target);
+        if (child == .no_match) {
+            return child;
+        }
+        return coerceInMemoryAllowed(dest_ty.errorUnionSet(), src_ty.errorUnionSet(), dest_is_mut, target);
+    }
+
     // Error Sets
     if (dest_ty.zigTypeTag() == .ErrorSet and src_ty.zigTypeTag() == .ErrorSet) {
         return coerceInMemoryAllowedErrorSets(dest_ty, src_ty);
@@ -12422,7 +12431,6 @@ fn coerceInMemoryAllowed(dest_ty: Type, src_ty: Type, dest_is_mut: bool, target:
 
     // TODO: arrays
     // TODO: non-pointer-like optionals
-    // TODO: error unions
     // TODO: vectors
 
     return .no_match;
