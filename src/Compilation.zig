@@ -3307,13 +3307,17 @@ pub fn addCCArgs(
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
     switch (ext) {
-        .c, .cpp, .m, .h => {
+        .c, .cpp, .m, .mm, .h => {
             try argv.appendSlice(&[_][]const u8{
                 "-nostdinc",
                 "-fno-spell-checking",
             });
             if (comp.bin_file.options.lto) {
                 try argv.append("-flto");
+            }
+
+            if (ext == .mm) {
+                try argv.append("-ObjC++");
             }
 
             // According to Rich Felker libc headers are supposed to go before C language headers.
@@ -3599,6 +3603,7 @@ pub const FileExt = enum {
     cpp,
     h,
     m,
+    mm,
     ll,
     bc,
     assembly,
@@ -3610,7 +3615,7 @@ pub const FileExt = enum {
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
-            .c, .cpp, .h, .m => true,
+            .c, .cpp, .h, .m, .mm => true,
 
             .ll,
             .bc,
@@ -3646,6 +3651,10 @@ pub fn hasCppExt(filename: []const u8) bool {
 
 pub fn hasObjCExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".m");
+}
+
+pub fn hasObjCppExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".mm");
 }
 
 pub fn hasAsmExt(filename: []const u8) bool {
@@ -3686,6 +3695,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .cpp;
     } else if (hasObjCExt(filename)) {
         return .m;
+    } else if (hasObjCppExt(filename)) {
+        return .mm;
     } else if (mem.endsWith(u8, filename, ".ll")) {
         return .ll;
     } else if (mem.endsWith(u8, filename, ".bc")) {
@@ -3710,6 +3721,7 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
 test "classifyFileExt" {
     try std.testing.expectEqual(FileExt.cpp, classifyFileExt("foo.cc"));
     try std.testing.expectEqual(FileExt.m, classifyFileExt("foo.m"));
+    try std.testing.expectEqual(FileExt.mm, classifyFileExt("foo.mm"));
     try std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.nim"));
     try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so"));
     try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1"));
