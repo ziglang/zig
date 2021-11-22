@@ -317,6 +317,22 @@ const known_options = [_]KnownOpt{
         .ident = "no_function_sections",
     },
     .{
+        .name = "fcolor-diagnostics",
+        .ident = "color_diagnostics",
+    },
+    .{
+        .name = "fno-color-diagnostics",
+        .ident = "no_color_diagnostics",
+    },
+    .{
+        .name = "fcaret-diagnostics",
+        .ident = "color_diagnostics",
+    },
+    .{
+        .name = "fno-caret-diagnostics",
+        .ident = "no_color_diagnostics",
+    },
+    .{
         .name = "MD",
         .ident = "dep_file",
     },
