@@ -85,7 +85,10 @@ __BEGIN_DECLS
 #define XPC_DEPRECATED(m) __attribute__((deprecated(m)))
 #else // __clang__
 #define XPC_DEPRECATED(m) __attribute__((deprecated))
-#endif // __clang 
+#endif // __clang
+#ifndef XPC_TESTEXPORT
+#define XPC_TESTEXPORT XPC_NOEXPORT
+#endif // XPC_TESTEXPORT
 
 #if defined(__XPC_TEST__) && __XPC_TEST__
 #define XPC_TESTSTATIC

@@ -335,6 +335,10 @@
 /* The KC on which the function is operating is invalid
  */
 
+#define KERN_NOT_FOUND                  56
+/* A search or query operation did not return a result
+ */
+
 #define KERN_RETURN_MAX                 0x100
 /* Maximum return value allowable
  */

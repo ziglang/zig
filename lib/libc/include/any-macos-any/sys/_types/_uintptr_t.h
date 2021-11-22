@@ -27,5 +27,11 @@
  */
 #ifndef _UINTPTR_T
 #define _UINTPTR_T
+
+#ifndef __has_attribute
 typedef unsigned long           uintptr_t;
+#else
+typedef unsigned long           uintptr_t;
+#endif /* __has_attribute */
+
 #endif /* _UINTPTR_T */

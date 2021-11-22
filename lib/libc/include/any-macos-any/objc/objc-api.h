@@ -160,20 +160,6 @@
 #   endif
 #endif
 
-
-/* OBJC2_UNAVAILABLE: unavailable in objc 2.0, deprecated in Leopard */
-#if !defined(OBJC2_UNAVAILABLE)
-#   if __OBJC2__
-#       define OBJC2_UNAVAILABLE UNAVAILABLE_ATTRIBUTE
-#   else
-        /* plain C code also falls here, but this is close enough */
-#       define OBJC2_UNAVAILABLE                                       \
-            __OSX_DEPRECATED(10.5, 10.5, "not available in __OBJC2__") \
-            __IOS_DEPRECATED(2.0, 2.0, "not available in __OBJC2__")   \
-            __TVOS_UNAVAILABLE __WATCHOS_UNAVAILABLE 
-#   endif
-#endif
-
 /* OBJC_UNAVAILABLE: unavailable, with a message where supported */
 #if !defined(OBJC_UNAVAILABLE)
 #   if __has_extension(attribute_unavailable_with_message)
@@ -233,9 +219,15 @@
 #endif
 
 #if !defined(OBJC_VISIBLE)
-
+#   if TARGET_OS_WIN32
+#       if defined(BUILDING_OBJC)
+#           define OBJC_VISIBLE __declspec(dllexport)
+#       else
+#           define OBJC_VISIBLE __declspec(dllimport)
+#       endif
+#   else
 #       define OBJC_VISIBLE  __attribute__((visibility("default")))
-
+#   endif
 #endif
 
 #if !defined(OBJC_EXPORT)

@@ -231,7 +231,6 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 #define VM_PAGE_QUERY_PAGE_CS_NX        0x400
 #define VM_PAGE_QUERY_PAGE_REUSABLE     0x800
 
-
 /*
  * VM allocation flags:
  *
@@ -342,8 +341,9 @@ enum virtual_memory_guard_exception_codes {
 #define VM_LEDGER_TAG_NEURAL    0x00000005
 #define VM_LEDGER_TAG_MAX       0x00000005
 /* individual bits: */
-#define VM_LEDGER_FLAG_NO_FOOTPRINT     0x00000001
-#define VM_LEDGER_FLAGS (VM_LEDGER_FLAG_NO_FOOTPRINT)
+#define VM_LEDGER_FLAG_NO_FOOTPRINT               (1 << 0)
+#define VM_LEDGER_FLAG_NO_FOOTPRINT_FOR_DEBUG    (1 << 1)
+#define VM_LEDGER_FLAGS (VM_LEDGER_FLAG_NO_FOOTPRINT | VM_LEDGER_FLAG_NO_FOOTPRINT_FOR_DEBUG)
 
 
 #define VM_MEMORY_MALLOC 1
@@ -360,7 +360,8 @@ enum virtual_memory_guard_exception_codes {
 
 #define VM_MEMORY_MALLOC_NANO 11
 #define VM_MEMORY_MALLOC_MEDIUM 12
-#define VM_MEMORY_MALLOC_PGUARD 13
+#define VM_MEMORY_MALLOC_PGUARD 13  // Will be removed
+#define VM_MEMORY_MALLOC_PROB_GUARD 13
 
 #define VM_MEMORY_MACH_MSG 20
 #define VM_MEMORY_IOKIT 21
@@ -526,6 +527,9 @@ enum virtual_memory_guard_exception_codes {
 
 /* CoreUI cached image data */
 #define VM_MEMORY_COREUI_CACHED_IMAGE_DATA 103
+
+/* ColorSync is using mmap for read-only copies of ICC profile data */
+#define VM_MEMORY_COLORSYNC 104
 
 /* Reserve 230-239 for Rosetta */
 #define VM_MEMORY_ROSETTA 230

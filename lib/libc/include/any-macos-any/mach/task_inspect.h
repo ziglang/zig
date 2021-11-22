@@ -29,6 +29,9 @@
 #ifndef MACH_TASK_INSPECT_H
 #define MACH_TASK_INSPECT_H
 
+#include <stdint.h>
+#include <mach/vm_types.h>
+
 /*
  * XXX These interfaces are still in development -- they are subject to change
  * without notice.

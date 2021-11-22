@@ -599,6 +599,10 @@ void	 sync(void);
 int	 truncate(const char *, off_t);
 useconds_t	 ualarm(useconds_t, useconds_t);
 int	 usleep(useconds_t) __DARWIN_ALIAS_C(usleep);
+
+#if !defined(_POSIX_C_SOURCE)
+__deprecated_msg("Use posix_spawn or fork")
+#endif
 pid_t	 vfork(void) __WATCHOS_PROHIBITED __TVOS_PROHIBITED;
 /* End XSI */
 

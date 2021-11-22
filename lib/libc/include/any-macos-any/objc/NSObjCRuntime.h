@@ -8,7 +8,7 @@
 #include <TargetConditionals.h>
 #include <objc/objc.h>
 
-#if __LP64__ || 0 || NS_BUILD_32_LIKE_64
+#if __LP64__ || TARGET_OS_WIN32 || NS_BUILD_32_LIKE_64
 typedef long NSInteger;
 typedef unsigned long NSUInteger;
 #else

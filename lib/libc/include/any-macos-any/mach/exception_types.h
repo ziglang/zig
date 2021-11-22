@@ -123,6 +123,11 @@
  *	the thread identity and state.
  */
 
+# define EXCEPTION_IDENTITY_PROTECTED       4
+/*	Send a catch_exception_raise message including protected task
+ *  and thread identity.
+ */
+
 #define MACH_EXCEPTION_ERRORS           0x40000000
 /*	include additional exception specific errors, not used yet.  */
 

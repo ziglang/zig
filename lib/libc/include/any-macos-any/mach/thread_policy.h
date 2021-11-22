@@ -131,7 +131,11 @@ typedef struct thread_extended_policy   *thread_extended_policy_t;
  *
  * computation: This is the nominal amount of computation
  * time needed during a separate processing arrival, specified
- * in absolute time units.
+ * in absolute time units.  The thread may be preempted after
+ * the computation time has elapsed.
+ * If (computation < constraint/2) it will be forced to
+ * constraint/2 to avoid unintended preemption and associated
+ * timer interrupts.
  *
  * constraint: This is the maximum amount of real time that
  * may elapse from the start of a separate processing arrival
@@ -139,11 +143,11 @@ typedef struct thread_extended_policy   *thread_extended_policy_t;
  * specified in absolute time units.  Must be (>= computation).
  * Note that latency = (constraint - computation).
  *
- * preemptible: This indicates that the computation may be
- * interrupted, subject to the constraint specified above.
+ * preemptible: IGNORED (This indicates that the computation may be
+ * interrupted, subject to the constraint specified above.)
  */
 
-#define THREAD_TIME_CONSTRAINT_POLICY   2
+#define THREAD_TIME_CONSTRAINT_POLICY           2
 
 struct thread_time_constraint_policy {
 	uint32_t                period;

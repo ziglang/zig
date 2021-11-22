@@ -80,6 +80,20 @@ XPC_EXPORT
 const struct _xpc_dictionary_s _xpc_error_termination_imminent;
 
 /*!
+ * @constant XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT
+ * On macOS, this error will be delivered to a peer connection's event handler
+ * when the XPC runtime has detected that a peer connection does not
+ * satisfy the code signing requirement specified for the connection.
+ *
+ * See {@link xpc_connection_set_peer_code_signing_requirement}
+ */
+#define XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT \
+	XPC_GLOBAL_OBJECT(_xpc_error_peer_code_signing_requirement)
+__API_AVAILABLE(macos(12.0))
+XPC_EXPORT
+const struct _xpc_dictionary_s _xpc_error_peer_code_signing_requirement;
+
+/*!
  * @constant XPC_CONNECTION_MACH_SERVICE_LISTENER
  * Passed to xpc_connection_create_mach_service(). This flag indicates that the
  * caller is the listener for the named service. This flag may only be passed
@@ -741,6 +755,38 @@ XPC_EXPORT XPC_NONNULL1
 void
 xpc_connection_set_finalizer_f(xpc_connection_t connection,
 	xpc_finalizer_t _Nullable finalizer);
+
+/*!
+ * @function xpc_connection_set_peer_code_signing_requirement
+ * Requires that the connection peer satisfies a code signing requirement.
+ *
+ * @param connection
+ * The connection object which is to be modified.
+ *
+ * @param requirement
+ * The code signing requirement to be satisfied by the peer
+ * It is safe to deallocate the requirement string after calling `xpc_connection_set_peer_code_signing_requirement`
+ *
+ * @result
+ * 0 on success, non-zero on error
+ *
+ * @discussion
+ * This function will return an error promptly if the code signing requirement string is invalid.
+ *
+ * It is a programming error to call `xpc_connection_set_peer_code_signing_requirement` more than once per connection.
+ *
+ * All messages received on this connection will be checked to ensure they come from a peer who satisfies
+ * the code signing requirement. For a listener connection, requests that do not satisfy the requirement
+ * are dropped. When a reply is expected on the connection and the peer does not satisfy the requirement
+ * XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT will be delivered instead of the reply.
+ *
+ * @see https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/RequirementLang/RequirementLang.html
+ */
+__API_AVAILABLE(macos(12.0))
+XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
+int
+xpc_connection_set_peer_code_signing_requirement(xpc_connection_t connection, const char *requirement);
+
 
 __END_DECLS
 XPC_ASSUME_NONNULL_END

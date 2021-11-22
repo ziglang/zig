@@ -70,6 +70,7 @@
 #include <mach/mach_types.h>
 #include <mach/message.h>
 #include <mach/port.h>
+#include <stdint.h>
 
 
 
@@ -82,7 +83,6 @@ typedef char *  io_buf_ptr_t;
  * Some types for IOKit.
  */
 
-#ifdef IOKIT
 
 /* must match device_types.defs */
 typedef char                    io_name_t[128];
@@ -113,6 +113,5 @@ typedef mach_port_t     io_object_t;
 #endif  /* __IOKIT_PORTS_DEFINED__ */
 
 
-#endif  /* IOKIT */
 
 #endif  /* DEVICE_TYPES_H */

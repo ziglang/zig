@@ -28,8 +28,12 @@
  *  These conversions clamp x to the representable range of the result type
  *  before converting.
  *
- *  Unlike most vector operations in <simd/>, there are no abbreviated C++
- *  names for these functions in the simd:: namespace.
+ *  In C++ the conversion functions are templated in the simd:: namespace.
+ *
+ *      C++ Function                            Equivalent C Function
+ *      -------------------------------------------------------------------
+ *      simd::convert<ScalarType>(x)            simd_ScalarType(x)
+ *      simd::convert_sat<ScalarType>(x)        simd_ScalarType_sat(x)
  */
 
 #ifndef __SIMD_CONVERSION_HEADER__
@@ -1960,7 +1964,68 @@ static simd_double8  SIMD_CFUNC simd_double(simd_double8  __x) { return __builti
     
 
 #ifdef __cplusplus
+} // extern "C"
+
+namespace simd {
+
+#if __has_feature(cxx_constexpr)
+/*! @abstract Convert a vector to another vector of the ScalarType and the same number of elements. */
+template<typename ScalarType, typename typeN>
+static constexpr Vector_t<ScalarType, traits<typeN>::count> convert(typeN vector)
+{
+    if constexpr (traits<typeN>::count == 1)
+        return static_cast<Vector_t<ScalarType, traits<typeN>::count>>(vector);
+    else if constexpr (std::is_same<ScalarType, char1>::value)
+        return simd_char(vector);
+    else if constexpr (std::is_same<ScalarType, uchar1>::value)
+        return simd_uchar(vector);
+    else if constexpr (std::is_same<ScalarType, short1>::value)
+        return simd_short(vector);
+    else if constexpr (std::is_same<ScalarType, ushort1>::value)
+        return simd_ushort(vector);
+    else if constexpr (std::is_same<ScalarType, int1>::value)
+        return simd_int(vector);
+    else if constexpr (std::is_same<ScalarType, uint1>::value)
+        return simd_uint(vector);
+    else if constexpr (std::is_same<ScalarType, long1>::value)
+        return simd_long(vector);
+    else if constexpr (std::is_same<ScalarType, ulong1>::value)
+        return simd_ulong(vector);
+    else if constexpr (std::is_same<ScalarType, float1>::value)
+        return simd_float(vector);
+    else if constexpr (std::is_same<ScalarType, double1>::value)
+        return simd_double(vector);
 }
-#endif
+
+/*! @abstract Convert a vector to another vector of the ScalarType and the same number of elements with saturation.
+ *  @discussion When the input value is too large to be represented in the return type, the input value
+ *  will be saturated to the maximum value of the return type.  */
+template<typename ScalarType, typename typeN>
+static constexpr Vector_t<ScalarType, traits<typeN>::count> convert_sat(typeN vector)
+{
+    static_assert(traits<typeN>::count != 1);
+    if constexpr (std::is_same<ScalarType, char1>::value)
+        return simd_char_sat(vector);
+    else if constexpr (std::is_same<ScalarType, uchar1>::value)
+        return simd_uchar_sat(vector);
+    else if constexpr (std::is_same<ScalarType, short1>::value)
+        return simd_short_sat(vector);
+    else if constexpr (std::is_same<ScalarType, ushort1>::value)
+        return simd_ushort_sat(vector);
+    else if constexpr (std::is_same<ScalarType, int1>::value)
+        return simd_int_sat(vector);
+    else if constexpr (std::is_same<ScalarType, uint1>::value)
+        return simd_uint_sat(vector);
+    else if constexpr (std::is_same<ScalarType, long1>::value)
+        return simd_long_sat(vector);
+    else if constexpr (std::is_same<ScalarType, ulong1>::value)
+        return simd_ulong_sat(vector);
+    else
+        return convert<ScalarType, typeN>(vector);
+}
+#endif /* __has_feature(cxx_constexpr) */
+
+} /* namespace simd */
+#endif // __cplusplus
 #endif // SIMD_COMPILER_HAS_REQUIRED_FEATURES
 #endif // __SIMD_CONVERSION_HEADER__

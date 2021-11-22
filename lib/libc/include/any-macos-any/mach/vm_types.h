@@ -36,9 +36,10 @@
 #include <mach/machine/vm_types.h>
 
 #include <stdint.h>
+#include <sys/cdefs.h>
 
-typedef vm_offset_t             pointer_t;
-typedef vm_offset_t             vm_address_t;
+typedef vm_offset_t             pointer_t __kernel_ptr_semantics;
+typedef vm_offset_t             vm_address_t __kernel_ptr_semantics;
 
 /*
  * We use addr64_t for 64-bit addresses that are used on both

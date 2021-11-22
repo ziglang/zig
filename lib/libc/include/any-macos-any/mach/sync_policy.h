@@ -44,6 +44,4 @@ typedef int sync_policy_t;
 #define SYNC_POLICY_LIFO                (SYNC_POLICY_FIFO|SYNC_POLICY_REVERSED)
 
 
-#define SYNC_POLICY_MAX                 0x7
-
 #endif  /* _MACH_SYNC_POLICY_H_ */

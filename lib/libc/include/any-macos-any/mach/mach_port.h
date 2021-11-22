@@ -49,9 +49,10 @@ typedef function_table_entry   *function_table_t;
 #endif /* AUTOTEST */
 
 #ifndef	mach_port_MSG_COUNT
-#define	mach_port_MSG_COUNT	40
+#define	mach_port_MSG_COUNT	43
 #endif	/* mach_port_MSG_COUNT */
 
+#include <Availability.h>
 #include <mach/std_types.h>
 #include <mach/mig.h>
 #include <mach/mig.h>
@@ -113,8 +114,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t mach_port_allocate_name
 (
 	ipc_space_t task,
@@ -141,6 +141,9 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
+__API_DEPRECATED("Inherently unsafe API: instead manage rights with "
+    "mach_port_destruct(), mach_port_deallocate() or mach_port_mod_refs()",
+    macos(10.0, 12.0), ios(2.0, 15.0), tvos(9.0, 15.0), watchos(2.0, 8.0))
 kern_return_t mach_port_destroy
 (
 	ipc_space_t task,
@@ -369,8 +372,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_set_port_space
 (
 	ipc_space_t task,
@@ -608,6 +610,48 @@ kern_return_t mach_port_kobject_description
 	natural_t *object_type,
 	mach_vm_address_t *object_addr,
 	kobject_description_t description
+);
+
+/* Routine mach_port_is_connection_for_service */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t mach_port_is_connection_for_service
+(
+	ipc_space_t task,
+	mach_port_name_t connection_port,
+	mach_port_name_t service_port,
+	uint64_t *filter_policy_id
+);
+
+/* Routine mach_port_get_service_port_info */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t mach_port_get_service_port_info
+(
+	ipc_space_read_t task,
+	mach_port_name_t name,
+	mach_service_port_info_data_t *sp_info_out
+);
+
+/* Routine mach_port_assert_attributes */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t mach_port_assert_attributes
+(
+	ipc_space_t task,
+	mach_port_name_t name,
+	mach_port_flavor_t flavor,
+	mach_port_info_t info,
+	mach_msg_type_number_t infoCnt
 );
 
 __END_DECLS
@@ -1139,6 +1183,46 @@ __END_DECLS
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		mach_port_name_t connection_port;
+		mach_port_name_t service_port;
+	} __Request__mach_port_is_connection_for_service_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		mach_port_name_t name;
+	} __Request__mach_port_get_service_port_info_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		mach_port_name_t name;
+		mach_port_flavor_t flavor;
+		mach_msg_type_number_t infoCnt;
+		integer_t info[17];
+	} __Request__mach_port_assert_attributes_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Request__mach_port_subsystem__defined */
 
 /* union of all requests */
@@ -1185,6 +1269,9 @@ union __RequestUnion__mach_port_subsystem {
 	__Request__mach_port_guard_with_flags_t Request_mach_port_guard_with_flags;
 	__Request__mach_port_swap_guard_t Request_mach_port_swap_guard;
 	__Request__mach_port_kobject_description_t Request_mach_port_kobject_description;
+	__Request__mach_port_is_connection_for_service_t Request_mach_port_is_connection_for_service;
+	__Request__mach_port_get_service_port_info_t Request_mach_port_get_service_port_info;
+	__Request__mach_port_assert_attributes_t Request_mach_port_assert_attributes;
 };
 #endif /* !__RequestUnion__mach_port_subsystem__defined */
 /* typedefs for all replies */
@@ -1709,6 +1796,44 @@ union __RequestUnion__mach_port_subsystem {
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+		uint64_t filter_policy_id;
+	} __Reply__mach_port_is_connection_for_service_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+		mach_service_port_info_data_t sp_info_out;
+	} __Reply__mach_port_get_service_port_info_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+	} __Reply__mach_port_assert_attributes_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Reply__mach_port_subsystem__defined */
 
 /* union of all replies */
@@ -1755,6 +1880,9 @@ union __ReplyUnion__mach_port_subsystem {
 	__Reply__mach_port_guard_with_flags_t Reply_mach_port_guard_with_flags;
 	__Reply__mach_port_swap_guard_t Reply_mach_port_swap_guard;
 	__Reply__mach_port_kobject_description_t Reply_mach_port_kobject_description;
+	__Reply__mach_port_is_connection_for_service_t Reply_mach_port_is_connection_for_service;
+	__Reply__mach_port_get_service_port_info_t Reply_mach_port_get_service_port_info;
+	__Reply__mach_port_assert_attributes_t Reply_mach_port_assert_attributes;
 };
 #endif /* !__RequestUnion__mach_port_subsystem__defined */
 
@@ -1798,7 +1926,10 @@ union __ReplyUnion__mach_port_subsystem {
     { "mach_port_space_basic_info", 3235 },\
     { "mach_port_guard_with_flags", 3237 },\
     { "mach_port_swap_guard", 3238 },\
-    { "mach_port_kobject_description", 3239 }
+    { "mach_port_kobject_description", 3239 },\
+    { "mach_port_is_connection_for_service", 3240 },\
+    { "mach_port_get_service_port_info", 3241 },\
+    { "mach_port_assert_attributes", 3242 }
 #endif
 
 #ifdef __AfterMigUserHeader

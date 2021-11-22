@@ -32,6 +32,8 @@
 #ifndef	_MACH_I386__STRUCTS_H_
 #define	_MACH_I386__STRUCTS_H_
 
+#if defined (__i386__) || defined (__x86_64__)
+
 #include <sys/cdefs.h> /* __DARWIN_UNIX03 */
 #include <machine/types.h> /* __uint8_t */
 
@@ -1308,5 +1310,7 @@ _STRUCT_X86_CPMU_STATE64
 	__uint64_t ctrs[16];
 };
 #endif /* !__DARWIN_UNIX03 */
+
+#endif /* defined (__i386__) || defined (__x86_64__) */
 
 #endif /* _MACH_I386__STRUCTS_H_ */

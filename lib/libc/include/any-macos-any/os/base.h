@@ -151,6 +151,12 @@
 #define OS_OVERLOADABLE
 #endif
 
+#if __has_attribute(analyzer_suppress)
+#define OS_ANALYZER_SUPPRESS(RADAR) __attribute__((analyzer_suppress))
+#else
+#define OS_ANALYZER_SUPPRESS(RADAR)
+#endif
+
 #if __has_attribute(enum_extensibility)
 #define __OS_ENUM_ATTR __attribute__((enum_extensibility(open)))
 #define __OS_ENUM_ATTR_CLOSED __attribute__((enum_extensibility(closed)))

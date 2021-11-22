@@ -292,9 +292,13 @@ typedef struct mach_port_info_ext {
 	uint32_t                reserved[6];
 } mach_port_info_ext_t;
 
+typedef struct mach_port_guard_info {
+	uint64_t    mpgi_guard;     /* guard value */
+} mach_port_guard_info_t;
+
 typedef integer_t *mach_port_info_t;            /* varying array of natural_t */
 
-/* Flavors for mach_port_get/set_attributes() */
+/* Flavors for mach_port_get/set/assert_attributes() */
 typedef int     mach_port_flavor_t;
 #define MACH_PORT_LIMITS_INFO           1       /* uses mach_port_limits_t */
 #define MACH_PORT_RECEIVE_STATUS        2       /* uses mach_port_status_t */
@@ -303,6 +307,7 @@ typedef int     mach_port_flavor_t;
 #define MACH_PORT_IMPORTANCE_RECEIVER   5       /* indicates recieve right accepts priority donation */
 #define MACH_PORT_DENAP_RECEIVER        6       /* indicates receive right accepts de-nap donation */
 #define MACH_PORT_INFO_EXT              7       /* uses mach_port_info_ext_t */
+#define MACH_PORT_GUARD_INFO            8       /* asserts if the strict guard value is correct */
 
 #define MACH_PORT_LIMITS_INFO_COUNT     ((natural_t) \
 	(sizeof(mach_port_limits_t)/sizeof(natural_t)))
@@ -311,6 +316,9 @@ typedef int     mach_port_flavor_t;
 #define MACH_PORT_DNREQUESTS_SIZE_COUNT 1
 #define MACH_PORT_INFO_EXT_COUNT        ((natural_t) \
 	(sizeof(mach_port_info_ext_t)/sizeof(natural_t)))
+#define MACH_PORT_GUARD_INFO_COUNT      ((natural_t) \
+	(sizeof(mach_port_guard_info_t)/sizeof(natural_t)))
+
 /*
  * Structure used to pass information about port allocation requests.
  * Must be padded to 64-bits total length.
@@ -322,7 +330,20 @@ typedef struct mach_port_qos {
 	natural_t               len;
 } mach_port_qos_t;
 
-/* Mach Port Guarding definitions */
+/*
+ * Structure used to pass information about the service port
+ */
+#define MACH_SERVICE_PORT_INFO_STRING_NAME_MAX_BUF_LEN  255    /* Maximum length of the port string name buffer */
+
+typedef struct mach_service_port_info {
+	char                    mspi_string_name[MACH_SERVICE_PORT_INFO_STRING_NAME_MAX_BUF_LEN]; /* Service port's string name */
+	uint8_t                 mspi_domain_type;          /* Service port domain */
+} mach_service_port_info_data_t;
+
+#define MACH_SERVICE_PORT_INFO_COUNT ((char) \
+	(sizeof(mach_service_port_info_data_t)/sizeof(char)))
+
+typedef struct mach_service_port_info * mach_service_port_info_t;
 
 /*
  * Flags for mach_port_options (used for
@@ -340,6 +361,8 @@ typedef struct mach_port_qos {
 #define MPO_IMMOVABLE_RECEIVE   0x80    /* Mark the port as immovable; protected by the guard context */
 #define MPO_FILTER_MSG          0x100   /* Allow message filtering */
 #define MPO_TG_BLOCK_TRACKING   0x200   /* Track blocking relationship for thread group during sync IPC */
+#define MPO_SERVICE_PORT        0x400   /* Create a service port with the given name; should be used only by launchd */
+#define MPO_CONNECTION_PORT     0x800   /* Derive new peer connection port from a given service port */
 
 /*
  * Structure to define optional attributes for a newly
@@ -349,12 +372,16 @@ typedef struct mach_port_options {
 	uint32_t                flags;          /* Flags defining attributes for port */
 	mach_port_limits_t      mpl;            /* Message queue limit for port */
 	union {
-		uint64_t                reserved[2];           /* Reserved */
-		mach_port_name_t        work_interval_port;    /* Work interval port */
+		uint64_t                   reserved[2];           /* Reserved */
+		mach_port_name_t           work_interval_port;    /* Work interval port */
+		mach_service_port_info_t   service_port_info;     /* Service port (MPO_SERVICE_PORT) */
+		mach_port_name_t           service_port_name;     /* Service port (MPO_CONNECTION_PORT) */
 	};
 }mach_port_options_t;
 
 typedef mach_port_options_t *mach_port_options_ptr_t;
+
+/* Mach Port Guarding definitions */
 
 /*
  * EXC_GUARD represents a guard violation for both
@@ -386,7 +413,8 @@ enum mach_port_guard_exception_codes {
 	kGUARD_EXC_SEND_INVALID_VOUCHER  = 1u << 17,
 	kGUARD_EXC_SEND_INVALID_RIGHT    = 1u << 18,
 	kGUARD_EXC_RCV_INVALID_NAME      = 1u << 19,
-	kGUARD_EXC_RCV_GUARDED_DESC      = 1u << 20, /* should never be fatal; for development only */
+	/* start of always non-fatal guards */
+	kGUARD_EXC_RCV_GUARDED_DESC      = 1u << 20, /* for development only */
 	kGUARD_EXC_MOD_REFS_NON_FATAL    = 1u << 21,
 	kGUARD_EXC_IMMOVABLE_NON_FATAL   = 1u << 22,
 };
@@ -397,6 +425,8 @@ enum mach_port_guard_exception_codes {
  * Mach port guard flags.
  */
 #define MPG_FLAGS_NONE                             (0x00ull)
+
+#define MAX_OPTIONAL_kGUARD_EXC_CODE (1u << 19)
 
 /*
  * These flags are used as bits in the subcode of kGUARD_EXC_STRICT_REPLY exceptions.
@@ -412,6 +442,8 @@ enum mach_port_guard_exception_codes {
  * These flags are used as bits in the subcode of kGUARD_EXC_MOD_REFS exceptions.
  */
 #define MPG_FLAGS_MOD_REFS_PINNED_DEALLOC          (0x01ull << 56)
+#define MPG_FLAGS_MOD_REFS_PINNED_DESTROY          (0x02ull << 56)
+#define MPG_FLAGS_MOD_REFS_PINNED_COPYIN           (0x04ull << 56)
 
 /*
  * These flags are used as bits in the subcode of kGUARD_EXC_IMMOVABLE exceptions.

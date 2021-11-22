@@ -151,7 +151,6 @@ typedef struct mig_symtab {
 #define MIG_SERVER_ROUTINE
 #endif
 
-
 __BEGIN_DECLS
 
 /* Client side reply port allocate */

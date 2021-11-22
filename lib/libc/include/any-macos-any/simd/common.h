@@ -20,7 +20,7 @@
  *                              NaN, and +1 if x is greater than zero.
  *
  *      simd_mix(x,y,t)         If t is not in the range [0,1], the result is
- *                              undefined.  Otherwise the result is x+(y-x)*t,
+ *      simd_lerp(x,y,t)        undefined.  Otherwise the result is x+(y-x)*t,
  *                              which linearly interpolates between x and y.
  *
  *      simd_recip(x)           An approximation to 1/x.  If x is very near the
@@ -98,6 +98,7 @@
  *      simd::clamp(x,min,max)          simd_clamp(x,min,max)
  *      simd::sign(x)                   simd_sign(x)
  *      simd::mix(x,y,t)                simd_mix(x,y,t)
+ *      simd::lerp(x,y,t)               simd_lerp(x,y,t)
  *      simd::recip(x)                  simd_recip(x)
  *      simd::rsqrt(x)                  simd_rsqrt(x)
  *      simd::fract(x)                  simd_fract(x)
@@ -712,6 +713,7 @@ static inline SIMD_CFUNC simd_double8 simd_mix(simd_double8 x, simd_double8 y, s
  *  t=0 and y when t=1
  *  @discussion Deprecated. Use simd_mix(x, y, t) instead.                    */
 #define vector_mix simd_mix
+#define simd_lerp simd_mix
 
 /*! @abstract A good approximation to 1/x.
  *  @discussion If x is very close to the limits of representation, the
@@ -1907,6 +1909,7 @@ namespace simd {
   template <typename fptypeN> static SIMD_CPPFUNC fptypeN sign(const fptypeN x) { return ::simd_sign(x); }
   /*! @abstract Linearly interpolates between x and y, taking the value x when t=0 and y when t=1 */
   template <typename fptypeN> static SIMD_CPPFUNC fptypeN mix(const fptypeN x, const fptypeN y, const fptypeN t) { return ::simd_mix(x,y,t); }
+  template <typename fptypeN> static SIMD_CPPFUNC fptypeN lerp(const fptypeN x, const fptypeN y, const fptypeN t) { return ::simd_mix(x,y,t); }
   /*! @abstract An approximation to 1/x.                                      */
   template <typename fptypeN> static SIMD_CPPFUNC fptypeN recip(const fptypeN x) { return simd_recip(x); }
   /*! @abstract An approximation to 1/sqrt(x).                                */
@@ -2102,7 +2105,7 @@ static inline SIMD_CFUNC simd_float16 simd_abs(simd_float16 x) {
 static inline SIMD_CFUNC simd_long2 simd_abs(simd_long2 x) {
 #if defined __arm64__
   return vabsq_s64(x);
-#elif defined __SSE4_1__
+#elif defined __AVX512VL__
   return (simd_long2) _mm_abs_epi64((__m128i)x);
 #else
   simd_long2 mask = x >> 63; return (x ^ mask) - mask;
@@ -2114,7 +2117,7 @@ static inline SIMD_CFUNC simd_long3 simd_abs(simd_long3 x) {
 }
 
 static inline SIMD_CFUNC simd_long4 simd_abs(simd_long4 x) {
-#if defined __AVX2__
+#if defined __AVX512VL__
   return _mm256_abs_epi64(x);
 #else
   return simd_make_long4(simd_abs(x.lo), simd_abs(x.hi));

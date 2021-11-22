@@ -52,6 +52,7 @@ typedef function_table_entry   *function_table_t;
 #define	host_security_MSG_COUNT	2
 #endif	/* host_security_MSG_COUNT */
 
+#include <Availability.h>
 #include <mach/std_types.h>
 #include <mach/mig.h>
 #include <mach/mig.h>

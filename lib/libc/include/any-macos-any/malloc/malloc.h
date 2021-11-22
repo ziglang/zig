@@ -309,6 +309,33 @@ extern void malloc_zone_enumerate_discharged_pointers(malloc_zone_t *zone, void 
 extern void malloc_zone_enumerate_discharged_pointers(malloc_zone_t *zone, void *) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
 #endif /* __BLOCKS__ */
 
+/*********  Zone version summary ************/
+// Version 0, but optional:
+//   malloc_zone_t::batch_malloc
+//   malloc_zone_t::batch_free
+// Version 5:
+//   malloc_zone_t::memalign
+// Version 6:
+//   malloc_zone_t::free_definite_size
+// Version 7:
+//   malloc_introspection_t::enable_discharge_checking
+//   malloc_introspection_t::disable_discharge_checking
+//   malloc_introspection_t::discharge
+// Version 8:
+//   malloc_zone_t::pressure_relief
+// Version 9:
+//   malloc_introspection_t::reinit_lock
+// Version 10:
+//   malloc_zone_t::claimed_address
+// Version 11:
+//   malloc_introspection_t::print_task
+// Version 12:
+//   malloc_introspection_t::task_statistics
+
+// These functions are optional and calling them requires two checks:
+//  * Check zone version to ensure zone struct is large enough to include the member.
+//  * Check that the function pointer is not null.
+
 __END_DECLS
 
 #endif /* _MALLOC_MALLOC_H_ */

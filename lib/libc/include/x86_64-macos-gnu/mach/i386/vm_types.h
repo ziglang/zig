@@ -67,10 +67,13 @@
 #ifndef _MACH_I386_VM_TYPES_H_
 #define _MACH_I386_VM_TYPES_H_
 
+#if defined (__i386__) || defined (__x86_64__)
+
 #ifndef ASSEMBLER
 
 #include <i386/_types.h>
 #include <stdint.h>
+#include <sys/cdefs.h>
 
 /*
  * natural_t and integer_t are Mach's legacy types for machine-
@@ -97,9 +100,9 @@ typedef int                     integer_t;
  * e.g. an offset into a virtual memory space.
  */
 #ifdef __LP64__
-typedef uintptr_t               vm_offset_t;
+typedef uintptr_t               vm_offset_t __kernel_ptr_semantics;
 #else   /* __LP64__ */
-typedef natural_t               vm_offset_t;
+typedef natural_t               vm_offset_t __kernel_ptr_semantics;
 #endif  /* __LP64__ */
 
 /*
@@ -120,12 +123,12 @@ typedef natural_t               vm_size_t;
  * where the size of the map is not known - or we don't
  * want to have to distinguish.
  */
-typedef uint64_t                mach_vm_address_t;
-typedef uint64_t                mach_vm_offset_t;
+typedef uint64_t                mach_vm_address_t __kernel_ptr_semantics;
+typedef uint64_t                mach_vm_offset_t __kernel_ptr_semantics;
 typedef uint64_t                mach_vm_size_t;
 
-typedef uint64_t                vm_map_offset_t;
-typedef uint64_t                vm_map_address_t;
+typedef uint64_t                vm_map_offset_t __kernel_ptr_semantics;
+typedef uint64_t                vm_map_address_t __kernel_ptr_semantics;
 typedef uint64_t                vm_map_size_t;
 
 typedef mach_vm_address_t       mach_port_context_t;
@@ -137,5 +140,7 @@ typedef mach_vm_address_t       mach_port_context_t;
  * If composing messages by hand (please do not)
  */
 #define MACH_MSG_TYPE_INTEGER_T MACH_MSG_TYPE_INTEGER_32
+
+#endif /* defined (__i386__) || defined (__x86_64__) */
 
 #endif  /* _MACH_I386_VM_TYPES_H_ */

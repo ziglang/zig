@@ -48,6 +48,8 @@
 #ifndef _ARM_PARAM_H_
 #define _ARM_PARAM_H_
 
+#if defined (__arm__) || defined (__arm64__)
+
 #include <arm/_param.h>
 
 /*
@@ -143,5 +145,7 @@
 #else   /* defined(KERNEL) || defined(STANDALONE) */
 #define DELAY(n)        { int N = (n); while (--N > 0); }
 #endif  /* defined(KERNEL) || defined(STANDALONE) */
+
+#endif /* defined (__arm__) || defined (__arm64__) */
 
 #endif /* _ARM_PARAM_H_ */

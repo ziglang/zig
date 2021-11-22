@@ -37,4 +37,8 @@
 #error architecture not supported
 #endif
 
+/* Size of maximum exported thread state in 32-bit words */
+#define THREAD_STATE_MAX    1296
+
+
 #endif /* _MACH_MACHINE_THREAD_STATE_H_ */
