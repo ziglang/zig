@@ -85,6 +85,7 @@ pub fn addOption(self: *OptionsStep, comptime T: type, name: []const u8, value: 
                 value.minor,
                 value.patch,
             }) catch unreachable;
+            return;
         },
         std.SemanticVersion => {
             out.print(
@@ -118,10 +119,58 @@ pub fn addOption(self: *OptionsStep, comptime T: type, name: []const u8, value: 
                 out.print("    {},\n", .{std.zig.fmtId(field.name)}) catch unreachable;
             }
             out.writeAll("};\n") catch unreachable;
+            out.print("pub const {}: {s} = {s}.{s};\n", .{ std.zig.fmtId(name), @typeName(T), @typeName(T), std.zig.fmtId(@tagName(value)) }) catch unreachable;
+            return;
         },
         else => {},
     }
-    out.print("pub const {}: {s} = {};\n", .{ std.zig.fmtId(name), @typeName(T), value }) catch unreachable;
+    out.print("pub const {}: {s} = ", .{ std.zig.fmtId(name), @typeName(T) }) catch unreachable;
+    printLiteral(out, value, 0) catch unreachable;
+    out.writeAll(";\n") catch unreachable;
+}
+
+// TODO: non-recursive?
+fn printLiteral(out: anytype, val: anytype, indent: u8) !void {
+    const T = @TypeOf(val);
+    switch (@typeInfo(T)) {
+        .Array => {
+            try out.print("{s} {{\n", .{@typeName(T)});
+            for (val) |item| {
+                try out.writeByteNTimes(' ', indent + 4);
+                try printLiteral(out, item, indent + 4);
+                try out.writeAll(",\n");
+            }
+            try out.writeByteNTimes(' ', indent);
+            try out.writeAll("}");
+        },
+        .Pointer => |p| {
+            if (p.size != .Slice) {
+                @compileError("Non-slice pointers are not yet supported in build options");
+            }
+            try out.print("&[_]{s} {{\n", .{@typeName(p.child)});
+            for (val) |item| {
+                try out.writeByteNTimes(' ', indent + 4);
+                try printLiteral(out, item, indent + 4);
+                try out.writeAll(",\n");
+            }
+            try out.writeByteNTimes(' ', indent);
+            try out.writeAll("}");
+        },
+        .Optional => {
+            if (val) |inner| {
+                return printLiteral(out, inner, indent);
+            } else {
+                return out.writeAll("null");
+            }
+        },
+        .Void,
+        .Bool,
+        .Int,
+        .Float,
+        .Null,
+        => try out.print("{any}", .{val}),
+        else => @compileError(comptime std.fmt.comptimePrint("`{s}` are not yet supported as build options", .{@tagName(@typeInfo(T))})),
+    }
 }
 
 /// The value is the path in the cache dir.
@@ -235,17 +284,62 @@ test "OptionsStep" {
 
     const options = builder.addOptions();
 
+    const KeywordEnum = enum {
+        @"0.8.1",
+    };
+
+    const nested_array = [2][2]u16{
+        [2]u16{ 300, 200 },
+        [2]u16{ 300, 200 },
+    };
+    const nested_slice: []const []const u16 = &[_][]const u16{ &nested_array[0], &nested_array[1] };
+
     options.addOption(usize, "option1", 1);
     options.addOption(?usize, "option2", null);
+    options.addOption(?usize, "option3", 3);
     options.addOption([]const u8, "string", "zigisthebest");
     options.addOption(?[]const u8, "optional_string", null);
+    options.addOption([2][2]u16, "nested_array", nested_array);
+    options.addOption([]const []const u16, "nested_slice", nested_slice);
+    options.addOption(KeywordEnum, "keyword_enum", .@"0.8.1");
+    options.addOption(std.builtin.Version, "version", try std.builtin.Version.parse("0.1.2"));
     options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
 
     try std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
         \\pub const option2: ?usize = null;
+        \\pub const option3: ?usize = 3;
         \\pub const string: []const u8 = "zigisthebest";
         \\pub const optional_string: ?[]const u8 = null;
+        \\pub const nested_array: [2][2]u16 = [2][2]u16 {
+        \\    [2]u16 {
+        \\        300,
+        \\        200,
+        \\    },
+        \\    [2]u16 {
+        \\        300,
+        \\        200,
+        \\    },
+        \\};
+        \\pub const nested_slice: []const []const u16 = &[_][]const u16 {
+        \\    &[_]u16 {
+        \\        300,
+        \\        200,
+        \\    },
+        \\    &[_]u16 {
+        \\        300,
+        \\        200,
+        \\    },
+        \\};
+        \\pub const KeywordEnum = enum {
+        \\    @"0.8.1",
+        \\};
+        \\pub const keyword_enum: KeywordEnum = KeywordEnum.@"0.8.1";
+        \\pub const version: @import("std").builtin.Version = .{
+        \\    .major = 0,
+        \\    .minor = 1,
+        \\    .patch = 2,
+        \\};
         \\pub const semantic_version: @import("std").SemanticVersion = .{
         \\    .major = 0,
         \\    .minor = 1,
@@ -255,4 +349,6 @@ test "OptionsStep" {
         \\};
         \\
     , options.contents.items);
+
+    _ = try std.zig.parse(&arena.allocator, try options.contents.toOwnedSliceSentinel(0));
 }

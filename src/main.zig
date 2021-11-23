@@ -296,6 +296,7 @@ const usage_build_generic =
     \\                      .c    C source code (requires LLVM extensions)
     \\        .cxx .cc .C .cpp    C++ source code (requires LLVM extensions)
     \\                      .m    Objective-C source code (requires LLVM extensions)
+    \\                     .mm    Objective-C++ source code (requires LLVM extensions)
     \\                     .bc    LLVM IR Module (requires LLVM extensions)
     \\
     \\General Options:
@@ -387,7 +388,9 @@ const usage_build_generic =
     \\  -ffunction-sections       Places each function in a separate section
     \\
     \\Link Options:
-    \\  -l[lib], --library [lib]       Link against system library
+    \\  -l[lib], --library [lib]       Link against system library (only if actually used)
+    \\  -needed-l[lib],                Link against system library (even if unused)
+    \\    --needed-library [lib]
     \\  -L[d], --library-directory [d] Add a directory to the library search path
     \\  -T[script], --script [script]  Use a custom linker script
     \\  --version-script [path]        Provide a version .map file
@@ -655,7 +658,7 @@ fn buildOutputType(
     var wasi_exec_model: ?std.builtin.WasiExecModel = null;
     var enable_link_snapshots: bool = false;
 
-    var system_libs = std.ArrayList([]const u8).init(gpa);
+    var system_libs = std.StringArrayHashMap(Compilation.SystemLib).init(gpa);
     defer system_libs.deinit();
 
     var wasi_emulated_libs = std.ArrayList(wasi_libc.CRTFile).init(gpa);
@@ -860,10 +863,14 @@ fn buildOutputType(
                         version_script = args[i];
                     } else if (mem.eql(u8, arg, "--library") or mem.eql(u8, arg, "-l")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
-                        // We don't know whether this library is part of libc or libc++ until we resolve the target.
-                        // So we simply append to the list for now.
+                        // We don't know whether this library is part of libc or libc++ until
+                        // we resolve the target, so we simply append to the list for now.
                         i += 1;
-                        try system_libs.append(args[i]);
+                        try system_libs.put(args[i], .{ .needed = false });
+                    } else if (mem.eql(u8, arg, "--needed-library") or mem.eql(u8, arg, "-needed-l")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
+                        i += 1;
+                        try system_libs.put(args[i], .{ .needed = true });
                     } else if (mem.eql(u8, arg, "-D") or
                         mem.eql(u8, arg, "-isystem") or
                         mem.eql(u8, arg, "-I") or
@@ -1164,9 +1171,11 @@ fn buildOutputType(
                     } else if (mem.startsWith(u8, arg, "-F")) {
                         try framework_dirs.append(arg[2..]);
                     } else if (mem.startsWith(u8, arg, "-l")) {
-                        // We don't know whether this library is part of libc or libc++ until we resolve the target.
-                        // So we simply append to the list for now.
-                        try system_libs.append(arg[2..]);
+                        // We don't know whether this library is part of libc or libc++ until
+                        // we resolve the target, so we simply append to the list for now.
+                        try system_libs.put(arg["-l".len..], .{ .needed = false });
+                    } else if (mem.startsWith(u8, arg, "-needed-l")) {
+                        try system_libs.put(arg["-needed-l".len..], .{ .needed = true });
                     } else if (mem.startsWith(u8, arg, "-D") or
                         mem.startsWith(u8, arg, "-I"))
                     {
@@ -1182,7 +1191,7 @@ fn buildOutputType(
                     .object, .static_library, .shared_library => {
                         try link_objects.append(arg);
                     },
-                    .assembly, .c, .cpp, .h, .ll, .bc, .m => {
+                    .assembly, .c, .cpp, .h, .ll, .bc, .m, .mm => {
                         try c_source_files.append(.{
                             .src_path = arg,
                             .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
@@ -1230,6 +1239,7 @@ fn buildOutputType(
             var linker_args = std.ArrayList([]const u8).init(arena);
             var it = ClangArgIterator.init(arena, all_args);
             var emit_llvm = false;
+            var needed = false;
             while (it.has_next) {
                 it.next() catch |err| {
                     fatal("unable to parse command line parameters: {s}", .{@errorName(err)});
@@ -1247,7 +1257,7 @@ fn buildOutputType(
                     .positional => {
                         const file_ext = Compilation.classifyFileExt(mem.spanZ(it.only_arg));
                         switch (file_ext) {
-                            .assembly, .c, .cpp, .ll, .bc, .h, .m => try c_source_files.append(.{ .src_path = it.only_arg }),
+                            .assembly, .c, .cpp, .ll, .bc, .h, .m, .mm => try c_source_files.append(.{ .src_path = it.only_arg }),
                             .unknown, .shared_library, .object, .static_library => {
                                 try link_objects.append(it.only_arg);
                             },
@@ -1262,9 +1272,9 @@ fn buildOutputType(
                     },
                     .l => {
                         // -l
-                        // We don't know whether this library is part of libc or libc++ until we resolve the target.
-                        // So we simply append to the list for now.
-                        try system_libs.append(it.only_arg);
+                        // We don't know whether this library is part of libc or libc++ until
+                        // we resolve the target, so we simply append to the list for now.
+                        try system_libs.put(it.only_arg, .{ .needed = needed });
                     },
                     .ignore => {},
                     .driver_punt => {
@@ -1281,6 +1291,10 @@ fn buildOutputType(
                     .no_red_zone => want_red_zone = false,
                     .omit_frame_pointer => omit_frame_pointer = true,
                     .no_omit_frame_pointer => omit_frame_pointer = false,
+                    .function_sections => function_sections = true,
+                    .no_function_sections => function_sections = false,
+                    .color_diagnostics => color = .on,
+                    .no_color_diagnostics => color = .off,
                     .unwind_tables => want_unwind_tables = true,
                     .no_unwind_tables => want_unwind_tables = false,
                     .nostdlib => ensure_libc_on_non_freestanding = false,
@@ -1302,8 +1316,13 @@ fn buildOutputType(
                                     continue;
                                 }
                             }
-
-                            try linker_args.append(linker_arg);
+                            if (mem.eql(u8, linker_arg, "--as-needed")) {
+                                needed = false;
+                            } else if (mem.eql(u8, linker_arg, "--no-as-needed")) {
+                                needed = true;
+                            } else {
+                                try linker_args.append(linker_arg);
+                            }
                         }
                     },
                     .optimize => {
@@ -1725,21 +1744,22 @@ fn buildOutputType(
     // existence via flags instead.
     {
         var i: usize = 0;
-        while (i < system_libs.items.len) {
-            const lib_name = system_libs.items[i];
+        while (i < system_libs.count()) {
+            const lib_name = system_libs.keys()[i];
+
             if (target_util.is_libc_lib_name(target_info.target, lib_name)) {
                 link_libc = true;
-                _ = system_libs.orderedRemove(i);
+                _ = system_libs.orderedRemove(lib_name);
                 continue;
             }
             if (target_util.is_libcpp_lib_name(target_info.target, lib_name)) {
                 link_libcpp = true;
-                _ = system_libs.orderedRemove(i);
+                _ = system_libs.orderedRemove(lib_name);
                 continue;
             }
             if (mem.eql(u8, lib_name, "unwind")) {
                 link_libunwind = true;
-                _ = system_libs.orderedRemove(i);
+                _ = system_libs.orderedRemove(lib_name);
                 continue;
             }
             if (std.fs.path.isAbsolute(lib_name)) {
@@ -1748,7 +1768,7 @@ fn buildOutputType(
             if (target_info.target.os.tag == .wasi) {
                 if (wasi_libc.getEmulatedLibCRTFile(lib_name)) |crt_file| {
                     try wasi_emulated_libs.append(crt_file);
-                    _ = system_libs.orderedRemove(i);
+                    _ = system_libs.orderedRemove(lib_name);
                     continue;
                 }
             }
@@ -1777,7 +1797,7 @@ fn buildOutputType(
     const is_darwin_on_darwin = (comptime builtin.target.isDarwin()) and cross_target.isDarwin();
 
     if (sysroot == null and (cross_target.isNativeOs() or is_darwin_on_darwin) and
-        (system_libs.items.len != 0 or want_native_include_dirs))
+        (system_libs.count() != 0 or want_native_include_dirs))
     {
         const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
             fatal("unable to detect native system paths: {s}", .{@errorName(err)});
@@ -2144,7 +2164,8 @@ fn buildOutputType(
         .link_objects = link_objects.items,
         .framework_dirs = framework_dirs.items,
         .frameworks = frameworks.items,
-        .system_libs = system_libs.items,
+        .system_lib_names = system_libs.keys(),
+        .system_lib_infos = system_libs.values(),
         .wasi_emulated_libs = wasi_emulated_libs.items,
         .link_libc = link_libc,
         .link_libcpp = link_libcpp,
@@ -3802,6 +3823,10 @@ pub const ClangArgIterator = struct {
         no_red_zone,
         omit_frame_pointer,
         no_omit_frame_pointer,
+        function_sections,
+        no_function_sections,
+        color_diagnostics,
+        no_color_diagnostics,
         strip,
         exec_model,
         emit_llvm,

@@ -12,7 +12,7 @@ const wasm = std.wasm;
 
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
-const codegen = @import("../codegen/wasm.zig");
+const CodeGen = @import("../arch/wasm/CodeGen.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
@@ -54,6 +54,8 @@ offset_table_free_list: std.ArrayListUnmanaged(u32) = .{},
 /// This is ment for bookkeeping so we can safely cleanup all codegen memory
 /// when calling `deinit`
 symbols: std.ArrayListUnmanaged(*Module.Decl) = .{},
+/// List of symbol indexes which are free to be used.
+symbols_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 pub const FnData = struct {
     /// Generated code for the type of the function
@@ -62,7 +64,8 @@ pub const FnData = struct {
     code: std.ArrayListUnmanaged(u8),
     /// Locations in the generated code where function indexes must be filled in.
     /// This must be kept ordered by offset.
-    idx_refs: std.ArrayListUnmanaged(struct { offset: u32, decl: *Module.Decl }),
+    /// `decl` is the symbol_index of the target.
+    idx_refs: std.ArrayListUnmanaged(struct { offset: u32, decl: u32 }),
 
     pub const empty: FnData = .{
         .functype = .{},
@@ -156,7 +159,18 @@ pub fn deinit(self: *Wasm) void {
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
     }
-    for (self.symbols.items) |decl| {
+
+    for (self.symbols.items) |decl, symbol_index| {
+        // Check if we already freed all memory for the symbol
+        // TODO: Audit this when we refactor the linker.
+        var already_freed = false;
+        for (self.symbols_free_list.items) |index| {
+            if (symbol_index == index) {
+                already_freed = true;
+                break;
+            }
+        }
+        if (already_freed) continue;
         decl.fn_link.wasm.functype.deinit(self.base.allocator);
         decl.fn_link.wasm.code.deinit(self.base.allocator);
         decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
@@ -167,6 +181,7 @@ pub fn deinit(self: *Wasm) void {
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
     self.symbols.deinit(self.base.allocator);
+    self.symbols_free_list.deinit(self.base.allocator);
 }
 
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
@@ -178,14 +193,19 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
     const block = &decl.link.wasm;
     block.init = true;
 
-    block.symbol_index = @intCast(u32, self.symbols.items.len);
-    self.symbols.appendAssumeCapacity(decl);
-
     if (self.offset_table_free_list.popOrNull()) |index| {
         block.offset_index = index;
     } else {
         block.offset_index = @intCast(u32, self.offset_table.items.len);
         _ = self.offset_table.addOneAssumeCapacity();
+    }
+
+    if (self.symbols_free_list.popOrNull()) |index| {
+        block.symbol_index = index;
+        self.symbols.items[block.symbol_index] = decl;
+    } else {
+        block.symbol_index = @intCast(u32, self.symbols.items.len);
+        self.symbols.appendAssumeCapacity(decl);
     }
 
     self.offset_table.items[block.offset_index] = 0;
@@ -215,7 +235,7 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
     fn_data.code.items.len = 0;
     fn_data.idx_refs.items.len = 0;
 
-    var context = codegen.Context{
+    var codegen: CodeGen = .{
         .gpa = self.base.allocator,
         .air = air,
         .liveness = liveness,
@@ -226,20 +246,21 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
         .err_msg = undefined,
         .locals = .{},
         .target = self.base.options.target,
+        .bin_file = &self.base,
         .global_error_set = self.base.options.module.?.global_error_set,
     };
-    defer context.deinit();
+    defer codegen.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = context.genFunc() catch |err| switch (err) {
+    const result = codegen.genFunc() catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, context.err_msg);
+            try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
             return;
         },
         else => |e| return e,
     };
-    return self.finishUpdateDecl(decl, result, &context);
+    return self.finishUpdateDecl(decl, result, &codegen);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
@@ -259,7 +280,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     fn_data.code.items.len = 0;
     fn_data.idx_refs.items.len = 0;
 
-    var context = codegen.Context{
+    var codegen: CodeGen = .{
         .gpa = self.base.allocator,
         .air = undefined,
         .liveness = undefined,
@@ -270,28 +291,29 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         .err_msg = undefined,
         .locals = .{},
         .target = self.base.options.target,
+        .bin_file = &self.base,
         .global_error_set = self.base.options.module.?.global_error_set,
     };
-    defer context.deinit();
+    defer codegen.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = context.gen(decl.ty, decl.val) catch |err| switch (err) {
+    const result = codegen.gen(decl.ty, decl.val) catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, context.err_msg);
+            try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
             return;
         },
         else => |e| return e,
     };
 
-    return self.finishUpdateDecl(decl, result, &context);
+    return self.finishUpdateDecl(decl, result, &codegen);
 }
 
-fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: codegen.Result, context: *codegen.Context) !void {
+fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, codegen: *CodeGen) !void {
     const fn_data: *FnData = &decl.fn_link.wasm;
 
-    fn_data.code = context.code.toUnmanaged();
-    fn_data.functype = context.func_type_data.toUnmanaged();
+    fn_data.code = codegen.code.toUnmanaged();
+    fn_data.functype = codegen.func_type_data.toUnmanaged();
 
     const code: []const u8 = switch (result) {
         .appended => @as([]const u8, fn_data.code.items),
@@ -299,14 +321,7 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: codegen.Result, con
     };
 
     const block = &decl.link.wasm;
-    if (decl.ty.zigTypeTag() == .Fn) {
-        // as locals are patched afterwards, the offsets of funcidx's are off,
-        // here we update them to correct them
-        for (fn_data.idx_refs.items) |*func| {
-            // For each local, add 6 bytes (count + type)
-            func.offset += @intCast(u32, context.locals.items.len * 6);
-        }
-    } else {
+    if (decl.ty.zigTypeTag() != .Fn) {
         block.size = @intCast(u32, code.len);
         block.data = code.ptr;
     }
@@ -359,18 +374,13 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     block.unplug();
 
     self.offset_table_free_list.append(self.base.allocator, decl.link.wasm.offset_index) catch {};
-    _ = self.symbols.swapRemove(block.symbol_index);
-
-    // update symbol_index as we swap removed the last symbol into the removed's position
-    if (block.symbol_index < self.symbols.items.len)
-        self.symbols.items[block.symbol_index].link.wasm.symbol_index = block.symbol_index;
+    self.symbols_free_list.append(self.base.allocator, block.symbol_index) catch {};
 
     block.init = false;
 
     decl.fn_link.wasm.functype.deinit(self.base.allocator);
     decl.fn_link.wasm.code.deinit(self.base.allocator);
     decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
-    decl.fn_link.wasm = undefined;
 }
 
 pub fn flush(self: *Wasm, comp: *Compilation) !void {
@@ -394,6 +404,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     // The table contains all decl's with its corresponding offset into
     // the 'data' section
     const offset_table_size = @intCast(u32, self.offset_table.items.len * ptr_width);
+    // The size of the emulated stack
+    const stack_size = @intCast(u32, self.base.options.stack_size_override orelse std.wasm.page_size);
 
     // The size of the data, this together with `offset_table_size` amounts to the
     // total size of the 'data' section
@@ -477,7 +489,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     }
 
     // Memory section
-    if (data_size != 0) {
+    {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
 
@@ -488,7 +500,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             writer,
             try std.math.divCeil(
                 u32,
-                offset_table_size + data_size,
+                offset_table_size + data_size + stack_size,
                 std.wasm.page_size,
             ),
         );
@@ -498,6 +510,34 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             .memory,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @as(u32, 1), // wasm currently only supports 1 linear memory segment
+        );
+    }
+
+    // Global section (used to emit stack pointer)
+    {
+        // We emit the emulated stack at the end of the data section,
+        // 'growing' downwards towards the program memory.
+        // TODO: Have linker resolve the offset table, so we can emit the stack
+        // at the start so we can't overwrite program memory with the stack.
+        const sp_value = offset_table_size + data_size + std.wasm.page_size;
+        const mutable = true; // stack pointer MUST be mutable
+        const header_offset = try reserveVecSectionHeader(file);
+        const writer = file.writer();
+
+        try writer.writeByte(wasm.valtype(.i32));
+        try writer.writeByte(@boolToInt(mutable));
+
+        // set the initial value of the stack pointer to the data size + stack size
+        try writer.writeByte(wasm.opcode(.i32_const));
+        try leb.writeILEB128(writer, @bitCast(i32, sp_value));
+        try writer.writeByte(wasm.opcode(.end));
+
+        try writeVecSectionHeader(
+            file,
+            header_offset,
+            .global,
+            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @as(u32, 1),
         );
     }
 
@@ -553,18 +593,12 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
             // Write the already generated code to the file, inserting
             // function indexes where required.
-            var current: u32 = 0;
             for (fn_data.idx_refs.items) |idx_ref| {
-                try writer.writeAll(fn_data.code.items[current..idx_ref.offset]);
-                current = idx_ref.offset;
-                // Use a fixed width here to make calculating the code size
-                // in codegen.wasm.gen() simpler.
-                var buf: [5]u8 = undefined;
-                leb.writeUnsignedFixed(5, &buf, self.getFuncidx(idx_ref.decl).?);
-                try writer.writeAll(&buf);
+                const relocatable_decl = self.symbols.items[idx_ref.decl];
+                const index = self.getFuncidx(relocatable_decl).?;
+                leb.writeUnsignedFixed(5, fn_data.code.items[idx_ref.offset..][0..5], index);
             }
-
-            try writer.writeAll(fn_data.code.items[current..]);
+            try writer.writeAll(fn_data.code.items);
         }
         try writeVecSectionHeader(
             file,

@@ -175,7 +175,11 @@ pub const Type = extern union {
             => false,
 
             .Pointer => is_equality_cmp or ty.isCPtr(),
-            .Optional => is_equality_cmp and ty.isPtrLikeOptional(),
+            .Optional => {
+                if (!is_equality_cmp) return false;
+                var buf: Payload.ElemType = undefined;
+                return ty.optionalChild(&buf).isSelfComparable(is_equality_cmp);
+            },
         };
     }
 
@@ -2481,6 +2485,8 @@ pub const Type = extern union {
             .vector => ty.castTag(.vector).?.data.elem_type,
             .array => ty.castTag(.array).?.data.elem_type,
             .array_sentinel => ty.castTag(.array_sentinel).?.data.elem_type,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
             .single_const_pointer,
             .single_mut_pointer,
             .many_const_pointer,

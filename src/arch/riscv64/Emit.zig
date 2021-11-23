@@ -46,6 +46,7 @@ pub fn emitMir(
             .addi => try emit.mirIType(inst),
             .jalr => try emit.mirIType(inst),
             .ld => try emit.mirIType(inst),
+            .sd => try emit.mirIType(inst),
 
             .ebreak => try emit.mirSystem(inst),
             .ecall => try emit.mirSystem(inst),
@@ -54,6 +55,9 @@ pub fn emitMir(
 
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
+
+            .nop => try emit.mirNop(inst),
+            .ret => try emit.mirNop(inst),
 
             .lui => try emit.mirUType(inst),
         }
@@ -135,6 +139,7 @@ fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
         .addi => try emit.writeInstruction(Instruction.addi(i_type.rd, i_type.rs1, i_type.imm12)),
         .jalr => try emit.writeInstruction(Instruction.jalr(i_type.rd, i_type.imm12, i_type.rs1)),
         .ld => try emit.writeInstruction(Instruction.ld(i_type.rd, i_type.imm12, i_type.rs1)),
+        .sd => try emit.writeInstruction(Instruction.sd(i_type.rd, i_type.imm12, i_type.rs1)),
         else => unreachable,
     }
 }
@@ -187,6 +192,16 @@ fn mirUType(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .lui => try emit.writeInstruction(Instruction.lui(u_type.rd, u_type.imm20)),
+        else => unreachable,
+    }
+}
+
+fn mirNop(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+
+    switch (tag) {
+        .nop => try emit.writeInstruction(Instruction.addi(.zero, .zero, 0)),
+        .ret => try emit.writeInstruction(Instruction.jalr(.zero, 0, .ra)),
         else => unreachable,
     }
 }

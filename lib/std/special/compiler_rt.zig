@@ -630,11 +630,31 @@ comptime {
         _ = @import("compiler_rt/atomics.zig");
 
         @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
+        @export(floorf, .{ .name = "floorf", .linkage = linkage });
+        @export(floor, .{ .name = "floor", .linkage = linkage });
+        @export(floorl, .{ .name = "floorl", .linkage = linkage });
     }
 }
 
+const math = std.math;
+
 fn fmaq(a: f128, b: f128, c: f128) callconv(.C) f128 {
-    return std.math.fma(f128, a, b, c);
+    return math.fma(f128, a, b, c);
+}
+
+// TODO add intrinsics for these (and probably the double version too)
+// and have the math stuff use the intrinsic. same as @mod and @rem
+fn floorf(x: f32) callconv(.C) f32 {
+    return math.floor(x);
+}
+fn floor(x: f64) callconv(.C) f64 {
+    return math.floor(x);
+}
+fn floorl(x: c_longdouble) callconv(.C) c_longdouble {
+    if (!long_double_is_f128) {
+        @panic("TODO implement this");
+    }
+    return math.floor(x);
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,

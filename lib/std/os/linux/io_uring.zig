@@ -683,6 +683,26 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to remove an existing operation.
+    /// Returns a pointer to the SQE.
+    ///
+    /// The operation is identified by its `user_data`.
+    ///
+    /// The completion event result will be `0` if the operation was found and cancelled successfully,
+    /// `-EALREADY` if the operation was found but was already in progress, or
+    /// `-ENOENT` if the operation was not found.
+    pub fn cancel(
+        self: *IO_Uring,
+        user_data: u64,
+        cancel_user_data: u64,
+        flags: u32,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_cancel(sqe, cancel_user_data, flags);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Registers an array of file descriptors.
     /// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
     /// retrieve a reference to the file, and once I/O has completed the file reference must be
@@ -699,6 +719,37 @@ pub const IO_Uring = struct {
             self.fd,
             .REGISTER_FILES,
             @ptrCast(*const c_void, fds.ptr),
+            @intCast(u32, fds.len),
+        );
+        try handle_registration_result(res);
+    }
+
+    /// Updates registered file descriptors.
+    ///
+    /// Updates are applied starting at the provided offset in the original file descriptors slice.
+    /// There are three kind of updates:
+    /// * turning a sparse entry (where the fd is -1) into a real one
+    /// * removing an existing entry (set the fd to -1)
+    /// * replacing an existing entry with a new fd
+    /// Adding new file descriptors must be done with `register_files`.
+    pub fn register_files_update(self: *IO_Uring, offset: u32, fds: []const os.fd_t) !void {
+        assert(self.fd >= 0);
+
+        const FilesUpdate = struct {
+            offset: u32,
+            resv: u32,
+            fds: u64 align(8),
+        };
+        var update = FilesUpdate{
+            .offset = offset,
+            .resv = @as(u32, 0),
+            .fds = @as(u64, @ptrToInt(fds.ptr)),
+        };
+
+        const res = linux.io_uring_register(
+            self.fd,
+            .REGISTER_FILES_UPDATE,
+            @ptrCast(*const c_void, &update),
             @intCast(u32, fds.len),
         );
         try handle_registration_result(res);
@@ -1179,6 +1230,15 @@ pub fn io_uring_prep_statx(
     buf: *linux.Statx,
 ) void {
     io_uring_prep_rw(.STATX, sqe, fd, @ptrToInt(path), mask, @ptrToInt(buf));
+    sqe.rw_flags = flags;
+}
+
+pub fn io_uring_prep_cancel(
+    sqe: *io_uring_sqe,
+    cancel_user_data: u64,
+    flags: u32,
+) void {
+    io_uring_prep_rw(.ASYNC_CANCEL, sqe, -1, cancel_user_data, 0, 0);
     sqe.rw_flags = flags;
 }
 
@@ -1841,4 +1901,169 @@ test "statx" {
 
     try testing.expect(buf.mask & os.linux.STATX_SIZE == os.linux.STATX_SIZE);
     try testing.expectEqual(@as(u64, 6), buf.size);
+}
+
+test "accept/connect/recv/cancel" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const address = try net.Address.parseIp4("127.0.0.1", 3131);
+    const kernel_backlog = 1;
+    const server = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+    defer os.close(server);
+    try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
+    try os.bind(server, &address.any, address.getOsSockLen());
+    try os.listen(server, kernel_backlog);
+
+    var buffer_recv = [_]u8{ 0, 1, 0, 1, 0 };
+
+    var accept_addr: os.sockaddr = undefined;
+    var accept_addr_len: os.socklen_t = @sizeOf(@TypeOf(accept_addr));
+    _ = try ring.accept(0xaaaaaaaa, server, &accept_addr, &accept_addr_len, 0);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+    defer os.close(client);
+    _ = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    var cqe_accept = try ring.copy_cqe();
+    if (cqe_accept.err() == .INVAL) return error.SkipZigTest;
+    var cqe_connect = try ring.copy_cqe();
+    if (cqe_connect.err() == .INVAL) return error.SkipZigTest;
+
+    // The accept/connect CQEs may arrive in any order, the connect CQE will sometimes come first:
+    if (cqe_accept.user_data == 0xcccccccc and cqe_connect.user_data == 0xaaaaaaaa) {
+        const a = cqe_accept;
+        const b = cqe_connect;
+        cqe_accept = b;
+        cqe_connect = a;
+    }
+
+    try testing.expectEqual(@as(u64, 0xaaaaaaaa), cqe_accept.user_data);
+    if (cqe_accept.res <= 0) std.debug.print("\ncqe_accept.res={}\n", .{cqe_accept.res});
+    try testing.expect(cqe_accept.res > 0);
+    try testing.expectEqual(@as(u32, 0), cqe_accept.flags);
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0xcccccccc,
+        .res = 0,
+        .flags = 0,
+    }, cqe_connect);
+
+    _ = try ring.recv(0xffffffff, cqe_accept.res, buffer_recv[0..], 0);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    const sqe_cancel = try ring.cancel(0x99999999, 0xffffffff, 0);
+    try testing.expectEqual(linux.IORING_OP.ASYNC_CANCEL, sqe_cancel.opcode);
+    try testing.expectEqual(@as(u64, 0xffffffff), sqe_cancel.addr);
+    try testing.expectEqual(@as(u64, 0x99999999), sqe_cancel.user_data);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    const cqe_recv = try ring.copy_cqe();
+    if (cqe_recv.err() == .INVAL) return error.SkipZigTest;
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0xffffffff,
+        .res = -@as(i32, @enumToInt(linux.E.CANCELED)),
+        .flags = 0,
+    }, cqe_recv);
+
+    const cqe_cancel = try ring.copy_cqe();
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x99999999,
+        .res = 0,
+        .flags = 0,
+    }, cqe_cancel);
+}
+
+test "register_files_update" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const fd = try os.openZ("/dev/zero", os.O.RDONLY | os.O.CLOEXEC, 0);
+    defer os.close(fd);
+
+    var registered_fds = [_]os.fd_t{0} ** 2;
+    const fd_index = 0;
+    const fd_index2 = 1;
+    registered_fds[fd_index] = fd;
+    registered_fds[fd_index2] = -1;
+
+    ring.register_files(registered_fds[0..]) catch |err| switch (err) {
+        // Happens when the kernel doesn't support sparse entry (-1) in the file descriptors array.
+        error.FileDescriptorInvalid => return error.SkipZigTest,
+        else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
+    };
+
+    // Test IORING_REGISTER_FILES_UPDATE
+    // Only available since Linux 5.5
+
+    const fd2 = try os.openZ("/dev/zero", os.O.RDONLY | os.O.CLOEXEC, 0);
+    defer os.close(fd2);
+
+    registered_fds[fd_index] = fd2;
+    registered_fds[fd_index2] = -1;
+    try ring.register_files_update(0, registered_fds[0..]);
+
+    var buffer = [_]u8{42} ** 128;
+    {
+        const sqe = try ring.read(0xcccccccc, fd_index, &buffer, 0);
+        try testing.expectEqual(linux.IORING_OP.READ, sqe.opcode);
+        sqe.flags |= linux.IOSQE_FIXED_FILE;
+
+        try testing.expectEqual(@as(u32, 1), try ring.submit());
+        try testing.expectEqual(linux.io_uring_cqe{
+            .user_data = 0xcccccccc,
+            .res = buffer.len,
+            .flags = 0,
+        }, try ring.copy_cqe());
+        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer.len), buffer[0..]);
+    }
+
+    // Test with a non-zero offset
+
+    registered_fds[fd_index] = -1;
+    registered_fds[fd_index2] = -1;
+    try ring.register_files_update(1, registered_fds[1..]);
+
+    {
+        // Next read should still work since fd_index in the registered file descriptors hasn't been updated yet.
+        const sqe = try ring.read(0xcccccccc, fd_index, &buffer, 0);
+        try testing.expectEqual(linux.IORING_OP.READ, sqe.opcode);
+        sqe.flags |= linux.IOSQE_FIXED_FILE;
+
+        try testing.expectEqual(@as(u32, 1), try ring.submit());
+        try testing.expectEqual(linux.io_uring_cqe{
+            .user_data = 0xcccccccc,
+            .res = buffer.len,
+            .flags = 0,
+        }, try ring.copy_cqe());
+        try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer.len), buffer[0..]);
+    }
+
+    try ring.register_files_update(0, registered_fds[0..]);
+
+    {
+        // Now this should fail since both fds are sparse (-1)
+        const sqe = try ring.read(0xcccccccc, fd_index, &buffer, 0);
+        try testing.expectEqual(linux.IORING_OP.READ, sqe.opcode);
+        sqe.flags |= linux.IOSQE_FIXED_FILE;
+
+        try testing.expectEqual(@as(u32, 1), try ring.submit());
+        const cqe = try ring.copy_cqe();
+        try testing.expectEqual(os.linux.E.BADF, cqe.err());
+    }
+
+    try ring.unregister_files();
 }

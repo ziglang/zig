@@ -1765,24 +1765,27 @@ pub const SHUT = struct {
 };
 
 // Term
-pub const VEOF = 0;
-pub const VEOL = 1;
-pub const VEOL2 = 2;
-pub const VERASE = 3;
-pub const VWERASE = 4;
-pub const VKILL = 5;
-pub const VREPRINT = 6;
-pub const VINTR = 8;
-pub const VQUIT = 9;
-pub const VSUSP = 10;
-pub const VDSUSP = 11;
-pub const VSTART = 12;
-pub const VSTOP = 13;
-pub const VLNEXT = 14;
-pub const VDISCARD = 15;
-pub const VMIN = 16;
-pub const VTIME = 17;
-pub const VSTATUS = 18;
+pub const V = struct {
+    pub const EOF = 0;
+    pub const EOL = 1;
+    pub const EOL2 = 2;
+    pub const ERASE = 3;
+    pub const WERASE = 4;
+    pub const KILL = 5;
+    pub const REPRINT = 6;
+    pub const INTR = 8;
+    pub const QUIT = 9;
+    pub const SUSP = 10;
+    pub const DSUSP = 11;
+    pub const START = 12;
+    pub const STOP = 13;
+    pub const LNEXT = 14;
+    pub const DISCARD = 15;
+    pub const MIN = 16;
+    pub const TIME = 17;
+    pub const STATUS = 18;
+};
+
 pub const NCCS = 20; // 2 spares (7, 19)
 
 pub const IGNBRK = 0x00000001; // ignore BREAK condition

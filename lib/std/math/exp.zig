@@ -146,7 +146,7 @@ fn exp64(x_: f64) f64 {
     var lo: f64 = undefined;
 
     // |x| > 0.5 * ln2
-    if (hx > 0x3EB17218) {
+    if (hx > 0x3FD62E42) {
         // |x| >= 1.5 * ln2
         if (hx > 0x3FF0A2B2) {
             k = @floatToInt(i32, invln2 * x + half[@intCast(usize, sign)]);

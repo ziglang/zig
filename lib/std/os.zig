@@ -255,6 +255,87 @@ pub fn close(fd: fd_t) void {
     }
 }
 
+pub const FChmodError = error{
+    AccessDenied,
+    InputOutput,
+    SymLinkLoop,
+    FileNotFound,
+    SystemResources,
+    ReadOnlyFileSystem,
+} || UnexpectedError;
+
+/// Changes the mode of the file referred to by the file descriptor.
+/// The process must have the correct privileges in order to do this
+/// successfully, or must have the effective user ID matching the owner
+/// of the file.
+pub fn fchmod(fd: fd_t, mode: mode_t) FChmodError!void {
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+        @compileError("Unsupported OS");
+
+    while (true) {
+        const res = system.fchmod(fd, mode);
+
+        switch (system.getErrno(res)) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .BADF => unreachable, // Can be reached if the fd refers to a directory opened without `OpenDirOptions{ .iterate = true }`
+
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .ACCES => return error.AccessDenied,
+            .IO => return error.InputOutput,
+            .LOOP => return error.SymLinkLoop,
+            .NOENT => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            .NOTDIR => return error.FileNotFound,
+            .PERM => return error.AccessDenied,
+            .ROFS => return error.ReadOnlyFileSystem,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
+pub const FChownError = error{
+    AccessDenied,
+    InputOutput,
+    SymLinkLoop,
+    FileNotFound,
+    SystemResources,
+    ReadOnlyFileSystem,
+} || UnexpectedError;
+
+/// Changes the owner and group of the file referred to by the file descriptor.
+/// The process must have the correct privileges in order to do this
+/// successfully. The group may be changed by the owner of the directory to
+/// any group of which the owner is a member. If the owner or group is
+/// specified as `null`, the ID is not changed.
+pub fn fchown(fd: fd_t, owner: ?uid_t, group: ?gid_t) FChownError!void {
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+        @compileError("Unsupported OS");
+
+    while (true) {
+        const res = system.fchown(fd, owner orelse @as(u32, 0) -% 1, group orelse @as(u32, 0) -% 1);
+
+        switch (system.getErrno(res)) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .BADF => unreachable, // Can be reached if the fd refers to a directory opened without `OpenDirOptions{ .iterate = true }`
+
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .ACCES => return error.AccessDenied,
+            .IO => return error.InputOutput,
+            .LOOP => return error.SymLinkLoop,
+            .NOENT => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            .NOTDIR => return error.FileNotFound,
+            .PERM => return error.AccessDenied,
+            .ROFS => return error.ReadOnlyFileSystem,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
 pub const GetRandomError = OpenError;
 
 /// Obtain a series of random bytes. These bytes can be used to seed user-space
@@ -2593,6 +2674,7 @@ pub const ReadLinkError = error{
     NameTooLong,
     FileNotFound,
     SystemResources,
+    NotLink,
     NotDir,
     InvalidUtf8,
     BadPathName,
@@ -2634,7 +2716,7 @@ pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 
         .SUCCESS => return out_buffer[0..@bitCast(usize, rc)],
         .ACCES => return error.AccessDenied,
         .FAULT => unreachable,
-        .INVAL => unreachable,
+        .INVAL => return error.NotLink,
         .IO => return error.FileSystem,
         .LOOP => return error.SymLinkLoop,
         .NAMETOOLONG => return error.NameTooLong,
@@ -2670,7 +2752,7 @@ pub fn readlinkatWasi(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) Read
         .SUCCESS => return out_buffer[0..bufused],
         .ACCES => return error.AccessDenied,
         .FAULT => unreachable,
-        .INVAL => unreachable,
+        .INVAL => return error.NotLink,
         .IO => return error.FileSystem,
         .LOOP => return error.SymLinkLoop,
         .NAMETOOLONG => return error.NameTooLong,
@@ -2700,7 +2782,7 @@ pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) Read
         .SUCCESS => return out_buffer[0..@bitCast(usize, rc)],
         .ACCES => return error.AccessDenied,
         .FAULT => unreachable,
-        .INVAL => unreachable,
+        .INVAL => return error.NotLink,
         .IO => return error.FileSystem,
         .LOOP => return error.SymLinkLoop,
         .NAMETOOLONG => return error.NameTooLong,
@@ -4677,6 +4759,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             const target = readlinkZ(std.meta.assumeSentinel(proc_path.ptr, 0), out_buffer) catch |err| {
                 switch (err) {
                     error.UnsupportedReparsePointType => unreachable, // Windows only,
+                    error.NotLink => unreachable,
                     else => |e| return e,
                 }
             };
@@ -4688,6 +4771,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
 
             const target = readlinkZ(proc_path, out_buffer) catch |err| switch (err) {
                 error.UnsupportedReparsePointType => unreachable,
+                error.NotLink => unreachable,
                 else => |e| return e,
             };
             return target;

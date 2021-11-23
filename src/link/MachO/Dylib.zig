@@ -255,6 +255,18 @@ fn addObjCClassSymbol(self: *Dylib, allocator: *Allocator, sym_name: []const u8)
     }
 }
 
+fn addObjCIVarSymbol(self: *Dylib, allocator: *Allocator, sym_name: []const u8) !void {
+    const expanded = try std.fmt.allocPrint(allocator, "_OBJC_IVAR_$_{s}", .{sym_name});
+    if (self.symbols.contains(expanded)) return;
+    try self.symbols.putNoClobber(allocator, expanded, .{});
+}
+
+fn addObjCEhTypeSymbol(self: *Dylib, allocator: *Allocator, sym_name: []const u8) !void {
+    const expanded = try std.fmt.allocPrint(allocator, "_OBJC_EHTYPE_$_{s}", .{sym_name});
+    if (self.symbols.contains(expanded)) return;
+    try self.symbols.putNoClobber(allocator, expanded, .{});
+}
+
 fn addSymbol(self: *Dylib, allocator: *Allocator, sym_name: []const u8) !void {
     if (self.symbols.contains(sym_name)) return;
     try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), {});
@@ -385,6 +397,18 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
                             }
                         }
 
+                        if (exp.objc_ivars) |objc_ivars| {
+                            for (objc_ivars) |ivar| {
+                                try self.addObjCIVarSymbol(allocator, ivar);
+                            }
+                        }
+
+                        if (exp.objc_eh_types) |objc_eh_types| {
+                            for (objc_eh_types) |eht| {
+                                try self.addObjCEhTypeSymbol(allocator, eht);
+                            }
+                        }
+
                         // TODO track which libs were already parsed in different steps
                         if (exp.re_exports) |re_exports| {
                             for (re_exports) |lib| {
@@ -415,6 +439,18 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
                                 try self.addObjCClassSymbol(allocator, sym_name);
                             }
                         }
+
+                        if (exp.objc_ivars) |objc_ivars| {
+                            for (objc_ivars) |ivar| {
+                                try self.addObjCIVarSymbol(allocator, ivar);
+                            }
+                        }
+
+                        if (exp.objc_eh_types) |objc_eh_types| {
+                            for (objc_eh_types) |eht| {
+                                try self.addObjCEhTypeSymbol(allocator, eht);
+                            }
+                        }
                     }
                 }
 
@@ -433,12 +469,36 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
                                 try self.addObjCClassSymbol(allocator, sym_name);
                             }
                         }
+
+                        if (reexp.objc_ivars) |objc_ivars| {
+                            for (objc_ivars) |ivar| {
+                                try self.addObjCIVarSymbol(allocator, ivar);
+                            }
+                        }
+
+                        if (reexp.objc_eh_types) |objc_eh_types| {
+                            for (objc_eh_types) |eht| {
+                                try self.addObjCEhTypeSymbol(allocator, eht);
+                            }
+                        }
                     }
                 }
 
                 if (stub.objc_classes) |classes| {
                     for (classes) |sym_name| {
                         try self.addObjCClassSymbol(allocator, sym_name);
+                    }
+                }
+
+                if (stub.objc_ivars) |objc_ivars| {
+                    for (objc_ivars) |ivar| {
+                        try self.addObjCIVarSymbol(allocator, ivar);
+                    }
+                }
+
+                if (stub.objc_eh_types) |objc_eh_types| {
+                    for (objc_eh_types) |eht| {
+                        try self.addObjCEhTypeSymbol(allocator, eht);
                     }
                 }
             },

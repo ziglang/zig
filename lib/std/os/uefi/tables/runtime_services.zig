@@ -4,6 +4,7 @@ const TableHeader = uefi.tables.TableHeader;
 const Time = uefi.Time;
 const TimeCapabilities = uefi.TimeCapabilities;
 const Status = uefi.Status;
+const MemoryDescriptor = uefi.tables.MemoryDescriptor;
 
 /// Runtime services are provided by the firmware before and after exitBootServices has been called.
 ///
@@ -22,8 +23,12 @@ pub const RuntimeServices = extern struct {
     setTime: Status, // TODO
     getWakeupTime: Status, // TODO
     setWakeupTime: Status, // TODO
-    setVirtualAddressMap: Status, // TODO
-    convertPointer: Status, // TODO
+
+    /// Changes the runtime addressing mode of EFI firmware from physical to virtual.
+    setVirtualAddressMap: fn (usize, usize, u32, [*]MemoryDescriptor) callconv(.C) Status,
+
+    /// Determines the new virtual address that is to be used on subsequent memory accesses.
+    convertPointer: fn (usize, **c_void) callconv(.C) Status,
 
     /// Returns the value of a variable.
     getVariable: fn ([*:0]const u16, *align(8) const Guid, ?*u32, *usize, ?*c_void) callconv(.C) Status,

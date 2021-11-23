@@ -740,4 +740,39 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "0\n");
     }
+
+    {
+        var case = ctx.exe("wasm pointers", wasi);
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var x: u32 = 0;
+            \\
+            \\    foo(&x);
+            \\    return x;
+            \\}
+            \\
+            \\fn foo(x: *u32)void {
+            \\    x.* = 2;
+            \\}
+        , "2\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var x: u32 = 0;
+            \\
+            \\    foo(&x);
+            \\    bar(&x);
+            \\    return x;
+            \\}
+            \\
+            \\fn foo(x: *u32)void {
+            \\    x.* = 2;
+            \\}
+            \\
+            \\fn bar(x: *u32) void {
+            \\    x.* += 2;
+            \\}
+        , "4\n");
+    }
 }

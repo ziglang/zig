@@ -471,7 +471,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         if (is_dyn_lib) {
             man.hash.addOptional(self.base.options.version);
         }
-        man.hash.addStringSet(self.base.options.system_libs);
+        link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
         man.hash.addOptionalBytes(self.base.options.sysroot);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
@@ -1788,19 +1788,18 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
 }
 
 pub fn createEmptyAtom(self: *MachO, local_sym_index: u32, size: u64, alignment: u32) !*Atom {
-    const code = try self.base.allocator.alloc(u8, size);
-    defer self.base.allocator.free(code);
-    mem.set(u8, code, 0);
-
+    const size_usize = try math.cast(usize, size);
     const atom = try self.base.allocator.create(Atom);
     errdefer self.base.allocator.destroy(atom);
     atom.* = Atom.empty;
     atom.local_sym_index = local_sym_index;
     atom.size = size;
     atom.alignment = alignment;
-    try atom.code.appendSlice(self.base.allocator, code);
-    try self.managed_atoms.append(self.base.allocator, atom);
 
+    try atom.code.resize(self.base.allocator, size_usize);
+    mem.set(u8, atom.code.items, 0);
+
+    try self.managed_atoms.append(self.base.allocator, atom);
     return atom;
 }
 
@@ -1872,9 +1871,10 @@ fn writeAtoms(self: *MachO) !void {
         while (true) {
             if (atom.dirty or self.invalidate_relocs) {
                 const atom_sym = self.locals.items[atom.local_sym_index];
-                const padding_size: u64 = if (atom.next) |next| blk: {
+                const padding_size: usize = if (atom.next) |next| blk: {
                     const next_sym = self.locals.items[next.local_sym_index];
-                    break :blk next_sym.n_value - (atom_sym.n_value + atom.size);
+                    const size = next_sym.n_value - (atom_sym.n_value + atom.size);
+                    break :blk try math.cast(usize, size);
                 } else 0;
 
                 log.debug("  (adding atom {s} to buffer: {})", .{ self.getString(atom_sym.n_strx), atom_sym });
@@ -3235,6 +3235,12 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
+    if (decl.val.castTag(.variable)) |payload| {
+        const variable = payload.data;
+        if (variable.is_extern) {
+            return; // TODO Should we do more when front-end analyzed extern decl?
+        }
+    }
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -3258,10 +3264,11 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
 
     self.active_decl = decl;
 
+    const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
     const res = if (debug_buffers) |dbg|
         try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
-            .val = decl.val,
+            .val = decl_val,
         }, &code_buffer, .{
             .dwarf = .{
                 .dbg_line = &dbg.dbg_line_buffer,
@@ -3272,7 +3279,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     else
         try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
-            .val = decl.val,
+            .val = decl_val,
         }, &code_buffer, .none);
 
     const code = blk: {

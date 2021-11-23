@@ -2,8 +2,6 @@ const std = @import("std");
 const expect = std.testing.expect;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
-const Vector = std.meta.Vector;
-const native_endian = @import("builtin").target.cpu.arch.endian();
 
 test "int to ptr cast" {
     const x = @as(usize, 13);
@@ -66,18 +64,6 @@ test "implicit cast comptime_int to comptime_float" {
     try expect(2 == 2.0);
 }
 
-test "pointer reinterpret const float to int" {
-    // The hex representation is 0x3fe3333333333303.
-    const float: f64 = 5.99999999999994648725e-01;
-    const float_ptr = &float;
-    const int_ptr = @ptrCast(*const i32, float_ptr);
-    const int_val = int_ptr.*;
-    if (native_endian == .Little)
-        try expect(int_val == 0x33333303)
-    else
-        try expect(int_val == 0x3fe33333);
-}
-
 test "comptime_int @intToFloat" {
     {
         const result = @intToFloat(f16, 1234);
@@ -117,9 +103,6 @@ fn testFloatToInts() !void {
     try expect(x == 10000);
     const y = @floatToInt(i32, @as(f32, 1e4));
     try expect(y == 10000);
-    try expectFloatToInt(f16, 255.1, u8, 255);
-    try expectFloatToInt(f16, 127.2, i8, 127);
-    try expectFloatToInt(f16, -128.2, i8, -128);
     try expectFloatToInt(f32, 255.1, u8, 255);
     try expectFloatToInt(f32, 127.2, i8, 127);
     try expectFloatToInt(f32, -128.2, i8, -128);
@@ -127,20 +110,6 @@ fn testFloatToInts() !void {
 
 fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) !void {
     try expect(@floatToInt(I, f) == i);
-}
-
-test "implicit cast from [*]T to ?*c_void" {
-    var a = [_]u8{ 3, 2, 1 };
-    var runtime_zero: usize = 0;
-    incrementVoidPtrArray(a[runtime_zero..].ptr, 3);
-    try expect(std.mem.eql(u8, &a, &[_]u8{ 4, 3, 2 }));
-}
-
-fn incrementVoidPtrArray(array: ?*c_void, len: usize) void {
-    var n: usize = 0;
-    while (n < len) : (n += 1) {
-        @ptrCast([*]u8, array.?)[n] += 1;
-    }
 }
 
 test "implicitly cast indirect pointer to maybe-indirect pointer" {
@@ -232,27 +201,6 @@ test "*usize to *void" {
     v.* = {};
 }
 
-test "compile time int to ptr of function" {
-    try foobar(FUNCTION_CONSTANT);
-}
-
-pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, maxInt(usize));
-pub const PFN_void = fn (*c_void) callconv(.C) void;
-
-fn foobar(func: PFN_void) !void {
-    try std.testing.expect(@ptrToInt(func) == maxInt(usize));
-}
-
-test "implicit ptr to *c_void" {
-    var a: u32 = 1;
-    var ptr: *align(@alignOf(u32)) c_void = &a;
-    var b: *u32 = @ptrCast(*u32, ptr);
-    try expect(b.* == 1);
-    var ptr2: ?*align(@alignOf(u32)) c_void = &a;
-    var c: *u32 = @ptrCast(*u32, ptr2.?);
-    try expect(c.* == 1);
-}
-
 test "@intToEnum passed a comptime_int to an enum with one item" {
     const E = enum { A };
     const x = @intToEnum(E, 0);
@@ -298,4 +246,52 @@ test "*const ?[*]const T to [*c]const [*c]const T" {
     const b: [*c]const [*c]const u8 = a;
     try expect(b.*[0] == 'o');
     try expect(b[0][1] == 'k');
+}
+
+test "array coersion to undefined at runtime" {
+    @setRuntimeSafety(true);
+
+    // TODO implement @setRuntimeSafety in stage2
+    if (@import("builtin").zig_is_stage2 and
+        @import("builtin").mode != .Debug and
+        @import("builtin").mode != .ReleaseSafe)
+    {
+        return error.SkipZigTest;
+    }
+
+    var array = [4]u8{ 3, 4, 5, 6 };
+    var undefined_val = [4]u8{ 0xAA, 0xAA, 0xAA, 0xAA };
+
+    try expect(std.mem.eql(u8, &array, &array));
+    array = undefined;
+    try expect(std.mem.eql(u8, &array, &undefined_val));
+}
+
+test "implicitly cast from int to anyerror!?T" {
+    implicitIntLitToOptional();
+    comptime implicitIntLitToOptional();
+}
+fn implicitIntLitToOptional() void {
+    const f: ?i32 = 1;
+    _ = f;
+    const g: anyerror!?i32 = 1;
+    _ = g catch {};
+}
+
+test "return u8 coercing into ?u32 return type" {
+    const S = struct {
+        fn doTheTest() !void {
+            try expect(foo(123).? == 123);
+        }
+        fn foo(arg: u8) ?u32 {
+            return arg;
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "cast from ?[*]T to ??[*]T" {
+    const a: ??[*]u8 = @as(?[*]u8, null);
+    try expect(a != null and a.? == null);
 }
