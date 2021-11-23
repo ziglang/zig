@@ -256,7 +256,6 @@ pub const Value = extern union {
 
                 .extern_fn,
                 .decl_ref,
-                .inferred_alloc_comptime,
                 => Payload.Decl,
 
                 .repeated,
@@ -291,6 +290,7 @@ pub const Value = extern union {
                 .float_128 => Payload.Float_128,
                 .@"error" => Payload.Error,
                 .inferred_alloc => Payload.InferredAlloc,
+                .inferred_alloc_comptime => Payload.InferredAllocComptime,
                 .@"struct" => Payload.Struct,
                 .@"union" => Payload.Union,
                 .bound_fn => Payload.BoundFn,
@@ -2889,6 +2889,19 @@ pub const Value = extern union {
                 /// the items are contiguous in memory and thus can be passed to
                 /// `Module.resolvePeerTypes`.
                 stored_inst_list: std.ArrayListUnmanaged(Air.Inst.Ref) = .{},
+                /// 0 means ABI-aligned.
+                alignment: u16,
+            },
+        };
+
+        pub const InferredAllocComptime = struct {
+            pub const base_tag = Tag.inferred_alloc_comptime;
+
+            base: Payload = .{ .tag = base_tag },
+            data: struct {
+                decl: *Module.Decl,
+                /// 0 means ABI-aligned.
+                alignment: u16,
             },
         };
 

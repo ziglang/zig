@@ -1415,10 +1415,6 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const ptr = sema.resolveInst(bin_inst.rhs);
 
     const addr_space = target_util.defaultAddressSpace(sema.mod.getTarget(), .local);
-    const ptr_ty = try Type.ptr(sema.arena, .{
-        .pointee_type = pointee_ty,
-        .@"addrspace" = addr_space,
-    });
 
     if (Air.refToIndex(ptr)) |ptr_inst| {
         if (sema.air_instructions.items(.tag)[ptr_inst] == .constant) {
@@ -1438,6 +1434,11 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     try inferred_alloc.stored_inst_list.append(sema.arena, operand);
 
                     try sema.requireRuntimeBlock(block, src);
+                    const ptr_ty = try Type.ptr(sema.arena, .{
+                        .pointee_type = pointee_ty,
+                        .@"align" = inferred_alloc.alignment,
+                        .@"addrspace" = addr_space,
+                    });
                     const bitcasted_ptr = try block.addBitCast(ptr_ty, ptr);
                     return bitcasted_ptr;
                 },
@@ -1447,19 +1448,30 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     // The alloc will turn into a Decl.
                     var anon_decl = try block.startAnonDecl();
                     defer anon_decl.deinit();
-                    iac.data = try anon_decl.finish(
+                    iac.data.decl = try anon_decl.finish(
                         try pointee_ty.copy(anon_decl.arena()),
                         Value.undef,
                     );
+                    const ptr_ty = try Type.ptr(sema.arena, .{
+                        .pointee_type = pointee_ty,
+                        .@"align" = iac.data.alignment,
+                        .@"addrspace" = addr_space,
+                    });
                     return sema.addConstant(
                         ptr_ty,
                         try Value.Tag.decl_ref_mut.create(sema.arena, .{
-                            .decl = iac.data,
+                            .decl = iac.data.decl,
                             .runtime_index = block.runtime_index,
                         }),
                     );
                 },
-                .decl_ref_mut => return sema.addConstant(ptr_ty, ptr_val),
+                .decl_ref_mut => {
+                    const ptr_ty = try Type.ptr(sema.arena, .{
+                        .pointee_type = pointee_ty,
+                        .@"addrspace" = addr_space,
+                    });
+                    return sema.addConstant(ptr_ty, ptr_val);
+                },
                 else => {},
             }
         }
@@ -1490,6 +1502,11 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
         assert(trash_inst == sema.air_instructions.len - 1);
         sema.air_instructions.len -= 1;
     }
+
+    const ptr_ty = try Type.ptr(sema.arena, .{
+        .pointee_type = pointee_ty,
+        .@"addrspace" = addr_space,
+    });
 
     var new_ptr = ptr;
 
@@ -2183,7 +2200,10 @@ fn zirAllocExtended(
         } else {
             return sema.addConstant(
                 inferred_alloc_ty,
-                try Value.Tag.inferred_alloc_comptime.create(sema.arena, undefined),
+                try Value.Tag.inferred_alloc_comptime.create(sema.arena, .{
+                    .decl = undefined,
+                    .alignment = alignment,
+                }),
             );
         }
     }
@@ -2208,7 +2228,7 @@ fn zirAllocExtended(
     // to the block even though it is currently a `.constant`.
     const result = try sema.addConstant(
         inferred_alloc_ty,
-        try Value.Tag.inferred_alloc.create(sema.arena, .{}),
+        try Value.Tag.inferred_alloc.create(sema.arena, .{ .alignment = alignment }),
     );
     try sema.requireFunctionBlock(block, src);
     try block.instructions.append(sema.gpa, Air.refToIndex(result).?);
@@ -2302,7 +2322,7 @@ fn zirAllocInferred(
     // to the block even though it is currently a `.constant`.
     const result = try sema.addConstant(
         inferred_alloc_ty,
-        try Value.Tag.inferred_alloc.create(sema.arena, .{}),
+        try Value.Tag.inferred_alloc.create(sema.arena, .{ .alignment = 0 }),
     );
     try sema.requireFunctionBlock(block, src);
     try block.instructions.append(sema.gpa, Air.refToIndex(result).?);
@@ -2331,12 +2351,13 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     switch (ptr_val.tag()) {
         .inferred_alloc_comptime => {
             const iac = ptr_val.castTag(.inferred_alloc_comptime).?;
-            const decl = iac.data;
+            const decl = iac.data.decl;
             try sema.mod.declareDeclDependency(sema.owner_decl, decl);
 
             const final_elem_ty = try decl.ty.copy(sema.arena);
             const final_ptr_ty = try Type.ptr(sema.arena, .{
                 .pointee_type = final_elem_ty,
+                .@"align" = iac.data.alignment,
                 .@"addrspace" = target_util.defaultAddressSpace(target, .local),
             });
             const final_ptr_ty_inst = try sema.addType(final_ptr_ty);
@@ -2365,6 +2386,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             // Change it to a normal alloc.
             const final_ptr_ty = try Type.ptr(sema.arena, .{
                 .pointee_type = final_elem_ty,
+                .@"align" = inferred_alloc.data.alignment,
                 .@"addrspace" = target_util.defaultAddressSpace(target, .local),
             });
             sema.air_instructions.set(ptr_inst, .{
@@ -2681,10 +2703,11 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
             }
             var anon_decl = try block.startAnonDecl();
             defer anon_decl.deinit();
-            iac.data = try anon_decl.finish(
+            iac.data.decl = try anon_decl.finish(
                 try operand_ty.copy(anon_decl.arena()),
                 try operand_val.copy(anon_decl.arena()),
             );
+            // TODO set the alignment on the decl
             return;
         } else {
             return sema.failWithNeededComptime(block, src);
@@ -2698,6 +2721,7 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
         // Create a runtime bitcast instruction with exactly the type the pointer wants.
         const ptr_ty = try Type.ptr(sema.arena, .{
             .pointee_type = operand_ty,
+            .@"align" = inferred_alloc.data.alignment,
             .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
         });
         const bitcasted_ptr = try block.addBitCast(ptr_ty, ptr);

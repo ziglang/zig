@@ -44,6 +44,7 @@ test {
 
     if (builtin.object_format != .c) {
         // Tests that pass for stage1 and stage2 but not the C backend.
+        _ = @import("behavior/align_llvm.zig");
         _ = @import("behavior/array.zig");
         _ = @import("behavior/atomics.zig");
         _ = @import("behavior/basic_llvm.zig");
