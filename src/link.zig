@@ -143,6 +143,7 @@ pub const Options = struct {
     rpath_list: []const []const u8,
 
     version: ?std.builtin.Version,
+    compatibility_version: ?std.builtin.Version,
     libc_installation: ?*const LibCInstallation,
 
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
