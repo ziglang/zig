@@ -2485,6 +2485,8 @@ pub const Type = extern union {
             .vector => ty.castTag(.vector).?.data.elem_type,
             .array => ty.castTag(.array).?.data.elem_type,
             .array_sentinel => ty.castTag(.array_sentinel).?.data.elem_type,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
             .single_const_pointer,
             .single_mut_pointer,
             .many_const_pointer,

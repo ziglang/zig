@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 
 test {
     // Tests that pass for stage1, stage2, and the C backend.
+    _ = @import("behavior/align.zig");
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/bitcast.zig");
     _ = @import("behavior/bool.zig");
@@ -22,6 +23,7 @@ test {
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
+    _ = @import("behavior/error.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/if.zig");
@@ -42,7 +44,6 @@ test {
 
     if (builtin.object_format != .c) {
         // Tests that pass for stage1 and stage2 but not the C backend.
-        _ = @import("behavior/align.zig");
         _ = @import("behavior/array.zig");
         _ = @import("behavior/atomics.zig");
         _ = @import("behavior/basic_llvm.zig");
@@ -53,7 +54,6 @@ test {
         _ = @import("behavior/bugs/2006.zig");
         _ = @import("behavior/bugs/3112.zig");
         _ = @import("behavior/cast_llvm.zig");
-        _ = @import("behavior/error.zig");
         _ = @import("behavior/eval.zig");
         _ = @import("behavior/floatop.zig");
         _ = @import("behavior/fn.zig");
