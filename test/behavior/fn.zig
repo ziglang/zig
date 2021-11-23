@@ -121,3 +121,45 @@ test "inline function call that calls optional function pointer, return pointer 
     };
     try S.doTheTest();
 }
+
+test "implicit cast function unreachable return" {
+    wantsFnWithVoid(fnWithUnreachable);
+}
+
+fn wantsFnWithVoid(f: fn () void) void {
+    _ = f;
+}
+
+fn fnWithUnreachable() noreturn {
+    unreachable;
+}
+
+test "extern struct with stdcallcc fn pointer" {
+    const S = extern struct {
+        ptr: fn () callconv(if (builtin.target.cpu.arch == .i386) .Stdcall else .C) i32,
+
+        fn foo() callconv(if (builtin.target.cpu.arch == .i386) .Stdcall else .C) i32 {
+            return 1234;
+        }
+    };
+
+    var s: S = undefined;
+    s.ptr = S.foo;
+    try expect(s.ptr() == 1234);
+}
+
+const nComplexCallconv = 100;
+fn fComplexCallconvRet(x: u32) callconv(blk: {
+    const s: struct { n: u32 } = .{ .n = nComplexCallconv };
+    break :blk switch (s.n) {
+        0 => .C,
+        1 => .Inline,
+        else => .Unspecified,
+    };
+}) struct { x: u32 } {
+    return .{ .x = x * x };
+}
+
+test "function with complex callconv and return type expressions" {
+    try expect(fComplexCallconvRet(3).x == 9);
+}

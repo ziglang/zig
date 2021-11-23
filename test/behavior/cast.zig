@@ -266,3 +266,32 @@ test "array coersion to undefined at runtime" {
     array = undefined;
     try expect(std.mem.eql(u8, &array, &undefined_val));
 }
+
+test "implicitly cast from int to anyerror!?T" {
+    implicitIntLitToOptional();
+    comptime implicitIntLitToOptional();
+}
+fn implicitIntLitToOptional() void {
+    const f: ?i32 = 1;
+    _ = f;
+    const g: anyerror!?i32 = 1;
+    _ = g catch {};
+}
+
+test "return u8 coercing into ?u32 return type" {
+    const S = struct {
+        fn doTheTest() !void {
+            try expect(foo(123).? == 123);
+        }
+        fn foo(arg: u8) ?u32 {
+            return arg;
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "cast from ?[*]T to ??[*]T" {
+    const a: ??[*]u8 = @as(?[*]u8, null);
+    try expect(a != null and a.? == null);
+}

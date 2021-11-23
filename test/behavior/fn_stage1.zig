@@ -23,18 +23,6 @@ fn acceptsString(foo: []u8) void {
     _ = foo;
 }
 
-test "implicit cast function unreachable return" {
-    wantsFnWithVoid(fnWithUnreachable);
-}
-
-fn wantsFnWithVoid(f: fn () void) void {
-    _ = f;
-}
-
-fn fnWithUnreachable() noreturn {
-    unreachable;
-}
-
 test "function pointers" {
     const fns = [_]@TypeOf(fn1){
         fn1,
@@ -126,20 +114,6 @@ test "pass by non-copying value as method, at comptime" {
     }
 }
 
-test "extern struct with stdcallcc fn pointer" {
-    const S = extern struct {
-        ptr: fn () callconv(if (builtin.target.cpu.arch == .i386) .Stdcall else .C) i32,
-
-        fn foo() callconv(if (builtin.target.cpu.arch == .i386) .Stdcall else .C) i32 {
-            return 1234;
-        }
-    };
-
-    var s: S = undefined;
-    s.ptr = S.foo;
-    try expect(s.ptr() == 1234);
-}
-
 test "implicit cast fn call result to optional in field result" {
     const S = struct {
         fn entry() !void {
@@ -203,20 +177,4 @@ test "function with inferred error set but returning no error" {
 
     const return_ty = @typeInfo(@TypeOf(S.foo)).Fn.return_type.?;
     try expectEqual(0, @typeInfo(@typeInfo(return_ty).ErrorUnion.error_set).ErrorSet.?.len);
-}
-
-const nComplexCallconv = 100;
-fn fComplexCallconvRet(x: u32) callconv(blk: {
-    const s: struct { n: u32 } = .{ .n = nComplexCallconv };
-    break :blk switch (s.n) {
-        0 => .C,
-        1 => .Inline,
-        else => .Unspecified,
-    };
-}) struct { x: u32 } {
-    return .{ .x = x * x };
-}
-
-test "function with complex callconv and return type expressions" {
-    try expect(fComplexCallconvRet(3).x == 9);
 }
