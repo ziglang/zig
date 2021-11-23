@@ -18,25 +18,6 @@ test "passing an optional integer as a parameter" {
     comptime try expect(S.entry());
 }
 
-test "self-referential struct through a slice of optional" {
-    const S = struct {
-        const Node = struct {
-            children: []?Node,
-            data: ?u8,
-
-            fn new() Node {
-                return Node{
-                    .children = undefined,
-                    .data = null,
-                };
-            }
-        };
-    };
-
-    var n = S.Node.new();
-    try expect(n.data == null);
-}
-
 pub const EmptyStruct = struct {};
 
 test "optional pointer to size zero struct" {
