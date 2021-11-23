@@ -125,7 +125,7 @@ pub const IO_Uring = struct {
         self.cq.deinit();
         self.sq.deinit();
         os.close(self.fd);
-        self.fd = -1;
+        self.fd = if (std.debug.runtime_safety) -1 else undefined;
     }
 
     /// Returns a pointer to a vacant SQE, or an error if the submission queue is full.

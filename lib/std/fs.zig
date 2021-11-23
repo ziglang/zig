@@ -182,11 +182,11 @@ pub const AtomicFile = struct {
     pub fn deinit(self: *AtomicFile) void {
         if (self.file_open) {
             self.file.close();
-            self.file_open = false;
+            self.file_open = if (std.debug.runtime_safety) false else undefined;
         }
         if (self.file_exists) {
             self.dir.deleteFile(&self.tmp_path_buf) catch {};
-            self.file_exists = false;
+            self.file_exists = if (std.debug.runtime_safety) false else undefined;
         }
         if (self.close_dir_on_deinit) {
             self.dir.close();
