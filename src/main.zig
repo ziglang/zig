@@ -564,6 +564,7 @@ fn buildOutputType(
     var root_src_file: ?[]const u8 = null;
     var version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 };
     var have_version = false;
+    var compatibility_version: ?std.builtin.Version = null;
     var strip = false;
     var single_threaded = false;
     var function_sections = false;
@@ -1613,6 +1614,29 @@ fn buildOutputType(
                     ) catch |err| {
                         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     };
+                } else if (mem.eql(u8, arg, "-framework") or mem.eql(u8, arg, "-weak_framework")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    try frameworks.append(linker_args.items[i]);
+                } else if (mem.eql(u8, arg, "-compatibility_version")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    compatibility_version = std.builtin.Version.parse(linker_args.items[i]) catch |err| {
+                        fatal("unable to parse -compatibility_version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
+                    };
+                } else if (mem.eql(u8, arg, "-current_version")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    version = std.builtin.Version.parse(linker_args.items[i]) catch |err| {
+                        fatal("unable to parse -current_version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
+                    };
+                    have_version = true;
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }

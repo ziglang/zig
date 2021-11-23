@@ -842,8 +842,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 Compilation.dump_argv(argv.items);
             }
 
-            try self.parseInputFiles(positionals.items, self.base.options.sysroot);
-            try self.parseLibs(libs.items, self.base.options.sysroot);
+            var dependent_libs = std.fifo.LinearFifo(Dylib.Id, .Dynamic).init(self.base.allocator);
+            defer dependent_libs.deinit();
+            try self.parseInputFiles(positionals.items, self.base.options.sysroot, &dependent_libs);
+            try self.parseLibs(libs.items, self.base.options.sysroot, &dependent_libs);
+            try self.parseDependentLibs(self.base.options.sysroot, &dependent_libs);
         }
 
         if (self.bss_section_index) |idx| {
@@ -1161,7 +1164,8 @@ const ParseDylibError = error{
 } || fs.File.OpenError || std.os.PReadError || Dylib.Id.ParseError;
 
 const DylibCreateOpts = struct {
-    syslibroot: ?[]const u8 = null,
+    syslibroot: ?[]const u8,
+    dependent_libs: *std.fifo.LinearFifo(Dylib.Id, .Dynamic),
     id: ?Dylib.Id = null,
     is_dependent: bool = false,
 };
@@ -1181,7 +1185,7 @@ pub fn parseDylib(self: *MachO, path: []const u8, opts: DylibCreateOpts) ParseDy
         .file = file,
     };
 
-    dylib.parse(self.base.allocator, self.base.options.target) catch |err| switch (err) {
+    dylib.parse(self.base.allocator, self.base.options.target, opts.dependent_libs) catch |err| switch (err) {
         error.EndOfStream, error.NotDylib => {
             try file.seekTo(0);
 
@@ -1191,7 +1195,7 @@ pub fn parseDylib(self: *MachO, path: []const u8, opts: DylibCreateOpts) ParseDy
             };
             defer lib_stub.deinit();
 
-            try dylib.parseFromStub(self.base.allocator, self.base.options.target, lib_stub);
+            try dylib.parseFromStub(self.base.allocator, self.base.options.target, lib_stub, opts.dependent_libs);
         },
         else => |e| return e,
     };
@@ -1218,14 +1222,10 @@ pub fn parseDylib(self: *MachO, path: []const u8, opts: DylibCreateOpts) ParseDy
         try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
     }
 
-    // TODO this should not be performed if the user specifies `-flat_namespace` flag.
-    // See ld64 manpages.
-    try dylib.parseDependentLibs(self, opts.syslibroot);
-
     return true;
 }
 
-fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const u8) !void {
+fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const u8, dependent_libs: anytype) !void {
     for (files) |file_name| {
         const full_path = full_path: {
             var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
@@ -1239,21 +1239,67 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
         if (try self.parseArchive(full_path)) continue;
         if (try self.parseDylib(full_path, .{
             .syslibroot = syslibroot,
+            .dependent_libs = dependent_libs,
         })) continue;
 
         log.warn("unknown filetype for positional input file: '{s}'", .{file_name});
     }
 }
 
-fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8) !void {
+fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8, dependent_libs: anytype) !void {
     for (libs) |lib| {
         log.debug("parsing lib path '{s}'", .{lib});
         if (try self.parseDylib(lib, .{
             .syslibroot = syslibroot,
+            .dependent_libs = dependent_libs,
         })) continue;
         if (try self.parseArchive(lib)) continue;
 
         log.warn("unknown filetype for a library: '{s}'", .{lib});
+    }
+}
+
+fn parseDependentLibs(self: *MachO, syslibroot: ?[]const u8, dependent_libs: anytype) !void {
+    // At this point, we can now parse dependents of dylibs preserving the inclusion order of:
+    // 1) anything on the linker line is parsed first
+    // 2) afterwards, we parse dependents of the included dylibs
+    // TODO this should not be performed if the user specifies `-flat_namespace` flag.
+    // See ld64 manpages.
+    var arena_alloc = std.heap.ArenaAllocator.init(self.base.allocator);
+    const arena = &arena_alloc.allocator;
+    defer arena_alloc.deinit();
+
+    while (dependent_libs.readItem()) |*id| {
+        defer id.deinit(self.base.allocator);
+
+        if (self.dylibs_map.contains(id.name)) continue;
+
+        const has_ext = blk: {
+            const basename = fs.path.basename(id.name);
+            break :blk mem.lastIndexOfScalar(u8, basename, '.') != null;
+        };
+        const extension = if (has_ext) fs.path.extension(id.name) else "";
+        const without_ext = if (has_ext) blk: {
+            const index = mem.lastIndexOfScalar(u8, id.name, '.') orelse unreachable;
+            break :blk id.name[0..index];
+        } else id.name;
+
+        for (&[_][]const u8{ extension, ".tbd" }) |ext| {
+            const with_ext = try std.fmt.allocPrint(arena, "{s}{s}", .{ without_ext, ext });
+            const full_path = if (syslibroot) |root| try fs.path.join(arena, &.{ root, with_ext }) else with_ext;
+
+            log.debug("trying dependency at fully resolved path {s}", .{full_path});
+
+            const did_parse_successfully = try self.parseDylib(full_path, .{
+                .id = id.*,
+                .syslibroot = syslibroot,
+                .is_dependent = true,
+                .dependent_libs = dependent_libs,
+            });
+            if (did_parse_successfully) break;
+        } else {
+            log.warn("unable to resolve dependency {s}", .{id.name});
+        }
     }
 }
 
@@ -3992,12 +4038,16 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             self.base.options.emit.?.sub_path,
         });
         defer self.base.allocator.free(install_name);
+        const current_version = self.base.options.version orelse
+            std.builtin.Version{ .major = 1, .minor = 0, .patch = 0 };
+        const compat_version = self.base.options.compatibility_version orelse
+            std.builtin.Version{ .major = 1, .minor = 0, .patch = 0 };
         var dylib_cmd = try commands.createLoadDylibCommand(
             self.base.allocator,
             install_name,
             2,
-            0x10000, // TODO forward user-provided versions
-            0x10000,
+            current_version.major << 16 | current_version.minor << 8 | current_version.patch,
+            compat_version.major << 16 | compat_version.minor << 8 | compat_version.patch,
         );
         errdefer dylib_cmd.deinit(self.base.allocator);
         dylib_cmd.inner.cmd = macho.LC_ID_DYLIB;

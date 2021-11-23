@@ -38,9 +38,6 @@ id: ?Id = null,
 /// a symbol is referenced by an object file.
 symbols: std.StringArrayHashMapUnmanaged(void) = .{},
 
-/// Array list of all dependent libs of this dylib.
-dependent_libs: std.ArrayListUnmanaged(Id) = .{},
-
 pub const Id = struct {
     name: []const u8,
     timestamp: u32,
@@ -139,10 +136,6 @@ pub fn deinit(self: *Dylib, allocator: *Allocator) void {
     }
     self.symbols.deinit(allocator);
 
-    for (self.dependent_libs.items) |*id| {
-        id.deinit(allocator);
-    }
-    self.dependent_libs.deinit(allocator);
     allocator.free(self.name);
 
     if (self.id) |*id| {
@@ -150,7 +143,7 @@ pub fn deinit(self: *Dylib, allocator: *Allocator) void {
     }
 }
 
-pub fn parse(self: *Dylib, allocator: *Allocator, target: std.Target) !void {
+pub fn parse(self: *Dylib, allocator: *Allocator, target: std.Target, dependent_libs: anytype) !void {
     log.debug("parsing shared library '{s}'", .{self.name});
 
     self.library_offset = try fat.getLibraryOffset(self.file.reader(), target);
@@ -172,12 +165,12 @@ pub fn parse(self: *Dylib, allocator: *Allocator, target: std.Target) !void {
         return error.MismatchedCpuArchitecture;
     }
 
-    try self.readLoadCommands(allocator, reader);
+    try self.readLoadCommands(allocator, reader, dependent_libs);
     try self.parseId(allocator);
     try self.parseSymbols(allocator);
 }
 
-fn readLoadCommands(self: *Dylib, allocator: *Allocator, reader: anytype) !void {
+fn readLoadCommands(self: *Dylib, allocator: *Allocator, reader: anytype, dependent_libs: anytype) !void {
     const should_lookup_reexports = self.header.?.flags & macho.MH_NO_REEXPORTED_DYLIBS == 0;
 
     try self.load_commands.ensureUnusedCapacity(allocator, self.header.?.ncmds);
@@ -198,8 +191,8 @@ fn readLoadCommands(self: *Dylib, allocator: *Allocator, reader: anytype) !void 
             macho.LC_REEXPORT_DYLIB => {
                 if (should_lookup_reexports) {
                     // Parse install_name to dependent dylib.
-                    const id = try Id.fromLoadCommand(allocator, cmd.Dylib);
-                    try self.dependent_libs.append(allocator, id);
+                    var id = try Id.fromLoadCommand(allocator, cmd.Dylib);
+                    try dependent_libs.writeItem(id);
                 }
             },
             else => {
@@ -341,7 +334,13 @@ const TargetMatcher = struct {
     }
 };
 
-pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, lib_stub: LibStub) !void {
+pub fn parseFromStub(
+    self: *Dylib,
+    allocator: *Allocator,
+    target: std.Target,
+    lib_stub: LibStub,
+    dependent_libs: anytype,
+) !void {
     if (lib_stub.inner.len == 0) return error.EmptyStubFile;
 
     log.debug("parsing shared library from stub '{s}'", .{self.name});
@@ -416,8 +415,8 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
 
                                 log.debug("  (found re-export '{s}')", .{lib});
 
-                                const dep_id = try Id.default(allocator, lib);
-                                try self.dependent_libs.append(allocator, dep_id);
+                                var dep_id = try Id.default(allocator, lib);
+                                try dependent_libs.writeItem(dep_id);
                             }
                         }
                     }
@@ -521,55 +520,10 @@ pub fn parseFromStub(self: *Dylib, allocator: *Allocator, target: std.Target, li
 
                     log.debug("  (found re-export '{s}')", .{lib});
 
-                    const dep_id = try Id.default(allocator, lib);
-                    try self.dependent_libs.append(allocator, dep_id);
+                    var dep_id = try Id.default(allocator, lib);
+                    try dependent_libs.writeItem(dep_id);
                 }
             }
-        }
-    }
-}
-
-pub fn parseDependentLibs(
-    self: *Dylib,
-    macho_file: *MachO,
-    syslibroot: ?[]const u8,
-) !void {
-    outer: for (self.dependent_libs.items) |id| {
-        if (macho_file.dylibs_map.contains(id.name)) continue :outer;
-
-        const has_ext = blk: {
-            const basename = fs.path.basename(id.name);
-            break :blk mem.lastIndexOfScalar(u8, basename, '.') != null;
-        };
-        const extension = if (has_ext) fs.path.extension(id.name) else "";
-        const without_ext = if (has_ext) blk: {
-            const index = mem.lastIndexOfScalar(u8, id.name, '.') orelse unreachable;
-            break :blk id.name[0..index];
-        } else id.name;
-
-        for (&[_][]const u8{ extension, ".tbd" }) |ext| {
-            const with_ext = try std.fmt.allocPrint(macho_file.base.allocator, "{s}{s}", .{
-                without_ext,
-                ext,
-            });
-            defer macho_file.base.allocator.free(with_ext);
-
-            const full_path = if (syslibroot) |root|
-                try fs.path.join(macho_file.base.allocator, &.{ root, with_ext })
-            else
-                with_ext;
-            defer if (syslibroot) |_| macho_file.base.allocator.free(full_path);
-
-            log.debug("trying dependency at fully resolved path {s}", .{full_path});
-
-            const did_parse_successfully = try macho_file.parseDylib(full_path, .{
-                .id = id,
-                .syslibroot = syslibroot,
-                .is_dependent = true,
-            });
-            if (!did_parse_successfully) continue;
-        } else {
-            log.debug("unable to resolve dependency {s}", .{id.name});
         }
     }
 }
