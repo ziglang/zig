@@ -1162,12 +1162,13 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
 
             .slice => try airSlice(f, inst),
 
-            .cmp_eq  => try airEquality(f, inst, .cmp_eq),
             .cmp_gt  => try airBinOp(f, inst, " > "),
             .cmp_gte => try airBinOp(f, inst, " >= "),
             .cmp_lt  => try airBinOp(f, inst, " < "),
             .cmp_lte => try airBinOp(f, inst, " <= "),
-            .cmp_neq => try airEquality(f, inst, .cmp_neq),
+
+            .cmp_eq  => try airEquality(f, inst, "((", "=="),
+            .cmp_neq => try airEquality(f, inst, "!((", "!="),
 
             // bool_and and bool_or are non-short-circuit operations
             .bool_and        => try airBinOp(f, inst, " & "),
@@ -1908,9 +1909,13 @@ fn airBinOp(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValue
     return local;
 }
 
-fn airEquality(f: *Function, inst: Air.Inst.Index, op: Air.Inst.Tag) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
+fn airEquality(
+    f: *Function,
+    inst: Air.Inst.Index,
+    negate_prefix: []const u8,
+    eq_op_str: []const u8,
+) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
 
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
     const lhs = try f.resolveInst(bin_op.lhs);
@@ -1927,7 +1932,7 @@ fn airEquality(f: *Function, inst: Air.Inst.Index, op: Air.Inst.Tag) !CValue {
         // (A && B)  || (C && (A == B))
         // A = lhs.is_null  ;  B = rhs.is_null  ;  C = rhs.payload == lhs.payload
 
-        try writer.writeAll(if (op == .cmp_eq) "((" else "!((");
+        try writer.writeAll(negate_prefix);
         try f.writeCValue(writer, lhs);
         try writer.writeAll(".is_null && ");
         try f.writeCValue(writer, rhs);
@@ -1944,9 +1949,8 @@ fn airEquality(f: *Function, inst: Air.Inst.Index, op: Air.Inst.Tag) !CValue {
         return local;
     }
 
-    const operator = if (op == .cmp_eq) "==" else "!=";
     try f.writeCValue(writer, lhs);
-    try writer.print("{s}", .{operator});
+    try writer.writeAll(eq_op_str);
     try f.writeCValue(writer, rhs);
     try writer.writeAll(";\n");
 
