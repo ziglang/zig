@@ -241,6 +241,7 @@ pub const isNegativeInf = @import("math/isinf.zig").isNegativeInf;
 pub const isNormal = @import("math/isnormal.zig").isNormal;
 pub const signbit = @import("math/signbit.zig").signbit;
 pub const scalbn = @import("math/scalbn.zig").scalbn;
+pub const ldexp = @import("math/ldexp.zig").ldexp;
 pub const pow = @import("math/pow.zig").pow;
 pub const powi = @import("math/powi.zig").powi;
 pub const sqrt = @import("math/sqrt.zig").sqrt;
