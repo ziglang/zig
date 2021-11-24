@@ -1571,6 +1571,13 @@ pub const EmbedFile = struct {
     /// This is how zig knows what other Decl objects to invalidate if the file
     /// changes on disk.
     owner_decl: *Decl,
+
+    fn destroy(embed_file: *EmbedFile, mod: *Module) void {
+        const gpa = mod.gpa;
+        gpa.free(embed_file.sub_file_path);
+        gpa.free(embed_file.bytes);
+        gpa.destroy(embed_file);
+    }
 };
 
 /// This struct holds data necessary to construct API-facing `AllErrors.Message`.
@@ -2358,6 +2365,15 @@ pub fn deinit(mod: *Module) void {
         value.destroy(mod);
     }
     mod.import_table.deinit(gpa);
+
+    {
+        var it = mod.embed_table.iterator();
+        while (it.next()) |entry| {
+            gpa.free(entry.key_ptr.*);
+            entry.value_ptr.*.destroy(mod);
+        }
+        mod.embed_table.deinit(gpa);
+    }
 
     mod.deletion_set.deinit(gpa);
 
@@ -3642,7 +3658,7 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
 
     const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
     if (gop.found_existing) return gop.value_ptr.*;
-    keep_resolved_path = true; // It's now owned by embed_table.
+    errdefer assert(mod.embed_table.remove(resolved_path));
 
     const new_file = try gpa.create(EmbedFile);
     errdefer gpa.destroy(new_file);
@@ -3663,11 +3679,13 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     const stat = try file.stat();
     const size_usize = try std.math.cast(usize, stat.size);
     const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
+    errdefer gpa.free(bytes);
 
     log.debug("new embedFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, rel_file_path={s}", .{
         resolved_root_path, resolved_path, sub_file_path, rel_file_path,
     });
 
+    keep_resolved_path = true; // It's now owned by embed_table.
     gop.value_ptr.* = new_file;
     new_file.* = .{
         .sub_file_path = sub_file_path,
