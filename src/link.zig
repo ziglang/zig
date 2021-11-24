@@ -316,7 +316,7 @@ pub const File = struct {
             .Exe => {},
         }
         switch (base.tag) {
-            .macho => if (base.file) |f| {
+            .macho => if (base.file) |*f| {
                 if (base.intermediary_basename != null) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
@@ -338,7 +338,7 @@ pub const File = struct {
                 f.close();
                 base.file = null;
             },
-            .coff, .elf, .plan9 => if (base.file) |f| {
+            .coff, .elf, .plan9 => if (base.file) |*f| {
                 if (base.intermediary_basename != null) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
@@ -470,7 +470,7 @@ pub const File = struct {
 
     pub fn destroy(base: *File) void {
         base.releaseLock();
-        if (base.file) |f| f.close();
+        if (base.file) |*f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
         base.options.system_libs.deinit(base.allocator);
         switch (base.tag) {

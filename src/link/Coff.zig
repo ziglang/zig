@@ -136,7 +136,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         return self;
     }
 
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{
+    var file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.determineMode(options),

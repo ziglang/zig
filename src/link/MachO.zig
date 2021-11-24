@@ -287,7 +287,7 @@ pub fn openPath(allocator: *Allocator, options: link.Options) !*MachO {
         return createEmpty(allocator, options);
     }
     const emit = options.emit.?;
-    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+    var file = try emit.directory.handle.createFile(emit.sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.determineMode(options),
@@ -1063,7 +1063,7 @@ fn resolveLib(
         const full_path = try fs.path.join(arena, &[_][]const u8{ dir, search_name });
 
         // Check if the file exists.
-        const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
+        var tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => |e| return e,
         };
@@ -1088,7 +1088,7 @@ fn resolveFramework(
         const full_path = try fs.path.join(arena, &[_][]const u8{ dir, prefix_path, search_name });
 
         // Check if the file exists.
-        const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
+        var tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => |e| return e,
         };
@@ -1101,7 +1101,7 @@ fn resolveFramework(
 }
 
 fn parseObject(self: *MachO, path: []const u8) !bool {
-    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+    var file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => |e| return e,
     };
@@ -1129,7 +1129,7 @@ fn parseObject(self: *MachO, path: []const u8) !bool {
 }
 
 fn parseArchive(self: *MachO, path: []const u8) !bool {
-    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+    var file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => |e| return e,
     };
@@ -1171,7 +1171,7 @@ const DylibCreateOpts = struct {
 };
 
 pub fn parseDylib(self: *MachO, path: []const u8, opts: DylibCreateOpts) ParseDylibError!bool {
-    const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+    var file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => |e| return e,
     };

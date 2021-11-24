@@ -555,7 +555,7 @@ pub const NativeTargetInfo = struct {
             return result;
         }
 
-        const env_file = std.fs.openFileAbsoluteZ("/usr/bin/env", .{}) catch |err| switch (err) {
+        var env_file = std.fs.openFileAbsoluteZ("/usr/bin/env", .{}) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
             error.NameTooLong => unreachable,
             error.PathAlreadyExists => unreachable,

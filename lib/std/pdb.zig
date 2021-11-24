@@ -502,7 +502,7 @@ pub const Pdb = struct {
     };
 
     pub fn init(allocator: *mem.Allocator, path: []const u8) !Pdb {
-        const file = try fs.cwd().openFile(path, .{ .intended_io_mode = .blocking });
+        var file = try fs.cwd().openFile(path, .{ .intended_io_mode = .blocking });
         errdefer file.close();
 
         return Pdb{

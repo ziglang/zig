@@ -2797,7 +2797,7 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
         return cleanExit();
     } else {
         const out_zig_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest, translated_zig_basename });
-        const zig_file = comp.local_cache_directory.handle.openFile(out_zig_path, .{}) catch |err| {
+        var zig_file = comp.local_cache_directory.handle.openFile(out_zig_path, .{}) catch |err| {
             fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{ comp.local_cache_directory.path, fs.path.sep_str, out_zig_path, @errorName(err) });
         };
         defer zig_file.close();
@@ -3542,7 +3542,7 @@ fn fmtPathFile(
     dir: fs.Dir,
     sub_path: []const u8,
 ) FmtError!void {
-    const source_file = try dir.openFile(sub_path, .{});
+    var source_file = try dir.openFile(sub_path, .{});
     var file_closed = false;
     errdefer if (!file_closed) source_file.close();
 

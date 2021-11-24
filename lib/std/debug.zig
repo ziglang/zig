@@ -690,12 +690,12 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
 /// it themselves, even on error.
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 /// TODO it's weird to take ownership even on error, rework this code.
-fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: File) !ModuleDebugInfo {
+fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: *File) !ModuleDebugInfo {
     nosuspend {
         errdefer coff_file.close();
 
         const coff_obj = try allocator.create(coff.Coff);
-        coff_obj.* = coff.Coff.init(allocator, coff_file);
+        coff_obj.* = coff.Coff.init(allocator, coff_file.*);
 
         var di = ModuleDebugInfo{
             .base_address = undefined,
@@ -757,7 +757,7 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) ![]const u8 {
 /// it themselves, even on error.
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 /// TODO it's weird to take ownership even on error, rework this code.
-pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugInfo {
+pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: *File) !ModuleDebugInfo {
     nosuspend {
         const mapped_mem = try mapWholeFile(elf_file);
         const hdr = @ptrCast(*const elf.Ehdr, &mapped_mem[0]);
@@ -829,7 +829,7 @@ pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugI
 /// This takes ownership of macho_file: users of this function should not close
 /// it themselves, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
-fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !ModuleDebugInfo {
+fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: *File) !ModuleDebugInfo {
     const mapped_mem = try mapWholeFile(macho_file);
 
     const hdr = @ptrCast(
@@ -966,7 +966,7 @@ const MachoSymbol = struct {
 /// `file` is expected to have been opened with .intended_io_mode == .blocking.
 /// Takes ownership of file, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
-fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
+fn mapWholeFile(file: *File) ![]align(mem.page_size) const u8 {
     nosuspend {
         defer file.close();
 
@@ -1135,11 +1135,11 @@ pub const DebugInfo = struct {
                 const obj_di = try self.allocator.create(ModuleDebugInfo);
                 errdefer self.allocator.destroy(obj_di);
 
-                const coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
+                var coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
                     error.FileNotFound => return error.MissingDebugInfo,
                     else => return err,
                 };
-                obj_di.* = try readCoffDebugInfo(self.allocator, coff_file);
+                obj_di.* = try readCoffDebugInfo(self.allocator, &coff_file);
                 obj_di.base_address = seg_start;
 
                 try self.address_map.putNoClobber(seg_start, obj_di);
@@ -1205,12 +1205,12 @@ pub const DebugInfo = struct {
         else
             fs.openSelfExe(.{ .intended_io_mode = .blocking });
 
-        const elf_file = copy catch |err| switch (err) {
+        var elf_file = copy catch |err| switch (err) {
             error.FileNotFound => return error.MissingDebugInfo,
             else => return err,
         };
 
-        obj_di.* = try readElfDebugInfo(self.allocator, elf_file);
+        obj_di.* = try readElfDebugInfo(self.allocator, &elf_file);
         obj_di.base_address = ctx.base_address;
 
         try self.address_map.putNoClobber(ctx.base_address, obj_di);
@@ -1240,7 +1240,7 @@ pub const ModuleDebugInfo = switch (native_os) {
         }
 
         fn loadOFile(self: *@This(), o_file_path: []const u8) !DW.DwarfInfo {
-            const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
+            var o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
             const mapped_mem = try mapWholeFile(o_file);
 
             const hdr = @ptrCast(

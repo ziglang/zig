@@ -1413,7 +1413,7 @@ test "writev/fsync/readv" {
     defer ring.deinit();
 
     const path = "test_io_uring_writev_fsync_readv";
-    const file = try std.fs.cwd().createFile(path, .{ .read = true, .truncate = true });
+    var file = try std.fs.cwd().createFile(path, .{ .read = true, .truncate = true });
     defer file.close();
     defer std.fs.cwd().deleteFile(path) catch {};
     const fd = file.handle;
@@ -1481,7 +1481,7 @@ test "write/read" {
     defer ring.deinit();
 
     const path = "test_io_uring_write_read";
-    const file = try std.fs.cwd().createFile(path, .{ .read = true, .truncate = true });
+    var file = try std.fs.cwd().createFile(path, .{ .read = true, .truncate = true });
     defer file.close();
     defer std.fs.cwd().deleteFile(path) catch {};
     const fd = file.handle;
@@ -1527,7 +1527,7 @@ test "write_fixed/read_fixed" {
     defer ring.deinit();
 
     const path = "test_io_uring_write_read_fixed";
-    const file = try std.fs.cwd().createFile(path, .{ .read = true, .truncate = true });
+    var file = try std.fs.cwd().createFile(path, .{ .read = true, .truncate = true });
     defer file.close();
     defer std.fs.cwd().deleteFile(path) catch {};
     const fd = file.handle;
@@ -1633,7 +1633,7 @@ test "close" {
     defer ring.deinit();
 
     const path = "test_io_uring_close";
-    const file = try std.fs.cwd().createFile(path, .{});
+    var file = try std.fs.cwd().createFile(path, .{});
     errdefer file.close();
     defer std.fs.cwd().deleteFile(path) catch {};
 
@@ -1914,7 +1914,7 @@ test "fallocate" {
     defer ring.deinit();
 
     const path = "test_io_uring_fallocate";
-    const file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    var file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
     defer file.close();
     defer std.fs.cwd().deleteFile(path) catch {};
 
@@ -1958,7 +1958,7 @@ test "statx" {
     defer ring.deinit();
 
     const path = "test_io_uring_statx";
-    const file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    var file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
     defer file.close();
     defer std.fs.cwd().deleteFile(path) catch {};
 

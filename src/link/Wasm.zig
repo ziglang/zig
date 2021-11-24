@@ -129,7 +129,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     }
 
     // TODO: read the file and keep valid parts instead of truncating
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
+    var file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
     errdefer file.close();
 
     const wasm_bin = try createEmpty(allocator, options);

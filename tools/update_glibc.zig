@@ -237,7 +237,7 @@ pub fn main() !void {
     };
     {
         const vers_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "vers.txt" });
-        const vers_txt_file = try fs.cwd().createFile(vers_txt_path, .{});
+        var vers_txt_file = try fs.cwd().createFile(vers_txt_path, .{});
         defer vers_txt_file.close();
         var buffered = std.io.bufferedWriter(vers_txt_file.writer());
         const vers_txt = buffered.writer();
@@ -249,7 +249,7 @@ pub fn main() !void {
     }
     {
         const fns_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "fns.txt" });
-        const fns_txt_file = try fs.cwd().createFile(fns_txt_path, .{});
+        var fns_txt_file = try fs.cwd().createFile(fns_txt_path, .{});
         defer fns_txt_file.close();
         var buffered = std.io.bufferedWriter(fns_txt_file.writer());
         const fns_txt = buffered.writer();
@@ -280,7 +280,7 @@ pub fn main() !void {
 
     {
         const abilist_txt_path = try fs.path.join(allocator, &[_][]const u8{ glibc_out_dir, "abi.txt" });
-        const abilist_txt_file = try fs.cwd().createFile(abilist_txt_path, .{});
+        var abilist_txt_file = try fs.cwd().createFile(abilist_txt_path, .{});
         defer abilist_txt_file.close();
         var buffered = std.io.bufferedWriter(abilist_txt_file.writer());
         const abilist_txt = buffered.writer();

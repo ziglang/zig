@@ -2498,7 +2498,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     const zir_dir = cache_directory.handle;
 
     var cache_file: ?std.fs.File = null;
-    defer if (cache_file) |f| f.close();
+    defer if (cache_file) |*f| f.close();
 
     // Determine whether we need to reload the file from disk and redo parsing and AstGen.
     switch (file.status) {
@@ -2652,7 +2652,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             log.debug("metadata changed: {s}", .{file.sub_file_path});
         },
     }
-    if (cache_file) |f| {
+    if (cache_file) |*f| {
         f.close();
         cache_file = null;
     }

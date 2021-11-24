@@ -53,7 +53,7 @@ pub fn openPath(gpa: *Allocator, sub_path: []const u8, options: link.Options) !*
     if (options.use_llvm) return error.LLVMHasNoCBackend;
     if (options.use_lld) return error.LLDHasNoCBackend;
 
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{
+    var file = try options.emit.?.directory.handle.createFile(sub_path, .{
         // Truncation is done on `flush`.
         .truncate = false,
         .mode = link.determineMode(options),
@@ -421,7 +421,7 @@ pub fn flushEmitH(module: *Module) !void {
     }
 
     const directory = emit_h.loc.directory orelse module.comp.local_cache_directory;
-    const file = try directory.handle.createFile(emit_h.loc.basename, .{
+    var file = try directory.handle.createFile(emit_h.loc.basename, .{
         // We set the end position explicitly below; by not truncating the file, we possibly
         // make it easier on the file system by doing 1 reallocation instead of two.
         .truncate = false,

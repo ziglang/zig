@@ -179,7 +179,7 @@ pub const File = struct {
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
-    pub fn close(self: File) void {
+    pub fn close(self: *File) void {
         if (is_windows) {
             windows.CloseHandle(self.handle);
         } else if (self.capable_io_mode != self.intended_io_mode) {
@@ -187,6 +187,7 @@ pub const File = struct {
         } else {
             os.close(self.handle);
         }
+        self.* = undefined;
     }
 
     /// Test whether the file refers to a terminal.

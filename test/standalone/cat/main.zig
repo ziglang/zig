@@ -25,7 +25,7 @@ pub fn main() !void {
         } else if (mem.startsWith(u8, arg, "-")) {
             return usage(exe);
         } else {
-            const file = cwd.openFile(arg, .{}) catch |err| {
+            var file = cwd.openFile(arg, .{}) catch |err| {
                 warn("Unable to open file: {s}\n", .{@errorName(err)});
                 return err;
             };

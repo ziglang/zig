@@ -200,10 +200,10 @@ test "link with relative paths" {
     try cwd.writeFile("example.txt", "example");
     try os.link("example.txt", "new.txt", 0);
 
-    const efd = try cwd.openFile("example.txt", .{});
+    var efd = try cwd.openFile("example.txt", .{});
     defer efd.close();
 
-    const nfd = try cwd.openFile("new.txt", .{});
+    var nfd = try cwd.openFile("new.txt", .{});
     defer nfd.close();
 
     {
@@ -238,10 +238,10 @@ test "linkat with different directories" {
     try cwd.writeFile("example.txt", "example");
     try os.linkat(cwd.fd, "example.txt", tmp.dir.fd, "new.txt", 0);
 
-    const efd = try cwd.openFile("example.txt", .{});
+    var efd = try cwd.openFile("example.txt", .{});
     defer efd.close();
 
-    const nfd = try tmp.dir.openFile("new.txt", .{});
+    var nfd = try tmp.dir.openFile("new.txt", .{});
 
     {
         defer nfd.close();
@@ -274,7 +274,7 @@ test "fstatat" {
     try tmp.dir.writeFile("file.txt", contents);
 
     // fetch file's info on the opened fd directly
-    const file = try tmp.dir.openFile("file.txt", .{});
+    var file = try tmp.dir.openFile("file.txt", .{});
     const stat = try os.fstat(file.handle);
     defer file.close();
 
@@ -537,7 +537,7 @@ test "mmap" {
 
     // Create a file used for testing mmap() calls with a file descriptor
     {
-        const file = try tmp.dir.createFile(test_out_file, .{});
+        var file = try tmp.dir.createFile(test_out_file, .{});
         defer file.close();
 
         const stream = file.writer();
@@ -550,7 +550,7 @@ test "mmap" {
 
     // Map the whole file
     {
-        const file = try tmp.dir.openFile(test_out_file, .{});
+        var file = try tmp.dir.openFile(test_out_file, .{});
         defer file.close();
 
         const data = try os.mmap(
@@ -574,7 +574,7 @@ test "mmap" {
 
     // Map the upper half of the file
     {
-        const file = try tmp.dir.openFile(test_out_file, .{});
+        var file = try tmp.dir.openFile(test_out_file, .{});
         defer file.close();
 
         const data = try os.mmap(
@@ -616,7 +616,7 @@ test "fcntl" {
 
     const test_out_file = "os_tmp_test";
 
-    const file = try tmp.dir.createFile(test_out_file, .{});
+    var file = try tmp.dir.createFile(test_out_file, .{});
     defer {
         file.close();
         tmp.dir.deleteFile(test_out_file) catch {};
@@ -655,7 +655,7 @@ test "sync" {
     defer tmp.cleanup();
 
     const test_out_file = "os_tmp_test";
-    const file = try tmp.dir.createFile(test_out_file, .{});
+    var file = try tmp.dir.createFile(test_out_file, .{});
     defer {
         file.close();
         tmp.dir.deleteFile(test_out_file) catch {};
@@ -675,7 +675,7 @@ test "fsync" {
     defer tmp.cleanup();
 
     const test_out_file = "os_tmp_test";
-    const file = try tmp.dir.createFile(test_out_file, .{});
+    var file = try tmp.dir.createFile(test_out_file, .{});
     defer {
         file.close();
         tmp.dir.deleteFile(test_out_file) catch {};

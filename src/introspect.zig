@@ -14,7 +14,7 @@ fn testZigInstallPrefix(base_dir: fs.Dir) ?Compilation.Directory {
         // Try lib/zig/std/std.zig
         const lib_zig = "lib" ++ fs.path.sep_str ++ "zig";
         var test_zig_dir = base_dir.openDir(lib_zig, .{}) catch break :zig_dir;
-        const file = test_zig_dir.openFile(test_index_file, .{}) catch {
+        var file = test_zig_dir.openFile(test_index_file, .{}) catch {
             test_zig_dir.close();
             break :zig_dir;
         };
@@ -24,7 +24,7 @@ fn testZigInstallPrefix(base_dir: fs.Dir) ?Compilation.Directory {
 
     // Try lib/std/std.zig
     var test_zig_dir = base_dir.openDir("lib", .{}) catch return null;
-    const file = test_zig_dir.openFile(test_index_file, .{}) catch {
+    var file = test_zig_dir.openFile(test_index_file, .{}) catch {
         test_zig_dir.close();
         return null;
     };

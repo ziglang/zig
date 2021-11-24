@@ -151,7 +151,7 @@ test "Dir.Iterator" {
     defer tmp_dir.cleanup();
 
     // First, create a couple of entries to iterate over.
-    const file = try tmp_dir.dir.createFile("some_file", .{});
+    var file = try tmp_dir.dir.createFile("some_file", .{});
     file.close();
 
     try tmp_dir.dir.makeDir("some_dir");
@@ -523,7 +523,7 @@ test "renameAbsolute" {
 test "openSelfExe" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    const self_exe_file = try std.fs.openSelfExe(.{});
+    var self_exe_file = try std.fs.openSelfExe(.{});
     self_exe_file.close();
 }
 
@@ -803,10 +803,10 @@ test "open file with exclusive nonblocking lock twice" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    const file1 = try tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    var file1 = try tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
     defer file1.close();
 
-    const file2 = tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    var file2 = tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
     try testing.expectError(error.WouldBlock, file2);
 }
 
@@ -818,10 +818,10 @@ test "open file with shared and exclusive nonblocking lock" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    const file1 = try tmp.dir.createFile(filename, .{ .lock = .Shared, .lock_nonblocking = true });
+    var file1 = try tmp.dir.createFile(filename, .{ .lock = .Shared, .lock_nonblocking = true });
     defer file1.close();
 
-    const file2 = tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    var file2 = tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
     try testing.expectError(error.WouldBlock, file2);
 }
 
@@ -833,10 +833,10 @@ test "open file with exclusive and shared nonblocking lock" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    const file1 = try tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    var file1 = try tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
     defer file1.close();
 
-    const file2 = tmp.dir.createFile(filename, .{ .lock = .Shared, .lock_nonblocking = true });
+    var file2 = tmp.dir.createFile(filename, .{ .lock = .Shared, .lock_nonblocking = true });
     try testing.expectError(error.WouldBlock, file2);
 }
 
@@ -853,12 +853,12 @@ test "open file with exclusive lock twice, make sure it waits" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    const file = try tmp.dir.createFile(filename, .{ .lock = .Exclusive });
+    var file = try tmp.dir.createFile(filename, .{ .lock = .Exclusive });
     errdefer file.close();
 
     const S = struct {
         fn checkFn(dir: *fs.Dir, evt: *std.Thread.ResetEvent) !void {
-            const file1 = try dir.createFile(filename, .{ .lock = .Exclusive });
+            var file1 = try dir.createFile(filename, .{ .lock = .Exclusive });
             defer file1.close();
             evt.set();
         }
@@ -892,9 +892,9 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
     const filename = try fs.path.resolve(allocator, &file_paths);
     defer allocator.free(filename);
 
-    const file1 = try fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    var file1 = try fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
 
-    const file2 = fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    var file2 = fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
     file1.close();
     try testing.expectError(error.WouldBlock, file2);
 
@@ -962,13 +962,13 @@ test ". and .. in fs.Dir functions" {
     var created_subdir = try tmp.dir.openDir("./subdir", .{});
     created_subdir.close();
 
-    const created_file = try tmp.dir.createFile("./subdir/../file", .{});
+    var created_file = try tmp.dir.createFile("./subdir/../file", .{});
     created_file.close();
     try tmp.dir.access("./subdir/../file", .{});
 
     try tmp.dir.copyFile("./subdir/../file", tmp.dir, "./subdir/../copy", .{});
     try tmp.dir.rename("./subdir/../copy", "./subdir/../rename");
-    const renamed_file = try tmp.dir.openFile("./subdir/../rename", .{});
+    var renamed_file = try tmp.dir.openFile("./subdir/../rename", .{});
     renamed_file.close();
     try tmp.dir.deleteFile("./subdir/../rename");
 
@@ -1001,7 +1001,7 @@ test ". and .. in absolute functions" {
     created_subdir.close();
 
     const created_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../file" });
-    const created_file = try fs.createFileAbsolute(created_file_path, .{});
+    var created_file = try fs.createFileAbsolute(created_file_path, .{});
     created_file.close();
     try fs.accessAbsolute(created_file_path, .{});
 
@@ -1009,12 +1009,12 @@ test ". and .. in absolute functions" {
     try fs.copyFileAbsolute(created_file_path, copied_file_path, .{});
     const renamed_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../rename" });
     try fs.renameAbsolute(copied_file_path, renamed_file_path);
-    const renamed_file = try fs.openFileAbsolute(renamed_file_path, .{});
+    var renamed_file = try fs.openFileAbsolute(renamed_file_path, .{});
     renamed_file.close();
     try fs.deleteFileAbsolute(renamed_file_path);
 
     const update_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../update" });
-    const update_file = try fs.createFileAbsolute(update_file_path, .{});
+    var update_file = try fs.createFileAbsolute(update_file_path, .{});
     try update_file.writeAll("something");
     update_file.close();
     const prev_status = try fs.updateFileAbsolute(created_file_path, update_file_path, .{});
@@ -1030,7 +1030,7 @@ test "chmod" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    const file = try tmp.dir.createFile("test_file", .{ .mode = 0o600 });
+    var file = try tmp.dir.createFile("test_file", .{ .mode = 0o600 });
     defer file.close();
     try testing.expect((try file.stat()).mode & 0o7777 == 0o600);
 
@@ -1052,7 +1052,7 @@ test "chown" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    const file = try tmp.dir.createFile("test_file", .{});
+    var file = try tmp.dir.createFile("test_file", .{});
     defer file.close();
     try file.chown(null, null);
 

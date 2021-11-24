@@ -896,7 +896,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
         }
         // No need to write the manifest because there are no file inputs associated with this cache hash.
         // However we do need to write the ok file now.
-        if (o_directory.handle.createFile(ok_basename, .{})) |file| {
+        if (o_directory.handle.createFile(ok_basename, .{})) |*file| {
             file.close();
         } else |err| {
             std.log.warn("glibc shared objects: failed to mark completion: {s}", .{@errorName(err)});

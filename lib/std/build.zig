@@ -3129,7 +3129,7 @@ fn findVcpkgRoot(allocator: *Allocator) !?[]const u8 {
     const path_file = try fs.path.join(allocator, &[_][]const u8{ appdata_path, "vcpkg.path.txt" });
     defer allocator.free(path_file);
 
-    const file = fs.cwd().openFile(path_file, .{}) catch return null;
+    var file = fs.cwd().openFile(path_file, .{}) catch return null;
     defer file.close();
 
     const size = @intCast(usize, try file.getEndPos());

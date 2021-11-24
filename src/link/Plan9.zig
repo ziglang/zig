@@ -625,7 +625,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     if (options.use_llvm)
         return error.LLVMBackendDoesNotSupportPlan9;
     assert(options.object_format == .plan9);
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{
+    var file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .read = true,
         .mode = link.determineMode(options),
     });

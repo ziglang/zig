@@ -391,7 +391,7 @@ pub const Manifest = struct {
                 cache_hash_file.path = try self.cache.gpa.dupe(u8, file_path);
             }
 
-            const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch |err| switch (err) {
+            var this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch |err| switch (err) {
                 error.FileNotFound => {
                     try self.upgradeToExclusiveLock();
                     return false;
@@ -478,7 +478,7 @@ pub const Manifest = struct {
     }
 
     fn populateFileHash(self: *Manifest, ch_file: *File) !void {
-        const file = try fs.cwd().openFile(ch_file.path.?, .{});
+        var file = try fs.cwd().openFile(ch_file.path.?, .{});
         defer file.close();
 
         ch_file.stat = try file.stat();
@@ -692,7 +692,7 @@ pub const Manifest = struct {
     /// `Manifest.hit` must be called first.
     /// Don't forget to call `writeManifest` before this!
     pub fn deinit(self: *Manifest) void {
-        if (self.manifest_file) |file| {
+        if (self.manifest_file) |*file| {
             file.close();
         }
         for (self.files.items) |*file| {

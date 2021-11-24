@@ -80,7 +80,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             var buf: [32]u8 = undefined;
             const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
 
-            const file = try std.fs.cwd().openFile(path, .{ .write = true });
+            var file = try std.fs.cwd().openFile(path, .{ .write = true });
             defer file.close();
 
             try file.writer().writeAll(name);
@@ -168,7 +168,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             var buf: [32]u8 = undefined;
             const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
 
-            const file = try std.fs.cwd().openFile(path, .{});
+            var file = try std.fs.cwd().openFile(path, .{});
             defer file.close();
 
             const data_len = try file.reader().readAll(buffer_ptr[0 .. max_name_len + 1]);

@@ -9,7 +9,7 @@ const fs = std.fs;
 
 test "fallocate" {
     const path = "test_fallocate";
-    const file = try fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    var file = try fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
     defer file.close();
     defer fs.cwd().deleteFile(path) catch {};
 
