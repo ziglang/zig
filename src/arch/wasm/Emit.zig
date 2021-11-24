@@ -29,8 +29,6 @@ const InnerError = error{
 
 pub fn emitMir(emit: *Emit) InnerError!void {
     const mir_tags = emit.mir.instructions.items(.tag);
-    // Reserve space to write the size after generating the code.
-    try emit.code.resize(5);
     // write the locals in the prologue of the function body
     // before we emit the function body when lowering MIR
     try emit.emitLocals();
@@ -157,11 +155,6 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .i64_extend32_s => try emit.emitTag(tag),
         }
     }
-
-    // Fill in the size of the generated code to the reserved space at the
-    // beginning of the buffer.
-    const size = emit.code.items.len - 5;
-    leb128.writeUnsignedFixed(5, emit.code.items[0..5], @intCast(u32, size));
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
@@ -269,8 +262,9 @@ fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
     // The function index immediate argument will be filled in using this data
     // in link.Wasm.flush().
     // TODO: Replace this with proper relocations saved in the Atom.
-    try emit.decl.fn_link.wasm.idx_refs.append(emit.bin_file.allocator, .{
+    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
         .offset = offset,
-        .decl = label,
+        .index = label,
+        .relocation_type = .R_WASM_FUNCTION_INDEX_LEB,
     });
 }
