@@ -3798,53 +3798,88 @@ fn detectLibCIncludeDirs(
     // If not linking system libraries, build and provide our own libc by
     // default if possible.
     if (target_util.canBuildLibC(target)) {
-        const generic_name = target_util.libCGenericName(target);
-        // Some architectures are handled by the same set of headers.
-        const arch_name = if (target.abi.isMusl())
-            musl.archName(target.cpu.arch)
-        else if (target.cpu.arch.isThumb())
-            // ARM headers are valid for Thumb too.
-            switch (target.cpu.arch) {
-                .thumb => "arm",
-                .thumbeb => "armeb",
-                else => unreachable,
-            }
-        else
-            @tagName(target.cpu.arch);
-        const os_name = @tagName(target.os.tag);
-        // Musl's headers are ABI-agnostic and so they all have the "musl" ABI name.
-        const abi_name = if (target.abi.isMusl()) "musl" else @tagName(target.abi);
-        const s = std.fs.path.sep_str;
-        const arch_include_dir = try std.fmt.allocPrint(
-            arena,
-            "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}",
-            .{ zig_lib_dir, arch_name, os_name, abi_name },
-        );
-        const generic_include_dir = try std.fmt.allocPrint(
-            arena,
-            "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
-            .{ zig_lib_dir, generic_name },
-        );
-        const arch_os_include_dir = try std.fmt.allocPrint(
-            arena,
-            "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
-            .{ zig_lib_dir, @tagName(target.cpu.arch), os_name },
-        );
-        const generic_os_include_dir = try std.fmt.allocPrint(
-            arena,
-            "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
-            .{ zig_lib_dir, os_name },
-        );
+        switch (target.os.tag) {
+            .macos => {
+                const arch_name = @tagName(target.cpu.arch);
+                const os_name = try std.fmt.allocPrint(arena, "{s}.{d}", .{
+                    @tagName(target.os.tag),
+                    target.os.version_range.semver.min.major,
+                });
+                const s = std.fs.path.sep_str;
+                const list = try arena.alloc([]const u8, 3);
 
-        const list = try arena.alloc([]const u8, 4);
-        list[0] = arch_include_dir;
-        list[1] = generic_include_dir;
-        list[2] = arch_os_include_dir;
-        list[3] = generic_os_include_dir;
-        return LibCDirs{
-            .libc_include_dir_list = list,
-            .libc_installation = null,
-        };
+                list[0] = try std.fmt.allocPrint(
+                    arena,
+                    "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-gnu",
+                    .{ zig_lib_dir, arch_name, os_name },
+                );
+                list[1] = try std.fmt.allocPrint(
+                    arena,
+                    "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
+                    .{ zig_lib_dir, os_name },
+                );
+                list[2] = try std.fmt.allocPrint(
+                    arena,
+                    "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-macos-any",
+                    .{zig_lib_dir},
+                );
+
+                return LibCDirs{
+                    .libc_include_dir_list = list,
+                    .libc_installation = null,
+                };
+            },
+            else => {
+                const generic_name = target_util.libCGenericName(target);
+                // Some architectures are handled by the same set of headers.
+                const arch_name = if (target.abi.isMusl())
+                    musl.archName(target.cpu.arch)
+                else if (target.cpu.arch.isThumb())
+                    // ARM headers are valid for Thumb too.
+                    switch (target.cpu.arch) {
+                        .thumb => "arm",
+                        .thumbeb => "armeb",
+                        else => unreachable,
+                    }
+                else
+                    @tagName(target.cpu.arch);
+                const os_name = @tagName(target.os.tag);
+                // Musl's headers are ABI-agnostic and so they all have the "musl" ABI name.
+                const abi_name = if (target.abi.isMusl()) "musl" else @tagName(target.abi);
+                const s = std.fs.path.sep_str;
+                const arch_include_dir = try std.fmt.allocPrint(
+                    arena,
+                    "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}",
+                    .{ zig_lib_dir, arch_name, os_name, abi_name },
+                );
+                const generic_include_dir = try std.fmt.allocPrint(
+                    arena,
+                    "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
+                    .{ zig_lib_dir, generic_name },
+                );
+                const arch_os_include_dir = try std.fmt.allocPrint(
+                    arena,
+                    "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
+                    .{ zig_lib_dir, @tagName(target.cpu.arch), os_name },
+                );
+                const generic_os_include_dir = try std.fmt.allocPrint(
+                    arena,
+                    "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
+                    .{ zig_lib_dir, os_name },
+                );
+
+                const list = try arena.alloc([]const u8, 4);
+                list[0] = arch_include_dir;
+                list[1] = generic_include_dir;
+                list[2] = arch_os_include_dir;
+                list[3] = generic_os_include_dir;
+
+                return LibCDirs{
+                    .libc_include_dir_list = list,
+                    .libc_installation = null,
+                };
+            },
+        }
     }
 
     // If zig can't build the libc for the target and we are targeting the
