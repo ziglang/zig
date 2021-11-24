@@ -49,6 +49,7 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .call => try emit.emitCall(inst),
             .global_get => try emit.emitGlobal(tag, inst),
             .global_set => try emit.emitGlobal(tag, inst),
+            .memory_address => try emit.emitMemAddress(inst),
 
             // immediates
             .f32_const => try emit.emitFloat32(inst),
@@ -157,6 +158,10 @@ pub fn emitMir(emit: *Emit) InnerError!void {
     }
 }
 
+fn offset(self: Emit) u32 {
+    return @intCast(u32, self.code.items.len);
+}
+
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
     std.debug.assert(emit.error_msg == null);
@@ -209,9 +214,14 @@ fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     try emit.code.append(@enumToInt(tag));
     var buf: [5]u8 = undefined;
     leb128.writeUnsignedFixed(5, &buf, label);
+    const global_offset = emit.offset();
     try emit.code.appendSlice(&buf);
 
-    // TODO: Append label to the relocation list of this function
+    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
+        .index = label,
+        .offset = global_offset,
+        .relocation_type = .R_WASM_GLOBAL_INDEX_LEB,
+    });
 }
 
 fn emitImm32(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -254,17 +264,29 @@ fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
 fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
     const label = emit.mir.instructions.items(.data)[inst].label;
     try emit.code.append(std.wasm.opcode(.call));
-    const offset = @intCast(u32, emit.code.items.len);
+    const call_offset = emit.offset();
     var buf: [5]u8 = undefined;
     leb128.writeUnsignedFixed(5, &buf, label);
     try emit.code.appendSlice(&buf);
 
-    // The function index immediate argument will be filled in using this data
-    // in link.Wasm.flush().
-    // TODO: Replace this with proper relocations saved in the Atom.
     try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
-        .offset = offset,
+        .offset = call_offset,
         .index = label,
         .relocation_type = .R_WASM_FUNCTION_INDEX_LEB,
+    });
+}
+
+fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const symbol_index = emit.mir.instructions.items(.data)[inst].label;
+    try emit.code.append(std.wasm.opcode(.i32_const));
+    const mem_offset = emit.offset();
+    var buf: [5]u8 = undefined;
+    leb128.writeUnsignedFixed(5, &buf, symbol_index);
+    try emit.code.appendSlice(&buf);
+
+    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
+        .offset = mem_offset,
+        .index = symbol_index,
+        .relocation_type = .R_WASM_MEMORY_ADDR_LEB,
     });
 }

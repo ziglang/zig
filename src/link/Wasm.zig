@@ -301,10 +301,66 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, cod
     // to avoid infinite loops due to earlier links
     atom.unplug();
 
-    const symbol: *Symbol = &self.symbols.items[atom.sym_index];
     if (decl.isExtern()) {
-        symbol.setUndefined(true);
+        try self.createUndefinedSymbol(decl, atom.sym_index);
+    } else {
+        try self.createDefinedSymbol(decl, atom.sym_index, atom);
     }
+}
+
+pub fn updateDeclExports(
+    self: *Wasm,
+    module: *Module,
+    decl: *const Module.Decl,
+    exports: []const *Module.Export,
+) !void {
+    if (build_options.skip_non_native and builtin.object_format != .wasm) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl, exports);
+    }
+}
+
+pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
+    }
+
+    const atom = &decl.link.wasm;
+
+    if (self.last_atom == atom) {
+        self.last_atom = atom.prev;
+    }
+
+    atom.unplug();
+    self.symbols_free_list.append(self.base.allocator, atom.sym_index) catch {};
+    atom.deinit(self.base.allocator);
+    _ = self.decls.remove(decl);
+}
+
+fn createUndefinedSymbol(self: *Wasm, decl: *Module.Decl, symbol_index: u32) !void {
+    var symbol: *Symbol = &self.symbols.items[symbol_index];
+    symbol.name = decl.name;
+    symbol.setUndefined(true);
+    switch (decl.ty.zigTypeTag()) {
+        .Fn => {
+            symbol.index = self.imported_functions_count;
+            self.imported_functions_count += 1;
+            try self.import_symbols.append(self.base.allocator, symbol_index);
+            try self.imports.append(self.base.allocator, .{
+                .module_name = self.host_name,
+                .name = std.mem.span(decl.name),
+                .kind = .{ .function = decl.fn_link.wasm.type_index },
+            });
+        },
+        else => @panic("TODO: Implement undefined symbols for non-function declarations"),
+    }
+}
+
+/// Creates a defined symbol, as well as inserts the given `atom` into the chain
+fn createDefinedSymbol(self: *Wasm, decl: *Module.Decl, symbol_index: u32, atom: *Atom) !void {
+    const symbol: *Symbol = &self.symbols.items[symbol_index];
     symbol.name = decl.name;
     const final_index = switch (decl.ty.zigTypeTag()) {
         .Fn => result: {
@@ -371,49 +427,6 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, cod
     }
 }
 
-pub fn updateDeclExports(
-    self: *Wasm,
-    module: *Module,
-    decl: *const Module.Decl,
-    exports: []const *Module.Export,
-) !void {
-    if (build_options.skip_non_native and builtin.object_format != .wasm) {
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl, exports);
-    }
-}
-
-pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
-    }
-
-    const atom = &decl.link.wasm;
-
-    if (self.last_atom == atom) {
-        self.last_atom = atom.prev;
-    }
-
-    atom.unplug();
-    self.symbols_free_list.append(self.base.allocator, atom.sym_index) catch {};
-    atom.deinit(self.base.allocator);
-    _ = self.decls.remove(decl);
-}
-
-fn createUndefinedSymbol(self: *Wasm, decl: *Module.Decl, symbol_index: u32) !void {
-    var symbol: *Symbol = &self.symbols.items[symbol_index];
-    symbol.setUndefined(true);
-    switch (decl.ty.zigTypeTag()) {
-        .Fn => {
-            symbol.setIndex(self.imported_functions_count);
-            self.imported_functions_count += 1;
-        },
-        else => @panic("TODO: Wasm implement extern non-function types"),
-    }
-}
-
 pub fn flush(self: *Wasm, comp: *Compilation) !void {
     if (build_options.have_llvm and self.base.options.use_lld) {
         return self.linkWithLLD(comp);
@@ -442,7 +455,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     }
 
     // set the stack size on the global
-    self.globals.items[0].init = .{ .i32_const = @bitCast(i32, data_size + stack_size) };
+    self.globals.items[0].init.i32_const = @bitCast(i32, data_size + stack_size);
 
     // No need to rewrite the magic/version header
     try file.setEndPos(@sizeOf(@TypeOf(wasm.magic ++ wasm.version)));
@@ -515,10 +528,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
         for (self.functions.items) |function| {
-            try leb.writeULEB128(
-                writer,
-                @intCast(u32, function.type_index),
-            );
+            try leb.writeULEB128(writer, function.type_index);
         }
 
         try writeVecSectionHeader(
@@ -580,7 +590,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
         var count: u32 = 0;
-        var func_index: u32 = 0;
+        var func_index: u32 = self.imported_functions_count;
         for (module.decl_exports.values()) |exports| {
             for (exports) |exprt| {
                 // Export name length + name
@@ -624,8 +634,9 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     if (self.code_section_index) |code_index| {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
-        var atom = self.atoms.get(code_index).?.getFirst();
+        var atom: *Atom = self.atoms.get(code_index).?.getFirst();
         while (true) {
+            try atom.resolveRelocs(self);
             try leb.writeULEB128(writer, atom.size);
             try writer.writeAll(atom.code.items);
 
@@ -667,6 +678,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             // fill in the offset table and the data segments
             var current_offset: u32 = 0;
             while (true) {
+                try atom.resolveRelocs(self);
                 std.debug.assert(current_offset == atom.offset);
                 std.debug.assert(atom.code.items.len == atom.size);
 

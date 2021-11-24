@@ -72,6 +72,7 @@ pub fn getLast(self: *Atom) *Atom {
     while (tmp.next) |next| tmp = next;
     return tmp;
 }
+
 /// Unplugs the `Atom` from the chain
 pub fn unplug(self: *Atom) void {
     if (self.prev) |prev| {
@@ -88,18 +89,16 @@ pub fn unplug(self: *Atom) void {
 /// Resolves the relocations within the atom, writing the new value
 /// at the calculated offset.
 pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
-    const object = wasm_bin.objects.items[self.file];
-    const symbol: Symbol = object.symtable[self.sym_index];
-
+    const symbol: Symbol = wasm_bin.symbols.items[self.sym_index];
     log.debug("Resolving relocs in atom '{s}' count({d})", .{
         symbol.name,
         self.relocs.items.len,
     });
 
     for (self.relocs.items) |reloc| {
-        const value = self.relocationValue(reloc, wasm_bin);
-        log.debug("Relocating '{s}' referenced in '{s}' offset=0x{x:0>8} value={d}", .{
-            object.symtable[reloc.index].name,
+        const value = try relocationValue(reloc, wasm_bin);
+        log.debug("Relocating '{s}' referenced in '{s}' offset=0x{x:0>8} value={d}\n", .{
+            wasm_bin.symbols.items[reloc.index].name,
             symbol.name,
             reloc.offset,
             value,
@@ -135,21 +134,20 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
 /// From a given `relocation` will return the new value to be written.
 /// All values will be represented as a `u64` as all values can fit within it.
 /// The final value must be casted to the correct size.
-fn relocationValue(self: *Atom, relocation: types.Relocation, wasm_bin: *const Wasm) u64 {
-    const object = wasm_bin.objects.items[self.file];
-    const symbol: Symbol = object.symtable[relocation.index];
+fn relocationValue(relocation: types.Relocation, wasm_bin: *const Wasm) !u64 {
+    const symbol: Symbol = wasm_bin.symbols.items[relocation.index];
     return switch (relocation.relocation_type) {
-        .R_WASM_FUNCTION_INDEX_LEB => symbol.kind.function.functionIndex(),
-        .R_WASM_TABLE_NUMBER_LEB => symbol.kind.table.table.table_idx,
+        .R_WASM_FUNCTION_INDEX_LEB => symbol.index,
+        .R_WASM_TABLE_NUMBER_LEB => symbol.index,
         .R_WASM_TABLE_INDEX_I32,
         .R_WASM_TABLE_INDEX_I64,
         .R_WASM_TABLE_INDEX_SLEB,
         .R_WASM_TABLE_INDEX_SLEB64,
-        => symbol.getTableIndex() orelse 0,
-        .R_WASM_TYPE_INDEX_LEB => symbol.kind.function.func.type_idx,
+        => return error.TodoImplementTableIndex, // find table index from a function symbol
+        .R_WASM_TYPE_INDEX_LEB => wasm_bin.functions.items[symbol.index].type_index,
         .R_WASM_GLOBAL_INDEX_I32,
         .R_WASM_GLOBAL_INDEX_LEB,
-        => symbol.kind.global.global.global_idx,
+        => symbol.index,
         .R_WASM_MEMORY_ADDR_I32,
         .R_WASM_MEMORY_ADDR_I64,
         .R_WASM_MEMORY_ADDR_LEB,
@@ -157,10 +155,10 @@ fn relocationValue(self: *Atom, relocation: types.Relocation, wasm_bin: *const W
         .R_WASM_MEMORY_ADDR_SLEB,
         .R_WASM_MEMORY_ADDR_SLEB64,
         => blk: {
-            if (symbol.isUndefined() and (symbol.kind == .data or symbol.isWeak())) {
+            if (symbol.isUndefined() and (symbol.tag == .data or symbol.isWeak())) {
                 return 0;
             }
-            const segment_name = object.segment_info[symbol.index().?].outputName();
+            const segment_name = wasm_bin.segment_info.items[symbol.index].outputName();
             const atom_index = wasm_bin.data_segments.get(segment_name).?;
             var target_atom = wasm_bin.atoms.getPtr(atom_index).?.*.getFirst();
             while (true) {
@@ -170,11 +168,11 @@ fn relocationValue(self: *Atom, relocation: types.Relocation, wasm_bin: *const W
                 } else break;
             }
             const segment = wasm_bin.segments.items[atom_index];
-            const base = wasm_bin.options.global_base orelse 1024;
+            const base = wasm_bin.base.options.global_base orelse 0;
             const offset = target_atom.offset + segment.offset;
             break :blk offset + base + (relocation.addend orelse 0);
         },
-        .R_WASM_EVENT_INDEX_LEB => symbol.kind.event.index,
+        .R_WASM_EVENT_INDEX_LEB => symbol.index,
         .R_WASM_SECTION_OFFSET_I32,
         .R_WASM_FUNCTION_OFFSET_I32,
         => relocation.offset,

@@ -1363,16 +1363,7 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             if (val.castTag(.decl_ref)) |payload| {
                 const decl = payload.data;
                 decl.alive = true;
-
-                // offset into the offset table within the 'data' section
-                // const ptr_width = self.target.cpu.arch.ptrBitWidth() / 8;
-                // try self.addImm32(@bitCast(i32, decl.link.wasm.offset_index * ptr_width));
-
-                // memory instruction followed by their memarg immediate
-                // memarg ::== x:u32, y:u32 => {align x, offset y}
-                const extra_index = try self.addExtra(Mir.MemArg{ .offset = 0, .alignment = 4 });
-                try self.addInst(.{ .tag = .i32_load, .data = .{ .payload = extra_index } });
-                @panic("REDO!\n");
+                try self.addLabel(.memory_address, decl.link.wasm.sym_index);
             } else return self.fail("Wasm TODO: emitConstant for other const pointer tag {s}", .{val.tag()});
         },
         .Void => {},
