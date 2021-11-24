@@ -3,6 +3,18 @@ const builtin = @import("builtin");
 const TestContext = @import("../src/test.zig").TestContext;
 
 pub fn addCases(ctx: *TestContext) !void {
+    {
+        var case = ctx.obj("stage2 compile errors", .{});
+
+        case.addError(
+            \\export fn a() usize {
+            \\    return @embedFile("/root/foo").len;
+            \\}
+        , &[_][]const u8{
+            ":2:12: error: embed of file outside package path: '/root/foo'",
+        });
+    }
+
     ctx.objErrStage1("issue #9346: return outside of function scope",
         \\pub const empty = return 1;
     , &.{"tmp.zig:1:19: error: 'return' outside function scope"});
