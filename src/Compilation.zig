@@ -962,15 +962,17 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
-        const darwin_can_use_system_sdk = blk: {
+        const darwin_use_system_sdk = blk: {
             if (comptime !builtin.target.isDarwin()) break :blk false;
-            break :blk builtin.os.tag == .macos and options.target.isDarwin();
+            if (!options.is_native_os) break :blk false;
+            if (builtin.os.tag != .macos or !options.target.isDarwin()) break :blk false;
+            break :blk options.frameworks.len > 0 or options.framework_dirs.len > 0;
         };
 
         const sysroot = blk: {
             if (options.sysroot) |sysroot| {
                 break :blk sysroot;
-            } else if (darwin_can_use_system_sdk) {
+            } else if (darwin_use_system_sdk) {
                 break :blk try std.zig.system.darwin.getSDKPath(arena, options.target);
             } else {
                 break :blk null;
