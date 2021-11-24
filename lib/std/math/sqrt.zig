@@ -26,7 +26,7 @@ pub fn sqrt(x: anytype) Sqrt(@TypeOf(x)) {
             return @as(T, sqrt_int(u128, x));
         },
         .Int => |IntType| switch (IntType.signedness) {
-            .signed => return @compileError("sqrt not implemented for signed integers"),
+            .signed => @compileError("sqrt not implemented for signed integers"),
             .unsigned => return sqrt_int(T, x),
         },
         else => @compileError("sqrt not implemented for " ++ @typeName(T)),

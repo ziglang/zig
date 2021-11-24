@@ -4999,6 +4999,15 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:5: note: control flow is diverted here",
     });
 
+    ctx.objErrStage1("unreachable code - return return",
+        \\export fn a() i32 {
+        \\    return return 1;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:5: error: unreachable code",
+        "tmp.zig:2:12: note: control flow is diverted here",
+    });
+
     ctx.objErrStage1("bad import",
         \\const bogus = @import("bogus-does-not-exist.zig",);
     , &[_][]const u8{

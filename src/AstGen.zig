@@ -5963,7 +5963,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
     } else .{
         .ty = try gz.addNodeExtended(.ret_type, node),
     };
-    const operand = try expr(gz, scope, rl, operand_node);
+    const operand = try reachableExpr(gz, scope, rl, operand_node, node);
 
     switch (nodeMayEvalToError(tree, operand_node)) {
         .never => {
