@@ -1070,7 +1070,7 @@ pub const Builder = struct {
             warn("truncate {s}\n", .{dest_path});
         }
         const cwd = fs.cwd();
-        var src_file = cwd.createFile(dest_path, .{}) catch |err| switch (err) {
+        const src_file = cwd.createFile(dest_path, .{}) catch |err| switch (err) {
             error.FileNotFound => blk: {
                 if (fs.path.dirname(dest_path)) |dirname| {
                     try cwd.makePath(dirname);
@@ -2735,13 +2735,13 @@ pub const LibExeObjStep = struct {
             const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
             if (self.output_dir) |output_dir| {
-                var src_dir = try std.fs.cwd().openDir(build_output_dir, .{ .iterate = true });
+                const src_dir = try std.fs.cwd().openDir(build_output_dir, .{ .iterate = true });
                 defer src_dir.close();
 
                 // Create the output directory if it doesn't exist.
                 try std.fs.cwd().makePath(output_dir);
 
-                var dest_dir = try std.fs.cwd().openDir(output_dir, .{});
+                const dest_dir = try std.fs.cwd().openDir(output_dir, .{});
                 defer dest_dir.close();
 
                 var it = src_dir.iterate();
@@ -2951,7 +2951,7 @@ pub const InstallDirStep = struct {
         const self = @fieldParentPtr(InstallDirStep, "step", step);
         const dest_prefix = self.builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
         const full_src_dir = self.builder.pathFromRoot(self.options.source_dir);
-        var src_dir = try std.fs.cwd().openDir(full_src_dir, .{ .iterate = true });
+        const src_dir = try std.fs.cwd().openDir(full_src_dir, .{ .iterate = true });
         defer src_dir.close();
         var it = try src_dir.walk(self.builder.allocator);
         next_entry: while (try it.next()) |entry| {

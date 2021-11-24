@@ -300,10 +300,10 @@ fn containsValidAddressRange(segments: []*BinaryElfSegment) bool {
 }
 
 fn emitRaw(allocator: *Allocator, elf_path: []const u8, raw_path: []const u8, format: RawFormat) !void {
-    var elf_file = try fs.cwd().openFile(elf_path, .{});
+    const elf_file = try fs.cwd().openFile(elf_path, .{});
     defer elf_file.close();
 
-    var out_file = try fs.cwd().createFile(raw_path, .{});
+    const out_file = try fs.cwd().createFile(raw_path, .{});
     defer out_file.close();
 
     var binary_elf_output = try BinaryElfOutput.parse(allocator, elf_file);

@@ -75,14 +75,14 @@ test "openDirAbsolute" {
     };
 
     {
-        var dir = try fs.openDirAbsolute(base_path, .{});
+        const dir = try fs.openDirAbsolute(base_path, .{});
         defer dir.close();
     }
 
     for ([_][]const u8{ ".", ".." }) |sub_path| {
         const dir_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, sub_path });
         defer arena.allocator.free(dir_path);
-        var dir = try fs.openDirAbsolute(dir_path, .{});
+        const dir = try fs.openDirAbsolute(dir_path, .{});
         defer dir.close();
     }
 }
@@ -90,7 +90,7 @@ test "openDirAbsolute" {
 test "openDir cwd parent .." {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    var dir = try fs.cwd().openDir("..", .{});
+    const dir = try fs.cwd().openDir("..", .{});
     defer dir.close();
 }
 
@@ -195,7 +195,7 @@ test "Dir.realpath smoke test" {
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    var file = try tmp_dir.dir.createFile("test_file", .{ .lock = File.Lock.Shared });
+    const file = try tmp_dir.dir.createFile("test_file", .{ .lock = File.Lock.Shared });
     // We need to close the file immediately as otherwise on Windows we'll end up
     // with a sharing violation.
     file.close();
@@ -230,7 +230,7 @@ test "readAllAlloc" {
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    var file = try tmp_dir.dir.createFile("test_file", .{ .read = true });
+    const file = try tmp_dir.dir.createFile("test_file", .{ .read = true });
     defer file.close();
 
     const buf1 = try file.readToEndAlloc(testing.allocator, 1024);
@@ -266,7 +266,7 @@ test "directory operations on files" {
     const test_file_name = "test_file";
 
     var file = try tmp_dir.dir.createFile(test_file_name, .{ .read = true });
-    file.close();
+    file.deinit();
 
     try testing.expectError(error.PathAlreadyExists, tmp_dir.dir.makeDir(test_file_name));
     try testing.expectError(error.NotDir, tmp_dir.dir.openDir(test_file_name, .{}));
@@ -287,7 +287,7 @@ test "directory operations on files" {
     file = try tmp_dir.dir.openFile(test_file_name, .{});
     const stat = try file.stat();
     try testing.expect(stat.kind == .File);
-    file.close();
+    file.deinit();
 }
 
 test "file operations on directories" {
@@ -329,7 +329,7 @@ test "file operations on directories" {
     }
 
     // ensure the directory still exists as a sanity check
-    var dir = try tmp_dir.dir.openDir(test_dir_name, .{});
+    const dir = try tmp_dir.dir.openDir(test_dir_name, .{});
     dir.close();
 }
 
@@ -341,9 +341,9 @@ test "deleteDir" {
     try testing.expectError(error.FileNotFound, tmp_dir.dir.deleteDir("test_dir"));
 
     var dir = try tmp_dir.dir.makeOpenPath("test_dir", .{});
-    var file = try dir.createFile("test_file", .{});
+    const file = try dir.createFile("test_file", .{});
     file.close();
-    dir.close();
+    dir.deinit();
 
     // deleting a non-empty directory
     // TODO: Re-enable this check on Windows, see https://github.com/ziglang/zig/issues/5537
@@ -353,7 +353,7 @@ test "deleteDir" {
 
     dir = try tmp_dir.dir.openDir("test_dir", .{});
     try dir.deleteFile("test_file");
-    dir.close();
+    dir.deinit();
 
     // deleting an empty directory
     try tmp_dir.dir.deleteDir("test_dir");
@@ -369,25 +369,25 @@ test "Dir.rename files" {
     const test_file_name = "test_file";
     const renamed_test_file_name = "test_file_renamed";
     var file = try tmp_dir.dir.createFile(test_file_name, .{ .read = true });
-    file.close();
+    file.deinit();
     try tmp_dir.dir.rename(test_file_name, renamed_test_file_name);
 
     // Ensure the file was renamed
     try testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(test_file_name, .{}));
     file = try tmp_dir.dir.openFile(renamed_test_file_name, .{});
-    file.close();
+    file.deinit();
 
     // Rename to self succeeds
     try tmp_dir.dir.rename(renamed_test_file_name, renamed_test_file_name);
 
     // Rename to existing file succeeds
-    var existing_file = try tmp_dir.dir.createFile("existing_file", .{ .read = true });
+    const existing_file = try tmp_dir.dir.createFile("existing_file", .{ .read = true });
     existing_file.close();
     try tmp_dir.dir.rename(renamed_test_file_name, "existing_file");
 
     try testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(renamed_test_file_name, .{}));
     file = try tmp_dir.dir.openFile("existing_file", .{});
-    file.close();
+    file.deinit();
 }
 
 test "Dir.rename directories" {
@@ -407,7 +407,7 @@ test "Dir.rename directories" {
 
     // Put a file in the directory
     var file = try dir.createFile("test_file", .{ .read = true });
-    file.close();
+    file.deinit();
     dir.close();
 
     try tmp_dir.dir.rename("test_dir_renamed", "test_dir_renamed_again");
@@ -416,20 +416,20 @@ test "Dir.rename directories" {
     try testing.expectError(error.FileNotFound, tmp_dir.dir.openDir("test_dir_renamed", .{}));
     dir = try tmp_dir.dir.openDir("test_dir_renamed_again", .{});
     file = try dir.openFile("test_file", .{});
-    file.close();
+    file.deinit();
     dir.close();
 
     // Try to rename to a non-empty directory now
     var target_dir = try tmp_dir.dir.makeOpenPath("non_empty_target_dir", .{});
     file = try target_dir.createFile("filler", .{ .read = true });
-    file.close();
+    file.deinit();
 
     try testing.expectError(error.PathAlreadyExists, tmp_dir.dir.rename("test_dir_renamed_again", "non_empty_target_dir"));
 
     // Ensure the directory was not renamed
     dir = try tmp_dir.dir.openDir("test_dir_renamed_again", .{});
     file = try dir.openFile("test_file", .{});
-    file.close();
+    file.deinit();
     dir.close();
 }
 
@@ -440,7 +440,7 @@ test "Dir.rename file <-> dir" {
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    var file = try tmp_dir.dir.createFile("test_file", .{ .read = true });
+    const file = try tmp_dir.dir.createFile("test_file", .{ .read = true });
     file.close();
     try tmp_dir.dir.makeDir("test_dir");
     try testing.expectError(error.IsDir, tmp_dir.dir.rename("test_file", "test_dir"));
@@ -458,13 +458,13 @@ test "rename" {
     const test_file_name = "test_file";
     const renamed_test_file_name = "test_file_renamed";
     var file = try tmp_dir1.dir.createFile(test_file_name, .{ .read = true });
-    file.close();
+    file.deinit();
     try fs.rename(tmp_dir1.dir, test_file_name, tmp_dir2.dir, renamed_test_file_name);
 
     // ensure the file was renamed
     try testing.expectError(error.FileNotFound, tmp_dir1.dir.openFile(test_file_name, .{}));
     file = try tmp_dir2.dir.openFile(renamed_test_file_name, .{});
-    file.close();
+    file.deinit();
 }
 
 test "renameAbsolute" {
@@ -492,7 +492,7 @@ test "renameAbsolute" {
     const test_file_name = "test_file";
     const renamed_test_file_name = "test_file_renamed";
     var file = try tmp_dir.dir.createFile(test_file_name, .{ .read = true });
-    file.close();
+    file.deinit();
     try fs.renameAbsolute(
         try fs.path.join(allocator, &[_][]const u8{ base_path, test_file_name }),
         try fs.path.join(allocator, &[_][]const u8{ base_path, renamed_test_file_name }),
@@ -503,7 +503,7 @@ test "renameAbsolute" {
     file = try tmp_dir.dir.openFile(renamed_test_file_name, .{});
     const stat = try file.stat();
     try testing.expect(stat.kind == .File);
-    file.close();
+    file.deinit();
 
     // Renaming directories
     const test_dir_name = "test_dir";
@@ -516,7 +516,7 @@ test "renameAbsolute" {
 
     // ensure the directory was renamed
     try testing.expectError(error.FileNotFound, tmp_dir.dir.openDir(test_dir_name, .{}));
-    var dir = try tmp_dir.dir.openDir(renamed_test_dir_name, .{});
+    const dir = try tmp_dir.dir.openDir(renamed_test_dir_name, .{});
     dir.close();
 }
 
@@ -573,7 +573,7 @@ test "writev, readv" {
         },
     };
 
-    var src_file = try tmp.dir.createFile("test.txt", .{ .read = true });
+    const src_file = try tmp.dir.createFile("test.txt", .{ .read = true });
     defer src_file.close();
 
     try src_file.writevAll(&write_vecs);
@@ -615,7 +615,7 @@ test "pwritev, preadv" {
         },
     };
 
-    var src_file = try tmp.dir.createFile("test.txt", .{ .read = true });
+    const src_file = try tmp.dir.createFile("test.txt", .{ .read = true });
     defer src_file.close();
 
     try src_file.pwritevAll(&write_vecs, 16);
@@ -652,7 +652,7 @@ test "sendfile" {
     try tmp.dir.makePath("os_test_tmp");
     defer tmp.dir.deleteTree("os_test_tmp") catch {};
 
-    var dir = try tmp.dir.openDir("os_test_tmp", .{});
+    const dir = try tmp.dir.openDir("os_test_tmp", .{});
     defer dir.close();
 
     const line1 = "line1\n";
@@ -668,12 +668,12 @@ test "sendfile" {
         },
     };
 
-    var src_file = try dir.createFile("sendfile1.txt", .{ .read = true });
+    const src_file = try dir.createFile("sendfile1.txt", .{ .read = true });
     defer src_file.close();
 
     try src_file.writevAll(&vecs);
 
-    var dest_file = try dir.createFile("sendfile2.txt", .{ .read = true });
+    const dest_file = try dir.createFile("sendfile2.txt", .{ .read = true });
     defer dest_file.close();
 
     const header1 = "header1\n";
@@ -717,16 +717,16 @@ test "copyRangeAll" {
     try tmp.dir.makePath("os_test_tmp");
     defer tmp.dir.deleteTree("os_test_tmp") catch {};
 
-    var dir = try tmp.dir.openDir("os_test_tmp", .{});
+    const dir = try tmp.dir.openDir("os_test_tmp", .{});
     defer dir.close();
 
-    var src_file = try dir.createFile("file1.txt", .{ .read = true });
+    const src_file = try dir.createFile("file1.txt", .{ .read = true });
     defer src_file.close();
 
     const data = "u6wj+JmdF3qHsFPE BUlH2g4gJCmEz0PP";
     try src_file.writeAll(data);
 
-    var dest_file = try dir.createFile("file2.txt", .{ .read = true });
+    const dest_file = try dir.createFile("file2.txt", .{ .read = true });
     defer dest_file.close();
 
     var written_buf: [100]u8 = undefined;
@@ -959,7 +959,7 @@ test ". and .. in fs.Dir functions" {
 
     try tmp.dir.makeDir("./subdir");
     try tmp.dir.access("./subdir", .{});
-    var created_subdir = try tmp.dir.openDir("./subdir", .{});
+    const created_subdir = try tmp.dir.openDir("./subdir", .{});
     created_subdir.close();
 
     const created_file = try tmp.dir.createFile("./subdir/../file", .{});
@@ -997,7 +997,7 @@ test ". and .. in absolute functions" {
     const subdir_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "./subdir" });
     try fs.makeDirAbsolute(subdir_path);
     try fs.accessAbsolute(subdir_path, .{});
-    var created_subdir = try fs.openDirAbsolute(subdir_path, .{});
+    const created_subdir = try fs.openDirAbsolute(subdir_path, .{});
     created_subdir.close();
 
     const created_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../file" });
@@ -1058,7 +1058,7 @@ test "chown" {
 
     try tmp.dir.makeDir("test_dir");
 
-    var dir = try tmp.dir.openDir("test_dir", .{ .iterate = true });
+    const dir = try tmp.dir.openDir("test_dir", .{ .iterate = true });
     defer dir.close();
     try dir.chown(null, null);
 }

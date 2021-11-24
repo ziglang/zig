@@ -94,7 +94,7 @@ fn make(step: *Step) !void {
         warn("unable to make path {s}: {s}\n", .{ self.output_dir, @errorName(err) });
         return err;
     };
-    var dir = try fs.cwd().openDir(self.output_dir, .{});
+    const dir = try fs.cwd().openDir(self.output_dir, .{});
     defer dir.close();
     {
         var it = self.files.first;

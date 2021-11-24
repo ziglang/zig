@@ -917,7 +917,7 @@ fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !ModuleDebugI
 fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
-    var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
+    const f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 

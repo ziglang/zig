@@ -24,7 +24,7 @@ test "write a file, read it, then delete it" {
     random.bytes(data[0..]);
     const tmp_file_name = "temp_test_file.txt";
     {
-        var file = try tmp.dir.createFile(tmp_file_name, .{});
+        const file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
         var buf_stream = io.bufferedWriter(file.writer());
@@ -41,7 +41,7 @@ test "write a file, read it, then delete it" {
     }
 
     {
-        var file = try tmp.dir.openFile(tmp_file_name, .{});
+        const file = try tmp.dir.openFile(tmp_file_name, .{});
         defer file.close();
 
         const file_size = try file.getEndPos();
@@ -66,7 +66,7 @@ test "BitStreams with File Stream" {
 
     const tmp_file_name = "temp_test_file.txt";
     {
-        var file = try tmp.dir.createFile(tmp_file_name, .{});
+        const file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
         var bit_stream = io.bitWriter(native_endian, file.writer());
@@ -80,7 +80,7 @@ test "BitStreams with File Stream" {
         try bit_stream.flushBits();
     }
     {
-        var file = try tmp.dir.openFile(tmp_file_name, .{});
+        const file = try tmp.dir.openFile(tmp_file_name, .{});
         defer file.close();
 
         var bit_stream = io.bitReader(native_endian, file.reader());
@@ -110,7 +110,7 @@ test "File seek ops" {
     defer tmp.cleanup();
 
     const tmp_file_name = "temp_test_file.txt";
-    var file = try tmp.dir.createFile(tmp_file_name, .{});
+    const file = try tmp.dir.createFile(tmp_file_name, .{});
     defer {
         file.close();
         tmp.dir.deleteFile(tmp_file_name) catch {};
@@ -137,7 +137,7 @@ test "setEndPos" {
     defer tmp.cleanup();
 
     const tmp_file_name = "temp_test_file.txt";
-    var file = try tmp.dir.createFile(tmp_file_name, .{});
+    const file = try tmp.dir.createFile(tmp_file_name, .{});
     defer {
         file.close();
         tmp.dir.deleteFile(tmp_file_name) catch {};
@@ -163,7 +163,7 @@ test "updateTimes" {
     defer tmp.cleanup();
 
     const tmp_file_name = "just_a_temporary_file.txt";
-    var file = try tmp.dir.createFile(tmp_file_name, .{ .read = true });
+    const file = try tmp.dir.createFile(tmp_file_name, .{ .read = true });
     defer {
         file.close();
         tmp.dir.deleteFile(tmp_file_name) catch {};

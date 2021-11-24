@@ -773,7 +773,7 @@ test "dup & dup2" {
     defer tmp.cleanup();
 
     {
-        var file = try tmp.dir.createFile("os_dup_test", .{});
+        const file = try tmp.dir.createFile("os_dup_test", .{});
         defer file.close();
 
         var duped = std.fs.File{ .handle = try std.os.dup(file.handle) };
@@ -788,7 +788,7 @@ test "dup & dup2" {
         try dup2ed.writeAll("dup2");
     }
 
-    var file = try tmp.dir.openFile("os_dup_test", .{});
+    const file = try tmp.dir.openFile("os_dup_test", .{});
     defer file.close();
 
     var buf: [7]u8 = undefined;
@@ -801,7 +801,7 @@ test "writev longer than IOV_MAX" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    var file = try tmp.dir.createFile("pwritev", .{});
+    const file = try tmp.dir.createFile("pwritev", .{});
     defer file.close();
 
     const iovecs = [_]os.iovec_const{.{ .iov_base = "a", .iov_len = 1 }} ** (os.IOV_MAX + 1);

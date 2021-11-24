@@ -522,6 +522,7 @@ pub const Pdb = struct {
         self.in_file.close();
         self.allocator.free(self.modules);
         self.allocator.free(self.sect_contribs);
+        self.* = undefined;
     }
 
     pub fn parseDbiStream(self: *Pdb) !void {

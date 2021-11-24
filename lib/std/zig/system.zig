@@ -859,7 +859,7 @@ pub const NativeTargetInfo = struct {
                     const rpath_list = mem.spanZ(std.meta.assumeSentinel(strtab[rpoff_usize..].ptr, 0));
                     var it = mem.tokenize(u8, rpath_list, ":");
                     while (it.next()) |rpath| {
-                        var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
+                        const dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
                             error.NameTooLong => unreachable,
                             error.InvalidUtf8 => unreachable,
                             error.BadPathName => unreachable,

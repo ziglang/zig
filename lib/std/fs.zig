@@ -197,7 +197,7 @@ pub const AtomicFile = struct {
     pub fn finish(self: *AtomicFile) !void {
         assert(self.file_exists);
         if (self.file_open) {
-            self.file.close();
+            self.file.deinit();
             self.file_open = false;
         }
         try os.renameat(self.dir.fd, self.tmp_path_buf[0..], self.dir.fd, self.dest_basename);
@@ -827,7 +827,7 @@ pub const Dir = struct {
                     }
                     try self.name_buffer.appendSlice(base.name);
                     if (base.kind == .Directory) {
-                        var new_dir = top.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
+                        const new_dir = top.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
                             error.NameTooLong => unreachable, // no path sep in base.name
                             else => |e| return e,
                         };
@@ -905,12 +905,17 @@ pub const Dir = struct {
         DeviceBusy,
     } || os.UnexpectedError;
 
-    pub fn close(self: *Dir) void {
+    pub fn close(self: Dir) void {
         if (need_async_thread) {
             std.event.Loop.instance.?.close(self.fd);
         } else {
             os.close(self.fd);
         }
+    }
+
+    /// Close and invalidate the directory.
+    pub fn deinit(self: *Dir) void {
+        self.close();
         self.* = undefined;
     }
 
@@ -1806,7 +1811,7 @@ pub const Dir = struct {
     /// it exactly fits the buffer, or it could mean the buffer was not big enough for the
     /// entire file.
     pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
-        var file = try self.openFile(file_path, .{});
+        const file = try self.openFile(file_path, .{});
         defer file.close();
 
         const end_index = try file.readAll(buffer);
@@ -1833,7 +1838,7 @@ pub const Dir = struct {
         comptime alignment: u29,
         comptime optional_sentinel: ?u8,
     ) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
-        var file = try self.openFile(file_path, .{});
+        const file = try self.openFile(file_path, .{});
         defer file.close();
 
         // If the file size doesn't fit a usize it'll be certainly greater than
@@ -2024,7 +2029,7 @@ pub const Dir = struct {
     /// Writes content to the file system, creating a new file if it does not exist, truncating
     /// if it already exists.
     pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) !void {
-        var file = try self.createFile(sub_path, .{});
+        const file = try self.createFile(sub_path, .{});
         defer file.close();
         try file.writeAll(data);
     }
@@ -2086,14 +2091,14 @@ pub const Dir = struct {
         dest_path: []const u8,
         options: CopyFileOptions,
     ) !PrevStatus {
-        var src_file = try source_dir.openFile(source_path, .{});
+        const src_file = try source_dir.openFile(source_path, .{});
         defer src_file.close();
 
         const src_stat = try src_file.stat();
         const actual_mode = options.override_mode orelse src_stat.mode;
         check_dest_stat: {
             const dest_stat = blk: {
-                var dest_file = dest_dir.openFile(dest_path, .{}) catch |err| switch (err) {
+                const dest_file = dest_dir.openFile(dest_path, .{}) catch |err| switch (err) {
                     error.FileNotFound => break :check_dest_stat,
                     else => |e| return e,
                 };
@@ -2134,7 +2139,7 @@ pub const Dir = struct {
         dest_path: []const u8,
         options: CopyFileOptions,
     ) !void {
-        var in_file = try source_dir.openFile(source_path, .{});
+        const in_file = try source_dir.openFile(source_path, .{});
         defer in_file.close();
 
         var size: ?u64 = null;
@@ -2370,7 +2375,7 @@ pub fn deleteTreeAbsolute(absolute_path: []const u8) !void {
         CannotDeleteRootDirectory,
     }.CannotDeleteRootDirectory;
 
-    var dir = try cwd().openDir(dirname, .{});
+    const dir = try cwd().openDir(dirname, .{});
     defer dir.close();
 
     return dir.deleteTree(path.basename(absolute_path));

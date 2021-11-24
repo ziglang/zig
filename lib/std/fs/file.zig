@@ -189,6 +189,12 @@ pub const File = struct {
         }
     }
 
+    /// Close and invalidate the file.
+    pub fn deinit(self: *File) void {
+        self.close();
+        self.* = undefined;
+    }
+
     /// Test whether the file refers to a terminal.
     /// See also `supportsAnsiEscapeCodes`.
     pub fn isTty(self: File) bool {
