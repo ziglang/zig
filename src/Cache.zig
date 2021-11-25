@@ -13,6 +13,7 @@ const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
 const Compilation = @import("Compilation.zig");
+const log = std.log.scoped(.cache);
 
 /// Be sure to call `Manifest.deinit` after successful initialization.
 pub fn obtain(cache: *const Cache) Manifest {
@@ -478,6 +479,7 @@ pub const Manifest = struct {
     }
 
     fn populateFileHash(self: *Manifest, ch_file: *File) !void {
+        log.debug("populateFileHash {s}", .{ch_file.path.?});
         const file = try fs.cwd().openFile(ch_file.path.?, .{});
         defer file.close();
 
@@ -581,7 +583,7 @@ pub const Manifest = struct {
             .target, .target_must_resolve, .prereq => {},
             else => |err| {
                 try err.printError(error_buf.writer());
-                std.log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
+                log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
                 return error.InvalidDepFile;
             },
         }
@@ -593,7 +595,7 @@ pub const Manifest = struct {
                 .prereq => |bytes| try self.addFilePost(bytes),
                 else => |err| {
                     try err.printError(error_buf.writer());
-                    std.log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
+                    log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
                     return error.InvalidDepFile;
                 },
             }
