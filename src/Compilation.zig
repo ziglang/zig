@@ -3792,6 +3792,13 @@ fn detectLibCIncludeDirs(
     // If linking system libraries and targeting the native abi, default to
     // using the system libc installation.
     if (link_system_libs and is_native_abi and !target.isMinGW()) {
+        if (target.isDarwin()) {
+            // For Darwin/macOS, we are all set with getSDKPath found earlier.
+            return LibCDirs{
+                .libc_include_dir_list = &[0][]u8{},
+                .libc_installation = null,
+            };
+        }
         const libc = try arena.create(LibCInstallation);
         libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true });
         return detectLibCFromLibCInstallation(arena, target, libc);
