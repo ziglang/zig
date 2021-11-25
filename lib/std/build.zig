@@ -68,6 +68,7 @@ pub const Builder = struct {
     vcpkg_root: VcpkgRoot,
     pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
     args: ?[][]const u8 = null,
+    debug_log_scopes: []const []const u8 = &.{},
 
     const PkgConfigError = error{
         PkgConfigCrashed,
@@ -2332,6 +2333,11 @@ pub const LibExeObjStep = struct {
         if (self.name_prefix.len != 0) {
             try zig_args.append("--test-name-prefix");
             try zig_args.append(self.name_prefix);
+        }
+
+        for (builder.debug_log_scopes) |log_scope| {
+            try zig_args.append("--debug-log");
+            try zig_args.append(log_scope);
         }
 
         if (builder.verbose_tokenize) zig_args.append("--verbose-tokenize") catch unreachable;

@@ -51,6 +51,7 @@ pub fn main() !void {
     defer builder.destroy();
 
     var targets = ArrayList([]const u8).init(allocator);
+    var debug_log_scopes = ArrayList([]const u8).init(allocator);
 
     const stderr_stream = io.getStdErr().writer();
     const stdout_stream = io.getStdOut().writer();
@@ -136,6 +137,12 @@ pub fn main() !void {
                     warn("Expected argument after --zig-lib-dir\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
+            } else if (mem.eql(u8, arg, "--debug-log")) {
+                const next_arg = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after {s}\n\n", .{arg});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
+                try debug_log_scopes.append(next_arg);
             } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
                 builder.verbose_tokenize = true;
             } else if (mem.eql(u8, arg, "--verbose-ast")) {
@@ -166,6 +173,7 @@ pub fn main() !void {
         }
     }
 
+    builder.debug_log_scopes = debug_log_scopes.items;
     builder.resolveInstallPrefix(install_prefix, dir_list);
     try runBuild(builder);
 
@@ -261,6 +269,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  --build-file [file]          Override path to build.zig
         \\  --cache-dir [path]           Override path to zig cache directory
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
+        \\  --debug-log [scope]          Enable debugging the compiler
         \\  --verbose-tokenize           Enable compiler debug output for tokenization
         \\  --verbose-ast                Enable compiler debug output for parsing into an AST
         \\  --verbose-link               Enable compiler debug output for linking
