@@ -1818,6 +1818,17 @@ pub const StreamServer = struct {
         };
 
         if (accept_result) |fd| {
+            if (std.io.is_async and builtin.target.os.tag == .windows) {
+                errdefer os.closeSocket(fd);
+                const loop = std.event.Loop.instance orelse return error.UnexpectedError;
+
+                _ = os.windows.CreateIoCompletionPort(
+                    fd,
+                    loop.os_data.io_port,
+                    0,
+                    0,
+                ) catch unreachable;
+            }
             return Connection{
                 .stream = Stream{ .handle = fd },
                 .address = accepted_addr,

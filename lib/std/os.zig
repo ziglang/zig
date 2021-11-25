@@ -3203,14 +3203,13 @@ pub fn accept(
     assert(0 == (flags & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC))); // Unsupported flag(s)
 
     const accepted_sock = if (builtin.os.tag == .windows) blk: {
-        if (std.io.is_async) {
+        if ((flags & SOCK.NONBLOCK) != 0) {
             var localSocket: sockaddr = undefined;
             var adr_len: socklen_t = @sizeOf(sockaddr);
 
             getsockname(sock, &localSocket, &adr_len) catch unreachable;
 
-            const nonblock = if (std.io.is_async) SOCK.NONBLOCK else 0;
-            const sock_flags = SOCK.STREAM | SOCK.CLOEXEC | nonblock;
+            const sock_flags = flags | SOCK.STREAM;
             const proto = IPPROTO.TCP;
 
             const rc = socket(localSocket.family, sock_flags, proto) catch unreachable;
@@ -3229,7 +3228,8 @@ pub fn accept(
                 else => return windows.unexpectedWSAError(err),
             };
 
-            _ = windows.CreateIoCompletionPort(rc, std.event.Loop.instance.?.os_data.io_port, 0, 0) catch unreachable;
+            //Enables getpeername, getsockname, getsockopt, setsockopt
+            _ = windows.ws2_32.setsockopt(rc, windows.ws2_32.SOL.SOCKET, windows.ws2_32.SO.UPDATE_ACCEPT_CONTEXT, null, 0);
 
             break :blk rc;
         } else {
