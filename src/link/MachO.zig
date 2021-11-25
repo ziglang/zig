@@ -727,8 +727,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 }
             }
             if (!libsystem_available) {
+                const libsystem_name = try std.fmt.allocPrint(arena, "libSystem.{d}.tbd", .{
+                    self.base.options.target.os.version_range.semver.min.major,
+                });
                 const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                    "libc", "darwin", "libSystem.B.tbd",
+                    "libc", "darwin", libsystem_name,
                 });
                 try libs.append(full_path);
             }
