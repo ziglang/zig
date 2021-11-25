@@ -527,13 +527,23 @@ pub const Dir = struct {
                     }
 
                     var stat_info: os.Stat = undefined;
-                    _ = os.system._kern_read_stat(
+                    const rc = os.system._kern_read_stat(
                         self.dir.fd,
                         &haiku_entry.d_name,
                         false,
                         &stat_info,
                         0,
                     );
+                    if (rc != 0) {
+                        switch (os.errno(rc)) {
+                            .SUCCESS => {},
+                            .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                            .FAULT => unreachable,
+                            .NOTDIR => unreachable,
+                            .INVAL => unreachable,
+                            else => |err| return os.unexpectedErrno(err),
+                        }
+                    }
                     const statmode = stat_info.mode & os.S.IFMT;
 
                     const entry_kind = switch (statmode) {

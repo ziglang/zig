@@ -577,11 +577,12 @@ const PosixThreadImpl = struct {
                 };
             },
             .haiku => {
-                var count: u32 = undefined;
-                var system_info: os.system_info = undefined;
-                _ = os.system.get_system_info(&system_info); // always returns B_OK
-                count = system_info.cpu_count;
-                return @intCast(usize, count);
+                var system_info: os.system.system_info = undefined;
+                const rc = os.system.get_system_info(&system_info); // always returns B_OK
+                return switch (os.errno(rc)) {
+                    .SUCCESS => @intCast(usize, system_info.cpu_count),
+                    else => |err| os.unexpectedErrno(err),
+                };
             },
             else => {
                 var count: c_int = undefined;

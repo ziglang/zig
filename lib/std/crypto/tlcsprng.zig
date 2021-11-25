@@ -40,6 +40,7 @@ const maybe_have_wipe_on_fork = builtin.os.isAtLeast(.linux, .{
     .major = 4,
     .minor = 14,
 }) orelse true;
+const is_haiku = builtin.os.tag == .haiku;
 
 const Context = struct {
     init_state: enum(u8) { uninitialized = 0, initialized, failed },
@@ -72,7 +73,7 @@ fn tlsCsprngFill(_: *c_void, buffer: []u8) void {
 
     if (wipe_mem.len == 0) {
         // Not initialized yet.
-        if (want_fork_safety and maybe_have_wipe_on_fork) {
+        if (want_fork_safety and maybe_have_wipe_on_fork or is_haiku) {
             // Allocate a per-process page, madvise operates with page
             // granularity.
             wipe_mem = os.mmap(
