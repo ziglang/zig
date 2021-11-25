@@ -1322,7 +1322,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.add(self.base.options.eh_frame_hdr);
         man.hash.add(self.base.options.emit_relocs);
         man.hash.add(self.base.options.rdynamic);
-        man.hash.addListOfBytes(self.base.options.extra_lld_args);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.rpath_list);
         man.hash.add(self.base.options.each_lib_rpath);
@@ -1460,8 +1459,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         if (self.base.options.rdynamic) {
             try argv.append("--export-dynamic");
         }
-
-        try argv.appendSlice(self.base.options.extra_lld_args);
 
         if (self.base.options.z_nodelete) {
             try argv.append("-z");

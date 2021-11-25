@@ -667,7 +667,6 @@ pub const InitOptions = struct {
     optimize_mode: std.builtin.Mode = .Debug,
     keep_source_files_loaded: bool = false,
     clang_argv: []const []const u8 = &[0][]const u8{},
-    lld_argv: []const []const u8 = &[0][]const u8{},
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
@@ -946,7 +945,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 link_eh_frame_hdr or
                 options.link_emit_relocs or
                 options.output_mode == .Lib or
-                options.lld_argv.len != 0 or
                 options.image_base_override != null or
                 options.linker_script != null or options.version_script != null or
                 options.out_implib != null)
@@ -1440,7 +1438,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .eh_frame_hdr = link_eh_frame_hdr,
             .emit_relocs = options.link_emit_relocs,
             .rdynamic = options.rdynamic,
-            .extra_lld_args = options.lld_argv,
             .soname = options.soname,
             .version = options.version,
             .compatibility_version = options.compatibility_version,

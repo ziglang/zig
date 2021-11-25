@@ -927,7 +927,6 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         try man.addOptionalFile(module_obj_path);
         man.hash.addOptional(self.base.options.stack_size_override);
         man.hash.addOptional(self.base.options.image_base_override);
-        man.hash.addListOfBytes(self.base.options.extra_lld_args);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.add(self.base.options.skip_linker_dependencies);
         if (self.base.options.link_libc) {
@@ -1057,8 +1056,6 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         if (self.base.options.dynamicbase) {
             try argv.append("-dynamicbase");
         }
-
-        try argv.appendSlice(self.base.options.extra_lld_args);
 
         const subsystem_suffix = ss: {
             if (self.base.options.major_subsystem_version) |major| {

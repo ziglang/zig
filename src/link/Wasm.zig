@@ -714,7 +714,6 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFile(compiler_rt_path);
         man.hash.addOptional(self.base.options.stack_size_override);
-        man.hash.addListOfBytes(self.base.options.extra_lld_args);
         man.hash.add(self.base.options.import_memory);
         man.hash.addOptional(self.base.options.initial_memory);
         man.hash.addOptional(self.base.options.max_memory);

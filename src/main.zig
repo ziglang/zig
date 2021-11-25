@@ -672,9 +672,6 @@ fn buildOutputType(
     var extra_cflags = std.ArrayList([]const u8).init(gpa);
     defer extra_cflags.deinit();
 
-    var lld_argv = std.ArrayList([]const u8).init(gpa);
-    defer lld_argv.deinit();
-
     var lib_dirs = std.ArrayList([]const u8).init(gpa);
     defer lib_dirs.deinit();
 
@@ -1474,8 +1471,16 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     version_script = linker_args.items[i];
+                } else if (mem.eql(u8, arg, "-O")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    warn("ignoring linker arg -O{s} because it does nothing", .{
+                        linker_args.items[i],
+                    });
                 } else if (mem.startsWith(u8, arg, "-O")) {
-                    try lld_argv.append(arg);
+                    warn("ignoring linker arg {s} because it does nothing", .{arg});
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "--no-gc-sections")) {
@@ -2200,7 +2205,6 @@ fn buildOutputType(
         .optimize_mode = optimize_mode,
         .keep_source_files_loaded = false,
         .clang_argv = clang_argv.items,
-        .lld_argv = lld_argv.items,
         .lib_dirs = lib_dirs.items,
         .rpath_list = rpath_list.items,
         .c_source_files = c_source_files.items,
