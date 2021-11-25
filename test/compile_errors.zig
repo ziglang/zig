@@ -11,7 +11,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return @embedFile("/root/foo").len;
             \\}
         , &[_][]const u8{
-            ":2:12: error: embed of file outside package path: '/root/foo'",
+            ":2:23: error: embed of file outside package path: '/root/foo'",
+        });
+
+        case.addError(
+            \\export fn a() usize {
+            \\    return @import("../../above.zig").len;
+            \\}
+        , &[_][]const u8{
+            ":2:20: error: import of file outside package path: '../../above.zig'",
         });
     }
 

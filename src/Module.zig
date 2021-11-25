@@ -3541,11 +3541,11 @@ pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
     const gop = try mod.import_table.getOrPut(gpa, resolved_path);
+    errdefer _ = mod.import_table.pop();
     if (gop.found_existing) return ImportFileResult{
         .file = gop.value_ptr.*,
         .is_new = false,
     };
-    keep_resolved_path = true; // It's now owned by import_table.
 
     const sub_file_path = try gpa.dupe(u8, pkg.root_src_path);
     errdefer gpa.free(sub_file_path);
@@ -3553,6 +3553,7 @@ pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
     const new_file = try gpa.create(File);
     errdefer gpa.destroy(new_file);
 
+    keep_resolved_path = true; // It's now owned by import_table.
     gop.value_ptr.* = new_file;
     new_file.* = .{
         .sub_file_path = sub_file_path,
@@ -3599,11 +3600,11 @@ pub fn importFile(
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
     const gop = try mod.import_table.getOrPut(gpa, resolved_path);
+    errdefer _ = mod.import_table.pop();
     if (gop.found_existing) return ImportFileResult{
         .file = gop.value_ptr.*,
         .is_new = false,
     };
-    keep_resolved_path = true; // It's now owned by import_table.
 
     const new_file = try gpa.create(File);
     errdefer gpa.destroy(new_file);
@@ -3622,6 +3623,7 @@ pub fn importFile(
         resolved_root_path, resolved_path, sub_file_path, import_string,
     });
 
+    keep_resolved_path = true; // It's now owned by import_table.
     gop.value_ptr.* = new_file;
     new_file.* = .{
         .sub_file_path = sub_file_path,
@@ -3657,8 +3659,8 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
     const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
-    if (gop.found_existing) return gop.value_ptr.*;
     errdefer assert(mod.embed_table.remove(resolved_path));
+    if (gop.found_existing) return gop.value_ptr.*;
 
     const new_file = try gpa.create(EmbedFile);
     errdefer gpa.destroy(new_file);

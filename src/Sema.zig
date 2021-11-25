@@ -6807,17 +6807,17 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
-    const src = inst_data.src();
+    const operand_src = inst_data.src();
     const operand = inst_data.get(sema.code);
 
     const result = mod.importFile(block.getFileScope(), operand) catch |err| switch (err) {
         error.ImportOutsidePkgPath => {
-            return sema.fail(block, src, "import of file outside package path: '{s}'", .{operand});
+            return sema.fail(block, operand_src, "import of file outside package path: '{s}'", .{operand});
         },
         else => {
             // TODO: these errors are file system errors; make sure an update() will
             // retry this and not cache the file system error, which may be transient.
-            return sema.fail(block, src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
+            return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
     try mod.semaFile(result.file);
@@ -6832,17 +6832,17 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    const name = try sema.resolveConstString(block, src, inst_data.operand);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const name = try sema.resolveConstString(block, operand_src, inst_data.operand);
 
     const embed_file = mod.embedFile(block.getFileScope(), name) catch |err| switch (err) {
         error.ImportOutsidePkgPath => {
-            return sema.fail(block, src, "embed of file outside package path: '{s}'", .{name});
+            return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
         },
         else => {
             // TODO: these errors are file system errors; make sure an update() will
             // retry this and not cache the file system error, which may be transient.
-            return sema.fail(block, src, "unable to open '{s}': {s}", .{ name, @errorName(err) });
+            return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ name, @errorName(err) });
         },
     };
 
