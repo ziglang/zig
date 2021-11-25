@@ -2130,18 +2130,20 @@ fn buildOutputType(
         }
     }
     const default_implib_basename = try std.fmt.allocPrint(arena, "{s}.lib", .{root_name});
-    var emit_implib_resolved = emit_implib.resolve(default_implib_basename) catch |err| {
-        switch (emit_implib) {
-            .yes => |p| {
-                fatal("unable to open directory from argument '-femit-implib', '{s}': {s}", .{
-                    p, @errorName(err),
-                });
+    var emit_implib_resolved = switch (emit_implib) {
+        .no => Emit.Resolved{ .data = null, .dir = null },
+        .yes => |p| emit_implib.resolve(default_implib_basename) catch |err| {
+            fatal("unable to open directory from argument '-femit-implib', '{s}': {s}", .{
+                p, @errorName(err),
+            });
+        },
+        .yes_default_path => Emit.Resolved{
+            .data = Compilation.EmitLoc{
+                .directory = emit_bin_loc.?.directory,
+                .basename = default_implib_basename,
             },
-            .yes_default_path => {
-                fatal("unable to open directory 'docs': {s}", .{@errorName(err)});
-            },
-            .no => unreachable,
-        }
+            .dir = null,
+        },
     };
     defer emit_implib_resolved.deinit();
 
