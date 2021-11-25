@@ -47,6 +47,8 @@ pub const Options = struct {
     /// This is `null` when -fno-emit-bin is used. When `openPath` or `flush` is called,
     /// it will have already been null-checked.
     emit: ?Emit,
+    /// This is `null` not building a Windows DLL, or when -fno-emit-implib is used.
+    implib_emit: ?Emit,
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
@@ -127,7 +129,6 @@ pub const Options = struct {
     gc_sections: ?bool = null,
     allow_shlib_undefined: ?bool,
     subsystem: ?std.Target.SubSystem,
-    out_implib: ?[]const u8,
     linker_script: ?[]const u8,
     version_script: ?[]const u8,
     soname: ?[]const u8,

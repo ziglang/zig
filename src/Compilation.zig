@@ -654,6 +654,8 @@ pub const InitOptions = struct {
     emit_analysis: ?EmitLoc = null,
     /// `null` means to not emit docs.
     emit_docs: ?EmitLoc = null,
+    /// `null` means to not emit an import lib.
+    emit_implib: ?EmitLoc = null,
     link_mode: ?std.builtin.LinkMode = null,
     dll_export_fns: ?bool = false,
     /// Normally when using LLD to link, Zig uses a file named "lld.id" in the
@@ -766,8 +768,6 @@ pub const InitOptions = struct {
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
-    /// Windows/PE only. Where to output the import library, can contain directories.
-    out_implib: ?[]const u8 = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     /// (Zig compiler development) Enable dumping linker's state as JSON.
@@ -947,7 +947,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 options.output_mode == .Lib or
                 options.image_base_override != null or
                 options.linker_script != null or options.version_script != null or
-                options.out_implib != null)
+                options.emit_implib != null)
             {
                 break :blk true;
             }
@@ -1183,6 +1183,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
         cache.hash.addOptionalEmitLoc(options.emit_bin);
+        cache.hash.addOptionalEmitLoc(options.emit_implib);
         cache.hash.addBytes(options.root_name);
         if (options.target.os.tag == .wasi) cache.hash.add(wasi_exec_model);
         // TODO audit this and make sure everything is in it
@@ -1339,18 +1340,21 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
         const bin_file_emit: ?link.Emit = blk: {
             const emit_bin = options.emit_bin orelse break :blk null;
+
             if (emit_bin.directory) |directory| {
                 break :blk link.Emit{
                     .directory = directory,
                     .sub_path = emit_bin.basename,
                 };
             }
+
             if (module) |zm| {
                 break :blk link.Emit{
                     .directory = zm.zig_cache_artifact_directory,
                     .sub_path = emit_bin.basename,
                 };
             }
+
             // We could use the cache hash as is no problem, however, we increase
             // the likelihood of cache hits by adding the first C source file
             // path name (not contents) to the hash. This way if the user is compiling
@@ -1377,6 +1381,24 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             };
         };
 
+        const implib_emit: ?link.Emit = blk: {
+            const emit_implib = options.emit_implib orelse break :blk null;
+
+            if (emit_implib.directory) |directory| {
+                break :blk link.Emit{
+                    .directory = directory,
+                    .sub_path = emit_implib.basename,
+                };
+            }
+
+            // Use the same directory as the bin. The CLI already emits an
+            // error if -fno-emit-bin is combined with -femit-implib.
+            break :blk link.Emit{
+                .directory = bin_file_emit.?.directory,
+                .sub_path = emit_implib.basename,
+            };
+        };
+
         var system_libs: std.StringArrayHashMapUnmanaged(SystemLib) = .{};
         errdefer system_libs.deinit(gpa);
         try system_libs.ensureTotalCapacity(gpa, options.system_lib_names.len);
@@ -1386,6 +1408,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
         const bin_file = try link.File.openPath(gpa, .{
             .emit = bin_file_emit,
+            .implib_emit = implib_emit,
             .root_name = root_name,
             .module = module,
             .target = options.target,
@@ -1461,7 +1484,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
             .disable_lld_caching = options.disable_lld_caching,
             .subsystem = options.subsystem,
-            .out_implib = options.out_implib,
             .is_test = options.is_test,
             .wasi_exec_model = wasi_exec_model,
             .use_stage1 = use_stage1,

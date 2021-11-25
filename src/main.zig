@@ -317,6 +317,8 @@ const usage_build_generic =
     \\  -fno-emit-docs            (default) Do not produce docs/ dir with html documentation
     \\  -femit-analysis[=path]    Write analysis JSON file with type information
     \\  -fno-emit-analysis        (default) Do not write analysis JSON file with type information
+    \\  -femit-implib[=path]      (default) Produce an import .lib when building a Windows DLL
+    \\  -fno-emit-implib          Do not produce an import .lib when building a Windows DLL
     \\  --show-builtin            Output the source of @import("builtin") then exit
     \\  --cache-dir [path]        Override the local cache directory
     \\  --global-cache-dir [path] Override the global cache directory
@@ -585,6 +587,8 @@ fn buildOutputType(
     var emit_llvm_bc: Emit = .no;
     var emit_docs: Emit = .no;
     var emit_analysis: Emit = .no;
+    var emit_implib: Emit = .yes_default_path;
+    var emit_implib_arg_provided = false;
     var target_arch_os_abi: []const u8 = "native";
     var target_mcpu: ?[]const u8 = null;
     var target_dynamic_linker: ?[]const u8 = null;
@@ -654,7 +658,6 @@ fn buildOutputType(
     var main_pkg_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
-    var out_implib: ?[]const u8 = null;
     var major_subsystem_version: ?u32 = null;
     var minor_subsystem_version: ?u32 = null;
     var wasi_exec_model: ?std.builtin.WasiExecModel = null;
@@ -1091,6 +1094,15 @@ fn buildOutputType(
                         emit_analysis = .{ .yes = arg["-femit-analysis=".len..] };
                     } else if (mem.eql(u8, arg, "-fno-emit-analysis")) {
                         emit_analysis = .no;
+                    } else if (mem.eql(u8, arg, "-femit-implib")) {
+                        emit_implib = .yes_default_path;
+                        emit_implib_arg_provided = true;
+                    } else if (mem.startsWith(u8, arg, "-femit-implib=")) {
+                        emit_implib = .{ .yes = arg["-femit-implib=".len..] };
+                        emit_implib_arg_provided = true;
+                    } else if (mem.eql(u8, arg, "-fno-emit-implib")) {
+                        emit_implib = .no;
+                        emit_implib_arg_provided = true;
                     } else if (mem.eql(u8, arg, "-dynamic")) {
                         link_mode = .Dynamic;
                     } else if (mem.eql(u8, arg, "-static")) {
@@ -1650,7 +1662,8 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
-                    out_implib = linker_args.items[i];
+                    emit_implib = .{ .yes = linker_args.items[i] };
+                    emit_implib_arg_provided = true;
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
@@ -1998,11 +2011,15 @@ fn buildOutputType(
     const default_h_basename = try std.fmt.allocPrint(arena, "{s}.h", .{root_name});
     var emit_h_resolved = emit_h.resolve(default_h_basename) catch |err| {
         switch (emit_h) {
-            .yes => {
-                fatal("unable to open directory from argument '-femit-h', '{s}': {s}", .{ emit_h.yes, @errorName(err) });
+            .yes => |p| {
+                fatal("unable to open directory from argument '-femit-h', '{s}': {s}", .{
+                    p, @errorName(err),
+                });
             },
             .yes_default_path => {
-                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{ default_h_basename, @errorName(err) });
+                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{
+                    default_h_basename, @errorName(err),
+                });
             },
             .no => unreachable,
         }
@@ -2012,11 +2029,15 @@ fn buildOutputType(
     const default_asm_basename = try std.fmt.allocPrint(arena, "{s}.s", .{root_name});
     var emit_asm_resolved = emit_asm.resolve(default_asm_basename) catch |err| {
         switch (emit_asm) {
-            .yes => {
-                fatal("unable to open directory from argument '-femit-asm', '{s}': {s}", .{ emit_asm.yes, @errorName(err) });
+            .yes => |p| {
+                fatal("unable to open directory from argument '-femit-asm', '{s}': {s}", .{
+                    p, @errorName(err),
+                });
             },
             .yes_default_path => {
-                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{ default_asm_basename, @errorName(err) });
+                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{
+                    default_asm_basename, @errorName(err),
+                });
             },
             .no => unreachable,
         }
@@ -2026,11 +2047,15 @@ fn buildOutputType(
     const default_llvm_ir_basename = try std.fmt.allocPrint(arena, "{s}.ll", .{root_name});
     var emit_llvm_ir_resolved = emit_llvm_ir.resolve(default_llvm_ir_basename) catch |err| {
         switch (emit_llvm_ir) {
-            .yes => {
-                fatal("unable to open directory from argument '-femit-llvm-ir', '{s}': {s}", .{ emit_llvm_ir.yes, @errorName(err) });
+            .yes => |p| {
+                fatal("unable to open directory from argument '-femit-llvm-ir', '{s}': {s}", .{
+                    p, @errorName(err),
+                });
             },
             .yes_default_path => {
-                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{ default_llvm_ir_basename, @errorName(err) });
+                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{
+                    default_llvm_ir_basename, @errorName(err),
+                });
             },
             .no => unreachable,
         }
@@ -2040,11 +2065,15 @@ fn buildOutputType(
     const default_llvm_bc_basename = try std.fmt.allocPrint(arena, "{s}.bc", .{root_name});
     var emit_llvm_bc_resolved = emit_llvm_bc.resolve(default_llvm_bc_basename) catch |err| {
         switch (emit_llvm_bc) {
-            .yes => {
-                fatal("unable to open directory from argument '-femit-llvm-bc', '{s}': {s}", .{ emit_llvm_bc.yes, @errorName(err) });
+            .yes => |p| {
+                fatal("unable to open directory from argument '-femit-llvm-bc', '{s}': {s}", .{
+                    p, @errorName(err),
+                });
             },
             .yes_default_path => {
-                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{ default_llvm_bc_basename, @errorName(err) });
+                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{
+                    default_llvm_bc_basename, @errorName(err),
+                });
             },
             .no => unreachable,
         }
@@ -2054,11 +2083,15 @@ fn buildOutputType(
     const default_analysis_basename = try std.fmt.allocPrint(arena, "{s}-analysis.json", .{root_name});
     var emit_analysis_resolved = emit_analysis.resolve(default_analysis_basename) catch |err| {
         switch (emit_analysis) {
-            .yes => {
-                fatal("unable to open directory from argument 'femit-analysis',  '{s}': {s}", .{ emit_analysis.yes, @errorName(err) });
+            .yes => |p| {
+                fatal("unable to open directory from argument '-femit-analysis',  '{s}': {s}", .{
+                    p, @errorName(err),
+                });
             },
             .yes_default_path => {
-                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{ default_analysis_basename, @errorName(err) });
+                fatal("unable to open directory from arguments 'name' or 'soname', '{s}': {s}", .{
+                    default_analysis_basename, @errorName(err),
+                });
             },
             .no => unreachable,
         }
@@ -2067,8 +2100,10 @@ fn buildOutputType(
 
     var emit_docs_resolved = emit_docs.resolve("docs") catch |err| {
         switch (emit_docs) {
-            .yes => {
-                fatal("unable to open directory from argument 'femit-docs', '{s}': {s}", .{ emit_h.yes, @errorName(err) });
+            .yes => |p| {
+                fatal("unable to open directory from argument '-femit-docs', '{s}': {s}", .{
+                    p, @errorName(err),
+                });
             },
             .yes_default_path => {
                 fatal("unable to open directory 'docs': {s}", .{@errorName(err)});
@@ -2077,6 +2112,35 @@ fn buildOutputType(
         }
     };
     defer emit_docs_resolved.deinit();
+
+    const is_dyn_lib = switch (output_mode) {
+        .Obj, .Exe => false,
+        .Lib => (link_mode orelse .Static) == .Dynamic,
+    };
+    const implib_eligible = is_dyn_lib and
+        emit_bin_loc != null and target_info.target.os.tag == .windows;
+    if (!implib_eligible) {
+        if (!emit_implib_arg_provided) {
+            emit_implib = .no;
+        } else if (emit_implib != .no) {
+            fatal("the argument -femit-implib is allowed only when building a Windows DLL", .{});
+        }
+    }
+    const default_implib_basename = try std.fmt.allocPrint(arena, "{s}.lib", .{root_name});
+    var emit_implib_resolved = emit_implib.resolve(default_implib_basename) catch |err| {
+        switch (emit_implib) {
+            .yes => |p| {
+                fatal("unable to open directory from argument '-femit-implib', '{s}': {s}", .{
+                    p, @errorName(err),
+                });
+            },
+            .yes_default_path => {
+                fatal("unable to open directory 'docs': {s}", .{@errorName(err)});
+            },
+            .no => unreachable,
+        }
+    };
+    defer emit_implib_resolved.deinit();
 
     const main_pkg: ?*Package = if (root_src_file) |src_path| blk: {
         if (main_pkg_path) |p| {
@@ -2168,16 +2232,6 @@ fn buildOutputType(
         else => false,
     };
 
-    // Always output import libraries (.lib) when building for msvc to replicate
-    // `link` behavior. lld does not always output import libraries so on the
-    // gnu abi users must set out_implib.
-    if (output_mode == .Lib and emit_bin == .yes and target_info.target.abi == .msvc and out_implib == null) {
-        const emit_bin_ext = fs.path.extension(emit_bin.yes);
-        out_implib = try std.fmt.allocPrint(gpa, "{s}.lib", .{
-            emit_bin.yes[0 .. emit_bin.yes.len - emit_bin_ext.len],
-        });
-    }
-
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 
     const comp = Compilation.create(gpa, .{
@@ -2199,6 +2253,7 @@ fn buildOutputType(
         .emit_llvm_bc = emit_llvm_bc_resolved.data,
         .emit_docs = emit_docs_resolved.data,
         .emit_analysis = emit_analysis_resolved.data,
+        .emit_implib = emit_implib_resolved.data,
         .link_mode = link_mode,
         .dll_export_fns = dll_export_fns,
         .object_format = object_format,
@@ -2286,7 +2341,6 @@ fn buildOutputType(
         .test_name_prefix = test_name_prefix,
         .disable_lld_caching = !have_enable_cache,
         .subsystem = subsystem,
-        .out_implib = out_implib,
         .wasi_exec_model = wasi_exec_model,
         .debug_compile_errors = debug_compile_errors,
         .enable_link_snapshots = enable_link_snapshots,
@@ -2684,15 +2738,6 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
                 defer gpa.free(dst_pdb_path);
 
                 _ = try cache_dir.updateFile(src_pdb_path, cwd, dst_pdb_path, .{});
-            }
-
-            if (comp.bin_file.options.out_implib) |out_implib| {
-                const src_implib_path = try std.fmt.allocPrint(gpa, "{s}.lib", .{bin_sub_path});
-                defer gpa.free(src_implib_path);
-                if (std.fs.path.dirname(out_implib)) |implib_dir| {
-                    try cwd.makePath(implib_dir);
-                }
-                _ = try cache_dir.updateFile(src_implib_path, cwd, out_implib, .{});
             }
         },
     }
