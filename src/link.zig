@@ -47,6 +47,8 @@ pub const Options = struct {
     /// This is `null` when -fno-emit-bin is used. When `openPath` or `flush` is called,
     /// it will have already been null-checked.
     emit: ?Emit,
+    /// This is `null` not building a Windows DLL, or when -fno-emit-implib is used.
+    implib_emit: ?Emit,
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
@@ -97,6 +99,7 @@ pub const Options = struct {
     tsaware: bool,
     nxcompat: bool,
     dynamicbase: bool,
+    linker_optimization: u8,
     bind_global_refs_locally: bool,
     import_memory: bool,
     initial_memory: ?u64,
@@ -131,8 +134,6 @@ pub const Options = struct {
     version_script: ?[]const u8,
     soname: ?[]const u8,
     llvm_cpu_features: ?[*:0]const u8,
-    /// Extra args passed directly to LLD. Ignored when not linking with LLD.
-    extra_lld_args: []const []const u8,
 
     objects: []const []const u8,
     framework_dirs: []const []const u8,

@@ -927,7 +927,6 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         try man.addOptionalFile(module_obj_path);
         man.hash.addOptional(self.base.options.stack_size_override);
         man.hash.addOptional(self.base.options.image_base_override);
-        man.hash.addListOfBytes(self.base.options.extra_lld_args);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.add(self.base.options.skip_linker_dependencies);
         if (self.base.options.link_libc) {
@@ -978,7 +977,6 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
     }
 
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
-
     if (self.base.options.output_mode == .Obj) {
         // LLD's COFF driver does not support the equivalent of `-r` so we do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
@@ -1056,6 +1054,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         if (self.base.options.dynamicbase) {
             try argv.append("-dynamicbase");
         }
+
         const subsystem_suffix = ss: {
             if (self.base.options.major_subsystem_version) |major| {
                 if (self.base.options.minor_subsystem_version) |minor| {
@@ -1068,6 +1067,11 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         };
 
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
+
+        if (self.base.options.implib_emit) |emit| {
+            const implib_out_path = try emit.directory.join(arena, &[_][]const u8{emit.sub_path});
+            try argv.append(try allocPrint(arena, "-IMPLIB:{s}", .{implib_out_path}));
+        }
 
         if (self.base.options.link_libc) {
             if (self.base.options.libc_installation) |libc_installation| {
