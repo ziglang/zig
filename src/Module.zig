@@ -3464,11 +3464,16 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
                 queue_linker_work = true;
             }
         },
-        .array, .@"struct", .@"union" => {
+
+        .generic_poison => unreachable,
+        .unreachable_value => unreachable,
+
+        .function => {},
+
+        else => {
             log.debug("send global const to linker: {*} ({s})", .{ decl, decl.name });
             queue_linker_work = true;
         },
-        else => {},
     }
 
     decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);

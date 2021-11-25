@@ -286,6 +286,62 @@ pub fn generateSymbol(
             }
             return Result{ .appended = {} };
         },
+        .Enum => {
+            // TODO populate .debug_info for the enum
+            var int_buffer: Value.Payload.U64 = undefined;
+            const int_val = typed_value.enumToInt(&int_buffer);
+
+            const target = bin_file.options.target;
+            const info = typed_value.ty.intInfo(target);
+            if (info.bits <= 8) {
+                const x = @intCast(u8, int_val.toUnsignedInt());
+                try code.append(x);
+                return Result{ .appended = {} };
+            }
+            if (info.bits > 64) {
+                return Result{
+                    .fail = try ErrorMsg.create(
+                        bin_file.allocator,
+                        src_loc,
+                        "TODO implement generateSymbol for big int enums ('{}')",
+                        .{typed_value.ty},
+                    ),
+                };
+            }
+            const endian = target.cpu.arch.endian();
+            switch (info.signedness) {
+                .unsigned => {
+                    if (info.bits <= 16) {
+                        const x = @intCast(u16, int_val.toUnsignedInt());
+                        mem.writeInt(u16, try code.addManyAsArray(2), x, endian);
+                    } else if (info.bits <= 32) {
+                        const x = @intCast(u32, int_val.toUnsignedInt());
+                        mem.writeInt(u32, try code.addManyAsArray(4), x, endian);
+                    } else {
+                        const x = int_val.toUnsignedInt();
+                        mem.writeInt(u64, try code.addManyAsArray(8), x, endian);
+                    }
+                },
+                .signed => {
+                    if (info.bits <= 16) {
+                        const x = @intCast(i16, int_val.toSignedInt());
+                        mem.writeInt(i16, try code.addManyAsArray(2), x, endian);
+                    } else if (info.bits <= 32) {
+                        const x = @intCast(i32, int_val.toSignedInt());
+                        mem.writeInt(i32, try code.addManyAsArray(4), x, endian);
+                    } else {
+                        const x = int_val.toSignedInt();
+                        mem.writeInt(i64, try code.addManyAsArray(8), x, endian);
+                    }
+                },
+            }
+            return Result{ .appended = {} };
+        },
+        .Bool => {
+            const x: u8 = @boolToInt(typed_value.val.toBool());
+            try code.append(x);
+            return Result{ .appended = {} };
+        },
         .Struct => {
             const field_vals = typed_value.val.castTag(.@"struct").?.data;
             _ = field_vals; // TODO write the fields for real

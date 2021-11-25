@@ -772,10 +772,7 @@ pub const DeclGen = struct {
         const target = dg.module.getTarget();
 
         switch (t.zigTypeTag()) {
-            .NoReturn => {
-                try w.writeAll("zig_noreturn void");
-            },
-            .Void => try w.writeAll("void"),
+            .NoReturn, .Void => try w.writeAll("void"),
             .Bool => try w.writeAll("bool"),
             .Int => {
                 switch (t.tag()) {

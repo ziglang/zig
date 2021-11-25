@@ -118,3 +118,21 @@ fn test_cmp_optional_non_optional() !void {
         break :blk2 @as(?f64, 5.0);
     };
 }
+
+test "unwrap function call with optional pointer return value" {
+    const S = struct {
+        fn entry() !void {
+            try expect(foo().?.* == 1234);
+            try expect(bar() == null);
+        }
+        const global: i32 = 1234;
+        fn foo() ?*const i32 {
+            return &global;
+        }
+        fn bar() ?*i32 {
+            return null;
+        }
+    };
+    try S.entry();
+    comptime try S.entry();
+}

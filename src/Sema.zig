@@ -4800,8 +4800,10 @@ fn zirOptionalPayload(
         if (val.isNull()) {
             return sema.fail(block, src, "unable to unwrap null", .{});
         }
-        const sub_val = val.castTag(.opt_payload).?.data;
-        return sema.addConstant(result_ty, sub_val);
+        if (val.castTag(.opt_payload)) |payload| {
+            return sema.addConstant(result_ty, payload.data);
+        }
+        return sema.addConstant(result_ty, val);
     }
 
     try sema.requireRuntimeBlock(block, src);

@@ -848,6 +848,11 @@ pub fn gen(self: *Self, ty: Type, val: Value) InnerError!Result {
             try self.emitConstant(val, ty);
             return Result.appended;
         },
+        .Bool => {
+            const int_byte: u8 = @boolToInt(val.toBool());
+            try self.code.append(int_byte);
+            return Result.appended;
+        },
         .Struct => {
             // TODO write the fields for real
             const abi_size = try std.math.cast(usize, ty.abiSize(self.target));
