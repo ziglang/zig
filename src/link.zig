@@ -99,6 +99,7 @@ pub const Options = struct {
     tsaware: bool,
     nxcompat: bool,
     dynamicbase: bool,
+    linker_optimization: u8,
     bind_global_refs_locally: bool,
     import_memory: bool,
     initial_memory: ?u64,

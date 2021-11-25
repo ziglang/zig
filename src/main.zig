@@ -635,6 +635,7 @@ fn buildOutputType(
     var linker_tsaware = false;
     var linker_nxcompat = false;
     var linker_dynamicbase = false;
+    var linker_optimization: ?u8 = null;
     var test_evented_io = false;
     var test_no_exec = false;
     var stack_size_override: ?u64 = null;
@@ -1488,11 +1489,13 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
-                    warn("ignoring linker arg -O{s} because it does nothing", .{
-                        linker_args.items[i],
-                    });
+                    linker_optimization = std.fmt.parseUnsigned(u8, linker_args.items[i], 10) catch |err| {
+                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                    };
                 } else if (mem.startsWith(u8, arg, "-O")) {
-                    warn("ignoring linker arg {s} because it does nothing", .{arg});
+                    linker_optimization = std.fmt.parseUnsigned(u8, arg["-O".len..], 10) catch |err| {
+                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                    };
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "--no-gc-sections")) {
@@ -2309,6 +2312,7 @@ fn buildOutputType(
         .linker_tsaware = linker_tsaware,
         .linker_nxcompat = linker_nxcompat,
         .linker_dynamicbase = linker_dynamicbase,
+        .linker_optimization = linker_optimization,
         .major_subsystem_version = major_subsystem_version,
         .minor_subsystem_version = minor_subsystem_version,
         .link_eh_frame_hdr = link_eh_frame_hdr,

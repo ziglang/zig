@@ -736,6 +736,7 @@ pub const InitOptions = struct {
     linker_tsaware: bool = false,
     linker_nxcompat: bool = false,
     linker_dynamicbase: bool = false,
+    linker_optimization: ?u8 = null,
     major_subsystem_version: ?u32 = null,
     minor_subsystem_version: ?u32 = null,
     clang_passthrough_mode: bool = false,
@@ -1140,6 +1141,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         const strip = options.strip or !target_util.hasDebugInfo(options.target);
         const red_zone = options.want_red_zone orelse target_util.hasRedZone(options.target);
         const omit_frame_pointer = options.omit_frame_pointer orelse (options.optimize_mode != .Debug);
+        const linker_optimization: u8 = options.linker_optimization orelse switch (options.optimize_mode) {
+            .Debug => @as(u8, 0),
+            else => @as(u8, 3),
+        };
 
         // We put everything into the cache hash that *cannot be modified during an incremental update*.
         // For example, one cannot change the target between updates, but one can change source files,
@@ -1450,6 +1455,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .tsaware = options.linker_tsaware,
             .nxcompat = options.linker_nxcompat,
             .dynamicbase = options.linker_dynamicbase,
+            .linker_optimization = linker_optimization,
             .major_subsystem_version = options.major_subsystem_version,
             .minor_subsystem_version = options.minor_subsystem_version,
             .stack_size_override = options.stack_size_override,

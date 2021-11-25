@@ -1349,6 +1349,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.add(self.base.options.bind_global_refs_locally);
         man.hash.add(self.base.options.tsan);
         man.hash.addOptionalBytes(self.base.options.sysroot);
+        man.hash.add(self.base.options.linker_optimization);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -1425,10 +1426,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         if (self.base.options.lto) {
             switch (self.base.options.optimize_mode) {
                 .Debug => {},
-                .ReleaseSmall => try argv.append("-O2"),
-                .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),
+                .ReleaseSmall => try argv.append("--lto-O2"),
+                .ReleaseFast, .ReleaseSafe => try argv.append("--lto-O3"),
             }
         }
+        try argv.append(try std.fmt.allocPrint(arena, "-O{d}", .{
+            self.base.options.linker_optimization,
+        }));
 
         if (self.base.options.output_mode == .Exe) {
             try argv.append("-z");
