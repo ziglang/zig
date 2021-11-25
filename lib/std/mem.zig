@@ -1237,6 +1237,10 @@ test "mem.indexOf multibyte" {
     }
 }
 
+test "mem.indexOfPos empty needle" {
+    try testing.expectEqual(indexOfPos(u8, "abracadabra", 5, ""), 5);
+}
+
 /// Returns the number of needles inside the haystack
 /// needle.len must be > 0
 /// does not count overlapping needles
