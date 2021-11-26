@@ -1858,7 +1858,9 @@ fn buildOutputType(
         }
 
         const has_sysroot = if (comptime builtin.target.isDarwin()) outer: {
-            if (try std.zig.system.darwin.getDarwinSDK(arena, target_info.target)) |sdk| {
+            if (std.zig.system.darwin.isDarwinSDKInstalled(arena)) {
+                const sdk = std.zig.system.darwin.getDarwinSDK(arena, target_info.target) orelse
+                    break :outer false;
                 native_darwin_sdk = sdk;
                 try clang_argv.ensureUnusedCapacity(2);
                 clang_argv.appendAssumeCapacity("-isysroot");
