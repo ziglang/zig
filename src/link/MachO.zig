@@ -154,6 +154,7 @@ tentatives: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 
+mh_execute_header_index: ?u32 = null,
 dyld_stub_binder_index: ?u32 = null,
 dyld_private_atom: ?*Atom = null,
 stub_helper_preamble_atom: ?*Atom = null,
@@ -863,6 +864,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             sect.offset = self.tlv_bss_file_offset;
         }
 
+        try self.createMhExecuteHeaderAtom();
         for (self.objects.items) |*object, object_id| {
             if (object.analyzed) continue;
             try self.resolveSymbolsInObject(@intCast(u16, object_id));
@@ -2725,6 +2727,42 @@ fn resolveSymbolsInDylibs(self: *MachO) !void {
     }
 }
 
+fn createMhExecuteHeaderAtom(self: *MachO) !void {
+    if (self.mh_execute_header_index != null) return;
+
+    const match: MatchingSection = .{
+        .seg = self.text_segment_cmd_index.?,
+        .sect = self.text_section_index.?,
+    };
+    const n_strx = try self.makeString("__mh_execute_header");
+    const local_sym_index = @intCast(u32, self.locals.items.len);
+    var nlist = macho.nlist_64{
+        .n_strx = n_strx,
+        .n_type = macho.N_SECT,
+        .n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1),
+        .n_desc = 0,
+        .n_value = 0,
+    };
+    try self.locals.append(self.base.allocator, nlist);
+
+    nlist.n_type |= macho.N_EXT;
+    const global_sym_index = @intCast(u32, self.globals.items.len);
+    try self.globals.append(self.base.allocator, nlist);
+    try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
+        .where = .global,
+        .where_index = global_sym_index,
+        .local_sym_index = local_sym_index,
+        .file = null,
+    });
+
+    const atom = try self.createEmptyAtom(local_sym_index, 0, 0);
+    const sym = &self.locals.items[local_sym_index];
+    const vaddr = try self.allocateAtom(atom, 0, 1, match);
+    sym.n_value = vaddr;
+    atom.dirty = false;
+    self.mh_execute_header_index = local_sym_index;
+}
+
 fn resolveDyldStubBinder(self: *MachO) !void {
     if (self.dyld_stub_binder_index != null) return;
 
@@ -4077,8 +4115,16 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version),
             @sizeOf(u64),
         ));
-        const ver = self.base.options.target.os.version_range.semver.min;
-        const version = ver.major << 16 | ver.minor << 8 | ver.patch;
+        const platform_version = blk: {
+            const ver = self.base.options.target.os.version_range.semver.min;
+            const platform_version = ver.major << 16 | ver.minor << 8;
+            break :blk platform_version;
+        };
+        const sdk_version = if (self.base.options.native_darwin_sdk) |sdk| blk: {
+            const ver = sdk.version;
+            const sdk_version = ver.major << 16 | ver.minor << 8;
+            break :blk sdk_version;
+        } else platform_version;
         const is_simulator_abi = self.base.options.target.abi == .simulator;
         var cmd = commands.emptyGenericCommandWithData(macho.build_version_command{
             .cmd = macho.LC_BUILD_VERSION,
@@ -4090,8 +4136,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .tvos => if (is_simulator_abi) macho.PLATFORM_TVOSSIMULATOR else macho.PLATFORM_TVOS,
                 else => unreachable,
             },
-            .minos = version,
-            .sdk = version,
+            .minos = platform_version,
+            .sdk = sdk_version,
             .ntools = 1,
         });
         const ld_ver = macho.build_tool_version{
