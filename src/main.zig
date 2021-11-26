@@ -663,7 +663,7 @@ fn buildOutputType(
     var minor_subsystem_version: ?u32 = null;
     var wasi_exec_model: ?std.builtin.WasiExecModel = null;
     var enable_link_snapshots: bool = false;
-    var native_macos_sdk_path: ?[]const u8 = null;
+    var native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null;
 
     var system_libs = std.StringArrayHashMap(Compilation.SystemLib).init(gpa);
     defer system_libs.deinit();
@@ -1858,11 +1858,11 @@ fn buildOutputType(
         }
 
         const has_sysroot = if (comptime builtin.target.isDarwin()) outer: {
-            if (try std.zig.system.darwin.getSDKPath(arena, target_info.target)) |sdk_path| {
-                native_macos_sdk_path = sdk_path;
+            if (try std.zig.system.darwin.getDarwinSDK(arena, target_info.target)) |sdk| {
+                native_darwin_sdk = sdk;
                 try clang_argv.ensureUnusedCapacity(2);
                 clang_argv.appendAssumeCapacity("-isysroot");
-                clang_argv.appendAssumeCapacity(sdk_path);
+                clang_argv.appendAssumeCapacity(sdk.path);
                 break :outer true;
             } else break :outer false;
         } else false;
@@ -2342,7 +2342,7 @@ fn buildOutputType(
         .wasi_exec_model = wasi_exec_model,
         .debug_compile_errors = debug_compile_errors,
         .enable_link_snapshots = enable_link_snapshots,
-        .native_macos_sdk_path = native_macos_sdk_path,
+        .native_darwin_sdk = native_darwin_sdk,
     }) catch |err| {
         fatal("unable to create compilation: {s}", .{@errorName(err)});
     };

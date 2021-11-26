@@ -153,6 +153,9 @@ pub const Options = struct {
     /// (Zig compiler development) Enable dumping of linker's state as JSON.
     enable_link_snapshots: bool = false,
 
+    /// (Darwin) Path and version of the native SDK if detected.
+    native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
+
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }

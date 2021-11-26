@@ -4077,8 +4077,16 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version),
             @sizeOf(u64),
         ));
-        const ver = self.base.options.target.os.version_range.semver.min;
-        const version = ver.major << 16 | ver.minor << 8 | ver.patch;
+        const platform_version = blk: {
+            const ver = self.base.options.target.os.version_range.semver.min;
+            const platform_version = ver.major << 16 | ver.minor << 8;
+            break :blk platform_version;
+        };
+        const sdk_version = if (self.base.options.native_darwin_sdk) |sdk| blk: {
+            const ver = sdk.version;
+            const sdk_version = ver.major << 16 | ver.minor << 8;
+            break :blk sdk_version;
+        } else platform_version;
         const is_simulator_abi = self.base.options.target.abi == .simulator;
         var cmd = commands.emptyGenericCommandWithData(macho.build_version_command{
             .cmd = macho.LC_BUILD_VERSION,
@@ -4090,8 +4098,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .tvos => if (is_simulator_abi) macho.PLATFORM_TVOSSIMULATOR else macho.PLATFORM_TVOS,
                 else => unreachable,
             },
-            .minos = version,
-            .sdk = version,
+            .minos = platform_version,
+            .sdk = sdk_version,
             .ntools = 1,
         });
         const ld_ver = macho.build_tool_version{
