@@ -532,9 +532,6 @@ pub const File = struct {
             return;
         }
 
-        if (base.options.output_mode == .Obj)
-            return;
-
         const use_lld = build_options.have_llvm and base.options.use_lld;
         if (use_lld and base.options.output_mode == .Lib and base.options.link_mode == .Static) {
             return base.linkAsArchive(comp);

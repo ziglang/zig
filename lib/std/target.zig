@@ -895,6 +895,13 @@ pub const Target = struct {
                 };
             }
 
+            pub fn isBpf(arch: Arch) bool {
+                return switch (arch) {
+                    .bpfel, .bpfeb => true,
+                    else => false,
+                };
+            }
+
             pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) !*const Cpu.Model {
                 for (arch.allCpuModels()) |cpu| {
                     if (mem.eql(u8, cpu_name, cpu.name)) {
@@ -1419,6 +1426,10 @@ pub const Target = struct {
 
     pub fn isBSD(self: Target) bool {
         return self.os.tag.isBSD();
+    }
+
+    pub fn isBpfFreestanding(self: Target) bool {
+        return self.cpu.arch.isBpf() and self.os.tag == .freestanding;
     }
 
     pub fn isGnuLibC_os_tag_abi(os_tag: Os.Tag, abi: Abi) bool {
