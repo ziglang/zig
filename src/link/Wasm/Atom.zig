@@ -6,7 +6,7 @@ const Wasm = @import("../Wasm.zig");
 const Symbol = @import("Symbol.zig");
 
 const leb = std.leb;
-const log = std.log.scoped(.zld);
+const log = std.log.scoped(.link);
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
@@ -42,10 +42,16 @@ pub const empty: Atom = .{
 };
 
 /// Frees all resources owned by this `Atom`.
-/// Also destroys itself, making any usage of this atom illegal.
 pub fn deinit(self: *Atom, gpa: *Allocator) void {
     self.relocs.deinit(gpa);
     self.code.deinit(gpa);
+}
+
+/// Sets the length of relocations and code to '0',
+/// effectively resetting them and allowing them to be re-populated.
+pub fn clear(self: *Atom) void {
+    self.relocs.clearRetainingCapacity();
+    self.code.clearRetainingCapacity();
 }
 
 pub fn format(self: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -64,26 +70,6 @@ pub fn getFirst(self: *Atom) *Atom {
     var tmp = self;
     while (tmp.prev) |prev| tmp = prev;
     return tmp;
-}
-
-/// Returns the last `Atom` from a given atom
-pub fn getLast(self: *Atom) *Atom {
-    var tmp = self;
-    while (tmp.next) |next| tmp = next;
-    return tmp;
-}
-
-/// Unplugs the `Atom` from the chain
-pub fn unplug(self: *Atom) void {
-    if (self.prev) |prev| {
-        prev.next = self.next;
-    }
-
-    if (self.next) |next| {
-        next.prev = self.prev;
-    }
-    self.next = null;
-    self.prev = null;
 }
 
 /// Resolves the relocations within the atom, writing the new value
@@ -163,12 +149,10 @@ fn relocationValue(relocation: types.Relocation, wasm_bin: *const Wasm) !u64 {
             var target_atom = wasm_bin.atoms.getPtr(atom_index).?.*.getFirst();
             while (true) {
                 if (target_atom.sym_index == relocation.index) break;
-                if (target_atom.next) |next| {
-                    target_atom = next;
-                } else break;
+                target_atom = target_atom.next orelse break;
             }
             const segment = wasm_bin.segments.items[atom_index];
-            const base = wasm_bin.base.options.global_base orelse 0;
+            const base = wasm_bin.base.options.global_base orelse 1024;
             const offset = target_atom.offset + segment.offset;
             break :blk offset + base + (relocation.addend orelse 0);
         },
