@@ -922,7 +922,7 @@ pub const NativeTargetInfo = struct {
     fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
         var i: usize = 0;
         while (i < min_read_len) {
-            const len = file.pread(buf[i .. buf.len - i], offset + i) catch |err| switch (err) {
+            const len = file.pread(buf[i..], offset + i) catch |err| switch (err) {
                 error.OperationAborted => unreachable, // Windows-only
                 error.WouldBlock => unreachable, // Did not request blocking mode
                 error.NotOpenForReading => unreachable,
