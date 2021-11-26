@@ -9,58 +9,20 @@
 // supported in clang's compiler-rt implementation today in case anyone tries to link an object file
 // produced with an old clang version. This requires dynamically loading frameworks, parsing a
 // system plist file, and generally adds a fair amount of complexity to the implementation and so
-// our implementation differs by simply removing that backwards compatability support. This means
-// our implementation uses only the newer codepath which merely shells out to the Darwin
-// _availability_version_check API which is available on macOS 10.15+, iOS 13+, tvOS 13+ and
-// watchOS 6+.
+// our implementation differs by simply removing that backwards compatability support. We only use
+// the newer codepath, which merely calls out to the Darwin _availability_version_check API which is
+// available on macOS 10.15+, iOS 13+, tvOS 13+ and watchOS 6+.
 
-// #ifdef __APPLE__
+inline fn constructVersion(major: u32, minor: u32, subminor: u32) u32 {
+    return ((major & 0xffff) << 16) | ((minor & 0xff) << 8) | (subminor & 0xff);
+}
 
-// #include <TargetConditionals.h>
-// #include <dispatch/dispatch.h>
-// #include <dlfcn.h>
-// #include <stdint.h>
-// #include <stdio.h>
-// #include <stdlib.h>
-// #include <string.h>
-
-// static dispatch_once_t DispatchOnceCounter;
-
-// // _availability_version_check darwin API support.
-// typedef uint32_t dyld_platform_t;
-
-// typedef struct {
-//   dyld_platform_t platform;
-//   uint32_t version;
-// } dyld_build_version_t;
-
-// typedef bool (*AvailabilityVersionCheckFuncTy)(uint32_t count,
-//                                                dyld_build_version_t versions[]);
-
-// static AvailabilityVersionCheckFuncTy AvailabilityVersionCheck;
-
-// static void initializeAvailabilityCheck(void *Unused) {
-//   (void)Unused;
-//   // Use the new API if it's is available.
-//   AvailabilityVersionCheck = (AvailabilityVersionCheckFuncTy)dlsym(
-//       RTLD_DEFAULT, "_availability_version_check");
-//
-//   // TODO: panic if AvailabilityVersionCheck == NULL
-// }
-
-// static inline uint32_t ConstructVersion(uint32_t Major, uint32_t Minor,
-//                                         uint32_t Subminor) {
-//   return ((Major & 0xffff) << 16) | ((Minor & 0xff) << 8) | (Subminor & 0xff);
-// }
-
-// int32_t __isPlatformVersionAtLeast(uint32_t Platform, uint32_t Major,
-//                                    uint32_t Minor, uint32_t Subminor) {
-//   dispatch_once_f(&DispatchOnceCounter, NULL, initializeAvailabilityCheck);
-
-//   dyld_build_version_t Versions[] = {
-//       {Platform, ConstructVersion(Major, Minor, Subminor)}};
-//   return AvailabilityVersionCheck(1, Versions);
-// }
+// Darwin-only
+pub fn __isPlatformVersionAtLeast(platform: u32, major: u32, minor: u32, subminor: u32) callconv(.C) i32 {
+    return if (_availability_version_check(1, &[_]dyld_build_version_t{
+        .{ .platform = platform, .version = constructVersion(major, minor, subminor) },
+    })) 1 else 0;
+}
 
 // TODO(future): If anyone wishes to build Objective-C code for Android, we would need to port this
 // logic.
@@ -103,3 +65,12 @@
 // }
 
 // #endif
+
+// _availability_version_check darwin API support.
+const dyld_platform_t = u32;
+const dyld_build_version_t = extern struct {
+    platform: dyld_platform_t,
+    version: u32,
+};
+// Darwin-only
+extern "c" fn _availability_version_check(count: u32, versions: [*c]const dyld_build_version_t) bool;
