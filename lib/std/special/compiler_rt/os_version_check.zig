@@ -62,6 +62,8 @@
 //   return AvailabilityVersionCheck(1, Versions);
 // }
 
+// TODO(future): If anyone wishes to build Objective-C code for Android, we would need to port this
+// logic.
 // #elif __ANDROID__
 
 // #include <pthread.h>
@@ -90,7 +92,7 @@
 //   return;
 // }
 
-// int32_t __isOSVersionAtLeast(int32_t Major, int32_t Minor, int32_t Subminor) {
+// int32_t __isPlatformVersionAtLeast(int32_t Major, int32_t Minor, int32_t Subminor) {
 //   (int32_t) Minor;
 //   (int32_t) Subminor;
 //   static pthread_once_t once = PTHREAD_ONCE_INIT;
@@ -99,10 +101,5 @@
 //   return SdkVersion >= Major ||
 //          (IsPreRelease && Major == __ANDROID_API_FUTURE__);
 // }
-
-// #else
-
-// // Silence an empty translation unit warning.
-// typedef int unused;
 
 // #endif
