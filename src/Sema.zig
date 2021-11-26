@@ -18006,10 +18006,14 @@ pub fn analyzeAddrspace(
     const address_space = addrspace_tv.val.toEnum(std.builtin.AddressSpace);
     const target = sema.mod.getTarget();
     const arch = target.cpu.arch;
+    const is_gpu = arch == .nvptx or arch == .nvptx64;
 
     const supported = switch (address_space) {
         .generic => true,
         .gs, .fs, .ss => (arch == .i386 or arch == .x86_64) and ctx == .pointer,
+        // TODO: check that .shared and .local are left uninitialized
+        .global, .param, .shared, .local => is_gpu,
+        .constant => is_gpu and (ctx == .constant),
     };
 
     if (!supported) {
@@ -18020,7 +18024,6 @@ pub fn analyzeAddrspace(
             .constant => "constant values",
             .pointer => "pointers",
         };
-
         return sema.fail(
             block,
             src,
