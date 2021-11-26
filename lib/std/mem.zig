@@ -1162,7 +1162,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
 /// Uses Boyer-moore-horspool algorithm on large inputs; `indexOfPosLinear` on small inputs.
 pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
     if (needle.len > haystack.len) return null;
-    if (needle.len == 0) return 0;
+    if (needle.len == 0) return start_index;
 
     if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return indexOfPosLinear(T, haystack, start_index, needle);
@@ -1235,6 +1235,10 @@ test "mem.indexOf multibyte" {
         const needleBE = [_]u16{ 0xaacc, 0xbbdd, 0xccee, 0xddff, 0xee00 };
         try testing.expectEqual(lastIndexOf(u16, &haystack, &needleBE), null);
     }
+}
+
+test "mem.indexOfPos empty needle" {
+    try testing.expectEqual(indexOfPos(u8, "abracadabra", 5, ""), 5);
 }
 
 /// Returns the number of needles inside the haystack
