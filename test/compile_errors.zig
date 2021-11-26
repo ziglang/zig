@@ -23,6 +23,20 @@ pub fn addCases(ctx: *TestContext) !void {
         });
     }
 
+    ctx.objErrStage1("exported enum without explicit integer tag type",
+        \\const E = enum { one, two };
+        \\comptime {
+        \\    @export(E, .{ .name = "E" });
+        \\}
+        \\const e: E = .two;
+        \\comptime {
+        \\    @export(e, .{ .name = "e" });
+        \\}
+    , &.{
+        "tmp.zig:3:13: error: exported enum without explicit integer tag type",
+        "tmp.zig:7:13: error: exported enum value without explicit integer tag type",
+    });
+
     ctx.objErrStage1("issue #9346: return outside of function scope",
         \\pub const empty = return 1;
     , &.{"tmp.zig:1:19: error: 'return' outside function scope"});

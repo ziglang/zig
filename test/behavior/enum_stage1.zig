@@ -423,3 +423,17 @@ test "method call on an enum" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "exporting enum type and value" {
+    const S = struct {
+        const E = enum(c_int) { one, two };
+        comptime {
+            @export(E, .{ .name = "E" });
+        }
+        const e: E = .two;
+        comptime {
+            @export(e, .{ .name = "e" });
+        }
+    };
+    try expect(S.e == .two);
+}
