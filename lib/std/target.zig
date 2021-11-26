@@ -81,10 +81,10 @@ pub const Target = struct {
                 }
             }
 
-            pub fn defaultVersionRange(tag: Tag) Os {
+            pub fn defaultVersionRange(tag: Tag, arch: Cpu.Arch) Os {
                 return .{
                     .tag = tag,
-                    .version_range = VersionRange.default(tag),
+                    .version_range = VersionRange.default(tag, arch),
                 };
             }
         };
@@ -226,7 +226,7 @@ pub const Target = struct {
 
             /// The default `VersionRange` represents the range that the Zig Standard Library
             /// bases its abstractions on.
-            pub fn default(tag: Tag) VersionRange {
+            pub fn default(tag: Tag, arch: Cpu.Arch) VersionRange {
                 switch (tag) {
                     .freestanding,
                     .ananas,
@@ -266,12 +266,22 @@ pub const Target = struct {
                             .max = .{ .major = 13, .minor = 0 },
                         },
                     },
-                    .macos => return .{
-                        .semver = .{
-                            .min = .{ .major = 10, .minor = 13 },
-                            .max = .{ .major = 11, .minor = 2 },
+                    .macos => return switch (arch) {
+                        .aarch64 => VersionRange{
+                            .semver = .{
+                                .min = .{ .major = 11, .minor = 6 },
+                                .max = .{ .major = 12, .minor = 0 },
+                            },
                         },
+                        .x86_64 => VersionRange{
+                            .semver = .{
+                                .min = .{ .major = 10, .minor = 13 },
+                                .max = .{ .major = 12, .minor = 0 },
+                            },
+                        },
+                        else => unreachable,
                     },
+
                     .ios => return .{
                         .semver = .{
                             .min = .{ .major = 12, .minor = 0 },

@@ -1848,11 +1848,7 @@ fn buildOutputType(
             want_native_include_dirs = true;
     }
 
-    const is_darwin_on_darwin = (comptime builtin.target.isDarwin()) and cross_target.isDarwin();
-
-    if (sysroot == null and (cross_target.isNativeOs() or is_darwin_on_darwin) and
-        (system_libs.count() != 0 or want_native_include_dirs))
-    {
+    if (sysroot == null and cross_target.isNativeOs() and (system_libs.count() != 0 or want_native_include_dirs)) {
         const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
             fatal("unable to detect native system paths: {s}", .{@errorName(err)});
         };
@@ -1861,12 +1857,6 @@ fn buildOutputType(
         }
 
         const has_sysroot = if (comptime builtin.target.isDarwin()) outer: {
-            const should_get_sdk_path = if (cross_target.isNativeOs() and target_info.target.os.tag == .macos) inner: {
-                const min = target_info.target.os.getVersionRange().semver.min;
-                const at_least_mojave = min.major >= 11 or (min.major >= 10 and min.minor >= 14);
-                break :inner at_least_mojave;
-            } else true;
-            if (!should_get_sdk_path) break :outer false;
             if (try std.zig.system.darwin.getSDKPath(arena, target_info.target)) |sdk_path| {
                 try clang_argv.ensureUnusedCapacity(2);
                 clang_argv.appendAssumeCapacity("-isysroot");

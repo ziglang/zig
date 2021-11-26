@@ -185,7 +185,9 @@ pub const LibCInstallation = struct {
     pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
         var self: LibCInstallation = .{};
 
-        if (is_windows) {
+        if (is_darwin) {
+            @panic("Darwin is handled separately via std.zig.system.darwin module");
+        } else if (is_windows) {
             if (!build_options.have_llvm)
                 return error.WindowsSdkNotFound;
             var sdk: *ZigWindowsSDK = undefined;

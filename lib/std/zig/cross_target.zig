@@ -375,7 +375,7 @@ pub const CrossTarget = struct {
         // `builtin.os` works when doing `zig build` because Zig generates a build executable using
         // native OS version range. However this will not be accurate otherwise, and
         // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
-        var adjusted_os = if (self.os_tag) |os_tag| os_tag.defaultVersionRange() else builtin.os;
+        var adjusted_os = if (self.os_tag) |os_tag| os_tag.defaultVersionRange(self.getCpuArch()) else builtin.os;
 
         if (self.os_version_min) |min| switch (min) {
             .none => {},
