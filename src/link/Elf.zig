@@ -1381,7 +1381,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
 
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
-    if (self.base.options.output_mode == .Obj and self.base.options.lto) {
+
+    // Due to a deficiency in LLD, we need to special-case BPF to a simple file copy when generating
+    // relocatables. Normally, we would expect `lld -r` to work. However, because LLD wants to resolve
+    // BPF relocations which it shouldn't, it fails before even generating the relocatable.
+    if (self.base.options.output_mode == .Obj and (self.base.options.lto or target.isBpfFreestanding())) {
         // In this case we must do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
