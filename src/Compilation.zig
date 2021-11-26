@@ -1885,7 +1885,7 @@ pub fn update(self: *Compilation) !void {
 
     // Flush takes care of -femit-bin, but we still have -femit-llvm-ir, -femit-llvm-bc, and
     // -femit-asm to handle, in the case of C objects.
-    try self.emitOthers();
+    self.emitOthers();
 
     // If there are any errors, we anticipate the source files being loaded
     // to report error messages. Otherwise we unload all source files to save memory.
@@ -1902,7 +1902,7 @@ pub fn update(self: *Compilation) !void {
     }
 }
 
-fn emitOthers(comp: *Compilation) !void {
+fn emitOthers(comp: *Compilation) void {
     if (comp.bin_file.options.output_mode != .Obj or comp.bin_file.options.module != null or
         comp.c_object_table.count() == 0)
     {
@@ -1925,9 +1925,16 @@ fn emitOthers(comp: *Compilation) !void {
     for (outs) |out| {
         if (out.emit) |loc| {
             if (loc.directory) |directory| {
-                const src_path = try std.fmt.allocPrint(comp.gpa, "{s}{s}", .{ basename, out.ext });
+                const src_path = std.fmt.allocPrint(comp.gpa, "{s}{s}", .{
+                    basename, out.ext,
+                }) catch |err| {
+                    log.err("unable to copy {s}{s}: {s}", .{ basename, out.ext, @errorName(err) });
+                    continue;
+                };
                 defer comp.gpa.free(src_path);
-                try cwd.copyFile(src_path, directory.handle, loc.basename, .{});
+                cwd.copyFile(src_path, directory.handle, loc.basename, .{}) catch |err| {
+                    log.err("unable to copy {s}: {s}", .{ src_path, @errorName(err) });
+                };
             }
         }
     }
