@@ -319,6 +319,14 @@ pub fn generate(
         else => |e| return e,
     };
 
+    if (builtin.mode == .Debug and bin_file.options.module.?.comp.verbose_mir) {
+        const w = std.io.getStdErr().writer();
+        w.print("# Begin Function MIR: {s}:\n", .{module_fn.owner_decl.name}) catch {};
+        const print = @import("./PrintMir.zig"){ .mir = mir };
+        print.printMir(w) catch {}; // we don't care if the debug printing fails
+        w.print("# End Function MIR: {s}:\n\n", .{module_fn.owner_decl.name}) catch {};
+    }
+
     if (function.err_msg) |em| {
         return FnResult{ .fail = em };
     } else {
