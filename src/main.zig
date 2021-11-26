@@ -668,6 +668,9 @@ fn buildOutputType(
     var system_libs = std.StringArrayHashMap(Compilation.SystemLib).init(gpa);
     defer system_libs.deinit();
 
+    var static_libs = std.ArrayList([]const u8).init(gpa);
+    defer static_libs.deinit();
+
     var wasi_emulated_libs = std.ArrayList(wasi_libc.CRTFile).init(gpa);
     defer wasi_emulated_libs.deinit();
 
@@ -1253,6 +1256,7 @@ fn buildOutputType(
             var it = ClangArgIterator.init(arena, all_args);
             var emit_llvm = false;
             var needed = false;
+            var force_static_libs = false;
             while (it.has_next) {
                 it.next() catch |err| {
                     fatal("unable to parse command line parameters: {s}", .{@errorName(err)});
@@ -1287,7 +1291,11 @@ fn buildOutputType(
                         // -l
                         // We don't know whether this library is part of libc or libc++ until
                         // we resolve the target, so we simply append to the list for now.
-                        try system_libs.put(it.only_arg, .{ .needed = needed });
+                        if (force_static_libs) {
+                            try static_libs.append(it.only_arg);
+                        } else {
+                            try system_libs.put(it.only_arg, .{ .needed = needed });
+                        }
                     },
                     .ignore => {},
                     .driver_punt => {
@@ -1333,6 +1341,17 @@ fn buildOutputType(
                                 needed = false;
                             } else if (mem.eql(u8, linker_arg, "--no-as-needed")) {
                                 needed = true;
+                            } else if (mem.eql(u8, linker_arg, "-Bdynamic") or
+                                mem.eql(u8, linker_arg, "-dy") or
+                                mem.eql(u8, linker_arg, "-call_shared"))
+                            {
+                                force_static_libs = false;
+                            } else if (mem.eql(u8, linker_arg, "-Bstatic") or
+                                mem.eql(u8, linker_arg, "-dn") or
+                                mem.eql(u8, linker_arg, "-non_shared") or
+                                mem.eql(u8, linker_arg, "-static"))
+                            {
+                                force_static_libs = true;
                             } else {
                                 try linker_args.append(linker_arg);
                             }
@@ -1890,6 +1909,48 @@ fn buildOutputType(
         }
         for (paths.rpaths.items) |rpath| {
             try rpath_list.append(rpath);
+        }
+    }
+
+    {
+        // Resolve static libraries into full paths.
+        const sep = fs.path.sep_str;
+
+        var test_path = std.ArrayList(u8).init(gpa);
+        defer test_path.deinit();
+
+        for (static_libs.items) |static_lib| {
+            for (lib_dirs.items) |lib_dir_path| {
+                test_path.clearRetainingCapacity();
+                try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
+                    lib_dir_path,
+                    target_info.target.libPrefix(),
+                    static_lib,
+                    target_info.target.staticLibSuffix(),
+                });
+                fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+                    error.FileNotFound => continue,
+                    else => |e| fatal("unable to search for static library '{s}': {s}", .{
+                        test_path.items, @errorName(e),
+                    }),
+                };
+                try link_objects.append(try arena.dupe(u8, test_path.items));
+                break;
+            } else {
+                var search_paths = std.ArrayList(u8).init(arena);
+                for (lib_dirs.items) |lib_dir_path| {
+                    try search_paths.writer().print("\n {s}" ++ sep ++ "{s}{s}{s}", .{
+                        lib_dir_path,
+                        target_info.target.libPrefix(),
+                        static_lib,
+                        target_info.target.staticLibSuffix(),
+                    });
+                }
+                try search_paths.appendSlice("\n suggestion: use full paths to static libraries on the command line rather than using -l and -L arguments");
+                fatal("static library '{s}' not found. search paths: {s}", .{
+                    static_lib, search_paths.items,
+                });
+            }
         }
     }
 

@@ -1553,7 +1553,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             defer test_path.deinit();
             for (self.base.options.lib_dirs) |lib_dir_path| {
                 for (self.base.options.system_libs.keys()) |link_lib| {
-                    test_path.shrinkRetainingCapacity(0);
+                    test_path.clearRetainingCapacity();
                     const sep = fs.path.sep_str;
                     try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{
                         lib_dir_path, link_lib,
