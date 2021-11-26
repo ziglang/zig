@@ -1809,9 +1809,15 @@ fn renderArrayInit(
                 try ais.writer().writeAll(expr_text);
             } else {
                 var by_line = std.mem.split(u8, expr_text, "\n");
+                var last_line_was_empty = false;
                 try ais.writer().writeAll(by_line.next().?);
                 while (by_line.next()) |line| {
-                    try ais.maybeInsertNewline();
+                    if (std.mem.startsWith(u8, line, "//") and last_line_was_empty) {
+                        try ais.insertNewline();
+                    } else {
+                        try ais.maybeInsertNewline();
+                    }
+                    last_line_was_empty = (line.len == 0);
                     try ais.writer().writeAll(line);
                 }
             }
