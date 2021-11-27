@@ -1,3 +1,5 @@
+const testing = @import("std").testing;
+
 // Ported from llvm-project 13.0.0 d7b669b3a30345cfcdb2fde2af6f48aa4b94845d
 //
 // https://github.com/llvm/llvm-project/blob/llvmorg-13.0.0/compiler-rt/lib/builtins/os_version_check.c
@@ -74,3 +76,11 @@ const dyld_build_version_t = extern struct {
 };
 // Darwin-only
 extern "c" fn _availability_version_check(count: u32, versions: [*c]const dyld_build_version_t) bool;
+
+test "isPlatformVersionAtLeast" {
+    // Note: this test depends on the actual host OS version since it is merely calling into the
+    // native Darwin API.
+    const macos_platform_constant = 1;
+    try testing.expect(__isPlatformVersionAtLeast(macos_platform_constant, 10, 0, 15) == 1);
+    try testing.expect(__isPlatformVersionAtLeast(macos_platform_constant, 99, 0, 0) == 0);
+}
