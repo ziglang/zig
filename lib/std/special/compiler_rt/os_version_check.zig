@@ -1,4 +1,5 @@
 const testing = @import("std").testing;
+const builtin = @import("builtin");
 
 // Ported from llvm-project 13.0.0 d7b669b3a30345cfcdb2fde2af6f48aa4b94845d
 //
@@ -78,6 +79,8 @@ const dyld_build_version_t = extern struct {
 extern "c" fn _availability_version_check(count: u32, versions: [*c]const dyld_build_version_t) bool;
 
 test "isPlatformVersionAtLeast" {
+    if (!builtin.os.tag.isDarwin()) return error.SkipZigTest;
+
     // Note: this test depends on the actual host OS version since it is merely calling into the
     // native Darwin API.
     const macos_platform_constant = 1;
