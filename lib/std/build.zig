@@ -1487,6 +1487,7 @@ pub const LibExeObjStep = struct {
     libc_file: ?FileSource = null,
 
     valgrind_support: ?bool = null,
+    each_lib_rpath: ?bool = null,
 
     /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
     /// file.
@@ -2678,6 +2679,14 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-fvalgrind");
             } else {
                 try zig_args.append("-fno-valgrind");
+            }
+        }
+
+        if (self.each_lib_rpath) |each_lib_rpath| {
+            if (each_lib_rpath) {
+                try zig_args.append("-feach-lib-rpath");
+            } else {
+                try zig_args.append("-fno-each-lib-rpath");
             }
         }
 
