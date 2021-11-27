@@ -665,6 +665,12 @@ fn buildOutputType(
     var enable_link_snapshots: bool = false;
     var native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null;
 
+    // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
+    // This array is populated by zig cc frontend and then has to be converted to zig-style
+    // CPU features.
+    var llvm_m_args = std.ArrayList([]const u8).init(gpa);
+    defer llvm_m_args.deinit();
+
     var system_libs = std.StringArrayHashMap(Compilation.SystemLib).init(gpa);
     defer system_libs.deinit();
 
@@ -1412,7 +1418,9 @@ fn buildOutputType(
                     .dry_run => {
                         verbose_link = true;
                         try clang_argv.append("-###");
-                        // XXX: Don't execute anything!
+                        // This flag is supposed to mean "dry run" but currently this
+                        // will actually still execute. The tracking issue for this is
+                        // https://github.com/ziglang/zig/issues/7170
                     },
                     .for_linker => try linker_args.append(it.only_arg),
                     .linker_input_z => {
@@ -1421,6 +1429,7 @@ fn buildOutputType(
                     },
                     .lib_dir => try lib_dirs.append(it.only_arg),
                     .mcpu => target_mcpu = it.only_arg,
+                    .m => try llvm_m_args.append(it.only_arg),
                     .dep_file => {
                         disable_c_depfile = true;
                         try clang_argv.appendSlice(it.other_args);
@@ -1798,12 +1807,62 @@ fn buildOutputType(
         }
     };
 
-    const cross_target = try parseCrossTargetOrReportFatalError(arena, .{
+    var target_parse_options: std.zig.CrossTarget.ParseOptions = .{
         .arch_os_abi = target_arch_os_abi,
         .cpu_features = target_mcpu,
         .dynamic_linker = target_dynamic_linker,
-    });
+    };
 
+    // Before passing the mcpu string in for parsing, we convert any -m flags that were
+    // passed in via zig cc to zig-style.
+    if (llvm_m_args.items.len != 0) {
+        // If this returns null, we let it fall through to the case below which will
+        // run the full parse function and do proper error handling.
+        if (std.zig.CrossTarget.parseCpuArch(target_parse_options)) |cpu_arch| {
+            var llvm_to_zig_name = std.StringHashMap([]const u8).init(gpa);
+            defer llvm_to_zig_name.deinit();
+
+            for (cpu_arch.allFeaturesList()) |feature| {
+                const llvm_name = feature.llvm_name orelse continue;
+                try llvm_to_zig_name.put(llvm_name, feature.name);
+            }
+
+            var mcpu_buffer = std.ArrayList(u8).init(gpa);
+            defer mcpu_buffer.deinit();
+
+            try mcpu_buffer.appendSlice(target_mcpu orelse "baseline");
+
+            for (llvm_m_args.items) |llvm_m_arg| {
+                if (mem.startsWith(u8, llvm_m_arg, "mno-")) {
+                    const llvm_name = llvm_m_arg["mno-".len..];
+                    const zig_name = llvm_to_zig_name.get(llvm_name) orelse {
+                        fatal("target architecture {s} has no LLVM CPU feature named '{s}'", .{
+                            @tagName(cpu_arch), llvm_name,
+                        });
+                    };
+                    try mcpu_buffer.append('-');
+                    try mcpu_buffer.appendSlice(zig_name);
+                } else if (mem.startsWith(u8, llvm_m_arg, "m")) {
+                    const llvm_name = llvm_m_arg["m".len..];
+                    const zig_name = llvm_to_zig_name.get(llvm_name) orelse {
+                        fatal("target architecture {s} has no LLVM CPU feature named '{s}'", .{
+                            @tagName(cpu_arch), llvm_name,
+                        });
+                    };
+                    try mcpu_buffer.append('+');
+                    try mcpu_buffer.appendSlice(zig_name);
+                } else {
+                    unreachable;
+                }
+            }
+
+            const adjusted_target_mcpu = try arena.dupe(u8, mcpu_buffer.items);
+            std.log.debug("adjusted target_mcpu: {s}", .{adjusted_target_mcpu});
+            target_parse_options.cpu_features = adjusted_target_mcpu;
+        }
+    }
+
+    const cross_target = try parseCrossTargetOrReportFatalError(arena, target_parse_options);
     const target_info = try detectNativeTargetInfo(gpa, cross_target);
 
     if (target_info.target.os.tag != .freestanding) {
@@ -2580,7 +2639,10 @@ fn buildOutputType(
     return cleanExit();
 }
 
-fn parseCrossTargetOrReportFatalError(allocator: *Allocator, opts: std.zig.CrossTarget.ParseOptions) !std.zig.CrossTarget {
+fn parseCrossTargetOrReportFatalError(
+    allocator: *Allocator,
+    opts: std.zig.CrossTarget.ParseOptions,
+) !std.zig.CrossTarget {
     var opts_with_diags = opts;
     var diags: std.zig.CrossTarget.ParseOptions.Diagnostics = .{};
     if (opts_with_diags.diagnostics == null) {
@@ -3948,6 +4010,7 @@ pub const ClangArgIterator = struct {
         target,
         o,
         c,
+        m,
         other,
         positional,
         l,

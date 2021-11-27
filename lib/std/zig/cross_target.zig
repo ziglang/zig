@@ -323,6 +323,21 @@ pub const CrossTarget = struct {
         return result;
     }
 
+    /// Similar to `parse` except instead of fully parsing, it only determines the CPU
+    /// architecture and returns it if it can be determined, and returns `null` otherwise.
+    /// This is intended to be used if the API user of CrossTarget needs to learn the
+    /// target CPU architecture in order to fully populate `ParseOptions`.
+    pub fn parseCpuArch(args: ParseOptions) ?Target.Cpu.Arch {
+        var it = mem.split(u8, args.arch_os_abi, "-");
+        const arch_name = it.next().?;
+        const arch_is_native = mem.eql(u8, arch_name, "native");
+        if (arch_is_native) {
+            return builtin.cpu.arch;
+        } else {
+            return std.meta.stringToEnum(Target.Cpu.Arch, arch_name);
+        }
+    }
+
     /// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
     pub fn getCpu(self: CrossTarget) Target.Cpu {
         switch (self.cpu_model) {

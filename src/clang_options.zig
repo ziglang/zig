@@ -132,3 +132,13 @@ pub fn sepd1(name: []const u8) CliArg {
         .pd1 = true,
     };
 }
+
+/// Shortcut function for initializing a `CliArg`
+pub fn m(name: []const u8) CliArg {
+    return .{
+        .name = name,
+        .syntax = .flag,
+        .zig_equivalent = .m,
+        .pd1 = true,
+    };
+}
