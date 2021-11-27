@@ -26,7 +26,7 @@ const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
 mir: Mir,
 
-pub fn printMir(print: *const Print, w: anytype) !void {
+pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap(Mir.Inst.Index, Air.Inst.Index), air: Air) !void {
     const instruction_bytes = print.mir.instructions.len *
         // Here we don't use @sizeOf(Mir.Inst.Data) because it would include
         // the debug safety tag but we want to measure release size.
@@ -49,8 +49,11 @@ pub fn printMir(print: *const Print, w: anytype) !void {
     const mir_tags = print.mir.instructions.items(.tag);
 
     for (mir_tags) |tag, index| {
-        try w.writeAll("  ");
         const inst = @intCast(u32, index);
+        if (mir_to_air_map.get(inst)) |air_index| {
+            try w.print("air index %{} ({}) for following mir inst(s)\n", .{ air_index, air.instructions.items(.tag)[air_index] });
+        }
+        try w.writeAll("  ");
         switch (tag) {
             .adc => try print.mirArith(.adc, inst, w),
             .add => try print.mirArith(.add, inst, w),
