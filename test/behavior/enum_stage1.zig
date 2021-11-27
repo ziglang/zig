@@ -2,28 +2,6 @@ const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 const Tag = @import("std").meta.Tag;
 
-const MultipleChoice = enum(u32) {
-    A = 20,
-    B = 40,
-    C = 60,
-    D = 1000,
-};
-
-fn testEnumWithSpecifiedTagValues(x: MultipleChoice) !void {
-    try expect(@enumToInt(x) == 60);
-    try expect(1234 == switch (x) {
-        MultipleChoice.A => 1,
-        MultipleChoice.B => 2,
-        MultipleChoice.C => @as(u32, 1234),
-        MultipleChoice.D => 4,
-    });
-}
-
-test "enum with specified tag values" {
-    try testEnumWithSpecifiedTagValues(MultipleChoice.C);
-    comptime try testEnumWithSpecifiedTagValues(MultipleChoice.C);
-}
-
 test "non-exhaustive enum" {
     const S = struct {
         const E = enum(u8) {

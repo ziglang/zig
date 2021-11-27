@@ -65,5 +65,5 @@ test "assign undefined to struct with method" {
 
 test "type name of undefined" {
     const x = undefined;
-    try expect(mem.eql(u8, @typeName(@TypeOf(x)), "(undefined)"));
+    try expect(mem.eql(u8, @typeName(@TypeOf(x)), "@Type(.Undefined)"));
 }

@@ -24,11 +24,11 @@ test {
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/error.zig");
-    _ = @import("behavior/error.zig");
     _ = @import("behavior/generics.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/if.zig");
+    _ = @import("behavior/import.zig");
     _ = @import("behavior/int128.zig");
     _ = @import("behavior/member_func.zig");
     _ = @import("behavior/null.zig");
@@ -73,7 +73,9 @@ test {
         _ = @import("behavior/slice.zig");
         _ = @import("behavior/struct_llvm.zig");
         _ = @import("behavior/switch.zig");
+        _ = @import("behavior/undefined.zig");
         _ = @import("behavior/union.zig");
+        _ = @import("behavior/void.zig");
         _ = @import("behavior/widening.zig");
 
         if (builtin.zig_is_stage2) {
@@ -151,7 +153,6 @@ test {
             _ = @import("behavior/fn_in_struct_in_comptime.zig");
             _ = @import("behavior/for_stage1.zig");
             _ = @import("behavior/if_stage1.zig");
-            _ = @import("behavior/import.zig");
             _ = @import("behavior/incomplete_struct_param_tld.zig");
             _ = @import("behavior/inttoptr.zig");
             _ = @import("behavior/ir_block_deps.zig");
@@ -183,13 +184,11 @@ test {
             _ = @import("behavior/type.zig");
             _ = @import("behavior/type_info.zig");
             _ = @import("behavior/typename.zig");
-            _ = @import("behavior/undefined.zig");
             _ = @import("behavior/union_stage1.zig");
             _ = @import("behavior/union_with_members.zig");
             _ = @import("behavior/usingnamespace_stage1.zig");
             _ = @import("behavior/var_args.zig");
             _ = @import("behavior/vector.zig");
-            _ = @import("behavior/void.zig");
             if (builtin.target.cpu.arch == .wasm32) {
                 _ = @import("behavior/wasm.zig");
             }

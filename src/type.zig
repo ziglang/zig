@@ -1197,6 +1197,113 @@ pub const Type = extern union {
         }
     }
 
+    /// Returns a name suitable for `@typeName`.
+    pub fn nameAlloc(ty: Type, arena: *Allocator) Allocator.Error![:0]const u8 {
+        const t = ty.tag();
+        switch (t) {
+            .inferred_alloc_const => unreachable,
+            .inferred_alloc_mut => unreachable,
+            .generic_poison => unreachable,
+
+            .u1,
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .u128,
+            .i128,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .c_void,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .@"anyframe",
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .var_args_param,
+            .bound_fn,
+            => return @tagName(t),
+
+            .enum_literal => return "@Type(.EnumLiteral)",
+            .@"null" => return "@Type(.Null)",
+            .@"undefined" => return "@Type(.Undefined)",
+
+            .empty_struct, .empty_struct_literal => return "struct {}",
+
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return try arena.dupeZ(u8, std.mem.sliceTo(struct_obj.owner_decl.name, 0));
+            },
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
+                return try arena.dupeZ(u8, std.mem.sliceTo(union_obj.owner_decl.name, 0));
+            },
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Payload.EnumFull).?.data;
+                return try arena.dupeZ(u8, std.mem.sliceTo(enum_full.owner_decl.name, 0));
+            },
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                return try arena.dupeZ(u8, std.mem.sliceTo(enum_simple.owner_decl.name, 0));
+            },
+            .enum_numbered => {
+                const enum_numbered = ty.castTag(.enum_numbered).?.data;
+                return try arena.dupeZ(u8, std.mem.sliceTo(enum_numbered.owner_decl.name, 0));
+            },
+            .@"opaque" => {
+                // TODO use declaration name
+                return "opaque {}";
+            },
+
+            .anyerror_void_error_union => return "anyerror!void",
+            .const_slice_u8 => return "[]const u8",
+            .fn_noreturn_no_args => return "fn() noreturn",
+            .fn_void_no_args => return "fn() void",
+            .fn_naked_noreturn_no_args => return "fn() callconv(.Naked) noreturn",
+            .fn_ccc_void_no_args => return "fn() callconv(.C) void",
+            .single_const_pointer_to_comptime_int => return "*const comptime_int",
+            .manyptr_u8 => return "[*]u8",
+            .manyptr_const_u8 => return "[*]const u8",
+            .atomic_order => return "AtomicOrder",
+            .atomic_rmw_op => return "AtomicRmwOp",
+            .calling_convention => return "CallingConvention",
+            .address_space => return "AddressSpace",
+            .float_mode => return "FloatMode",
+            .reduce_op => return "ReduceOp",
+            .call_options => return "CallOptions",
+            .export_options => return "ExportOptions",
+            .extern_options => return "ExternOptions",
+            .type_info => return "TypeInfo",
+
+            else => {
+                // TODO this is wasteful and also an incorrect implementation of `@typeName`
+                var buf = std.ArrayList(u8).init(arena);
+                try buf.writer().print("{}", .{ty});
+                return try buf.toOwnedSliceSentinel(0);
+            },
+        }
+    }
+
     /// Anything that reports hasCodeGenBits() false returns false here as well.
     /// `generic_poison` will return false.
     pub fn requiresComptime(ty: Type) bool {

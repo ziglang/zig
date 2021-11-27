@@ -153,6 +153,20 @@ test "while with optional as condition with else" {
     try expect(got_else == 1);
 }
 
+test "while with error union condition" {
+    numbers_left = 10;
+    var sum: i32 = 0;
+    var got_else: i32 = 0;
+    while (getNumberOrErr()) |value| {
+        sum += value;
+    } else |err| {
+        try expect(err == error.OutOfNumbers);
+        got_else += 1;
+    }
+    try expect(sum == 45);
+    try expect(got_else == 1);
+}
+
 test "while on bool with else result follow else prong" {
     const result = while (returnFalse()) {
         break @as(i32, 10);
@@ -198,4 +212,27 @@ fn returnFalse() bool {
 }
 fn returnTrue() bool {
     return true;
+}
+
+test "return with implicit cast from while loop" {
+    returnWithImplicitCastFromWhileLoopTest() catch unreachable;
+}
+fn returnWithImplicitCastFromWhileLoopTest() anyerror!void {
+    while (true) {
+        return;
+    }
+}
+
+test "while on error union with else result follow else prong" {
+    const result = while (returnError()) |value| {
+        break value;
+    } else |_| @as(i32, 2);
+    try expect(result == 2);
+}
+
+test "while on error union with else result follow break prong" {
+    const result = while (returnSuccess(10)) |value| {
+        break value;
+    } else |_| @as(i32, 2);
+    try expect(result == 10);
 }

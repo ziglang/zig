@@ -583,3 +583,25 @@ test "peer type resolution with enum literal" {
     try expect(Items.two == .two);
     try expect(.two == Items.two);
 }
+
+const MultipleChoice = enum(u32) {
+    A = 20,
+    B = 40,
+    C = 60,
+    D = 1000,
+};
+
+fn testEnumWithSpecifiedTagValues(x: MultipleChoice) !void {
+    try expect(@enumToInt(x) == 60);
+    try expect(1234 == switch (x) {
+        MultipleChoice.A => 1,
+        MultipleChoice.B => 2,
+        MultipleChoice.C => @as(u32, 1234),
+        MultipleChoice.D => 4,
+    });
+}
+
+test "enum with specified tag values" {
+    try testEnumWithSpecifiedTagValues(MultipleChoice.C);
+    comptime try testEnumWithSpecifiedTagValues(MultipleChoice.C);
+}

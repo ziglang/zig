@@ -2771,20 +2771,16 @@ fn zirStr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     // expression of a variable declaration. We need the memory to be in the new
     // anonymous Decl's arena.
 
-    var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-    errdefer new_decl_arena.deinit();
+    var anon_decl = try block.startAnonDecl();
+    defer anon_decl.deinit();
 
-    const bytes = try new_decl_arena.allocator.dupeZ(u8, zir_bytes);
+    const bytes = try anon_decl.arena().dupeZ(u8, zir_bytes);
 
-    const decl_ty = try Type.Tag.array_u8_sentinel_0.create(&new_decl_arena.allocator, bytes.len);
-    const decl_val = try Value.Tag.bytes.create(&new_decl_arena.allocator, bytes[0 .. bytes.len + 1]);
+    const new_decl = try anon_decl.finish(
+        try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
+        try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+    );
 
-    const new_decl = try sema.mod.createAnonymousDecl(block, .{
-        .ty = decl_ty,
-        .val = decl_val,
-    });
-    errdefer sema.mod.abortAnonDecl(new_decl);
-    try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclRef(new_decl);
 }
 
@@ -9741,8 +9737,20 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
 
 fn zirTypeName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirTypeName", .{});
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const ty = try sema.resolveType(block, ty_src, inst_data.operand);
+
+    var anon_decl = try block.startAnonDecl();
+    defer anon_decl.deinit();
+
+    const bytes = try ty.nameAlloc(anon_decl.arena());
+
+    const new_decl = try anon_decl.finish(
+        try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
+        try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+    );
+
+    return sema.analyzeDeclRef(new_decl);
 }
 
 fn zirFrameType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
