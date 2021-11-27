@@ -29,8 +29,6 @@ const InnerError = error{
 
 pub fn emitMir(emit: *Emit) InnerError!void {
     const mir_tags = emit.mir.instructions.items(.tag);
-    // Reserve space to write the size after generating the code.
-    try emit.code.resize(5);
     // write the locals in the prologue of the function body
     // before we emit the function body when lowering MIR
     try emit.emitLocals();
@@ -51,6 +49,7 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .call => try emit.emitCall(inst),
             .global_get => try emit.emitGlobal(tag, inst),
             .global_set => try emit.emitGlobal(tag, inst),
+            .memory_address => try emit.emitMemAddress(inst),
 
             // immediates
             .f32_const => try emit.emitFloat32(inst),
@@ -157,11 +156,10 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .i64_extend32_s => try emit.emitTag(tag),
         }
     }
+}
 
-    // Fill in the size of the generated code to the reserved space at the
-    // beginning of the buffer.
-    const size = emit.code.items.len - 5;
-    leb128.writeUnsignedFixed(5, emit.code.items[0..5], @intCast(u32, size));
+fn offset(self: Emit) u32 {
+    return @intCast(u32, self.code.items.len);
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
@@ -216,9 +214,14 @@ fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     try emit.code.append(@enumToInt(tag));
     var buf: [5]u8 = undefined;
     leb128.writeUnsignedFixed(5, &buf, label);
+    const global_offset = emit.offset();
     try emit.code.appendSlice(&buf);
 
-    // TODO: Append label to the relocation list of this function
+    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
+        .index = label,
+        .offset = global_offset,
+        .relocation_type = .R_WASM_GLOBAL_INDEX_LEB,
+    });
 }
 
 fn emitImm32(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -261,16 +264,29 @@ fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
 fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
     const label = emit.mir.instructions.items(.data)[inst].label;
     try emit.code.append(std.wasm.opcode(.call));
-    const offset = @intCast(u32, emit.code.items.len);
+    const call_offset = emit.offset();
     var buf: [5]u8 = undefined;
     leb128.writeUnsignedFixed(5, &buf, label);
     try emit.code.appendSlice(&buf);
 
-    // The function index immediate argument will be filled in using this data
-    // in link.Wasm.flush().
-    // TODO: Replace this with proper relocations saved in the Atom.
-    try emit.decl.fn_link.wasm.idx_refs.append(emit.bin_file.allocator, .{
-        .offset = offset,
-        .decl = label,
+    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
+        .offset = call_offset,
+        .index = label,
+        .relocation_type = .R_WASM_FUNCTION_INDEX_LEB,
+    });
+}
+
+fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const symbol_index = emit.mir.instructions.items(.data)[inst].label;
+    try emit.code.append(std.wasm.opcode(.i32_const));
+    const mem_offset = emit.offset();
+    var buf: [5]u8 = undefined;
+    leb128.writeUnsignedFixed(5, &buf, symbol_index);
+    try emit.code.appendSlice(&buf);
+
+    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
+        .offset = mem_offset,
+        .index = symbol_index,
+        .relocation_type = .R_WASM_MEMORY_ADDR_LEB,
     });
 }

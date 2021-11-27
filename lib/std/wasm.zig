@@ -1,4 +1,8 @@
-const testing = @import("std.zig").testing;
+///! Contains all constants and types representing the wasm
+///! binary format, as specified by:
+///! https://webassembly.github.io/spec/core/
+const std = @import("std.zig");
+const testing = std.testing;
 
 // TODO: Add support for multi-byte ops (e.g. table operations)
 
@@ -222,6 +226,18 @@ pub fn valtype(value: Valtype) u8 {
     return @enumToInt(value);
 }
 
+/// Reference types, where the funcref references to a function regardless of its type
+/// and ref references an object from the embedder.
+pub const RefType = enum(u8) {
+    funcref = 0x70,
+    externref = 0x6F,
+};
+
+/// Returns the integer value of a `Reftype`
+pub fn reftype(value: RefType) u8 {
+    return @enumToInt(value);
+}
+
 test "Wasm - valtypes" {
     const _i32 = valtype(.i32);
     const _i64 = valtype(.i64);
@@ -233,6 +249,124 @@ test "Wasm - valtypes" {
     try testing.expectEqual(@as(u8, 0x7D), _f32);
     try testing.expectEqual(@as(u8, 0x7C), _f64);
 }
+
+/// Limits classify the size range of resizeable storage associated with memory types and table types.
+pub const Limits = struct {
+    min: u32,
+    max: ?u32,
+};
+
+/// Initialization expressions are used to set the initial value on an object
+/// when a wasm module is being loaded.
+pub const InitExpression = union(enum) {
+    i32_const: i32,
+    i64_const: i64,
+    f32_const: f32,
+    f64_const: f64,
+    global_get: u32,
+};
+
+///
+pub const Func = struct {
+    type_index: u32,
+};
+
+/// Tables are used to hold pointers to opaque objects.
+/// This can either by any function, or an object from the host.
+pub const Table = struct {
+    limits: Limits,
+    reftype: RefType,
+};
+
+/// Describes the layout of the memory where `min` represents
+/// the minimal amount of pages, and the optional `max` represents
+/// the max pages. When `null` will allow the host to determine the
+/// amount of pages.
+pub const Memory = struct {
+    limits: Limits,
+};
+
+/// Represents the type of a `Global` or an imported global.
+pub const GlobalType = struct {
+    valtype: Valtype,
+    mutable: bool,
+};
+
+pub const Global = struct {
+    global_type: GlobalType,
+    init: InitExpression,
+};
+
+/// Notates an object to be exported from wasm
+/// to the host.
+pub const Export = struct {
+    name: []const u8,
+    kind: ExternalKind,
+    index: u32,
+};
+
+/// Element describes the layout of the table that can
+/// be found at `table_index`
+pub const Element = struct {
+    table_index: u32,
+    offset: InitExpression,
+    func_indexes: []const u32,
+};
+
+/// Imports are used to import objects from the host
+pub const Import = struct {
+    module_name: []const u8,
+    name: []const u8,
+    kind: Kind,
+
+    pub const Kind = union(ExternalKind) {
+        function: u32,
+        table: Table,
+        memory: Limits,
+        global: GlobalType,
+    };
+};
+
+/// `Type` represents a function signature type containing both
+/// a slice of parameters as well as a slice of return values.
+pub const Type = struct {
+    params: []const Valtype,
+    returns: []const Valtype,
+
+    pub fn format(self: Type, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = opt;
+        try writer.writeByte('(');
+        for (self.params) |param, i| {
+            try writer.print("{s}", .{@tagName(param)});
+            if (i + 1 != self.params.len) {
+                try writer.writeAll(", ");
+            }
+        }
+        try writer.writeAll(") -> ");
+        if (self.returns.len == 0) {
+            try writer.writeAll("nil");
+        } else {
+            for (self.returns) |return_ty, i| {
+                try writer.print("{s}", .{@tagName(return_ty)});
+                if (i + 1 != self.returns.len) {
+                    try writer.writeAll(", ");
+                }
+            }
+        }
+    }
+
+    pub fn eql(self: Type, other: Type) bool {
+        return std.mem.eql(Valtype, self.params, other.params) and
+            std.mem.eql(Valtype, self.returns, other.returns);
+    }
+
+    pub fn deinit(self: *Type, gpa: *std.mem.Allocator) void {
+        gpa.free(self.params);
+        gpa.free(self.returns);
+        self.* = undefined;
+    }
+};
 
 /// Wasm module sections as per spec:
 /// https://webassembly.github.io/spec/core/binary/modules.html
@@ -249,6 +383,8 @@ pub const Section = enum(u8) {
     element,
     code,
     data,
+    data_count,
+    _,
 };
 
 /// Returns the integer value of a given `Section`
@@ -270,7 +406,7 @@ pub fn externalKind(val: ExternalKind) u8 {
     return @enumToInt(val);
 }
 
-// types
+// type constants
 pub const element_type: u8 = 0x70;
 pub const function_type: u8 = 0x60;
 pub const result_type: u8 = 0x40;
@@ -280,7 +416,7 @@ pub const block_empty: u8 = 0x40;
 
 // binary constants
 pub const magic = [_]u8{ 0x00, 0x61, 0x73, 0x6D }; // \0asm
-pub const version = [_]u8{ 0x01, 0x00, 0x00, 0x00 }; // version 1
+pub const version = [_]u8{ 0x01, 0x00, 0x00, 0x00 }; // version 1 (MVP)
 
 // Each wasm page size is 64kB
 pub const page_size = 64 * 1024;

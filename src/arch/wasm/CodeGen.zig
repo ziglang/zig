@@ -518,9 +518,6 @@ blocks: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, struct {
 }) = .{},
 /// `bytes` contains the wasm bytecode belonging to the 'code' section.
 code: ArrayList(u8),
-/// Contains the generated function type bytecode for the current function
-/// found in `decl`
-func_type_data: ArrayList(u8),
 /// The index the next local generated will have
 /// NOTE: arguments share the index with locals therefore the first variable
 /// will have the index that comes after the last argument's index
@@ -539,7 +536,7 @@ locals: std.ArrayListUnmanaged(u8),
 /// The Target we're emitting (used to call intInfo)
 target: std.Target,
 /// Represents the wasm binary file that is being linked.
-bin_file: *link.File,
+bin_file: *link.File.Wasm,
 /// Table with the global error set. Consists of every error found in
 /// the compiled code. Each error name maps to a `Module.ErrorInt` which is emitted
 /// during codegen to determine the error value.
@@ -577,6 +574,7 @@ pub fn deinit(self: *Self) void {
     self.locals.deinit(self.gpa);
     self.mir_instructions.deinit(self.gpa);
     self.mir_extra.deinit(self.gpa);
+    self.code.deinit();
     self.* = undefined;
 }
 
@@ -734,43 +732,44 @@ fn allocLocal(self: *Self, ty: Type) InnerError!WValue {
     return WValue{ .local = initial_index };
 }
 
-fn genFunctype(self: *Self) InnerError!void {
-    assert(self.decl.has_tv);
-    const ty = self.decl.ty;
-    const writer = self.func_type_data.writer();
-
-    try writer.writeByte(wasm.function_type);
+/// Generates a `wasm.Type` from a given function type.
+/// Memory is owned by the caller.
+fn genFunctype(self: *Self, fn_ty: Type) !wasm.Type {
+    var params = std.ArrayList(wasm.Valtype).init(self.gpa);
+    defer params.deinit();
+    var returns = std.ArrayList(wasm.Valtype).init(self.gpa);
+    defer returns.deinit();
 
     // param types
-    try leb.writeULEB128(writer, @intCast(u32, ty.fnParamLen()));
-    if (ty.fnParamLen() != 0) {
-        const params = try self.gpa.alloc(Type, ty.fnParamLen());
-        defer self.gpa.free(params);
-        ty.fnParamTypes(params);
-        for (params) |param_type| {
-            // Can we maybe get the source index of each param?
-            const val_type = try self.genValtype(param_type);
-            try writer.writeByte(val_type);
+    if (fn_ty.fnParamLen() != 0) {
+        const fn_params = try self.gpa.alloc(Type, fn_ty.fnParamLen());
+        defer self.gpa.free(fn_params);
+        fn_ty.fnParamTypes(fn_params);
+        for (fn_params) |param_type| {
+            if (!param_type.hasCodeGenBits()) continue;
+            try params.append(try self.typeToValtype(param_type));
         }
     }
 
     // return type
-    const return_type = ty.fnReturnType();
+    const return_type = fn_ty.fnReturnType();
     switch (return_type.zigTypeTag()) {
-        .Void, .NoReturn => try leb.writeULEB128(writer, @as(u32, 0)),
+        .Void, .NoReturn => {},
         .Struct => return self.fail("TODO: Implement struct as return type for wasm", .{}),
         .Optional => return self.fail("TODO: Implement optionals as return type for wasm", .{}),
-        else => {
-            try leb.writeULEB128(writer, @as(u32, 1));
-            const val_type = try self.genValtype(return_type);
-            try writer.writeByte(val_type);
-        },
+        else => try returns.append(try self.typeToValtype(return_type)),
     }
+
+    return wasm.Type{
+        .params = params.toOwnedSlice(),
+        .returns = returns.toOwnedSlice(),
+    };
 }
 
 pub fn genFunc(self: *Self) InnerError!Result {
-    try self.genFunctype();
-    // TODO: check for and handle death of instructions
+    var func_type = try self.genFunctype(self.decl.ty);
+    defer func_type.deinit(self.gpa);
+    self.decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
 
     var cc_result = try self.resolveCallingConventionValues(self.decl.ty);
     defer cc_result.deinit(self.gpa);
@@ -791,7 +790,7 @@ pub fn genFunc(self: *Self) InnerError!Result {
 
     var emit: Emit = .{
         .mir = mir,
-        .bin_file = self.bin_file,
+        .bin_file = &self.bin_file.base,
         .code = &self.code,
         .locals = self.locals.items,
         .decl = self.decl,
@@ -813,8 +812,10 @@ pub fn genFunc(self: *Self) InnerError!Result {
 pub fn gen(self: *Self, ty: Type, val: Value) InnerError!Result {
     switch (ty.zigTypeTag()) {
         .Fn => {
-            try self.genFunctype();
             if (val.tag() == .extern_fn) {
+                var func_type = try self.genFunctype(self.decl.ty);
+                defer func_type.deinit(self.gpa);
+                self.decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
                 return Result.appended; // don't need code body for extern functions
             }
             return self.fail("TODO implement wasm codegen for function pointers", .{});
@@ -1079,7 +1080,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         try self.emitWValue(arg_val);
     }
 
-    try self.addLabel(.call, target.link.wasm.symbol_index);
+    try self.addLabel(.call, target.link.wasm.sym_index);
 
     const ret_ty = target.ty.fnReturnType();
     switch (ret_ty.zigTypeTag()) {
@@ -1362,15 +1363,7 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             if (val.castTag(.decl_ref)) |payload| {
                 const decl = payload.data;
                 decl.alive = true;
-
-                // offset into the offset table within the 'data' section
-                const ptr_width = self.target.cpu.arch.ptrBitWidth() / 8;
-                try self.addImm32(@bitCast(i32, decl.link.wasm.offset_index * ptr_width));
-
-                // memory instruction followed by their memarg immediate
-                // memarg ::== x:u32, y:u32 => {align x, offset y}
-                const extra_index = try self.addExtra(Mir.MemArg{ .offset = 0, .alignment = 4 });
-                try self.addInst(.{ .tag = .i32_load, .data = .{ .payload = extra_index } });
+                try self.addLabel(.memory_address, decl.link.wasm.sym_index);
             } else return self.fail("Wasm TODO: emitConstant for other const pointer tag {s}", .{val.tag()});
         },
         .Void => {},
