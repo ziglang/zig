@@ -1747,6 +1747,9 @@ fn renderArrayInit(
         var sub_expr_buffer = std.ArrayList(u8).init(gpa);
         defer sub_expr_buffer.deinit();
 
+        const sub_expr_buffer_starts = try gpa.alloc(usize, section_exprs.len + 1);
+        defer gpa.free(sub_expr_buffer_starts);
+
         var auto_indenting_stream = Ais{
             .indent_delta = indent_delta,
             .underlying_writer = sub_expr_buffer.writer(),
@@ -1757,11 +1760,13 @@ fn renderArrayInit(
         var single_line = true;
         var contains_newline = false;
         for (section_exprs) |expr, i| {
-            sub_expr_buffer.shrinkRetainingCapacity(0);
+            const start = sub_expr_buffer.items.len;
+            sub_expr_buffer_starts[i] = start;
+
             if (i + 1 < section_exprs.len) {
                 try renderExpression(gpa, &auto_indenting_stream, tree, expr, .none);
-                const width = sub_expr_buffer.items.len;
-                const this_contains_newline = mem.indexOfScalar(u8, sub_expr_buffer.items, '\n') != null;
+                const width = sub_expr_buffer.items.len - start;
+                const this_contains_newline = mem.indexOfScalar(u8, sub_expr_buffer.items[start..], '\n') != null;
                 contains_newline = contains_newline or this_contains_newline;
                 expr_widths[i] = width;
                 expr_newlines[i] = this_contains_newline;
@@ -1779,9 +1784,10 @@ fn renderArrayInit(
                     column_counter = 0;
                 }
             } else {
-                try renderExpression(gpa, &auto_indenting_stream, tree, expr, .none);
-                const width = sub_expr_buffer.items.len;
-                contains_newline = contains_newline or mem.indexOfScalar(u8, sub_expr_buffer.items, '\n') != null;
+                try renderExpression(gpa, &auto_indenting_stream, tree, expr, .comma);
+                const width = sub_expr_buffer.items.len - start - 2;
+                const this_contains_newline = mem.indexOfScalar(u8, sub_expr_buffer.items[start .. sub_expr_buffer.items.len - 1], '\n') != null;
+                contains_newline = contains_newline or this_contains_newline;
                 expr_widths[i] = width;
                 expr_newlines[i] = contains_newline;
 
@@ -1789,21 +1795,38 @@ fn renderArrayInit(
                     const column = column_counter % row_size;
                     column_widths[column] = std.math.max(column_widths[column], width);
                 }
-                break;
             }
         }
+        sub_expr_buffer_starts[section_exprs.len] = sub_expr_buffer.items.len;
 
         // Render exprs in current section.
         column_counter = 0;
-        var last_col_index: usize = row_size - 1;
         for (section_exprs) |expr, i| {
+            const start = sub_expr_buffer_starts[i];
+            const end = sub_expr_buffer_starts[i + 1];
+            const expr_text = sub_expr_buffer.items[start..end];
+            if (!expr_newlines[i]) {
+                try ais.writer().writeAll(expr_text);
+            } else {
+                var by_line = std.mem.split(u8, expr_text, "\n");
+                var last_line_was_empty = false;
+                try ais.writer().writeAll(by_line.next().?);
+                while (by_line.next()) |line| {
+                    if (std.mem.startsWith(u8, line, "//") and last_line_was_empty) {
+                        try ais.insertNewline();
+                    } else {
+                        try ais.maybeInsertNewline();
+                    }
+                    last_line_was_empty = (line.len == 0);
+                    try ais.writer().writeAll(line);
+                }
+            }
+
             if (i + 1 < section_exprs.len) {
                 const next_expr = section_exprs[i + 1];
-                try renderExpression(gpa, ais, tree, expr, .none);
-
                 const comma = tree.lastToken(expr) + 1;
 
-                if (column_counter != last_col_index) {
+                if (column_counter != row_size - 1) {
                     if (!expr_newlines[i] and !expr_newlines[i + 1]) {
                         // Neither the current or next expression is multiline
                         try renderToken(ais, tree, comma, .space); // ,
@@ -1815,6 +1838,7 @@ fn renderArrayInit(
                         continue;
                     }
                 }
+
                 if (single_line and row_size != 1) {
                     try renderToken(ais, tree, comma, .space); // ,
                     continue;
@@ -1823,8 +1847,6 @@ fn renderArrayInit(
                 column_counter = 0;
                 try renderToken(ais, tree, comma, .newline); // ,
                 try renderExtraNewline(ais, tree, next_expr);
-            } else {
-                try renderExpression(gpa, ais, tree, expr, .comma); // ,
             }
         }
 
@@ -2585,7 +2607,7 @@ fn nodeCausesSliceOpSpace(tag: Ast.Node.Tag) bool {
     };
 }
 
-// Returns the number of nodes in `expr` that are on the same line as `rtoken`.
+// Returns the number of nodes in `exprs` that are on the same line as `rtoken`.
 fn rowSize(tree: Ast, exprs: []const Ast.Node.Index, rtoken: Ast.TokenIndex) usize {
     const token_tags = tree.tokens.items(.tag);
 
