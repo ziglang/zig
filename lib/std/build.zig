@@ -2862,40 +2862,36 @@ pub const LibExeObjStep = struct {
             });
         }
 
-        if (self.kind == .@"test") {
-            _ = try builder.execFromStep(zig_args.items, step);
-        } else {
-            try zig_args.append("--enable-cache");
+        try zig_args.append("--enable-cache");
 
-            const output_dir_nl = try builder.execFromStep(zig_args.items, &self.step);
-            const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
+        const output_dir_nl = try builder.execFromStep(zig_args.items, &self.step);
+        const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
-            if (self.output_dir) |output_dir| {
-                var src_dir = try std.fs.cwd().openDir(build_output_dir, .{ .iterate = true });
-                defer src_dir.close();
+        if (self.output_dir) |output_dir| {
+            var src_dir = try std.fs.cwd().openDir(build_output_dir, .{ .iterate = true });
+            defer src_dir.close();
 
-                // Create the output directory if it doesn't exist.
-                try std.fs.cwd().makePath(output_dir);
+            // Create the output directory if it doesn't exist.
+            try std.fs.cwd().makePath(output_dir);
 
-                var dest_dir = try std.fs.cwd().openDir(output_dir, .{});
-                defer dest_dir.close();
+            var dest_dir = try std.fs.cwd().openDir(output_dir, .{});
+            defer dest_dir.close();
 
-                var it = src_dir.iterate();
-                while (try it.next()) |entry| {
-                    // The compiler can put these files into the same directory, but we don't
-                    // want to copy them over.
-                    if (mem.eql(u8, entry.name, "stage1.id") or
-                        mem.eql(u8, entry.name, "llvm-ar.id") or
-                        mem.eql(u8, entry.name, "libs.txt") or
-                        mem.eql(u8, entry.name, "builtin.zig") or
-                        mem.eql(u8, entry.name, "zld.id") or
-                        mem.eql(u8, entry.name, "lld.id")) continue;
+            var it = src_dir.iterate();
+            while (try it.next()) |entry| {
+                // The compiler can put these files into the same directory, but we don't
+                // want to copy them over.
+                if (mem.eql(u8, entry.name, "stage1.id") or
+                    mem.eql(u8, entry.name, "llvm-ar.id") or
+                    mem.eql(u8, entry.name, "libs.txt") or
+                    mem.eql(u8, entry.name, "builtin.zig") or
+                    mem.eql(u8, entry.name, "zld.id") or
+                    mem.eql(u8, entry.name, "lld.id")) continue;
 
-                    _ = try src_dir.updateFile(entry.name, dest_dir, entry.name, .{});
-                }
-            } else {
-                self.output_dir = build_output_dir;
+                _ = try src_dir.updateFile(entry.name, dest_dir, entry.name, .{});
             }
+        } else {
+            self.output_dir = build_output_dir;
         }
 
         // This will ensure all output filenames will now have the output_dir available!
