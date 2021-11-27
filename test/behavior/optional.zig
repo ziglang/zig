@@ -136,3 +136,26 @@ test "unwrap function call with optional pointer return value" {
     try S.entry();
     comptime try S.entry();
 }
+
+test "nested orelse" {
+    const S = struct {
+        fn entry() !void {
+            try expect(func() == null);
+        }
+        fn maybe() ?Foo {
+            return null;
+        }
+        fn func() ?Foo {
+            const x = maybe() orelse
+                maybe() orelse
+                return null;
+            _ = x;
+            unreachable;
+        }
+        const Foo = struct {
+            field: i32,
+        };
+    };
+    try S.entry();
+    comptime try S.entry();
+}

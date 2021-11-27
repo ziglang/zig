@@ -2063,7 +2063,13 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.Block, ty_pl.payload);
         const body = self.air.extra[extra.end..][0..extra.data.body_len];
+        const inst_ty = self.air.typeOfIndex(inst);
         const parent_bb = self.context.createBasicBlock("Block");
+
+        if (inst_ty.isNoReturn()) {
+            try self.genBody(body);
+            return null;
+        }
 
         var break_bbs: BreakBasicBlocks = .{};
         defer break_bbs.deinit(self.gpa);
@@ -2084,7 +2090,6 @@ pub const FuncGen = struct {
         self.builder.positionBuilderAtEnd(parent_bb);
 
         // If the block does not return a value, we dont have to create a phi node.
-        const inst_ty = self.air.typeOfIndex(inst);
         if (!inst_ty.hasCodeGenBits()) return null;
 
         const raw_llvm_ty = try self.dg.llvmType(inst_ty);

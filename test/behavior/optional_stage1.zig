@@ -3,29 +3,6 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "nested orelse" {
-    const S = struct {
-        fn entry() !void {
-            try expect(func() == null);
-        }
-        fn maybe() ?Foo {
-            return null;
-        }
-        fn func() ?Foo {
-            const x = maybe() orelse
-                maybe() orelse
-                return null;
-            _ = x;
-            unreachable;
-        }
-        const Foo = struct {
-            field: i32,
-        };
-    };
-    try S.entry();
-    comptime try S.entry();
-}
-
 test "assigning to an unwrapped optional field in an inline loop" {
     comptime var maybe_pos_arg: ?comptime_int = null;
     inline for ("ab") |x| {

@@ -3182,29 +3182,28 @@ fn analyzeBlockBody(
         assert(coerce_block.instructions.items[coerce_block.instructions.items.len - 1] ==
             Air.refToIndex(coerced_operand).?);
 
-        // Convert the br operand to a block.
-        const br_operand_ty_ref = try sema.addType(br_operand_ty);
+        // Convert the br instruction to a block instruction that has the coercion
+        // and then a new br inside that returns the coerced instruction.
+        const sub_block_len = @intCast(u32, coerce_block.instructions.items.len + 1);
         try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
-            coerce_block.instructions.items.len);
-        try sema.air_instructions.ensureUnusedCapacity(gpa, 2);
-        const sub_block_inst = @intCast(Air.Inst.Index, sema.air_instructions.len);
-        const sub_br_inst = sub_block_inst + 1;
-        sema.air_instructions.items(.data)[br].br.operand = Air.indexToRef(sub_block_inst);
-        sema.air_instructions.appendAssumeCapacity(.{
-            .tag = .block,
-            .data = .{ .ty_pl = .{
-                .ty = br_operand_ty_ref,
-                .payload = sema.addExtraAssumeCapacity(Air.Block{
-                    .body_len = @intCast(u32, coerce_block.instructions.items.len),
-                }),
-            } },
-        });
+            sub_block_len);
+        try sema.air_instructions.ensureUnusedCapacity(gpa, 1);
+        const sub_br_inst = @intCast(Air.Inst.Index, sema.air_instructions.len);
+
+        sema.air_instructions.items(.tag)[br] = .block;
+        sema.air_instructions.items(.data)[br] = .{ .ty_pl = .{
+            .ty = Air.Inst.Ref.noreturn_type,
+            .payload = sema.addExtraAssumeCapacity(Air.Block{
+                .body_len = sub_block_len,
+            }),
+        } };
         sema.air_extra.appendSliceAssumeCapacity(coerce_block.instructions.items);
         sema.air_extra.appendAssumeCapacity(sub_br_inst);
+
         sema.air_instructions.appendAssumeCapacity(.{
             .tag = .br,
             .data = .{ .br = .{
-                .block_inst = sub_block_inst,
+                .block_inst = merges.block_inst,
                 .operand = coerced_operand,
             } },
         });
