@@ -47,6 +47,7 @@ pub fn emitMir(emit: *Emit) InnerError!void {
 
             // relocatables
             .call => try emit.emitCall(inst),
+            .call_indirect => try emit.emitCallIndirect(inst),
             .global_get => try emit.emitGlobal(tag, inst),
             .global_set => try emit.emitGlobal(tag, inst),
             .memory_address => try emit.emitMemAddress(inst),
@@ -274,6 +275,13 @@ fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
         .index = label,
         .relocation_type = .R_WASM_FUNCTION_INDEX_LEB,
     });
+}
+
+fn emitCallIndirect(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const label = emit.mir.instructions.items(.data)[inst].label;
+    try emit.code.append(std.wasm.opcode(.call_indirect));
+    try leb128.writeULEB128(emit.code.writer(), @as(u32, 0)); // TODO: Emit relocation for table index
+    try leb128.writeULEB128(emit.code.writer(), label);
 }
 
 fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {

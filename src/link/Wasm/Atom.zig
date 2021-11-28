@@ -129,7 +129,7 @@ fn relocationValue(relocation: types.Relocation, wasm_bin: *const Wasm) !u64 {
         .R_WASM_TABLE_INDEX_I64,
         .R_WASM_TABLE_INDEX_SLEB,
         .R_WASM_TABLE_INDEX_SLEB64,
-        => return error.TodoImplementTableIndex, // find table index from a function symbol
+        => return wasm_bin.function_table.get(relocation.index) orelse 0,
         .R_WASM_TYPE_INDEX_LEB => wasm_bin.functions.items[symbol.index].type_index,
         .R_WASM_GLOBAL_INDEX_I32,
         .R_WASM_GLOBAL_INDEX_LEB,

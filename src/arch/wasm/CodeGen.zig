@@ -1065,9 +1065,16 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const extra = self.air.extraData(Air.Call, pl_op.payload);
     const args = self.air.extra[extra.end..][0..extra.data.args_len];
+    const ty = self.air.typeOf(pl_op.operand);
 
-    const target: *Decl = blk: {
-        const func_val = self.air.value(pl_op.operand).?;
+    const fn_ty = switch (ty.zigTypeTag()) {
+        .Fn => ty,
+        .Pointer => ty.childType(),
+        else => unreachable,
+    };
+
+    const target: ?*Decl = blk: {
+        const func_val = self.air.value(pl_op.operand) orelse break :blk null;
 
         if (func_val.castTag(.function)) |func| {
             break :blk func.data.owner_decl;
@@ -1082,9 +1089,24 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         try self.emitWValue(arg_val);
     }
 
-    try self.addLabel(.call, target.link.wasm.sym_index);
+    if (target) |direct| {
+        try self.addLabel(.call, direct.link.wasm.sym_index);
+    } else {
+        // in this case we call a function pointer
+        // so load its value onto the stack
+        std.debug.assert(ty.zigTypeTag() == .Pointer);
+        const operand = self.resolveInst(pl_op.operand);
+        const result = try self.load(operand, fn_ty, operand.local_with_offset.offset);
+        try self.addLabel(.local_get, result.local);
 
-    const ret_ty = target.ty.fnReturnType();
+        var fn_type = try self.genFunctype(fn_ty);
+        defer fn_type.deinit(self.gpa);
+
+        const fn_type_index = try self.bin_file.putOrGetFuncType(fn_type);
+        try self.addLabel(.call_indirect, fn_type_index);
+    }
+
+    const ret_ty = fn_ty.fnReturnType();
     switch (ret_ty.zigTypeTag()) {
         .Void, .NoReturn => return WValue.none,
         else => {
