@@ -116,7 +116,10 @@ endif()
 
 if(APPLE AND ZIG_STATIC)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
-    find_library(CURSES NAMES libcurses.a curses libcurses libncurses.a ncurses libncurses)
+    find_library(CURSES NAMES libcurses.a libncurses.a
+      PATHS
+        /usr/local/opt/ncurses/lib
+        /opt/homebrew/opt/ncurses/lib)
     list(APPEND LLVM_LIBRARIES "${CURSES}")
 endif()
 
