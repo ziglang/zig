@@ -101,8 +101,19 @@ fn callMain2() noreturn {
 }
 
 fn wasmMain2() u8 {
-    root.main();
-    return 0;
+    switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
+        .Void => {
+            root.main();
+            return 0;
+        },
+        .Int => |info| {
+            if (info.bits != 8 or info.signedness == .signed) {
+                @compileError(bad_main_ret);
+            }
+            return root.main();
+        },
+        else => @compileError("Bad return type main"),
+    }
 }
 
 fn wWinMainCRTStartup2() callconv(.C) noreturn {

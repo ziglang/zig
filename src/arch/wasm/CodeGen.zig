@@ -692,6 +692,7 @@ fn typeToValtype(self: *Self, ty: Type) InnerError!wasm.Valtype {
         .Struct,
         .ErrorUnion,
         .Optional,
+        .Fn,
         => wasm.Valtype.i32,
         else => self.fail("TODO - Wasm valtype for type '{}'", .{ty}),
     };
@@ -809,23 +810,52 @@ pub fn genFunc(self: *Self) InnerError!Result {
 }
 
 /// Generates the wasm bytecode for the declaration belonging to `Context`
-pub fn gen(self: *Self, ty: Type, val: Value) InnerError!Result {
+pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
+    if (val.isUndef()) {
+        try self.code.appendNTimes(0xaa, ty.abiSize(self.target));
+        return Result.appended;
+    }
     switch (ty.zigTypeTag()) {
         .Fn => {
-            if (val.tag() == .extern_fn) {
-                var func_type = try self.genFunctype(self.decl.ty);
-                defer func_type.deinit(self.gpa);
-                self.decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
-                return Result.appended; // don't need code body for extern functions
-            }
-            return self.fail("TODO implement wasm codegen for function pointers", .{});
+            const fn_decl = switch (val.tag()) {
+                .extern_fn => val.castTag(.extern_fn).?.data,
+                .function => val.castTag(.function).?.data.owner_decl,
+                else => unreachable,
+            };
+            return try self.lowerDeclRef(fn_decl);
         },
-        .Array => {
-            if (val.castTag(.bytes)) |payload| {
+        .Optional => {
+            var opt_buf: Type.Payload.ElemType = undefined;
+            const payload_type = ty.optionalChild(&opt_buf);
+            if (ty.isPtrLikeOptional()) {
+                if (val.castTag(.opt_payload)) |payload| {
+                    return try self.genDecl(payload_type, payload.data);
+                } else if (!val.isNull()) {
+                    return try self.genDecl(payload_type, val);
+                } else {
+                    try self.code.appendNTimes(0, ty.abiSize(self.target));
+                    return Result.appended;
+                }
+            }
+            // `null-tag` byte
+            try self.code.appendNTimes(@boolToInt(!val.isNull()), 4);
+            const pl_result = try self.genDecl(
+                payload_type,
+                if (val.castTag(.opt_payload)) |pl| pl.data else Value.initTag(.undef),
+            );
+            switch (pl_result) {
+                .appended => {},
+                .externally_managed => |payload| try self.code.appendSlice(payload),
+            }
+            return Result.appended;
+        },
+        .Array => switch (val.tag()) {
+            .bytes => {
+                const payload = val.castTag(.bytes).?;
                 if (ty.sentinel()) |sentinel| {
                     try self.code.appendSlice(payload.data);
 
-                    switch (try self.gen(ty.childType(), sentinel)) {
+                    switch (try self.genDecl(ty.childType(), sentinel)) {
                         .appended => return Result.appended,
                         .externally_managed => |data| {
                             try self.code.appendSlice(data);
@@ -834,16 +864,33 @@ pub fn gen(self: *Self, ty: Type, val: Value) InnerError!Result {
                     }
                 }
                 return Result{ .externally_managed = payload.data };
-            } else return self.fail("TODO implement gen for more kinds of arrays", .{});
+            },
+            .array => {
+                const elem_vals = val.castTag(.array).?.data;
+                const elem_ty = ty.elemType();
+                for (elem_vals) |elem_val| {
+                    switch (try self.genDecl(elem_ty, elem_val)) {
+                        .appended => {},
+                        .externally_managed => |data| {
+                            try self.code.appendSlice(data);
+                        },
+                    }
+                }
+                return Result.appended;
+            },
+            else => return self.fail("TODO implement genDecl for array type value: {s}", .{@tagName(val.tag())}),
         },
         .Int => {
             const info = ty.intInfo(self.target);
-            if (info.bits == 8 and info.signedness == .unsigned) {
-                const int_byte = val.toUnsignedInt();
-                try self.code.append(@intCast(u8, int_byte));
-                return Result.appended;
-            }
-            return self.fail("TODO: Implement codegen for int type: '{}'", .{ty});
+            const abi_size = ty.abiSize(self.target);
+            // todo: Implement integer sizes larger than 64bits
+            if (info.bits > 64) return self.fail("TODO: Implement genDecl for integer bit size: {d}", .{info.bits});
+            var buf: [8]u8 = undefined;
+            if (info.signedness == .unsigned) {
+                std.mem.writeIntLittle(u64, &buf, val.toUnsignedInt());
+            } else std.mem.writeIntLittle(i64, &buf, val.toSignedInt());
+            try self.code.appendSlice(buf[0..abi_size]);
+            return Result.appended;
         },
         .Enum => {
             try self.emitConstant(val, ty);
@@ -855,13 +902,81 @@ pub fn gen(self: *Self, ty: Type, val: Value) InnerError!Result {
             return Result.appended;
         },
         .Struct => {
-            // TODO write the fields for real
-            const abi_size = try std.math.cast(usize, ty.abiSize(self.target));
+            const field_vals = val.castTag(.@"struct").?.data;
+            for (field_vals) |field_val, index| {
+                const field_ty = ty.structFieldType(index);
+                if (!field_ty.hasCodeGenBits()) continue;
+
+                switch (try self.genDecl(field_ty, field_val)) {
+                    .appended => {},
+                    .externally_managed => |payload| try self.code.appendSlice(payload),
+                }
+            }
+            return Result.appended;
+        },
+        .Union => {
+            // TODO: Implement Union declarations
+            const abi_size = ty.abiSize(self.target);
             try self.code.writer().writeByteNTimes(0xaa, abi_size);
-            return Result{ .appended = {} };
+            return Result.appended;
+        },
+        .Pointer => switch (val.tag()) {
+            .variable => {
+                const decl = val.castTag(.variable).?.data.owner_decl;
+                return try self.lowerDeclRef(decl);
+            },
+            .decl_ref => {
+                const decl = val.castTag(.decl_ref).?.data;
+                return try self.lowerDeclRef(decl);
+            },
+            .slice => {
+                const slice = val.castTag(.slice).?.data;
+                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                const ptr_ty = ty.slicePtrFieldType(&buf);
+                switch (try self.genDecl(ptr_ty, slice.ptr)) {
+                    .externally_managed => |data| try self.code.appendSlice(data),
+                    .appended => {},
+                }
+                switch (try self.genDecl(Type.usize, slice.len)) {
+                    .externally_managed => |data| try self.code.appendSlice(data),
+                    .appended => {},
+                }
+                return Result.appended;
+            },
+            else => return self.fail("TODO: Implement zig decl gen for pointer type value: '{s}'", .{@tagName(val.tag())}),
         },
         else => |tag| return self.fail("TODO: Implement zig type codegen for type: '{s}'", .{tag}),
     }
+}
+
+fn lowerDeclRef(self: *Self, decl: *Module.Decl) InnerError!Result {
+    decl.alive = true;
+
+    const offset = @intCast(u32, self.code.items.len);
+    const atom = &self.decl.link.wasm;
+    const target_sym_index = decl.link.wasm.sym_index;
+
+    if (decl.ty.zigTypeTag() == .Fn) {
+        // We found a function pointer, so add it to our table,
+        // as function pointers are not allowed to be stored inside the data section,
+        // but rather in a function table which are called by index
+        try self.bin_file.addTableFunction(target_sym_index);
+        try atom.relocs.append(self.gpa, .{
+            .index = target_sym_index,
+            .offset = offset,
+            .relocation_type = .R_WASM_TABLE_INDEX_I32,
+        });
+    } else {
+        try atom.relocs.append(self.gpa, .{
+            .index = target_sym_index,
+            .offset = offset,
+            .relocation_type = .R_WASM_MEMORY_ADDR_I32,
+        });
+    }
+    const ptr_width = self.target.cpu.arch.ptrBitWidth() / 8;
+    try self.code.appendNTimes(0xaa, ptr_width);
+
+    return Result.appended;
 }
 
 const CallWValues = struct {
@@ -1015,6 +1130,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .loop => self.airLoop(inst),
         .not => self.airNot(inst),
         .ret => self.airRet(inst),
+        .ret_ptr => self.airRetPtr(inst),
+        .ret_load => self.airRetLoad(inst),
         .slice_len => self.airSliceLen(inst),
         .slice_elem_val => self.airSliceElemVal(inst),
         .store => self.airStore(inst),
@@ -1029,6 +1146,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .wrap_optional => self.airWrapOptional(inst),
 
         .unwrap_errunion_payload => self.airUnwrapErrUnionPayload(inst),
+        .unwrap_errunion_err => self.airUnwrapErrUnionError(inst),
         .wrap_errunion_payload => self.airWrapErrUnionPayload(inst),
 
         .optional_payload => self.airOptionalPayload(inst),
@@ -1056,6 +1174,34 @@ fn airRet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     } else {
         try self.emitWValue(operand);
     }
+    try self.restoreStackPointer();
+    try self.addTag(.@"return");
+    return .none;
+}
+
+fn airRetPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const child_type = self.air.typeOfIndex(inst).childType();
+
+    // Initialize the stack
+    if (self.initial_stack_value == .none) {
+        try self.initializeStack();
+    }
+
+    const abi_size = child_type.abiSize(self.target);
+    if (abi_size == 0) return WValue{ .none = {} };
+
+    // local, containing the offset to the stack position
+    const local = try self.allocLocal(Type.initTag(.i32)); // always pointer therefore i32
+    try self.moveStack(@intCast(u32, abi_size), local.local);
+
+    return local;
+}
+
+fn airRetLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const operand = self.resolveInst(un_op);
+    const result = try self.load(operand, self.air.typeOf(un_op), 0);
+    try self.addLabel(.local_get, result.local);
     try self.restoreStackPointer();
     try self.addTag(.@"return");
     return .none;
@@ -1096,6 +1242,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         // so load its value onto the stack
         std.debug.assert(ty.zigTypeTag() == .Pointer);
         const operand = self.resolveInst(pl_op.operand);
+        try self.emitWValue(operand);
         const result = try self.load(operand, fn_ty, operand.local_with_offset.offset);
         try self.addLabel(.local_get, result.local);
 
@@ -1229,6 +1376,8 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
     // that is portable across the backend, rather than copying logic.
     const abi_size = if ((ty.isInt() or ty.isAnyFloat()) and ty.abiSize(self.target) <= 8)
         @intCast(u8, ty.abiSize(self.target))
+    else if (ty.zigTypeTag() == .ErrorSet or ty.zigTypeTag() == .Enum)
+        @intCast(u8, ty.abiSize(self.target))
     else
         @as(u8, 4);
     const opcode = buildOpcode(.{
@@ -1271,6 +1420,8 @@ fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
     // TODO: Implement a way to get ABI values from a given type,
     // that is portable across the backend, rather than copying logic.
     const abi_size = if ((ty.isInt() or ty.isAnyFloat()) and ty.abiSize(self.target) <= 8)
+        @intCast(u8, ty.abiSize(self.target))
+    else if (ty.zigTypeTag() == .ErrorSet or ty.zigTypeTag() == .Enum)
         @intCast(u8, ty.abiSize(self.target))
     else
         @as(u8, 4);
@@ -1920,6 +2071,15 @@ fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue
     return try self.load(operand, payload_ty, offset);
 }
 
+fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue.none;
+
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const operand = self.resolveInst(ty_op.operand);
+    const err_ty = self.air.typeOf(ty_op.operand);
+    return try self.load(operand, err_ty.errorUnionSet(), 0);
+}
+
 fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     _ = ty_op;
@@ -1935,18 +2095,20 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const op_bits = ref_info.bits;
     const wanted_bits = ty.intInfo(self.target).bits;
 
-    try self.emitWValue(operand);
     if (op_bits > 32 and wanted_bits <= 32) {
+        try self.emitWValue(operand);
         try self.addTag(.i32_wrap_i64);
     } else if (op_bits <= 32 and wanted_bits > 32) {
+        try self.emitWValue(operand);
         try self.addTag(switch (ref_info.signedness) {
             .signed => .i64_extend_i32_s,
             .unsigned => .i64_extend_i32_u,
         });
-    }
+    } else return operand;
 
-    // other cases are no-op
-    return .none;
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
 }
 
 fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
