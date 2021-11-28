@@ -2538,7 +2538,7 @@ pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
         .PERM => return error.AccessDenied,
         .BUSY => return error.FileBusy,
         .FAULT => unreachable,
-        .INVAL => unreachable,
+        .INVAL => return error.BadPathName,
         .LOOP => return error.SymLinkLoop,
         .NAMETOOLONG => return error.NameTooLong,
         .NOENT => return error.FileNotFound,
