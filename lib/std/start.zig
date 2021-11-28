@@ -30,7 +30,7 @@ comptime {
                 }
             } else if (builtin.os.tag == .windows) {
                 @export(wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
-            } else if (builtin.os.tag == .wasi) {
+            } else if (builtin.os.tag == .wasi and @hasDecl(root, "main")) {
                 @export(wasmMain2, .{ .name = "_start" });
             } else {
                 if (!@hasDecl(root, "_start")) {

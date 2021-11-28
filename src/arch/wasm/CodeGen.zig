@@ -812,7 +812,7 @@ pub fn genFunc(self: *Self) InnerError!Result {
 /// Generates the wasm bytecode for the declaration belonging to `Context`
 pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
     if (val.isUndef()) {
-        try self.code.appendNTimes(0xaa, ty.abiSize(self.target));
+        try self.code.appendNTimes(0xaa, @intCast(usize, ty.abiSize(self.target)));
         return Result.appended;
     }
     switch (ty.zigTypeTag()) {
@@ -833,7 +833,7 @@ pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
                 } else if (!val.isNull()) {
                     return try self.genDecl(payload_type, val);
                 } else {
-                    try self.code.appendNTimes(0, ty.abiSize(self.target));
+                    try self.code.appendNTimes(0, @intCast(usize, ty.abiSize(self.target)));
                     return Result.appended;
                 }
             }
@@ -882,7 +882,7 @@ pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
         },
         .Int => {
             const info = ty.intInfo(self.target);
-            const abi_size = ty.abiSize(self.target);
+            const abi_size = @intCast(usize, ty.abiSize(self.target));
             // todo: Implement integer sizes larger than 64bits
             if (info.bits > 64) return self.fail("TODO: Implement genDecl for integer bit size: {d}", .{info.bits});
             var buf: [8]u8 = undefined;
@@ -916,8 +916,8 @@ pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
         },
         .Union => {
             // TODO: Implement Union declarations
-            const abi_size = ty.abiSize(self.target);
-            try self.code.writer().writeByteNTimes(0xaa, abi_size);
+            const abi_size = @intCast(usize, ty.abiSize(self.target));
+            try self.code.appendNTimes(0xaa, abi_size);
             return Result.appended;
         },
         .Pointer => switch (val.tag()) {
@@ -973,7 +973,7 @@ fn lowerDeclRef(self: *Self, decl: *Module.Decl) InnerError!Result {
             .relocation_type = .R_WASM_MEMORY_ADDR_I32,
         });
     }
-    const ptr_width = self.target.cpu.arch.ptrBitWidth() / 8;
+    const ptr_width = @intCast(usize, self.target.cpu.arch.ptrBitWidth() / 8);
     try self.code.appendNTimes(0xaa, ptr_width);
 
     return Result.appended;
