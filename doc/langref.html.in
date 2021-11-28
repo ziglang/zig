@@ -8528,6 +8528,16 @@ test "@hasDecl" {
       Attempting to convert a number which is out of range of the destination type results in
       safety-protected {#link|Undefined Behavior#}.
       </p>
+      {#code_begin|test_err|cast truncated bits#}
+test "integer cast panic" {
+    var a: u16 = 0xabcd;
+    var b: u8 = @intCast(u8, a);
+    _ = b;
+}
+      {#code_end#}
+      <p>
+      To truncate the significant bits of a number out of range of the destination type, use {#link|@truncate#}.
+      </p>
       <p>
       If {#syntax#}T{#endsyntax#} is {#syntax#}comptime_int{#endsyntax#},
       then this is semantically equivalent to {#link|Type Coercion#}.
@@ -9371,17 +9381,11 @@ fn List(comptime T: type) type {
       or same-sized integer type.
       </p>
       <p>
-      The following produces safety-checked {#link|Undefined Behavior#}:
+      This function always truncates the significant bits of the integer, regardless
+      of endianness on the target platform.
       </p>
-      {#code_begin|test_err|cast truncated bits#}
-test "integer cast panic" {
-    var a: u16 = 0xabcd;
-    var b: u8 = @intCast(u8, a);
-    _ = b;
-}
-      {#code_end#}
       <p>
-      However this is well defined and working code:
+      Calling {#syntax#}@truncate{#endsyntax#} on a number out of range of the destination type is well defined and working code:
       </p>
       {#code_begin|test|truncate#}
 const std = @import("std");
@@ -9394,8 +9398,7 @@ test "integer truncation" {
 }
       {#code_end#}
       <p>
-      This function always truncates the significant bits of the integer, regardless
-      of endianness on the target platform.
+      Use {#link|@intCast#} to convert numbers guaranteed to fit the destination type.
       </p>
       {#header_close#}
 
