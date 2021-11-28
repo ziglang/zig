@@ -4996,17 +4996,9 @@ fn writeSymbolTable(self: *MachO) !void {
         }
     }
 
-    var undefs = std.ArrayList(macho.nlist_64).init(self.base.allocator);
-    defer undefs.deinit();
-
-    for (self.undefs.items) |sym| {
-        if (sym.n_strx == 0) continue;
-        try undefs.append(sym);
-    }
-
     const nlocals = locals.items.len;
     const nexports = self.globals.items.len;
-    const nundefs = undefs.items.len;
+    const nundefs = self.undefs.items.len;
 
     const locals_off = symtab.symoff;
     const locals_size = nlocals * @sizeOf(macho.nlist_64);
@@ -5021,7 +5013,7 @@ fn writeSymbolTable(self: *MachO) !void {
     const undefs_off = exports_off + exports_size;
     const undefs_size = nundefs * @sizeOf(macho.nlist_64);
     log.debug("writing undefined symbols from 0x{x} to 0x{x}", .{ undefs_off, undefs_size + undefs_off });
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(undefs.items), undefs_off);
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.undefs.items), undefs_off);
 
     symtab.nsyms = @intCast(u32, nlocals + nexports + nundefs);
     seg.inner.filesize += locals_size + exports_size + undefs_size;
