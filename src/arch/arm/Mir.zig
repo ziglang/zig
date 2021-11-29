@@ -51,10 +51,16 @@ pub const Inst = struct {
         eor,
         /// Load Register
         ldr,
+        /// Load Register
+        ldr_stack_argument,
         /// Load Register Byte
         ldrb,
+        /// Load Register Byte
+        ldrb_stack_argument,
         /// Load Register Halfword
         ldrh,
+        /// Load Register Halfword
+        ldrh_stack_argument,
         /// Logical Shift Left
         lsl,
         /// Logical Shift Right
@@ -124,6 +130,13 @@ pub const Inst = struct {
         ///
         /// Used by e.g. blx
         reg: Register,
+        /// A register and a stack offset
+        ///
+        /// Used by e.g. ldr_stack_argument
+        r_stack_offset: struct {
+            rt: Register,
+            stack_offset: u32,
+        },
         /// A register and a 16-bit unsigned immediate
         ///
         /// Used by e.g. movw
