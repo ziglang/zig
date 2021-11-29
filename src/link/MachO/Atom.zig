@@ -384,7 +384,10 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                         // TODO rewrite relocation
                         try addStub(target, context);
                     },
-                    .ARM64_RELOC_GOT_LOAD_PAGE21, .ARM64_RELOC_GOT_LOAD_PAGEOFF12 => {
+                    .ARM64_RELOC_GOT_LOAD_PAGE21,
+                    .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
+                    .ARM64_RELOC_POINTER_TO_GOT,
+                    => {
                         // TODO rewrite relocation
                         try addGotEntry(target, context);
                     },
@@ -660,7 +663,10 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
             const is_via_got = got: {
                 switch (arch) {
                     .aarch64 => break :got switch (@intToEnum(macho.reloc_type_arm64, rel.@"type")) {
-                        .ARM64_RELOC_GOT_LOAD_PAGE21, .ARM64_RELOC_GOT_LOAD_PAGEOFF12 => true,
+                        .ARM64_RELOC_GOT_LOAD_PAGE21,
+                        .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
+                        .ARM64_RELOC_POINTER_TO_GOT,
+                        => true,
                         else => false,
                     },
                     .x86_64 => break :got switch (@intToEnum(macho.reloc_type_x86_64, rel.@"type")) {
