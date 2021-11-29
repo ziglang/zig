@@ -878,14 +878,31 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         try self.createDsoHandleAtom();
         try self.addCodeSignatureLC();
 
-        for (self.unresolved.keys()) |index| {
-            const sym = self.undefs.items[index];
-            const sym_name = self.getString(sym.n_strx);
-            const resolv = self.symbol_resolver.get(sym.n_strx) orelse unreachable;
+        {
+            var next_sym: usize = 0;
+            while (next_sym < self.unresolved.count()) {
+                const sym = &self.undefs.items[self.unresolved.keys()[next_sym]];
+                const sym_name = self.getString(sym.n_strx);
+                const resolv = self.symbol_resolver.get(sym.n_strx) orelse unreachable;
 
-            log.err("undefined reference to symbol '{s}'", .{sym_name});
-            if (resolv.file) |file| {
-                log.err("  first referenced in '{s}'", .{self.objects.items[file].name});
+                if (symbolIsDiscarded(sym.*)) {
+                    sym.* = .{
+                        .n_strx = 0,
+                        .n_type = macho.N_UNDF,
+                        .n_sect = 0,
+                        .n_desc = 0,
+                        .n_value = 0,
+                    };
+                    _ = self.unresolved.swapRemove(resolv.where_index);
+                    continue;
+                }
+
+                log.err("undefined reference to symbol '{s}'", .{sym_name});
+                if (resolv.file) |file| {
+                    log.err("  first referenced in '{s}'", .{self.objects.items[file].name});
+                }
+
+                next_sym += 1;
             }
         }
         if (self.unresolved.count() > 0) {
@@ -2603,7 +2620,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                 .n_strx = try self.makeString(sym_name),
                 .n_type = macho.N_UNDF,
                 .n_sect = 0,
-                .n_desc = 0,
+                .n_desc = sym.n_desc,
                 .n_value = 0,
             });
             try self.symbol_resolver.putNoClobber(self.base.allocator, n_strx, .{
@@ -5337,6 +5354,10 @@ pub fn symbolIsWeakDef(sym: macho.nlist_64) bool {
 
 pub fn symbolIsWeakRef(sym: macho.nlist_64) bool {
     return (sym.n_desc & macho.N_WEAK_REF) != 0;
+}
+
+pub fn symbolIsDiscarded(sym: macho.nlist_64) bool {
+    return (sym.n_desc & macho.N_DESC_DISCARDED) != 0;
 }
 
 pub fn symbolIsTentative(sym: macho.nlist_64) bool {
