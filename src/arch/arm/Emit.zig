@@ -30,6 +30,10 @@ prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
+/// The amount of stack space consumed by all stack arguments as well
+/// as the saved callee-saved registers
+prologue_stack_space: u32,
+
 /// The branch type of every branch
 branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .{},
 /// For every forward branch, maps the target instruction to a list of
@@ -101,6 +105,10 @@ pub fn emitMir(
             .ldrb => try emit.mirLoadStore(inst),
             .str => try emit.mirLoadStore(inst),
             .strb => try emit.mirLoadStore(inst),
+
+            .ldr_stack_argument => try emit.mirLoadStack(inst),
+            .ldrb_stack_argument => try emit.mirLoadStack(inst),
+            .ldrh_stack_argument => try emit.mirLoadStack(inst),
 
             .ldrh => try emit.mirLoadStoreExtra(inst),
             .strh => try emit.mirLoadStoreExtra(inst),
@@ -464,6 +472,53 @@ fn mirLoadStore(emit: *Emit, inst: Mir.Inst.Index) !void {
         .ldrb => try emit.writeInstruction(Instruction.ldrb(cond, rr_offset.rt, rr_offset.rn, rr_offset.offset)),
         .str => try emit.writeInstruction(Instruction.str(cond, rr_offset.rt, rr_offset.rn, rr_offset.offset)),
         .strb => try emit.writeInstruction(Instruction.strb(cond, rr_offset.rt, rr_offset.rn, rr_offset.offset)),
+        else => unreachable,
+    }
+}
+
+fn mirLoadStack(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const cond = emit.mir.instructions.items(.cond)[inst];
+    const r_stack_offset = emit.mir.instructions.items(.data)[inst].r_stack_offset;
+
+    const raw_offset = emit.prologue_stack_space - r_stack_offset.stack_offset;
+    switch (tag) {
+        .ldr_stack_argument => {
+            const offset = if (raw_offset <= math.maxInt(u12)) blk: {
+                break :blk Instruction.Offset.imm(@intCast(u12, raw_offset));
+            } else return emit.fail("TODO mirLoadStack larger offsets", .{});
+
+            try emit.writeInstruction(Instruction.ldr(
+                cond,
+                r_stack_offset.rt,
+                .fp,
+                .{ .offset = offset },
+            ));
+        },
+        .ldrb_stack_argument => {
+            const offset = if (raw_offset <= math.maxInt(u12)) blk: {
+                break :blk Instruction.Offset.imm(@intCast(u12, raw_offset));
+            } else return emit.fail("TODO mirLoadStack larger offsets", .{});
+
+            try emit.writeInstruction(Instruction.ldrb(
+                cond,
+                r_stack_offset.rt,
+                .fp,
+                .{ .offset = offset },
+            ));
+        },
+        .ldrh_stack_argument => {
+            const offset = if (raw_offset <= math.maxInt(u8)) blk: {
+                break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, raw_offset));
+            } else return emit.fail("TODO mirLoadStack larger offsets", .{});
+
+            try emit.writeInstruction(Instruction.ldrh(
+                cond,
+                r_stack_offset.rt,
+                .fp,
+                .{ .offset = offset },
+            ));
+        },
         else => unreachable,
     }
 }
