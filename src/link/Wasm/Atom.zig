@@ -83,7 +83,7 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
 
     for (self.relocs.items) |reloc| {
         const value = try relocationValue(reloc, wasm_bin);
-        log.debug("Relocating '{s}' referenced in '{s}' offset=0x{x:0>8} value={d}\n", .{
+        log.debug("Relocating '{s}' referenced in '{s}' offset=0x{x:0>8} value={d}", .{
             wasm_bin.symbols.items[reloc.index].name,
             symbol.name,
             reloc.offset,
@@ -129,7 +129,7 @@ fn relocationValue(relocation: types.Relocation, wasm_bin: *const Wasm) !u64 {
         .R_WASM_TABLE_INDEX_I64,
         .R_WASM_TABLE_INDEX_SLEB,
         .R_WASM_TABLE_INDEX_SLEB64,
-        => return error.TodoImplementTableIndex, // find table index from a function symbol
+        => return wasm_bin.function_table.get(relocation.index) orelse 0,
         .R_WASM_TYPE_INDEX_LEB => wasm_bin.functions.items[symbol.index].type_index,
         .R_WASM_GLOBAL_INDEX_I32,
         .R_WASM_GLOBAL_INDEX_LEB,
@@ -152,9 +152,7 @@ fn relocationValue(relocation: types.Relocation, wasm_bin: *const Wasm) !u64 {
                 target_atom = target_atom.next orelse break;
             }
             const segment = wasm_bin.segments.items[atom_index];
-            const base = wasm_bin.base.options.global_base orelse 1024;
-            const offset = target_atom.offset + segment.offset;
-            break :blk offset + base + (relocation.addend orelse 0);
+            break :blk target_atom.offset + segment.offset + (relocation.addend orelse 0);
         },
         .R_WASM_EVENT_INDEX_LEB => symbol.index,
         .R_WASM_SECTION_OFFSET_I32,

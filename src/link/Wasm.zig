@@ -79,7 +79,9 @@ memories: wasm.Memory = .{ .limits = .{ .min = 0, .max = null } },
 /// Indirect function table, used to call function pointers
 /// When this is non-zero, we must emit a table entry,
 /// as well as an 'elements' section.
-function_table: std.ArrayListUnmanaged(Symbol) = .{},
+///
+/// Note: Key is symbol index, value represents the index into the table
+function_table: std.AutoHashMapUnmanaged(u32, u32) = .{},
 
 pub const Segment = struct {
     alignment: u32,
@@ -276,7 +278,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     defer codegen.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = codegen.gen(decl.ty, decl.val) catch |err| switch (err) {
+    const result = codegen.genDecl(decl.ty, decl.val) catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
@@ -333,6 +335,25 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
             .function => self.imported_functions_count -= 1,
             else => unreachable,
         }
+    }
+
+    // maybe remove from function table if needed
+    if (decl.ty.zigTypeTag() == .Fn) {
+        _ = self.function_table.remove(atom.sym_index);
+    }
+}
+
+/// Appends a new entry to the indirect function table
+pub fn addTableFunction(self: *Wasm, symbol_index: u32) !void {
+    const index = @intCast(u32, self.function_table.count());
+    try self.function_table.put(self.base.allocator, symbol_index, index);
+}
+
+fn mapFunctionTable(self: *Wasm) void {
+    var it = self.function_table.valueIterator();
+    var index: u32 = 0;
+    while (it.next()) |value_ptr| : (index += 1) {
+        value_ptr.* = index;
     }
 }
 
@@ -583,6 +604,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
     try self.setupMemory();
     try self.allocateAtoms();
+    self.mapFunctionTable();
 
     const file = self.base.file.?;
     const header_size = 5 + 1;
@@ -659,6 +681,22 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             .function,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @intCast(u32, self.functions.items.len),
+        );
+    }
+
+    if (self.function_table.count() > 0) {
+        const header_offset = try reserveVecSectionHeader(file);
+        const writer = file.writer();
+
+        try leb.writeULEB128(writer, wasm.reftype(.funcref));
+        try emitLimits(writer, .{ .min = 1, .max = null });
+
+        try writeVecSectionHeader(
+            file,
+            header_offset,
+            .table,
+            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @as(u32, 1),
         );
     }
 
@@ -740,6 +778,31 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             .@"export",
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             count,
+        );
+    }
+
+    // element section (function table)
+    if (self.function_table.count() > 0) {
+        const header_offset = try reserveVecSectionHeader(file);
+        const writer = file.writer();
+
+        var flags: u32 = 0x2; // Yes we have a table
+        try leb.writeULEB128(writer, flags);
+        try leb.writeULEB128(writer, @as(u32, 0)); // index of that table. TODO: Store synthetic symbols
+        try emitInit(writer, .{ .i32_const = 0 });
+        try leb.writeULEB128(writer, @as(u8, 0));
+        try leb.writeULEB128(writer, @intCast(u32, self.function_table.count()));
+        var symbol_it = self.function_table.keyIterator();
+        while (symbol_it.next()) |symbol_index_ptr| {
+            try leb.writeULEB128(writer, self.symbols.items[symbol_index_ptr.*].index);
+        }
+
+        try writeVecSectionHeader(
+            file,
+            header_offset,
+            .element,
+            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @as(u32, 1),
         );
     }
 
@@ -1232,17 +1295,4 @@ pub fn putOrGetFuncType(self: *Wasm, func_type: wasm.Type) !u32 {
         .returns = returns,
     });
     return index;
-}
-
-/// From a given index and an `ExternalKind`, finds the corresponding Import.
-/// This is due to indexes for imports being unique per type, rather than across all imports.
-fn findImport(self: Wasm, index: u32, external_type: wasm.ExternalKind) ?*wasm.Import {
-    var current_index: u32 = 0;
-    for (self.imports.items) |*import| {
-        if (import.kind == external_type) {
-            if (current_index == index) return import;
-            current_index += 1;
-        }
-    }
-    return null;
 }

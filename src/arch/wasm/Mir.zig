@@ -69,6 +69,11 @@ pub const Inst = struct {
         ///
         /// Uses `label`
         call = 0x10,
+        /// Calls a function pointer by its function signature
+        /// and index into the function table.
+        ///
+        /// Uses `label`
+        call_indirect = 0x11,
         /// Loads a local at given index onto the stack.
         ///
         /// Uses `label`
