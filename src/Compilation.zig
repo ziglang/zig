@@ -3886,10 +3886,11 @@ fn detectLibCIncludeDirs(
                     "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
                     .{ zig_lib_dir, generic_name },
                 );
+                const generic_arch_name = target_util.osArchName(target);
                 const arch_os_include_dir = try std.fmt.allocPrint(
                     arena,
                     "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
-                    .{ zig_lib_dir, @tagName(target.cpu.arch), os_name },
+                    .{ zig_lib_dir, generic_arch_name, os_name },
                 );
                 const generic_os_include_dir = try std.fmt.allocPrint(
                     arena,

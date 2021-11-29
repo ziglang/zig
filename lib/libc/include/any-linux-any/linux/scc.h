@@ -4,6 +4,7 @@
 #ifndef _SCC_H
 #define _SCC_H
 
+#include <linux/sockios.h>
 
 /* selection of hardware types */
 

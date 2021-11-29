@@ -37,5 +37,4 @@ enum {
 	SEG6_IPTUN_MODE_L2ENCAP,
 };
 
-
 #endif
