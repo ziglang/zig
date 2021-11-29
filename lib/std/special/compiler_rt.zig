@@ -7,6 +7,7 @@ const abi = builtin.abi;
 
 const is_gnu = abi.isGnu();
 const is_mingw = os_tag == .windows and is_gnu;
+const is_darwin = std.Target.Os.Tag.isDarwin(os_tag);
 
 const linkage = if (is_test)
     std.builtin.GlobalLinkage.Internal
@@ -335,6 +336,11 @@ comptime {
         @export(__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = linkage });
         const __popcountdi2 = @import("compiler_rt/popcountdi2.zig").__popcountdi2;
         @export(__popcountdi2, .{ .name = "__popcountdi2", .linkage = linkage });
+
+        if (is_darwin) {
+            const __isPlatformVersionAtLeast = @import("compiler_rt/os_version_check.zig").__isPlatformVersionAtLeast;
+            @export(__isPlatformVersionAtLeast, .{ .name = "__isPlatformVersionAtLeast", .linkage = linkage });
+        }
 
         const __mulsi3 = @import("compiler_rt/int.zig").__mulsi3;
         @export(__mulsi3, .{ .name = "__mulsi3", .linkage = linkage });

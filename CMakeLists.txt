@@ -497,6 +497,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/muloti4.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/multi3.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/negXf2.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/os_version_check.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/popcountdi2.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/shift.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/stack_probe.zig"
