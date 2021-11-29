@@ -1460,6 +1460,9 @@ pub const LibExeObjStep = struct {
     code_model: std.builtin.CodeModel = .default,
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
+    test_no_exec: bool = false,
+    femit_bin: ?[]const u8 = null,
+
     root_src: ?FileSource,
     out_h_filename: []const u8,
     out_lib_filename: []const u8,
@@ -2340,6 +2343,11 @@ pub const LibExeObjStep = struct {
             try zig_args.append("--debug-log");
             try zig_args.append(log_scope);
         }
+
+        if (self.femit_bin) |name| {
+            try zig_args.append(try std.fmt.allocPrint(builder.allocator, "-femit-bin={s}", .{name}));
+        }
+        if (self.test_no_exec) try zig_args.append("--test-no-exec");
 
         if (builder.verbose_tokenize) zig_args.append("--verbose-tokenize") catch unreachable;
         if (builder.verbose_ast) zig_args.append("--verbose-ast") catch unreachable;
