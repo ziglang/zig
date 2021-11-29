@@ -437,9 +437,11 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                         };
                         addend = mem.readIntLittle(i32, self.code.items[offset..][0..4]) + correction;
                         if (rel.r_extern == 0) {
+                            // Note for the future self: when r_extern == 0, we should subtract correction from the
+                            // addend.
                             const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
                             const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
-                            addend += @intCast(i64, context.base_addr + offset + correction + 4) -
+                            addend += @intCast(i64, context.base_addr + offset + 4) -
                                 @intCast(i64, target_sect_base_addr);
                         }
                     },
