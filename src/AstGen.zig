@@ -4781,8 +4781,8 @@ fn simpleBinOp(
     const node_datas = tree.nodes.items(.data);
 
     const result = try gz.addPlNode(op_inst_tag, node, Zir.Inst.Bin{
-        .lhs = try expr(gz, scope, .none, node_datas[node].lhs),
-        .rhs = try expr(gz, scope, .none, node_datas[node].rhs),
+        .lhs = try reachableExpr(gz, scope, .none, node_datas[node].lhs, node),
+        .rhs = try reachableExpr(gz, scope, .none, node_datas[node].rhs, node),
     });
     return rvalue(gz, rl, result, node);
 }
