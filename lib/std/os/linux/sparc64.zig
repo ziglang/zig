@@ -9,8 +9,8 @@ const sigset_t = linux.sigset_t;
 const linux = std.os.linux;
 const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
-const iovec = linux.iovec;
-const iovec_const = linux.iovec_const;
+const iovec = std.os.iovec;
+const iovec_const = std.os.iovec_const;
 const timespec = linux.timespec;
 
 pub fn syscall_pipe(fd: *[2]i32) usize {
