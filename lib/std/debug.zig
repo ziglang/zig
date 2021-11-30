@@ -559,7 +559,7 @@ pub const TTY = struct {
 
 fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const MachoSymbol {
     var min: usize = 0;
-    var max: usize = symbols.len - 1; // Exclude sentinel.
+    var max: usize = symbols.len;
     while (min < max) {
         const mid = min + (max - min) / 2;
         const curr = &symbols[mid];
@@ -850,51 +850,91 @@ fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !ModuleDebugI
     } else {
         return error.MissingDebugInfo;
     };
-    const syms = @ptrCast([*]const macho.nlist_64, @alignCast(@alignOf(macho.nlist_64), hdr_base + symtab.symoff))[0..symtab.nsyms];
+    const syms = @ptrCast(
+        [*]const macho.nlist_64,
+        @alignCast(@alignOf(macho.nlist_64), hdr_base + symtab.symoff),
+    )[0..symtab.nsyms];
     const strings = @ptrCast([*]const u8, hdr_base + symtab.stroff)[0 .. symtab.strsize - 1 :0];
 
     const symbols_buf = try allocator.alloc(MachoSymbol, syms.len);
 
-    var ofile: ?*const macho.nlist_64 = null;
-    var reloc: u64 = 0;
+    var ofile: u32 = undefined;
+    var last_sym: MachoSymbol = undefined;
     var symbol_index: usize = 0;
-    var last_len: u64 = 0;
+    var state: enum {
+        init,
+        oso_open,
+        oso_close,
+        bnsym,
+        fun_strx,
+        fun_size,
+        ensym,
+    } = .init;
+
     for (syms) |*sym| {
-        if (sym.n_type & std.macho.N_STAB != 0) {
-            switch (sym.n_type) {
-                std.macho.N_OSO => {
-                    ofile = sym;
-                    reloc = 0;
-                },
-                std.macho.N_FUN => {
-                    if (sym.n_sect == 0) {
-                        last_len = sym.n_value;
-                    } else {
-                        symbols_buf[symbol_index] = MachoSymbol{
-                            .nlist = sym,
+        if (!sym.stab()) continue;
+
+        // TODO handle globals N_GSYM, and statics N_STSYM
+        switch (sym.n_type) {
+            macho.N_OSO => {
+                switch (state) {
+                    .init, .oso_close => {
+                        state = .oso_open;
+                        ofile = sym.n_strx;
+                    },
+                    else => return error.InvalidDebugInfo,
+                }
+            },
+            macho.N_BNSYM => {
+                switch (state) {
+                    .oso_open, .ensym => {
+                        state = .bnsym;
+                        last_sym = .{
+                            .strx = 0,
+                            .addr = sym.n_value,
+                            .size = 0,
                             .ofile = ofile,
-                            .reloc = reloc,
                         };
+                    },
+                    else => return error.InvalidDebugInfo,
+                }
+            },
+            macho.N_FUN => {
+                switch (state) {
+                    .bnsym => {
+                        state = .fun_strx;
+                        last_sym.strx = sym.n_strx;
+                    },
+                    .fun_strx => {
+                        state = .fun_size;
+                        last_sym.size = @intCast(u32, sym.n_value);
+                    },
+                    else => return error.InvalidDebugInfo,
+                }
+            },
+            macho.N_ENSYM => {
+                switch (state) {
+                    .fun_size => {
+                        state = .ensym;
+                        symbols_buf[symbol_index] = last_sym;
                         symbol_index += 1;
-                    }
-                },
-                std.macho.N_BNSYM => {
-                    if (reloc == 0) {
-                        reloc = sym.n_value;
-                    }
-                },
-                else => continue,
-            }
+                    },
+                    else => return error.InvalidDebugInfo,
+                }
+            },
+            macho.N_SO => {
+                switch (state) {
+                    .init, .oso_close => {},
+                    .oso_open, .ensym => {
+                        state = .oso_close;
+                    },
+                    else => return error.InvalidDebugInfo,
+                }
+            },
+            else => {},
         }
     }
-    const sentinel = try allocator.create(macho.nlist_64);
-    sentinel.* = macho.nlist_64{
-        .n_strx = 0,
-        .n_type = 36,
-        .n_sect = 0,
-        .n_desc = 0,
-        .n_value = symbols_buf[symbol_index - 1].nlist.n_value + last_len,
-    };
+    assert(state == .oso_close);
 
     const symbols = allocator.shrink(symbols_buf, symbol_index);
 
@@ -946,18 +986,19 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
 }
 
 const MachoSymbol = struct {
-    nlist: *const macho.nlist_64,
-    ofile: ?*const macho.nlist_64,
-    reloc: u64,
+    strx: u32,
+    addr: u64,
+    size: u32,
+    ofile: u32,
 
     /// Returns the address from the macho file
     fn address(self: MachoSymbol) u64 {
-        return self.nlist.n_value;
+        return self.addr;
     }
 
     fn addressLessThan(context: void, lhs: MachoSymbol, rhs: MachoSymbol) bool {
         _ = context;
-        return lhs.address() < rhs.address();
+        return lhs.addr < rhs.addr;
     }
 };
 
@@ -1231,13 +1272,17 @@ pub const ModuleDebugInfo = switch (native_os) {
         strings: [:0]const u8,
         ofiles: OFileTable,
 
-        const OFileTable = std.StringHashMap(DW.DwarfInfo);
+        const OFileTable = std.StringHashMap(OFileInfo);
+        const OFileInfo = struct {
+            di: DW.DwarfInfo,
+            addr_table: std.StringHashMap(u64),
+        };
 
         pub fn allocator(self: @This()) *mem.Allocator {
             return self.ofiles.allocator;
         }
 
-        fn loadOFile(self: *@This(), o_file_path: []const u8) !DW.DwarfInfo {
+        fn loadOFile(self: *@This(), o_file_path: []const u8) !OFileInfo {
             const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
             const mapped_mem = try mapWholeFile(o_file);
 
@@ -1250,22 +1295,54 @@ pub const ModuleDebugInfo = switch (native_os) {
 
             const hdr_base = @ptrCast([*]const u8, hdr);
             var ptr = hdr_base + @sizeOf(macho.mach_header_64);
+            var segptr = ptr;
             var ncmd: u32 = hdr.ncmds;
-            const segcmd = while (ncmd != 0) : (ncmd -= 1) {
+            var segcmd: ?*const macho.segment_command_64 = null;
+            var symtabcmd: ?*const macho.symtab_command = null;
+
+            while (ncmd != 0) : (ncmd -= 1) {
                 const lc = @ptrCast(*const std.macho.load_command, ptr);
                 switch (lc.cmd) {
                     std.macho.LC_SEGMENT_64 => {
-                        break @ptrCast(
+                        segcmd = @ptrCast(
                             *const std.macho.segment_command_64,
                             @alignCast(@alignOf(std.macho.segment_command_64), ptr),
+                        );
+                        segptr = ptr;
+                    },
+                    std.macho.LC_SYMTAB => {
+                        symtabcmd = @ptrCast(
+                            *const std.macho.symtab_command,
+                            @alignCast(@alignOf(std.macho.symtab_command), ptr),
                         );
                     },
                     else => {},
                 }
                 ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
-            } else {
-                return error.MissingDebugInfo;
-            };
+            }
+
+            if (segcmd == null or symtabcmd == null) return error.MissingDebugInfo;
+
+            // Parse symbols
+            const strtab = @ptrCast(
+                [*]const u8,
+                hdr_base + symtabcmd.?.stroff,
+            )[0 .. symtabcmd.?.strsize - 1 :0];
+            const symtab = @ptrCast(
+                [*]const macho.nlist_64,
+                @alignCast(@alignOf(macho.nlist_64), hdr_base + symtabcmd.?.symoff),
+            )[0..symtabcmd.?.nsyms];
+
+            // TODO handle tentative (common) symbols
+            var addr_table = std.StringHashMap(u64).init(self.allocator());
+            try addr_table.ensureTotalCapacity(@intCast(u32, symtab.len));
+            for (symtab) |sym| {
+                if (sym.n_strx == 0) continue;
+                if (sym.undf() or sym.tentative() or sym.abs()) continue;
+                const sym_name = mem.sliceTo(strtab[sym.n_strx..], 0);
+                // TODO is it possible to have a symbol collision?
+                addr_table.putAssumeCapacityNoClobber(sym_name, sym.n_value);
+            }
 
             var opt_debug_line: ?*const macho.section_64 = null;
             var opt_debug_info: ?*const macho.section_64 = null;
@@ -1275,8 +1352,8 @@ pub const ModuleDebugInfo = switch (native_os) {
 
             const sections = @ptrCast(
                 [*]const macho.section_64,
-                @alignCast(@alignOf(macho.section_64), ptr + @sizeOf(std.macho.segment_command_64)),
-            )[0..segcmd.nsects];
+                @alignCast(@alignOf(macho.section_64), segptr + @sizeOf(std.macho.segment_command_64)),
+            )[0..segcmd.?.nsects];
             for (sections) |*sect| {
                 // The section name may not exceed 16 chars and a trailing null may
                 // not be present
@@ -1320,11 +1397,15 @@ pub const ModuleDebugInfo = switch (native_os) {
             };
 
             try DW.openDwarfDebugInfo(&di, self.allocator());
+            var info = OFileInfo{
+                .di = di,
+                .addr_table = addr_table,
+            };
 
             // Add the debug info to the cache
-            try self.ofiles.putNoClobber(o_file_path, di);
+            try self.ofiles.putNoClobber(o_file_path, info);
 
-            return di;
+            return info;
         }
 
         pub fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
@@ -1336,18 +1417,15 @@ pub const ModuleDebugInfo = switch (native_os) {
                 // Find the .o file where this symbol is defined
                 const symbol = machoSearchSymbols(self.symbols, relocated_address) orelse
                     return SymbolInfo{};
+                const addr_off = relocated_address - symbol.addr;
 
                 // Take the symbol name from the N_FUN STAB entry, we're going to
                 // use it if we fail to find the DWARF infos
-                const stab_symbol = mem.sliceTo(self.strings[symbol.nlist.n_strx..], 0);
-
-                if (symbol.ofile == null)
-                    return SymbolInfo{ .symbol_name = stab_symbol };
-
-                const o_file_path = mem.sliceTo(self.strings[symbol.ofile.?.n_strx..], 0);
+                const stab_symbol = mem.sliceTo(self.strings[symbol.strx..], 0);
+                const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
 
                 // Check if its debug infos are already in the cache
-                var o_file_di = self.ofiles.get(o_file_path) orelse
+                var o_file_info = self.ofiles.get(o_file_path) orelse
                     (self.loadOFile(o_file_path) catch |err| switch (err) {
                     error.FileNotFound,
                     error.MissingDebugInfo,
@@ -1357,19 +1435,22 @@ pub const ModuleDebugInfo = switch (native_os) {
                     },
                     else => return err,
                 });
+                const o_file_di = &o_file_info.di;
 
                 // Translate again the address, this time into an address inside the
                 // .o file
-                const relocated_address_o = relocated_address - symbol.reloc;
+                const relocated_address_o = o_file_info.addr_table.get(stab_symbol) orelse return SymbolInfo{
+                    .symbol_name = "???",
+                };
 
                 if (o_file_di.findCompileUnit(relocated_address_o)) |compile_unit| {
                     return SymbolInfo{
                         .symbol_name = o_file_di.getSymbolName(relocated_address_o) orelse "???",
-                        .compile_unit_name = compile_unit.die.getAttrString(&o_file_di, DW.AT.name) catch |err| switch (err) {
+                        .compile_unit_name = compile_unit.die.getAttrString(o_file_di, DW.AT.name) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
                             else => return err,
                         },
-                        .line_info = o_file_di.getLineNumberInfo(compile_unit.*, relocated_address_o) catch |err| switch (err) {
+                        .line_info = o_file_di.getLineNumberInfo(compile_unit.*, relocated_address_o + addr_off) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => null,
                             else => return err,
                         },
