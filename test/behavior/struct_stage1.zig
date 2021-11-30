@@ -6,16 +6,6 @@ const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
 
-top_level_field: i32,
-
-test "top level fields" {
-    var instance = @This(){
-        .top_level_field = 1234,
-    };
-    instance.top_level_field += 1;
-    try expectEqual(@as(i32, 1235), instance.top_level_field);
-}
-
 const StructFoo = struct {
     a: i32,
     b: bool,
@@ -31,36 +21,6 @@ const Val = struct {
     x: i32,
 };
 
-test "fn call of struct field" {
-    const Foo = struct {
-        ptr: fn () i32,
-    };
-    const S = struct {
-        fn aFunc() i32 {
-            return 13;
-        }
-
-        fn callStructField(foo: Foo) i32 {
-            return foo.ptr();
-        }
-    };
-
-    try expect(S.callStructField(Foo{ .ptr = S.aFunc }) == 13);
-}
-
-const MemberFnTestFoo = struct {
-    x: i32,
-    fn member(foo: MemberFnTestFoo) i32 {
-        return foo.x;
-    }
-};
-test "store member function in variable" {
-    const instance = MemberFnTestFoo{ .x = 1234 };
-    const memberFn = MemberFnTestFoo.member;
-    const result = memberFn(instance);
-    try expect(result == 1234);
-}
-
 test "empty struct method call" {
     const es = EmptyStruct{};
     try expect(es.method() == 1234);
@@ -75,13 +35,6 @@ const EmptyStruct = struct {
 const EmptyStruct2 = struct {};
 fn testReturnEmptyStructFromFn() EmptyStruct2 {
     return EmptyStruct2{};
-}
-
-test "pass slice of empty struct to fn" {
-    try expect(testPassSliceOfEmptyStructToFn(&[_]EmptyStruct2{EmptyStruct2{}}) == 1);
-}
-fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) usize {
-    return slice.len;
 }
 
 const APackedStruct = packed struct {
@@ -332,25 +285,6 @@ fn alloc(comptime T: type) []T {
     return &[_]T{};
 }
 
-test "call method with mutable reference to struct with no fields" {
-    const S = struct {
-        fn doC(s: *const @This()) bool {
-            _ = s;
-            return true;
-        }
-        fn do(s: *@This()) bool {
-            _ = s;
-            return true;
-        }
-    };
-
-    var s = S{};
-    try expect(S.doC(&s));
-    try expect(s.doC());
-    try expect(S.do(&s));
-    try expect(s.do());
-}
-
 test "implicit cast packed struct field to const ptr" {
     const LevelUpMove = packed struct {
         move_id: u9,
@@ -450,17 +384,6 @@ test "packed struct with fp fields" {
     try expectEqual(@as(f32, 20.0), s.data[2]);
 }
 
-test "use within struct scope" {
-    const S = struct {
-        usingnamespace struct {
-            pub fn inner() i32 {
-                return 42;
-            }
-        };
-    };
-    try expectEqual(@as(i32, 42), S.inner());
-}
-
 test "default struct initialization fields" {
     const S = struct {
         a: i32 = 1234,
@@ -501,41 +424,6 @@ test "fn with C calling convention returns struct by value" {
     comptime try S.entry();
 }
 
-test "for loop over pointers to struct, getting field from struct pointer" {
-    const S = struct {
-        const Foo = struct {
-            name: []const u8,
-        };
-
-        var ok = true;
-
-        fn eql(a: []const u8) bool {
-            _ = a;
-            return true;
-        }
-
-        const ArrayList = struct {
-            fn toSlice(self: *ArrayList) []*Foo {
-                _ = self;
-                return @as([*]*Foo, undefined)[0..0];
-            }
-        };
-
-        fn doTheTest() !void {
-            var objects: ArrayList = undefined;
-
-            for (objects.toSlice()) |obj| {
-                if (eql(obj.name)) {
-                    ok = false;
-                }
-            }
-
-            try expect(ok);
-        }
-    };
-    try S.doTheTest();
-}
-
 test "zero-bit field in packed struct" {
     const S = packed struct {
         x: u10,
@@ -543,24 +431,6 @@ test "zero-bit field in packed struct" {
     };
     var x: S = undefined;
     _ = x;
-}
-
-test "struct field init with catch" {
-    const S = struct {
-        fn doTheTest() !void {
-            var x: anyerror!isize = 1;
-            var req = Foo{
-                .field = x catch undefined,
-            };
-            try expect(req.field == 1);
-        }
-
-        pub const Foo = extern struct {
-            field: isize,
-        };
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
 }
 
 test "packed struct with non-ABI-aligned field" {
@@ -717,15 +587,6 @@ test "anon struct literal field value initialized with fn call" {
     comptime try S.doTheTest();
 }
 
-test "self-referencing struct via array member" {
-    const T = struct {
-        children: [1]*@This(),
-    };
-    var x: T = undefined;
-    x = T{ .children = .{&x} };
-    try expect(x.children[0] == &x);
-}
-
 test "struct with union field" {
     const Value = struct {
         ref: u32 = 2,
@@ -832,4 +693,39 @@ test "packed struct with undefined initializers" {
 
     try S.doTheTest();
     comptime try S.doTheTest();
+}
+
+test "for loop over pointers to struct, getting field from struct pointer" {
+    const S = struct {
+        const Foo = struct {
+            name: []const u8,
+        };
+
+        var ok = true;
+
+        fn eql(a: []const u8) bool {
+            _ = a;
+            return true;
+        }
+
+        const ArrayList = struct {
+            fn toSlice(self: *ArrayList) []*Foo {
+                _ = self;
+                return @as([*]*Foo, undefined)[0..0];
+            }
+        };
+
+        fn doTheTest() !void {
+            var objects: ArrayList = undefined;
+
+            for (objects.toSlice()) |obj| {
+                if (eql(obj.name)) {
+                    ok = false;
+                }
+            }
+
+            try expect(ok);
+        }
+    };
+    try S.doTheTest();
 }
