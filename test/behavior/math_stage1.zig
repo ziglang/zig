@@ -9,26 +9,45 @@ const mem = std.mem;
 test "@addWithOverflow" {
     var result: u8 = undefined;
     try expect(@addWithOverflow(u8, 250, 100, &result));
+    try expect(result == 94);
     try expect(!@addWithOverflow(u8, 100, 150, &result));
     try expect(result == 250);
 }
 
-// TODO test mulWithOverflow
-// TODO test subWithOverflow
+test "@mulWithOverflow" {
+    var result: u8 = undefined;
+    try expect(@mulWithOverflow(u8, 86, 3, &result));
+    try expect(result == 2);
+    try expect(!@mulWithOverflow(u8, 85, 3, &result));
+    try expect(result == 255);
+}
+
+test "@subWithOverflow" {
+    var result: u8 = undefined;
+    try expect(@subWithOverflow(u8, 1, 2, &result));
+    try expect(result == 255);
+    try expect(!@subWithOverflow(u8, 1, 1, &result));
+    try expect(result == 0);
+}
 
 test "@shlWithOverflow" {
     var result: u16 = undefined;
     try expect(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
+    try expect(result == 0b0111111111111000);
     try expect(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
     try expect(result == 0b1011111111111100);
 }
 
-test "@*WithOverflow with u0 values" {
+test "overflow arithmetic with u0 values" {
     var result: u0 = undefined;
     try expect(!@addWithOverflow(u0, 0, 0, &result));
+    try expect(result == 0);
     try expect(!@subWithOverflow(u0, 0, 0, &result));
+    try expect(result == 0);
     try expect(!@mulWithOverflow(u0, 0, 0, &result));
+    try expect(result == 0);
     try expect(!@shlWithOverflow(u0, 0, 0, &result));
+    try expect(result == 0);
 }
 
 test "@clz vectors" {
