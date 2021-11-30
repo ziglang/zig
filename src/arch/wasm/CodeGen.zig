@@ -1148,6 +1148,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .unwrap_errunion_payload => self.airUnwrapErrUnionPayload(inst),
         .unwrap_errunion_err => self.airUnwrapErrUnionError(inst),
         .wrap_errunion_payload => self.airWrapErrUnionPayload(inst),
+        .wrap_errunion_err => self.airWrapErrUnionErr(inst),
 
         .optional_payload => self.airOptionalPayload(inst),
         .optional_payload_ptr => self.airOptionalPayload(inst),
@@ -1328,16 +1329,15 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                     return;
                 },
                 .local => {
-                    // Load values from `rhs` stack position and store in `lhs` instead
-                    const tag_local = try self.load(rhs, tag_ty, 0);
-                    const payload_local = try self.load(rhs, payload_ty, payload_offset);
-
-                    try self.store(lhs, tag_local, tag_ty, 0);
-                    return try self.store(lhs, payload_local, payload_ty, payload_offset);
+                    if (payload_ty.hasCodeGenBits()) {
+                        try self.store(lhs, rhs, payload_ty, payload_offset);
+                    }
+                    return try self.store(lhs, rhs, tag_ty, 0);
                 },
                 .local_with_offset => |with_offset| {
                     const tag_local = try self.allocLocal(tag_ty);
                     try self.addImm32(0);
+                    try self.addLabel(.local_set, tag_local.local);
                     try self.store(lhs, tag_local, tag_ty, 0);
 
                     return try self.store(
@@ -1415,7 +1415,10 @@ fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
     // load local's value from memory by its stack position
     try self.emitWValue(operand);
     // Build the opcode with the right bitsize
-    const signedness: std.builtin.Signedness = if (ty.isUnsignedInt()) .unsigned else .signed;
+    const signedness: std.builtin.Signedness = if (ty.isUnsignedInt() or ty.zigTypeTag() == .ErrorSet)
+        .unsigned
+    else
+        .signed;
     // check if we should pass by pointer or value based on ABI size
     // TODO: Implement a way to get ABI values from a given type,
     // that is portable across the backend, rather than copying logic.
@@ -2081,9 +2084,25 @@ fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 }
 
 fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue.none;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    _ = ty_op;
-    return self.fail("TODO: wasm airWrapErrUnionPayload", .{});
+    const operand = self.resolveInst(ty_op.operand);
+
+    const op_ty = self.air.typeOf(ty_op.operand);
+    if (!op_ty.hasCodeGenBits()) return WValue.none;
+    const err_ty = self.air.getRefType(ty_op.ty);
+    const offset = err_ty.errorUnionSet().abiSize(self.target);
+
+    return WValue{ .local_with_offset = .{
+        .local = operand.local,
+        .offset = @intCast(u32, offset),
+    } };
+}
+
+fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue.none;
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    return self.resolveInst(ty_op.operand);
 }
 
 fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
