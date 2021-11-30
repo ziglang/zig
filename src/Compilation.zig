@@ -4477,6 +4477,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     man.hash.add(comp.test_evented_io);
     man.hash.addOptionalBytes(comp.test_filter);
     man.hash.addOptionalBytes(comp.test_name_prefix);
+    man.hash.addListOfBytes(comp.clang_argv);
 
     // Capture the state in case we come back from this branch where the hash doesn't match.
     const prev_hash_state = man.hash.peekBin();
