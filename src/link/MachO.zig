@@ -885,7 +885,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 const sym_name = self.getString(sym.n_strx);
                 const resolv = self.symbol_resolver.get(sym.n_strx) orelse unreachable;
 
-                if (symbolIsDiscarded(sym.*)) {
+                if (sym.discarded()) {
                     sym.* = .{
                         .n_strx = 0,
                         .n_type = macho.N_UNDF,
@@ -2445,21 +2445,21 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
         const sym_id = @intCast(u32, id);
         const sym_name = object.getString(sym.n_strx);
 
-        if (symbolIsStab(sym)) {
+        if (sym.stab()) {
             log.err("unhandled symbol type: stab", .{});
             log.err("  symbol '{s}'", .{sym_name});
             log.err("  first definition in '{s}'", .{object.name});
             return error.UnhandledSymbolType;
         }
 
-        if (symbolIsIndr(sym)) {
+        if (sym.indr()) {
             log.err("unhandled symbol type: indirect", .{});
             log.err("  symbol '{s}'", .{sym_name});
             log.err("  first definition in '{s}'", .{object.name});
             return error.UnhandledSymbolType;
         }
 
-        if (symbolIsAbs(sym)) {
+        if (sym.abs()) {
             log.err("unhandled symbol type: absolute", .{});
             log.err("  symbol '{s}'", .{sym_name});
             log.err("  first definition in '{s}'", .{object.name});
@@ -2467,7 +2467,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
         }
 
         const n_strx = try self.makeString(sym_name);
-        if (symbolIsSect(sym)) {
+        if (sym.sect()) {
             // Defined symbol regardless of scope lands in the locals symbol table.
             const local_sym_index = @intCast(u32, self.locals.items.len);
             try self.locals.append(self.base.allocator, .{
@@ -2482,7 +2482,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
 
             // If the symbol's scope is not local aka translation unit, then we need work out
             // if we should save the symbol as a global, or potentially flag the error.
-            if (!symbolIsExt(sym)) continue;
+            if (!sym.ext()) continue;
 
             const local = self.locals.items[local_sym_index];
             const resolv = self.symbol_resolver.getPtr(n_strx) orelse {
@@ -2507,18 +2507,16 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                 .global => {
                     const global = &self.globals.items[resolv.where_index];
 
-                    if (symbolIsTentative(global.*)) {
+                    if (global.tentative()) {
                         assert(self.tentatives.swapRemove(resolv.where_index));
-                    } else if (!(symbolIsWeakDef(sym) or symbolIsPext(sym)) and
-                        !(symbolIsWeakDef(global.*) or symbolIsPext(global.*)))
-                    {
+                    } else if (!(sym.weakDef() or sym.pext()) and !(global.weakDef() or global.pext())) {
                         log.err("symbol '{s}' defined multiple times", .{sym_name});
                         if (resolv.file) |file| {
                             log.err("  first definition in '{s}'", .{self.objects.items[file].name});
                         }
                         log.err("  next definition in '{s}'", .{object.name});
                         return error.MultipleSymbolDefinitions;
-                    } else if (symbolIsWeakDef(sym) or symbolIsPext(sym)) continue; // Current symbol is weak, so skip it.
+                    } else if (sym.weakDef() or sym.pext()) continue; // Current symbol is weak, so skip it.
 
                     // Otherwise, update the resolver and the global symbol.
                     global.n_type = sym.n_type;
@@ -2554,7 +2552,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
                 .local_sym_index = local_sym_index,
                 .file = object_id,
             };
-        } else if (symbolIsTentative(sym)) {
+        } else if (sym.tentative()) {
             // Symbol is a tentative definition.
             const resolv = self.symbol_resolver.getPtr(n_strx) orelse {
                 const global_sym_index = @intCast(u32, self.globals.items.len);
@@ -2577,7 +2575,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
             switch (resolv.where) {
                 .global => {
                     const global = &self.globals.items[resolv.where_index];
-                    if (!symbolIsTentative(global.*)) continue;
+                    if (!global.tentative()) continue;
                     if (global.n_value >= sym.n_value) continue;
 
                     global.n_desc = sym.n_desc;
@@ -3575,9 +3573,9 @@ pub fn updateDeclExports(
 
                     const sym = &self.globals.items[resolv.where_index];
 
-                    if (symbolIsTentative(sym.*)) {
+                    if (sym.tentative()) {
                         assert(self.tentatives.swapRemove(resolv.where_index));
-                    } else if (!is_weak and !(symbolIsWeakDef(sym.*) or symbolIsPext(sym.*))) {
+                    } else if (!is_weak and !(sym.weakDef() or sym.pext())) {
                         _ = try module.failed_exports.put(
                             module.gpa,
                             exp,
@@ -5316,58 +5314,9 @@ pub fn getString(self: *MachO, off: u32) []const u8 {
     return mem.sliceTo(@ptrCast([*:0]const u8, self.strtab.items.ptr + off), 0);
 }
 
-pub fn symbolIsStab(sym: macho.nlist_64) bool {
-    return (macho.N_STAB & sym.n_type) != 0;
-}
-
-pub fn symbolIsPext(sym: macho.nlist_64) bool {
-    return (macho.N_PEXT & sym.n_type) != 0;
-}
-
-pub fn symbolIsExt(sym: macho.nlist_64) bool {
-    return (macho.N_EXT & sym.n_type) != 0;
-}
-
-pub fn symbolIsSect(sym: macho.nlist_64) bool {
-    const type_ = macho.N_TYPE & sym.n_type;
-    return type_ == macho.N_SECT;
-}
-
-pub fn symbolIsUndf(sym: macho.nlist_64) bool {
-    const type_ = macho.N_TYPE & sym.n_type;
-    return type_ == macho.N_UNDF;
-}
-
-pub fn symbolIsIndr(sym: macho.nlist_64) bool {
-    const type_ = macho.N_TYPE & sym.n_type;
-    return type_ == macho.N_INDR;
-}
-
-pub fn symbolIsAbs(sym: macho.nlist_64) bool {
-    const type_ = macho.N_TYPE & sym.n_type;
-    return type_ == macho.N_ABS;
-}
-
-pub fn symbolIsWeakDef(sym: macho.nlist_64) bool {
-    return (sym.n_desc & macho.N_WEAK_DEF) != 0;
-}
-
-pub fn symbolIsWeakRef(sym: macho.nlist_64) bool {
-    return (sym.n_desc & macho.N_WEAK_REF) != 0;
-}
-
-pub fn symbolIsDiscarded(sym: macho.nlist_64) bool {
-    return (sym.n_desc & macho.N_DESC_DISCARDED) != 0;
-}
-
-pub fn symbolIsTentative(sym: macho.nlist_64) bool {
-    if (!symbolIsUndf(sym)) return false;
-    return sym.n_value != 0;
-}
-
 pub fn symbolIsTemp(sym: macho.nlist_64, sym_name: []const u8) bool {
-    if (!symbolIsSect(sym)) return false;
-    if (symbolIsExt(sym)) return false;
+    if (!sym.sect()) return false;
+    if (sym.ext()) return false;
     return mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L");
 }
 
