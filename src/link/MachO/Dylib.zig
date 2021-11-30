@@ -226,7 +226,7 @@ fn parseSymbols(self: *Dylib, allocator: *Allocator) !void {
     _ = try self.file.preadAll(strtab, symtab_cmd.stroff + self.library_offset);
 
     for (slice) |sym| {
-        const add_to_symtab = MachO.symbolIsExt(sym) and (MachO.symbolIsSect(sym) or MachO.symbolIsIndr(sym));
+        const add_to_symtab = sym.ext() and (sym.sect() or sym.indr());
 
         if (!add_to_symtab) continue;
 

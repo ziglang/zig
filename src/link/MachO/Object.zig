@@ -338,8 +338,8 @@ const NlistWithIndex = struct {
         // afterwards by address in each group. Normally, dysymtab should
         // be enough to guarantee the sort, but turns out not every compiler
         // is kind enough to specify the symbols in the correct order.
-        if (MachO.symbolIsSect(lhs.nlist)) {
-            if (MachO.symbolIsSect(rhs.nlist)) {
+        if (lhs.nlist.sect()) {
+            if (rhs.nlist.sect()) {
                 // Same group, sort by address.
                 return lhs.nlist.n_value < rhs.nlist.n_value;
             } else {
@@ -414,7 +414,7 @@ pub fn parseIntoAtoms(self: *Object, allocator: *Allocator, macho_file: *MachO) 
         var iundefsym: usize = sorted_all_nlists.items.len;
         while (iundefsym > 0) : (iundefsym -= 1) {
             const nlist = sorted_all_nlists.items[iundefsym];
-            if (MachO.symbolIsSect(nlist.nlist)) break;
+            if (nlist.nlist.sect()) break;
         }
         break :blk iundefsym;
     };

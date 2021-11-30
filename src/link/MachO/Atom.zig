@@ -295,7 +295,7 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
 
             assert(subtractor == null);
             const sym = context.object.symtab.items[rel.r_symbolnum];
-            if (MachO.symbolIsSect(sym) and !MachO.symbolIsExt(sym)) {
+            if (sym.sect() and !sym.ext()) {
                 subtractor = context.object.symbol_mapping.get(rel.r_symbolnum).?;
             } else {
                 const sym_name = context.object.getString(sym.n_strx);
@@ -362,7 +362,7 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
             const sym = context.object.symtab.items[rel.r_symbolnum];
             const sym_name = context.object.getString(sym.n_strx);
 
-            if (MachO.symbolIsSect(sym) and !MachO.symbolIsExt(sym)) {
+            if (sym.sect() and !sym.ext()) {
                 const sym_index = context.object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
                 break :target Relocation.Target{ .local = sym_index };
             }
