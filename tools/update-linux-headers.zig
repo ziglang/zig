@@ -141,7 +141,7 @@ pub fn main() !void {
         if (std.mem.eql(u8, args[arg_i], "--help"))
             usageAndExit(args[0]);
         if (arg_i + 1 >= args.len) {
-            std.debug.warn("expected argument after '{s}'\n", .{args[arg_i]});
+            std.debug.print("expected argument after '{s}'\n", .{args[arg_i]});
             usageAndExit(args[0]);
         }
 
@@ -151,7 +151,7 @@ pub fn main() !void {
             assert(opt_out_dir == null);
             opt_out_dir = args[arg_i + 1];
         } else {
-            std.debug.warn("unrecognized argument: {s}\n", .{args[arg_i]});
+            std.debug.print("unrecognized argument: {s}\n", .{args[arg_i]});
             usageAndExit(args[0]);
         }
 
@@ -208,7 +208,7 @@ pub fn main() !void {
                             if (gop.found_existing) {
                                 max_bytes_saved += raw_bytes.len;
                                 gop.value_ptr.hit_count += 1;
-                                std.debug.warn("duplicate: {s} {s} ({:2})\n", .{
+                                std.debug.print("duplicate: {s} {s} ({:2})\n", .{
                                     linux_target.name,
                                     rel_path,
                                     std.fmt.fmtIntSizeDec(raw_bytes.len),
@@ -230,16 +230,16 @@ pub fn main() !void {
                             };
                             try target_to_hash.putNoClobber(dest_target, hash);
                         },
-                        else => std.debug.warn("warning: weird file: {s}\n", .{full_path}),
+                        else => std.debug.print("warning: weird file: {s}\n", .{full_path}),
                     }
                 }
             }
             break;
         } else {
-            std.debug.warn("warning: libc target not found: {s}\n", .{linux_target.name});
+            std.debug.print("warning: libc target not found: {s}\n", .{linux_target.name});
         }
     }
-    std.debug.warn("summary: {:2} could be reduced to {:2}\n", .{
+    std.debug.print("summary: {:2} could be reduced to {:2}\n", .{
         std.fmt.fmtIntSizeDec(total_bytes),
         std.fmt.fmtIntSizeDec(total_bytes - max_bytes_saved),
     });
@@ -271,7 +271,7 @@ pub fn main() !void {
                 if (contender.hit_count > 1) {
                     const this_missed_bytes = contender.hit_count * contender.bytes.len;
                     missed_opportunity_bytes += this_missed_bytes;
-                    std.debug.warn("Missed opportunity ({:2}): {s}\n", .{
+                    std.debug.print("Missed opportunity ({:2}): {s}\n", .{
                         std.fmt.fmtIntSizeDec(this_missed_bytes),
                         path_kv.key_ptr.*,
                     });
@@ -297,9 +297,9 @@ pub fn main() !void {
 }
 
 fn usageAndExit(arg0: []const u8) noreturn {
-    std.debug.warn("Usage: {s} [--search-path <dir>] --out <dir> --abi <name>\n", .{arg0});
-    std.debug.warn("--search-path can be used any number of times.\n", .{});
-    std.debug.warn("    subdirectories of search paths look like, e.g. x86_64-linux-gnu\n", .{});
-    std.debug.warn("--out is a dir that will be created, and populated with the results\n", .{});
+    std.debug.print("Usage: {s} [--search-path <dir>] --out <dir> --abi <name>\n", .{arg0});
+    std.debug.print("--search-path can be used any number of times.\n", .{});
+    std.debug.print("    subdirectories of search paths look like, e.g. x86_64-linux-gnu\n", .{});
+    std.debug.print("--out is a dir that will be created, and populated with the results\n", .{});
     std.process.exit(1);
 }

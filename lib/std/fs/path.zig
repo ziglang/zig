@@ -187,8 +187,6 @@ test "join" {
     }
 }
 
-pub const isAbsoluteC = @compileError("deprecated: renamed to isAbsoluteZ");
-
 pub fn isAbsoluteZ(path_c: [*:0]const u8) bool {
     if (native_os == .windows) {
         return isAbsoluteWindowsZ(path_c);
@@ -233,27 +231,23 @@ pub fn isAbsoluteWindows(path: []const u8) bool {
 }
 
 pub fn isAbsoluteWindowsW(path_w: [*:0]const u16) bool {
-    return isAbsoluteWindowsImpl(u16, mem.spanZ(path_w));
+    return isAbsoluteWindowsImpl(u16, mem.sliceTo(path_w, 0));
 }
 
 pub fn isAbsoluteWindowsWTF16(path: []const u16) bool {
     return isAbsoluteWindowsImpl(u16, path);
 }
 
-pub const isAbsoluteWindowsC = @compileError("deprecated: renamed to isAbsoluteWindowsZ");
-
 pub fn isAbsoluteWindowsZ(path_c: [*:0]const u8) bool {
-    return isAbsoluteWindowsImpl(u8, mem.spanZ(path_c));
+    return isAbsoluteWindowsImpl(u8, mem.sliceTo(path_c, 0));
 }
 
 pub fn isAbsolutePosix(path: []const u8) bool {
     return path.len > 0 and path[0] == sep_posix;
 }
 
-pub const isAbsolutePosixC = @compileError("deprecated: renamed to isAbsolutePosixZ");
-
 pub fn isAbsolutePosixZ(path_c: [*:0]const u8) bool {
-    return isAbsolutePosix(mem.spanZ(path_c));
+    return isAbsolutePosix(mem.sliceTo(path_c, 0));
 }
 
 test "isAbsoluteWindows" {

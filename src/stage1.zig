@@ -42,7 +42,7 @@ pub fn main(argc: c_int, argv: [*][*:0]u8) callconv(.C) c_int {
 
     const args = arena.alloc([]const u8, @intCast(usize, argc)) catch fatal("{s}", .{"OutOfMemory"});
     for (args) |*arg, i| {
-        arg.* = mem.spanZ(argv[i]);
+        arg.* = mem.sliceTo(argv[i], 0);
     }
     if (builtin.mode == .Debug) {
         stage2.mainArgs(gpa, arena, args) catch unreachable;
@@ -434,14 +434,14 @@ export fn stage2_add_link_lib(
         return null;
     }
     if (!target.isWasm() and !comp.bin_file.options.pic) {
-        return std.fmt.allocPrint0(
+        return std.fmt.allocPrintZ(
             comp.gpa,
             "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by `-l{s}` or `-fPIC`.",
             .{ lib_name, lib_name },
         ) catch "out of memory";
     }
     comp.stage1AddLinkLib(lib_name) catch |err| {
-        return std.fmt.allocPrint0(comp.gpa, "unable to add link lib '{s}': {s}", .{
+        return std.fmt.allocPrintZ(comp.gpa, "unable to add link lib '{s}': {s}", .{
             lib_name, @errorName(err),
         }) catch "out of memory";
     };

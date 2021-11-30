@@ -71,15 +71,6 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             }
         }
 
-        pub const span = @compileError("deprecated: use `items` field directly");
-        pub const toSlice = @compileError("deprecated: use `items` field directly");
-        pub const toSliceConst = @compileError("deprecated: use `items` field directly");
-        pub const at = @compileError("deprecated: use `list.items[i]`");
-        pub const ptrAt = @compileError("deprecated: use `&list.items[i]`");
-        pub const setOrError = @compileError("deprecated: use `if (i >= list.items.len) return error.OutOfBounds else list.items[i] = item`");
-        pub const set = @compileError("deprecated: use `list.items[i] = item`");
-        pub const swapRemoveOrError = @compileError("deprecated: use `if (i >= list.items.len) return error.OutOfBounds else list.swapRemove(i)`");
-
         /// ArrayList takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
@@ -91,12 +82,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             };
         }
 
-        /// Initializes an ArrayListUnmanaged with the `items` and `capacity` fields
-        /// of this ArrayList. This ArrayList retains ownership of underlying memory.
-        /// Deprecated: use `moveToUnmanaged` which has different semantics.
-        pub fn toUnmanaged(self: Self) ArrayListAlignedUnmanaged(T, alignment) {
-            return .{ .items = self.items, .capacity = self.capacity };
-        }
+        pub const toUnmanaged = @compileError("deprecated; use `moveToUnmanaged` which has different semantics.");
 
         /// Initializes an ArrayListUnmanaged with the `items` and `capacity` fields
         /// of this ArrayList. Empties this ArrayList.
@@ -307,8 +293,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             self.capacity = 0;
         }
 
-        /// Deprecated: call `ensureUnusedCapacity` or `ensureTotalCapacity`.
-        pub const ensureCapacity = ensureTotalCapacity;
+        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Invalidates pointers if additional memory is needed.
@@ -533,7 +518,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         pub fn replaceRange(self: *Self, allocator: *Allocator, start: usize, len: usize, new_items: []const T) !void {
             var managed = self.toManaged(allocator);
             try managed.replaceRange(start, len, new_items);
-            self.* = managed.toUnmanaged();
+            self.* = managed.moveToUnmanaged();
         }
 
         /// Extend the list by 1 element. Allocates more memory as necessary.
@@ -674,8 +659,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             self.capacity = 0;
         }
 
-        /// Deprecated: call `ensureUnusedCapacity` or `ensureTotalCapacity`.
-        pub const ensureCapacity = ensureTotalCapacity;
+        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Invalidates pointers if additional memory is needed.
@@ -1337,7 +1321,7 @@ test "std.ArrayList/ArrayListUnmanaged.toOwnedSliceSentinel" {
 
         const result = try list.toOwnedSliceSentinel(0);
         defer a.free(result);
-        try testing.expectEqualStrings(result, mem.spanZ(result.ptr));
+        try testing.expectEqualStrings(result, mem.sliceTo(result.ptr, 0));
     }
     {
         var list = ArrayListUnmanaged(u8){};
@@ -1347,7 +1331,7 @@ test "std.ArrayList/ArrayListUnmanaged.toOwnedSliceSentinel" {
 
         const result = try list.toOwnedSliceSentinel(a, 0);
         defer a.free(result);
-        try testing.expectEqualStrings(result, mem.spanZ(result.ptr));
+        try testing.expectEqualStrings(result, mem.sliceTo(result.ptr, 0));
     }
 }
 

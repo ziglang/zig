@@ -142,7 +142,7 @@ test "null terminated pointer" {
             var zero_ptr: [*:0]const u8 = @ptrCast([*:0]const u8, &array_with_zero);
             var no_zero_ptr: [*]const u8 = zero_ptr;
             var zero_ptr_again = @ptrCast([*:0]const u8, no_zero_ptr);
-            try expect(std.mem.eql(u8, std.mem.spanZ(zero_ptr_again), "hello"));
+            try expect(std.mem.eql(u8, std.mem.sliceTo(zero_ptr_again, 0), "hello"));
         }
     };
     try S.doTheTest();

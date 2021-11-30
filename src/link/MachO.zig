@@ -3439,7 +3439,9 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
         decl.link.macho.size = code_len;
         decl.link.macho.dirty = true;
 
-        const new_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{mem.spanZ(decl.name)});
+        const new_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{
+            mem.sliceTo(decl.name, 0),
+        });
         defer self.base.allocator.free(new_name);
 
         symbol.n_strx = try self.makeString(new_name);
@@ -3447,7 +3449,9 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
         symbol.n_sect = @intCast(u8, self.text_section_index.?) + 1;
         symbol.n_desc = 0;
     } else {
-        const decl_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{mem.spanZ(decl.name)});
+        const decl_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{
+            mem.sliceTo(decl.name, 0),
+        });
         defer self.base.allocator.free(decl_name);
 
         const name_str_index = try self.makeString(decl_name);
@@ -4045,7 +4049,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         self.dylinker_cmd_index = @intCast(u16, self.load_commands.items.len);
         const cmdsize = @intCast(u32, mem.alignForwardGeneric(
             u64,
-            @sizeOf(macho.dylinker_command) + mem.lenZ(default_dyld_path),
+            @sizeOf(macho.dylinker_command) + mem.sliceTo(default_dyld_path, 0).len,
             @sizeOf(u64),
         ));
         var dylinker_cmd = commands.emptyGenericCommandWithData(macho.dylinker_command{
@@ -4055,7 +4059,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         dylinker_cmd.data = try self.base.allocator.alloc(u8, cmdsize - dylinker_cmd.inner.name);
         mem.set(u8, dylinker_cmd.data, 0);
-        mem.copy(u8, dylinker_cmd.data, mem.spanZ(default_dyld_path));
+        mem.copy(u8, dylinker_cmd.data, mem.sliceTo(default_dyld_path, 0));
         try self.load_commands.append(self.base.allocator, .{ .Dylinker = dylinker_cmd });
         self.load_commands_dirty = true;
     }
@@ -5292,7 +5296,7 @@ pub fn makeString(self: *MachO, string: []const u8) !u32 {
 
 pub fn getString(self: *MachO, off: u32) []const u8 {
     assert(off < self.strtab.items.len);
-    return mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr + off));
+    return mem.sliceTo(@ptrCast([*:0]const u8, self.strtab.items.ptr + off), 0);
 }
 
 pub fn symbolIsStab(sym: macho.nlist_64) bool {

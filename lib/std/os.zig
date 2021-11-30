@@ -1289,8 +1289,6 @@ pub fn open(file_path: []const u8, flags: u32, perm: mode_t) OpenError!fd_t {
     return openZ(&file_path_c, flags, perm);
 }
 
-pub const openC = @compileError("deprecated: renamed to openZ");
-
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `open`.
 pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: mode_t) OpenError!fd_t {
@@ -1429,8 +1427,6 @@ pub fn openatWasi(dir_fd: fd_t, file_path: []const u8, lookup_flags: lookupflags
     }
 }
 
-pub const openatC = @compileError("deprecated: renamed to openatZ");
-
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openat`.
@@ -1529,8 +1525,6 @@ pub const ExecveError = error{
     NameTooLong,
 } || UnexpectedError;
 
-pub const execveC = @compileError("deprecated: use execveZ");
-
 /// Like `execve` except the parameters are null-terminated,
 /// matching the syscall API on all targets. This removes the need for an allocator.
 /// This function ignores PATH environment variable. See `execvpeZ` for that.
@@ -1561,8 +1555,6 @@ pub fn execveZ(
     }
 }
 
-pub const execvpeC = @compileError("deprecated in favor of execvpeZ");
-
 pub const Arg0Expand = enum {
     expand,
     no_expand,
@@ -1580,7 +1572,7 @@ pub fn execvpeZ_expandArg0(
     },
     envp: [*:null]const ?[*:0]const u8,
 ) ExecveError {
-    const file_slice = mem.spanZ(file);
+    const file_slice = mem.sliceTo(file, 0);
     if (mem.indexOfScalar(u8, file_slice, '/') != null) return execveZ(file, child_argv, envp);
 
     const PATH = getenvZ("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
@@ -1680,19 +1672,17 @@ pub fn getenv(key: []const u8) ?[]const u8 {
     return null;
 }
 
-pub const getenvC = @compileError("Deprecated in favor of `getenvZ`");
-
 /// Get an environment variable with a null-terminated name.
 /// See also `getenv`.
 pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
     if (builtin.link_libc) {
         const value = system.getenv(key) orelse return null;
-        return mem.spanZ(value);
+        return mem.sliceTo(value, 0);
     }
     if (builtin.os.tag == .windows) {
         @compileError("std.os.getenvZ is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
     }
-    return getenv(mem.spanZ(key));
+    return getenv(mem.sliceTo(key, 0));
 }
 
 /// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
@@ -1703,7 +1693,7 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
     if (builtin.os.tag != .windows) {
         @compileError("std.os.getenvW is a Windows-only API");
     }
-    const key_slice = mem.spanZ(key);
+    const key_slice = mem.sliceTo(key, 0);
     const ptr = windows.peb().ProcessParameters.Environment;
     var ascii_match: ?[:0]const u16 = null;
     var i: usize = 0;
@@ -1758,7 +1748,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
         break :blk errno(system.getcwd(out_buffer.ptr, out_buffer.len));
     };
     switch (err) {
-        .SUCCESS => return mem.spanZ(std.meta.assumeSentinel(out_buffer.ptr, 0)),
+        .SUCCESS => return mem.sliceTo(std.meta.assumeSentinel(out_buffer.ptr, 0), 0),
         .FAULT => unreachable,
         .INVAL => unreachable,
         .NOENT => return error.CurrentWorkingDirectoryUnlinked,
@@ -1801,8 +1791,6 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!
     const sym_link_path_c = try toPosixPath(sym_link_path);
     return symlinkZ(&target_path_c, &sym_link_path_c);
 }
-
-pub const symlinkC = @compileError("deprecated: renamed to symlinkZ");
 
 /// This is the same as `symlink` except the parameters are null-terminated pointers.
 /// See also `symlink`.
@@ -1847,8 +1835,6 @@ pub fn symlinkat(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const
     const sym_link_path_c = try toPosixPath(sym_link_path);
     return symlinkatZ(&target_path_c, newdirfd, &sym_link_path_c);
 }
-
-pub const symlinkatC = @compileError("deprecated: renamed to symlinkatZ");
 
 /// WASI-only. The same as `symlinkat` but targeting WASI.
 /// See also `symlinkat`.
@@ -2023,8 +2009,6 @@ pub fn unlink(file_path: []const u8) UnlinkError!void {
     }
 }
 
-pub const unlinkC = @compileError("deprecated: renamed to unlinkZ");
-
 /// Same as `unlink` except the parameter is a null terminated UTF8-encoded string.
 pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
     if (builtin.os.tag == .windows) {
@@ -2073,8 +2057,6 @@ pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!vo
         return unlinkatZ(dirfd, &file_path_c, flags);
     }
 }
-
-pub const unlinkatC = @compileError("deprecated: renamed to unlinkatZ");
 
 /// WASI-only. Same as `unlinkat` but targeting WASI.
 /// See also `unlinkat`.
@@ -2182,8 +2164,6 @@ pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
         return renameZ(&old_path_c, &new_path_c);
     }
 }
-
-pub const renameC = @compileError("deprecated: renamed to renameZ");
 
 /// Same as `rename` except the parameters are null-terminated byte arrays.
 pub fn renameZ(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!void {
@@ -2378,8 +2358,6 @@ pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!v
     }
 }
 
-pub const mkdiratC = @compileError("deprecated: renamed to mkdiratZ");
-
 pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
     _ = mode;
     switch (wasi.path_create_directory(dir_fd, sub_dir_path.ptr, sub_dir_path.len)) {
@@ -2548,8 +2526,6 @@ pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
     }
 }
 
-pub const rmdirC = @compileError("deprecated: renamed to rmdirZ");
-
 /// Same as `rmdir` except the parameter is null-terminated.
 pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
     if (builtin.os.tag == .windows) {
@@ -2612,8 +2588,6 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
         return chdirZ(&dir_path_c);
     }
 }
-
-pub const chdirC = @compileError("deprecated: renamed to chdirZ");
 
 /// Same as `chdir` except the parameter is null-terminated.
 pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
@@ -2697,8 +2671,6 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     }
 }
 
-pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
-
 /// Windows-only. Same as `readlink` except `file_path` is WTF16 encoded.
 /// See also `readlinkZ`.
 pub fn readlinkW(file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
@@ -2741,8 +2713,6 @@ pub fn readlinkat(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) ReadLink
     const file_path_c = try toPosixPath(file_path);
     return readlinkatZ(dirfd, &file_path_c, out_buffer);
 }
-
-pub const readlinkatC = @compileError("deprecated: renamed to readlinkatZ");
 
 /// WASI-only. Same as `readlinkat` but targets WASI.
 /// See also `readlinkat`.
@@ -3737,8 +3707,6 @@ pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat 
     }
 }
 
-pub const fstatatC = @compileError("deprecated: renamed to fstatatZ");
-
 /// WASI-only. Same as `fstatat` but targeting WASI.
 /// See also `fstatat`.
 pub fn fstatatWasi(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat {
@@ -3882,8 +3850,6 @@ pub fn inotify_add_watch(inotify_fd: i32, pathname: []const u8, mask: u32) INoti
     const pathname_c = try toPosixPath(pathname);
     return inotify_add_watchZ(inotify_fd, &pathname_c, mask);
 }
-
-pub const inotify_add_watchC = @compileError("deprecated: renamed to inotify_add_watchZ");
 
 /// Same as `inotify_add_watch` except pathname is null-terminated.
 pub fn inotify_add_watchZ(inotify_fd: i32, pathname: [*:0]const u8, mask: u32) INotifyAddWatchError!i32 {
@@ -4053,8 +4019,6 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
     return accessZ(&path_c, mode);
 }
 
-pub const accessC = @compileError("Deprecated in favor of `accessZ`");
-
 /// Same as `access` except `path` is null-terminated.
 pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
@@ -4143,7 +4107,7 @@ pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32
         return;
     }
 
-    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
+    const path_len_bytes = math.cast(u16, mem.sliceTo(sub_path_w, 0).len * 2) catch |err| switch (err) {
         error.Overflow => return error.NameTooLong,
     };
     var nt_name = windows.UNICODE_STRING{
@@ -4272,8 +4236,6 @@ pub fn sysctl(
         else => |err| return unexpectedErrno(err),
     }
 }
-
-pub const sysctlbynameC = @compileError("deprecated: renamed to sysctlbynameZ");
 
 pub fn sysctlbynameZ(
     name: [*:0]const u8,
@@ -4651,8 +4613,6 @@ pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathE
     return realpathZ(&pathname_c, out_buffer);
 }
 
-pub const realpathC = @compileError("deprecated: renamed realpathZ");
-
 /// Same as `realpath` except `pathname` is null-terminated.
 pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .windows) {
@@ -4684,7 +4644,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         .IO => return error.InputOutput,
         else => |err| return unexpectedErrno(err),
     };
-    return mem.spanZ(result_path);
+    return mem.sliceTo(result_path, 0);
 }
 
 /// Same as `realpath` except `pathname` is UTF16LE-encoded.
@@ -4997,7 +4957,7 @@ pub const UnexpectedError = error{
 /// and you get an unexpected error.
 pub fn unexpectedErrno(err: E) UnexpectedError {
     if (unexpected_error_tracing) {
-        std.debug.warn("unexpected errno: {d}\n", .{@enumToInt(err)});
+        std.debug.print("unexpected errno: {d}\n", .{@enumToInt(err)});
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
@@ -5092,7 +5052,7 @@ pub const GetHostNameError = error{PermissionDenied} || UnexpectedError;
 pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     if (builtin.link_libc) {
         switch (errno(system.gethostname(name_buffer, name_buffer.len))) {
-            .SUCCESS => return mem.spanZ(std.meta.assumeSentinel(name_buffer, 0)),
+            .SUCCESS => return mem.sliceTo(std.meta.assumeSentinel(name_buffer, 0), 0),
             .FAULT => unreachable,
             .NAMETOOLONG => unreachable, // HOST_NAME_MAX prevents this
             .PERM => return error.PermissionDenied,
@@ -5101,7 +5061,7 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     }
     if (builtin.os.tag == .linux) {
         const uts = uname();
-        const hostname = mem.spanZ(std.meta.assumeSentinel(&uts.nodename, 0));
+        const hostname = mem.sliceTo(std.meta.assumeSentinel(&uts.nodename, 0), 0);
         mem.copy(u8, name_buffer, hostname);
         return name_buffer[0..hostname.len];
     }
@@ -6129,8 +6089,6 @@ pub const MemFdCreateError = error{
     /// for older kernel versions.
     SystemOutdated,
 } || UnexpectedError;
-
-pub const memfd_createC = @compileError("deprecated: renamed to memfd_createZ");
 
 pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
     // memfd_create is available only in glibc versions starting with 2.27.

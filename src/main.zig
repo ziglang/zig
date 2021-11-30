@@ -1282,7 +1282,7 @@ fn buildOutputType(
                         try clang_argv.appendSlice(it.other_args);
                     },
                     .positional => {
-                        const file_ext = Compilation.classifyFileExt(mem.spanZ(it.only_arg));
+                        const file_ext = Compilation.classifyFileExt(mem.sliceTo(it.only_arg, 0));
                         switch (file_ext) {
                             .assembly, .c, .cpp, .ll, .bc, .h, .m, .mm => try c_source_files.append(.{ .src_path = it.only_arg }),
                             .unknown, .shared_library, .object, .static_library => {
@@ -4117,7 +4117,7 @@ pub const ClangArgIterator = struct {
                     }
                 }
                 while (it.next()) |token| {
-                    const dupe_token = try mem.dupeZ(allocator, u8, token);
+                    const dupe_token = try allocator.dupeZ(u8, token);
                     errdefer allocator.free(dupe_token);
                     try resp_arg_list.append(dupe_token);
                 }

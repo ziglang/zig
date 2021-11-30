@@ -142,7 +142,7 @@ pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize
 }
 
 fn usage() void {
-    std.debug.warn(
+    std.debug.print(
         \\throughput_test [options]
         \\
         \\Options:

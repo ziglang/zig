@@ -115,7 +115,7 @@ pub fn deinitTable(pkg: *Package, gpa: *Allocator) void {
 
 pub fn add(pkg: *Package, gpa: *Allocator, name: []const u8, package: *Package) !void {
     try pkg.table.ensureUnusedCapacity(gpa, 1);
-    const name_dupe = try mem.dupe(gpa, u8, name);
+    const name_dupe = try gpa.dupe(u8, name);
     pkg.table.putAssumeCapacityNoClobber(name_dupe, package);
 }
 

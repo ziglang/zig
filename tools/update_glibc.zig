@@ -185,7 +185,7 @@ pub fn main() !void {
             };
             const max_bytes = 10 * 1024 * 1024;
             const contents = std.fs.cwd().readFileAlloc(allocator, abi_list_filename, max_bytes) catch |err| {
-                std.debug.warn("unable to open {s}: {}\n", .{ abi_list_filename, err });
+                std.debug.print("unable to open {s}: {}\n", .{ abi_list_filename, err });
                 std.process.exit(1);
             };
             var lines_it = std.mem.tokenize(u8, contents, "\n");

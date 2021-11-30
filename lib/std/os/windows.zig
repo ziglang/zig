@@ -813,7 +813,7 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
             return parseReadlinkPath(path_buf[offset .. offset + len], false, out_buffer);
         },
         else => |value| {
-            std.debug.warn("unsupported symlink type: {}", .{value});
+            std.debug.print("unsupported symlink type: {}", .{value});
             return error.UnsupportedReparsePointType;
         },
     }
@@ -1862,7 +1862,7 @@ pub fn normalizePath(comptime T: type, path: []T) RemoveDotDirsError!usize {
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
 /// to a null-terminated path.
 pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
-    return sliceToPrefixedFileW(mem.spanZ(s));
+    return sliceToPrefixedFileW(mem.sliceTo(s, 0));
 }
 
 /// Converts the path `s` to WTF16, null-terminated. If the path is absolute,
@@ -1995,7 +1995,7 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
             null,
         );
         _ = std.unicode.utf16leToUtf8(&buf_utf8, buf_wstr[0..len]) catch unreachable;
-        std.debug.warn("error.Unexpected: GetLastError({}): {s}\n", .{ @enumToInt(err), buf_utf8[0..len] });
+        std.debug.print("error.Unexpected: GetLastError({}): {s}\n", .{ @enumToInt(err), buf_utf8[0..len] });
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
@@ -2009,7 +2009,7 @@ pub fn unexpectedWSAError(err: ws2_32.WinsockError) std.os.UnexpectedError {
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.warn("error.Unexpected NTSTATUS=0x{x}\n", .{@enumToInt(status)});
+        std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@enumToInt(status)});
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;

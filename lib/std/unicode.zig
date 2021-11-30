@@ -216,7 +216,7 @@ pub fn utf8ValidateSlice(s: []const u8) bool {
 /// ```
 /// var utf8 = (try std.unicode.Utf8View.init("hi there")).iterator();
 /// while (utf8.nextCodepointSlice()) |codepoint| {
-///   std.debug.warn("got codepoint {}\n", .{codepoint});
+///   std.debug.print("got codepoint {}\n", .{codepoint});
 /// }
 /// ```
 pub const Utf8View = struct {

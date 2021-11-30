@@ -3135,7 +3135,7 @@ fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions
 
         fn write(self: *Self, bytes: []const u8) Error!usize {
             if (self.expected_remaining.len < bytes.len) {
-                std.debug.warn(
+                std.debug.print(
                     \\====== expected this output: =========
                     \\{s}
                     \\======== instead found this: =========
@@ -3148,7 +3148,7 @@ fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions
                 return error.TooMuchData;
             }
             if (!mem.eql(u8, self.expected_remaining[0..bytes.len], bytes)) {
-                std.debug.warn(
+                std.debug.print(
                     \\====== expected this output: =========
                     \\{s}
                     \\======== instead found this: =========

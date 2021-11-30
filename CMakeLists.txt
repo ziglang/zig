@@ -534,7 +534,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/unicode.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/Ast.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/zig/cross_target.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/zig/CrossTarget.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/parse.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/render.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/string_literal.zig"

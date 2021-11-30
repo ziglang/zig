@@ -2,16 +2,13 @@ const __fixdfti = @import("fixdfti.zig").__fixdfti;
 const std = @import("std");
 const math = std.math;
 const testing = std.testing;
-const warn = std.debug.warn;
 
 fn test__fixdfti(a: f64, expected: i128) !void {
     const x = __fixdfti(a);
-    //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u64, {x})\n", .{a, @bitCast(u64, a), x, x, expected, expected, @bitCast(u128, expected)});
     try testing.expect(x == expected);
 }
 
 test "fixdfti" {
-    //warn("\n", .{});
     try test__fixdfti(-math.f64_max, math.minInt(i128));
 
     try test__fixdfti(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i128));

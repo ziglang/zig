@@ -753,9 +753,9 @@ pub const Value = extern union {
                 const bytes = val.castTag(.bytes).?.data;
                 const adjusted_len = bytes.len - @boolToInt(ty.sentinel() != null);
                 const adjusted_bytes = bytes[0..adjusted_len];
-                return std.mem.dupe(allocator, u8, adjusted_bytes);
+                return allocator.dupe(u8, adjusted_bytes);
             },
-            .enum_literal => return std.mem.dupe(allocator, u8, val.castTag(.enum_literal).?.data),
+            .enum_literal => return allocator.dupe(u8, val.castTag(.enum_literal).?.data),
             .repeated => @panic("TODO implement toAllocatedBytes for this Value tag"),
             .decl_ref => {
                 const decl = val.castTag(.decl_ref).?.data;

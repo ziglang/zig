@@ -5708,7 +5708,7 @@ const mem = std.mem;
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    try expect(mem.eql(u8, std.mem.spanZ(@ptrCast([*:0]const u8, x[0].?)), "window name"));
+    try expect(mem.eql(u8, std.mem.sliceTo(@ptrCast([*:0]const u8, x[0].?), 0), "window name"));
 }
       {#code_end#}
       {#header_close#}
@@ -7364,7 +7364,7 @@ fn amain() !void {
 var global_download_frame: anyframe = undefined;
 fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
     _ = url; // this is just an example, we don't actually do it!
-    const result = try std.mem.dupe(allocator, u8, "this is the downloaded url contents");
+    const result = try allocator.dupe(u8, "this is the downloaded url contents");
     errdefer allocator.free(result);
     suspend {
         global_download_frame = @frame();
@@ -7376,7 +7376,7 @@ fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
 var global_file_frame: anyframe = undefined;
 fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
     _ = filename; // this is just an example, we don't actually do it!
-    const result = try std.mem.dupe(allocator, u8, "this is the file contents");
+    const result = try allocator.dupe(u8, "this is the file contents");
     errdefer allocator.free(result);
     suspend {
         global_file_frame = @frame();
@@ -7435,7 +7435,7 @@ fn amain() !void {
 
 fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
     _ = url; // this is just an example, we don't actually do it!
-    const result = try std.mem.dupe(allocator, u8, "this is the downloaded url contents");
+    const result = try allocator.dupe(u8, "this is the downloaded url contents");
     errdefer allocator.free(result);
     std.debug.print("fetchUrl returning\n", .{});
     return result;
@@ -7443,7 +7443,7 @@ fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
 
 fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
     _ = filename; // this is just an example, we don't actually do it!
-    const result = try std.mem.dupe(allocator, u8, "this is the file contents");
+    const result = try allocator.dupe(u8, "this is the file contents");
     errdefer allocator.free(result);
     std.debug.print("readFile returning\n", .{});
     return result;

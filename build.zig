@@ -3,7 +3,6 @@ const builtin = std.builtin;
 const Builder = std.build.Builder;
 const tests = @import("test/tests.zig");
 const BufMap = std.BufMap;
-const warn = std.debug.warn;
 const mem = std.mem;
 const ArrayList = std.ArrayList;
 const io = std.io;
@@ -558,9 +557,9 @@ fn addCxxKnownPath(
     const path_unpadded = mem.tokenize(u8, path_padded, "\r\n").next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
         if (errtxt) |msg| {
-            warn("{s}", .{msg});
+            std.debug.print("{s}", .{msg});
         } else {
-            warn("Unable to determine path to {s}\n", .{objname});
+            std.debug.print("Unable to determine path to {s}\n", .{objname});
         }
         return error.RequiredLibraryNotFound;
     }
@@ -687,7 +686,7 @@ fn findAndParseConfigH(b: *Builder, config_h_path_option: ?[]const u8) ?CMakeCon
 }
 
 fn toNativePathSep(b: *Builder, s: []const u8) []u8 {
-    const duplicated = mem.dupe(b.allocator, u8, s) catch unreachable;
+    const duplicated = b.allocator.dupe(u8, s) catch unreachable;
     for (duplicated) |*byte| switch (byte.*) {
         '/' => byte.* = fs.path.sep,
         else => {},

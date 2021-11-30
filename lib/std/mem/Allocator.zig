@@ -235,7 +235,6 @@ pub fn allocSentinel(
     return self.allocWithOptionsRetAddr(Elem, n, null, sentinel, @returnAddress());
 }
 
-/// Deprecated: use `allocAdvanced`
 pub fn alignedAlloc(
     self: *Allocator,
     comptime T: type,

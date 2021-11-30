@@ -2,16 +2,13 @@ const __fixtfsi = @import("fixtfsi.zig").__fixtfsi;
 const std = @import("std");
 const math = std.math;
 const testing = std.testing;
-const warn = std.debug.warn;
 
 fn test__fixtfsi(a: f128, expected: i32) !void {
     const x = __fixtfsi(a);
-    //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u32, {x})\n", .{a, @bitCast(u128, a), x, x, expected, expected, @bitCast(u32, expected)});
     try testing.expect(x == expected);
 }
 
 test "fixtfsi" {
-    //warn("\n", .{});
     try test__fixtfsi(-math.f128_max, math.minInt(i32));
 
     try test__fixtfsi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i32));

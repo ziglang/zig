@@ -4,7 +4,6 @@ const Step = build.Step;
 const Builder = build.Builder;
 const fs = std.fs;
 const mem = std.mem;
-const warn = std.debug.warn;
 
 const CheckFileStep = @This();
 
@@ -40,7 +39,7 @@ fn make(step: *Step) !void {
 
     for (self.expected_matches) |expected_match| {
         if (mem.indexOf(u8, contents, expected_match) == null) {
-            warn(
+            std.debug.print(
                 \\
                 \\========= Expected to find: ===================
                 \\{s}

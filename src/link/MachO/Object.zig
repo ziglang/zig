@@ -633,5 +633,5 @@ fn readSection(self: Object, allocator: *Allocator, index: u16) ![]u8 {
 
 pub fn getString(self: Object, off: u32) []const u8 {
     assert(off < self.strtab.items.len);
-    return mem.spanZ(@ptrCast([*:0]const u8, self.strtab.items.ptr + off));
+    return mem.sliceTo(@ptrCast([*:0]const u8, self.strtab.items.ptr + off), 0);
 }

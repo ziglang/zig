@@ -8399,7 +8399,7 @@ fn parseStrLit(
     const raw_string = bytes[offset..];
     var buf_managed = buf.toManaged(astgen.gpa);
     const result = std.zig.string_literal.parseAppend(&buf_managed, raw_string);
-    buf.* = buf_managed.toUnmanaged();
+    buf.* = buf_managed.moveToUnmanaged();
     switch (try result) {
         .success => return,
         .invalid_character => |bad_index| {
@@ -8472,11 +8472,7 @@ fn failNodeNotes(
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
-    {
-        var managed = string_bytes.toManaged(astgen.gpa);
-        defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format ++ "\x00", args);
-    }
+    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
         try astgen.extra.ensureTotalCapacity(astgen.gpa, notes_start + 1 + notes.len);
@@ -8513,11 +8509,7 @@ fn failTokNotes(
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
-    {
-        var managed = string_bytes.toManaged(astgen.gpa);
-        defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format ++ "\x00", args);
-    }
+    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
         try astgen.extra.ensureTotalCapacity(astgen.gpa, notes_start + 1 + notes.len);
@@ -8546,11 +8538,7 @@ fn failOff(
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
-    {
-        var managed = string_bytes.toManaged(astgen.gpa);
-        defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format ++ "\x00", args);
-    }
+    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
     try astgen.compile_errors.append(astgen.gpa, .{
         .msg = msg,
         .node = 0,
@@ -8570,11 +8558,7 @@ fn errNoteTok(
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
-    {
-        var managed = string_bytes.toManaged(astgen.gpa);
-        defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format ++ "\x00", args);
-    }
+    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
         .node = 0,
@@ -8593,11 +8577,7 @@ fn errNoteNode(
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
-    {
-        var managed = string_bytes.toManaged(astgen.gpa);
-        defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format ++ "\x00", args);
-    }
+    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
         .node = node,

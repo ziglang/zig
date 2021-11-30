@@ -335,7 +335,7 @@ pub const Context = struct {
 
     /// Convert a null-terminated C string to a slice allocated in the arena
     fn str(c: *Context, s: [*:0]const u8) ![]u8 {
-        return mem.dupe(c.arena, u8, mem.spanZ(s));
+        return c.arena.dupe(u8, mem.sliceTo(s, 0));
     }
 
     /// Convert a clang source location to a file:line:column string
@@ -2553,7 +2553,7 @@ fn transInitListExprRecord(
         var raw_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
         if (field_decl.isAnonymousStructOrUnion()) {
             const name = c.decl_table.get(@ptrToInt(field_decl.getCanonicalDecl())).?;
-            raw_name = try mem.dupe(c.arena, u8, name);
+            raw_name = try c.arena.dupe(u8, name);
         }
 
         var init_expr = try transExpr(c, scope, elem_expr, .used);
@@ -3318,7 +3318,7 @@ fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, re
             const field_decl = @ptrCast(*const clang.FieldDecl, member_decl);
             if (field_decl.isAnonymousStructOrUnion()) {
                 const name = c.decl_table.get(@ptrToInt(field_decl.getCanonicalDecl())).?;
-                break :blk try mem.dupe(c.arena, u8, name);
+                break :blk try c.arena.dupe(u8, name);
             }
         }
         const decl = @ptrCast(*const clang.NamedDecl, member_decl);

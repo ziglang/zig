@@ -55,9 +55,7 @@ const PdbOrDwarf = union(enum) {
 
 var stderr_mutex = std.Thread.Mutex{};
 
-/// Deprecated. Use `std.log` functions for logging or `std.debug.print` for
-/// "printf debugging".
-pub const warn = print;
+pub const warn = @compileError("deprecated; use `std.log` functions for logging or `std.debug.print` for 'printf debugging'");
 
 /// Print to stderr, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging." Use `std.log` functions for proper logging.
@@ -1052,7 +1050,7 @@ pub const DebugInfo = struct {
                     const obj_di = try self.allocator.create(ModuleDebugInfo);
                     errdefer self.allocator.destroy(obj_di);
 
-                    const macho_path = mem.spanZ(std.c._dyld_get_image_name(i));
+                    const macho_path = mem.sliceTo(std.c._dyld_get_image_name(i), 0);
                     const macho_file = fs.cwd().openFile(macho_path, .{ .intended_io_mode = .blocking }) catch |err| switch (err) {
                         error.FileNotFound => return error.MissingDebugInfo,
                         else => return err,
@@ -1178,7 +1176,7 @@ pub const DebugInfo = struct {
                     if (context.address >= seg_start and context.address < seg_end) {
                         // Android libc uses NULL instead of an empty string to mark the
                         // main program
-                        context.name = mem.spanZ(info.dlpi_name) orelse "";
+                        context.name = mem.sliceTo(info.dlpi_name, 0) orelse "";
                         context.base_address = info.dlpi_addr;
                         // Stop the iteration
                         return error.Found;
@@ -1341,12 +1339,12 @@ pub const ModuleDebugInfo = switch (native_os) {
 
                 // Take the symbol name from the N_FUN STAB entry, we're going to
                 // use it if we fail to find the DWARF infos
-                const stab_symbol = mem.spanZ(self.strings[symbol.nlist.n_strx..]);
+                const stab_symbol = mem.sliceTo(self.strings[symbol.nlist.n_strx..], 0);
 
                 if (symbol.ofile == null)
                     return SymbolInfo{ .symbol_name = stab_symbol };
 
-                const o_file_path = mem.spanZ(self.strings[symbol.ofile.?.n_strx..]);
+                const o_file_path = mem.sliceTo(self.strings[symbol.ofile.?.n_strx..], 0);
 
                 // Check if its debug infos are already in the cache
                 var o_file_di = self.ofiles.get(o_file_path) orelse
@@ -1668,5 +1666,5 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
     const sp = asm (""
         : [argc] "={rsp}" (-> usize),
     );
-    std.debug.warn("{} sp = 0x{x}\n", .{ prefix, sp });
+    std.debug.print("{} sp = 0x{x}\n", .{ prefix, sp });
 }

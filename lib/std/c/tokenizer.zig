@@ -126,7 +126,7 @@ pub const Token = struct {
         Keyword_error,
         Keyword_pragma,
 
-        pub fn symbol(id: std.meta.TagType(Id)) []const u8 {
+        pub fn symbol(id: std.meta.Tag(Id)) []const u8 {
             return switch (id) {
                 .Invalid => "Invalid",
                 .Eof => "Eof",
@@ -342,7 +342,7 @@ pub const Token = struct {
 pub const Tokenizer = struct {
     buffer: []const u8,
     index: usize = 0,
-    prev_tok_id: std.meta.TagType(Token.Id) = .Invalid,
+    prev_tok_id: std.meta.Tag(Token.Id) = .Invalid,
     pp_directive: bool = false,
 
     pub fn next(self: *Tokenizer) Token {

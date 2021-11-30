@@ -1966,7 +1966,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 });
             } else if (func_value.castTag(.extern_fn)) |func_payload| {
                 const decl = func_payload.data;
-                const n_strx = try macho_file.addExternFn(mem.spanZ(decl.name));
+                const n_strx = try macho_file.addExternFn(mem.sliceTo(decl.name, 0));
                 _ = try self.addInst(.{
                     .tag = .call_extern,
                     .ops = undefined,

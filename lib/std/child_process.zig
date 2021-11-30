@@ -181,8 +181,6 @@ pub const ChildProcess = struct {
         stderr: []u8,
     };
 
-    pub const exec2 = @compileError("deprecated: exec2 is renamed to exec");
-
     fn collectOutputPosix(
         child: *const ChildProcess,
         stdout: *std.ArrayList(u8),

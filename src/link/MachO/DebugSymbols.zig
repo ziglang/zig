@@ -884,7 +884,7 @@ pub fn initDeclDebugBuffers(
             dbg_line_buffer.appendAssumeCapacity(DW.LNS.copy);
 
             // .debug_info subprogram
-            const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
+            const decl_name_with_null = decl.name[0 .. mem.sliceTo(decl.name, 0).len + 1];
             try dbg_info_buffer.ensureUnusedCapacity(27 + decl_name_with_null.len);
 
             const fn_ret_type = decl.ty.fnReturnType();

@@ -185,9 +185,9 @@ pub const Mutable = struct {
 
     pub fn dump(self: Mutable) void {
         for (self.limbs[0..self.len]) |limb| {
-            std.debug.warn("{x} ", .{limb});
+            std.debug.print("{x} ", .{limb});
         }
-        std.debug.warn("capacity={} positive={}\n", .{ self.limbs.len, self.positive });
+        std.debug.print("capacity={} positive={}\n", .{ self.limbs.len, self.positive });
     }
 
     /// Clones an Mutable and returns a new Mutable with the same value. The new Mutable is a deep copy and
@@ -1685,9 +1685,9 @@ pub const Const = struct {
 
     pub fn dump(self: Const) void {
         for (self.limbs[0..self.limbs.len]) |limb| {
-            std.debug.warn("{x} ", .{limb});
+            std.debug.print("{x} ", .{limb});
         }
-        std.debug.warn("positive={}\n", .{self.positive});
+        std.debug.print("positive={}\n", .{self.positive});
     }
 
     pub fn abs(self: Const) Const {
@@ -2237,9 +2237,9 @@ pub const Managed = struct {
     /// Debugging tool: prints the state to stderr.
     pub fn dump(self: Managed) void {
         for (self.limbs[0..self.len()]) |limb| {
-            std.debug.warn("{x} ", .{limb});
+            std.debug.print("{x} ", .{limb});
         }
-        std.debug.warn("capacity={} positive={}\n", .{ self.limbs.len, self.isPositive() });
+        std.debug.print("capacity={} positive={}\n", .{ self.limbs.len, self.isPositive() });
     }
 
     /// Negate the sign.

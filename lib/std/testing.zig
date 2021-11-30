@@ -208,9 +208,6 @@ pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anyt
     return error.TestExpectedFmt;
 }
 
-pub const expectWithinMargin = @compileError("expectWithinMargin is deprecated, use expectApproxEqAbs or expectApproxEqRel");
-pub const expectWithinEpsilon = @compileError("expectWithinEpsilon is deprecated, use expectApproxEqAbs or expectApproxEqRel");
-
 /// This function is intended to be used only in tests. When the actual value is
 /// not approximately equal to the expected value, prints diagnostics to stderr
 /// to show exactly how they are not equal, then aborts.

@@ -429,7 +429,7 @@ fn makeDebugString(self: *Elf, bytes: []const u8) !u32 {
 
 fn getString(self: *Elf, str_off: u32) []const u8 {
     assert(str_off < self.shstrtab.items.len);
-    return mem.spanZ(@ptrCast([*:0]const u8, self.shstrtab.items.ptr + str_off));
+    return mem.sliceTo(@ptrCast([*:0]const u8, self.shstrtab.items.ptr + str_off), 0);
 }
 
 fn updateString(self: *Elf, old_str_off: u32, new_name: []const u8) !u32 {
@@ -2236,14 +2236,14 @@ fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8
             self.shrinkTextBlock(&decl.link.elf, code.len);
         }
         local_sym.st_size = code.len;
-        local_sym.st_name = try self.updateString(local_sym.st_name, mem.spanZ(decl.name));
+        local_sym.st_name = try self.updateString(local_sym.st_name, mem.sliceTo(decl.name, 0));
         local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
         local_sym.st_other = 0;
         local_sym.st_shndx = self.text_section_index.?;
         // TODO this write could be avoided if no fields of the symbol were changed.
         try self.writeSymbol(decl.link.elf.local_sym_index);
     } else {
-        const decl_name = mem.spanZ(decl.name);
+        const decl_name = mem.sliceTo(decl.name, 0);
         const name_str_index = try self.makeString(decl_name);
         const vaddr = try self.allocateTextBlock(&decl.link.elf, code.len, required_alignment);
         log.debug("allocated text block for {s} at 0x{x}", .{ decl_name, vaddr });
@@ -2371,7 +2371,7 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     dbg_line_buffer.appendAssumeCapacity(DW.LNS.copy);
 
     // .debug_info subprogram
-    const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
+    const decl_name_with_null = decl.name[0 .. mem.sliceTo(decl.name, 0).len + 1];
     try dbg_info_buffer.ensureUnusedCapacity(25 + decl_name_with_null.len);
 
     const fn_ret_type = decl.ty.fnReturnType();

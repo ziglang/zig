@@ -3,7 +3,6 @@ const build = @import("../build.zig");
 const Step = build.Step;
 const Builder = build.Builder;
 const fs = std.fs;
-const warn = std.debug.warn;
 const ArrayList = std.ArrayList;
 
 const WriteFileStep = @This();
@@ -91,7 +90,7 @@ fn make(step: *Step) !void {
     });
     // TODO replace with something like fs.makePathAndOpenDir
     fs.cwd().makePath(self.output_dir) catch |err| {
-        warn("unable to make path {s}: {s}\n", .{ self.output_dir, @errorName(err) });
+        std.debug.print("unable to make path {s}: {s}\n", .{ self.output_dir, @errorName(err) });
         return err;
     };
     var dir = try fs.cwd().openDir(self.output_dir, .{});
@@ -100,7 +99,7 @@ fn make(step: *Step) !void {
         var it = self.files.first;
         while (it) |node| : (it = node.next) {
             dir.writeFile(node.data.basename, node.data.bytes) catch |err| {
-                warn("unable to write {s} into {s}: {s}\n", .{
+                std.debug.print("unable to write {s} into {s}: {s}\n", .{
                     node.data.basename,
                     self.output_dir,
                     @errorName(err),

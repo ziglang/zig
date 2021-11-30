@@ -2,7 +2,6 @@ const std = @import("../std.zig");
 const mem = std.mem;
 const debug = std.debug;
 const testing = std.testing;
-const warn = debug.warn;
 
 const meta = @import("../meta.zig");
 

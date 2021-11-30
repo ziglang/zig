@@ -59,7 +59,7 @@ test "strcpy" {
 
     s1[0] = 0;
     _ = strcpy(&s1, "foobarbaz");
-    try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
+    try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.sliceTo(&s1, 0));
 }
 
 fn strncpy(dest: [*:0]u8, src: [*:0]const u8, n: usize) callconv(.C) [*:0]u8 {
@@ -79,7 +79,7 @@ test "strncpy" {
 
     s1[0] = 0;
     _ = strncpy(&s1, "foobarbaz", @sizeOf(@TypeOf(s1)));
-    try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
+    try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.sliceTo(&s1, 0));
 }
 
 fn strcat(dest: [*:0]u8, src: [*:0]const u8) callconv(.C) [*:0]u8 {
@@ -102,7 +102,7 @@ test "strcat" {
     _ = strcat(&s1, "foo");
     _ = strcat(&s1, "bar");
     _ = strcat(&s1, "baz");
-    try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
+    try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.sliceTo(&s1, 0));
 }
 
 fn strncat(dest: [*:0]u8, src: [*:0]const u8, avail: usize) callconv(.C) [*:0]u8 {
@@ -125,7 +125,7 @@ test "strncat" {
     _ = strncat(&s1, "foo1111", 3);
     _ = strncat(&s1, "bar1111", 3);
     _ = strncat(&s1, "baz1111", 3);
-    try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
+    try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.sliceTo(&s1, 0));
 }
 
 fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.C) c_int {

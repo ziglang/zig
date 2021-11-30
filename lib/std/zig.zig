@@ -12,7 +12,7 @@ pub const parse = @import("zig/parse.zig").parse;
 pub const string_literal = @import("zig/string_literal.zig");
 pub const Ast = @import("zig/Ast.zig");
 pub const system = @import("zig/system.zig");
-pub const CrossTarget = @import("zig/cross_target.zig").CrossTarget;
+pub const CrossTarget = @import("zig/CrossTarget.zig");
 
 // Files needed by translate-c.
 pub const c_builtins = @import("zig/c_builtins.zig");

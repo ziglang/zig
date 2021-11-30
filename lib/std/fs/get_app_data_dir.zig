@@ -24,7 +24,7 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
             )) {
                 os.windows.S_OK => {
                     defer os.windows.ole32.CoTaskMemFree(@ptrCast(*c_void, dir_path_ptr));
-                    const global_dir = unicode.utf16leToUtf8Alloc(allocator, mem.spanZ(dir_path_ptr)) catch |err| switch (err) {
+                    const global_dir = unicode.utf16leToUtf8Alloc(allocator, mem.sliceTo(dir_path_ptr, 0)) catch |err| switch (err) {
                         error.UnexpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
                         error.ExpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
                         error.DanglingSurrogateHalf => return error.AppDataDirUnavailable,
@@ -56,7 +56,7 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
             // TODO look into directory_which
             const be_user_settings = 0xbbe;
             const rc = os.system.find_directory(be_user_settings, -1, true, dir_path_ptr, 1);
-            const settings_dir = try allocator.dupeZ(u8, mem.spanZ(dir_path_ptr));
+            const settings_dir = try allocator.dupeZ(u8, mem.sliceTo(dir_path_ptr, 0));
             defer allocator.free(settings_dir);
             switch (rc) {
                 0 => return fs.path.join(allocator, &[_][]const u8{ settings_dir, appname }),

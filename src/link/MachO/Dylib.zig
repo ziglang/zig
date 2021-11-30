@@ -56,7 +56,7 @@ pub const Id = struct {
     pub fn fromLoadCommand(allocator: *Allocator, lc: commands.GenericCommandWithData(macho.dylib_command)) !Id {
         const dylib = lc.inner.dylib;
         const dylib_name = @ptrCast([*:0]const u8, lc.data[dylib.name - @sizeOf(macho.dylib_command) ..]);
-        const name = try allocator.dupe(u8, mem.spanZ(dylib_name));
+        const name = try allocator.dupe(u8, mem.sliceTo(dylib_name, 0));
 
         return Id{
             .name = name,
@@ -230,7 +230,7 @@ fn parseSymbols(self: *Dylib, allocator: *Allocator) !void {
 
         if (!add_to_symtab) continue;
 
-        const sym_name = mem.spanZ(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx));
+        const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx), 0);
         const name = try allocator.dupe(u8, sym_name);
         try self.symbols.putNoClobber(allocator, name, {});
     }

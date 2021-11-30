@@ -752,7 +752,7 @@ fn finishUpdateDecl(self: *Coff, module: *Module, decl: *Module.Decl, code: []co
     } else {
         const vaddr = try self.allocateTextBlock(&decl.link.coff, code.len, required_alignment);
         log.debug("allocated text block for {s} at 0x{x} (size: {Bi})\n", .{
-            mem.spanZ(decl.name),
+            mem.sliceTo(decl.name, 0),
             vaddr,
             std.fmt.fmtIntSizeDec(code.len),
         });

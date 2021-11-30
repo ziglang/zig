@@ -470,7 +470,7 @@ pub const Decl = struct {
     pub const DepsTable = std.AutoArrayHashMapUnmanaged(*Decl, void);
 
     pub fn clearName(decl: *Decl, gpa: *Allocator) void {
-        gpa.free(mem.spanZ(decl.name));
+        gpa.free(mem.sliceTo(decl.name, 0));
         decl.name = undefined;
     }
 
@@ -627,12 +627,12 @@ pub const Decl = struct {
     }
 
     pub fn renderFullyQualifiedName(decl: Decl, writer: anytype) !void {
-        const unqualified_name = mem.spanZ(decl.name);
+        const unqualified_name = mem.sliceTo(decl.name, 0);
         return decl.src_namespace.renderFullyQualifiedName(unqualified_name, writer);
     }
 
     pub fn renderFullyQualifiedDebugName(decl: Decl, writer: anytype) !void {
-        const unqualified_name = mem.spanZ(decl.name);
+        const unqualified_name = mem.sliceTo(decl.name, 0);
         return decl.src_namespace.renderFullyQualifiedDebugName(unqualified_name, writer);
     }
 
@@ -737,7 +737,7 @@ pub const Decl = struct {
             decl.scope.sub_file_path,
             loc.line + 1,
             loc.column + 1,
-            mem.spanZ(decl.name),
+            mem.sliceTo(decl.name, 0),
             @tagName(decl.analysis),
         });
         if (decl.has_tv) {
@@ -1342,7 +1342,7 @@ pub const Namespace = struct {
     ) @TypeOf(writer).Error!void {
         if (ns.parent) |parent| {
             const decl = ns.getDecl();
-            try parent.renderFullyQualifiedName(mem.spanZ(decl.name), writer);
+            try parent.renderFullyQualifiedName(mem.sliceTo(decl.name, 0), writer);
         } else {
             try ns.file_scope.renderFullyQualifiedName(writer);
         }
@@ -1361,7 +1361,7 @@ pub const Namespace = struct {
         var separator_char: u8 = '.';
         if (ns.parent) |parent| {
             const decl = ns.getDecl();
-            try parent.renderFullyQualifiedDebugName(mem.spanZ(decl.name), writer);
+            try parent.renderFullyQualifiedDebugName(mem.sliceTo(decl.name, 0), writer);
         } else {
             try ns.file_scope.renderFullyQualifiedDebugName(writer);
             separator_char = ':';
@@ -3432,7 +3432,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
                     return sema.fail(&block_scope, export_src, "export of inline function", .{});
                 }
                 // The scope needs to have the decl in it.
-                const options: std.builtin.ExportOptions = .{ .name = mem.spanZ(decl.name) };
+                const options: std.builtin.ExportOptions = .{ .name = mem.sliceTo(decl.name, 0) };
                 try sema.analyzeExport(&block_scope, export_src, options, decl);
             }
             return type_changed or is_inline != prev_is_inline;
@@ -3501,7 +3501,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     if (decl.is_exported) {
         const export_src = src; // TODO point to the export token
         // The scope needs to have the decl in it.
-        const options: std.builtin.ExportOptions = .{ .name = mem.spanZ(decl.name) };
+        const options: std.builtin.ExportOptions = .{ .name = mem.sliceTo(decl.name, 0) };
         try sema.analyzeExport(&block_scope, export_src, options, decl);
     }
 
@@ -4675,7 +4675,7 @@ pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
 
             // Remove from the namespace it resides in, preserving declaration order.
             assert(decl.zir_decl_index != 0);
-            _ = decl.src_namespace.decls.orderedRemove(mem.spanZ(decl.name));
+            _ = decl.src_namespace.decls.orderedRemove(mem.sliceTo(decl.name, 0));
 
             try mod.clearDecl(decl, &outdated_decls);
             decl.destroy(mod);

@@ -715,7 +715,7 @@ fn testAsyncAwaitTypicalUsage(
         var global_download_frame: anyframe = undefined;
         fn fetchUrl(allocator: *std.mem.Allocator, url: []const u8) anyerror![]u8 {
             _ = url;
-            const result = try std.mem.dupe(allocator, u8, "expected download text");
+            const result = try allocator.dupe(u8, "expected download text");
             errdefer allocator.free(result);
             if (suspend_download) {
                 suspend {
@@ -729,7 +729,7 @@ fn testAsyncAwaitTypicalUsage(
         var global_file_frame: anyframe = undefined;
         fn readFile(allocator: *std.mem.Allocator, filename: []const u8) anyerror![]u8 {
             _ = filename;
-            const result = try std.mem.dupe(allocator, u8, "expected file text");
+            const result = try allocator.dupe(u8, "expected file text");
             errdefer allocator.free(result);
             if (suspend_file) {
                 suspend {

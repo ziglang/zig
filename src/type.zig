@@ -1179,7 +1179,7 @@ pub const Type = extern union {
                 },
                 .error_set => {
                     const error_set = ty.castTag(.error_set).?.data;
-                    return writer.writeAll(std.mem.spanZ(error_set.owner_decl.name));
+                    return writer.writeAll(std.mem.sliceTo(error_set.owner_decl.name, 0));
                 },
                 .error_set_inferred => {
                     const func = ty.castTag(.error_set_inferred).?.data.func;

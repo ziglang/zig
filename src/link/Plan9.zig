@@ -299,7 +299,7 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl: *Module.Decl) !void {
             return;
         },
     };
-    var duped_code = try std.mem.dupe(self.base.allocator, u8, code);
+    var duped_code = try self.base.allocator.dupe(u8, code);
     errdefer self.base.allocator.free(duped_code);
     try self.data_decl_table.put(self.base.allocator, decl, duped_code);
     return self.updateFinish(decl);

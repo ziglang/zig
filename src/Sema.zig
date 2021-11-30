@@ -1639,7 +1639,7 @@ fn createTypeName(sema: *Sema, block: *Block, name_strategy: Zir.Inst.NameStrate
                 block.src_decl.name, name_index,
             });
         },
-        .parent => return sema.gpa.dupeZ(u8, mem.spanZ(block.src_decl.name)),
+        .parent => return sema.gpa.dupeZ(u8, mem.sliceTo(block.src_decl.name, 0)),
         .func => {
             const name_index = sema.mod.getNextAnonNameIndex();
             const name = try std.fmt.allocPrintZ(sema.gpa, "{s}__anon_{d}", .{

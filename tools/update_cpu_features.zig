@@ -875,16 +875,16 @@ fn processOneTarget(job: Job) anyerror!void {
     });
     tblgen_progress.end();
     if (child_result.stderr.len != 0) {
-        std.debug.warn("{s}\n", .{child_result.stderr});
+        std.debug.print("{s}\n", .{child_result.stderr});
     }
 
     const json_text = switch (child_result.term) {
         .Exited => |code| if (code == 0) child_result.stdout else {
-            std.debug.warn("llvm-tblgen exited with code {d}\n", .{code});
+            std.debug.print("llvm-tblgen exited with code {d}\n", .{code});
             std.process.exit(1);
         },
         else => {
-            std.debug.warn("llvm-tblgen crashed\n", .{});
+            std.debug.print("llvm-tblgen crashed\n", .{});
             std.process.exit(1);
         },
     };

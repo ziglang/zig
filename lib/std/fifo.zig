@@ -119,8 +119,7 @@ pub fn LinearFifo(
             }
         }
 
-        /// Deprecated: call `ensureUnusedCapacity` or `ensureTotalCapacity`.
-        pub const ensureCapacity = ensureTotalCapacity;
+        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
         /// Ensure that the buffer can fit at least `size` items
         pub fn ensureTotalCapacity(self: *Self, size: usize) !void {

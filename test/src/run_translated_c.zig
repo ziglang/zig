@@ -6,7 +6,6 @@ const ArrayList = std.ArrayList;
 const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;
-const warn = std.debug.warn;
 
 pub const RunTranslatedCContext = struct {
     b: *build.Builder,

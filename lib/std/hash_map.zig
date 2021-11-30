@@ -2,7 +2,6 @@ const std = @import("std.zig");
 const assert = debug.assert;
 const autoHash = std.hash.autoHash;
 const debug = std.debug;
-const warn = debug.warn;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
@@ -101,7 +100,7 @@ pub const StringIndexContext = struct {
     }
 
     pub fn hash(self: @This(), x: u32) u64 {
-        const x_slice = mem.spanZ(@ptrCast([*:0]const u8, self.bytes.items.ptr) + x);
+        const x_slice = mem.sliceTo(@ptrCast([*:0]const u8, self.bytes.items.ptr) + x, 0);
         return hashString(x_slice);
     }
 };
@@ -110,7 +109,7 @@ pub const StringIndexAdapter = struct {
     bytes: *std.ArrayListUnmanaged(u8),
 
     pub fn eql(self: @This(), a_slice: []const u8, b: u32) bool {
-        const b_slice = mem.spanZ(@ptrCast([*:0]const u8, self.bytes.items.ptr) + b);
+        const b_slice = mem.sliceTo(@ptrCast([*:0]const u8, self.bytes.items.ptr) + b, 0);
         return mem.eql(u8, a_slice, b_slice);
     }
 
@@ -120,8 +119,7 @@ pub const StringIndexAdapter = struct {
     }
 };
 
-/// Deprecated use `default_max_load_percentage`
-pub const DefaultMaxLoadPercentage = default_max_load_percentage;
+pub const DefaultMaxLoadPercentage = @compileError("deprecated; use `default_max_load_percentage`");
 
 pub const default_max_load_percentage = 80;
 
@@ -506,8 +504,7 @@ pub fn HashMap(
             return self.unmanaged.getOrPutValueContext(self.allocator, key, value, self.ctx);
         }
 
-        /// Deprecated: call `ensureUnusedCapacity` or `ensureTotalCapacity`.
-        pub const ensureCapacity = ensureTotalCapacity;
+        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
         /// Increases capacity, guaranteeing that insertions up until the
         /// `expected_count` will not cause an allocation, and therefore cannot fail.
@@ -873,8 +870,7 @@ pub fn HashMapUnmanaged(
             return new_cap;
         }
 
-        /// Deprecated: call `ensureUnusedCapacity` or `ensureTotalCapacity`.
-        pub const ensureCapacity = ensureTotalCapacity;
+        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
         pub fn ensureTotalCapacity(self: *Self, allocator: *Allocator, new_size: Size) !void {
             if (@sizeOf(Context) != 0)
@@ -2044,15 +2040,4 @@ test "std.hash_map ensureUnusedCapacity" {
     // Repeated ensureUnusedCapacity() calls with no insertions between
     // should not change the capacity.
     try testing.expectEqual(capacity, map.capacity());
-}
-
-test "compile everything" {
-    std.testing.refAllDecls(AutoHashMap(i32, i32));
-    std.testing.refAllDecls(StringHashMap([]const u8));
-    std.testing.refAllDecls(AutoHashMap(i32, void));
-    std.testing.refAllDecls(StringHashMap(u0));
-    std.testing.refAllDecls(AutoHashMapUnmanaged(i32, i32));
-    std.testing.refAllDecls(StringHashMapUnmanaged([]const u8));
-    std.testing.refAllDecls(AutoHashMapUnmanaged(i32, void));
-    std.testing.refAllDecls(StringHashMapUnmanaged(u0));
 }

@@ -17,8 +17,6 @@ pub const Mutex = @import("Thread/Mutex.zig");
 pub const Semaphore = @import("Thread/Semaphore.zig");
 pub const Condition = @import("Thread/Condition.zig");
 
-pub const spinLoopHint = @compileError("deprecated: use std.atomic.spinLoopHint");
-
 pub const use_pthreads = target.os.tag != .windows and target.os.tag != .wasi and builtin.link_libc;
 const is_gnu = target.abi.isGnu();
 
@@ -361,7 +359,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
             }
 
             @call(.{}, f, args) catch |err| {
-                std.debug.warn("error: {s}\n", .{@errorName(err)});
+                std.debug.print("error: {s}\n", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }

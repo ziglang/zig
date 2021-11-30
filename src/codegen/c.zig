@@ -981,7 +981,7 @@ pub const DeclGen = struct {
         if (dg.module.decl_exports.get(decl)) |exports| {
             return writer.writeAll(exports[0].options.name);
         } else if (decl.val.tag() == .extern_fn) {
-            return writer.writeAll(mem.spanZ(decl.name));
+            return writer.writeAll(mem.sliceTo(decl.name, 0));
         } else {
             const gpa = dg.module.gpa;
             const name = try decl.getFullyQualifiedName(gpa);

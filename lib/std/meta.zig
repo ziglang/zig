@@ -594,8 +594,7 @@ test "std.meta.FieldEnum" {
     try expectEqualEnum(enum { a, b, c }, FieldEnum(union { a: u8, b: void, c: f32 }));
 }
 
-// Deprecated: use Tag
-pub const TagType = Tag;
+pub const TagType = @compileError("deprecated; use Tag");
 
 pub fn Tag(comptime T: type) type {
     return switch (@typeInfo(T)) {

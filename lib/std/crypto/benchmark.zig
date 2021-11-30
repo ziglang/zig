@@ -343,7 +343,7 @@ fn benchmarkPwhash(
 }
 
 fn usage() void {
-    std.debug.warn(
+    std.debug.print(
         \\throughput_test [options]
         \\
         \\Options:

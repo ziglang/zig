@@ -6,7 +6,7 @@ const mem = std.mem;
 const debug = std.debug;
 const panic = std.debug.panic;
 const assert = debug.assert;
-const warn = std.debug.warn;
+const warn = std.debug.print; // TODO use the log system instead of this
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
@@ -1295,11 +1295,12 @@ test "builder.findProgram compiles" {
     _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
 }
 
-/// Deprecated. Use `std.builtin.Version`.
-pub const Version = std.builtin.Version;
-
-/// Deprecated. Use `std.zig.CrossTarget`.
-pub const Target = std.zig.CrossTarget;
+/// TODO: propose some kind of `@deprecate` builtin so that we can deprecate
+/// this while still having somewhat non-lazy decls. In this file we wanted to do
+/// refAllDecls for example which makes it trigger `@compileError` if you try
+/// to use that strategy.
+pub const Version = @compileError("deprecated; Use `std.builtin.Version`");
+pub const Target = @compileError("deprecated; Use `std.zig.CrossTarget`");
 
 pub const Pkg = struct {
     name: []const u8,
@@ -3276,17 +3277,4 @@ test "LibExeObjStep.addPackage" {
 
     const dupe = exe.packages.items[0];
     try std.testing.expectEqualStrings(pkg_top.name, dupe.name);
-}
-
-test {
-    // The only purpose of this test is to get all these untested functions
-    // to be referenced to avoid regression so it is okay to skip some targets.
-    if (comptime builtin.cpu.arch.ptrBitWidth() == 64) {
-        std.testing.refAllDecls(@This());
-        std.testing.refAllDecls(Builder);
-
-        inline for (std.meta.declarations(@This())) |decl|
-            if (comptime mem.endsWith(u8, decl.name, "Step"))
-                std.testing.refAllDecls(decl.data.Type);
-    }
 }
