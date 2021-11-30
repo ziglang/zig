@@ -130,10 +130,10 @@ const TargetToHash = std.ArrayHashMap(DestTarget, []const u8, DestTarget.HashCon
 const PathTable = std.StringHashMap(*TargetToHash);
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const allocator = &arena.allocator;
-    const args = try std.process.argsAlloc(allocator);
-    var search_paths = std.ArrayList([]const u8).init(allocator);
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const arena = &arena_state.allocator;
+    const args = try std.process.argsAlloc(arena);
+    var search_paths = std.ArrayList([]const u8).init(arena);
     var opt_out_dir: ?[]const u8 = null;
 
     var arg_i: usize = 1;
@@ -161,8 +161,8 @@ pub fn main() !void {
     const out_dir = opt_out_dir orelse usageAndExit(args[0]);
     const generic_name = "any-linux-any";
 
-    var path_table = PathTable.init(allocator);
-    var hash_to_contents = HashToContents.init(allocator);
+    var path_table = PathTable.init(arena);
+    var hash_to_contents = HashToContents.init(arena);
     var max_bytes_saved: usize = 0;
     var total_bytes: usize = 0;
 
@@ -173,10 +173,10 @@ pub fn main() !void {
             .arch = linux_target.arch,
         };
         search: for (search_paths.items) |search_path| {
-            const target_include_dir = try std.fs.path.join(allocator, &.{
+            const target_include_dir = try std.fs.path.join(arena, &.{
                 search_path, linux_target.name, "include",
             });
-            var dir_stack = std.ArrayList([]const u8).init(allocator);
+            var dir_stack = std.ArrayList([]const u8).init(arena);
             try dir_stack.append(target_include_dir);
 
             while (dir_stack.popOrNull()) |full_dir_name| {
@@ -190,16 +190,16 @@ pub fn main() !void {
                 var dir_it = dir.iterate();
 
                 while (try dir_it.next()) |entry| {
-                    const full_path = try std.fs.path.join(allocator, &[_][]const u8{ full_dir_name, entry.name });
+                    const full_path = try std.fs.path.join(arena, &[_][]const u8{ full_dir_name, entry.name });
                     switch (entry.kind) {
                         .Directory => try dir_stack.append(full_path),
                         .File => {
-                            const rel_path = try std.fs.path.relative(allocator, target_include_dir, full_path);
+                            const rel_path = try std.fs.path.relative(arena, target_include_dir, full_path);
                             const max_size = 2 * 1024 * 1024 * 1024;
-                            const raw_bytes = try std.fs.cwd().readFileAlloc(allocator, full_path, max_size);
+                            const raw_bytes = try std.fs.cwd().readFileAlloc(arena, full_path, max_size);
                             const trimmed = std.mem.trim(u8, raw_bytes, " \r\n\t");
                             total_bytes += raw_bytes.len;
-                            const hash = try allocator.alloc(u8, 32);
+                            const hash = try arena.alloc(u8, 32);
                             hasher = Blake3.init(.{});
                             hasher.update(rel_path);
                             hasher.update(trimmed);
@@ -223,8 +223,8 @@ pub fn main() !void {
                             }
                             const path_gop = try path_table.getOrPut(rel_path);
                             const target_to_hash = if (path_gop.found_existing) path_gop.value_ptr.* else blk: {
-                                const ptr = try allocator.create(TargetToHash);
-                                ptr.* = TargetToHash.init(allocator);
+                                const ptr = try arena.create(TargetToHash);
+                                ptr.* = TargetToHash.init(arena);
                                 path_gop.value_ptr.* = ptr;
                                 break :blk ptr;
                             };
@@ -251,7 +251,7 @@ pub fn main() !void {
     // gets their header in a separate arch directory.
     var path_it = path_table.iterator();
     while (path_it.next()) |path_kv| {
-        var contents_list = std.ArrayList(*Contents).init(allocator);
+        var contents_list = std.ArrayList(*Contents).init(arena);
         {
             var hash_it = path_kv.value_ptr.*.iterator();
             while (hash_it.next()) |hash_kv| {
@@ -263,7 +263,7 @@ pub fn main() !void {
         const best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic
-            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, generic_name, path_kv.key_ptr.* });
+            const full_path = try std.fs.path.join(arena, &[_][]const u8{ out_dir, generic_name, path_kv.key_ptr.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
             try std.fs.cwd().writeFile(full_path, best_contents.bytes);
             best_contents.is_generic = true;
@@ -288,11 +288,26 @@ pub fn main() !void {
                 .specific => |a| @tagName(a),
                 else => @tagName(dest_target.arch),
             };
-            const out_subpath = try std.fmt.allocPrint(allocator, "{s}-linux-any", .{arch_name});
-            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, out_subpath, path_kv.key_ptr.* });
+            const out_subpath = try std.fmt.allocPrint(arena, "{s}-linux-any", .{arch_name});
+            const full_path = try std.fs.path.join(arena, &[_][]const u8{ out_dir, out_subpath, path_kv.key_ptr.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
             try std.fs.cwd().writeFile(full_path, contents.bytes);
         }
+    }
+
+    const bad_files = [_][]const u8{
+        "any-linux-any/linux/netfilter/xt_CONNMARK.h",
+        "any-linux-any/linux/netfilter/xt_DSCP.h",
+        "any-linux-any/linux/netfilter/xt_MARK.h",
+        "any-linux-any/linux/netfilter/xt_RATEEST.h",
+        "any-linux-any/linux/netfilter/xt_TCPMSS.h",
+        "any-linux-any/linux/netfilter_ipv4/ipt_ECN.h",
+        "any-linux-any/linux/netfilter_ipv4/ipt_TTL.h",
+        "any-linux-any/linux/netfilter_ipv6/ip6t_HL.h",
+    };
+    for (bad_files) |bad_file| {
+        const full_path = try std.fs.path.join(arena, &[_][]const u8{ out_dir, bad_file });
+        try std.fs.cwd().deleteFile(full_path);
     }
 }
 
