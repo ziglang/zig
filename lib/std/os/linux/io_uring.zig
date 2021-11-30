@@ -1888,6 +1888,10 @@ test "timeout_link_chain1" {
                 if (cqe.res != -@as(i32, @enumToInt(linux.E.ALREADY)) and
                     cqe.res != -@as(i32, @enumToInt(linux.E.TIME)))
                 {
+                    if (cqe.res == -@as(i32, @enumToInt(linux.E.BADF))) {
+                        // https://github.com/ziglang/zig/issues/10247
+                        return error.SkipZigTest;
+                    }
                     std.debug.print("Req 0x{x} got {d}\n", .{ cqe.user_data, cqe.res });
                     try testing.expect(false);
                 }
