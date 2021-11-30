@@ -6,13 +6,9 @@ body:
     attributes:
       value: |
         A bug is when something works differently than it is expected to.
-  - type: checkboxes
-    id: searched
-    attributes:
-      label: Remember to search before filing a new report
-      options:
-        - label: I searched for this bug and did not find it in the issue tracker, and furthermore, the title I used above will make this new bug report turn up in the search results for my query.
-          required: true
+        ## Remember to search before filing a new report
+        Please search for this bug in the issue tracker, and use a bug report title that
+        would have made your bug report turn up in the search results for your search query.
   - type: input
     id: version
     attributes:
