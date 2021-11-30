@@ -626,23 +626,23 @@ pub const Flock = extern struct {
 };
 
 pub const msghdr = extern struct {
-    msg_name: ?*sockaddr,
-    msg_namelen: socklen_t,
-    msg_iov: [*]iovec,
-    msg_iovlen: usize,
-    msg_control: ?*anyopaque,
-    msg_controllen: usize,
-    msg_flags: i32,
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: usize,
+    control: ?*anyopaque,
+    controllen: usize,
+    flags: i32,
 };
 
 pub const msghdr_const = extern struct {
-    msg_name: ?*const sockaddr,
-    msg_namelen: socklen_t,
-    msg_iov: [*]iovec_const,
-    msg_iovlen: usize,
-    msg_control: ?*anyopaque,
-    msg_controllen: usize,
-    msg_flags: i32,
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec_const,
+    iovlen: usize,
+    control: ?*anyopaque,
+    controllen: usize,
+    flags: i32,
 };
 
 pub const blksize_t = i64;
