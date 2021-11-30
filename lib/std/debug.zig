@@ -1412,7 +1412,6 @@ pub const ModuleDebugInfo = switch (native_os) {
             nosuspend {
                 // Translate the VA into an address into this object
                 const relocated_address = address - self.base_address;
-                assert(relocated_address >= 0x100000000);
 
                 // Find the .o file where this symbol is defined
                 const symbol = machoSearchSymbols(self.symbols, relocated_address) orelse
