@@ -6,6 +6,7 @@ const testing = std.testing;
 const leb = std.leb;
 const mem = std.mem;
 const wasm = std.wasm;
+const log = std.log.scoped(.codegen);
 
 const Module = @import("../../Module.zig");
 const Decl = Module.Decl;
@@ -562,8 +563,6 @@ const InnerError = error{
     CodegenFail,
     /// Can occur when dereferencing a pointer that points to a `Decl` of which the analysis has failed
     AnalysisFail,
-    /// Failed to emit MIR instructions to binary/textual representation.
-    EmitFail,
     /// Compiler implementation could not handle a large integer.
     Overflow,
 };
@@ -800,7 +799,7 @@ pub fn genFunc(self: *Self) InnerError!Result {
     emit.emitMir() catch |err| switch (err) {
         error.EmitFail => {
             self.err_msg = emit.error_msg.?;
-            return error.EmitFail;
+            return error.CodegenFail;
         },
         else => |e| return e,
     };
@@ -809,8 +808,34 @@ pub fn genFunc(self: *Self) InnerError!Result {
     return Result.appended;
 }
 
+pub fn genDecl(self: *Self) InnerError!Result {
+    const decl = self.decl;
+    assert(decl.has_tv);
+
+    log.debug("gen: {s} type: {}, value: {}", .{ decl.name, decl.ty, decl.val });
+
+    if (decl.val.castTag(.function)) |func_payload| {
+        _ = func_payload;
+        return self.fail("TODO wasm backend genDecl function pointer", .{});
+    } else if (decl.val.castTag(.extern_fn)) |extern_fn| {
+        const ext_decl = extern_fn.data;
+        var func_type = try self.genFunctype(ext_decl.ty);
+        func_type.deinit(self.gpa);
+        ext_decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
+        return Result.appended;
+    } else {
+        const init_val = if (decl.val.castTag(.variable)) |payload| init_val: {
+            break :init_val payload.data.init;
+        } else decl.val;
+        if (init_val.tag() != .unreachable_value) {
+            return try self.genTypedValue(decl.ty, init_val);
+        }
+        return Result.appended;
+    }
+}
+
 /// Generates the wasm bytecode for the declaration belonging to `Context`
-pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
+fn genTypedValue(self: *Self, ty: Type, val: Value) InnerError!Result {
     if (val.isUndef()) {
         try self.code.appendNTimes(0xaa, @intCast(usize, ty.abiSize(self.target)));
         return Result.appended;
@@ -822,16 +847,16 @@ pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
                 .function => val.castTag(.function).?.data.owner_decl,
                 else => unreachable,
             };
-            return try self.lowerDeclRef(fn_decl);
+            return try self.lowerDeclRef(ty, val, fn_decl);
         },
         .Optional => {
             var opt_buf: Type.Payload.ElemType = undefined;
             const payload_type = ty.optionalChild(&opt_buf);
             if (ty.isPtrLikeOptional()) {
                 if (val.castTag(.opt_payload)) |payload| {
-                    return try self.genDecl(payload_type, payload.data);
+                    return try self.genTypedValue(payload_type, payload.data);
                 } else if (!val.isNull()) {
-                    return try self.genDecl(payload_type, val);
+                    return try self.genTypedValue(payload_type, val);
                 } else {
                     try self.code.appendNTimes(0, @intCast(usize, ty.abiSize(self.target)));
                     return Result.appended;
@@ -839,7 +864,7 @@ pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
             }
             // `null-tag` byte
             try self.code.appendNTimes(@boolToInt(!val.isNull()), 4);
-            const pl_result = try self.genDecl(
+            const pl_result = try self.genTypedValue(
                 payload_type,
                 if (val.castTag(.opt_payload)) |pl| pl.data else Value.initTag(.undef),
             );
@@ -855,7 +880,7 @@ pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
                 if (ty.sentinel()) |sentinel| {
                     try self.code.appendSlice(payload.data);
 
-                    switch (try self.genDecl(ty.childType(), sentinel)) {
+                    switch (try self.genTypedValue(ty.childType(), sentinel)) {
                         .appended => return Result.appended,
                         .externally_managed => |data| {
                             try self.code.appendSlice(data);
@@ -869,22 +894,20 @@ pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
                 const elem_vals = val.castTag(.array).?.data;
                 const elem_ty = ty.elemType();
                 for (elem_vals) |elem_val| {
-                    switch (try self.genDecl(elem_ty, elem_val)) {
+                    switch (try self.genTypedValue(elem_ty, elem_val)) {
                         .appended => {},
-                        .externally_managed => |data| {
-                            try self.code.appendSlice(data);
-                        },
+                        .externally_managed => |data| try self.code.appendSlice(data),
                     }
                 }
                 return Result.appended;
             },
-            else => return self.fail("TODO implement genDecl for array type value: {s}", .{@tagName(val.tag())}),
+            else => return self.fail("TODO implement genTypedValue for array type value: {s}", .{@tagName(val.tag())}),
         },
         .Int => {
             const info = ty.intInfo(self.target);
             const abi_size = @intCast(usize, ty.abiSize(self.target));
             // todo: Implement integer sizes larger than 64bits
-            if (info.bits > 64) return self.fail("TODO: Implement genDecl for integer bit size: {d}", .{info.bits});
+            if (info.bits > 64) return self.fail("TODO: Implement genTypedValue for integer bit size: {d}", .{info.bits});
             var buf: [8]u8 = undefined;
             if (info.signedness == .unsigned) {
                 std.mem.writeIntLittle(u64, &buf, val.toUnsignedInt());
@@ -906,8 +929,7 @@ pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
             for (field_vals) |field_val, index| {
                 const field_ty = ty.structFieldType(index);
                 if (!field_ty.hasCodeGenBits()) continue;
-
-                switch (try self.genDecl(field_ty, field_val)) {
+                switch (try self.genTypedValue(field_ty, field_val)) {
                     .appended => {},
                     .externally_managed => |payload| try self.code.appendSlice(payload),
                 }
@@ -923,21 +945,21 @@ pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
         .Pointer => switch (val.tag()) {
             .variable => {
                 const decl = val.castTag(.variable).?.data.owner_decl;
-                return try self.lowerDeclRef(decl);
+                return try self.lowerDeclRef(ty, val, decl);
             },
             .decl_ref => {
                 const decl = val.castTag(.decl_ref).?.data;
-                return try self.lowerDeclRef(decl);
+                return try self.lowerDeclRef(ty, val, decl);
             },
             .slice => {
                 const slice = val.castTag(.slice).?.data;
                 var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                 const ptr_ty = ty.slicePtrFieldType(&buf);
-                switch (try self.genDecl(ptr_ty, slice.ptr)) {
+                switch (try self.genTypedValue(ptr_ty, slice.ptr)) {
                     .externally_managed => |data| try self.code.appendSlice(data),
                     .appended => {},
                 }
-                switch (try self.genDecl(Type.usize, slice.len)) {
+                switch (try self.genTypedValue(Type.usize, slice.len)) {
                     .externally_managed => |data| try self.code.appendSlice(data),
                     .appended => {},
                 }
@@ -949,13 +971,25 @@ pub fn genDecl(self: *Self, ty: Type, val: Value) InnerError!Result {
     }
 }
 
-fn lowerDeclRef(self: *Self, decl: *Module.Decl) InnerError!Result {
-    decl.alive = true;
+fn lowerDeclRef(self: *Self, ty: Type, val: Value, decl: *Module.Decl) InnerError!Result {
+    if (ty.isSlice()) {
+        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+        const slice_ty = ty.slicePtrFieldType(&buf);
+        switch (try self.genTypedValue(slice_ty, val)) {
+            .appended => {},
+            .externally_managed => |payload| try self.code.appendSlice(payload),
+        }
+        var slice_len: Value.Payload.U64 = .{
+            .base = .{ .tag = .int_u64 },
+            .data = val.sliceLen(),
+        };
+        return try self.genTypedValue(Type.usize, Value.initPayload(&slice_len.base));
+    }
 
     const offset = @intCast(u32, self.code.items.len);
     const atom = &self.decl.link.wasm;
     const target_sym_index = decl.link.wasm.sym_index;
-
+    decl.alive = true;
     if (decl.ty.zigTypeTag() == .Fn) {
         // We found a function pointer, so add it to our table,
         // as function pointers are not allowed to be stored inside the data section,
@@ -2225,31 +2259,14 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const elem_size = elem_ty.abiSize(self.target);
 
     // load pointer onto stack
-    try self.emitWValue(slice);
+    const slice_ptr = try self.load(slice, slice_ty, 0);
+    try self.addLabel(.local_get, slice_ptr.local);
 
     // calculate index into slice
     try self.emitWValue(index);
     try self.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
     try self.addTag(.i32_mul);
     try self.addTag(.i32_add);
-
-    const abi_size = if (elem_size < 8)
-        @intCast(u8, elem_size)
-    else
-        @as(u8, 4); // elements larger than 8 bytes will be passed by pointer
-
-    const extra_index = try self.addExtra(Mir.MemArg{
-        .offset = 0,
-        .alignment = elem_ty.abiAlignment(self.target),
-    });
-    const signedness: std.builtin.Signedness = if (elem_ty.isUnsignedInt()) .unsigned else .signed;
-    const opcode = buildOpcode(.{
-        .valtype1 = try self.typeToValtype(elem_ty),
-        .width = abi_size * 8,
-        .op = .load,
-        .signedness = signedness,
-    });
-    try self.addInst(.{ .tag = Mir.Inst.Tag.fromOpcode(opcode), .data = .{ .payload = extra_index } });
 
     const result = try self.allocLocal(elem_ty);
     try self.addLabel(.local_set, result.local);

@@ -277,7 +277,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     defer codegen.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = codegen.genDecl(decl.ty, decl.val) catch |err| switch (err) {
+    const result = codegen.genDecl() catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
@@ -297,6 +297,7 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, cod
 
     if (decl.isExtern()) {
         try self.addOrUpdateImport(decl);
+        return;
     }
 
     if (code.len == 0) return;
