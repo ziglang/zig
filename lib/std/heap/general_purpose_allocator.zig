@@ -561,11 +561,13 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 }
                 self.total_requested_bytes = new_req_bytes;
             }
-            errdefer if (config.enable_memory_limit) {
-                self.total_requested_bytes = prev_req_bytes;
-            };
 
-            const result_len = self.backing_allocator.rawResize(old_mem, old_align, new_size, len_align, ret_addr) orelse return null;
+            const result_len = self.backing_allocator.rawResize(old_mem, old_align, new_size, len_align, ret_addr) orelse {
+                if (config.enable_memory_limit) {
+                    self.total_requested_bytes = prev_req_bytes;
+                }
+                return null;
+            };
 
             if (config.enable_memory_limit) {
                 entry.value_ptr.requested_size = new_size;
@@ -621,6 +623,10 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     entry.value_ptr.getStackTrace(.alloc),
                     free_stack_trace,
                 });
+            }
+
+            if (!config.never_unmap) {
+                self.backing_allocator.rawFree(old_mem, old_align, ret_addr);
             }
 
             if (config.enable_memory_limit) {
@@ -711,9 +717,6 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 }
                 self.total_requested_bytes = new_req_bytes;
             }
-            errdefer if (config.enable_memory_limit) {
-                self.total_requested_bytes = prev_req_bytes;
-            };
 
             const new_aligned_size = math.max(new_size, old_align);
             const new_size_class = math.ceilPowerOfTwoAssert(usize, new_aligned_size);
@@ -727,6 +730,10 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     });
                 }
                 return new_size;
+            }
+
+            if (config.enable_memory_limit) {
+                self.total_requested_bytes = prev_req_bytes;
             }
             return null;
         }
