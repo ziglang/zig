@@ -705,9 +705,9 @@ pub const InitOptions = struct {
     use_lld: ?bool = null,
     use_clang: ?bool = null,
     use_stage1: ?bool = null,
+    single_threaded: ?bool = null,
     rdynamic: bool = false,
     strip: bool = false,
-    single_threaded: bool = false,
     function_sections: bool = false,
     is_native_os: bool,
     is_native_abi: bool,
@@ -1116,7 +1116,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
         const include_compiler_rt = options.want_compiler_rt orelse needs_c_symbols;
 
-        const single_threaded = options.single_threaded or target_util.isSingleThreaded(options.target);
+        const must_single_thread = target_util.isSingleThreaded(options.target);
+        const single_threaded = options.single_threaded orelse must_single_thread;
+        if (must_single_thread and !single_threaded) {
+            return error.TargetRequiresSingleThreaded;
+        }
 
         const llvm_cpu_features: ?[*:0]const u8 = if (build_options.have_llvm and use_llvm) blk: {
             var buf = std.ArrayList(u8).init(arena);

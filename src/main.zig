@@ -369,8 +369,9 @@ const usage_build_generic =
     \\  -fno-Clang                Prevent using Clang as the C/C++ compilation backend
     \\  -fstage1                  Force using bootstrap compiler as the codegen backend
     \\  -fno-stage1               Prevent using bootstrap compiler as the codegen backend
+    \\  -fsingle-threaded         Code assumes there is only one thread
+    \\  -fno-single-threaded      Code may not assume there is only one thread
     \\  --strip                   Omit debug symbols
-    \\  --single-threaded         Code assumes it is only used single-threaded
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
     \\    c                       C source code
@@ -564,12 +565,12 @@ fn buildOutputType(
     var provided_name: ?[]const u8 = null;
     var link_mode: ?std.builtin.LinkMode = null;
     var dll_export_fns: ?bool = null;
+    var single_threaded: ?bool = null;
     var root_src_file: ?[]const u8 = null;
     var version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 };
     var have_version = false;
     var compatibility_version: ?std.builtin.Version = null;
     var strip = false;
-    var single_threaded = false;
     var function_sections = false;
     var watch = false;
     var debug_compile_errors = false;
@@ -1129,8 +1130,10 @@ fn buildOutputType(
                         emit_bin = .no;
                     } else if (mem.eql(u8, arg, "--strip")) {
                         strip = true;
-                    } else if (mem.eql(u8, arg, "--single-threaded")) {
+                    } else if (mem.eql(u8, arg, "-fsingle-threaded")) {
                         single_threaded = true;
+                    } else if (mem.eql(u8, arg, "-fno-single-threaded")) {
+                        single_threaded = false;
                     } else if (mem.eql(u8, arg, "-ffunction-sections")) {
                         function_sections = true;
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {

@@ -1442,6 +1442,7 @@ pub const LibExeObjStep = struct {
     emit_docs: bool = false,
     emit_h: bool = false,
     bundle_compiler_rt: ?bool = null,
+    single_threaded: ?bool = null,
     disable_stack_probing: bool,
     disable_sanitize_c: bool,
     sanitize_thread: bool,
@@ -1456,7 +1457,6 @@ pub const LibExeObjStep = struct {
     exec_cmd_args: ?[]const ?[]const u8,
     name_prefix: []const u8,
     filter: ?[]const u8,
-    single_threaded: bool,
     test_evented_io: bool = false,
     code_model: std.builtin.CodeModel = .default,
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
@@ -1649,7 +1649,6 @@ pub const LibExeObjStep = struct {
             .sanitize_thread = false,
             .rdynamic = false,
             .output_dir = null,
-            .single_threaded = false,
             .override_dest_dir = null,
             .installed_path = null,
             .install_step = null,
@@ -2376,9 +2375,6 @@ pub const LibExeObjStep = struct {
             try zig_args.append("-z");
             try zig_args.append("notext");
         }
-        if (self.single_threaded) {
-            try zig_args.append("--single-threaded");
-        }
 
         if (self.libc_file) |libc_file| {
             try zig_args.append("--libc");
@@ -2418,6 +2414,13 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-fcompiler-rt");
             } else {
                 try zig_args.append("-fno-compiler-rt");
+            }
+        }
+        if (self.single_threaded) |single_threaded| {
+            if (single_threaded) {
+                try zig_args.append("-fsingle-threaded");
+            } else {
+                try zig_args.append("-fno-single-threaded");
             }
         }
         if (self.disable_stack_probing) {
