@@ -627,6 +627,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 self.total_requested_bytes -= entry.value_ptr.requested_size;
             }
 
+            if (!config.never_unmap) self.backing_allocator.rawFree(old_mem, old_align, ret_addr);
+
             if (config.verbose_log) {
                 log.info("large free {d} bytes at {*}", .{ old_mem.len, old_mem.ptr });
             }
