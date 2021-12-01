@@ -1840,42 +1840,73 @@ test "timeout_remove" {
     }, cqe_timeout_remove);
 }
 
-test "timeout_link_chain1" {
+test "accept/connect/recv/link_timeout" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    var ring = IO_Uring.init(8, 0) catch |err| switch (err) {
+    var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
         else => return err,
     };
     defer ring.deinit();
 
-    var fds = try os.pipe();
-    defer {
-        os.close(fds[0]);
-        os.close(fds[1]);
+    const address = try net.Address.parseIp4("127.0.0.1", 3131);
+    const kernel_backlog = 1;
+    const server = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+    defer os.close(server);
+    try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
+    try os.bind(server, &address.any, address.getOsSockLen());
+    try os.listen(server, kernel_backlog);
+
+    var buffer_recv = [_]u8{ 0, 1, 0, 1, 0 };
+
+    var accept_addr: os.sockaddr = undefined;
+    var accept_addr_len: os.socklen_t = @sizeOf(@TypeOf(accept_addr));
+    _ = try ring.accept(0xaaaaaaaa, server, &accept_addr, &accept_addr_len, 0);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+    defer os.close(client);
+    _ = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    var cqe_accept = try ring.copy_cqe();
+    if (cqe_accept.err() == .INVAL) return error.SkipZigTest;
+    var cqe_connect = try ring.copy_cqe();
+    if (cqe_connect.err() == .INVAL) return error.SkipZigTest;
+
+    // The accept/connect CQEs may arrive in any order, the connect CQE will sometimes come first:
+    if (cqe_accept.user_data == 0xcccccccc and cqe_connect.user_data == 0xaaaaaaaa) {
+        const a = cqe_accept;
+        const b = cqe_connect;
+        cqe_accept = b;
+        cqe_connect = a;
     }
 
-    var buffer = [_]u8{0} ** 128;
-    const iovecs = [_]os.iovec{os.iovec{ .iov_base = &buffer, .iov_len = buffer.len }};
-    const sqe_readv = try ring.readv(0x11111111, fds[0], &iovecs, 0);
-    sqe_readv.flags |= linux.IOSQE_IO_LINK;
+    try testing.expectEqual(@as(u64, 0xaaaaaaaa), cqe_accept.user_data);
+    if (cqe_accept.res <= 0) std.debug.print("\ncqe_accept.res={}\n", .{cqe_accept.res});
+    try testing.expect(cqe_accept.res > 0);
+    try testing.expectEqual(@as(u32, 0), cqe_accept.flags);
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0xcccccccc,
+        .res = 0,
+        .flags = 0,
+    }, cqe_connect);
+
+    const sqe_recv = try ring.recv(0xffffffff, cqe_accept.res, buffer_recv[0..], 0);
+    sqe_recv.flags |= linux.IOSQE_IO_LINK;
 
     const ts = os.linux.kernel_timespec{ .tv_sec = 0, .tv_nsec = 1000000 };
-    const seq_link_timeout = try ring.link_timeout(0x22222222, &ts, 0);
-    seq_link_timeout.flags |= linux.IOSQE_IO_LINK;
-
-    _ = try ring.nop(0x33333333);
+    _ = try ring.link_timeout(0x22222222, &ts, 0);
 
     const nr_wait = try ring.submit();
-    try testing.expectEqual(@as(u32, 3), nr_wait);
+    try testing.expectEqual(@as(u32, 2), nr_wait);
 
     var i: usize = 0;
     while (i < nr_wait) : (i += 1) {
         const cqe = try ring.copy_cqe();
         switch (cqe.user_data) {
-            // poll cancel really should return -ECANCEL...
-            0x11111111 => {
+            0xffffffff => {
                 if (cqe.res != -@as(i32, @enumToInt(linux.E.INTR)) and
                     cqe.res != -@as(i32, @enumToInt(linux.E.CANCELED)))
                 {
@@ -1884,20 +1915,9 @@ test "timeout_link_chain1" {
                 }
             },
             0x22222222 => {
-                // FASTPOLL kernels can cancel successfully
                 if (cqe.res != -@as(i32, @enumToInt(linux.E.ALREADY)) and
                     cqe.res != -@as(i32, @enumToInt(linux.E.TIME)))
                 {
-                    if (cqe.res == -@as(i32, @enumToInt(linux.E.BADF))) {
-                        // https://github.com/ziglang/zig/issues/10247
-                        return error.SkipZigTest;
-                    }
-                    std.debug.print("Req 0x{x} got {d}\n", .{ cqe.user_data, cqe.res });
-                    try testing.expect(false);
-                }
-            },
-            0x33333333 => {
-                if (cqe.res != -@as(i32, @enumToInt(linux.E.CANCELED))) {
                     std.debug.print("Req 0x{x} got {d}\n", .{ cqe.user_data, cqe.res });
                     try testing.expect(false);
                 }
