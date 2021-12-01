@@ -1516,6 +1516,9 @@ pub const LibExeObjStep = struct {
     /// Experimental. Uses system Darling installation to run cross compiled macOS build artifacts.
     enable_darling: bool = false,
 
+    /// Darwin. Uses Rosetta to run x86_64 macOS build artifacts on arm64 macOS.
+    enable_rosetta: bool = false,
+
     /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
     /// this will be the directory $glibc-build-dir/install/glibcs
     /// Given the example of the aarch64 target, this is the directory
@@ -2529,7 +2532,10 @@ pub const LibExeObjStep = struct {
                 }
             }
         } else switch (self.target.getExternalExecutor()) {
-            .native, .rosetta, .unavailable => {},
+            .native, .unavailable => {},
+            .rosetta => if (self.enable_rosetta) {
+                try zig_args.append("--test-cmd-bin");
+            },
             .qemu => |bin_name| if (self.enable_qemu) qemu: {
                 const need_cross_glibc = self.target.isGnuLibC() and self.is_linking_libc;
                 const glibc_dir_arg = if (need_cross_glibc)

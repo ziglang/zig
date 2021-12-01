@@ -10,6 +10,7 @@ const enable_qemu: bool = build_options.enable_qemu;
 const enable_wine: bool = build_options.enable_wine;
 const enable_wasmtime: bool = build_options.enable_wasmtime;
 const enable_darling: bool = build_options.enable_darling;
+const enable_rosetta: bool = build_options.enable_rosetta;
 const glibc_multi_install_dir: ?[]const u8 = build_options.glibc_multi_install_dir;
 const skip_compile_errors = build_options.skip_compile_errors;
 const ThreadPool = @import("ThreadPool.zig");
@@ -1132,24 +1133,7 @@ pub const TestContext = struct {
                             .native => try argv.append(exe_path),
                             .unavailable => return, // Pass test.
 
-                            .rosetta => if (builtin.os.tag == .macos) {
-                                // Check based on official Apple docs.
-                                // If sysctlbyname returns errno.ENOENT, then we are running a native process.
-                                // Otherwise, if an error occurs then we are not native and there is no Rosetta available.
-                                // Finally if OK, we are running a translated process via Rosetta.
-                                // https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment
-                                var ret: c_int = 0;
-                                var size: usize = @sizeOf(c_int);
-                                std.os.sysctlbynameZ(
-                                    "sysctl.proc_translated",
-                                    &ret,
-                                    &size,
-                                    null,
-                                    0,
-                                ) catch |err| switch (err) {
-                                    error.UnknownName => unreachable, // Native process, we should never trigger it as .rosetta.
-                                    else => return, // No Rosetta available, pass test.
-                                };
+                            .rosetta => if (enable_rosetta) {
                                 try argv.append(exe_path);
                             } else {
                                 return; // Rosetta not available, pass test.
