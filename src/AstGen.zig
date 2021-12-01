@@ -6421,7 +6421,53 @@ fn asmExpr(
     const asm_source = switch (node_tags[full.ast.template]) {
         .string_literal => try astgen.strLitAsString(main_tokens[full.ast.template]),
         .multiline_string_literal => try astgen.strLitNodeAsString(full.ast.template),
-        else => return astgen.failNode(full.ast.template, "assembly code must use string literal syntax", .{}),
+        else => {
+            // stage1 allows this, and until we do another design iteration on inline assembly
+            // in stage2 to improve support for the various needed use cases, we allow inline
+            // assembly templates to be an expression. Once stage2 addresses the real world needs
+            // of people using inline assembly (primarily OS developers) then we can re-institute
+            // the rule into AstGen that assembly code must use string literal syntax.
+            //return astgen.failNode(full.ast.template, "assembly code must use string literal syntax", .{}),
+
+            // This code emits ZIR for
+            // `@compileError("assembly code must use string literal syntax")`
+            // which allows it to make it to stage1 but gives the error for stage2.
+            const string_bytes = &astgen.string_bytes;
+            const str_index = @intCast(u32, string_bytes.items.len);
+            try string_bytes.appendSlice(astgen.gpa, "assembly code must use string literal syntax");
+            const key = string_bytes.items[str_index..];
+            const gop = try astgen.string_table.getOrPutContextAdapted(astgen.gpa, @as([]const u8, key), StringIndexAdapter{
+                .bytes = string_bytes,
+            }, StringIndexContext{
+                .bytes = string_bytes,
+            });
+            const str = if (gop.found_existing) str: {
+                string_bytes.shrinkRetainingCapacity(str_index);
+                break :str IndexSlice{
+                    .index = gop.key_ptr.*,
+                    .len = @intCast(u32, key.len),
+                };
+            } else str: {
+                gop.key_ptr.* = str_index;
+                // Still need a null byte because we are using the same table
+                // to lookup null terminated strings, so if we get a match, it has to
+                // be null terminated for that to work.
+                try string_bytes.append(astgen.gpa, 0);
+                break :str IndexSlice{
+                    .index = str_index,
+                    .len = @intCast(u32, key.len),
+                };
+            };
+            const msg = try gz.add(.{
+                .tag = .str,
+                .data = .{ .str = .{
+                    .start = str.index,
+                    .len = str.len,
+                } },
+            });
+            const result = try gz.addUnNode(.compile_error, msg, node);
+            return rvalue(gz, rl, result, node);
+        },
     };
 
     // See https://github.com/ziglang/zig/issues/215 and related issues discussing
