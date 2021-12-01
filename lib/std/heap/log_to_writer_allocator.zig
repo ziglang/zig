@@ -94,7 +94,7 @@ test "LogToWriterAllocator" {
     const allocator = logToWriterAllocator(fixedBufferAllocator.allocator(), fbs.writer()).allocator();
 
     var a = try allocator.alloc(u8, 10);
-    a = allocator.shrink(a, 5);
+    a = allocator.tryShrink(a, 5) orelse return error.OutOfMemory; // this allocator does not support this shrink
     try std.testing.expect(a.len == 5);
     try std.testing.expect(allocator.resize(a, 20) == null);
     allocator.free(a);

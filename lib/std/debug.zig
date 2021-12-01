@@ -1023,7 +1023,7 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
     }
     assert(state == .oso_close);
 
-    const symbols = allocator.shrink(symbols_buf, symbol_index);
+    const symbols = try allocator.realloc(symbols_buf, symbol_index);
 
     // Even though lld emits symbols in ascending order, this debug code
     // should work for programs linked in any valid way.

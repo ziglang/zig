@@ -1116,11 +1116,11 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
         allocator.destroy(item);
     }
 
-    slice = allocator.shrink(slice, 50);
+    slice = allocator.tryShrink(slice, 50) orelse return error.OutOfMemory; // this allocator does not support this shrink
     try testing.expect(slice.len == 50);
-    slice = allocator.shrink(slice, 25);
+    slice = allocator.tryShrink(slice, 25) orelse return error.OutOfMemory; // this allocator does not support this shrink
     try testing.expect(slice.len == 25);
-    slice = allocator.shrink(slice, 0);
+    slice = allocator.tryShrink(slice, 0) orelse return error.OutOfMemory; // this allocator does not support this shrink
     try testing.expect(slice.len == 0);
     slice = try allocator.realloc(slice, 10);
     try testing.expect(slice.len == 10);
@@ -1156,19 +1156,19 @@ pub fn testAllocatorAligned(base_allocator: mem.Allocator) !void {
         slice = try allocator.realloc(slice, 100);
         try testing.expect(slice.len == 100);
         // shrink
-        slice = allocator.shrink(slice, 10);
+        slice = allocator.tryShrink(slice, 10) orelse return error.OutOfMemory; // this allocator does not support this shrink
         try testing.expect(slice.len == 10);
         // go to zero
-        slice = allocator.shrink(slice, 0);
+        slice = allocator.tryShrink(slice, 0) orelse return error.OutOfMemory; // this allocator does not support this shrink
         try testing.expect(slice.len == 0);
         // realloc from zero
         slice = try allocator.realloc(slice, 100);
         try testing.expect(slice.len == 100);
         // shrink with shrink
-        slice = allocator.shrink(slice, 10);
+        slice = allocator.tryShrink(slice, 10) orelse return error.OutOfMemory; // this allocator does not support this shrink
         try testing.expect(slice.len == 10);
         // shrink to zero
-        slice = allocator.shrink(slice, 0);
+        slice = allocator.tryShrink(slice, 0) orelse return error.OutOfMemory; // this allocator does not support this shrink
         try testing.expect(slice.len == 0);
     }
 }
@@ -1190,13 +1190,13 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     var slice = try allocator.alignedAlloc(u8, large_align, 500);
     try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
-    slice = allocator.shrink(slice, 100);
+    slice = allocator.tryShrink(slice, 100) orelse return error.OutOfMemory; // this allocator does not support this shrink
     try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     slice = try allocator.realloc(slice, 5000);
     try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
-    slice = allocator.shrink(slice, 10);
+    slice = allocator.tryShrink(slice, 10) orelse return error.OutOfMemory; // this allocator does not support this shrink
     try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     slice = try allocator.realloc(slice, 20000);

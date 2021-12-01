@@ -3498,7 +3498,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) SemaError!void {
 
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
-            mod.deleteDeclExports(decl);
+            try mod.deleteDeclExports(decl);
             // Dependencies will be re-discovered, so we remove them here prior to re-analysis.
             for (decl.dependencies.keys()) |dep| {
                 dep.removeDependant(decl);
@@ -4555,7 +4555,7 @@ pub fn clearDecl(
         assert(emit_h.decl_table.swapRemove(decl));
     }
     _ = mod.compile_log_decls.swapRemove(decl);
-    mod.deleteDeclExports(decl);
+    try mod.deleteDeclExports(decl);
 
     if (decl.has_tv) {
         if (decl.ty.isFnOrHasRuntimeBits()) {
@@ -4661,7 +4661,7 @@ pub fn abortAnonDecl(mod: *Module, decl: *Decl) void {
 
 /// Delete all the Export objects that are caused by this Decl. Re-analysis of
 /// this Decl will cause them to be re-created (or not).
-fn deleteDeclExports(mod: *Module, decl: *Decl) void {
+fn deleteDeclExports(mod: *Module, decl: *Decl) !void {
     const kv = mod.export_owners.fetchSwapRemove(decl) orelse return;
 
     for (kv.value) |exp| {
@@ -4678,7 +4678,7 @@ fn deleteDeclExports(mod: *Module, decl: *Decl) void {
                     i += 1;
                 }
             }
-            value_ptr.* = mod.gpa.shrink(list, new_len);
+            value_ptr.* = mod.gpa.tryShrink(list, new_len) orelse return error.OutOfMemory; // this allocator does not support this shrink
             if (new_len == 0) {
                 assert(mod.decl_exports.swapRemove(exp.exported_decl));
             }

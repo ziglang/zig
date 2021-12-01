@@ -661,7 +661,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
         result_index += 1;
     }
 
-    return allocator.shrink(result, result_index);
+    return allocator.realloc(result, result_index);
 }
 
 /// This function is like a series of `cd` statements executed one after another.
@@ -730,7 +730,7 @@ pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) ![]u8 {
         result_index += 1;
     }
 
-    return allocator.shrink(result, result_index);
+    return allocator.realloc(result, result_index);
 }
 
 test "resolve" {
@@ -1200,7 +1200,7 @@ pub fn relativePosix(allocator: Allocator, from: []const u8, to: []const u8) ![]
         }
         if (to_rest.len == 0) {
             // shave off the trailing slash
-            return allocator.shrink(result, result_index - 1);
+            return allocator.realloc(result, result_index - 1);
         }
 
         mem.copy(u8, result[result_index..], to_rest);

@@ -2089,7 +2089,7 @@ pub const Const = struct {
         const limbs = try allocator.alloc(Limb, calcToStringLimbsBufferLen(self.limbs.len, base));
         defer allocator.free(limbs);
 
-        return allocator.shrink(string, self.toString(string, base, case, limbs));
+        return allocator.realloc(string, self.toString(string, base, case, limbs));
     }
 
     /// Converts self to a string in the requested base.

@@ -4260,7 +4260,11 @@ pub fn analyzeExport(
     }
     eo_gop.value_ptr.* = try gpa.realloc(eo_gop.value_ptr.*, eo_gop.value_ptr.len + 1);
     eo_gop.value_ptr.*[eo_gop.value_ptr.len - 1] = new_export;
-    errdefer eo_gop.value_ptr.* = gpa.shrink(eo_gop.value_ptr.*, eo_gop.value_ptr.len - 1);
+    errdefer {
+        if (gpa.tryShrink(eo_gop.value_ptr.*, eo_gop.value_ptr.len - 1)) |shrunk| {
+            eo_gop.value_ptr.* = shrunk;
+        }
+    }
 
     // Add to exported_decl table.
     const de_gop = mod.decl_exports.getOrPutAssumeCapacity(exported_decl);
@@ -4269,7 +4273,11 @@ pub fn analyzeExport(
     }
     de_gop.value_ptr.* = try gpa.realloc(de_gop.value_ptr.*, de_gop.value_ptr.len + 1);
     de_gop.value_ptr.*[de_gop.value_ptr.len - 1] = new_export;
-    errdefer de_gop.value_ptr.* = gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
+    errdefer {
+        if (gpa.tryShrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1)) |shrunk| {
+            eo_gop.value_ptr.* = shrunk;
+        }
+    }
 }
 
 fn zirSetAlignStack(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {

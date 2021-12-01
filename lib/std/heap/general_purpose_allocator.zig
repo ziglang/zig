@@ -1020,13 +1020,13 @@ test "shrink" {
 
     mem.set(u8, slice, 0x11);
 
-    slice = allocator.shrink(slice, 17);
+    slice = allocator.tryShrink(slice, 17) orelse unreachable; // GPA supports shrink
 
     for (slice) |b| {
         try std.testing.expect(b == 0x11);
     }
 
-    slice = allocator.shrink(slice, 16);
+    slice = allocator.tryShrink(slice, 16) orelse unreachable; // GPA supports shrink
 
     for (slice) |b| {
         try std.testing.expect(b == 0x11);
@@ -1082,7 +1082,7 @@ test "shrink large object to large object" {
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[60] == 0x34);
 
-    slice = allocator.shrink(slice, page_size * 2 + 1);
+    slice = allocator.tryShrink(slice, page_size * 2 + 1) orelse unreachable; // GPA supports shrink
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[60] == 0x34);
 
@@ -1217,7 +1217,7 @@ test "large object shrinks to small but allocation fails during shrink" {
 
     // Next allocation will fail in the backing allocator of the GeneralPurposeAllocator
 
-    slice = allocator.shrink(slice, 4);
+    slice = allocator.tryShrink(slice, 4) orelse unreachable; // GPA supports shrink
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[3] == 0x34);
 }

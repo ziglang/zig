@@ -96,7 +96,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// The caller owns the returned memory. Empties this ArrayList.
         pub fn toOwnedSlice(self: *Self) Slice {
             const allocator = self.allocator;
-            const result = allocator.shrink(self.allocatedSlice(), self.items.len);
+            const result = allocator.realloc(self.allocatedSlice(), self.items.len) catch unreachable;
             self.* = init(allocator);
             return result;
         }
@@ -484,7 +484,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// The caller owns the returned memory. ArrayList becomes empty.
         pub fn toOwnedSlice(self: *Self, allocator: Allocator) Slice {
-            const result = allocator.shrink(self.allocatedSlice(), self.items.len);
+            const result = allocator.realloc(self.allocatedSlice(), self.items.len) catch unreachable;
             self.* = Self{};
             return result;
         }
