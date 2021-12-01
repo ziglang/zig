@@ -42,7 +42,7 @@ pub const empty: Atom = .{
 };
 
 /// Frees all resources owned by this `Atom`.
-pub fn deinit(self: *Atom, gpa: *Allocator) void {
+pub fn deinit(self: *Atom, gpa: Allocator) void {
     self.relocs.deinit(gpa);
     self.code.deinit(gpa);
 }

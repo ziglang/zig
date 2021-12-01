@@ -226,7 +226,7 @@ test "std.event.RwLock" {
     const expected_result = [1]i32{shared_it_count * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
     try testing.expectEqualSlices(i32, expected_result, shared_test_data);
 }
-fn testLock(allocator: *Allocator, lock: *RwLock) callconv(.Async) void {
+fn testLock(allocator: Allocator, lock: *RwLock) callconv(.Async) void {
     var read_nodes: [100]Loop.NextTickNode = undefined;
     for (read_nodes) |*read_node| {
         const frame = allocator.create(@Frame(readRunner)) catch @panic("memory");

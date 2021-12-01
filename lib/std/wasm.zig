@@ -361,7 +361,7 @@ pub const Type = struct {
             std.mem.eql(Valtype, self.returns, other.returns);
     }
 
-    pub fn deinit(self: *Type, gpa: *std.mem.Allocator) void {
+    pub fn deinit(self: *Type, gpa: std.mem.Allocator) void {
         gpa.free(self.params);
         gpa.free(self.returns);
         self.* = undefined;

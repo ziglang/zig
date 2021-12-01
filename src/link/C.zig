@@ -36,7 +36,7 @@ const DeclBlock = struct {
     /// Any arena memory the Type points to lives in the `arena` field of `C`.
     typedefs: codegen.TypedefMap.Unmanaged = .{},
 
-    fn deinit(db: *DeclBlock, gpa: *Allocator) void {
+    fn deinit(db: *DeclBlock, gpa: Allocator) void {
         db.code.deinit(gpa);
         db.fwd_decl.deinit(gpa);
         for (db.typedefs.values()) |typedef| {
@@ -47,7 +47,7 @@ const DeclBlock = struct {
     }
 };
 
-pub fn openPath(gpa: *Allocator, sub_path: []const u8, options: link.Options) !*C {
+pub fn openPath(gpa: Allocator, sub_path: []const u8, options: link.Options) !*C {
     assert(options.object_format == .c);
 
     if (options.use_llvm) return error.LLVMHasNoCBackend;
@@ -128,7 +128,7 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
                 .decl = decl,
                 .fwd_decl = fwd_decl.toManaged(module.gpa),
                 .typedefs = typedefs.promote(module.gpa),
-                .typedefs_arena = &self.arena.allocator,
+                .typedefs_arena = self.arena.allocator(),
             },
             .code = code.toManaged(module.gpa),
             .indent_writer = undefined, // set later so we can get a pointer to object.code
@@ -193,7 +193,7 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
             .decl = decl,
             .fwd_decl = fwd_decl.toManaged(module.gpa),
             .typedefs = typedefs.promote(module.gpa),
-            .typedefs_arena = &self.arena.allocator,
+            .typedefs_arena = self.arena.allocator(),
         },
         .code = code.toManaged(module.gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
@@ -336,7 +336,7 @@ const Flush = struct {
         std.hash_map.default_max_load_percentage,
     );
 
-    fn deinit(f: *Flush, gpa: *Allocator) void {
+    fn deinit(f: *Flush, gpa: Allocator) void {
         f.all_buffers.deinit(gpa);
         f.err_typedef_buf.deinit(gpa);
         f.typedefs.deinit(gpa);

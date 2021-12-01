@@ -161,7 +161,7 @@ pub const Params = struct {
 ///
 /// scrypt is defined in RFC 7914.
 ///
-/// allocator: *mem.Allocator.
+/// allocator: mem.Allocator.
 ///
 /// derived_key: Slice of appropriate size for generated key. Generally 16 or 32 bytes in length.
 ///              May be uninitialized. All bytes will be overwritten.
@@ -173,7 +173,7 @@ pub const Params = struct {
 ///
 /// params: Params.
 pub fn kdf(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     derived_key: []u8,
     password: []const u8,
     salt: []const u8,
@@ -406,7 +406,7 @@ const PhcFormatHasher = struct {
 
     /// Return a non-deterministic hash of the password encoded as a PHC-format string
     pub fn create(
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         password: []const u8,
         params: Params,
         buf: []u8,
@@ -429,7 +429,7 @@ const PhcFormatHasher = struct {
 
     /// Verify a password against a PHC-format encoded string
     pub fn verify(
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         str: []const u8,
         password: []const u8,
     ) HasherError!void {
@@ -455,7 +455,7 @@ const CryptFormatHasher = struct {
 
     /// Return a non-deterministic hash of the password encoded into the modular crypt format
     pub fn create(
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         password: []const u8,
         params: Params,
         buf: []u8,
@@ -478,7 +478,7 @@ const CryptFormatHasher = struct {
 
     /// Verify a password against a string in modular crypt format
     pub fn verify(
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         str: []const u8,
         password: []const u8,
     ) HasherError!void {
@@ -497,7 +497,7 @@ const CryptFormatHasher = struct {
 ///
 /// Allocator is required for scrypt.
 pub const HashOptions = struct {
-    allocator: ?*mem.Allocator,
+    allocator: ?mem.Allocator,
     params: Params,
     encoding: pwhash.Encoding,
 };
@@ -520,7 +520,7 @@ pub fn strHash(
 ///
 /// Allocator is required for scrypt.
 pub const VerifyOptions = struct {
-    allocator: ?*mem.Allocator,
+    allocator: ?mem.Allocator,
 };
 
 /// Verify that a previously computed hash is valid for a given password.

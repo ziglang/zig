@@ -7,7 +7,7 @@ pub const BufferedAtomicFile = struct {
     atomic_file: fs.AtomicFile,
     file_writer: File.Writer,
     buffered_writer: BufferedWriter,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     pub const buffer_size = 4096;
     pub const BufferedWriter = std.io.BufferedWriter(buffer_size, File.Writer);
@@ -16,7 +16,7 @@ pub const BufferedAtomicFile = struct {
     /// TODO when https://github.com/ziglang/zig/issues/2761 is solved
     /// this API will not need an allocator
     pub fn create(
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         dir: fs.Dir,
         dest_path: []const u8,
         atomic_file_options: fs.Dir.AtomicFileOptions,

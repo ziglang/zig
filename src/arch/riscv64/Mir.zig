@@ -101,7 +101,7 @@ pub const Inst = struct {
     // }
 };
 
-pub fn deinit(mir: *Mir, gpa: *std.mem.Allocator) void {
+pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     gpa.free(mir.extra);
     mir.* = undefined;

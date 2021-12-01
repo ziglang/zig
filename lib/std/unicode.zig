@@ -550,7 +550,7 @@ fn testDecode(bytes: []const u8) !u21 {
 }
 
 /// Caller must free returned memory.
-pub fn utf16leToUtf8Alloc(allocator: *mem.Allocator, utf16le: []const u16) ![]u8 {
+pub fn utf16leToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) ![]u8 {
     // optimistically guess that it will all be ascii.
     var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len);
     errdefer result.deinit();
@@ -567,7 +567,7 @@ pub fn utf16leToUtf8Alloc(allocator: *mem.Allocator, utf16le: []const u16) ![]u8
 }
 
 /// Caller must free returned memory.
-pub fn utf16leToUtf8AllocZ(allocator: *mem.Allocator, utf16le: []const u16) ![:0]u8 {
+pub fn utf16leToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]u8 {
     // optimistically guess that it will all be ascii.
     var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len);
     errdefer result.deinit();
@@ -661,7 +661,7 @@ test "utf16leToUtf8" {
     }
 }
 
-pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![:0]u16 {
+pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u16 {
     // optimistically guess that it will not require surrogate pairs
     var result = try std.ArrayList(u16).initCapacity(allocator, utf8.len + 1);
     errdefer result.deinit();

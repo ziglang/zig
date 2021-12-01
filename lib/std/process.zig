@@ -21,7 +21,7 @@ pub fn getCwd(out_buffer: []u8) ![]u8 {
 }
 
 /// Caller must free the returned memory.
-pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
+pub fn getCwdAlloc(allocator: Allocator) ![]u8 {
     // The use of MAX_PATH_BYTES here is just a heuristic: most paths will fit
     // in stack_buf, avoiding an extra allocation in the common case.
     var stack_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
@@ -54,7 +54,7 @@ test "getCwdAlloc" {
 }
 
 /// Caller owns resulting `BufMap`.
-pub fn getEnvMap(allocator: *Allocator) !BufMap {
+pub fn getEnvMap(allocator: Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
 
@@ -154,7 +154,7 @@ pub const GetEnvVarOwnedError = error{
 };
 
 /// Caller must free returned memory.
-pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
+pub fn getEnvVarOwned(allocator: mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (builtin.os.tag == .windows) {
         const result_w = blk: {
             const key_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
@@ -183,10 +183,10 @@ pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     }
 }
 
-pub fn hasEnvVar(allocator: *Allocator, key: []const u8) error{OutOfMemory}!bool {
+pub fn hasEnvVar(allocator: Allocator, key: []const u8) error{OutOfMemory}!bool {
     if (builtin.os.tag == .windows) {
         var stack_alloc = std.heap.stackFallback(256 * @sizeOf(u16), allocator);
-        const key_w = try std.unicode.utf8ToUtf16LeWithNull(&stack_alloc.allocator, key);
+        const key_w = try std.unicode.utf8ToUtf16LeWithNull(stack_alloc.get(), key);
         defer stack_alloc.allocator.free(key_w);
         return std.os.getenvW(key_w) != null;
     } else {
@@ -227,7 +227,7 @@ pub const ArgIteratorPosix = struct {
 };
 
 pub const ArgIteratorWasi = struct {
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     index: usize,
     args: [][:0]u8,
 
@@ -235,7 +235,7 @@ pub const ArgIteratorWasi = struct {
 
     /// You must call deinit to free the internal buffer of the
     /// iterator after you are done.
-    pub fn init(allocator: *mem.Allocator) InitError!ArgIteratorWasi {
+    pub fn init(allocator: mem.Allocator) InitError!ArgIteratorWasi {
         const fetched_args = try ArgIteratorWasi.internalInit(allocator);
         return ArgIteratorWasi{
             .allocator = allocator,
@@ -244,7 +244,7 @@ pub const ArgIteratorWasi = struct {
         };
     }
 
-    fn internalInit(allocator: *mem.Allocator) InitError![][:0]u8 {
+    fn internalInit(allocator: mem.Allocator) InitError![][:0]u8 {
         const w = os.wasi;
         var count: usize = undefined;
         var buf_size: usize = undefined;
@@ -325,7 +325,7 @@ pub const ArgIteratorWindows = struct {
     }
 
     /// You must free the returned memory when done.
-    pub fn next(self: *ArgIteratorWindows, allocator: *Allocator) ?(NextError![:0]u8) {
+    pub fn next(self: *ArgIteratorWindows, allocator: Allocator) ?(NextError![:0]u8) {
         // march forward over whitespace
         while (true) : (self.index += 1) {
             const character = self.getPointAtIndex();
@@ -379,7 +379,7 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn internalNext(self: *ArgIteratorWindows, allocator: *Allocator) NextError![:0]u8 {
+    fn internalNext(self: *ArgIteratorWindows, allocator: Allocator) NextError![:0]u8 {
         var buf = std.ArrayList(u16).init(allocator);
         defer buf.deinit();
 
@@ -423,7 +423,7 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn convertFromWindowsCmdLineToUTF8(allocator: *Allocator, buf: []u16) NextError![:0]u8 {
+    fn convertFromWindowsCmdLineToUTF8(allocator: Allocator, buf: []u16) NextError![:0]u8 {
         return std.unicode.utf16leToUtf8AllocZ(allocator, buf) catch |err| switch (err) {
             error.ExpectedSecondSurrogateHalf,
             error.DanglingSurrogateHalf,
@@ -463,7 +463,7 @@ pub const ArgIterator = struct {
     pub const InitError = ArgIteratorWasi.InitError;
 
     /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
-    pub fn initWithAllocator(allocator: *mem.Allocator) InitError!ArgIterator {
+    pub fn initWithAllocator(allocator: mem.Allocator) InitError!ArgIterator {
         if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return ArgIterator{ .inner = try InnerType.init(allocator) };
         }
@@ -474,7 +474,7 @@ pub const ArgIterator = struct {
     pub const NextError = ArgIteratorWindows.NextError;
 
     /// You must free the returned memory when done.
-    pub fn next(self: *ArgIterator, allocator: *Allocator) ?(NextError![:0]u8) {
+    pub fn next(self: *ArgIterator, allocator: Allocator) ?(NextError![:0]u8) {
         if (builtin.os.tag == .windows) {
             return self.inner.next(allocator);
         } else {
@@ -513,7 +513,7 @@ pub fn args() ArgIterator {
 }
 
 /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
-pub fn argsWithAllocator(allocator: *mem.Allocator) ArgIterator.InitError!ArgIterator {
+pub fn argsWithAllocator(allocator: mem.Allocator) ArgIterator.InitError!ArgIterator {
     return ArgIterator.initWithAllocator(allocator);
 }
 
@@ -539,7 +539,7 @@ test "args iterator" {
 }
 
 /// Caller must call argsFree on result.
-pub fn argsAlloc(allocator: *mem.Allocator) ![][:0]u8 {
+pub fn argsAlloc(allocator: mem.Allocator) ![][:0]u8 {
     // TODO refactor to only make 1 allocation.
     var it = if (builtin.os.tag == .wasi) try argsWithAllocator(allocator) else args();
     defer it.deinit();
@@ -579,7 +579,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][:0]u8 {
     return result_slice_list;
 }
 
-pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const [:0]u8) void {
+pub fn argsFree(allocator: mem.Allocator, args_alloc: []const [:0]u8) void {
     var total_bytes: usize = 0;
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len + 1;
@@ -741,7 +741,7 @@ pub fn getBaseAddress() usize {
 /// requirement from `std.zig.system.NativeTargetInfo.detect`. Most likely this will require
 /// introducing a new, lower-level function which takes a callback function, and then this
 /// function which takes an allocator can exist on top of it.
-pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]u8 {
+pub fn getSelfExeSharedLibPaths(allocator: Allocator) error{OutOfMemory}![][:0]u8 {
     switch (builtin.link_mode) {
         .Static => return &[_][:0]u8{},
         .Dynamic => {},
@@ -833,7 +833,7 @@ pub const ExecvError = std.os.ExecveError || error{OutOfMemory};
 /// This function also uses the PATH environment variable to get the full path to the executable.
 /// Due to the heap-allocation, it is illegal to call this function in a fork() child.
 /// For that use case, use the `std.os` functions directly.
-pub fn execv(allocator: *mem.Allocator, argv: []const []const u8) ExecvError {
+pub fn execv(allocator: mem.Allocator, argv: []const []const u8) ExecvError {
     return execve(allocator, argv, null);
 }
 
@@ -846,7 +846,7 @@ pub fn execv(allocator: *mem.Allocator, argv: []const []const u8) ExecvError {
 /// Due to the heap-allocation, it is illegal to call this function in a fork() child.
 /// For that use case, use the `std.os` functions directly.
 pub fn execve(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     argv: []const []const u8,
     env_map: ?*const std.BufMap,
 ) ExecvError {
@@ -854,7 +854,7 @@ pub fn execve(
 
     var arena_allocator = std.heap.ArenaAllocator.init(allocator);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     const argv_buf = try arena.allocSentinel(?[*:0]u8, argv.len, null);
     for (argv) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;

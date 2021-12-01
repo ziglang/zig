@@ -16,14 +16,14 @@ pub const Managed = struct {
     /// If this is `null` then there is no memory management needed.
     arena: ?*std.heap.ArenaAllocator.State = null,
 
-    pub fn deinit(self: *Managed, allocator: *Allocator) void {
+    pub fn deinit(self: *Managed, allocator: Allocator) void {
         if (self.arena) |a| a.promote(allocator).deinit();
         self.* = undefined;
     }
 };
 
 /// Assumes arena allocation. Does a recursive copy.
-pub fn copy(self: TypedValue, arena: *Allocator) error{OutOfMemory}!TypedValue {
+pub fn copy(self: TypedValue, arena: Allocator) error{OutOfMemory}!TypedValue {
     return TypedValue{
         .ty = try self.ty.copy(arena),
         .val = try self.val.copy(arena),

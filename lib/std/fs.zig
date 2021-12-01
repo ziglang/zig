@@ -64,7 +64,7 @@ pub const need_async_thread = std.io.is_async and switch (builtin.os.tag) {
 };
 
 /// TODO remove the allocator requirement from this API
-pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) !void {
+pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: []const u8) !void {
     if (cwd().symLink(existing_path, new_path, .{})) {
         return;
     } else |err| switch (err) {
@@ -875,7 +875,7 @@ pub const Dir = struct {
     /// Must call `Walker.deinit` when done.
     /// The order of returned file system entries is undefined.
     /// `self` will not be closed after walking it.
-    pub fn walk(self: Dir, allocator: *Allocator) !Walker {
+    pub fn walk(self: Dir, allocator: Allocator) !Walker {
         var name_buffer = std.ArrayList(u8).init(allocator);
         errdefer name_buffer.deinit();
 
@@ -1393,7 +1393,7 @@ pub const Dir = struct {
 
     /// Same as `Dir.realpath` except caller must free the returned memory.
     /// See also `Dir.realpath`.
-    pub fn realpathAlloc(self: Dir, allocator: *Allocator, pathname: []const u8) ![]u8 {
+    pub fn realpathAlloc(self: Dir, allocator: Allocator, pathname: []const u8) ![]u8 {
         // Use of MAX_PATH_BYTES here is valid as the realpath function does not
         // have a variant that takes an arbitrary-size buffer.
         // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
@@ -1804,7 +1804,7 @@ pub const Dir = struct {
 
     /// On success, caller owns returned buffer.
     /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
-    pub fn readFileAlloc(self: Dir, allocator: *mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
+    pub fn readFileAlloc(self: Dir, allocator: mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
         return self.readFileAllocOptions(allocator, file_path, max_bytes, null, @alignOf(u8), null);
     }
 
@@ -1815,7 +1815,7 @@ pub const Dir = struct {
     /// Allows specifying alignment and a sentinel value.
     pub fn readFileAllocOptions(
         self: Dir,
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         file_path: []const u8,
         max_bytes: usize,
         size_hint: ?usize,
@@ -2464,7 +2464,7 @@ pub const SelfExePathError = os.ReadLinkError || os.SysCtlError || os.RealPathEr
 
 /// `selfExePath` except allocates the result on the heap.
 /// Caller owns returned memory.
-pub fn selfExePathAlloc(allocator: *Allocator) ![]u8 {
+pub fn selfExePathAlloc(allocator: Allocator) ![]u8 {
     // Use of MAX_PATH_BYTES here is justified as, at least on one tested Linux
     // system, readlink will completely fail to return a result larger than
     // PATH_MAX even if given a sufficiently large buffer. This makes it
@@ -2573,7 +2573,7 @@ pub fn selfExePathW() [:0]const u16 {
 
 /// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
-pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
+pub fn selfExeDirPathAlloc(allocator: Allocator) ![]u8 {
     // Use of MAX_PATH_BYTES here is justified as, at least on one tested Linux
     // system, readlink will completely fail to return a result larger than
     // PATH_MAX even if given a sufficiently large buffer. This makes it
@@ -2596,7 +2596,7 @@ pub fn selfExeDirPath(out_buffer: []u8) SelfExePathError![]const u8 {
 
 /// `realpath`, except caller must free the returned memory.
 /// See also `Dir.realpath`.
-pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
+pub fn realpathAlloc(allocator: Allocator, pathname: []const u8) ![]u8 {
     // Use of MAX_PATH_BYTES here is valid as the realpath function does not
     // have a variant that takes an arbitrary-size buffer.
     // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008

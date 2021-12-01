@@ -21,7 +21,7 @@ pub const NativePaths = struct {
     rpaths: ArrayList([:0]u8),
     warnings: ArrayList([:0]u8),
 
-    pub fn detect(allocator: *Allocator, native_info: NativeTargetInfo) !NativePaths {
+    pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths {
         const native_target = native_info.target;
 
         var self: NativePaths = .{
@@ -237,7 +237,7 @@ pub const NativeTargetInfo = struct {
     /// Any resources this function allocates are released before returning, and so there is no
     /// deinitialization method.
     /// TODO Remove the Allocator requirement from this function.
-    pub fn detect(allocator: *Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
+    pub fn detect(allocator: Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
         var os = cross_target.getOsTag().defaultVersionRange(cross_target.getCpuArch());
         if (cross_target.os_tag == null) {
             switch (builtin.target.os.tag) {
@@ -441,7 +441,7 @@ pub const NativeTargetInfo = struct {
     /// we fall back to the defaults.
     /// TODO Remove the Allocator requirement from this function.
     fn detectAbiAndDynamicLinker(
-        allocator: *Allocator,
+        allocator: Allocator,
         cpu: Target.Cpu,
         os: Target.Os,
         cross_target: CrossTarget,

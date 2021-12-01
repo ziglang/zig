@@ -9,7 +9,7 @@ const ThreadPool = @This();
 
 mutex: std.Thread.Mutex = .{},
 is_running: bool = true,
-allocator: *std.mem.Allocator,
+allocator: std.mem.Allocator,
 workers: []Worker,
 run_queue: RunQueue = .{},
 idle_queue: IdleQueue = .{},
@@ -55,7 +55,7 @@ const Worker = struct {
     }
 };
 
-pub fn init(self: *ThreadPool, allocator: *std.mem.Allocator) !void {
+pub fn init(self: *ThreadPool, allocator: std.mem.Allocator) !void {
     self.* = .{
         .allocator = allocator,
         .workers = &[_]Worker{},

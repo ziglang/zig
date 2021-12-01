@@ -195,7 +195,7 @@ pub const empty = Atom{
     .dbg_info_len = undefined,
 };
 
-pub fn deinit(self: *Atom, allocator: *Allocator) void {
+pub fn deinit(self: *Atom, allocator: Allocator) void {
     self.dices.deinit(allocator);
     self.lazy_bindings.deinit(allocator);
     self.bindings.deinit(allocator);
@@ -246,7 +246,7 @@ pub fn freeListEligible(self: Atom, macho_file: MachO) bool {
 
 const RelocContext = struct {
     base_addr: u64 = 0,
-    allocator: *Allocator,
+    allocator: Allocator,
     object: *Object,
     macho_file: *MachO,
 };

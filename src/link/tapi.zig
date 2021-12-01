@@ -106,7 +106,7 @@ pub const LibStub = struct {
     /// Typed contents of the tbd file.
     inner: []Tbd,
 
-    pub fn loadFromFile(allocator: *Allocator, file: fs.File) !LibStub {
+    pub fn loadFromFile(allocator: Allocator, file: fs.File) !LibStub {
         const source = try file.readToEndAlloc(allocator, std.math.maxInt(u32));
         defer allocator.free(source);
 
@@ -120,7 +120,7 @@ pub const LibStub = struct {
             err: {
                 log.debug("trying to parse as []TbdV4", .{});
                 const inner = lib_stub.yaml.parse([]TbdV4) catch break :err;
-                var out = try lib_stub.yaml.arena.allocator.alloc(Tbd, inner.len);
+                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, inner.len);
                 for (inner) |doc, i| {
                     out[i] = .{ .v4 = doc };
                 }
@@ -130,7 +130,7 @@ pub const LibStub = struct {
             err: {
                 log.debug("trying to parse as TbdV4", .{});
                 const inner = lib_stub.yaml.parse(TbdV4) catch break :err;
-                var out = try lib_stub.yaml.arena.allocator.alloc(Tbd, 1);
+                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, 1);
                 out[0] = .{ .v4 = inner };
                 break :blk out;
             }
@@ -138,7 +138,7 @@ pub const LibStub = struct {
             err: {
                 log.debug("trying to parse as []TbdV3", .{});
                 const inner = lib_stub.yaml.parse([]TbdV3) catch break :err;
-                var out = try lib_stub.yaml.arena.allocator.alloc(Tbd, inner.len);
+                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, inner.len);
                 for (inner) |doc, i| {
                     out[i] = .{ .v3 = doc };
                 }
@@ -148,7 +148,7 @@ pub const LibStub = struct {
             err: {
                 log.debug("trying to parse as TbdV3", .{});
                 const inner = lib_stub.yaml.parse(TbdV3) catch break :err;
-                var out = try lib_stub.yaml.arena.allocator.alloc(Tbd, 1);
+                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, 1);
                 out[0] = .{ .v3 = inner };
                 break :blk out;
             }

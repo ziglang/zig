@@ -89,7 +89,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     const root_name = "c++";
     const output_mode = .Lib;
@@ -236,7 +236,7 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     const root_name = "c++abi";
     const output_mode = .Lib;

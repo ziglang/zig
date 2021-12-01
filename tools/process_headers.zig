@@ -284,7 +284,7 @@ const LibCVendor = enum {
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
     const args = try std.process.argsAlloc(allocator);
     var search_paths = std.ArrayList([]const u8).init(allocator);
     var opt_out_dir: ?[]const u8 = null;

@@ -25,7 +25,7 @@ pub fn main() !void {
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    const ally = &arena.allocator;
+    const ally = arena.allocator();
 
     var symbols = std.ArrayList(Symbol).init(ally);
     var sections = std.ArrayList([]const u8).init(ally);

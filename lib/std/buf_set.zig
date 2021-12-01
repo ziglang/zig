@@ -16,7 +16,7 @@ pub const BufSet = struct {
     /// Create a BufSet using an allocator.  The allocator will
     /// be used internally for both backing allocations and
     /// string duplication.
-    pub fn init(a: *Allocator) BufSet {
+    pub fn init(a: Allocator) BufSet {
         var self = BufSet{ .hash_map = BufSetHashMap.init(a) };
         return self;
     }
@@ -67,7 +67,7 @@ pub const BufSet = struct {
     }
 
     /// Get the allocator used by this set
-    pub fn allocator(self: *const BufSet) *Allocator {
+    pub fn allocator(self: *const BufSet) Allocator {
         return self.hash_map.allocator;
     }
 

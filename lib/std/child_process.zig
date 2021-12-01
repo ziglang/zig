@@ -23,7 +23,7 @@ pub const ChildProcess = struct {
     handle: if (builtin.os.tag == .windows) windows.HANDLE else void,
     thread_handle: if (builtin.os.tag == .windows) windows.HANDLE else void,
 
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     stdin: ?File,
     stdout: ?File,
@@ -90,7 +90,7 @@ pub const ChildProcess = struct {
 
     /// First argument in argv is the executable.
     /// On success must call deinit.
-    pub fn init(argv: []const []const u8, allocator: *mem.Allocator) !*ChildProcess {
+    pub fn init(argv: []const []const u8, allocator: mem.Allocator) !*ChildProcess {
         const child = try allocator.create(ChildProcess);
         child.* = ChildProcess{
             .allocator = allocator,
@@ -329,7 +329,7 @@ pub const ChildProcess = struct {
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
     pub fn exec(args: struct {
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
         cwd_dir: ?fs.Dir = null,
@@ -541,7 +541,7 @@ pub const ChildProcess = struct {
 
         var arena_allocator = std.heap.ArenaAllocator.init(self.allocator);
         defer arena_allocator.deinit();
-        const arena = &arena_allocator.allocator;
+        const arena = arena_allocator.allocator();
 
         // The POSIX standard does not allow malloc() between fork() and execve(),
         // and `self.allocator` may be a libc allocator.
@@ -931,7 +931,7 @@ fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u1
 }
 
 /// Caller must dealloc.
-fn windowsCreateCommandLine(allocator: *mem.Allocator, argv: []const []const u8) ![:0]u8 {
+fn windowsCreateCommandLine(allocator: mem.Allocator, argv: []const []const u8) ![:0]u8 {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
@@ -1081,7 +1081,7 @@ fn readIntFd(fd: i32) !ErrInt {
 }
 
 /// Caller must free result.
-pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) ![]u16 {
+pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const BufMap) ![]u16 {
     // count bytes needed
     const max_chars_needed = x: {
         var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
@@ -1117,7 +1117,7 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
     return allocator.shrink(result, i);
 }
 
-pub fn createNullDelimitedEnvMap(arena: *mem.Allocator, env_map: *const std.BufMap) ![:null]?[*:0]u8 {
+pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const std.BufMap) ![:null]?[*:0]u8 {
     const envp_count = env_map.count();
     const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
     {
@@ -1149,7 +1149,7 @@ test "createNullDelimitedEnvMap" {
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const environ = try createNullDelimitedEnvMap(&arena.allocator, &envmap);
+    const environ = try createNullDelimitedEnvMap(arena.allocator(), &envmap);
 
     try testing.expectEqual(@as(usize, 5), environ.len);
 

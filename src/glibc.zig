@@ -34,7 +34,7 @@ pub const ABI = struct {
     version_table: std.AutoHashMapUnmanaged(target_util.ArchOsAbi, [*]VerList),
     arena_state: std.heap.ArenaAllocator.State,
 
-    pub fn destroy(abi: *ABI, gpa: *Allocator) void {
+    pub fn destroy(abi: *ABI, gpa: Allocator) void {
         abi.version_table.deinit(gpa);
         abi.arena_state.promote(gpa).deinit(); // Frees the ABI memory too.
     }
@@ -59,13 +59,13 @@ pub const LoadMetaDataError = error{
 
 /// This function will emit a log error when there is a problem with the zig installation and then return
 /// `error.ZigInstallationCorrupt`.
-pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!*ABI {
+pub fn loadMetaData(gpa: Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!*ABI {
     const tracy = trace(@src());
     defer tracy.end();
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     errdefer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     var all_versions = std.ArrayListUnmanaged(std.builtin.Version){};
     var all_functions = std.ArrayListUnmanaged(Fn){};
@@ -256,7 +256,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     switch (crt_file) {
         .crti_o => {
@@ -433,7 +433,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     }
 }
 
-fn start_asm_path(comp: *Compilation, arena: *Allocator, basename: []const u8) ![]const u8 {
+fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![]const u8 {
     const arch = comp.getTarget().cpu.arch;
     const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
     const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
@@ -493,7 +493,7 @@ fn start_asm_path(comp: *Compilation, arena: *Allocator, basename: []const u8) !
     return result.items;
 }
 
-fn add_include_dirs(comp: *Compilation, arena: *Allocator, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
+fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
     const target = comp.getTarget();
     const arch = target.cpu.arch;
     const opt_nptl: ?[]const u8 = if (target.os.tag == .linux) "nptl" else "htl";
@@ -566,7 +566,7 @@ fn add_include_dirs(comp: *Compilation, arena: *Allocator, args: *std.ArrayList(
 }
 
 fn add_include_dirs_arch(
-    arena: *Allocator,
+    arena: Allocator,
     args: *std.ArrayList([]const u8),
     arch: std.Target.Cpu.Arch,
     opt_nptl: ?[]const u8,
@@ -677,14 +677,14 @@ fn add_include_dirs_arch(
     }
 }
 
-fn path_from_lib(comp: *Compilation, arena: *Allocator, sub_path: []const u8) ![]const u8 {
+fn path_from_lib(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const u8 {
     return path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, sub_path });
 }
 
 const lib_libc = "libc" ++ path.sep_str;
 const lib_libc_glibc = lib_libc ++ "glibc" ++ path.sep_str;
 
-fn lib_path(comp: *Compilation, arena: *Allocator, sub_path: []const u8) ![]const u8 {
+fn lib_path(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const u8 {
     return path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, sub_path });
 }
 
@@ -692,7 +692,7 @@ pub const BuiltSharedObjects = struct {
     lock: Cache.Lock,
     dir_path: []u8,
 
-    pub fn deinit(self: *BuiltSharedObjects, gpa: *Allocator) void {
+    pub fn deinit(self: *BuiltSharedObjects, gpa: Allocator) void {
         self.lock.release();
         gpa.free(self.dir_path);
         self.* = undefined;
@@ -711,7 +711,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     const target = comp.getTarget();
     const target_version = target.os.version_range.linux.glibc;
@@ -915,7 +915,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
 
 fn buildSharedLib(
     comp: *Compilation,
-    arena: *Allocator,
+    arena: Allocator,
     zig_cache_directory: Compilation.Directory,
     bin_directory: Compilation.Directory,
     asm_file_basename: []const u8,

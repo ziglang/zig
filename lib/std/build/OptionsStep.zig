@@ -274,7 +274,7 @@ test "OptionsStep" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     var builder = try Builder.create(
-        &arena.allocator,
+        arena.allocator(),
         "test",
         "test",
         "test",
@@ -350,5 +350,5 @@ test "OptionsStep" {
         \\
     , options.contents.items);
 
-    _ = try std.zig.parse(&arena.allocator, try options.contents.toOwnedSliceSentinel(0));
+    _ = try std.zig.parse(arena.allocator(), try options.contents.toOwnedSliceSentinel(0));
 }

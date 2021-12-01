@@ -7569,7 +7569,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
         \\export fn entry() void {
         \\    const a = MdNode.Header {
-        \\        .text = MdText.init(&std.testing.allocator),
+        \\        .text = MdText.init(std.testing.allocator),
         \\        .weight = HeaderWeight.H1,
         \\    };
         \\    _ = a;

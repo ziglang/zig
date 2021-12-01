@@ -131,7 +131,7 @@ const PathTable = std.StringHashMap(*TargetToHash);
 
 pub fn main() !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const arena = &arena_state.allocator;
+    const arena = arena_state.allocator();
     const args = try std.process.argsAlloc(arena);
     var search_paths = std.ArrayList([]const u8).init(arena);
     var opt_out_dir: ?[]const u8 = null;

@@ -230,7 +230,7 @@ test "listen on ipv4 try connect on ipv6 then ipv4" {
     try await client_frame;
 }
 
-fn testClientToHost(allocator: *mem.Allocator, name: []const u8, port: u16) anyerror!void {
+fn testClientToHost(allocator: mem.Allocator, name: []const u8, port: u16) anyerror!void {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const connection = try net.tcpConnectToHost(allocator, name, port);

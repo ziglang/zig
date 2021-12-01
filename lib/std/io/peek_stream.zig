@@ -38,7 +38,7 @@ pub fn PeekStream(
                 }
             },
             .Dynamic => struct {
-                pub fn init(base: ReaderType, allocator: *mem.Allocator) Self {
+                pub fn init(base: ReaderType, allocator: mem.Allocator) Self {
                     return .{
                         .unbuffered_reader = base,
                         .fifo = FifoType.init(allocator),

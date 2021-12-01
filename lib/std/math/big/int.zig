@@ -142,7 +142,7 @@ pub const Mutable = struct {
 
     /// Asserts that the allocator owns the limbs memory. If this is not the case,
     /// use `toConst().toManaged()`.
-    pub fn toManaged(self: Mutable, allocator: *Allocator) Managed {
+    pub fn toManaged(self: Mutable, allocator: Allocator) Managed {
         return .{
             .allocator = allocator,
             .limbs = self.limbs,
@@ -283,7 +283,7 @@ pub const Mutable = struct {
         base: u8,
         value: []const u8,
         limbs_buffer: []Limb,
-        allocator: ?*Allocator,
+        allocator: ?Allocator,
     ) error{InvalidCharacter}!void {
         assert(base >= 2 and base <= 16);
 
@@ -608,7 +608,7 @@ pub const Mutable = struct {
     /// rma is given by `a.limbs.len + b.limbs.len`.
     ///
     /// `limbs_buffer` is used for temporary storage. The amount required is given by `calcMulLimbsBufferLen`.
-    pub fn mul(rma: *Mutable, a: Const, b: Const, limbs_buffer: []Limb, allocator: ?*Allocator) void {
+    pub fn mul(rma: *Mutable, a: Const, b: Const, limbs_buffer: []Limb, allocator: ?Allocator) void {
         var buf_index: usize = 0;
 
         const a_copy = if (rma.limbs.ptr == a.limbs.ptr) blk: {
@@ -638,7 +638,7 @@ pub const Mutable = struct {
     ///
     /// If `allocator` is provided, it will be used for temporary storage to improve
     /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
-    pub fn mulNoAlias(rma: *Mutable, a: Const, b: Const, allocator: ?*Allocator) void {
+    pub fn mulNoAlias(rma: *Mutable, a: Const, b: Const, allocator: ?Allocator) void {
         assert(rma.limbs.ptr != a.limbs.ptr); // illegal aliasing
         assert(rma.limbs.ptr != b.limbs.ptr); // illegal aliasing
 
@@ -674,7 +674,7 @@ pub const Mutable = struct {
         signedness: Signedness,
         bit_count: usize,
         limbs_buffer: []Limb,
-        allocator: ?*Allocator,
+        allocator: ?Allocator,
     ) void {
         var buf_index: usize = 0;
         const req_limbs = calcTwosCompLimbCount(bit_count);
@@ -714,7 +714,7 @@ pub const Mutable = struct {
         b: Const,
         signedness: Signedness,
         bit_count: usize,
-        allocator: ?*Allocator,
+        allocator: ?Allocator,
     ) void {
         assert(rma.limbs.ptr != a.limbs.ptr); // illegal aliasing
         assert(rma.limbs.ptr != b.limbs.ptr); // illegal aliasing
@@ -763,7 +763,7 @@ pub const Mutable = struct {
     ///
     /// If `allocator` is provided, it will be used for temporary storage to improve
     /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
-    pub fn sqrNoAlias(rma: *Mutable, a: Const, opt_allocator: ?*Allocator) void {
+    pub fn sqrNoAlias(rma: *Mutable, a: Const, opt_allocator: ?Allocator) void {
         _ = opt_allocator;
         assert(rma.limbs.ptr != a.limbs.ptr); // illegal aliasing
 
@@ -1660,7 +1660,7 @@ pub const Const = struct {
     positive: bool,
 
     /// The result is an independent resource which is managed by the caller.
-    pub fn toManaged(self: Const, allocator: *Allocator) Allocator.Error!Managed {
+    pub fn toManaged(self: Const, allocator: Allocator) Allocator.Error!Managed {
         const limbs = try allocator.alloc(Limb, math.max(Managed.default_capacity, self.limbs.len));
         mem.copy(Limb, limbs, self.limbs);
         return Managed{
@@ -1873,7 +1873,7 @@ pub const Const = struct {
     /// Caller owns returned memory.
     /// Asserts that `base` is in the range [2, 16].
     /// See also `toString`, a lower level function than this.
-    pub fn toStringAlloc(self: Const, allocator: *Allocator, base: u8, case: std.fmt.Case) Allocator.Error![]u8 {
+    pub fn toStringAlloc(self: Const, allocator: Allocator, base: u8, case: std.fmt.Case) Allocator.Error![]u8 {
         assert(base >= 2);
         assert(base <= 16);
 
@@ -2092,7 +2092,7 @@ pub const Managed = struct {
     pub const default_capacity = 4;
 
     /// Allocator used by the Managed when requesting memory.
-    allocator: *Allocator,
+    allocator: Allocator,
 
     /// Raw digits. These are:
     ///
@@ -2109,7 +2109,7 @@ pub const Managed = struct {
 
     /// Creates a new `Managed`. `default_capacity` limbs will be allocated immediately.
     /// The integer value after initializing is `0`.
-    pub fn init(allocator: *Allocator) !Managed {
+    pub fn init(allocator: Allocator) !Managed {
         return initCapacity(allocator, default_capacity);
     }
 
@@ -2131,7 +2131,7 @@ pub const Managed = struct {
     /// Creates a new `Managed` with value `value`.
     ///
     /// This is identical to an `init`, followed by a `set`.
-    pub fn initSet(allocator: *Allocator, value: anytype) !Managed {
+    pub fn initSet(allocator: Allocator, value: anytype) !Managed {
         var s = try Managed.init(allocator);
         try s.set(value);
         return s;
@@ -2140,7 +2140,7 @@ pub const Managed = struct {
     /// Creates a new Managed with a specific capacity. If capacity < default_capacity then the
     /// default capacity will be used instead.
     /// The integer value after initializing is `0`.
-    pub fn initCapacity(allocator: *Allocator, capacity: usize) !Managed {
+    pub fn initCapacity(allocator: Allocator, capacity: usize) !Managed {
         return Managed{
             .allocator = allocator,
             .metadata = 1,
@@ -2206,7 +2206,7 @@ pub const Managed = struct {
         return other.cloneWithDifferentAllocator(other.allocator);
     }
 
-    pub fn cloneWithDifferentAllocator(other: Managed, allocator: *Allocator) !Managed {
+    pub fn cloneWithDifferentAllocator(other: Managed, allocator: Allocator) !Managed {
         return Managed{
             .allocator = allocator,
             .metadata = other.metadata,
@@ -2347,7 +2347,7 @@ pub const Managed = struct {
 
     /// Converts self to a string in the requested base. Memory is allocated from the provided
     /// allocator and not the one present in self.
-    pub fn toString(self: Managed, allocator: *Allocator, base: u8, case: std.fmt.Case) ![]u8 {
+    pub fn toString(self: Managed, allocator: Allocator, base: u8, case: std.fmt.Case) ![]u8 {
         _ = allocator;
         if (base < 2 or base > 16) return error.InvalidBase;
         return self.toConst().toStringAlloc(self.allocator, base, case);
@@ -2784,7 +2784,7 @@ const AccOp = enum {
 /// r MUST NOT alias any of a or b.
 ///
 /// The result is computed modulo `r.len`. When `r.len >= a.len + b.len`, no overflow occurs.
-fn llmulacc(comptime op: AccOp, opt_allocator: ?*Allocator, r: []Limb, a: []const Limb, b: []const Limb) void {
+fn llmulacc(comptime op: AccOp, opt_allocator: ?Allocator, r: []Limb, a: []const Limb, b: []const Limb) void {
     @setRuntimeSafety(debug_safety);
     assert(r.len >= a.len);
     assert(r.len >= b.len);
@@ -2819,7 +2819,7 @@ fn llmulacc(comptime op: AccOp, opt_allocator: ?*Allocator, r: []Limb, a: []cons
 /// The result is computed modulo `r.len`. When `r.len >= a.len + b.len`, no overflow occurs.
 fn llmulaccKaratsuba(
     comptime op: AccOp,
-    allocator: *Allocator,
+    allocator: Allocator,
     r: []Limb,
     a: []const Limb,
     b: []const Limb,

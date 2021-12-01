@@ -305,8 +305,8 @@ const Scope = struct {
 };
 
 pub const Context = struct {
-    gpa: *mem.Allocator,
-    arena: *mem.Allocator,
+    gpa: mem.Allocator,
+    arena: mem.Allocator,
     source_manager: *clang.SourceManager,
     decl_table: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .{},
     alias_list: AliasList,
@@ -351,7 +351,7 @@ pub const Context = struct {
 };
 
 pub fn translate(
-    gpa: *mem.Allocator,
+    gpa: mem.Allocator,
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
     errors: *[]ClangErrMsg,
@@ -373,13 +373,14 @@ pub fn translate(
     // from this function.
     var arena = std.heap.ArenaAllocator.init(gpa);
     errdefer arena.deinit();
+    const arena_allocator = arena.allocator();
 
     var context = Context{
         .gpa = gpa,
-        .arena = &arena.allocator,
+        .arena = arena_allocator,
         .source_manager = ast_unit.getSourceManager(),
         .alias_list = AliasList.init(gpa),
-        .global_scope = try arena.allocator.create(Scope.Root),
+        .global_scope = try arena_allocator.create(Scope.Root),
         .clang_context = ast_unit.getASTContext(),
         .pattern_list = try PatternList.init(gpa),
     };
@@ -1448,7 +1449,7 @@ fn makeShuffleMask(c: *Context, scope: *Scope, expr: *const clang.ShuffleVectorE
 }
 
 /// @typeInfo(@TypeOf(vec_node)).Vector.<field>
-fn vectorTypeInfo(arena: *mem.Allocator, vec_node: Node, field: []const u8) TransError!Node {
+fn vectorTypeInfo(arena: mem.Allocator, vec_node: Node, field: []const u8) TransError!Node {
     const typeof_call = try Tag.typeof.create(arena, vec_node);
     const typeinfo_call = try Tag.typeinfo.create(arena, typeof_call);
     const vector_type_info = try Tag.field_access.create(arena, .{ .lhs = typeinfo_call, .field_name = "Vector" });
@@ -1536,7 +1537,7 @@ fn transOffsetOfExpr(
 /// will become very large positive numbers but that is ok since we only use this in
 /// pointer arithmetic expressions, where wraparound will ensure we get the correct value.
 /// node -> @bitCast(usize, @intCast(isize, node))
-fn usizeCastForWrappingPtrArithmetic(gpa: *mem.Allocator, node: Node) TransError!Node {
+fn usizeCastForWrappingPtrArithmetic(gpa: mem.Allocator, node: Node) TransError!Node {
     const intcast_node = try Tag.int_cast.create(gpa, .{
         .lhs = try Tag.type.create(gpa, "isize"),
         .rhs = node,
@@ -5072,7 +5073,7 @@ const PatternList = struct {
     };
 
     /// Assumes that `ms` represents a tokenized function-like macro.
-    fn buildArgsHash(allocator: *mem.Allocator, ms: MacroSlicer, hash: *ArgsPositionMap) MacroProcessingError!void {
+    fn buildArgsHash(allocator: mem.Allocator, ms: MacroSlicer, hash: *ArgsPositionMap) MacroProcessingError!void {
         assert(ms.tokens.len > 2);
         assert(ms.tokens[0].id == .Identifier);
         assert(ms.tokens[1].id == .LParen);
@@ -5098,7 +5099,7 @@ const PatternList = struct {
         impl: []const u8,
         args_hash: ArgsPositionMap,
 
-        fn init(self: *Pattern, allocator: *mem.Allocator, template: [2][]const u8) Error!void {
+        fn init(self: *Pattern, allocator: mem.Allocator, template: [2][]const u8) Error!void {
             const source = template[0];
             const impl = template[1];
 
@@ -5120,7 +5121,7 @@ const PatternList = struct {
             };
         }
 
-        fn deinit(self: *Pattern, allocator: *mem.Allocator) void {
+        fn deinit(self: *Pattern, allocator: mem.Allocator) void {
             self.args_hash.deinit(allocator);
             allocator.free(self.tokens);
         }
@@ -5171,7 +5172,7 @@ const PatternList = struct {
         }
     };
 
-    fn init(allocator: *mem.Allocator) Error!PatternList {
+    fn init(allocator: mem.Allocator) Error!PatternList {
         const patterns = try allocator.alloc(Pattern, templates.len);
         for (templates) |template, i| {
             try patterns[i].init(allocator, template);
@@ -5179,12 +5180,12 @@ const PatternList = struct {
         return PatternList{ .patterns = patterns };
     }
 
-    fn deinit(self: *PatternList, allocator: *mem.Allocator) void {
+    fn deinit(self: *PatternList, allocator: mem.Allocator) void {
         for (self.patterns) |*pattern| pattern.deinit(allocator);
         allocator.free(self.patterns);
     }
 
-    fn match(self: PatternList, allocator: *mem.Allocator, ms: MacroSlicer) Error!?Pattern {
+    fn match(self: PatternList, allocator: mem.Allocator, ms: MacroSlicer) Error!?Pattern {
         var args_hash: ArgsPositionMap = .{};
         defer args_hash.deinit(allocator);
 
@@ -5211,7 +5212,7 @@ const MacroSlicer = struct {
 test "Macro matching" {
     const helper = struct {
         const MacroFunctions = @import("std").zig.c_translation.Macros;
-        fn checkMacro(allocator: *mem.Allocator, pattern_list: PatternList, source: []const u8, comptime expected_match: ?[]const u8) !void {
+        fn checkMacro(allocator: mem.Allocator, pattern_list: PatternList, source: []const u8, comptime expected_match: ?[]const u8) !void {
             var tok_list = std.ArrayList(CToken).init(allocator);
             defer tok_list.deinit();
             try tokenizeMacro(source, &tok_list);

@@ -24,7 +24,7 @@ pub fn GzipStream(comptime ReaderType: type) type {
             error{ CorruptedData, WrongChecksum };
         pub const Reader = io.Reader(*Self, Error, read);
 
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         inflater: deflate.InflateStream(ReaderType),
         in_reader: ReaderType,
         hasher: std.hash.Crc32,
@@ -37,7 +37,7 @@ pub fn GzipStream(comptime ReaderType: type) type {
             modification_time: u32,
         },
 
-        fn init(allocator: *mem.Allocator, source: ReaderType) !Self {
+        fn init(allocator: mem.Allocator, source: ReaderType) !Self {
             // gzip header format is specified in RFC1952
             const header = try source.readBytesNoEof(10);
 
@@ -152,7 +152,7 @@ pub fn GzipStream(comptime ReaderType: type) type {
     };
 }
 
-pub fn gzipStream(allocator: *mem.Allocator, reader: anytype) !GzipStream(@TypeOf(reader)) {
+pub fn gzipStream(allocator: mem.Allocator, reader: anytype) !GzipStream(@TypeOf(reader)) {
     return GzipStream(@TypeOf(reader)).init(allocator, reader);
 }
 

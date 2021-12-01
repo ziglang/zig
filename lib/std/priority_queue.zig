@@ -20,10 +20,10 @@ pub fn PriorityQueue(comptime T: type, comptime compareFn: fn (a: T, b: T) Order
 
         items: []T,
         len: usize,
-        allocator: *Allocator,
+        allocator: Allocator,
 
         /// Initialize and return a priority queue.
-        pub fn init(allocator: *Allocator) Self {
+        pub fn init(allocator: Allocator) Self {
             return Self{
                 .items = &[_]T{},
                 .len = 0,
@@ -153,7 +153,7 @@ pub fn PriorityQueue(comptime T: type, comptime compareFn: fn (a: T, b: T) Order
         /// PriorityQueue takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit`.
-        pub fn fromOwnedSlice(allocator: *Allocator, items: []T) Self {
+        pub fn fromOwnedSlice(allocator: Allocator, items: []T) Self {
             var queue = Self{
                 .items = items,
                 .len = items.len,

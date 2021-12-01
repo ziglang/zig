@@ -51,7 +51,7 @@ pub const SwitchBr = struct {
     else_death_count: u32,
 };
 
-pub fn analyze(gpa: *Allocator, air: Air, zir: Zir) Allocator.Error!Liveness {
+pub fn analyze(gpa: Allocator, air: Air, zir: Zir) Allocator.Error!Liveness {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -136,7 +136,7 @@ pub fn getCondBr(l: Liveness, inst: Air.Inst.Index) CondBrSlices {
     };
 }
 
-pub fn deinit(l: *Liveness, gpa: *Allocator) void {
+pub fn deinit(l: *Liveness, gpa: Allocator) void {
     gpa.free(l.tomb_bits);
     gpa.free(l.extra);
     l.special.deinit(gpa);
@@ -150,7 +150,7 @@ pub const OperandInt = std.math.Log2Int(Bpi);
 
 /// In-progress data; on successful analysis converted into `Liveness`.
 const Analysis = struct {
-    gpa: *Allocator,
+    gpa: Allocator,
     air: Air,
     table: std.AutoHashMapUnmanaged(Air.Inst.Index, void),
     tomb_bits: []usize,

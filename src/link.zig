@@ -165,7 +165,7 @@ pub const File = struct {
     tag: Tag,
     options: Options,
     file: ?fs.File,
-    allocator: *Allocator,
+    allocator: Allocator,
     /// When linking with LLD, this linker code will output an object file only at
     /// this location, and then this path can be placed on the LLD linker line.
     intermediary_basename: ?[]const u8 = null,
@@ -221,7 +221,7 @@ pub const File = struct {
     /// incremental linking fails, falls back to truncating the file and
     /// rewriting it. A malicious file is detected as incremental link failure
     /// and does not cause Illegal Behavior. This operation is not atomic.
-    pub fn openPath(allocator: *Allocator, options: Options) !*File {
+    pub fn openPath(allocator: Allocator, options: Options) !*File {
         if (options.object_format == .macho) {
             return &(try MachO.openPath(allocator, options)).base;
         }
@@ -628,7 +628,7 @@ pub const File = struct {
 
         var arena_allocator = std.heap.ArenaAllocator.init(base.allocator);
         defer arena_allocator.deinit();
-        const arena = &arena_allocator.allocator;
+        const arena = arena_allocator.allocator();
 
         const directory = base.options.emit.?.directory; // Just an alias to make it shorter to type.
 

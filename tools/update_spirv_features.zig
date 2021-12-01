@@ -48,7 +48,7 @@ const Version = struct {
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
 
     const args = try std.process.argsAlloc(allocator);
 
@@ -216,7 +216,7 @@ pub fn main() !void {
 /// The *.grammar.json in SPIRV-Headers should have most of these as well, but with this we're sure to get only the actually
 /// registered ones.
 /// TODO: Unfortunately, neither repository contains a machine-readable list of extension dependencies.
-fn gather_extensions(allocator: *Allocator, spirv_registry_root: []const u8) ![]const []const u8 {
+fn gather_extensions(allocator: Allocator, spirv_registry_root: []const u8) ![]const []const u8 {
     const extensions_path = try fs.path.join(allocator, &.{ spirv_registry_root, "extensions" });
     var extensions_dir = try fs.cwd().openDir(extensions_path, .{ .iterate = true });
     defer extensions_dir.close();
@@ -286,7 +286,7 @@ fn insertVersion(versions: *std.ArrayList(Version), version: ?[]const u8) !void 
     try versions.append(ver);
 }
 
-fn gatherVersions(allocator: *Allocator, registry: g.CoreRegistry) ![]const Version {
+fn gatherVersions(allocator: Allocator, registry: g.CoreRegistry) ![]const Version {
     // Expected number of versions is small
     var versions = std.ArrayList(Version).init(allocator);
 

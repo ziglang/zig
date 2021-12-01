@@ -125,7 +125,7 @@ pub const TextBlock = struct {
 
 pub const SrcFn = void;
 
-pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Coff {
+pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Coff {
     assert(options.object_format == .coff);
 
     if (build_options.have_llvm and options.use_llvm) {
@@ -396,7 +396,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     return self;
 }
 
-pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Coff {
+pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
     const ptr_width: PtrWidth = switch (options.target.cpu.arch.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
@@ -877,7 +877,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
 
     var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
 
@@ -1394,7 +1394,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
     }
 }
 
-fn findLib(self: *Coff, arena: *Allocator, name: []const u8) !?[]const u8 {
+fn findLib(self: *Coff, arena: Allocator, name: []const u8) !?[]const u8 {
     for (self.base.options.lib_dirs) |lib_dir| {
         const full_path = try fs.path.join(arena, &.{ lib_dir, name });
         fs.cwd().access(full_path, .{}) catch |err| switch (err) {

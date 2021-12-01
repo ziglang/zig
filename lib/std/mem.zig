@@ -37,24 +37,26 @@ pub const Allocator = @import("mem/Allocator.zig");
 pub fn ValidationAllocator(comptime T: type) type {
     return struct {
         const Self = @This();
-        allocator: Allocator,
+
         underlying_allocator: T,
-        pub fn init(allocator: T) @This() {
+
+        pub fn init(underlying_allocator: T) @This() {
             return .{
-                .allocator = .{
-                    .allocFn = alloc,
-                    .resizeFn = resize,
-                },
-                .underlying_allocator = allocator,
+                .underlying_allocator = underlying_allocator,
             };
         }
-        fn getUnderlyingAllocatorPtr(self: *@This()) *Allocator {
-            if (T == *Allocator) return self.underlying_allocator;
-            if (*T == *Allocator) return &self.underlying_allocator;
-            return &self.underlying_allocator.allocator;
+
+        pub fn allocator(self: *Self) Allocator {
+            return Allocator.init(self, alloc, resize, free);
         }
+
+        fn getUnderlyingAllocatorPtr(self: *Self) Allocator {
+            if (T == Allocator) return self.underlying_allocator;
+            return self.underlying_allocator.allocator();
+        }
+
         pub fn alloc(
-            allocator: *Allocator,
+            self: *Self,
             n: usize,
             ptr_align: u29,
             len_align: u29,
@@ -67,9 +69,8 @@ pub fn ValidationAllocator(comptime T: type) type {
                 assert(n >= len_align);
             }
 
-            const self = @fieldParentPtr(@This(), "allocator", allocator);
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = try underlying.allocFn(underlying, n, ptr_align, len_align, ret_addr);
+            const result = try underlying.rawAlloc(n, ptr_align, len_align, ret_addr);
             assert(mem.isAligned(@ptrToInt(result.ptr), ptr_align));
             if (len_align == 0) {
                 assert(result.len == n);
@@ -79,22 +80,22 @@ pub fn ValidationAllocator(comptime T: type) type {
             }
             return result;
         }
+
         pub fn resize(
-            allocator: *Allocator,
+            self: *Self,
             buf: []u8,
             buf_align: u29,
             new_len: usize,
             len_align: u29,
             ret_addr: usize,
-        ) Allocator.Error!usize {
+        ) ?usize {
             assert(buf.len > 0);
             if (len_align != 0) {
                 assert(mem.isAlignedAnyAlign(new_len, len_align));
                 assert(new_len >= len_align);
             }
-            const self = @fieldParentPtr(@This(), "allocator", allocator);
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = try underlying.resizeFn(underlying, buf, buf_align, new_len, len_align, ret_addr);
+            const result = underlying.rawResize(buf, buf_align, new_len, len_align, ret_addr) orelse return null;
             if (len_align == 0) {
                 assert(result == new_len);
             } else {
@@ -103,7 +104,20 @@ pub fn ValidationAllocator(comptime T: type) type {
             }
             return result;
         }
-        pub usingnamespace if (T == *Allocator or !@hasDecl(T, "reset")) struct {} else struct {
+
+        pub fn free(
+            self: *Self,
+            buf: []u8,
+            buf_align: u29,
+            ret_addr: usize,
+        ) void {
+            _ = self;
+            _ = buf_align;
+            _ = ret_addr;
+            assert(buf.len > 0);
+        }
+
+        pub usingnamespace if (T == Allocator or !@hasDecl(T, "reset")) struct {} else struct {
             pub fn reset(self: *Self) void {
                 self.underlying_allocator.reset();
             }
@@ -130,12 +144,18 @@ pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
     return adjusted;
 }
 
-var failAllocator = Allocator{
-    .allocFn = failAllocatorAlloc,
-    .resizeFn = Allocator.noResize,
+const fail_allocator = Allocator{
+    .ptr = undefined,
+    .vtable = &failAllocator_vtable,
 };
-fn failAllocatorAlloc(self: *Allocator, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
-    _ = self;
+
+const failAllocator_vtable = Allocator.VTable{
+    .alloc = failAllocatorAlloc,
+    .resize = Allocator.NoResize(c_void).noResize,
+    .free = Allocator.NoOpFree(c_void).noOpFree,
+};
+
+fn failAllocatorAlloc(_: *c_void, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
     _ = n;
     _ = alignment;
     _ = len_align;
@@ -144,8 +164,8 @@ fn failAllocatorAlloc(self: *Allocator, n: usize, alignment: u29, len_align: u29
 }
 
 test "mem.Allocator basics" {
-    try testing.expectError(error.OutOfMemory, failAllocator.alloc(u8, 1));
-    try testing.expectError(error.OutOfMemory, failAllocator.allocSentinel(u8, 1, 0));
+    try testing.expectError(error.OutOfMemory, fail_allocator.alloc(u8, 1));
+    try testing.expectError(error.OutOfMemory, fail_allocator.allocSentinel(u8, 1, 0));
 }
 
 test "Allocator.resize" {
@@ -168,7 +188,7 @@ test "Allocator.resize" {
         defer testing.allocator.free(values);
 
         for (values) |*v, i| v.* = @intCast(T, i);
-        values = try testing.allocator.resize(values, values.len + 10);
+        values = testing.allocator.resize(values, values.len + 10) orelse return error.OutOfMemory;
         try testing.expect(values.len == 110);
     }
 
@@ -183,7 +203,7 @@ test "Allocator.resize" {
         defer testing.allocator.free(values);
 
         for (values) |*v, i| v.* = @intToFloat(T, i);
-        values = try testing.allocator.resize(values, values.len + 10);
+        values = testing.allocator.resize(values, values.len + 10) orelse return error.OutOfMemory;
         try testing.expect(values.len == 110);
     }
 }
@@ -1786,18 +1806,18 @@ pub fn SplitIterator(comptime T: type) type {
 
 /// Naively combines a series of slices with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
+pub fn join(allocator: Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
     return joinMaybeZ(allocator, separator, slices, false);
 }
 
 /// Naively combines a series of slices with a separator and null terminator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn joinZ(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![:0]u8 {
+pub fn joinZ(allocator: Allocator, separator: []const u8, slices: []const []const u8) ![:0]u8 {
     const out = try joinMaybeZ(allocator, separator, slices, true);
     return out[0 .. out.len - 1 :0];
 }
 
-fn joinMaybeZ(allocator: *Allocator, separator: []const u8, slices: []const []const u8, zero: bool) ![]u8 {
+fn joinMaybeZ(allocator: Allocator, separator: []const u8, slices: []const []const u8, zero: bool) ![]u8 {
     if (slices.len == 0) return if (zero) try allocator.dupe(u8, &[1]u8{0}) else &[0]u8{};
 
     const total_len = blk: {
@@ -1876,7 +1896,7 @@ test "mem.joinZ" {
 }
 
 /// Copies each T from slices into a new slice that exactly holds all the elements.
-pub fn concat(allocator: *Allocator, comptime T: type, slices: []const []const T) ![]T {
+pub fn concat(allocator: Allocator, comptime T: type, slices: []const []const T) ![]T {
     if (slices.len == 0) return &[0]T{};
 
     const total_len = blk: {
@@ -2318,7 +2338,7 @@ test "replacementSize" {
 }
 
 /// Perform a replacement on an allocated buffer of pre-determined size. Caller must free returned memory.
-pub fn replaceOwned(comptime T: type, allocator: *Allocator, input: []const T, needle: []const T, replacement: []const T) Allocator.Error![]T {
+pub fn replaceOwned(comptime T: type, allocator: Allocator, input: []const T, needle: []const T, replacement: []const T) Allocator.Error![]T {
     var output = try allocator.alloc(T, replacementSize(T, input, needle, replacement));
     _ = replace(T, input, needle, replacement, output);
     return output;

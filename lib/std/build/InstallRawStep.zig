@@ -40,7 +40,7 @@ const BinaryElfOutput = struct {
         self.segments.deinit();
     }
 
-    pub fn parse(allocator: *Allocator, elf_file: File) !Self {
+    pub fn parse(allocator: Allocator, elf_file: File) !Self {
         var self: Self = .{
             .segments = ArrayList(*BinaryElfSegment).init(allocator),
             .sections = ArrayList(*BinaryElfSection).init(allocator),
@@ -298,7 +298,7 @@ fn containsValidAddressRange(segments: []*BinaryElfSegment) bool {
     return true;
 }
 
-fn emitRaw(allocator: *Allocator, elf_path: []const u8, raw_path: []const u8, format: RawFormat) !void {
+fn emitRaw(allocator: Allocator, elf_path: []const u8, raw_path: []const u8, format: RawFormat) !void {
     var elf_file = try fs.cwd().openFile(elf_path, .{});
     defer elf_file.close();
 

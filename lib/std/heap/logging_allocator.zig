@@ -22,19 +22,18 @@ pub fn ScopedLoggingAllocator(
     const log = std.log.scoped(scope);
 
     return struct {
-        allocator: Allocator,
-        parent_allocator: *Allocator,
+        parent_allocator: Allocator,
 
         const Self = @This();
 
-        pub fn init(parent_allocator: *Allocator) Self {
+        pub fn init(parent_allocator: Allocator) Self {
             return .{
-                .allocator = Allocator{
-                    .allocFn = alloc,
-                    .resizeFn = resize,
-                },
                 .parent_allocator = parent_allocator,
             };
+        }
+
+        pub fn allocator(self: *Self) Allocator {
+            return Allocator.init(self, alloc, resize, free);
         }
 
         // This function is required as the `std.log.log` function is not public
@@ -48,14 +47,13 @@ pub fn ScopedLoggingAllocator(
         }
 
         fn alloc(
-            allocator: *Allocator,
+            self: *Self,
             len: usize,
             ptr_align: u29,
             len_align: u29,
             ra: usize,
         ) error{OutOfMemory}![]u8 {
-            const self = @fieldParentPtr(Self, "allocator", allocator);
-            const result = self.parent_allocator.allocFn(self.parent_allocator, len, ptr_align, len_align, ra);
+            const result = self.parent_allocator.rawAlloc(len, ptr_align, len_align, ra);
             if (result) |_| {
                 logHelper(
                     success_log_level,
@@ -73,19 +71,15 @@ pub fn ScopedLoggingAllocator(
         }
 
         fn resize(
-            allocator: *Allocator,
+            self: *Self,
             buf: []u8,
             buf_align: u29,
             new_len: usize,
             len_align: u29,
             ra: usize,
-        ) error{OutOfMemory}!usize {
-            const self = @fieldParentPtr(Self, "allocator", allocator);
-
-            if (self.parent_allocator.resizeFn(self.parent_allocator, buf, buf_align, new_len, len_align, ra)) |resized_len| {
-                if (new_len == 0) {
-                    logHelper(success_log_level, "free - success - len: {}", .{buf.len});
-                } else if (new_len <= buf.len) {
+        ) ?usize {
+            if (self.parent_allocator.rawResize(buf, buf_align, new_len, len_align, ra)) |resized_len| {
+                if (new_len <= buf.len) {
                     logHelper(
                         success_log_level,
                         "shrink - success - {} to {}, len_align: {}, buf_align: {}",
@@ -100,15 +94,25 @@ pub fn ScopedLoggingAllocator(
                 }
 
                 return resized_len;
-            } else |err| {
-                std.debug.assert(new_len > buf.len);
-                logHelper(
-                    failure_log_level,
-                    "expand - failure: {s} - {} to {}, len_align: {}, buf_align: {}",
-                    .{ @errorName(err), buf.len, new_len, len_align, buf_align },
-                );
-                return err;
             }
+
+            std.debug.assert(new_len > buf.len);
+            logHelper(
+                failure_log_level,
+                "expand - failure - {} to {}, len_align: {}, buf_align: {}",
+                .{ buf.len, new_len, len_align, buf_align },
+            );
+            return null;
+        }
+
+        fn free(
+            self: *Self,
+            buf: []u8,
+            buf_align: u29,
+            ra: usize,
+        ) void {
+            self.parent_allocator.rawFree(buf, buf_align, ra);
+            logHelper(success_log_level, "free - len: {}", .{buf.len});
         }
     };
 }
@@ -116,6 +120,6 @@ pub fn ScopedLoggingAllocator(
 /// This allocator is used in front of another allocator and logs to `std.log`
 /// on every call to the allocator.
 /// For logging to a `std.io.Writer` see `std.heap.LogToWriterAllocator`
-pub fn loggingAllocator(parent_allocator: *Allocator) LoggingAllocator(.debug, .err) {
+pub fn loggingAllocator(parent_allocator: Allocator) LoggingAllocator(.debug, .err) {
     return LoggingAllocator(.debug, .err).init(parent_allocator);
 }

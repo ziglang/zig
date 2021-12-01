@@ -411,7 +411,7 @@ pub const Inst = struct {
     };
 };
 
-pub fn deinit(self: *Mir, gpa: *std.mem.Allocator) void {
+pub fn deinit(self: *Mir, gpa: std.mem.Allocator) void {
     self.instructions.deinit(gpa);
     gpa.free(self.extra);
     self.* = undefined;

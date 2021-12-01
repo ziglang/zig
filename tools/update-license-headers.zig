@@ -10,7 +10,7 @@ pub fn main() !void {
     defer root_node.end();
 
     var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     const args = try std.process.argsAlloc(arena);
     const path_to_walk = args[1];

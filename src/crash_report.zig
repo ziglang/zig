@@ -85,7 +85,7 @@ fn dumpStatusReport() !void {
     const anal = zir_state orelse return;
     // Note: We have the panic mutex here, so we can safely use the global crash heap.
     var fba = std.heap.FixedBufferAllocator.init(&crash_heap);
-    const allocator = &fba.allocator;
+    const allocator = fba.allocator();
 
     const stderr = io.getStdErr().writer();
     const block: *Sema.Block = anal.block;

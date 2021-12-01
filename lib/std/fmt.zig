@@ -1803,7 +1803,7 @@ pub fn count(comptime fmt: []const u8, args: anytype) u64 {
 
 pub const AllocPrintError = error{OutOfMemory};
 
-pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![]u8 {
+pub fn allocPrint(allocator: mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![]u8 {
     const size = math.cast(usize, count(fmt, args)) catch |err| switch (err) {
         // Output too long. Can't possibly allocate enough memory to display it.
         error.Overflow => return error.OutOfMemory,
@@ -1816,7 +1816,7 @@ pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: any
 
 pub const allocPrint0 = @compileError("deprecated; use allocPrintZ");
 
-pub fn allocPrintZ(allocator: *mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![:0]u8 {
+pub fn allocPrintZ(allocator: mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![:0]u8 {
     const result = try allocPrint(allocator, fmt ++ "\x00", args);
     return result[0 .. result.len - 1 :0];
 }

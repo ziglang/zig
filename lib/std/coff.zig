@@ -98,7 +98,7 @@ pub const CoffError = error{
 // Official documentation of the format: https://docs.microsoft.com/en-us/windows/win32/debug/pe-format
 pub const Coff = struct {
     in_file: File,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     coff_header: CoffHeader,
     pe_header: OptionalHeader,
@@ -107,7 +107,7 @@ pub const Coff = struct {
     guid: [16]u8,
     age: u32,
 
-    pub fn init(allocator: *mem.Allocator, in_file: File) Coff {
+    pub fn init(allocator: mem.Allocator, in_file: File) Coff {
         return Coff{
             .in_file = in_file,
             .allocator = allocator,
@@ -324,7 +324,7 @@ pub const Coff = struct {
     }
 
     // Return an owned slice full of the section data
-    pub fn getSectionData(self: *Coff, comptime name: []const u8, allocator: *mem.Allocator) ![]u8 {
+    pub fn getSectionData(self: *Coff, comptime name: []const u8, allocator: mem.Allocator) ![]u8 {
         const sec = for (self.sections.items) |*sec| {
             if (mem.eql(u8, sec.header.name[0..name.len], name)) {
                 break sec;

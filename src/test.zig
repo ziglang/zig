@@ -680,7 +680,7 @@ pub const TestContext = struct {
     }
 
     fn runOneCase(
-        allocator: *Allocator,
+        allocator: Allocator,
         root_node: *std.Progress.Node,
         case: Case,
         zig_lib_directory: Compilation.Directory,
@@ -692,7 +692,7 @@ pub const TestContext = struct {
 
         var arena_allocator = std.heap.ArenaAllocator.init(allocator);
         defer arena_allocator.deinit();
-        const arena = &arena_allocator.allocator;
+        const arena = arena_allocator.allocator();
 
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();

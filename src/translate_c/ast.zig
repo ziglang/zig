@@ -378,7 +378,7 @@ pub const Node = extern union {
             return .{ .tag_if_small_enough = @enumToInt(t) };
         }
 
-        pub fn create(comptime t: Tag, ally: *Allocator, data: Data(t)) error{OutOfMemory}!Node {
+        pub fn create(comptime t: Tag, ally: Allocator, data: Data(t)) error{OutOfMemory}!Node {
             const ptr = try ally.create(t.Type());
             ptr.* = .{
                 .base = .{ .tag = t },
@@ -717,7 +717,7 @@ pub const Payload = struct {
 
 /// Converts the nodes into a Zig Ast.
 /// Caller must free the source slice.
-pub fn render(gpa: *Allocator, nodes: []const Node) !std.zig.Ast {
+pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
     var ctx = Context{
         .gpa = gpa,
         .buf = std.ArrayList(u8).init(gpa),
@@ -783,7 +783,7 @@ const TokenIndex = std.zig.Ast.TokenIndex;
 const TokenTag = std.zig.Token.Tag;
 
 const Context = struct {
-    gpa: *Allocator,
+    gpa: Allocator,
     buf: std.ArrayList(u8) = .{},
     nodes: std.zig.Ast.NodeList = .{},
     extra_data: std.ArrayListUnmanaged(std.zig.Ast.Node.Index) = .{},

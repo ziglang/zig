@@ -16,7 +16,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
     var args = try process.argsAlloc(allocator);
     defer process.argsFree(allocator, args);
 

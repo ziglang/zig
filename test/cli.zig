@@ -5,7 +5,7 @@ const process = std.process;
 const fs = std.fs;
 const ChildProcess = std.ChildProcess;
 
-var a: *std.mem.Allocator = undefined;
+var a: std.mem.Allocator = undefined;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -16,7 +16,7 @@ pub fn main() !void {
     // skip my own exe name
     _ = arg_it.skip();
 
-    a = &arena.allocator;
+    a = arena.allocator();
 
     const zig_exe_rel = try (arg_it.next(a) orelse {
         std.debug.print("Expected first argument to be path to zig compiler\n", .{});

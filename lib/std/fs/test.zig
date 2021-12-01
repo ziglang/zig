@@ -52,9 +52,11 @@ test "accessAbsolute" {
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
+    const allocator = arena.allocator();
+
     const base_path = blk: {
-        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
     try fs.accessAbsolute(base_path, .{});
@@ -69,9 +71,11 @@ test "openDirAbsolute" {
     try tmp.dir.makeDir("subdir");
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
+    const allocator = arena.allocator();
+
     const base_path = blk: {
-        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
-        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
     {
@@ -80,8 +84,8 @@ test "openDirAbsolute" {
     }
 
     for ([_][]const u8{ ".", ".." }) |sub_path| {
-        const dir_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, sub_path });
-        defer arena.allocator.free(dir_path);
+        const dir_path = try fs.path.join(allocator, &[_][]const u8{ base_path, sub_path });
+        defer allocator.free(dir_path);
         var dir = try fs.openDirAbsolute(dir_path, .{});
         defer dir.close();
     }
@@ -107,12 +111,12 @@ test "readLinkAbsolute" {
     // Get base abs path
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
+    const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
     };
-    const allocator = &arena.allocator;
 
     {
         const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "file.txt" });
@@ -158,15 +162,16 @@ test "Dir.Iterator" {
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
+    const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(&arena.allocator);
+    var entries = std.ArrayList(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
     while (try iter.next()) |entry| {
         // We cannot just store `entry` as on Windows, we're re-using the name buffer
         // which means we'll actually share the `name` pointer between entries!
-        const name = try arena.allocator.dupe(u8, entry.name);
+        const name = try allocator.dupe(u8, entry.name);
         try entries.append(Dir.Entry{ .name = name, .kind = entry.kind });
     }
 
@@ -202,25 +207,26 @@ test "Dir.realpath smoke test" {
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
+    const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
-        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
     // First, test non-alloc version
     {
         var buf1: [fs.MAX_PATH_BYTES]u8 = undefined;
         const file_path = try tmp_dir.dir.realpath("test_file", buf1[0..]);
-        const expected_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "test_file" });
+        const expected_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "test_file" });
 
         try testing.expect(mem.eql(u8, file_path, expected_path));
     }
 
     // Next, test alloc version
     {
-        const file_path = try tmp_dir.dir.realpathAlloc(&arena.allocator, "test_file");
-        const expected_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "test_file" });
+        const file_path = try tmp_dir.dir.realpathAlloc(allocator, "test_file");
+        const expected_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "test_file" });
 
         try testing.expect(mem.eql(u8, file_path, expected_path));
     }
@@ -476,11 +482,11 @@ test "renameAbsolute" {
     // Get base abs path
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
-        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
     try testing.expectError(error.FileNotFound, fs.renameAbsolute(
@@ -987,11 +993,11 @@ test ". and .. in absolute functions" {
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
     const subdir_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "./subdir" });
