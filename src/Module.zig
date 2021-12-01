@@ -4775,10 +4775,10 @@ pub fn populateTestFunctions(mod: *Module) !void {
             const test_name_decl = n: {
                 var name_decl_arena = std.heap.ArenaAllocator.init(gpa);
                 errdefer name_decl_arena.deinit();
-                const bytes = try arena.dupe(u8, test_name_slice);
+                const bytes = try name_decl_arena.allocator().dupe(u8, test_name_slice);
                 const test_name_decl = try mod.createAnonymousDeclFromDecl(array_decl, array_decl.src_namespace, null, .{
-                    .ty = try Type.Tag.array_u8.create(arena, bytes.len),
-                    .val = try Value.Tag.bytes.create(arena, bytes),
+                    .ty = try Type.Tag.array_u8.create(name_decl_arena.allocator(), bytes.len),
+                    .val = try Value.Tag.bytes.create(name_decl_arena.allocator(), bytes),
                 });
                 try test_name_decl.finalizeNewArena(&name_decl_arena);
                 break :n test_name_decl;
