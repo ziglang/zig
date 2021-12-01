@@ -4261,9 +4261,9 @@ pub fn analyzeExport(
     eo_gop.value_ptr.* = try gpa.realloc(eo_gop.value_ptr.*, eo_gop.value_ptr.len + 1);
     eo_gop.value_ptr.*[eo_gop.value_ptr.len - 1] = new_export;
     errdefer {
-        if (gpa.tryShrink(eo_gop.value_ptr.*, eo_gop.value_ptr.len - 1)) |shrunk| {
+        if (gpa.realloc(eo_gop.value_ptr.*, eo_gop.value_ptr.len - 1)) |shrunk| {
             eo_gop.value_ptr.* = shrunk;
-        }
+        } else |_| {}
     }
 
     // Add to exported_decl table.
@@ -4274,9 +4274,9 @@ pub fn analyzeExport(
     de_gop.value_ptr.* = try gpa.realloc(de_gop.value_ptr.*, de_gop.value_ptr.len + 1);
     de_gop.value_ptr.*[de_gop.value_ptr.len - 1] = new_export;
     errdefer {
-        if (gpa.tryShrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1)) |shrunk| {
-            eo_gop.value_ptr.* = shrunk;
-        }
+        if (gpa.realloc(de_gop.value_ptr.*, de_gop.value_ptr.len - 1)) |shrunk| {
+            de_gop.value_ptr.* = shrunk;
+        } else |_| {}
     }
 }
 

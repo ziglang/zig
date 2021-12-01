@@ -47,19 +47,16 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
             ra: usize,
         ) ?usize {
             if (new_len <= buf.len) {
-                self.writer.print("shrink: {} to {}\n", .{ buf.len, new_len }) catch {};
+                self.writer.print("shrink: {} to {}", .{ buf.len, new_len }) catch {};
             } else {
                 self.writer.print("expand: {} to {}", .{ buf.len, new_len }) catch {};
             }
 
             if (self.parent_allocator.rawResize(buf, buf_align, new_len, len_align, ra)) |resized_len| {
-                if (new_len > buf.len) {
-                    self.writer.print(" success!\n", .{}) catch {};
-                }
+                self.writer.print(" success!\n", .{}) catch {};
                 return resized_len;
             }
 
-            std.debug.assert(new_len > buf.len);
             self.writer.print(" failure!\n", .{}) catch {};
             return null;
         }
@@ -101,7 +98,7 @@ test "LogToWriterAllocator" {
 
     try std.testing.expectEqualSlices(u8,
         \\alloc : 10 success!
-        \\shrink: 10 to 5
+        \\shrink: 10 to 5 success!
         \\expand: 5 to 20 failure!
         \\free  : 5
         \\

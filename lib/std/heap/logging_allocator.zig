@@ -96,12 +96,20 @@ pub fn ScopedLoggingAllocator(
                 return resized_len;
             }
 
-            std.debug.assert(new_len > buf.len);
-            logHelper(
-                failure_log_level,
-                "expand - failure - {} to {}, len_align: {}, buf_align: {}",
-                .{ buf.len, new_len, len_align, buf_align },
-            );
+            if (new_len > buf.len) {
+                logHelper(
+                    failure_log_level,
+                    "expand - failure - {} to {}, len_align: {}, buf_align: {}",
+                    .{ buf.len, new_len, len_align, buf_align },
+                );
+            } else {
+                logHelper(
+                    failure_log_level,
+                    "shrink - failure - {} to {}, len_align: {}, buf_align: {}",
+                    .{ buf.len, new_len, len_align, buf_align },
+                );
+            }
+
             return null;
         }
 
