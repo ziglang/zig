@@ -8226,6 +8226,12 @@ fn zirAsm(
     const inputs_len = @truncate(u5, extended.small >> 5);
     const clobbers_len = @truncate(u5, extended.small >> 10);
 
+    if (extra.data.asm_source == 0) {
+        // This can move to become an AstGen error after inline assembly improvements land
+        // and stage1 code matches stage2 code.
+        return sema.fail(block, src, "assembly code must use string literal syntax", .{});
+    }
+
     if (outputs_len > 1) {
         return sema.fail(block, src, "TODO implement Sema for asm with more than 1 output", .{});
     }
