@@ -61,11 +61,17 @@ pub const Type = extern union {
             .c_longdouble,
             => return .Float,
 
+            .error_set,
+            .error_set_single,
+            .anyerror,
+            .error_set_inferred,
+            .error_set_merged,
+            => return .ErrorSet,
+
             .c_void, .@"opaque" => return .Opaque,
             .bool => return .Bool,
             .void => return .Void,
             .type => return .Type,
-            .error_set, .error_set_single, .anyerror, .error_set_inferred => return .ErrorSet,
             .comptime_int => return .ComptimeInt,
             .comptime_float => return .ComptimeFloat,
             .noreturn => return .NoReturn,
@@ -608,6 +614,9 @@ pub const Type = extern union {
                 return true;
             },
             .ErrorSet => {
+                // TODO: revisit the language specification for how to evaluate equality
+                // for error set types.
+
                 if (a.tag() == .anyerror and b.tag() == .anyerror) {
                     return true;
                 }
@@ -891,6 +900,14 @@ pub const Type = extern union {
                     .error_set = try payload.error_set.copy(allocator),
                     .payload = try payload.payload.copy(allocator),
                 });
+            },
+            .error_set_merged => {
+                const names = self.castTag(.error_set_merged).?.data;
+                const duped_names = try allocator.alloc([]const u8, names.len);
+                for (duped_names) |*name, i| {
+                    name.* = try allocator.dupe(u8, names[i]);
+                }
+                return Tag.error_set_merged.create(allocator, duped_names);
             },
             .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .error_set_inferred => return self.copyPayloadShallow(allocator, Payload.ErrorSetInferred),
@@ -1185,6 +1202,16 @@ pub const Type = extern union {
                     const func = ty.castTag(.error_set_inferred).?.data.func;
                     return writer.print("(inferred error set of {s})", .{func.owner_decl.name});
                 },
+                .error_set_merged => {
+                    const names = ty.castTag(.error_set_merged).?.data;
+                    try writer.writeAll("error{");
+                    for (names) |name, i| {
+                        if (i != 0) try writer.writeByte(',');
+                        try writer.writeAll(name);
+                    }
+                    try writer.writeAll("}");
+                    return;
+                },
                 .error_set_single => {
                     const name = ty.castTag(.error_set_single).?.data;
                     return writer.print("error{{{s}}}", .{name});
@@ -1365,6 +1392,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .error_set_inferred,
+            .error_set_merged,
             .@"opaque",
             .generic_poison,
             .array_u8,
@@ -1525,6 +1553,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .error_set_inferred,
+            .error_set_merged,
             .manyptr_u8,
             .manyptr_const_u8,
             .atomic_order,
@@ -1783,6 +1812,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .anyerror,
             .error_set_inferred,
+            .error_set_merged,
             => return 2, // TODO revisit this when we have the concept of the error tag type
 
             .array, .array_sentinel => return self.elemType().abiAlignment(target),
@@ -2021,6 +2051,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .anyerror,
             .error_set_inferred,
+            .error_set_merged,
             => return 2, // TODO revisit this when we have the concept of the error tag type
 
             .int_signed, .int_unsigned => {
@@ -2199,6 +2230,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .anyerror,
             .error_set_inferred,
+            .error_set_merged,
             => return 16, // TODO revisit this when we have the concept of the error tag type
 
             .int_signed, .int_unsigned => self.cast(Payload.Bits).?.data,
@@ -2961,7 +2993,7 @@ pub const Type = extern union {
                 return .{ .signedness = .unsigned, .bits = smallestUnsignedBits(field_count - 1) };
             },
 
-            .error_set, .error_set_single, .anyerror, .error_set_inferred => {
+            .error_set, .error_set_single, .anyerror, .error_set_inferred, .error_set_merged => {
                 // TODO revisit this when error sets support custom int types
                 return .{ .signedness = .unsigned, .bits = 16 };
             },
@@ -3250,6 +3282,7 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .error_set_inferred,
+            .error_set_merged,
             .@"opaque",
             .var_args_param,
             .manyptr_u8,
@@ -3882,6 +3915,7 @@ pub const Type = extern union {
         error_set_single,
         /// The type is the inferred error set of a specific function.
         error_set_inferred,
+        error_set_merged,
         empty_struct,
         @"opaque",
         @"struct",
@@ -3986,6 +4020,7 @@ pub const Type = extern union {
 
                 .error_set => Payload.ErrorSet,
                 .error_set_inferred => Payload.ErrorSetInferred,
+                .error_set_merged => Payload.ErrorSetMerged,
 
                 .array, .vector => Payload.Array,
                 .array_sentinel => Payload.ArraySentinel,
@@ -4090,6 +4125,13 @@ pub const Type = extern union {
             data: *Module.ErrorSet,
         };
 
+        pub const ErrorSetMerged = struct {
+            pub const base_tag = Tag.error_set_merged;
+
+            base: Payload = Payload{ .tag = base_tag },
+            data: []const []const u8,
+        };
+
         pub const ErrorSetInferred = struct {
             pub const base_tag = Tag.error_set_inferred;
 
@@ -4123,6 +4165,12 @@ pub const Type = extern union {
                                 .castTag(.error_set_inferred).?.data.map.iterator();
                             while (it.next()) |entry| {
                                 try self.map.put(gpa, entry.key_ptr.*, {});
+                            }
+                        },
+                        .error_set_merged => {
+                            const names = err_set_ty.castTag(.error_set_merged).?.data;
+                            for (names) |name| {
+                                try self.map.put(gpa, name, {});
                             }
                         },
                         .anyerror => {

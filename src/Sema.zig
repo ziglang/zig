@@ -4554,9 +4554,7 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     if (lhs_ty.tag() == .anyerror or rhs_ty.tag() == .anyerror) {
         return Air.Inst.Ref.anyerror_type;
     }
-    // When we support inferred error sets, we'll want to use a data structure that can
-    // represent a merged set of errors without forcing them to be resolved here. Until then
-    // we re-use the same data structure that is used for explicit error set declarations.
+    // Resolve both error sets now.
     var set: std.StringHashMapUnmanaged(void) = .{};
     defer set.deinit(sema.gpa);
 
@@ -4564,6 +4562,12 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         .error_set_single => {
             const name = lhs_ty.castTag(.error_set_single).?.data;
             try set.put(sema.gpa, name, {});
+        },
+        .error_set_merged => {
+            const names = lhs_ty.castTag(.error_set_merged).?.data;
+            for (names) |name| {
+                try set.put(sema.gpa, name, {});
+            }
         },
         .error_set => {
             const lhs_set = lhs_ty.castTag(.error_set).?.data;
@@ -4579,6 +4583,12 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
             const name = rhs_ty.castTag(.error_set_single).?.data;
             try set.put(sema.gpa, name, {});
         },
+        .error_set_merged => {
+            const names = rhs_ty.castTag(.error_set_merged).?.data;
+            for (names) |name| {
+                try set.put(sema.gpa, name, {});
+            }
+        },
         .error_set => {
             const rhs_set = rhs_ty.castTag(.error_set).?.data;
             try set.ensureUnusedCapacity(sema.gpa, rhs_set.names_len);
@@ -4589,22 +4599,25 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         else => unreachable,
     }
 
-    const new_names = try sema.arena.alloc([]const u8, set.count());
+    // TODO do we really want to create a Decl for this?
+    // The reason we do it right now is for memory management.
+    var anon_decl = try block.startAnonDecl();
+    defer anon_decl.deinit();
+
+    const new_names = try anon_decl.arena().alloc([]const u8, set.count());
     var it = set.keyIterator();
     var i: usize = 0;
     while (it.next()) |key| : (i += 1) {
         new_names[i] = key.*;
     }
 
-    const new_error_set = try sema.arena.create(Module.ErrorSet);
-    new_error_set.* = .{
-        .owner_decl = sema.owner_decl,
-        .node_offset = inst_data.src_node,
-        .names_ptr = new_names.ptr,
-        .names_len = @intCast(u32, new_names.len),
-    };
-    const error_set_ty = try Type.Tag.error_set.create(sema.arena, new_error_set);
-    return sema.addConstant(Type.type, try Value.Tag.ty.create(sema.arena, error_set_ty));
+    const err_set_ty = try Type.Tag.error_set_merged.create(anon_decl.arena(), new_names);
+    const err_set_decl = try anon_decl.finish(
+        Type.type,
+        try Value.Tag.ty.create(anon_decl.arena(), err_set_ty),
+    );
+    try sema.mod.declareDeclDependency(sema.owner_decl, err_set_decl);
+    return sema.addType(err_set_ty);
 }
 
 fn zirEnumLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -14788,6 +14801,7 @@ fn typeHasOnePossibleValue(
         .error_set,
         .error_set_single,
         .error_set_inferred,
+        .error_set_merged,
         .@"opaque",
         .var_args_param,
         .manyptr_u8,
