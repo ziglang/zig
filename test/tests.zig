@@ -270,8 +270,14 @@ const test_targets = blk: {
                 .os_tag = .macos,
                 .abi = .gnu,
             },
-            // https://github.com/ziglang/zig/issues/3295
-            .disable_native = true,
+        },
+
+        TestTarget{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .macos,
+                .abi = .gnu,
+            },
         },
 
         TestTarget{
