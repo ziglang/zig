@@ -6432,6 +6432,7 @@ fn asmExpr(
             // We still need to trigger all the expr() calls here to avoid errors for unused things.
             // So we pass 0 as the asm source and stage2 Sema will notice this and
             // report the error.
+            _ = try comptimeExpr(gz, scope, .none, full.ast.template);
             break :blk IndexSlice{ .index = 0, .len = 0 };
         },
     };
