@@ -14,7 +14,7 @@ pub const BufMap = struct {
     /// Create a BufMap backed by a specific allocator.
     /// That allocator will be used for both backing allocations
     /// and string deduplication.
-    pub fn init(allocator: *Allocator) BufMap {
+    pub fn init(allocator: Allocator) BufMap {
         var self = BufMap{ .hash_map = BufMapHashMap.init(allocator) };
         return self;
     }

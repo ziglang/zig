@@ -7,7 +7,6 @@ const Builder = std.build.Builder;
 const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
-const warn = std.debug.warn;
 const File = std.fs.File;
 
 pub fn main() !void {
@@ -17,7 +16,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
     var args = try process.argsAlloc(allocator);
     defer process.argsFree(allocator, args);
 
@@ -25,19 +24,19 @@ pub fn main() !void {
     var arg_idx: usize = 1;
 
     const zig_exe = nextArg(args, &arg_idx) orelse {
-        warn("Expected first argument to be path to zig compiler\n", .{});
+        std.debug.print("Expected first argument to be path to zig compiler\n", .{});
         return error.InvalidArgs;
     };
     const build_root = nextArg(args, &arg_idx) orelse {
-        warn("Expected second argument to be build root directory path\n", .{});
+        std.debug.print("Expected second argument to be build root directory path\n", .{});
         return error.InvalidArgs;
     };
     const cache_root = nextArg(args, &arg_idx) orelse {
-        warn("Expected third argument to be cache root directory path\n", .{});
+        std.debug.print("Expected third argument to be cache root directory path\n", .{});
         return error.InvalidArgs;
     };
     const global_cache_root = nextArg(args, &arg_idx) orelse {
-        warn("Expected third argument to be global cache root directory path\n", .{});
+        std.debug.print("Expected third argument to be global cache root directory path\n", .{});
         return error.InvalidArgs;
     };
 
@@ -51,6 +50,7 @@ pub fn main() !void {
     defer builder.destroy();
 
     var targets = ArrayList([]const u8).init(allocator);
+    var debug_log_scopes = ArrayList([]const u8).init(allocator);
 
     const stderr_stream = io.getStdErr().writer();
     const stdout_stream = io.getStdOut().writer();
@@ -67,7 +67,7 @@ pub fn main() !void {
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
             if (option_contents.len == 0) {
-                warn("Expected option name after '-D'\n\n", .{});
+                std.debug.print("Expected option name after '-D'\n\n", .{});
                 return usageAndErr(builder, false, stderr_stream);
             }
             if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
@@ -86,56 +86,62 @@ pub fn main() !void {
                 return usage(builder, false, stdout_stream);
             } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--prefix")) {
                 install_prefix = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after {s}\n\n", .{arg});
+                    std.debug.print("Expected argument after {s}\n\n", .{arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--prefix-lib-dir")) {
                 dir_list.lib_dir = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after {s}\n\n", .{arg});
+                    std.debug.print("Expected argument after {s}\n\n", .{arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--prefix-exe-dir")) {
                 dir_list.exe_dir = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after {s}\n\n", .{arg});
+                    std.debug.print("Expected argument after {s}\n\n", .{arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--prefix-include-dir")) {
                 dir_list.include_dir = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after {s}\n\n", .{arg});
+                    std.debug.print("Expected argument after {s}\n\n", .{arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--sysroot")) {
                 const sysroot = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after --sysroot\n\n", .{});
+                    std.debug.print("Expected argument after --sysroot\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
                 builder.sysroot = sysroot;
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after --search-prefix\n\n", .{});
+                    std.debug.print("Expected argument after --search-prefix\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
                 builder.addSearchPrefix(search_prefix);
             } else if (mem.eql(u8, arg, "--libc")) {
                 const libc_file = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after --libc\n\n", .{});
+                    std.debug.print("Expected argument after --libc\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
                 builder.libc_file = libc_file;
             } else if (mem.eql(u8, arg, "--color")) {
                 const next_arg = nextArg(args, &arg_idx) orelse {
-                    warn("expected [auto|on|off] after --color", .{});
+                    std.debug.print("expected [auto|on|off] after --color", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
                 builder.color = std.meta.stringToEnum(@TypeOf(builder.color), next_arg) orelse {
-                    warn("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
+                    std.debug.print("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
                 builder.override_lib_dir = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after --zig-lib-dir\n\n", .{});
+                    std.debug.print("Expected argument after --zig-lib-dir\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
+            } else if (mem.eql(u8, arg, "--debug-log")) {
+                const next_arg = nextArg(args, &arg_idx) orelse {
+                    std.debug.print("Expected argument after {s}\n\n", .{arg});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
+                try debug_log_scopes.append(next_arg);
             } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
                 builder.verbose_tokenize = true;
             } else if (mem.eql(u8, arg, "--verbose-ast")) {
@@ -158,7 +164,7 @@ pub fn main() !void {
                 builder.args = argsRest(args, arg_idx);
                 break;
             } else {
-                warn("Unrecognized argument: {s}\n\n", .{arg});
+                std.debug.print("Unrecognized argument: {s}\n\n", .{arg});
                 return usageAndErr(builder, false, stderr_stream);
             }
         } else {
@@ -166,6 +172,7 @@ pub fn main() !void {
         }
     }
 
+    builder.debug_log_scopes = debug_log_scopes.items;
     builder.resolveInstallPrefix(install_prefix, dir_list);
     try runBuild(builder);
 
@@ -261,6 +268,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  --build-file [file]          Override path to build.zig
         \\  --cache-dir [path]           Override path to zig cache directory
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
+        \\  --debug-log [scope]          Enable debugging the compiler
         \\  --verbose-tokenize           Enable compiler debug output for tokenization
         \\  --verbose-ast                Enable compiler debug output for parsing into an AST
         \\  --verbose-link               Enable compiler debug output for linking

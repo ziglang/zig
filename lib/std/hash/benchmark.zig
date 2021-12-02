@@ -142,7 +142,7 @@ pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize
 }
 
 fn usage() void {
-    std.debug.warn(
+    std.debug.print(
         \\throughput_test [options]
         \\
         \\Options:
@@ -165,7 +165,7 @@ pub fn main() !void {
 
     var buffer: [1024]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
-    const args = try std.process.argsAlloc(&fixed.allocator);
+    const args = try std.process.argsAlloc(fixed.allocator());
 
     var filter: ?[]u8 = "";
     var count: usize = mode(128 * MiB);

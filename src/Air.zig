@@ -841,7 +841,7 @@ pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end
     };
 }
 
-pub fn deinit(air: *Air, gpa: *std.mem.Allocator) void {
+pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
     air.instructions.deinit(gpa);
     gpa.free(air.extra);
     gpa.free(air.values);

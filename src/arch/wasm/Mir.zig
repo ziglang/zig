@@ -69,6 +69,11 @@ pub const Inst = struct {
         ///
         /// Uses `label`
         call = 0x10,
+        /// Calls a function pointer by its function signature
+        /// and index into the function table.
+        ///
+        /// Uses `label`
+        call_indirect = 0x11,
         /// Loads a local at given index onto the stack.
         ///
         /// Uses `label`
@@ -358,6 +363,12 @@ pub const Inst = struct {
         i64_extend16_s = 0xC3,
         /// Uses `tag`
         i64_extend32_s = 0xC4,
+        /// Contains a symbol to a memory address
+        /// Uses `label`
+        ///
+        /// Note: This uses `0xFF` as value as it is unused and not-reserved
+        /// by the wasm specification, making it safe to use
+        memory_address = 0xFF,
 
         /// From a given wasm opcode, returns a MIR tag.
         pub fn fromOpcode(opcode: std.wasm.Opcode) Tag {
@@ -400,7 +411,7 @@ pub const Inst = struct {
     };
 };
 
-pub fn deinit(self: *Mir, gpa: *std.mem.Allocator) void {
+pub fn deinit(self: *Mir, gpa: std.mem.Allocator) void {
     self.instructions.deinit(gpa);
     gpa.free(self.extra);
     self.* = undefined;

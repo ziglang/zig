@@ -769,7 +769,7 @@ const llvm_targets = [_]LlvmTarget{
 pub fn main() anyerror!void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_state.deinit();
-    const arena = &arena_state.allocator;
+    const arena = arena_state.allocator();
 
     const args = try std.process.argsAlloc(arena);
     if (args.len <= 1) {
@@ -845,7 +845,7 @@ fn processOneTarget(job: Job) anyerror!void {
 
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_state.deinit();
-    const arena = &arena_state.allocator;
+    const arena = arena_state.allocator();
 
     var progress_node = job.root_progress.start(llvm_target.zig_name, 3);
     progress_node.activate();
@@ -875,16 +875,16 @@ fn processOneTarget(job: Job) anyerror!void {
     });
     tblgen_progress.end();
     if (child_result.stderr.len != 0) {
-        std.debug.warn("{s}\n", .{child_result.stderr});
+        std.debug.print("{s}\n", .{child_result.stderr});
     }
 
     const json_text = switch (child_result.term) {
         .Exited => |code| if (code == 0) child_result.stdout else {
-            std.debug.warn("llvm-tblgen exited with code {d}\n", .{code});
+            std.debug.print("llvm-tblgen exited with code {d}\n", .{code});
             std.process.exit(1);
         },
         else => {
-            std.debug.warn("llvm-tblgen crashed\n", .{});
+            std.debug.print("llvm-tblgen crashed\n", .{});
             std.process.exit(1);
         },
     };
@@ -1244,7 +1244,7 @@ fn asciiLessThan(context: void, a: []const u8, b: []const u8) bool {
     return std.ascii.lessThanIgnoreCase(a, b);
 }
 
-fn llvmNameToZigName(arena: *mem.Allocator, llvm_name: []const u8) ![]const u8 {
+fn llvmNameToZigName(arena: mem.Allocator, llvm_name: []const u8) ![]const u8 {
     const duped = try arena.dupe(u8, llvm_name);
     for (duped) |*byte| switch (byte.*) {
         '-', '.' => byte.* = '_',
@@ -1254,7 +1254,7 @@ fn llvmNameToZigName(arena: *mem.Allocator, llvm_name: []const u8) ![]const u8 {
 }
 
 fn llvmNameToZigNameOmit(
-    arena: *mem.Allocator,
+    arena: mem.Allocator,
     llvm_target: LlvmTarget,
     llvm_name: []const u8,
 ) !?[]const u8 {
@@ -1279,7 +1279,7 @@ fn hasSuperclass(obj: *json.ObjectMap, class_name: []const u8) bool {
 }
 
 fn pruneFeatures(
-    arena: *mem.Allocator,
+    arena: mem.Allocator,
     features_table: std.StringHashMap(Feature),
     deps_set: *std.StringHashMap(void),
 ) !void {

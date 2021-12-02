@@ -39,7 +39,7 @@ pub const LibCInstallation = struct {
     };
 
     pub fn parse(
-        allocator: *Allocator,
+        allocator: Allocator,
         libc_file: []const u8,
         target: std.zig.CrossTarget,
     ) !LibCInstallation {
@@ -76,7 +76,7 @@ pub const LibCInstallation = struct {
                     if (value.len == 0) {
                         @field(self, field.name) = null;
                     } else {
-                        found_keys[i].allocated = try std.mem.dupeZ(allocator, u8, value);
+                        found_keys[i].allocated = try allocator.dupeZ(u8, value);
                         @field(self, field.name) = found_keys[i].allocated;
                     }
                     break;
@@ -175,7 +175,7 @@ pub const LibCInstallation = struct {
     }
 
     pub const FindNativeOptions = struct {
-        allocator: *Allocator,
+        allocator: Allocator,
 
         /// If enabled, will print human-friendly errors to stderr.
         verbose: bool = false,
@@ -185,7 +185,9 @@ pub const LibCInstallation = struct {
     pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
         var self: LibCInstallation = .{};
 
-        if (is_windows) {
+        if (is_darwin) {
+            @panic("Darwin is handled separately via std.zig.system.darwin module");
+        } else if (is_windows) {
             if (!build_options.have_llvm)
                 return error.WindowsSdkNotFound;
             var sdk: *ZigWindowsSDK = undefined;
@@ -211,7 +213,7 @@ pub const LibCInstallation = struct {
                 errdefer batch.wait() catch {};
                 batch.add(&async self.findNativeIncludeDirPosix(args));
                 batch.add(&async self.findNativeCrtBeginDirHaiku(args));
-                self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/system/develop/lib");
+                self.crt_dir = try args.allocator.dupeZ(u8, "/system/develop/lib");
                 break :blk batch.wait();
             };
         } else {
@@ -220,8 +222,8 @@ pub const LibCInstallation = struct {
                 errdefer batch.wait() catch {};
                 batch.add(&async self.findNativeIncludeDirPosix(args));
                 switch (builtin.target.os.tag) {
-                    .freebsd, .netbsd, .openbsd, .dragonfly => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib"),
-                    .solaris => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib/64"),
+                    .freebsd, .netbsd, .openbsd, .dragonfly => self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib"),
+                    .solaris => self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib/64"),
                     .linux => batch.add(&async self.findNativeCrtDirPosix(args)),
                     else => {},
                 }
@@ -232,7 +234,7 @@ pub const LibCInstallation = struct {
     }
 
     /// Must be the same allocator passed to `parse` or `findNative`.
-    pub fn deinit(self: *LibCInstallation, allocator: *Allocator) void {
+    pub fn deinit(self: *LibCInstallation, allocator: Allocator) void {
         const fields = std.meta.fields(LibCInstallation);
         inline for (fields) |field| {
             if (@field(self, field.name)) |payload| {
@@ -321,7 +323,7 @@ pub const LibCInstallation = struct {
         const sys_include_dir_example_file = if (is_windows)
             "sys\\types.h"
         else if (is_haiku)
-            "posix/errno.h"
+            "errno.h"
         else
             "sys/errno.h";
 
@@ -342,7 +344,7 @@ pub const LibCInstallation = struct {
 
             if (self.include_dir == null) {
                 if (search_dir.accessZ(include_dir_example_file, .{})) |_| {
-                    self.include_dir = try std.mem.dupeZ(allocator, u8, search_path);
+                    self.include_dir = try allocator.dupeZ(u8, search_path);
                 } else |err| switch (err) {
                     error.FileNotFound => {},
                     else => return error.FileSystem,
@@ -351,7 +353,7 @@ pub const LibCInstallation = struct {
 
             if (self.sys_include_dir == null) {
                 if (search_dir.accessZ(sys_include_dir_example_file, .{})) |_| {
-                    self.sys_include_dir = try std.mem.dupeZ(allocator, u8, search_path);
+                    self.sys_include_dir = try allocator.dupeZ(u8, search_path);
                 } else |err| switch (err) {
                     error.FileNotFound => {},
                     else => return error.FileSystem,
@@ -555,12 +557,12 @@ pub const LibCInstallation = struct {
     ) FindError!void {
         const allocator = args.allocator;
         const msvc_lib_dir_ptr = sdk.msvc_lib_dir_ptr orelse return error.LibCRuntimeNotFound;
-        self.msvc_lib_dir = try std.mem.dupeZ(allocator, u8, msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len]);
+        self.msvc_lib_dir = try allocator.dupeZ(u8, msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len]);
     }
 };
 
 pub const CCPrintFileNameOptions = struct {
-    allocator: *Allocator,
+    allocator: Allocator,
     search_basename: []const u8,
     want_dirname: enum { full_path, only_dir },
     verbose: bool = false,
@@ -629,10 +631,10 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     // So we detect failure by checking if the output matches exactly the input.
     if (std.mem.eql(u8, line, args.search_basename)) return error.LibCRuntimeNotFound;
     switch (args.want_dirname) {
-        .full_path => return std.mem.dupeZ(allocator, u8, line),
+        .full_path => return allocator.dupeZ(u8, line),
         .only_dir => {
             const dirname = fs.path.dirname(line) orelse return error.LibCRuntimeNotFound;
-            return std.mem.dupeZ(allocator, u8, dirname);
+            return allocator.dupeZ(u8, dirname);
         },
     }
 }
@@ -646,17 +648,17 @@ fn printVerboseInvocation(
     if (!verbose) return;
 
     if (search_basename) |s| {
-        std.debug.warn("Zig attempted to find the file '{s}' by executing this command:\n", .{s});
+        std.debug.print("Zig attempted to find the file '{s}' by executing this command:\n", .{s});
     } else {
-        std.debug.warn("Zig attempted to find the path to native system libc headers by executing this command:\n", .{});
+        std.debug.print("Zig attempted to find the path to native system libc headers by executing this command:\n", .{});
     }
     for (argv) |arg, i| {
-        if (i != 0) std.debug.warn(" ", .{});
-        std.debug.warn("{s}", .{arg});
+        if (i != 0) std.debug.print(" ", .{});
+        std.debug.print("{s}", .{arg});
     }
-    std.debug.warn("\n", .{});
+    std.debug.print("\n", .{});
     if (stderr) |s| {
-        std.debug.warn("Output:\n==========\n{s}\n==========\n", .{s});
+        std.debug.print("Output:\n==========\n{s}\n==========\n", .{s});
     }
 }
 

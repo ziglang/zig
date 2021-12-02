@@ -12,7 +12,6 @@ const elf = std.elf;
 const fs = std.fs;
 const io = std.io;
 const sort = std.sort;
-const warn = std.debug.warn;
 
 const BinaryElfSection = struct {
     elfOffset: u64,
@@ -41,7 +40,7 @@ const BinaryElfOutput = struct {
         self.segments.deinit();
     }
 
-    pub fn parse(allocator: *Allocator, elf_file: File) !Self {
+    pub fn parse(allocator: Allocator, elf_file: File) !Self {
         var self: Self = .{
             .segments = ArrayList(*BinaryElfSegment).init(allocator),
             .sections = ArrayList(*BinaryElfSection).init(allocator),
@@ -299,7 +298,7 @@ fn containsValidAddressRange(segments: []*BinaryElfSegment) bool {
     return true;
 }
 
-fn emitRaw(allocator: *Allocator, elf_path: []const u8, raw_path: []const u8, format: RawFormat) !void {
+fn emitRaw(allocator: Allocator, elf_path: []const u8, raw_path: []const u8, format: RawFormat) !void {
     var elf_file = try fs.cwd().openFile(elf_path, .{});
     defer elf_file.close();
 
@@ -387,7 +386,7 @@ fn make(step: *Step) !void {
     const builder = self.builder;
 
     if (self.artifact.target.getObjectFormat() != .elf) {
-        warn("InstallRawStep only works with ELF format.\n", .{});
+        std.debug.print("InstallRawStep only works with ELF format.\n", .{});
         return error.InvalidObjectFormat;
     }
 

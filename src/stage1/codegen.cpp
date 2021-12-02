@@ -8755,17 +8755,17 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         ZigType *entry = new_type_table_entry(ZigTypeIdEnumLiteral);
-        buf_init_from_str(&entry->name, "(enum literal)");
+        buf_init_from_str(&entry->name, "@Type(.EnumLiteral)");
         g->builtin_types.entry_enum_literal = entry;
     }
     {
         ZigType *entry = new_type_table_entry(ZigTypeIdUndefined);
-        buf_init_from_str(&entry->name, "(undefined)");
+        buf_init_from_str(&entry->name, "@Type(.Undefined)");
         g->builtin_types.entry_undef = entry;
     }
     {
         ZigType *entry = new_type_table_entry(ZigTypeIdNull);
-        buf_init_from_str(&entry->name, "(null)");
+        buf_init_from_str(&entry->name, "@Type(.Null)");
         g->builtin_types.entry_null = entry;
     }
     {
@@ -9305,7 +9305,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const abi = std.Target.Abi.%s;\n", cur_abi);
     buf_appendf(contents, "pub const cpu = std.Target.Cpu.baseline(.%s);\n", cur_arch);
     buf_appendf(contents, "pub const stage2_arch: std.Target.Cpu.Arch = .%s;\n", cur_arch);
-    buf_appendf(contents, "pub const os = std.Target.Os.Tag.defaultVersionRange(.%s);\n", cur_os);
+    buf_appendf(contents, "pub const os = std.Target.Os.Tag.defaultVersionRange(.%s, .%s);\n", cur_os, cur_arch);
     buf_appendf(contents,
         "pub const target = std.Target{\n"
         "    .cpu = cpu,\n"

@@ -158,8 +158,13 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
     return fabs(x - y) <= max(fabs(x), fabs(y)) * tolerance;
 }
 
-/// Deprecated, use `approxEqAbs` or `approxEqRel`.
-pub const approxEq = approxEqAbs;
+pub fn approxEq(comptime T: type, x: T, y: T, tolerance: T) bool {
+    _ = T;
+    _ = x;
+    _ = y;
+    _ = tolerance;
+    @compileError("deprecated; use `approxEqAbs` or `approxEqRel`");
+}
 
 test "approxEqAbs and approxEqRel" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
@@ -241,6 +246,7 @@ pub const isNegativeInf = @import("math/isinf.zig").isNegativeInf;
 pub const isNormal = @import("math/isnormal.zig").isNormal;
 pub const signbit = @import("math/signbit.zig").signbit;
 pub const scalbn = @import("math/scalbn.zig").scalbn;
+pub const ldexp = @import("math/ldexp.zig").ldexp;
 pub const pow = @import("math/pow.zig").pow;
 pub const powi = @import("math/powi.zig").powi;
 pub const sqrt = @import("math/sqrt.zig").sqrt;

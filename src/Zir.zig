@@ -101,7 +101,7 @@ pub fn hasCompileErrors(code: Zir) bool {
     return code.extra[@enumToInt(ExtraIndex.compile_errors)] != 0;
 }
 
-pub fn deinit(code: *Zir, gpa: *Allocator) void {
+pub fn deinit(code: *Zir, gpa: Allocator) void {
     code.instructions.deinit(gpa);
     gpa.free(code.string_bytes);
     gpa.free(code.extra);

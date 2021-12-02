@@ -33,7 +33,7 @@ const InnerError = error{
     CodegenFail,
 };
 
-gpa: *Allocator,
+gpa: Allocator,
 air: Air,
 liveness: Liveness,
 bin_file: *link.File,
@@ -164,7 +164,7 @@ const MCValue = union(enum) {
 const Branch = struct {
     inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},
 
-    fn deinit(self: *Branch, gpa: *Allocator) void {
+    fn deinit(self: *Branch, gpa: Allocator) void {
         self.inst_table.deinit(gpa);
         self.* = undefined;
     }
@@ -1501,7 +1501,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 });
             } else if (func_value.castTag(.extern_fn)) |func_payload| {
                 const decl = func_payload.data;
-                const n_strx = try macho_file.addExternFn(mem.spanZ(decl.name));
+                const n_strx = try macho_file.addExternFn(mem.sliceTo(decl.name, 0));
 
                 _ = try self.addInst(.{
                     .tag = .call_extern,

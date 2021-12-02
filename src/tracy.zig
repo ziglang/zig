@@ -103,29 +103,27 @@ pub inline fn traceNamed(comptime src: std.builtin.SourceLocation, comptime name
     }
 }
 
-pub fn tracyAllocator(allocator: *std.mem.Allocator) TracyAllocator(null) {
+pub fn tracyAllocator(allocator: std.mem.Allocator) TracyAllocator(null) {
     return TracyAllocator(null).init(allocator);
 }
 
 pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
     return struct {
-        allocator: std.mem.Allocator,
-        parent_allocator: *std.mem.Allocator,
+        parent_allocator: std.mem.Allocator,
 
         const Self = @This();
 
-        pub fn init(allocator: *std.mem.Allocator) Self {
+        pub fn init(parent_allocator: std.mem.Allocator) Self {
             return .{
-                .parent_allocator = allocator,
-                .allocator = .{
-                    .allocFn = allocFn,
-                    .resizeFn = resizeFn,
-                },
+                .parent_allocator = parent_allocator,
             };
         }
 
-        fn allocFn(allocator: *std.mem.Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) std.mem.Allocator.Error![]u8 {
-            const self = @fieldParentPtr(Self, "allocator", allocator);
+        pub fn allocator(self: *Self) std.mem.Allocator {
+            return std.mem.Allocator.init(self, allocFn, resizeFn, freeFn);
+        }
+
+        fn allocFn(self: *Self, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) std.mem.Allocator.Error![]u8 {
             const result = self.parent_allocator.allocFn(self.parent_allocator, len, ptr_align, len_align, ret_addr);
             if (result) |data| {
                 if (data.len != 0) {
@@ -141,9 +139,7 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
             return result;
         }
 
-        fn resizeFn(allocator: *std.mem.Allocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) std.mem.Allocator.Error!usize {
-            const self = @fieldParentPtr(Self, "allocator", allocator);
-
+        fn resizeFn(self: *Self, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) std.mem.Allocator.Error!usize {
             if (self.parent_allocator.resizeFn(self.parent_allocator, buf, buf_align, new_len, len_align, ret_addr)) |resized_len| {
                 // this condition is to handle free being called on an empty slice that was never even allocated
                 // example case: `std.process.getSelfExeSharedLibPaths` can return `&[_][:0]u8{}`
@@ -155,21 +151,26 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
                     }
                 }
 
-                if (resized_len != 0) {
-                    // this was a shrink or a resize
-                    if (name) |n| {
-                        allocNamed(buf.ptr, resized_len, n);
-                    } else {
-                        alloc(buf.ptr, resized_len);
-                    }
+                if (name) |n| {
+                    allocNamed(buf.ptr, resized_len, n);
+                } else {
+                    alloc(buf.ptr, resized_len);
                 }
 
                 return resized_len;
-            } else |err| {
-                // this is not really an error condition, during normal operation the compiler hits this case thousands of times
-                // due to this emitting messages for it is both slow and causes clutter
-                // messageColor("allocation resize failed", 0xFF0000);
-                return err;
+            }
+
+            // during normal operation the compiler hits this case thousands of times due to this
+            // emitting messages for it is both slow and causes clutter
+            return null;
+        }
+
+        fn freeFn(self: *Self, buf: []u8, buf_align: u29, ret_addr: usize) void {
+            self.parent_allocator.rawFree(buf, buf_align, ret_addr);
+            if (name) |n| {
+                freeNamed(buf.ptr, n);
+            } else {
+                free(buf.ptr);
             }
         }
     };

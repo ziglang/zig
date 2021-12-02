@@ -245,10 +245,6 @@ pub const Random = struct {
         }
     }
 
-    pub const scalar = @compileError("deprecated; use boolean() or int() instead");
-
-    pub const range = @compileError("deprecated; use intRangeLessThan()");
-
     /// Return a floating point value evenly distributed in the range [0, 1).
     pub fn float(r: Random, comptime T: type) T {
         // Generate a uniform value between [1, 2) and scale down to [0, 1).

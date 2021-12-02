@@ -69,7 +69,7 @@ pub fn Stack(comptime T: type) type {
 }
 
 const Context = struct {
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
     stack: *Stack(i32),
     put_sum: isize,
     get_sum: isize,
@@ -88,8 +88,8 @@ test "std.atomic.stack" {
     var plenty_of_memory = try std.heap.page_allocator.alloc(u8, 300 * 1024);
     defer std.heap.page_allocator.free(plenty_of_memory);
 
-    var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
-    var a = &fixed_buffer_allocator.allocator;
+    var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(plenty_of_memory);
+    var a = fixed_buffer_allocator.threadSafeAllocator();
 
     var stack = Stack(i32).init();
     var context = Context{

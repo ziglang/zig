@@ -5,33 +5,31 @@ const Allocator = std.mem.Allocator;
 /// on every call to the allocator. Writer errors are ignored.
 pub fn LogToWriterAllocator(comptime Writer: type) type {
     return struct {
-        allocator: Allocator,
-        parent_allocator: *Allocator,
+        parent_allocator: Allocator,
         writer: Writer,
 
         const Self = @This();
 
-        pub fn init(parent_allocator: *Allocator, writer: Writer) Self {
+        pub fn init(parent_allocator: Allocator, writer: Writer) Self {
             return Self{
-                .allocator = Allocator{
-                    .allocFn = alloc,
-                    .resizeFn = resize,
-                },
                 .parent_allocator = parent_allocator,
                 .writer = writer,
             };
         }
 
+        pub fn allocator(self: *Self) Allocator {
+            return Allocator.init(self, alloc, resize, free);
+        }
+
         fn alloc(
-            allocator: *Allocator,
+            self: *Self,
             len: usize,
             ptr_align: u29,
             len_align: u29,
             ra: usize,
         ) error{OutOfMemory}![]u8 {
-            const self = @fieldParentPtr(Self, "allocator", allocator);
             self.writer.print("alloc : {}", .{len}) catch {};
-            const result = self.parent_allocator.allocFn(self.parent_allocator, len, ptr_align, len_align, ra);
+            const result = self.parent_allocator.rawAlloc(len, ptr_align, len_align, ra);
             if (result) |_| {
                 self.writer.print(" success!\n", .{}) catch {};
             } else |_| {
@@ -41,31 +39,39 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
         }
 
         fn resize(
-            allocator: *Allocator,
+            self: *Self,
             buf: []u8,
             buf_align: u29,
             new_len: usize,
             len_align: u29,
             ra: usize,
-        ) error{OutOfMemory}!usize {
-            const self = @fieldParentPtr(Self, "allocator", allocator);
-            if (new_len == 0) {
-                self.writer.print("free  : {}\n", .{buf.len}) catch {};
-            } else if (new_len <= buf.len) {
+        ) ?usize {
+            if (new_len <= buf.len) {
                 self.writer.print("shrink: {} to {}\n", .{ buf.len, new_len }) catch {};
             } else {
                 self.writer.print("expand: {} to {}", .{ buf.len, new_len }) catch {};
             }
-            if (self.parent_allocator.resizeFn(self.parent_allocator, buf, buf_align, new_len, len_align, ra)) |resized_len| {
+
+            if (self.parent_allocator.rawResize(buf, buf_align, new_len, len_align, ra)) |resized_len| {
                 if (new_len > buf.len) {
                     self.writer.print(" success!\n", .{}) catch {};
                 }
                 return resized_len;
-            } else |e| {
-                std.debug.assert(new_len > buf.len);
-                self.writer.print(" failure!\n", .{}) catch {};
-                return e;
             }
+
+            std.debug.assert(new_len > buf.len);
+            self.writer.print(" failure!\n", .{}) catch {};
+            return null;
+        }
+
+        fn free(
+            self: *Self,
+            buf: []u8,
+            buf_align: u29,
+            ra: usize,
+        ) void {
+            self.writer.print("free  : {}\n", .{buf.len}) catch {};
+            self.parent_allocator.rawFree(buf, buf_align, ra);
         }
     };
 }
@@ -73,7 +79,7 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
 /// This allocator is used in front of another allocator and logs to the provided writer
 /// on every call to the allocator. Writer errors are ignored.
 pub fn logToWriterAllocator(
-    parent_allocator: *Allocator,
+    parent_allocator: Allocator,
     writer: anytype,
 ) LogToWriterAllocator(@TypeOf(writer)) {
     return LogToWriterAllocator(@TypeOf(writer)).init(parent_allocator, writer);
@@ -85,12 +91,12 @@ test "LogToWriterAllocator" {
 
     var allocator_buf: [10]u8 = undefined;
     var fixedBufferAllocator = std.mem.validationWrap(std.heap.FixedBufferAllocator.init(&allocator_buf));
-    const allocator = &logToWriterAllocator(&fixedBufferAllocator.allocator, fbs.writer()).allocator;
+    const allocator = logToWriterAllocator(fixedBufferAllocator.allocator(), fbs.writer()).allocator();
 
     var a = try allocator.alloc(u8, 10);
     a = allocator.shrink(a, 5);
     try std.testing.expect(a.len == 5);
-    try std.testing.expectError(error.OutOfMemory, allocator.resize(a, 20));
+    try std.testing.expect(allocator.resize(a, 20) == null);
     allocator.free(a);
 
     try std.testing.expectEqualSlices(u8,

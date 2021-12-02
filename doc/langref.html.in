@@ -5708,7 +5708,7 @@ const mem = std.mem;
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    try expect(mem.eql(u8, std.mem.spanZ(@ptrCast([*:0]const u8, x[0].?)), "window name"));
+    try expect(mem.eql(u8, std.mem.sliceTo(@ptrCast([*:0]const u8, x[0].?), 0), "window name"));
 }
       {#code_end#}
       {#header_close#}
@@ -7362,9 +7362,9 @@ fn amain() !void {
 }
 
 var global_download_frame: anyframe = undefined;
-fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
+fn fetchUrl(allocator: Allocator, url: []const u8) ![]u8 {
     _ = url; // this is just an example, we don't actually do it!
-    const result = try std.mem.dupe(allocator, u8, "this is the downloaded url contents");
+    const result = try allocator.dupe(u8, "this is the downloaded url contents");
     errdefer allocator.free(result);
     suspend {
         global_download_frame = @frame();
@@ -7374,9 +7374,9 @@ fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
 }
 
 var global_file_frame: anyframe = undefined;
-fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
+fn readFile(allocator: Allocator, filename: []const u8) ![]u8 {
     _ = filename; // this is just an example, we don't actually do it!
-    const result = try std.mem.dupe(allocator, u8, "this is the file contents");
+    const result = try allocator.dupe(u8, "this is the file contents");
     errdefer allocator.free(result);
     suspend {
         global_file_frame = @frame();
@@ -7433,17 +7433,17 @@ fn amain() !void {
     std.debug.print("file_text: {s}\n", .{file_text});
 }
 
-fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
+fn fetchUrl(allocator: Allocator, url: []const u8) ![]u8 {
     _ = url; // this is just an example, we don't actually do it!
-    const result = try std.mem.dupe(allocator, u8, "this is the downloaded url contents");
+    const result = try allocator.dupe(u8, "this is the downloaded url contents");
     errdefer allocator.free(result);
     std.debug.print("fetchUrl returning\n", .{});
     return result;
 }
 
-fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
+fn readFile(allocator: Allocator, filename: []const u8) ![]u8 {
     _ = filename; // this is just an example, we don't actually do it!
-    const result = try std.mem.dupe(allocator, u8, "this is the file contents");
+    const result = try allocator.dupe(u8, "this is the file contents");
     errdefer allocator.free(result);
     std.debug.print("readFile returning\n", .{});
     return result;
@@ -10050,8 +10050,8 @@ pub fn main() void {
       C has a default allocator - <code>malloc</code>, <code>realloc</code>, and <code>free</code>.
       When linking against libc, Zig exposes this allocator with {#syntax#}std.heap.c_allocator{#endsyntax#}.
       However, by convention, there is no default allocator in Zig. Instead, functions which need to
-      allocate accept an {#syntax#}*Allocator{#endsyntax#} parameter. Likewise, data structures such as
-      {#syntax#}std.ArrayList{#endsyntax#} accept an {#syntax#}*Allocator{#endsyntax#} parameter in
+      allocate accept an {#syntax#}Allocator{#endsyntax#} parameter. Likewise, data structures such as
+      {#syntax#}std.ArrayList{#endsyntax#} accept an {#syntax#}Allocator{#endsyntax#} parameter in
       their initialization functions:
       </p>
       {#code_begin|test|allocator#}
@@ -10061,12 +10061,12 @@ const expect = std.testing.expect;
 
 test "using an allocator" {
     var buffer: [100]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&buffer).allocator;
+    const allocator = std.heap.FixedBufferAllocator.init(&buffer).allocator();
     const result = try concat(allocator, "foo", "bar");
     try expect(std.mem.eql(u8, "foobar", result));
 }
 
-fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
+fn concat(allocator: Allocator, a: []const u8, b: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, a.len + b.len);
     std.mem.copy(u8, result, a);
     std.mem.copy(u8, result[a.len..], b);
@@ -10091,7 +10091,7 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
       </p>
       <ol>
           <li>
-              Are you making a library? In this case, best to accept an {#syntax#}*Allocator{#endsyntax#}
+              Are you making a library? In this case, best to accept an {#syntax#}Allocator{#endsyntax#}
               as a parameter and allow your library's users to decide what allocator to use.
           </li>
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
@@ -10114,7 +10114,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
 
     const ptr = try allocator.create(i32);
     std.debug.print("ptr={*}\n", .{ptr});
@@ -10200,7 +10200,7 @@ test "string literal to constant slice" {
       {#header_open|Implementing an Allocator#}
       <p>Zig programmers can implement their own allocators by fulfilling the Allocator interface.
       In order to do this one must read carefully the documentation comments in std/mem.zig and
-      then supply a {#syntax#}reallocFn{#endsyntax#} and a {#syntax#}shrinkFn{#endsyntax#}.
+      then supply a {#syntax#}allocFn{#endsyntax#} and a {#syntax#}resizeFn{#endsyntax#}.
       </p>
       <p>
       There are many example allocators to look at for inspiration. Look at std/heap.zig and
@@ -10281,7 +10281,7 @@ test "string literal to constant slice" {
       <p>
       For example, the function's documentation may say "caller owns the returned memory", in which case
       the code that calls the function must have a plan for when to free that memory. Probably in this situation,
-      the function will accept an {#syntax#}*Allocator{#endsyntax#} parameter.
+      the function will accept an {#syntax#}Allocator{#endsyntax#} parameter.
       </p>
       <p>
       Sometimes the lifetime of a pointer may be more complicated. For example, the
@@ -10820,7 +10820,7 @@ const std = @import("std");
 
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = &general_purpose_allocator.allocator;
+    const gpa = general_purpose_allocator.allocator();
     const args = try std.process.argsAlloc(gpa);
     defer std.process.argsFree(gpa, args);
 
@@ -10842,7 +10842,7 @@ const PreopenList = std.fs.wasi.PreopenList;
 
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = &general_purpose_allocator.allocator;
+    const gpa = general_purpose_allocator.allocator();
 
     var preopens = PreopenList.init(gpa);
     defer preopens.deinit();

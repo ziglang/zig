@@ -17,13 +17,13 @@ pub fn ZlibStream(comptime ReaderType: type) type {
             error{ WrongChecksum, Unsupported };
         pub const Reader = io.Reader(*Self, Error, read);
 
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         inflater: deflate.InflateStream(ReaderType),
         in_reader: ReaderType,
         hasher: std.hash.Adler32,
         window_slice: []u8,
 
-        fn init(allocator: *mem.Allocator, source: ReaderType) !Self {
+        fn init(allocator: mem.Allocator, source: ReaderType) !Self {
             // Zlib header format is specified in RFC1950
             const header = try source.readBytesNoEof(2);
 
@@ -88,7 +88,7 @@ pub fn ZlibStream(comptime ReaderType: type) type {
     };
 }
 
-pub fn zlibStream(allocator: *mem.Allocator, reader: anytype) !ZlibStream(@TypeOf(reader)) {
+pub fn zlibStream(allocator: mem.Allocator, reader: anytype) !ZlibStream(@TypeOf(reader)) {
     return ZlibStream(@TypeOf(reader)).init(allocator, reader);
 }
 

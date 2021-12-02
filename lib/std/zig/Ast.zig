@@ -34,7 +34,7 @@ pub const Location = struct {
     line_end: usize,
 };
 
-pub fn deinit(tree: *Tree, gpa: *mem.Allocator) void {
+pub fn deinit(tree: *Tree, gpa: mem.Allocator) void {
     tree.tokens.deinit(gpa);
     tree.nodes.deinit(gpa);
     gpa.free(tree.extra_data);
@@ -52,7 +52,7 @@ pub const RenderError = error{
 /// for allocating extra stack memory if needed, because this function utilizes recursion.
 /// Note: that's not actually true yet, see https://github.com/ziglang/zig/issues/1006.
 /// Caller owns the returned slice of bytes, allocated with `gpa`.
-pub fn render(tree: Tree, gpa: *mem.Allocator) RenderError![]u8 {
+pub fn render(tree: Tree, gpa: mem.Allocator) RenderError![]u8 {
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
 
@@ -135,6 +135,9 @@ pub fn renderError(tree: Tree, parse_error: Error, stream: anytype) !void {
             // Note that the token will point at the `.*` but ideally the source
             // location would point to the `*` after the `.*`.
             return stream.writeAll("'.*' cannot be followed by '*'. Are you missing a space?");
+        },
+        .chained_comparison_operators => {
+            return stream.writeAll("comparison operators cannot be chained");
         },
         .decl_between_fields => {
             return stream.writeAll("declarations are not allowed between container fields");
@@ -2424,6 +2427,7 @@ pub const Error = struct {
 
     pub const Tag = enum {
         asterisk_after_ptr_deref,
+        chained_comparison_operators,
         decl_between_fields,
         expected_block,
         expected_block_or_assignment,

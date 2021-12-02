@@ -201,7 +201,7 @@ fn initBlocks(
 }
 
 fn processBlocks(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     blocks: *Blocks,
     time: u32,
     memory: u32,
@@ -240,7 +240,7 @@ fn processBlocksSt(
 }
 
 fn processBlocksMt(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     blocks: *Blocks,
     time: u32,
     memory: u32,
@@ -480,7 +480,7 @@ fn indexAlpha(
 ///
 /// Salt has to be at least 8 bytes length.
 pub fn kdf(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     derived_key: []u8,
     password: []const u8,
     salt: []const u8,
@@ -524,7 +524,7 @@ const PhcFormatHasher = struct {
     };
 
     pub fn create(
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         password: []const u8,
         params: Params,
         mode: Mode,
@@ -550,7 +550,7 @@ const PhcFormatHasher = struct {
     }
 
     pub fn verify(
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         str: []const u8,
         password: []const u8,
     ) HasherError!void {
@@ -579,7 +579,7 @@ const PhcFormatHasher = struct {
 ///
 /// Only phc encoding is supported.
 pub const HashOptions = struct {
-    allocator: ?*mem.Allocator,
+    allocator: ?mem.Allocator,
     params: Params,
     mode: Mode = .argon2id,
     encoding: pwhash.Encoding = .phc,
@@ -609,7 +609,7 @@ pub fn strHash(
 ///
 /// Allocator is required for argon2.
 pub const VerifyOptions = struct {
-    allocator: ?*mem.Allocator,
+    allocator: ?mem.Allocator,
 };
 
 /// Verify that a previously computed hash is valid for a given password.

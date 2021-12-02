@@ -92,7 +92,7 @@ const ar_hdr = extern struct {
     }
 };
 
-pub fn deinit(self: *Archive, allocator: *Allocator) void {
+pub fn deinit(self: *Archive, allocator: Allocator) void {
     for (self.toc.keys()) |*key| {
         allocator.free(key.*);
     }
@@ -103,7 +103,7 @@ pub fn deinit(self: *Archive, allocator: *Allocator) void {
     allocator.free(self.name);
 }
 
-pub fn parse(self: *Archive, allocator: *Allocator, target: std.Target) !void {
+pub fn parse(self: *Archive, allocator: Allocator, target: std.Target) !void {
     const reader = self.file.reader();
     self.library_offset = try fat.getLibraryOffset(reader, target);
     try self.file.seekTo(self.library_offset);
@@ -128,7 +128,7 @@ pub fn parse(self: *Archive, allocator: *Allocator, target: std.Target) !void {
     try reader.context.seekTo(0);
 }
 
-fn parseName(allocator: *Allocator, header: ar_hdr, reader: anytype) ![]u8 {
+fn parseName(allocator: Allocator, header: ar_hdr, reader: anytype) ![]u8 {
     const name_or_length = try header.nameOrLength();
     var name: []u8 = undefined;
     switch (name_or_length) {
@@ -146,7 +146,7 @@ fn parseName(allocator: *Allocator, header: ar_hdr, reader: anytype) ![]u8 {
     return name;
 }
 
-fn parseTableOfContents(self: *Archive, allocator: *Allocator, reader: anytype) !void {
+fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !void {
     const symtab_size = try reader.readIntLittle(u32);
     var symtab = try allocator.alloc(u8, symtab_size);
     defer allocator.free(symtab);
@@ -175,7 +175,7 @@ fn parseTableOfContents(self: *Archive, allocator: *Allocator, reader: anytype) 
         };
         const object_offset = try symtab_reader.readIntLittle(u32);
 
-        const sym_name = mem.spanZ(@ptrCast([*:0]const u8, strtab.ptr + n_strx));
+        const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + n_strx), 0);
         const owned_name = try allocator.dupe(u8, sym_name);
         const res = try self.toc.getOrPut(allocator, owned_name);
         defer if (res.found_existing) allocator.free(owned_name);
@@ -188,7 +188,7 @@ fn parseTableOfContents(self: *Archive, allocator: *Allocator, reader: anytype) 
     }
 }
 
-pub fn parseObject(self: Archive, allocator: *Allocator, target: std.Target, offset: u32) !Object {
+pub fn parseObject(self: Archive, allocator: Allocator, target: std.Target, offset: u32) !Object {
     const reader = self.file.reader();
     try reader.context.seekTo(offset + self.library_offset);
 

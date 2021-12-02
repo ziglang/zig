@@ -6,7 +6,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
 
     const out_dir = "out";
     try std.fs.cwd().makePath(out_dir);
@@ -18,7 +18,7 @@ pub fn main() !void {
 }
 
 fn render(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     in_file: []const u8,
     out_file: []const u8,
     fmt: enum {

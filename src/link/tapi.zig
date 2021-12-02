@@ -20,11 +20,15 @@ pub const TbdV3 = struct {
     current_version: ?VersionField,
     compatibility_version: ?VersionField,
     objc_constraint: ?[]const u8,
+    parent_umbrella: ?[]const u8,
     exports: ?[]const struct {
         archs: []const []const u8,
+        allowable_clients: ?[]const []const u8,
         re_exports: ?[]const []const u8,
         symbols: ?[]const []const u8,
         objc_classes: ?[]const []const u8,
+        objc_ivars: ?[]const []const u8,
+        objc_eh_types: ?[]const []const u8,
     },
 };
 
@@ -50,17 +54,23 @@ pub const TbdV4 = struct {
         targets: []const []const u8,
         symbols: ?[]const []const u8,
         objc_classes: ?[]const []const u8,
+        objc_ivars: ?[]const []const u8,
+        objc_eh_types: ?[]const []const u8,
     },
     reexports: ?[]const struct {
         targets: []const []const u8,
         symbols: ?[]const []const u8,
         objc_classes: ?[]const []const u8,
+        objc_ivars: ?[]const []const u8,
+        objc_eh_types: ?[]const []const u8,
     },
     allowable_clients: ?[]const struct {
         targets: []const []const u8,
         clients: []const []const u8,
     },
     objc_classes: ?[]const []const u8,
+    objc_ivars: ?[]const []const u8,
+    objc_eh_types: ?[]const []const u8,
 };
 
 pub const Tbd = union(enum) {
@@ -96,7 +106,7 @@ pub const LibStub = struct {
     /// Typed contents of the tbd file.
     inner: []Tbd,
 
-    pub fn loadFromFile(allocator: *Allocator, file: fs.File) !LibStub {
+    pub fn loadFromFile(allocator: Allocator, file: fs.File) !LibStub {
         const source = try file.readToEndAlloc(allocator, std.math.maxInt(u32));
         defer allocator.free(source);
 
@@ -110,7 +120,7 @@ pub const LibStub = struct {
             err: {
                 log.debug("trying to parse as []TbdV4", .{});
                 const inner = lib_stub.yaml.parse([]TbdV4) catch break :err;
-                var out = try lib_stub.yaml.arena.allocator.alloc(Tbd, inner.len);
+                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, inner.len);
                 for (inner) |doc, i| {
                     out[i] = .{ .v4 = doc };
                 }
@@ -120,15 +130,25 @@ pub const LibStub = struct {
             err: {
                 log.debug("trying to parse as TbdV4", .{});
                 const inner = lib_stub.yaml.parse(TbdV4) catch break :err;
-                var out = try lib_stub.yaml.arena.allocator.alloc(Tbd, 1);
+                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, 1);
                 out[0] = .{ .v4 = inner };
+                break :blk out;
+            }
+
+            err: {
+                log.debug("trying to parse as []TbdV3", .{});
+                const inner = lib_stub.yaml.parse([]TbdV3) catch break :err;
+                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, inner.len);
+                for (inner) |doc, i| {
+                    out[i] = .{ .v3 = doc };
+                }
                 break :blk out;
             }
 
             err: {
                 log.debug("trying to parse as TbdV3", .{});
                 const inner = lib_stub.yaml.parse(TbdV3) catch break :err;
-                var out = try lib_stub.yaml.arena.allocator.alloc(Tbd, 1);
+                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, 1);
                 out[0] = .{ .v3 = inner };
                 break :blk out;
             }

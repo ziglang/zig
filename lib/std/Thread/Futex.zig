@@ -198,7 +198,7 @@ const DarwinFutex = struct {
         // true so that we we know to ignore the ETIMEDOUT result.
         var timeout_overflowed = false;
         const status = blk: {
-            if (target.os.version_range.semver.max.major >= 11) {
+            if (target.os.version_range.semver.min.major >= 11) {
                 break :blk darwin.__ulock_wait2(flags, addr, expect, timeout_ns, 0);
             } else {
                 const timeout_us = std.math.cast(u32, timeout_ns / std.time.ns_per_us) catch overflow: {

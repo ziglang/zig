@@ -120,22 +120,6 @@ fn quux_1() !i32 {
     return error.C;
 }
 
-test "error: fn returning empty error set can be passed as fn returning any error" {
-    entry();
-    comptime entry();
-}
-
-fn entry() void {
-    foo2(bar2);
-}
-
-fn foo2(f: fn () anyerror!void) void {
-    const x = f();
-    x catch {};
-}
-
-fn bar2() (error{}!void) {}
-
 test "error: Zero sized error set returned with value payload crash" {
     _ = foo3(0) catch {};
     _ = comptime foo3(0) catch {};

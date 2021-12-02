@@ -228,7 +228,7 @@ pub const SrcFn = struct {
     };
 };
 
-pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Elf {
+pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Elf {
     assert(options.object_format == .elf);
 
     if (build_options.have_llvm and options.use_llvm) {
@@ -281,7 +281,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     return self;
 }
 
-pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Elf {
+pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
     const ptr_width: PtrWidth = switch (options.target.cpu.arch.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
@@ -429,7 +429,7 @@ fn makeDebugString(self: *Elf, bytes: []const u8) !u32 {
 
 fn getString(self: *Elf, str_off: u32) []const u8 {
     assert(str_off < self.shstrtab.items.len);
-    return mem.spanZ(@ptrCast([*:0]const u8, self.shstrtab.items.ptr + str_off));
+    return mem.sliceTo(@ptrCast([*:0]const u8, self.shstrtab.items.ptr + str_off), 0);
 }
 
 fn updateString(self: *Elf, old_str_off: u32, new_name: []const u8) !u32 {
@@ -1243,7 +1243,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
     var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
 
@@ -1322,7 +1322,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.add(self.base.options.eh_frame_hdr);
         man.hash.add(self.base.options.emit_relocs);
         man.hash.add(self.base.options.rdynamic);
-        man.hash.addListOfBytes(self.base.options.extra_lld_args);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.rpath_list);
         man.hash.add(self.base.options.each_lib_rpath);
@@ -1350,6 +1349,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.add(self.base.options.bind_global_refs_locally);
         man.hash.add(self.base.options.tsan);
         man.hash.addOptionalBytes(self.base.options.sysroot);
+        man.hash.add(self.base.options.linker_optimization);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -1381,7 +1381,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
 
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
-    if (self.base.options.output_mode == .Obj and self.base.options.lto) {
+
+    // Due to a deficiency in LLD, we need to special-case BPF to a simple file copy when generating
+    // relocatables. Normally, we would expect `lld -r` to work. However, because LLD wants to resolve
+    // BPF relocations which it shouldn't, it fails before even generating the relocatable.
+    if (self.base.options.output_mode == .Obj and (self.base.options.lto or target.isBpfFreestanding())) {
         // In this case we must do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
@@ -1426,10 +1430,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         if (self.base.options.lto) {
             switch (self.base.options.optimize_mode) {
                 .Debug => {},
-                .ReleaseSmall => try argv.append("-O2"),
-                .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),
+                .ReleaseSmall => try argv.append("--lto-O2"),
+                .ReleaseFast, .ReleaseSafe => try argv.append("--lto-O3"),
             }
         }
+        try argv.append(try std.fmt.allocPrint(arena, "-O{d}", .{
+            self.base.options.linker_optimization,
+        }));
 
         if (self.base.options.output_mode == .Exe) {
             try argv.append("-z");
@@ -1460,8 +1467,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         if (self.base.options.rdynamic) {
             try argv.append("--export-dynamic");
         }
-
-        try argv.appendSlice(self.base.options.extra_lld_args);
 
         if (self.base.options.z_nodelete) {
             try argv.append("-z");
@@ -1548,7 +1553,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             defer test_path.deinit();
             for (self.base.options.lib_dirs) |lib_dir_path| {
                 for (self.base.options.system_libs.keys()) |link_lib| {
-                    test_path.shrinkRetainingCapacity(0);
+                    test_path.clearRetainingCapacity();
                     const sep = fs.path.sep_str;
                     try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{
                         lib_dir_path, link_lib,
@@ -2200,7 +2205,7 @@ pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
     }
 }
 
-fn deinitRelocs(gpa: *Allocator, table: *File.DbgInfoTypeRelocsTable) void {
+fn deinitRelocs(gpa: Allocator, table: *File.DbgInfoTypeRelocsTable) void {
     var it = table.valueIterator();
     while (it.next()) |value| {
         value.relocs.deinit(gpa);
@@ -2231,14 +2236,14 @@ fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8
             self.shrinkTextBlock(&decl.link.elf, code.len);
         }
         local_sym.st_size = code.len;
-        local_sym.st_name = try self.updateString(local_sym.st_name, mem.spanZ(decl.name));
+        local_sym.st_name = try self.updateString(local_sym.st_name, mem.sliceTo(decl.name, 0));
         local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
         local_sym.st_other = 0;
         local_sym.st_shndx = self.text_section_index.?;
         // TODO this write could be avoided if no fields of the symbol were changed.
         try self.writeSymbol(decl.link.elf.local_sym_index);
     } else {
-        const decl_name = mem.spanZ(decl.name);
+        const decl_name = mem.sliceTo(decl.name, 0);
         const name_str_index = try self.makeString(decl_name);
         const vaddr = try self.allocateTextBlock(&decl.link.elf, code.len, required_alignment);
         log.debug("allocated text block for {s} at 0x{x}", .{ decl_name, vaddr });
@@ -2366,7 +2371,7 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     dbg_line_buffer.appendAssumeCapacity(DW.LNS.copy);
 
     // .debug_info subprogram
-    const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
+    const decl_name_with_null = decl.name[0 .. mem.sliceTo(decl.name, 0).len + 1];
     try dbg_info_buffer.ensureUnusedCapacity(25 + decl_name_with_null.len);
 
     const fn_ret_type = decl.ty.fnReturnType();
@@ -3355,7 +3360,7 @@ const CsuObjects = struct {
     crtend: ?[]const u8 = null,
     crtn: ?[]const u8 = null,
 
-    fn init(arena: *mem.Allocator, link_options: link.Options, comp: *const Compilation) !CsuObjects {
+    fn init(arena: mem.Allocator, link_options: link.Options, comp: *const Compilation) !CsuObjects {
         // crt objects are only required for libc.
         if (!link_options.link_libc) return CsuObjects{};
 

@@ -25,7 +25,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     switch (crt_file) {
         .crti_o => {
@@ -310,7 +310,7 @@ const Ext = enum {
     o3,
 };
 
-fn addSrcFile(arena: *Allocator, source_table: *std.StringArrayHashMap(Ext), file_path: []const u8) !void {
+fn addSrcFile(arena: Allocator, source_table: *std.StringArrayHashMap(Ext), file_path: []const u8) !void {
     const ext: Ext = ext: {
         if (mem.endsWith(u8, file_path, ".c")) {
             if (mem.startsWith(u8, file_path, "musl/src/malloc/") or
@@ -344,7 +344,7 @@ fn addSrcFile(arena: *Allocator, source_table: *std.StringArrayHashMap(Ext), fil
 
 fn addCcArgs(
     comp: *Compilation,
-    arena: *Allocator,
+    arena: Allocator,
     args: *std.ArrayList([]const u8),
     want_O3: bool,
 ) error{OutOfMemory}!void {
@@ -394,7 +394,7 @@ fn addCcArgs(
     });
 }
 
-fn start_asm_path(comp: *Compilation, arena: *Allocator, basename: []const u8) ![]const u8 {
+fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![]const u8 {
     const target = comp.getTarget();
     return comp.zig_lib_directory.join(arena, &[_][]const u8{
         "libc", "musl", "crt", archName(target.cpu.arch), basename,

@@ -81,10 +81,10 @@ pub const Target = struct {
                 }
             }
 
-            pub fn defaultVersionRange(tag: Tag) Os {
+            pub fn defaultVersionRange(tag: Tag, arch: Cpu.Arch) Os {
                 return .{
                     .tag = tag,
-                    .version_range = VersionRange.default(tag),
+                    .version_range = VersionRange.default(tag, arch),
                 };
             }
         };
@@ -226,7 +226,7 @@ pub const Target = struct {
 
             /// The default `VersionRange` represents the range that the Zig Standard Library
             /// bases its abstractions on.
-            pub fn default(tag: Tag) VersionRange {
+            pub fn default(tag: Tag, arch: Cpu.Arch) VersionRange {
                 switch (tag) {
                     .freestanding,
                     .ananas,
@@ -266,12 +266,22 @@ pub const Target = struct {
                             .max = .{ .major = 13, .minor = 0 },
                         },
                     },
-                    .macos => return .{
-                        .semver = .{
-                            .min = .{ .major = 10, .minor = 13 },
-                            .max = .{ .major = 11, .minor = 2 },
+                    .macos => return switch (arch) {
+                        .aarch64 => VersionRange{
+                            .semver = .{
+                                .min = .{ .major = 11, .minor = 6 },
+                                .max = .{ .major = 12, .minor = 0 },
+                            },
                         },
+                        .x86_64 => VersionRange{
+                            .semver = .{
+                                .min = .{ .major = 10, .minor = 13 },
+                                .max = .{ .major = 12, .minor = 0 },
+                            },
+                        },
+                        else => unreachable,
                     },
+
                     .ios => return .{
                         .semver = .{
                             .min = .{ .major = 12, .minor = 0 },
@@ -885,6 +895,13 @@ pub const Target = struct {
                 };
             }
 
+            pub fn isBpf(arch: Arch) bool {
+                return switch (arch) {
+                    .bpfel, .bpfeb => true,
+                    else => false,
+                };
+            }
+
             pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) !*const Cpu.Model {
                 for (arch.allCpuModels()) |cpu| {
                     if (mem.eql(u8, cpu_name, cpu.name)) {
@@ -1306,15 +1323,15 @@ pub const Target = struct {
 
     pub const stack_align = 16;
 
-    pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
+    pub fn zigTriple(self: Target, allocator: mem.Allocator) ![]u8 {
         return std.zig.CrossTarget.fromTarget(self).zigTriple(allocator);
     }
 
-    pub fn linuxTripleSimple(allocator: *mem.Allocator, cpu_arch: Cpu.Arch, os_tag: Os.Tag, abi: Abi) ![]u8 {
+    pub fn linuxTripleSimple(allocator: mem.Allocator, cpu_arch: Cpu.Arch, os_tag: Os.Tag, abi: Abi) ![]u8 {
         return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ @tagName(cpu_arch), @tagName(os_tag), @tagName(abi) });
     }
 
-    pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
+    pub fn linuxTriple(self: Target, allocator: mem.Allocator) ![]u8 {
         return linuxTripleSimple(allocator, self.cpu.arch, self.os.tag, self.abi);
     }
 
@@ -1409,6 +1426,10 @@ pub const Target = struct {
 
     pub fn isBSD(self: Target) bool {
         return self.os.tag.isBSD();
+    }
+
+    pub fn isBpfFreestanding(self: Target) bool {
+        return self.cpu.arch.isBpf() and self.os.tag == .freestanding;
     }
 
     pub fn isGnuLibC_os_tag_abi(os_tag: Os.Tag, abi: Abi) bool {

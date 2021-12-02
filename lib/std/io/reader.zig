@@ -45,10 +45,10 @@ pub fn Reader(
             if (amt_read < buf.len) return error.EndOfStream;
         }
 
-        pub const readAllBuffer = @compileError("deprecated; use readAllArrayList()");
-
-        /// Appends to the `std.ArrayList` contents by reading from the stream until end of stream is found.
-        /// If the number of bytes appended would exceed `max_append_size`, `error.StreamTooLong` is returned
+        /// Appends to the `std.ArrayList` contents by reading from the stream
+        /// until end of stream is found.
+        /// If the number of bytes appended would exceed `max_append_size`,
+        /// `error.StreamTooLong` is returned
         /// and the `std.ArrayList` has exactly `max_append_size` bytes appended.
         pub fn readAllArrayList(self: Self, array_list: *std.ArrayList(u8), max_append_size: usize) !void {
             return self.readAllArrayListAligned(null, array_list, max_append_size);
@@ -88,7 +88,7 @@ pub fn Reader(
         /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
-        pub fn readAllAlloc(self: Self, allocator: *mem.Allocator, max_size: usize) ![]u8 {
+        pub fn readAllAlloc(self: Self, allocator: mem.Allocator, max_size: usize) ![]u8 {
             var array_list = std.ArrayList(u8).init(allocator);
             defer array_list.deinit();
             try self.readAllArrayList(&array_list, max_size);
@@ -127,7 +127,7 @@ pub fn Reader(
         /// If this function returns an error, the contents from the stream read so far are lost.
         pub fn readUntilDelimiterAlloc(
             self: Self,
-            allocator: *mem.Allocator,
+            allocator: mem.Allocator,
             delimiter: u8,
             max_size: usize,
         ) ![]u8 {
@@ -163,7 +163,7 @@ pub fn Reader(
         /// If this function returns an error, the contents from the stream read so far are lost.
         pub fn readUntilDelimiterOrEofAlloc(
             self: Self,
-            allocator: *mem.Allocator,
+            allocator: mem.Allocator,
             delimiter: u8,
             max_size: usize,
         ) !?[]u8 {

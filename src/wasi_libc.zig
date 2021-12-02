@@ -67,7 +67,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     switch (crt_file) {
         .crt1_reactor_o => {
@@ -243,7 +243,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     }
 }
 
-fn sanitize(arena: *Allocator, file_path: []const u8) ![]const u8 {
+fn sanitize(arena: Allocator, file_path: []const u8) ![]const u8 {
     // TODO do this at comptime on the comptime data rather than at runtime
     // probably best to wait until self-hosted is done and our comptime execution
     // is faster and uses less memory.
@@ -261,7 +261,7 @@ fn sanitize(arena: *Allocator, file_path: []const u8) ![]const u8 {
 
 fn addCCArgs(
     comp: *Compilation,
-    arena: *Allocator,
+    arena: Allocator,
     args: *std.ArrayList([]const u8),
     want_O3: bool,
 ) error{OutOfMemory}!void {
@@ -292,7 +292,7 @@ fn addCCArgs(
 
 fn addLibcBottomHalfIncludes(
     comp: *Compilation,
-    arena: *Allocator,
+    arena: Allocator,
     args: *std.ArrayList([]const u8),
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
@@ -328,7 +328,7 @@ fn addLibcBottomHalfIncludes(
 
 fn addLibcTopHalfIncludes(
     comp: *Compilation,
-    arena: *Allocator,
+    arena: Allocator,
     args: *std.ArrayList([]const u8),
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{

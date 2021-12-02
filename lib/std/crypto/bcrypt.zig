@@ -368,7 +368,7 @@ const CryptFormatHasher = struct {
 
 /// Options for hashing a password.
 pub const HashOptions = struct {
-    allocator: ?*mem.Allocator = null,
+    allocator: ?mem.Allocator = null,
     params: Params,
     encoding: pwhash.Encoding,
 };
@@ -394,7 +394,7 @@ pub fn strHash(
 
 /// Options for hash verification.
 pub const VerifyOptions = struct {
-    allocator: ?*mem.Allocator = null,
+    allocator: ?mem.Allocator = null,
 };
 
 /// Verify that a previously computed hash is valid for a given password.

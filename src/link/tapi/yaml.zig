@@ -149,7 +149,7 @@ pub const Value = union(ValueType) {
         };
     }
 
-    fn fromNode(arena: *Allocator, tree: *const Tree, node: *const Node, type_hint: ?ValueType) YamlError!Value {
+    fn fromNode(arena: Allocator, tree: *const Tree, node: *const Node, type_hint: ?ValueType) YamlError!Value {
         if (node.cast(Node.Doc)) |doc| {
             const inner = doc.value orelse {
                 // empty doc
@@ -246,17 +246,18 @@ pub const Yaml = struct {
         }
     }
 
-    pub fn load(allocator: *Allocator, source: []const u8) !Yaml {
+    pub fn load(allocator: Allocator, source: []const u8) !Yaml {
         var arena = ArenaAllocator.init(allocator);
+        const arena_allocator = arena.allocator();
 
-        var tree = Tree.init(&arena.allocator);
+        var tree = Tree.init(arena_allocator);
         try tree.parse(source);
 
-        var docs = std.ArrayList(Value).init(&arena.allocator);
+        var docs = std.ArrayList(Value).init(arena_allocator);
         try docs.ensureUnusedCapacity(tree.docs.items.len);
 
         for (tree.docs.items) |node| {
-            const value = try Value.fromNode(&arena.allocator, &tree, node, null);
+            const value = try Value.fromNode(arena_allocator, &tree, node, null);
             docs.appendAssumeCapacity(value);
         }
 
@@ -299,7 +300,7 @@ pub const Yaml = struct {
             .Pointer => |info| {
                 switch (info.size) {
                     .Slice => {
-                        var parsed = try self.arena.allocator.alloc(info.child, self.docs.items.len);
+                        var parsed = try self.arena.allocator().alloc(info.child, self.docs.items.len);
                         for (self.docs.items) |doc, i| {
                             parsed[i] = try self.parseValue(info.child, doc);
                         }
@@ -361,7 +362,7 @@ pub const Yaml = struct {
 
         inline for (struct_info.fields) |field| {
             const value: ?Value = map.get(field.name) orelse blk: {
-                const field_name = try mem.replaceOwned(u8, &self.arena.allocator, field.name, "_", "-");
+                const field_name = try mem.replaceOwned(u8, self.arena.allocator(), field.name, "_", "-");
                 break :blk map.get(field_name);
             };
 
@@ -382,7 +383,7 @@ pub const Yaml = struct {
 
     fn parsePointer(self: *Yaml, comptime T: type, value: Value) Error!T {
         const ptr_info = @typeInfo(T).Pointer;
-        const arena = &self.arena.allocator;
+        const arena = self.arena.allocator();
 
         switch (ptr_info.size) {
             .Slice => {

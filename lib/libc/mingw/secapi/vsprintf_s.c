@@ -33,8 +33,13 @@ vsprintf_s (char *_DstBuf, size_t _Size, const char *_Format, va_list _ArgList)
   return _stub (_DstBuf, _Size, _Format, _ArgList);
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wimplicit-function-declaration"
+
 static int __cdecl
 _int_vsprintf_s (char *_DstBuf, size_t _Size, const char *_Format, va_list _ArgList)
 {
   return __ms_vsnprintf (_DstBuf, _Size, _Format, _ArgList);
 }
+
+#pragma clang diagnostic pop

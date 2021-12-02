@@ -64,14 +64,9 @@ pub const url_safe_no_pad = Codecs{
     .Decoder = Base64Decoder.init(url_safe_alphabet_chars, null),
 };
 
-// Backwards compatibility
-
-/// Deprecated - Use `standard.pad_char`
-pub const standard_pad_char = standard.pad_char;
-/// Deprecated - Use `standard.Encoder`
-pub const standard_encoder = standard.Encoder;
-/// Deprecated - Use `standard.Decoder`
-pub const standard_decoder = standard.Decoder;
+pub const standard_pad_char = @compileError("deprecated; use standard.pad_char");
+pub const standard_encoder = @compileError("deprecated; use standard.Encoder");
+pub const standard_decoder = @compileError("deprecated; use standard.Decoder");
 
 pub const Base64Encoder = struct {
     alphabet_chars: [64]u8,

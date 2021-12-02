@@ -10,18 +10,7 @@ typedef union sigval {
 	void *sival_ptr;
 } sigval_t;
 
-/*
- * This is the size (including padding) of the part of the
- * struct siginfo that is before the union.
- */
-#ifndef __ARCH_SI_PREAMBLE_SIZE
-#define __ARCH_SI_PREAMBLE_SIZE	(3 * sizeof(int))
-#endif
-
 #define SI_MAX_SIZE	128
-#ifndef SI_PAD_SIZE
-#define SI_PAD_SIZE	((SI_MAX_SIZE - __ARCH_SI_PREAMBLE_SIZE) / sizeof(int))
-#endif
 
 /*
  * The default "si_band" type is "long", as specified by POSIX.
@@ -40,96 +29,117 @@ typedef union sigval {
 #define __ARCH_SI_ATTRIBUTES
 #endif
 
-typedef struct siginfo {
-	int si_signo;
-#ifndef __ARCH_HAS_SWAPPED_SIGINFO
-	int si_errno;
-	int si_code;
-#else
-	int si_code;
-	int si_errno;
-#endif
+/*
+ * Be careful when extending this union.  On 32bit siginfo_t is 32bit
+ * aligned.  Which means that a 64bit field or any other field that
+ * would increase the alignment of siginfo_t will break the ABI.
+ */
+union __sifields {
+	/* kill() */
+	struct {
+		__kernel_pid_t _pid;	/* sender's pid */
+		__kernel_uid32_t _uid;	/* sender's uid */
+	} _kill;
 
-	union {
-		int _pad[SI_PAD_SIZE];
+	/* POSIX.1b timers */
+	struct {
+		__kernel_timer_t _tid;	/* timer id */
+		int _overrun;		/* overrun count */
+		sigval_t _sigval;	/* same as below */
+		int _sys_private;       /* not to be passed to user */
+	} _timer;
 
-		/* kill() */
-		struct {
-			__kernel_pid_t _pid;	/* sender's pid */
-			__kernel_uid32_t _uid;	/* sender's uid */
-		} _kill;
+	/* POSIX.1b signals */
+	struct {
+		__kernel_pid_t _pid;	/* sender's pid */
+		__kernel_uid32_t _uid;	/* sender's uid */
+		sigval_t _sigval;
+	} _rt;
 
-		/* POSIX.1b timers */
-		struct {
-			__kernel_timer_t _tid;	/* timer id */
-			int _overrun;		/* overrun count */
-			sigval_t _sigval;	/* same as below */
-			int _sys_private;       /* not to be passed to user */
-		} _timer;
+	/* SIGCHLD */
+	struct {
+		__kernel_pid_t _pid;	/* which child */
+		__kernel_uid32_t _uid;	/* sender's uid */
+		int _status;		/* exit code */
+		__ARCH_SI_CLOCK_T _utime;
+		__ARCH_SI_CLOCK_T _stime;
+	} _sigchld;
 
-		/* POSIX.1b signals */
-		struct {
-			__kernel_pid_t _pid;	/* sender's pid */
-			__kernel_uid32_t _uid;	/* sender's uid */
-			sigval_t _sigval;
-		} _rt;
-
-		/* SIGCHLD */
-		struct {
-			__kernel_pid_t _pid;	/* which child */
-			__kernel_uid32_t _uid;	/* sender's uid */
-			int _status;		/* exit code */
-			__ARCH_SI_CLOCK_T _utime;
-			__ARCH_SI_CLOCK_T _stime;
-		} _sigchld;
-
-		/* SIGILL, SIGFPE, SIGSEGV, SIGBUS, SIGTRAP, SIGEMT */
-		struct {
-			void *_addr; /* faulting insn/memory ref. */
-#ifdef __ARCH_SI_TRAPNO
-			int _trapno;	/* TRAP # which caused the signal */
-#endif
+	/* SIGILL, SIGFPE, SIGSEGV, SIGBUS, SIGTRAP, SIGEMT */
+	struct {
+		void *_addr; /* faulting insn/memory ref. */
 #ifdef __ia64__
-			int _imm;		/* immediate value for "break" */
-			unsigned int _flags;	/* see ia64 si_flags */
-			unsigned long _isr;	/* isr */
+		int _imm;		/* immediate value for "break" */
+		unsigned int _flags;	/* see ia64 si_flags */
+		unsigned long _isr;	/* isr */
 #endif
 
 #define __ADDR_BND_PKEY_PAD  (__alignof__(void *) < sizeof(short) ? \
 			      sizeof(short) : __alignof__(void *))
-			union {
-				/*
-				 * used when si_code=BUS_MCEERR_AR or
-				 * used when si_code=BUS_MCEERR_AO
-				 */
-				short _addr_lsb; /* LSB of the reported address */
-				/* used when si_code=SEGV_BNDERR */
-				struct {
-					char _dummy_bnd[__ADDR_BND_PKEY_PAD];
-					void *_lower;
-					void *_upper;
-				} _addr_bnd;
-				/* used when si_code=SEGV_PKUERR */
-				struct {
-					char _dummy_pkey[__ADDR_BND_PKEY_PAD];
-					__u32 _pkey;
-				} _addr_pkey;
-			};
-		} _sigfault;
+		union {
+			/* used on alpha and sparc */
+			int _trapno;	/* TRAP # which caused the signal */
+			/*
+			 * used when si_code=BUS_MCEERR_AR or
+			 * used when si_code=BUS_MCEERR_AO
+			 */
+			short _addr_lsb; /* LSB of the reported address */
+			/* used when si_code=SEGV_BNDERR */
+			struct {
+				char _dummy_bnd[__ADDR_BND_PKEY_PAD];
+				void *_lower;
+				void *_upper;
+			} _addr_bnd;
+			/* used when si_code=SEGV_PKUERR */
+			struct {
+				char _dummy_pkey[__ADDR_BND_PKEY_PAD];
+				__u32 _pkey;
+			} _addr_pkey;
+			/* used when si_code=TRAP_PERF */
+			struct {
+				unsigned long _data;
+				__u32 _type;
+			} _perf;
+		};
+	} _sigfault;
 
-		/* SIGPOLL */
-		struct {
-			__ARCH_SI_BAND_T _band;	/* POLL_IN, POLL_OUT, POLL_MSG */
-			int _fd;
-		} _sigpoll;
+	/* SIGPOLL */
+	struct {
+		__ARCH_SI_BAND_T _band;	/* POLL_IN, POLL_OUT, POLL_MSG */
+		int _fd;
+	} _sigpoll;
 
-		/* SIGSYS */
-		struct {
-			void *_call_addr; /* calling user insn */
-			int _syscall;	/* triggering system call number */
-			unsigned int _arch;	/* AUDIT_ARCH_* of syscall */
-		} _sigsys;
-	} _sifields;
+	/* SIGSYS */
+	struct {
+		void *_call_addr; /* calling user insn */
+		int _syscall;	/* triggering system call number */
+		unsigned int _arch;	/* AUDIT_ARCH_* of syscall */
+	} _sigsys;
+};
+
+#ifndef __ARCH_HAS_SWAPPED_SIGINFO
+#define __SIGINFO 			\
+struct {				\
+	int si_signo;			\
+	int si_errno;			\
+	int si_code;			\
+	union __sifields _sifields;	\
+}
+#else
+#define __SIGINFO 			\
+struct {				\
+	int si_signo;			\
+	int si_code;			\
+	int si_errno;			\
+	union __sifields _sifields;	\
+}
+#endif /* __ARCH_HAS_SWAPPED_SIGINFO */
+
+typedef struct siginfo {
+	union {
+		__SIGINFO;
+		int _si_pad[SI_MAX_SIZE/sizeof(int)];
+	};
 } __ARCH_SI_ATTRIBUTES siginfo_t;
 
 /*
@@ -147,13 +157,13 @@ typedef struct siginfo {
 #define si_int		_sifields._rt._sigval.sival_int
 #define si_ptr		_sifields._rt._sigval.sival_ptr
 #define si_addr		_sifields._sigfault._addr
-#ifdef __ARCH_SI_TRAPNO
 #define si_trapno	_sifields._sigfault._trapno
-#endif
 #define si_addr_lsb	_sifields._sigfault._addr_lsb
 #define si_lower	_sifields._sigfault._addr_bnd._lower
 #define si_upper	_sifields._sigfault._addr_bnd._upper
 #define si_pkey		_sifields._sigfault._addr_pkey._pkey
+#define si_perf_data	_sifields._sigfault._perf._data
+#define si_perf_type	_sifields._sigfault._perf._type
 #define si_band		_sifields._sigpoll._band
 #define si_fd		_sifields._sigpoll._fd
 #define si_call_addr	_sifields._sigsys._call_addr
@@ -228,7 +238,9 @@ typedef struct siginfo {
 #define SEGV_ACCADI	5	/* ADI not enabled for mapped object */
 #define SEGV_ADIDERR	6	/* Disrupting MCD error */
 #define SEGV_ADIPERR	7	/* Precise MCD exception */
-#define NSIGSEGV	7
+#define SEGV_MTEAERR	8	/* Asynchronous ARM MTE error */
+#define SEGV_MTESERR	9	/* Synchronous ARM MTE exception */
+#define NSIGSEGV	9
 
 /*
  * SIGBUS si_codes
@@ -250,7 +262,8 @@ typedef struct siginfo {
 #define TRAP_BRANCH     3	/* process taken branch trap */
 #define TRAP_HWBKPT     4	/* hardware breakpoint/watchpoint */
 #define TRAP_UNK	5	/* undiagnosed trap */
-#define NSIGTRAP	5
+#define TRAP_PERF	6	/* perf event with sigtrap=1 */
+#define NSIGTRAP	6
 
 /*
  * There is an additional set of SIGTRAP si_codes used by ptrace
@@ -283,7 +296,14 @@ typedef struct siginfo {
  * SIGSYS si_codes
  */
 #define SYS_SECCOMP	1	/* seccomp triggered */
-#define NSIGSYS		1
+#define SYS_USER_DISPATCH 2	/* syscall user dispatch triggered */
+#define NSIGSYS		2
+
+/*
+ * SIGEMT si_codes
+ */
+#define EMT_TAGOVF	1	/* tag overflow */
+#define NSIGEMT		1
 
 /*
  * sigevent definitions

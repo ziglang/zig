@@ -664,7 +664,7 @@ pub const AddressList = struct {
 };
 
 /// All memory allocated with `allocator` will be freed before this function returns.
-pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) !Stream {
+pub fn tcpConnectToHost(allocator: mem.Allocator, name: []const u8, port: u16) !Stream {
     const list = try getAddressList(allocator, name, port);
     defer list.deinit();
 
@@ -699,12 +699,12 @@ pub fn tcpConnectToAddress(address: Address) !Stream {
 }
 
 /// Call `AddressList.deinit` on the result.
-pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*AddressList {
+pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*AddressList {
     const result = blk: {
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
 
-        const result = try arena.allocator.create(AddressList);
+        const result = try arena.allocator().create(AddressList);
         result.* = AddressList{
             .arena = arena,
             .addrs = undefined,
@@ -712,7 +712,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         };
         break :blk result;
     };
-    const arena = &result.arena.allocator;
+    const arena = result.arena.allocator();
     errdefer result.arena.deinit();
 
     if (builtin.target.os.tag == .windows or builtin.link_libc) {
@@ -785,7 +785,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
 
             if (info.canonname) |n| {
                 if (result.canon_name == null) {
-                    result.canon_name = try arena.dupe(u8, mem.spanZ(n));
+                    result.canon_name = try arena.dupe(u8, mem.sliceTo(n, 0));
                 }
             }
             i += 1;
@@ -816,7 +816,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
 
         return result;
     }
-    @compileError("std.net.getAddresses unimplemented for this OS");
+    @compileError("std.net.getAddressList unimplemented for this OS");
 }
 
 const LookupAddr = struct {
@@ -1303,7 +1303,7 @@ const ResolvConf = struct {
 
 /// Ignores lines longer than 512 bytes.
 /// TODO: https://github.com/ziglang/zig/issues/2765 and https://github.com/ziglang/zig/issues/2761
-fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
+fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
     rc.* = ResolvConf{
         .ns = std.ArrayList(LookupAddr).init(allocator),
         .search = std.ArrayList(u8).init(allocator),
@@ -1588,7 +1588,7 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             var tmp: [256]u8 = undefined;
             // Returns len of compressed name. strlen to get canon name.
             _ = try os.dn_expand(packet, data, &tmp);
-            const canon_name = mem.spanZ(std.meta.assumeSentinel(&tmp, 0));
+            const canon_name = mem.sliceTo(std.meta.assumeSentinel(&tmp, 0), 0);
             if (isValidHostName(canon_name)) {
                 ctx.canon.items.len = 0;
                 try ctx.canon.appendSlice(canon_name);

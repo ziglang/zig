@@ -11,7 +11,7 @@ const introspect = @import("introspect.zig");
 const fatal = @import("main.zig").fatal;
 
 pub fn cmdTargets(
-    allocator: *Allocator,
+    allocator: Allocator,
     args: []const []const u8,
     /// Output stream
     stdout: anytype,

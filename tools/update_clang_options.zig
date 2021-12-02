@@ -426,11 +426,32 @@ fn knownOption(name: []const u8) ?[]const u8 {
     return null;
 }
 
+const cpu_targets = struct {
+    pub const aarch64 = std.Target.aarch64;
+    pub const arc = std.Target.arc;
+    pub const amdgpu = std.Target.amdgpu;
+    pub const arm = std.Target.arm;
+    pub const avr = std.Target.avr;
+    pub const bpf = std.Target.bpf;
+    pub const hexagon = std.Target.hexagon;
+    pub const mips = std.Target.mips;
+    pub const msp430 = std.Target.msp430;
+    pub const nvptx = std.Target.nvptx;
+    pub const powerpc = std.Target.powerpc;
+    pub const riscv = std.Target.riscv;
+    pub const sparc = std.Target.sparc;
+    pub const spirv = std.Target.spirv;
+    pub const systemz = std.Target.systemz;
+    pub const ve = std.Target.ve;
+    pub const wasm = std.Target.wasm;
+    pub const x86 = std.Target.x86;
+};
+
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
     const args = try std.process.argsAlloc(allocator);
 
     if (args.len <= 1) {
@@ -453,6 +474,20 @@ pub fn main() anyerror!void {
         usageAndExit(std.io.getStdErr(), args[0], 1);
     }
 
+    var llvm_to_zig_cpu_features = std.StringHashMap([]const u8).init(allocator);
+
+    inline for (@typeInfo(cpu_targets).Struct.decls) |decl| {
+        const Feature = @field(cpu_targets, decl.name).Feature;
+        const all_features = @field(cpu_targets, decl.name).all_features;
+
+        for (all_features) |feat, i| {
+            const llvm_name = feat.llvm_name orelse continue;
+            const zig_feat = @intToEnum(Feature, i);
+            const zig_name = @tagName(zig_feat);
+            try llvm_to_zig_cpu_features.put(llvm_name, zig_name);
+        }
+    }
+
     const child_args = [_][]const u8{
         llvm_tblgen_exe,
         "--dump-json",
@@ -467,15 +502,15 @@ pub fn main() anyerror!void {
         .max_output_bytes = 100 * 1024 * 1024,
     });
 
-    std.debug.warn("{s}\n", .{child_result.stderr});
+    std.debug.print("{s}\n", .{child_result.stderr});
 
     const json_text = switch (child_result.term) {
         .Exited => |code| if (code == 0) child_result.stdout else {
-            std.debug.warn("llvm-tblgen exited with code {d}\n", .{code});
+            std.debug.print("llvm-tblgen exited with code {d}\n", .{code});
             std.process.exit(1);
         },
         else => {
-            std.debug.warn("llvm-tblgen crashed\n", .{});
+            std.debug.print("llvm-tblgen crashed\n", .{});
             std.process.exit(1);
         },
     };
@@ -516,6 +551,7 @@ pub fn main() anyerror!void {
         \\const joinpd1 = clang_options.joinpd1;
         \\const jspd1 = clang_options.jspd1;
         \\const sepd1 = clang_options.sepd1;
+        \\const m = clang_options.m;
         \\pub const data = blk: { @setEvalBranchQuota(6000); break :blk &[_]CliArg{
         \\
     );
@@ -534,7 +570,7 @@ pub fn main() anyerror!void {
             } else if (std.mem.eql(u8, prefix, "/")) {
                 pslash = true;
             } else {
-                std.debug.warn("{s} has unrecognized prefix '{s}'\n", .{ name, prefix });
+                std.debug.print("{s} has unrecognized prefix '{s}'\n", .{ name, prefix });
                 std.process.exit(1);
             }
         }
@@ -562,7 +598,15 @@ pub fn main() anyerror!void {
                 \\
             , .{ name, final_syntax, ident, pd1, pd2, pslash });
         } else if (pd1 and !pd2 and !pslash and syntax == .flag) {
-            try stdout.print("flagpd1(\"{s}\"),\n", .{name});
+            if ((std.mem.startsWith(u8, name, "mno-") and
+                llvm_to_zig_cpu_features.contains(name["mno-".len..])) or
+                (std.mem.startsWith(u8, name, "m") and
+                llvm_to_zig_cpu_features.contains(name["m".len..])))
+            {
+                try stdout.print("m(\"{s}\"),\n", .{name});
+            } else {
+                try stdout.print("flagpd1(\"{s}\"),\n", .{name});
+            }
         } else if (!pd1 and !pd2 and pslash and syntax == .flag) {
             try stdout.print("flagpsl(\"{s}\"),\n", .{name});
         } else if (pd1 and !pd2 and !pslash and syntax == .joined) {
@@ -683,9 +727,9 @@ fn objSyntax(obj: *json.ObjectMap) Syntax {
         return .flag;
     }
     const key = obj.get("!name").?.String;
-    std.debug.warn("{s} (key {s}) has unrecognized superclasses:\n", .{ name, key });
+    std.debug.print("{s} (key {s}) has unrecognized superclasses:\n", .{ name, key });
     for (obj.get("!superclasses").?.Array.items) |superclass_json| {
-        std.debug.warn(" {s}\n", .{superclass_json.String});
+        std.debug.print(" {s}\n", .{superclass_json.String});
     }
     std.process.exit(1);
 }

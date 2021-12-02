@@ -5,7 +5,7 @@ const process = std.process;
 const fs = std.fs;
 const ChildProcess = std.ChildProcess;
 
-var a: *std.mem.Allocator = undefined;
+var a: std.mem.Allocator = undefined;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -16,14 +16,14 @@ pub fn main() !void {
     // skip my own exe name
     _ = arg_it.skip();
 
-    a = &arena.allocator;
+    a = arena.allocator();
 
     const zig_exe_rel = try (arg_it.next(a) orelse {
-        std.debug.warn("Expected first argument to be path to zig compiler\n", .{});
+        std.debug.print("Expected first argument to be path to zig compiler\n", .{});
         return error.InvalidArgs;
     });
     const cache_root = try (arg_it.next(a) orelse {
-        std.debug.warn("Expected second argument to be cache root directory path\n", .{});
+        std.debug.print("Expected second argument to be cache root directory path\n", .{});
         return error.InvalidArgs;
     });
     const zig_exe = try fs.path.resolve(a, &[_][]const u8{zig_exe_rel});
@@ -47,11 +47,11 @@ pub fn main() !void {
 }
 
 fn printCmd(cwd: []const u8, argv: []const []const u8) void {
-    std.debug.warn("cd {s} && ", .{cwd});
+    std.debug.print("cd {s} && ", .{cwd});
     for (argv) |arg| {
-        std.debug.warn("{s} ", .{arg});
+        std.debug.print("{s} ", .{arg});
     }
-    std.debug.warn("\n", .{});
+    std.debug.print("\n", .{});
 }
 
 fn exec(cwd: []const u8, expect_0: bool, argv: []const []const u8) !ChildProcess.ExecResult {
@@ -62,23 +62,23 @@ fn exec(cwd: []const u8, expect_0: bool, argv: []const []const u8) !ChildProcess
         .cwd = cwd,
         .max_output_bytes = max_output_size,
     }) catch |err| {
-        std.debug.warn("The following command failed:\n", .{});
+        std.debug.print("The following command failed:\n", .{});
         printCmd(cwd, argv);
         return err;
     };
     switch (result.term) {
         .Exited => |code| {
             if ((code != 0) == expect_0) {
-                std.debug.warn("The following command exited with error code {}:\n", .{code});
+                std.debug.print("The following command exited with error code {}:\n", .{code});
                 printCmd(cwd, argv);
-                std.debug.warn("stderr:\n{s}\n", .{result.stderr});
+                std.debug.print("stderr:\n{s}\n", .{result.stderr});
                 return error.CommandFailed;
             }
         },
         else => {
-            std.debug.warn("The following command terminated unexpectedly:\n", .{});
+            std.debug.print("The following command terminated unexpectedly:\n", .{});
             printCmd(cwd, argv);
-            std.debug.warn("stderr:\n{s}\n", .{result.stderr});
+            std.debug.print("stderr:\n{s}\n", .{result.stderr});
             return error.CommandFailed;
         },
     }

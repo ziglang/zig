@@ -131,7 +131,7 @@ pub fn parseAppend(buf: *std.ArrayList(u8), bytes: []const u8) error{OutOfMemory
 
 /// Higher level API. Does not return extra info about parse errors.
 /// Caller owns returned memory.
-pub fn parseAlloc(allocator: *std.mem.Allocator, bytes: []const u8) ParseError![]u8 {
+pub fn parseAlloc(allocator: std.mem.Allocator, bytes: []const u8) ParseError![]u8 {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
@@ -147,7 +147,7 @@ test "parse" {
 
     var fixed_buf_mem: [32]u8 = undefined;
     var fixed_buf_alloc = std.heap.FixedBufferAllocator.init(fixed_buf_mem[0..]);
-    var alloc = &fixed_buf_alloc.allocator;
+    var alloc = fixed_buf_alloc.allocator();
 
     try expect(eql(u8, "foo", try parseAlloc(alloc, "\"foo\"")));
     try expect(eql(u8, "foo", try parseAlloc(alloc, "\"f\x6f\x6f\"")));

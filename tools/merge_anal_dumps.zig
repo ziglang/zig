@@ -9,7 +9,7 @@ pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
 
     const args = try std.process.argsAlloc(allocator);
 
@@ -160,7 +160,7 @@ const Dump = struct {
     const ErrorMap = std.HashMap(Error, usize, Error.hash, Error.eql, 80);
     const TypeMap = std.HashMap(Type, usize, Type.hash, Type.eql, 80);
 
-    fn init(allocator: *mem.Allocator) Dump {
+    fn init(allocator: mem.Allocator) Dump {
         return Dump{
             .targets = std.ArrayList([]const u8).init(allocator),
             .file_list = std.ArrayList([]const u8).init(allocator),
@@ -434,7 +434,7 @@ const Dump = struct {
         try jw.endObject();
     }
 
-    fn a(self: Dump) *mem.Allocator {
+    fn a(self: Dump) mem.Allocator {
         return self.targets.allocator;
     }
 

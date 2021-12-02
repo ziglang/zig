@@ -3,7 +3,6 @@ const io = std.io;
 const math = std.math;
 const mem = std.mem;
 const os = std.os;
-const warn = std.debug.warn;
 const coff = std.coff;
 const fs = std.fs;
 const File = std.fs.File;
@@ -461,7 +460,7 @@ pub const PDBStringTableHeader = packed struct {
     ByteSize: u32,
 };
 
-fn readSparseBitVector(stream: anytype, allocator: *mem.Allocator) ![]u32 {
+fn readSparseBitVector(stream: anytype, allocator: mem.Allocator) ![]u32 {
     const num_words = try stream.readIntLittle(u32);
     var list = ArrayList(u32).init(allocator);
     errdefer list.deinit();
@@ -482,7 +481,7 @@ fn readSparseBitVector(stream: anytype, allocator: *mem.Allocator) ![]u32 {
 pub const Pdb = struct {
     in_file: File,
     msf: Msf,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     string_table: ?*MsfStream,
     dbi: ?*MsfStream,
     modules: []Module,
@@ -501,7 +500,7 @@ pub const Pdb = struct {
         checksum_offset: ?usize,
     };
 
-    pub fn init(allocator: *mem.Allocator, path: []const u8) !Pdb {
+    pub fn init(allocator: mem.Allocator, path: []const u8) !Pdb {
         const file = try fs.cwd().openFile(path, .{ .intended_io_mode = .blocking });
         errdefer file.close();
 
@@ -656,7 +655,7 @@ pub const Pdb = struct {
                 const name_index = try reader.readIntLittle(u32);
                 if (name_offset > name_bytes.len)
                     return error.InvalidDebugInfo;
-                const name = mem.spanZ(std.meta.assumeSentinel(name_bytes.ptr + name_offset, 0));
+                const name = mem.sliceTo(std.meta.assumeSentinel(name_bytes.ptr + name_offset, 0), 0);
                 if (mem.eql(u8, name, "/names")) {
                     break :str_tab_index name_index;
                 }
@@ -681,7 +680,7 @@ pub const Pdb = struct {
                 .S_LPROC32, .S_GPROC32 => {
                     const proc_sym = @ptrCast(*ProcSym, &module.symbols[symbol_i + @sizeOf(RecordPrefix)]);
                     if (address >= proc_sym.CodeOffset and address < proc_sym.CodeOffset + proc_sym.CodeSize) {
-                        return mem.spanZ(@ptrCast([*:0]u8, proc_sym) + @sizeOf(ProcSym));
+                        return mem.sliceTo(@ptrCast([*:0]u8, proc_sym) + @sizeOf(ProcSym), 0);
                     }
                 },
                 else => {},
@@ -859,7 +858,7 @@ const Msf = struct {
     directory: MsfStream,
     streams: []MsfStream,
 
-    fn init(allocator: *mem.Allocator, file: File) !Msf {
+    fn init(allocator: mem.Allocator, file: File) !Msf {
         const in = file.reader();
 
         const superblock = try in.readStruct(SuperBlock);

@@ -10,7 +10,6 @@ const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
 const BufMap = std.BufMap;
-const warn = std.debug.warn;
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
 
@@ -189,7 +188,7 @@ fn make(step: *Step) !void {
         printCmd(cwd, argv);
 
     child.spawn() catch |err| {
-        warn("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
+        std.debug.print("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
         return err;
     };
 
@@ -216,7 +215,7 @@ fn make(step: *Step) !void {
     }
 
     const term = child.wait() catch |err| {
-        warn("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
+        std.debug.print("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
         return err;
     };
 
@@ -224,12 +223,12 @@ fn make(step: *Step) !void {
         .Exited => |code| {
             if (code != self.expected_exit_code) {
                 if (self.builder.prominent_compile_errors) {
-                    warn("Run step exited with error code {} (expected {})\n", .{
+                    std.debug.print("Run step exited with error code {} (expected {})\n", .{
                         code,
                         self.expected_exit_code,
                     });
                 } else {
-                    warn("The following command exited with error code {} (expected {}):\n", .{
+                    std.debug.print("The following command exited with error code {} (expected {}):\n", .{
                         code,
                         self.expected_exit_code,
                     });
@@ -240,7 +239,7 @@ fn make(step: *Step) !void {
             }
         },
         else => {
-            warn("The following command terminated unexpectedly:\n", .{});
+            std.debug.print("The following command terminated unexpectedly:\n", .{});
             printCmd(cwd, argv);
             return error.UncleanExit;
         },
@@ -250,7 +249,7 @@ fn make(step: *Step) !void {
         .inherit, .ignore => {},
         .expect_exact => |expected_bytes| {
             if (!mem.eql(u8, expected_bytes, stderr.?)) {
-                warn(
+                std.debug.print(
                     \\
                     \\========= Expected this stderr: =========
                     \\{s}
@@ -264,7 +263,7 @@ fn make(step: *Step) !void {
         },
         .expect_matches => |matches| for (matches) |match| {
             if (mem.indexOf(u8, stderr.?, match) == null) {
-                warn(
+                std.debug.print(
                     \\
                     \\========= Expected to find in stderr: =========
                     \\{s}
@@ -282,7 +281,7 @@ fn make(step: *Step) !void {
         .inherit, .ignore => {},
         .expect_exact => |expected_bytes| {
             if (!mem.eql(u8, expected_bytes, stdout.?)) {
-                warn(
+                std.debug.print(
                     \\
                     \\========= Expected this stdout: =========
                     \\{s}
@@ -296,7 +295,7 @@ fn make(step: *Step) !void {
         },
         .expect_matches => |matches| for (matches) |match| {
             if (mem.indexOf(u8, stdout.?, match) == null) {
-                warn(
+                std.debug.print(
                     \\
                     \\========= Expected to find in stdout: =========
                     \\{s}
@@ -312,11 +311,11 @@ fn make(step: *Step) !void {
 }
 
 fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
-    if (cwd) |yes_cwd| warn("cd {s} && ", .{yes_cwd});
+    if (cwd) |yes_cwd| std.debug.print("cd {s} && ", .{yes_cwd});
     for (argv) |arg| {
-        warn("{s} ", .{arg});
+        std.debug.print("{s} ", .{arg});
     }
-    warn("\n", .{});
+    std.debug.print("\n", .{});
 }
 
 fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {

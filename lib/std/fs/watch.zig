@@ -30,7 +30,7 @@ pub fn Watch(comptime V: type) type {
     return struct {
         channel: event.Channel(Event.Error!Event),
         os_data: OsData,
-        allocator: *Allocator,
+        allocator: Allocator,
 
         const OsData = switch (builtin.os.tag) {
             // TODO https://github.com/ziglang/zig/issues/3778
@@ -96,7 +96,7 @@ pub fn Watch(comptime V: type) type {
             pub const Error = WatchEventError;
         };
 
-        pub fn init(allocator: *Allocator, event_buf_count: usize) !*Self {
+        pub fn init(allocator: Allocator, event_buf_count: usize) !*Self {
             const self = try allocator.create(Self);
             errdefer allocator.destroy(self);
 
@@ -648,7 +648,7 @@ test "write a file, watch it, write it again, delete it" {
     return testWriteWatchWriteDelete(std.testing.allocator);
 }
 
-fn testWriteWatchWriteDelete(allocator: *Allocator) !void {
+fn testWriteWatchWriteDelete(allocator: Allocator) !void {
     const file_path = try std.fs.path.join(allocator, &[_][]const u8{ test_tmp_dir, "file.txt" });
     defer allocator.free(file_path);
 

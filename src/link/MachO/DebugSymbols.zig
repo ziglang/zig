@@ -104,7 +104,7 @@ const min_nop_size = 2;
 
 /// You must call this function *after* `MachO.populateMissingMetadata()`
 /// has been called to get a viable debug symbols output.
-pub fn populateMissingMetadata(self: *DebugSymbols, allocator: *Allocator) !void {
+pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void {
     if (self.uuid_cmd_index == null) {
         const base_cmd = self.base.load_commands.items[self.base.uuid_cmd_index.?];
         self.uuid_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -268,7 +268,7 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
     return index;
 }
 
-pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Options) !void {
+pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Options) !void {
     // TODO This linker code currently assumes there is only 1 compilation unit and it corresponds to the
     // Zig source code.
     const module = options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
@@ -577,7 +577,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
     assert(!self.debug_string_table_dirty);
 }
 
-pub fn deinit(self: *DebugSymbols, allocator: *Allocator) void {
+pub fn deinit(self: *DebugSymbols, allocator: Allocator) void {
     self.dbg_info_decl_free_list.deinit(allocator);
     self.dbg_line_fn_free_list.deinit(allocator);
     self.debug_string_table.deinit(allocator);
@@ -588,7 +588,7 @@ pub fn deinit(self: *DebugSymbols, allocator: *Allocator) void {
     self.file.close();
 }
 
-fn copySegmentCommand(self: *DebugSymbols, allocator: *Allocator, base_cmd: SegmentCommand) !SegmentCommand {
+fn copySegmentCommand(self: *DebugSymbols, allocator: Allocator, base_cmd: SegmentCommand) !SegmentCommand {
     var cmd = SegmentCommand{
         .inner = .{
             .segname = undefined,
@@ -648,7 +648,7 @@ fn updateDwarfSegment(self: *DebugSymbols) void {
 }
 
 /// Writes all load commands and section headers.
-fn writeLoadCommands(self: *DebugSymbols, allocator: *Allocator) !void {
+fn writeLoadCommands(self: *DebugSymbols, allocator: Allocator) !void {
     if (!self.load_commands_dirty) return;
 
     var sizeofcmds: u32 = 0;
@@ -834,7 +834,7 @@ pub const DeclDebugBuffers = struct {
 /// Caller owns the returned memory.
 pub fn initDeclDebugBuffers(
     self: *DebugSymbols,
-    allocator: *Allocator,
+    allocator: Allocator,
     module: *Module,
     decl: *Module.Decl,
 ) !DeclDebugBuffers {
@@ -884,7 +884,7 @@ pub fn initDeclDebugBuffers(
             dbg_line_buffer.appendAssumeCapacity(DW.LNS.copy);
 
             // .debug_info subprogram
-            const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
+            const decl_name_with_null = decl.name[0 .. mem.sliceTo(decl.name, 0).len + 1];
             try dbg_info_buffer.ensureUnusedCapacity(27 + decl_name_with_null.len);
 
             const fn_ret_type = decl.ty.fnReturnType();
@@ -930,7 +930,7 @@ pub fn initDeclDebugBuffers(
 
 pub fn commitDeclDebugInfo(
     self: *DebugSymbols,
-    allocator: *Allocator,
+    allocator: Allocator,
     module: *Module,
     decl: *Module.Decl,
     debug_buffers: *DeclDebugBuffers,
@@ -1141,7 +1141,7 @@ fn addDbgInfoType(
 
 fn updateDeclDebugInfoAllocation(
     self: *DebugSymbols,
-    allocator: *Allocator,
+    allocator: Allocator,
     text_block: *TextBlock,
     len: u32,
 ) !void {
@@ -1256,7 +1256,7 @@ fn getDebugLineProgramEnd(self: DebugSymbols) u32 {
 }
 
 /// TODO Improve this to use a table.
-fn makeDebugString(self: *DebugSymbols, allocator: *Allocator, bytes: []const u8) !u32 {
+fn makeDebugString(self: *DebugSymbols, allocator: Allocator, bytes: []const u8) !u32 {
     try self.debug_string_table.ensureUnusedCapacity(allocator, bytes.len + 1);
     const result = self.debug_string_table.items.len;
     self.debug_string_table.appendSliceAssumeCapacity(bytes);

@@ -15,7 +15,7 @@ pub fn buildTsan(comp: *Compilation) !void {
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     const root_name = "tsan";
     const output_mode = .Lib;

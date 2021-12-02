@@ -16,7 +16,7 @@ const indexToRef = Zir.indexToRef;
 const trace = @import("tracy.zig").trace;
 const BuiltinFn = @import("BuiltinFn.zig");
 
-gpa: *Allocator,
+gpa: Allocator,
 tree: *const Ast,
 instructions: std.MultiArrayList(Zir.Inst) = .{},
 extra: ArrayListUnmanaged(u32) = .{},
@@ -33,7 +33,7 @@ source_line: u32 = 0,
 source_column: u32 = 0,
 /// Used for temporary allocations; freed after AstGen is complete.
 /// The resulting ZIR code has no references to anything in this arena.
-arena: *Allocator,
+arena: Allocator,
 string_table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
 compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
 /// The topmost block of the current function.
@@ -92,13 +92,13 @@ fn appendRefsAssumeCapacity(astgen: *AstGen, refs: []const Zir.Inst.Ref) void {
     astgen.extra.appendSliceAssumeCapacity(coerced);
 }
 
-pub fn generate(gpa: *Allocator, tree: Ast) Allocator.Error!Zir {
+pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
     var astgen: AstGen = .{
         .gpa = gpa,
-        .arena = &arena.allocator,
+        .arena = arena.allocator(),
         .tree = &tree,
     };
     defer astgen.deinit(gpa);
@@ -196,7 +196,7 @@ pub fn generate(gpa: *Allocator, tree: Ast) Allocator.Error!Zir {
     };
 }
 
-pub fn deinit(astgen: *AstGen, gpa: *Allocator) void {
+pub fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.instructions.deinit(gpa);
     astgen.extra.deinit(gpa);
     astgen.string_table.deinit(gpa);
@@ -1939,6 +1939,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
 
     var block_arena = std.heap.ArenaAllocator.init(gz.astgen.gpa);
     defer block_arena.deinit();
+    const block_arena_allocator = block_arena.allocator();
 
     var noreturn_src_node: Ast.Node.Index = 0;
     var scope = parent_scope;
@@ -1959,13 +1960,13 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
         }
         switch (node_tags[statement]) {
             // zig fmt: off
-            .global_var_decl  => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.globalVarDecl(statement)),
-            .local_var_decl   => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.localVarDecl(statement)),
-            .simple_var_decl  => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.simpleVarDecl(statement)),
-            .aligned_var_decl => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.alignedVarDecl(statement)),
+            .global_var_decl  => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.globalVarDecl(statement)),
+            .local_var_decl   => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.localVarDecl(statement)),
+            .simple_var_decl  => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.simpleVarDecl(statement)),
+            .aligned_var_decl => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.alignedVarDecl(statement)),
 
-            .@"defer"    => scope = try makeDeferScope(gz.astgen, scope, statement, &block_arena.allocator, .defer_normal),
-            .@"errdefer" => scope = try makeDeferScope(gz.astgen, scope, statement, &block_arena.allocator, .defer_error),
+            .@"defer"    => scope = try makeDeferScope(gz.astgen, scope, statement, block_arena_allocator, .defer_normal),
+            .@"errdefer" => scope = try makeDeferScope(gz.astgen, scope, statement, block_arena_allocator, .defer_error),
 
             .assign => try assign(gz, scope, statement),
 
@@ -2460,7 +2461,7 @@ fn makeDeferScope(
     astgen: *AstGen,
     scope: *Scope,
     node: Ast.Node.Index,
-    block_arena: *Allocator,
+    block_arena: Allocator,
     scope_tag: Scope.Tag,
 ) InnerError!*Scope {
     const tree = astgen.tree;
@@ -2486,7 +2487,7 @@ fn varDecl(
     gz: *GenZir,
     scope: *Scope,
     node: Ast.Node.Index,
-    block_arena: *Allocator,
+    block_arena: Allocator,
     var_decl: Ast.full.VarDecl,
 ) InnerError!*Scope {
     try emitDbgNode(gz, node);
@@ -3030,7 +3031,7 @@ const WipMembers = struct {
     /// (4 for src_hash + line + name + value + align + link_section + address_space)
     const max_decl_size = 10;
 
-    pub fn init(gpa: *Allocator, payload: *ArrayListUnmanaged(u32), decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
+    pub fn init(gpa: Allocator, payload: *ArrayListUnmanaged(u32), decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
         const payload_top = @intCast(u32, payload.items.len);
         const decls_start = payload_top + (decl_count + decls_per_u32 - 1) / decls_per_u32;
         const field_bits_start = decls_start + decl_count * max_decl_size;
@@ -4781,8 +4782,8 @@ fn simpleBinOp(
     const node_datas = tree.nodes.items(.data);
 
     const result = try gz.addPlNode(op_inst_tag, node, Zir.Inst.Bin{
-        .lhs = try expr(gz, scope, .none, node_datas[node].lhs),
-        .rhs = try expr(gz, scope, .none, node_datas[node].rhs),
+        .lhs = try reachableExpr(gz, scope, .none, node_datas[node].lhs, node),
+        .rhs = try reachableExpr(gz, scope, .none, node_datas[node].rhs, node),
     });
     return rvalue(gz, rl, result, node);
 }
@@ -5963,7 +5964,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
     } else .{
         .ty = try gz.addNodeExtended(.ret_type, node),
     };
-    const operand = try expr(gz, scope, rl, operand_node);
+    const operand = try reachableExpr(gz, scope, rl, operand_node, node);
 
     switch (nodeMayEvalToError(tree, operand_node)) {
         .never => {
@@ -6178,7 +6179,7 @@ fn tunnelThroughClosure(
     ns: ?*Scope.Namespace,
     value: Zir.Inst.Ref,
     token: Ast.TokenIndex,
-    gpa: *Allocator,
+    gpa: Allocator,
 ) !Zir.Inst.Ref {
     // For trivial values, we don't need a tunnel.
     // Just return the ref.
@@ -6421,7 +6422,19 @@ fn asmExpr(
     const asm_source = switch (node_tags[full.ast.template]) {
         .string_literal => try astgen.strLitAsString(main_tokens[full.ast.template]),
         .multiline_string_literal => try astgen.strLitNodeAsString(full.ast.template),
-        else => return astgen.failNode(full.ast.template, "assembly code must use string literal syntax", .{}),
+        else => blk: {
+            // stage1 allows this, and until we do another design iteration on inline assembly
+            // in stage2 to improve support for the various needed use cases, we allow inline
+            // assembly templates to be an expression. Once stage2 addresses the real world needs
+            // of people using inline assembly (primarily OS developers) then we can re-institute
+            // the rule into AstGen that assembly code must use string literal syntax.
+            //return astgen.failNode(full.ast.template, "assembly code must use string literal syntax", .{}),
+            // We still need to trigger all the expr() calls here to avoid errors for unused things.
+            // So we pass 0 as the asm source and stage2 Sema will notice this and
+            // report the error.
+            _ = try comptimeExpr(gz, scope, .none, full.ast.template);
+            break :blk IndexSlice{ .index = 0, .len = 0 };
+        },
     };
 
     // See https://github.com/ziglang/zig/issues/215 and related issues discussing
@@ -8399,7 +8412,7 @@ fn parseStrLit(
     const raw_string = bytes[offset..];
     var buf_managed = buf.toManaged(astgen.gpa);
     const result = std.zig.string_literal.parseAppend(&buf_managed, raw_string);
-    buf.* = buf_managed.toUnmanaged();
+    buf.* = buf_managed.moveToUnmanaged();
     switch (try result) {
         .success => return,
         .invalid_character => |bad_index| {
@@ -8472,11 +8485,7 @@ fn failNodeNotes(
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
-    {
-        var managed = string_bytes.toManaged(astgen.gpa);
-        defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format ++ "\x00", args);
-    }
+    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
         try astgen.extra.ensureTotalCapacity(astgen.gpa, notes_start + 1 + notes.len);
@@ -8513,11 +8522,7 @@ fn failTokNotes(
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
-    {
-        var managed = string_bytes.toManaged(astgen.gpa);
-        defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format ++ "\x00", args);
-    }
+    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
         try astgen.extra.ensureTotalCapacity(astgen.gpa, notes_start + 1 + notes.len);
@@ -8546,11 +8551,7 @@ fn failOff(
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
-    {
-        var managed = string_bytes.toManaged(astgen.gpa);
-        defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format ++ "\x00", args);
-    }
+    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
     try astgen.compile_errors.append(astgen.gpa, .{
         .msg = msg,
         .node = 0,
@@ -8570,11 +8571,7 @@ fn errNoteTok(
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
-    {
-        var managed = string_bytes.toManaged(astgen.gpa);
-        defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format ++ "\x00", args);
-    }
+    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
         .node = 0,
@@ -8593,11 +8590,7 @@ fn errNoteNode(
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
-    {
-        var managed = string_bytes.toManaged(astgen.gpa);
-        defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format ++ "\x00", args);
-    }
+    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
         .node = node,
@@ -8826,7 +8819,7 @@ const Scope = struct {
         /// ref of the capture for decls in this namespace
         captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
 
-        pub fn deinit(self: *Namespace, gpa: *Allocator) void {
+        pub fn deinit(self: *Namespace, gpa: Allocator) void {
             self.decls.deinit(gpa);
             self.captures.deinit(gpa);
             self.* = undefined;

@@ -173,12 +173,12 @@ pub const Loop = struct {
         // We need at least one of these in case the fs thread wants to use onNextTick
         const extra_thread_count = thread_count - 1;
         const resume_node_count = std.math.max(extra_thread_count, 1);
-        self.eventfd_resume_nodes = try self.arena.allocator.alloc(
+        self.eventfd_resume_nodes = try self.arena.allocator().alloc(
             std.atomic.Stack(ResumeNode.EventFd).Node,
             resume_node_count,
         );
 
-        self.extra_threads = try self.arena.allocator.alloc(Thread, extra_thread_count);
+        self.extra_threads = try self.arena.allocator().alloc(Thread, extra_thread_count);
 
         try self.initOsData(extra_thread_count);
         errdefer self.deinitOsData();
@@ -727,7 +727,7 @@ pub const Loop = struct {
     /// with `allocator` and freed when the function returns.
     /// `func` must return void and it can be an async function.
     /// Yields to the event loop, running the function on the next tick.
-    pub fn runDetached(self: *Loop, alloc: *mem.Allocator, comptime func: anytype, args: anytype) error{OutOfMemory}!void {
+    pub fn runDetached(self: *Loop, alloc: mem.Allocator, comptime func: anytype, args: anytype) error{OutOfMemory}!void {
         if (!std.io.is_async) @compileError("Can't use runDetached in non-async mode!");
         if (@TypeOf(@call(.{}, func, args)) != void) {
             @compileError("`func` must not have a return value");
@@ -735,7 +735,7 @@ pub const Loop = struct {
 
         const Wrapper = struct {
             const Args = @TypeOf(args);
-            fn run(func_args: Args, loop: *Loop, allocator: *mem.Allocator) void {
+            fn run(func_args: Args, loop: *Loop, allocator: mem.Allocator) void {
                 loop.beginOneEvent();
                 loop.yield();
                 @call(.{}, func, func_args); // compile error when called with non-void ret type

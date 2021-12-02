@@ -21,7 +21,7 @@ pub const NativePaths = struct {
     rpaths: ArrayList([:0]u8),
     warnings: ArrayList([:0]u8),
 
-    pub fn detect(allocator: *Allocator, native_info: NativeTargetInfo) !NativePaths {
+    pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths {
         const native_target = native_info.target;
 
         var self: NativePaths = .{
@@ -165,7 +165,7 @@ pub const NativePaths = struct {
     }
 
     pub fn addIncludeDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
-        const item = try std.fmt.allocPrint0(self.include_dirs.allocator, fmt, args);
+        const item = try std.fmt.allocPrintZ(self.include_dirs.allocator, fmt, args);
         errdefer self.include_dirs.allocator.free(item);
         try self.include_dirs.append(item);
     }
@@ -175,7 +175,7 @@ pub const NativePaths = struct {
     }
 
     pub fn addLibDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
-        const item = try std.fmt.allocPrint0(self.lib_dirs.allocator, fmt, args);
+        const item = try std.fmt.allocPrintZ(self.lib_dirs.allocator, fmt, args);
         errdefer self.lib_dirs.allocator.free(item);
         try self.lib_dirs.append(item);
     }
@@ -189,13 +189,13 @@ pub const NativePaths = struct {
     }
 
     pub fn addFrameworkDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
-        const item = try std.fmt.allocPrint0(self.framework_dirs.allocator, fmt, args);
+        const item = try std.fmt.allocPrintZ(self.framework_dirs.allocator, fmt, args);
         errdefer self.framework_dirs.allocator.free(item);
         try self.framework_dirs.append(item);
     }
 
     pub fn addWarningFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
-        const item = try std.fmt.allocPrint0(self.warnings.allocator, fmt, args);
+        const item = try std.fmt.allocPrintZ(self.warnings.allocator, fmt, args);
         errdefer self.warnings.allocator.free(item);
         try self.warnings.append(item);
     }
@@ -237,13 +237,13 @@ pub const NativeTargetInfo = struct {
     /// Any resources this function allocates are released before returning, and so there is no
     /// deinitialization method.
     /// TODO Remove the Allocator requirement from this function.
-    pub fn detect(allocator: *Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
-        var os = cross_target.getOsTag().defaultVersionRange();
+    pub fn detect(allocator: Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
+        var os = cross_target.getOsTag().defaultVersionRange(cross_target.getCpuArch());
         if (cross_target.os_tag == null) {
             switch (builtin.target.os.tag) {
                 .linux => {
                     const uts = std.os.uname();
-                    const release = mem.spanZ(&uts.release);
+                    const release = mem.sliceTo(&uts.release, 0);
                     // The release field sometimes has a weird format,
                     // `Version.parse` will attempt to find some meaningful interpretation.
                     if (std.builtin.Version.parse(release)) |ver| {
@@ -257,7 +257,7 @@ pub const NativeTargetInfo = struct {
                 },
                 .solaris => {
                     const uts = std.os.uname();
-                    const release = mem.spanZ(&uts.release);
+                    const release = mem.sliceTo(&uts.release, 0);
                     if (std.builtin.Version.parse(release)) |ver| {
                         os.version_range.semver.min = ver;
                         os.version_range.semver.max = ver;
@@ -441,7 +441,7 @@ pub const NativeTargetInfo = struct {
     /// we fall back to the defaults.
     /// TODO Remove the Allocator requirement from this function.
     fn detectAbiAndDynamicLinker(
-        allocator: *Allocator,
+        allocator: Allocator,
         cpu: Target.Cpu,
         os: Target.Os,
         cross_target: CrossTarget,
@@ -838,7 +838,7 @@ pub const NativeTargetInfo = struct {
                         );
                         const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
                         // TODO this pointer cast should not be necessary
-                        const sh_name = mem.spanZ(std.meta.assumeSentinel(shstrtab[sh_name_off..].ptr, 0));
+                        const sh_name = mem.sliceTo(std.meta.assumeSentinel(shstrtab[sh_name_off..].ptr, 0), 0);
                         if (mem.eql(u8, sh_name, ".dynstr")) {
                             break :find_dyn_str .{
                                 .offset = elfInt(is_64, need_bswap, sh32.sh_offset, sh64.sh_offset),
@@ -856,7 +856,7 @@ pub const NativeTargetInfo = struct {
                     const rpoff_usize = std.math.cast(usize, rpoff) catch |err| switch (err) {
                         error.Overflow => return error.InvalidElfFile,
                     };
-                    const rpath_list = mem.spanZ(std.meta.assumeSentinel(strtab[rpoff_usize..].ptr, 0));
+                    const rpath_list = mem.sliceTo(std.meta.assumeSentinel(strtab[rpoff_usize..].ptr, 0), 0);
                     var it = mem.tokenize(u8, rpath_list, ":");
                     while (it.next()) |rpath| {
                         var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
@@ -922,7 +922,7 @@ pub const NativeTargetInfo = struct {
     fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
         var i: usize = 0;
         while (i < min_read_len) {
-            const len = file.pread(buf[i .. buf.len - i], offset + i) catch |err| switch (err) {
+            const len = file.pread(buf[i..], offset + i) catch |err| switch (err) {
                 error.OperationAborted => unreachable, // Windows-only
                 error.WouldBlock => unreachable, // Did not request blocking mode
                 error.NotOpenForReading => unreachable,

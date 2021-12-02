@@ -58,7 +58,7 @@ cdir: ?CodeDirectory = null,
 
 pub fn calcAdhocSignature(
     self: *CodeSignature,
-    allocator: *Allocator,
+    allocator: Allocator,
     file: fs.File,
     id: []const u8,
     text_segment: macho.segment_command_64,
@@ -145,7 +145,7 @@ pub fn write(self: CodeSignature, writer: anytype) !void {
     try self.cdir.?.write(writer);
 }
 
-pub fn deinit(self: *CodeSignature, allocator: *Allocator) void {
+pub fn deinit(self: *CodeSignature, allocator: Allocator) void {
     if (self.cdir) |*cdir| {
         cdir.data.deinit(allocator);
     }

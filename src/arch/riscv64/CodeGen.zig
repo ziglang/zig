@@ -33,7 +33,7 @@ const InnerError = error{
     CodegenFail,
 };
 
-gpa: *Allocator,
+gpa: Allocator,
 air: Air,
 liveness: Liveness,
 bin_file: *link.File,
@@ -119,12 +119,6 @@ const MCValue = union(enum) {
     stack_offset: u32,
     /// The value is a pointer to one of the stack variables (payload is stack offset).
     ptr_stack_offset: u32,
-    /// The value is in the compare flags assuming an unsigned operation,
-    /// with this operator applied on top of it.
-    compare_flags_unsigned: math.CompareOperator,
-    /// The value is in the compare flags assuming a signed operation,
-    /// with this operator applied on top of it.
-    compare_flags_signed: math.CompareOperator,
 
     fn isMemory(mcv: MCValue) bool {
         return switch (mcv) {
@@ -149,8 +143,6 @@ const MCValue = union(enum) {
             .immediate,
             .embedded_in_code,
             .memory,
-            .compare_flags_unsigned,
-            .compare_flags_signed,
             .ptr_stack_offset,
             .ptr_embedded_in_code,
             .undef,
@@ -166,7 +158,7 @@ const MCValue = union(enum) {
 const Branch = struct {
     inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},
 
-    fn deinit(self: *Branch, gpa: *Allocator) void {
+    fn deinit(self: *Branch, gpa: Allocator) void {
         self.inst_table.deinit(gpa);
         self.* = undefined;
     }
@@ -844,45 +836,8 @@ fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airNot(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const operand = try self.resolveInst(ty_op.operand);
-        switch (operand) {
-            .dead => unreachable,
-            .unreach => unreachable,
-            .compare_flags_unsigned => |op| {
-                const r = MCValue{
-                    .compare_flags_unsigned = switch (op) {
-                        .gte => .lt,
-                        .gt => .lte,
-                        .neq => .eq,
-                        .lt => .gte,
-                        .lte => .gt,
-                        .eq => .neq,
-                    },
-                };
-                break :result r;
-            },
-            .compare_flags_signed => |op| {
-                const r = MCValue{
-                    .compare_flags_signed = switch (op) {
-                        .gte => .lt,
-                        .gt => .lte,
-                        .neq => .eq,
-                        .lt => .gte,
-                        .lte => .gt,
-                        .eq => .neq,
-                    },
-                };
-                break :result r;
-            },
-            else => {},
-        }
-
-        return self.fail("TODO implement NOT for {}", .{self.target.cpu.arch});
-    };
-
-    _ = result;
-    // return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement NOT for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airMin(self: *Self, inst: Air.Inst.Index) !void {
@@ -1211,8 +1166,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .undef => unreachable,
         .unreach => unreachable,
         .dead => unreachable,
-        .compare_flags_unsigned => unreachable,
-        .compare_flags_signed => unreachable,
         .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
         .ptr_stack_offset => |off| try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off }),
         .ptr_embedded_in_code => |off| {
@@ -1271,8 +1224,6 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
         .undef => unreachable,
         .unreach => unreachable,
         .dead => unreachable,
-        .compare_flags_unsigned => unreachable,
-        .compare_flags_signed => unreachable,
         .immediate => |imm| {
             try self.setRegOrMem(elem_ty, .{ .memory = imm }, value);
         },
@@ -1427,8 +1378,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 .dead => unreachable,
                 .embedded_in_code => unreachable,
                 .memory => unreachable,
-                .compare_flags_signed => unreachable,
-                .compare_flags_unsigned => unreachable,
                 .register => |reg| {
                     try self.register_manager.getReg(reg, null);
                     try self.genSetReg(arg_ty, reg, arg_mcv);

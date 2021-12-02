@@ -39,7 +39,7 @@ pub fn log2(x: anytype) @TypeOf(x) {
             return result;
         },
         .Int => |IntType| switch (IntType.signedness) {
-            .signed => return @compileError("log2 not implemented for signed integers"),
+            .signed => @compileError("log2 not implemented for signed integers"),
             .unsigned => return math.log2_int(T, x),
         },
         else => @compileError("log2 not implemented for " ++ @typeName(T)),

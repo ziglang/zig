@@ -37,24 +37,26 @@ pub const Allocator = @import("mem/Allocator.zig");
 pub fn ValidationAllocator(comptime T: type) type {
     return struct {
         const Self = @This();
-        allocator: Allocator,
+
         underlying_allocator: T,
-        pub fn init(allocator: T) @This() {
+
+        pub fn init(underlying_allocator: T) @This() {
             return .{
-                .allocator = .{
-                    .allocFn = alloc,
-                    .resizeFn = resize,
-                },
-                .underlying_allocator = allocator,
+                .underlying_allocator = underlying_allocator,
             };
         }
-        fn getUnderlyingAllocatorPtr(self: *@This()) *Allocator {
-            if (T == *Allocator) return self.underlying_allocator;
-            if (*T == *Allocator) return &self.underlying_allocator;
-            return &self.underlying_allocator.allocator;
+
+        pub fn allocator(self: *Self) Allocator {
+            return Allocator.init(self, alloc, resize, free);
         }
+
+        fn getUnderlyingAllocatorPtr(self: *Self) Allocator {
+            if (T == Allocator) return self.underlying_allocator;
+            return self.underlying_allocator.allocator();
+        }
+
         pub fn alloc(
-            allocator: *Allocator,
+            self: *Self,
             n: usize,
             ptr_align: u29,
             len_align: u29,
@@ -67,9 +69,8 @@ pub fn ValidationAllocator(comptime T: type) type {
                 assert(n >= len_align);
             }
 
-            const self = @fieldParentPtr(@This(), "allocator", allocator);
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = try underlying.allocFn(underlying, n, ptr_align, len_align, ret_addr);
+            const result = try underlying.rawAlloc(n, ptr_align, len_align, ret_addr);
             assert(mem.isAligned(@ptrToInt(result.ptr), ptr_align));
             if (len_align == 0) {
                 assert(result.len == n);
@@ -79,22 +80,22 @@ pub fn ValidationAllocator(comptime T: type) type {
             }
             return result;
         }
+
         pub fn resize(
-            allocator: *Allocator,
+            self: *Self,
             buf: []u8,
             buf_align: u29,
             new_len: usize,
             len_align: u29,
             ret_addr: usize,
-        ) Allocator.Error!usize {
+        ) ?usize {
             assert(buf.len > 0);
             if (len_align != 0) {
                 assert(mem.isAlignedAnyAlign(new_len, len_align));
                 assert(new_len >= len_align);
             }
-            const self = @fieldParentPtr(@This(), "allocator", allocator);
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = try underlying.resizeFn(underlying, buf, buf_align, new_len, len_align, ret_addr);
+            const result = underlying.rawResize(buf, buf_align, new_len, len_align, ret_addr) orelse return null;
             if (len_align == 0) {
                 assert(result == new_len);
             } else {
@@ -103,7 +104,20 @@ pub fn ValidationAllocator(comptime T: type) type {
             }
             return result;
         }
-        pub usingnamespace if (T == *Allocator or !@hasDecl(T, "reset")) struct {} else struct {
+
+        pub fn free(
+            self: *Self,
+            buf: []u8,
+            buf_align: u29,
+            ret_addr: usize,
+        ) void {
+            _ = self;
+            _ = buf_align;
+            _ = ret_addr;
+            assert(buf.len > 0);
+        }
+
+        pub usingnamespace if (T == Allocator or !@hasDecl(T, "reset")) struct {} else struct {
             pub fn reset(self: *Self) void {
                 self.underlying_allocator.reset();
             }
@@ -130,12 +144,18 @@ pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
     return adjusted;
 }
 
-var failAllocator = Allocator{
-    .allocFn = failAllocatorAlloc,
-    .resizeFn = Allocator.noResize,
+const fail_allocator = Allocator{
+    .ptr = undefined,
+    .vtable = &failAllocator_vtable,
 };
-fn failAllocatorAlloc(self: *Allocator, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
-    _ = self;
+
+const failAllocator_vtable = Allocator.VTable{
+    .alloc = failAllocatorAlloc,
+    .resize = Allocator.NoResize(c_void).noResize,
+    .free = Allocator.NoOpFree(c_void).noOpFree,
+};
+
+fn failAllocatorAlloc(_: *c_void, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
     _ = n;
     _ = alignment;
     _ = len_align;
@@ -144,8 +164,8 @@ fn failAllocatorAlloc(self: *Allocator, n: usize, alignment: u29, len_align: u29
 }
 
 test "mem.Allocator basics" {
-    try testing.expectError(error.OutOfMemory, failAllocator.alloc(u8, 1));
-    try testing.expectError(error.OutOfMemory, failAllocator.allocSentinel(u8, 1, 0));
+    try testing.expectError(error.OutOfMemory, fail_allocator.alloc(u8, 1));
+    try testing.expectError(error.OutOfMemory, fail_allocator.allocSentinel(u8, 1, 0));
 }
 
 test "Allocator.resize" {
@@ -168,7 +188,7 @@ test "Allocator.resize" {
         defer testing.allocator.free(values);
 
         for (values) |*v, i| v.* = @intCast(T, i);
-        values = try testing.allocator.resize(values, values.len + 10);
+        values = testing.allocator.resize(values, values.len + 10) orelse return error.OutOfMemory;
         try testing.expect(values.len == 110);
     }
 
@@ -183,7 +203,7 @@ test "Allocator.resize" {
         defer testing.allocator.free(values);
 
         for (values) |*v, i| v.* = @intToFloat(T, i);
-        values = try testing.allocator.resize(values, values.len + 10);
+        values = testing.allocator.resize(values, values.len + 10) orelse return error.OutOfMemory;
         try testing.expect(values.len == 110);
     }
 }
@@ -553,9 +573,6 @@ test "indexOfDiff" {
     try testing.expectEqual(indexOfDiff(u8, "xne", "one"), 0);
 }
 
-pub const toSliceConst = @compileError("deprecated; use std.mem.spanZ");
-pub const toSlice = @compileError("deprecated; use std.mem.spanZ");
-
 /// Takes a pointer to an array, a sentinel-terminated pointer, or a slice, and
 /// returns a slice. If there is a sentinel on the input type, there will be a
 /// sentinel on the output type. The constness of the output type matches
@@ -644,34 +661,7 @@ test "span" {
     try testing.expectEqual(@as(?[:0]u16, null), span(@as(?[*:0]u16, null)));
 }
 
-/// Deprecated: use std.mem.span() or std.mem.sliceTo()
-/// Same as `span`, except when there is both a sentinel and an array
-/// length or slice length, scans the memory for the sentinel value
-/// rather than using the length.
-pub fn spanZ(ptr: anytype) Span(@TypeOf(ptr)) {
-    if (@typeInfo(@TypeOf(ptr)) == .Optional) {
-        if (ptr) |non_null| {
-            return spanZ(non_null);
-        } else {
-            return null;
-        }
-    }
-    const Result = Span(@TypeOf(ptr));
-    const l = lenZ(ptr);
-    if (@typeInfo(Result).Pointer.sentinel) |s| {
-        return ptr[0..l :s];
-    } else {
-        return ptr[0..l];
-    }
-}
-
-test "spanZ" {
-    var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
-    const ptr = @as([*:3]u16, array[0..2 :3]);
-    try testing.expect(eql(u16, spanZ(ptr), &[_]u16{ 1, 2 }));
-    try testing.expect(eql(u16, spanZ(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
-    try testing.expectEqual(@as(?[:0]u16, null), spanZ(@as(?[*:0]u16, null)));
-}
+pub const spanZ = @compileError("deprecated; use use std.mem.span() or std.mem.sliceTo()");
 
 /// Helper for the return type of sliceTo()
 fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
@@ -917,61 +907,7 @@ test "len" {
     }
 }
 
-/// Deprecated: use std.mem.len() or std.mem.sliceTo().len
-/// Takes a pointer to an array, an array, a sentinel-terminated pointer,
-/// or a slice, and returns the length.
-/// In the case of a sentinel-terminated array, it scans the array
-/// for a sentinel and uses that for the length, rather than using the array length.
-/// For C pointers it assumes it is a pointer-to-many with a 0 sentinel.
-pub fn lenZ(ptr: anytype) usize {
-    return switch (@typeInfo(@TypeOf(ptr))) {
-        .Array => |info| if (info.sentinel) |sentinel|
-            indexOfSentinel(info.child, sentinel, &ptr)
-        else
-            info.len,
-        .Pointer => |info| switch (info.size) {
-            .One => switch (@typeInfo(info.child)) {
-                .Array => |x| if (x.sentinel) |sentinel|
-                    indexOfSentinel(x.child, sentinel, ptr)
-                else
-                    ptr.len,
-                else => @compileError("invalid type given to std.mem.lenZ"),
-            },
-            .Many => if (info.sentinel) |sentinel|
-                indexOfSentinel(info.child, sentinel, ptr)
-            else
-                @compileError("length of pointer with no sentinel"),
-            .C => {
-                assert(ptr != null);
-                return indexOfSentinel(info.child, 0, ptr);
-            },
-            .Slice => if (info.sentinel) |sentinel|
-                indexOfSentinel(info.child, sentinel, ptr.ptr)
-            else
-                ptr.len,
-        },
-        else => @compileError("invalid type given to std.mem.lenZ"),
-    };
-}
-
-test "lenZ" {
-    try testing.expect(lenZ("aoeu") == 4);
-
-    {
-        var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
-        try testing.expect(lenZ(&array) == 5);
-        try testing.expect(lenZ(array[0..3]) == 3);
-        array[2] = 0;
-        const ptr = @as([*:0]u16, array[0..2 :0]);
-        try testing.expect(lenZ(ptr) == 2);
-    }
-    {
-        var array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
-        try testing.expect(lenZ(&array) == 5);
-        array[2] = 0;
-        try testing.expect(lenZ(&array) == 2);
-    }
-}
+pub const lenZ = @compileError("deprecated; use std.mem.len() or std.mem.sliceTo().len");
 
 pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) usize {
     var i: usize = 0;
@@ -989,15 +925,8 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
     return true;
 }
 
-/// Deprecated, use `Allocator.dupe`.
-pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
-    return allocator.dupe(T, m);
-}
-
-/// Deprecated, use `Allocator.dupeZ`.
-pub fn dupeZ(allocator: *Allocator, comptime T: type, m: []const T) ![:0]T {
-    return allocator.dupeZ(T, m);
-}
+pub const dupe = @compileError("deprecated; use `Allocator.dupe`");
+pub const dupeZ = @compileError("deprecated; use `Allocator.dupeZ`");
 
 /// Remove values from the beginning of a slice.
 pub fn trimLeft(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
@@ -1162,7 +1091,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
 /// Uses Boyer-moore-horspool algorithm on large inputs; `indexOfPosLinear` on small inputs.
 pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
     if (needle.len > haystack.len) return null;
-    if (needle.len == 0) return 0;
+    if (needle.len == 0) return start_index;
 
     if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return indexOfPosLinear(T, haystack, start_index, needle);
@@ -1235,6 +1164,10 @@ test "mem.indexOf multibyte" {
         const needleBE = [_]u16{ 0xaacc, 0xbbdd, 0xccee, 0xddff, 0xee00 };
         try testing.expectEqual(lastIndexOf(u16, &haystack, &needleBE), null);
     }
+}
+
+test "mem.indexOfPos empty needle" {
+    try testing.expectEqual(indexOfPos(u8, "abracadabra", 5, ""), 5);
 }
 
 /// Returns the number of needles inside the haystack
@@ -1723,8 +1656,6 @@ pub fn split(comptime T: type, buffer: []const T, delimiter: []const T) SplitIte
     };
 }
 
-pub const separate = @compileError("deprecated: renamed to split (behavior remains unchanged)");
-
 test "mem.split" {
     var it = split(u8, "abc|def||ghi", "|");
     try testing.expect(eql(u8, it.next().?, "abc"));
@@ -1875,18 +1806,18 @@ pub fn SplitIterator(comptime T: type) type {
 
 /// Naively combines a series of slices with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
+pub fn join(allocator: Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
     return joinMaybeZ(allocator, separator, slices, false);
 }
 
 /// Naively combines a series of slices with a separator and null terminator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn joinZ(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![:0]u8 {
+pub fn joinZ(allocator: Allocator, separator: []const u8, slices: []const []const u8) ![:0]u8 {
     const out = try joinMaybeZ(allocator, separator, slices, true);
     return out[0 .. out.len - 1 :0];
 }
 
-fn joinMaybeZ(allocator: *Allocator, separator: []const u8, slices: []const []const u8, zero: bool) ![]u8 {
+fn joinMaybeZ(allocator: Allocator, separator: []const u8, slices: []const []const u8, zero: bool) ![]u8 {
     if (slices.len == 0) return if (zero) try allocator.dupe(u8, &[1]u8{0}) else &[0]u8{};
 
     const total_len = blk: {
@@ -1965,7 +1896,7 @@ test "mem.joinZ" {
 }
 
 /// Copies each T from slices into a new slice that exactly holds all the elements.
-pub fn concat(allocator: *Allocator, comptime T: type, slices: []const []const T) ![]T {
+pub fn concat(allocator: Allocator, comptime T: type, slices: []const []const T) ![]T {
     if (slices.len == 0) return &[0]T{};
 
     const total_len = blk: {
@@ -2407,7 +2338,7 @@ test "replacementSize" {
 }
 
 /// Perform a replacement on an allocated buffer of pre-determined size. Caller must free returned memory.
-pub fn replaceOwned(comptime T: type, allocator: *Allocator, input: []const T, needle: []const T, replacement: []const T) Allocator.Error![]T {
+pub fn replaceOwned(comptime T: type, allocator: Allocator, input: []const T, needle: []const T, replacement: []const T) Allocator.Error![]T {
     var output = try allocator.alloc(T, replacementSize(T, input, needle, replacement));
     _ = replace(T, input, needle, replacement, output);
     return output;
@@ -3020,7 +2951,7 @@ test "isAligned" {
 }
 
 test "freeing empty string with null-terminated sentinel" {
-    const empty_string = try dupeZ(testing.allocator, u8, "");
+    const empty_string = try testing.allocator.dupeZ(u8, "");
     testing.allocator.free(empty_string);
 }
 

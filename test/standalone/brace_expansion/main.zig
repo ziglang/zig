@@ -16,7 +16,7 @@ const Token = union(enum) {
 };
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-var global_allocator = &gpa.allocator;
+var global_allocator = gpa.allocator();
 
 fn tokenize(input: []const u8) !ArrayList(Token) {
     const State = enum {

@@ -25,7 +25,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     }
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     switch (crt_file) {
         .crt2_o => {
@@ -252,7 +252,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
 
 fn add_cc_args(
     comp: *Compilation,
-    arena: *Allocator,
+    arena: Allocator,
     args: *std.ArrayList([]const u8),
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
@@ -281,7 +281,7 @@ fn add_cc_args(
 pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     const def_file_path = findDef(comp, arena, lib_name) catch |err| switch (err) {
         error.FileNotFound => {
@@ -428,7 +428,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 }
 
 /// This function body is verbose but all it does is test 3 different paths and see if a .def file exists.
-fn findDef(comp: *Compilation, allocator: *Allocator, lib_name: []const u8) ![]u8 {
+fn findDef(comp: *Compilation, allocator: Allocator, lib_name: []const u8) ![]u8 {
     const target = comp.getTarget();
 
     const lib_path = switch (target.cpu.arch) {

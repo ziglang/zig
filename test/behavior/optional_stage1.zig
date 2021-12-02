@@ -3,47 +3,6 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "unwrap function call with optional pointer return value" {
-    const S = struct {
-        fn entry() !void {
-            try expect(foo().?.* == 1234);
-            try expect(bar() == null);
-        }
-        const global: i32 = 1234;
-        fn foo() ?*const i32 {
-            return &global;
-        }
-        fn bar() ?*i32 {
-            return null;
-        }
-    };
-    try S.entry();
-    comptime try S.entry();
-}
-
-test "nested orelse" {
-    const S = struct {
-        fn entry() !void {
-            try expect(func() == null);
-        }
-        fn maybe() ?Foo {
-            return null;
-        }
-        fn func() ?Foo {
-            const x = maybe() orelse
-                maybe() orelse
-                return null;
-            _ = x;
-            unreachable;
-        }
-        const Foo = struct {
-            field: i32,
-        };
-    };
-    try S.entry();
-    comptime try S.entry();
-}
-
 test "assigning to an unwrapped optional field in an inline loop" {
     comptime var maybe_pos_arg: ?comptime_int = null;
     inline for ("ab") |x| {

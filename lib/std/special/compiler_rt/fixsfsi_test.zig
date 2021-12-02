@@ -2,16 +2,13 @@ const __fixsfsi = @import("fixsfsi.zig").__fixsfsi;
 const std = @import("std");
 const math = std.math;
 const testing = std.testing;
-const warn = std.debug.warn;
 
 fn test__fixsfsi(a: f32, expected: i32) !void {
     const x = __fixsfsi(a);
-    //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u32, {x})\n", .{a, @bitCast(u32, a), x, x, expected, expected, @bitCast(u32, expected)});
     try testing.expect(x == expected);
 }
 
 test "fixsfsi" {
-    //warn("\n", .{});
     try test__fixsfsi(-math.f32_max, math.minInt(i32));
 
     try test__fixsfsi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i32));

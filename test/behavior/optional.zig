@@ -18,25 +18,6 @@ test "passing an optional integer as a parameter" {
     comptime try expect(S.entry());
 }
 
-test "self-referential struct through a slice of optional" {
-    const S = struct {
-        const Node = struct {
-            children: []?Node,
-            data: ?u8,
-
-            fn new() Node {
-                return Node{
-                    .children = undefined,
-                    .data = null,
-                };
-            }
-        };
-    };
-
-    var n = S.Node.new();
-    try expect(n.data == null);
-}
-
 pub const EmptyStruct = struct {};
 
 test "optional pointer to size zero struct" {
@@ -136,4 +117,45 @@ fn test_cmp_optional_non_optional() !void {
         try expect(mutable_state == 2);
         break :blk2 @as(?f64, 5.0);
     };
+}
+
+test "unwrap function call with optional pointer return value" {
+    const S = struct {
+        fn entry() !void {
+            try expect(foo().?.* == 1234);
+            try expect(bar() == null);
+        }
+        const global: i32 = 1234;
+        fn foo() ?*const i32 {
+            return &global;
+        }
+        fn bar() ?*i32 {
+            return null;
+        }
+    };
+    try S.entry();
+    comptime try S.entry();
+}
+
+test "nested orelse" {
+    const S = struct {
+        fn entry() !void {
+            try expect(func() == null);
+        }
+        fn maybe() ?Foo {
+            return null;
+        }
+        fn func() ?Foo {
+            const x = maybe() orelse
+                maybe() orelse
+                return null;
+            _ = x;
+            unreachable;
+        }
+        const Foo = struct {
+            field: i32,
+        };
+    };
+    try S.entry();
+    comptime try S.entry();
 }

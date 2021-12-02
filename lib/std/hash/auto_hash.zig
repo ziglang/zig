@@ -309,7 +309,7 @@ test "hash struct deep" {
 
         const Self = @This();
 
-        pub fn init(allocator: *mem.Allocator, a_: u32, b_: u16, c_: bool) !Self {
+        pub fn init(allocator: mem.Allocator, a_: u32, b_: u16, c_: bool) !Self {
             const ptr = try allocator.create(bool);
             ptr.* = c_;
             return Self{ .a = a_, .b = b_, .c = ptr };

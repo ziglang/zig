@@ -163,14 +163,14 @@ pub const Object = struct {
 
 /// This data is available both when outputting .c code and when outputting an .h file.
 pub const DeclGen = struct {
-    gpa: *std.mem.Allocator,
+    gpa: std.mem.Allocator,
     module: *Module,
     decl: *Decl,
     fwd_decl: std.ArrayList(u8),
     error_msg: ?*Module.ErrorMsg,
     /// The key of this map is Type which has references to typedefs_arena.
     typedefs: TypedefMap,
-    typedefs_arena: *std.mem.Allocator,
+    typedefs_arena: std.mem.Allocator,
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         @setCold(true);
@@ -390,6 +390,7 @@ pub const DeclGen = struct {
                         // Fall back to generic implementation.
                         var arena = std.heap.ArenaAllocator.init(dg.module.gpa);
                         defer arena.deinit();
+                        const arena_allocator = arena.allocator();
 
                         try writer.writeAll("{");
                         var index: usize = 0;
@@ -397,7 +398,7 @@ pub const DeclGen = struct {
                         const elem_ty = ty.elemType();
                         while (index < len) : (index += 1) {
                             if (index != 0) try writer.writeAll(",");
-                            const elem_val = try val.elemValue(&arena.allocator, index);
+                            const elem_val = try val.elemValue(arena_allocator, index);
                             try dg.renderValue(writer, elem_ty, elem_val);
                         }
                         if (ty.sentinel()) |sentinel_val| {
@@ -772,10 +773,7 @@ pub const DeclGen = struct {
         const target = dg.module.getTarget();
 
         switch (t.zigTypeTag()) {
-            .NoReturn => {
-                try w.writeAll("zig_noreturn void");
-            },
-            .Void => try w.writeAll("void"),
+            .NoReturn, .Void => try w.writeAll("void"),
             .Bool => try w.writeAll("bool"),
             .Int => {
                 switch (t.tag()) {
@@ -984,7 +982,7 @@ pub const DeclGen = struct {
         if (dg.module.decl_exports.get(decl)) |exports| {
             return writer.writeAll(exports[0].options.name);
         } else if (decl.val.tag() == .extern_fn) {
-            return writer.writeAll(mem.spanZ(decl.name));
+            return writer.writeAll(mem.sliceTo(decl.name, 0));
         } else {
             const gpa = dg.module.gpa;
             const name = try decl.getFullyQualifiedName(gpa);
@@ -1162,12 +1160,13 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
 
             .slice => try airSlice(f, inst),
 
-            .cmp_eq  => try airBinOp(f, inst, " == "),
             .cmp_gt  => try airBinOp(f, inst, " > "),
             .cmp_gte => try airBinOp(f, inst, " >= "),
             .cmp_lt  => try airBinOp(f, inst, " < "),
             .cmp_lte => try airBinOp(f, inst, " <= "),
-            .cmp_neq => try airBinOp(f, inst, " != "),
+
+            .cmp_eq  => try airEquality(f, inst, "((", "=="),
+            .cmp_neq => try airEquality(f, inst, "!((", "!="),
 
             // bool_and and bool_or are non-short-circuit operations
             .bool_and        => try airBinOp(f, inst, " & "),
@@ -1257,9 +1256,9 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .slice_elem_ptr     => try airSliceElemPtr(f, inst),
             .array_elem_val     => try airArrayElemVal(f, inst),
 
-            .unwrap_errunion_payload     => try airUnwrapErrUnionPay(f, inst),
+            .unwrap_errunion_payload     => try airUnwrapErrUnionPay(f, inst, ""),
             .unwrap_errunion_err         => try airUnwrapErrUnionErr(f, inst),
-            .unwrap_errunion_payload_ptr => try airUnwrapErrUnionPay(f, inst),
+            .unwrap_errunion_payload_ptr => try airUnwrapErrUnionPay(f, inst, "&"),
             .unwrap_errunion_err_ptr     => try airUnwrapErrUnionErr(f, inst),
             .wrap_errunion_payload       => try airWrapErrUnionPay(f, inst),
             .wrap_errunion_err           => try airWrapErrUnionErr(f, inst),
@@ -1908,6 +1907,54 @@ fn airBinOp(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValue
     return local;
 }
 
+fn airEquality(
+    f: *Function,
+    inst: Air.Inst.Index,
+    negate_prefix: []const u8,
+    eq_op_str: []const u8,
+) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const lhs = try f.resolveInst(bin_op.lhs);
+    const rhs = try f.resolveInst(bin_op.rhs);
+
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+
+    try writer.writeAll(" = ");
+
+    const lhs_ty = f.air.typeOf(bin_op.lhs);
+    if (lhs_ty.tag() == .optional) {
+        // (A && B)  || (C && (A == B))
+        // A = lhs.is_null  ;  B = rhs.is_null  ;  C = rhs.payload == lhs.payload
+
+        try writer.writeAll(negate_prefix);
+        try f.writeCValue(writer, lhs);
+        try writer.writeAll(".is_null && ");
+        try f.writeCValue(writer, rhs);
+        try writer.writeAll(".is_null) || (");
+        try f.writeCValue(writer, lhs);
+        try writer.writeAll(".payload == ");
+        try f.writeCValue(writer, rhs);
+        try writer.writeAll(".payload && ");
+        try f.writeCValue(writer, lhs);
+        try writer.writeAll(".is_null == ");
+        try f.writeCValue(writer, rhs);
+        try writer.writeAll(".is_null));\n");
+
+        return local;
+    }
+
+    try f.writeCValue(writer, lhs);
+    try writer.writeAll(eq_op_str);
+    try f.writeCValue(writer, rhs);
+    try writer.writeAll(";\n");
+
+    return local;
+}
+
 fn airPtrAddSub(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValue {
     if (f.liveness.isUnused(inst))
         return CValue.none;
@@ -2104,8 +2151,8 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const writer = f.object.writer();
     const inst_ty = f.air.typeOfIndex(inst);
-    if (inst_ty.zigTypeTag() == .Pointer and
-        f.air.typeOf(ty_op.operand).zigTypeTag() == .Pointer)
+    if (inst_ty.isPtrAtRuntime() and
+        f.air.typeOf(ty_op.operand).isPtrAtRuntime())
     {
         const local = try f.allocLocal(inst_ty, .Const);
         try writer.writeAll(" = (");
@@ -2503,7 +2550,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index, maybe_addrof: []const u8) !CValue {
     if (f.liveness.isUnused(inst))
         return CValue.none;
 
@@ -2519,7 +2566,6 @@ fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const inst_ty = f.air.typeOfIndex(inst);
     const maybe_deref = if (operand_ty.zigTypeTag() == .Pointer) "->" else ".";
-    const maybe_addrof = if (inst_ty.zigTypeTag() == .Pointer) "&" else "";
 
     const local = try f.allocLocal(inst_ty, .Const);
     try writer.print(" = {s}(", .{maybe_addrof});

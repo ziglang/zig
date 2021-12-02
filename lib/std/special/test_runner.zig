@@ -10,7 +10,7 @@ var args_buffer: [std.fs.MAX_PATH_BYTES + std.mem.page_size]u8 = undefined;
 var args_allocator = std.heap.FixedBufferAllocator.init(&args_buffer);
 
 fn processArgs() void {
-    const args = std.process.argsAlloc(&args_allocator.allocator) catch {
+    const args = std.process.argsAlloc(args_allocator.allocator()) catch {
         @panic("Too many bytes passed over the CLI to the test runner");
     };
     if (args.len != 2) {

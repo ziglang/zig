@@ -195,7 +195,7 @@ pub const empty = Atom{
     .dbg_info_len = undefined,
 };
 
-pub fn deinit(self: *Atom, allocator: *Allocator) void {
+pub fn deinit(self: *Atom, allocator: Allocator) void {
     self.dices.deinit(allocator);
     self.lazy_bindings.deinit(allocator);
     self.bindings.deinit(allocator);
@@ -246,7 +246,7 @@ pub fn freeListEligible(self: Atom, macho_file: MachO) bool {
 
 const RelocContext = struct {
     base_addr: u64 = 0,
-    allocator: *Allocator,
+    allocator: Allocator,
     object: *Object,
     macho_file: *MachO,
 };
@@ -295,7 +295,7 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
 
             assert(subtractor == null);
             const sym = context.object.symtab.items[rel.r_symbolnum];
-            if (MachO.symbolIsSect(sym) and !MachO.symbolIsExt(sym)) {
+            if (sym.sect() and !sym.ext()) {
                 subtractor = context.object.symbol_mapping.get(rel.r_symbolnum).?;
             } else {
                 const sym_name = context.object.getString(sym.n_strx);
@@ -362,7 +362,7 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
             const sym = context.object.symtab.items[rel.r_symbolnum];
             const sym_name = context.object.getString(sym.n_strx);
 
-            if (MachO.symbolIsSect(sym) and !MachO.symbolIsExt(sym)) {
+            if (sym.sect() and !sym.ext()) {
                 const sym_index = context.object.symbol_mapping.get(rel.r_symbolnum) orelse unreachable;
                 break :target Relocation.Target{ .local = sym_index };
             }
@@ -384,7 +384,10 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                         // TODO rewrite relocation
                         try addStub(target, context);
                     },
-                    .ARM64_RELOC_GOT_LOAD_PAGE21, .ARM64_RELOC_GOT_LOAD_PAGEOFF12 => {
+                    .ARM64_RELOC_GOT_LOAD_PAGE21,
+                    .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
+                    .ARM64_RELOC_POINTER_TO_GOT,
+                    => {
                         // TODO rewrite relocation
                         try addGotEntry(target, context);
                     },
@@ -437,9 +440,11 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                         };
                         addend = mem.readIntLittle(i32, self.code.items[offset..][0..4]) + correction;
                         if (rel.r_extern == 0) {
+                            // Note for the future self: when r_extern == 0, we should subtract correction from the
+                            // addend.
                             const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
                             const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
-                            addend += @intCast(i64, context.base_addr + offset + correction + 4) -
+                            addend += @intCast(i64, context.base_addr + offset + 4) -
                                 @intCast(i64, target_sect_base_addr);
                         }
                     },
@@ -658,7 +663,10 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
             const is_via_got = got: {
                 switch (arch) {
                     .aarch64 => break :got switch (@intToEnum(macho.reloc_type_arm64, rel.@"type")) {
-                        .ARM64_RELOC_GOT_LOAD_PAGE21, .ARM64_RELOC_GOT_LOAD_PAGEOFF12 => true,
+                        .ARM64_RELOC_GOT_LOAD_PAGE21,
+                        .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
+                        .ARM64_RELOC_POINTER_TO_GOT,
+                        => true,
                         else => false,
                     },
                     .x86_64 => break :got switch (@intToEnum(macho.reloc_type_x86_64, rel.@"type")) {

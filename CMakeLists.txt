@@ -116,7 +116,10 @@ endif()
 
 if(APPLE AND ZIG_STATIC)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
-    find_library(CURSES NAMES libcurses.a curses libcurses libncurses.a ncurses libncurses)
+    find_library(CURSES NAMES libcurses.a libncurses.a
+      PATHS
+        /usr/local/opt/ncurses/lib
+        /opt/homebrew/opt/ncurses/lib)
     list(APPEND LLVM_LIBRARIES "${CURSES}")
 endif()
 
@@ -494,7 +497,9 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/muloti4.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/multi3.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/negXf2.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/popcountdi2.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/os_version_check.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/parity.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/popcount.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/shift.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/stack_probe.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/truncXfYf2.zig"
@@ -530,7 +535,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/unicode.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/Ast.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/zig/cross_target.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/zig/CrossTarget.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/parse.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/render.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/string_literal.zig"

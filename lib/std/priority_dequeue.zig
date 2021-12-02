@@ -1,7 +1,6 @@
 const std = @import("std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const warn = std.debug.warn;
 const Order = std.math.Order;
 const testing = std.testing;
 const expect = testing.expect;
@@ -22,10 +21,10 @@ pub fn PriorityDequeue(comptime T: type, comptime compareFn: fn (T, T) Order) ty
 
         items: []T,
         len: usize,
-        allocator: *Allocator,
+        allocator: Allocator,
 
         /// Initialize and return a new priority dequeue.
-        pub fn init(allocator: *Allocator) Self {
+        pub fn init(allocator: Allocator) Self {
             return Self{
                 .items = &[_]T{},
                 .len = 0,
@@ -337,7 +336,7 @@ pub fn PriorityDequeue(comptime T: type, comptime compareFn: fn (T, T) Order) ty
         /// Dequeue takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// De-initialize with `deinit`.
-        pub fn fromOwnedSlice(allocator: *Allocator, items: []T) Self {
+        pub fn fromOwnedSlice(allocator: Allocator, items: []T) Self {
             var queue = Self{
                 .items = items,
                 .len = items.len,
@@ -355,8 +354,7 @@ pub fn PriorityDequeue(comptime T: type, comptime compareFn: fn (T, T) Order) ty
             return queue;
         }
 
-        /// Deprecated: call `ensureUnusedCapacity` or `ensureTotalCapacity`.
-        pub const ensureCapacity = ensureTotalCapacity;
+        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
         /// Ensure that the dequeue can fit at least `new_capacity` items.
         pub fn ensureTotalCapacity(self: *Self, new_capacity: usize) !void {
@@ -421,19 +419,20 @@ pub fn PriorityDequeue(comptime T: type, comptime compareFn: fn (T, T) Order) ty
         }
 
         fn dump(self: *Self) void {
-            warn("{{ ", .{});
-            warn("items: ", .{});
+            const print = std.debug.print;
+            print("{{ ", .{});
+            print("items: ", .{});
             for (self.items) |e, i| {
                 if (i >= self.len) break;
-                warn("{}, ", .{e});
+                print("{}, ", .{e});
             }
-            warn("array: ", .{});
+            print("array: ", .{});
             for (self.items) |e| {
-                warn("{}, ", .{e});
+                print("{}, ", .{e});
             }
-            warn("len: {} ", .{self.len});
-            warn("capacity: {}", .{self.capacity()});
-            warn(" }}\n", .{});
+            print("len: {} ", .{self.len});
+            print("capacity: {}", .{self.capacity()});
+            print(" }}\n", .{});
         }
 
         fn parentIndex(index: usize) usize {
@@ -946,7 +945,7 @@ fn fuzzTestMinMax(rng: std.rand.Random, queue_size: usize) !void {
     }
 }
 
-fn generateRandomSlice(allocator: *std.mem.Allocator, rng: std.rand.Random, size: usize) ![]u32 {
+fn generateRandomSlice(allocator: std.mem.Allocator, rng: std.rand.Random, size: usize) ![]u32 {
     var array = std.ArrayList(u32).init(allocator);
     try array.ensureTotalCapacity(size);
 

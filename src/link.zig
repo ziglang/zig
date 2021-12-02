@@ -47,6 +47,8 @@ pub const Options = struct {
     /// This is `null` when -fno-emit-bin is used. When `openPath` or `flush` is called,
     /// it will have already been null-checked.
     emit: ?Emit,
+    /// This is `null` not building a Windows DLL, or when -fno-emit-implib is used.
+    implib_emit: ?Emit,
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
@@ -97,6 +99,7 @@ pub const Options = struct {
     tsaware: bool,
     nxcompat: bool,
     dynamicbase: bool,
+    linker_optimization: u8,
     bind_global_refs_locally: bool,
     import_memory: bool,
     initial_memory: ?u64,
@@ -131,8 +134,6 @@ pub const Options = struct {
     version_script: ?[]const u8,
     soname: ?[]const u8,
     llvm_cpu_features: ?[*:0]const u8,
-    /// Extra args passed directly to LLD. Ignored when not linking with LLD.
-    extra_lld_args: []const []const u8,
 
     objects: []const []const u8,
     framework_dirs: []const []const u8,
@@ -143,6 +144,7 @@ pub const Options = struct {
     rpath_list: []const []const u8,
 
     version: ?std.builtin.Version,
+    compatibility_version: ?std.builtin.Version,
     libc_installation: ?*const LibCInstallation,
 
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
@@ -150,6 +152,9 @@ pub const Options = struct {
 
     /// (Zig compiler development) Enable dumping of linker's state as JSON.
     enable_link_snapshots: bool = false,
+
+    /// (Darwin) Path and version of the native SDK if detected.
+    native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
 
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
@@ -160,7 +165,7 @@ pub const File = struct {
     tag: Tag,
     options: Options,
     file: ?fs.File,
-    allocator: *Allocator,
+    allocator: Allocator,
     /// When linking with LLD, this linker code will output an object file only at
     /// this location, and then this path can be placed on the LLD linker line.
     intermediary_basename: ?[]const u8 = null,
@@ -216,7 +221,7 @@ pub const File = struct {
     /// incremental linking fails, falls back to truncating the file and
     /// rewriting it. A malicious file is detected as incremental link failure
     /// and does not cause Illegal Behavior. This operation is not atomic.
-    pub fn openPath(allocator: *Allocator, options: Options) !*File {
+    pub fn openPath(allocator: Allocator, options: Options) !*File {
         if (options.object_format == .macho) {
             return &(try MachO.openPath(allocator, options)).base;
         }
@@ -529,6 +534,7 @@ pub const File = struct {
             try fs.cwd().copyFile(cached_pp_file_path, fs.cwd(), full_out_path, .{});
             return;
         }
+
         const use_lld = build_options.have_llvm and base.options.use_lld;
         if (use_lld and base.options.output_mode == .Lib and base.options.link_mode == .Static) {
             return base.linkAsArchive(comp);
@@ -622,7 +628,7 @@ pub const File = struct {
 
         var arena_allocator = std.heap.ArenaAllocator.init(base.allocator);
         defer arena_allocator.deinit();
-        const arena = &arena_allocator.allocator;
+        const arena = arena_allocator.allocator();
 
         const directory = base.options.emit.?.directory; // Just an alias to make it shorter to type.
 

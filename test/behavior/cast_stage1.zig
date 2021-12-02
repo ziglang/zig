@@ -58,55 +58,6 @@ fn castToOptionalTypeError(z: i32) !void {
     try expect((b catch unreachable).?.a == 1);
 }
 
-test "implicitly cast from int to anyerror!?T" {
-    implicitIntLitToOptional();
-    comptime implicitIntLitToOptional();
-}
-fn implicitIntLitToOptional() void {
-    const f: ?i32 = 1;
-    _ = f;
-    const g: anyerror!?i32 = 1;
-    _ = g catch {};
-}
-
-test "return null from fn() anyerror!?&T" {
-    const a = returnNullFromOptionalTypeErrorRef();
-    const b = returnNullLitFromOptionalTypeErrorRef();
-    try expect((try a) == null and (try b) == null);
-}
-fn returnNullFromOptionalTypeErrorRef() anyerror!?*A {
-    const a: ?*A = null;
-    return a;
-}
-fn returnNullLitFromOptionalTypeErrorRef() anyerror!?*A {
-    return null;
-}
-
-test "peer type resolution: [0]u8 and []const u8" {
-    try expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
-    try expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
-    comptime {
-        try expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
-        try expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
-    }
-}
-fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
-    if (a) {
-        return &[_]u8{};
-    }
-
-    return slice[0..1];
-}
-
-test "implicitly cast from [N]T to ?[]const T" {
-    try expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
-    comptime try expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
-}
-
-fn castToOptionalSlice() ?[]const u8 {
-    return "hi";
-}
-
 test "implicitly cast from [0]T to anyerror![]T" {
     try testCastZeroArrayToErrSliceMut();
     comptime try testCastZeroArrayToErrSliceMut();
@@ -191,23 +142,6 @@ fn testPeerErrorAndArray2(x: u8) anyerror![]const u8 {
     };
 }
 
-test "cast u128 to f128 and back" {
-    comptime try testCast128();
-    try testCast128();
-}
-
-fn testCast128() !void {
-    try expect(cast128Int(cast128Float(0x7fff0000000000000000000000000000)) == 0x7fff0000000000000000000000000000);
-}
-
-fn cast128Int(x: f128) u128 {
-    return @bitCast(u128, x);
-}
-
-fn cast128Float(x: u128) f128 {
-    return @bitCast(f128, x);
-}
-
 test "single-item pointer of array to slice to unknown length pointer" {
     try testCastPtrOfArrayToSliceAndPtr();
     comptime try testCastPtrOfArrayToSliceAndPtr();
@@ -237,7 +171,7 @@ fn testCastPtrOfArrayToSliceAndPtr() !void {
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    try expect(mem.eql(u8, std.mem.spanZ(@ptrCast([*:0]const u8, x[0].?)), "window name"));
+    try expect(mem.eql(u8, std.mem.sliceTo(@ptrCast([*:0]const u8, x[0].?), 0), "window name"));
 }
 
 test "cast f16 to wider types" {
@@ -316,27 +250,6 @@ test "@floatCast cast down" {
     }
 }
 
-test "implicit cast from *[N]T to ?[*]T" {
-    var x: ?[*]u16 = null;
-    var y: [4]u16 = [4]u16{ 0, 1, 2, 3 };
-
-    x = &y;
-    try expect(std.mem.eql(u16, x.?[0..4], y[0..4]));
-    x.?[0] = 8;
-    y[3] = 6;
-    try expect(std.mem.eql(u16, x.?[0..4], y[0..4]));
-}
-
-test "implicit cast from *T to ?*c_void" {
-    var a: u8 = 1;
-    incrementVoidPtrValue(&a);
-    try std.testing.expect(a == 2);
-}
-
-fn incrementVoidPtrValue(value: ?*c_void) void {
-    @ptrCast(*u8, value.?).* += 1;
-}
-
 test "peer type resolution: unreachable, null, slice" {
     const S = struct {
         fn doTheTest(num: usize, word: []const u8) !void {
@@ -374,11 +287,6 @@ test "peer type resolution: unreachable, error set, unreachable" {
     try expect(transformed_err == error.SystemResources);
 }
 
-test "implicit cast *[0]T to E![]const u8" {
-    var x = @as(anyerror![]const u8, &[0]u8{});
-    try expect((x catch unreachable).len == 0);
-}
-
 test "peer cast *[0]T to E![]const T" {
     var buffer: [5]u8 = "abcde".*;
     var buf: anyerror![]const u8 = buffer[0..];
@@ -393,24 +301,6 @@ test "peer cast *[0]T to []const T" {
     var b = false;
     var y = if (b) &[0]u8{} else buf;
     try expect(mem.eql(u8, "abcde", y));
-}
-
-var global_array: [4]u8 = undefined;
-test "cast from array reference to fn" {
-    const f = @ptrCast(fn () callconv(.C) void, &global_array);
-    try expect(@ptrToInt(f) == @ptrToInt(&global_array));
-}
-
-test "*const [N]null u8 to ?[]const u8" {
-    const S = struct {
-        fn doTheTest() !void {
-            var a = "Hello";
-            var b: ?[]const u8 = a;
-            try expect(mem.eql(u8, b.?, "Hello"));
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
 }
 
 test "peer resolution of string literals" {
@@ -502,19 +392,6 @@ test "cast i8 fn call peers to i32 result" {
     comptime try S.doTheTest();
 }
 
-test "return u8 coercing into ?u32 return type" {
-    const S = struct {
-        fn doTheTest() !void {
-            try expect(foo(123).? == 123);
-        }
-        fn foo(arg: u8) ?u32 {
-            return arg;
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
-}
-
 test "peer type resolution implicit cast to return type" {
     const S = struct {
         fn doTheTest() !void {
@@ -553,24 +430,6 @@ test "variable initialization uses result locations properly with regards to the
     try expect(x == 1);
 }
 
-test "cast between [*c]T and ?[*:0]T on fn parameter" {
-    const S = struct {
-        const Handler = ?fn ([*c]const u8) callconv(.C) void;
-        fn addCallback(handler: Handler) void {
-            _ = handler;
-        }
-
-        fn myCallback(cstr: ?[*:0]const u8) callconv(.C) void {
-            _ = cstr;
-        }
-
-        fn doTheTest() void {
-            addCallback(myCallback);
-        }
-    };
-    S.doTheTest();
-}
-
 test "cast between C pointer with different but compatible types" {
     const S = struct {
         fn foo(arg: [*]c_ushort) u16 {
@@ -582,13 +441,6 @@ test "cast between C pointer with different but compatible types" {
         }
     };
     try S.doTheTest();
-}
-
-var global_struct: struct { f0: usize } = undefined;
-
-test "assignment to optional pointer result loc" {
-    var foo: struct { ptr: ?*c_void } = .{ .ptr = &global_struct };
-    try expect(foo.ptr.? == @ptrCast(*c_void, &global_struct));
 }
 
 test "peer type resolve string lit with sentinel-terminated mutable slice" {
@@ -648,15 +500,4 @@ test "comptime float casts" {
 
 fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) !void {
     try expect(@floatToInt(I, f) == i);
-}
-
-test "cast from ?[*]T to ??[*]T" {
-    const a: ??[*]u8 = @as(?[*]u8, null);
-    try expect(a != null and a.? == null);
-}
-
-test "cast between *[N]void and []void" {
-    var a: [4]void = undefined;
-    var b: []void = &a;
-    try expect(b.len == 4);
 }

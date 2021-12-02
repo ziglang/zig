@@ -6,7 +6,7 @@ const mem = std.mem;
 const debug = std.debug;
 const panic = std.debug.panic;
 const assert = debug.assert;
-const warn = std.debug.warn;
+const warn = std.debug.print; // TODO use the log system instead of this
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
@@ -28,7 +28,7 @@ pub const OptionsStep = @import("build/OptionsStep.zig");
 pub const Builder = struct {
     install_tls: TopLevelStep,
     uninstall_tls: TopLevelStep,
-    allocator: *Allocator,
+    allocator: Allocator,
     user_input_options: UserInputOptionsMap,
     available_options_map: AvailableOptionsMap,
     available_options_list: ArrayList(AvailableOption),
@@ -68,6 +68,7 @@ pub const Builder = struct {
     vcpkg_root: VcpkgRoot,
     pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
     args: ?[][]const u8 = null,
+    debug_log_scopes: []const []const u8 = &.{},
 
     const PkgConfigError = error{
         PkgConfigCrashed,
@@ -133,7 +134,7 @@ pub const Builder = struct {
     };
 
     pub fn create(
-        allocator: *Allocator,
+        allocator: Allocator,
         zig_exe: []const u8,
         build_root: []const u8,
         cache_root: []const u8,
@@ -1284,7 +1285,7 @@ test "builder.findProgram compiles" {
     defer arena.deinit();
 
     const builder = try Builder.create(
-        &arena.allocator,
+        arena.allocator(),
         "zig",
         "zig-cache",
         "zig-cache",
@@ -1294,11 +1295,12 @@ test "builder.findProgram compiles" {
     _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
 }
 
-/// Deprecated. Use `std.builtin.Version`.
-pub const Version = std.builtin.Version;
-
-/// Deprecated. Use `std.zig.CrossTarget`.
-pub const Target = std.zig.CrossTarget;
+/// TODO: propose some kind of `@deprecate` builtin so that we can deprecate
+/// this while still having somewhat non-lazy decls. In this file we wanted to do
+/// refAllDecls for example which makes it trigger `@compileError` if you try
+/// to use that strategy.
+pub const Version = @compileError("deprecated; Use `std.builtin.Version`");
+pub const Target = @compileError("deprecated; Use `std.zig.CrossTarget`");
 
 pub const Pkg = struct {
     name: []const u8,
@@ -1440,6 +1442,7 @@ pub const LibExeObjStep = struct {
     emit_docs: bool = false,
     emit_h: bool = false,
     bundle_compiler_rt: ?bool = null,
+    single_threaded: ?bool = null,
     disable_stack_probing: bool,
     disable_sanitize_c: bool,
     sanitize_thread: bool,
@@ -1454,7 +1457,6 @@ pub const LibExeObjStep = struct {
     exec_cmd_args: ?[]const ?[]const u8,
     name_prefix: []const u8,
     filter: ?[]const u8,
-    single_threaded: bool,
     test_evented_io: bool = false,
     code_model: std.builtin.CodeModel = .default,
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
@@ -1486,6 +1488,7 @@ pub const LibExeObjStep = struct {
     libc_file: ?FileSource = null,
 
     valgrind_support: ?bool = null,
+    each_lib_rpath: ?bool = null,
 
     /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
     /// file.
@@ -1512,6 +1515,9 @@ pub const LibExeObjStep = struct {
 
     /// Experimental. Uses system Darling installation to run cross compiled macOS build artifacts.
     enable_darling: bool = false,
+
+    /// Darwin. Uses Rosetta to run x86_64 macOS build artifacts on arm64 macOS.
+    enable_rosetta: bool = false,
 
     /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
     /// this will be the directory $glibc-build-dir/install/glibcs
@@ -1646,7 +1652,6 @@ pub const LibExeObjStep = struct {
             .sanitize_thread = false,
             .rdynamic = false,
             .output_dir = null,
-            .single_threaded = false,
             .override_dest_dir = null,
             .installed_path = null,
             .install_step = null,
@@ -2334,6 +2339,11 @@ pub const LibExeObjStep = struct {
             try zig_args.append(self.name_prefix);
         }
 
+        for (builder.debug_log_scopes) |log_scope| {
+            try zig_args.append("--debug-log");
+            try zig_args.append(log_scope);
+        }
+
         if (builder.verbose_tokenize) zig_args.append("--verbose-tokenize") catch unreachable;
         if (builder.verbose_ast) zig_args.append("--verbose-ast") catch unreachable;
         if (builder.verbose_cimport) zig_args.append("--verbose-cimport") catch unreachable;
@@ -2367,9 +2377,6 @@ pub const LibExeObjStep = struct {
         if (self.link_z_notext) {
             try zig_args.append("-z");
             try zig_args.append("notext");
-        }
-        if (self.single_threaded) {
-            try zig_args.append("--single-threaded");
         }
 
         if (self.libc_file) |libc_file| {
@@ -2410,6 +2417,13 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-fcompiler-rt");
             } else {
                 try zig_args.append("-fno-compiler-rt");
+            }
+        }
+        if (self.single_threaded) |single_threaded| {
+            if (single_threaded) {
+                try zig_args.append("-fsingle-threaded");
+            } else {
+                try zig_args.append("-fno-single-threaded");
             }
         }
         if (self.disable_stack_probing) {
@@ -2519,6 +2533,9 @@ pub const LibExeObjStep = struct {
             }
         } else switch (self.target.getExternalExecutor()) {
             .native, .unavailable => {},
+            .rosetta => if (self.enable_rosetta) {
+                try zig_args.append("--test-cmd-bin");
+            },
             .qemu => |bin_name| if (self.enable_qemu) qemu: {
                 const need_cross_glibc = self.target.isGnuLibC() and self.is_linking_libc;
                 const glibc_dir_arg = if (need_cross_glibc)
@@ -2672,6 +2689,14 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-fvalgrind");
             } else {
                 try zig_args.append("-fno-valgrind");
+            }
+        }
+
+        if (self.each_lib_rpath) |each_lib_rpath| {
+            if (each_lib_rpath) {
+                try zig_args.append("-feach-lib-rpath");
+            } else {
+                try zig_args.append("-fno-each-lib-rpath");
             }
         }
 
@@ -3061,7 +3086,7 @@ pub const Step = struct {
         custom,
     };
 
-    pub fn init(id: Id, name: []const u8, allocator: *Allocator, makeFn: fn (*Step) anyerror!void) Step {
+    pub fn init(id: Id, name: []const u8, allocator: Allocator, makeFn: fn (*Step) anyerror!void) Step {
         return Step{
             .id = id,
             .name = allocator.dupe(u8, name) catch unreachable,
@@ -3071,7 +3096,7 @@ pub const Step = struct {
             .done_flag = false,
         };
     }
-    pub fn initNoOp(id: Id, name: []const u8, allocator: *Allocator) Step {
+    pub fn initNoOp(id: Id, name: []const u8, allocator: Allocator) Step {
         return init(id, name, allocator, makeNoOp);
     }
 
@@ -3098,7 +3123,7 @@ pub const Step = struct {
     }
 };
 
-fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {
+fn doAtomicSymLinks(allocator: Allocator, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {
     const out_dir = fs.path.dirname(output_path) orelse ".";
     const out_basename = fs.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
@@ -3122,7 +3147,7 @@ fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_maj
 }
 
 /// Returned slice must be freed by the caller.
-fn findVcpkgRoot(allocator: *Allocator) !?[]const u8 {
+fn findVcpkgRoot(allocator: Allocator) !?[]const u8 {
     const appdata_path = try fs.getAppDataDir(allocator, "vcpkg");
     defer allocator.free(appdata_path);
 
@@ -3191,7 +3216,7 @@ test "Builder.dupePkg()" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     var builder = try Builder.create(
-        &arena.allocator,
+        arena.allocator(),
         "test",
         "test",
         "test",
@@ -3236,7 +3261,7 @@ test "LibExeObjStep.addPackage" {
     defer arena.deinit();
 
     var builder = try Builder.create(
-        &arena.allocator,
+        arena.allocator(),
         "test",
         "test",
         "test",
@@ -3261,17 +3286,4 @@ test "LibExeObjStep.addPackage" {
 
     const dupe = exe.packages.items[0];
     try std.testing.expectEqualStrings(pkg_top.name, dupe.name);
-}
-
-test {
-    // The only purpose of this test is to get all these untested functions
-    // to be referenced to avoid regression so it is okay to skip some targets.
-    if (comptime builtin.cpu.arch.ptrBitWidth() == 64) {
-        std.testing.refAllDecls(@This());
-        std.testing.refAllDecls(Builder);
-
-        inline for (std.meta.declarations(@This())) |decl|
-            if (comptime mem.endsWith(u8, decl.name, "Step"))
-                std.testing.refAllDecls(decl.data.Type);
-    }
 }

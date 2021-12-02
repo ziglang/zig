@@ -30,6 +30,8 @@ comptime {
                 }
             } else if (builtin.os.tag == .windows) {
                 @export(wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
+            } else if (builtin.os.tag == .wasi and @hasDecl(root, "main")) {
+                @export(wasmMain2, .{ .name = "_start" });
             } else {
                 if (!@hasDecl(root, "_start")) {
                     @export(_start2, .{ .name = "_start" });
@@ -96,6 +98,22 @@ fn callMain2() noreturn {
     @setAlignStack(16);
     root.main();
     exit2(0);
+}
+
+fn wasmMain2() u8 {
+    switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
+        .Void => {
+            root.main();
+            return 0;
+        },
+        .Int => |info| {
+            if (info.bits != 8 or info.signedness == .signed) {
+                @compileError(bad_main_ret);
+            }
+            return root.main();
+        },
+        else => @compileError("Bad return type main"),
+    }
 }
 
 fn wWinMainCRTStartup2() callconv(.C) noreturn {

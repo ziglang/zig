@@ -13,7 +13,7 @@ pub const Range = struct {
     src: SwitchProngSrc,
 };
 
-pub fn init(allocator: *std.mem.Allocator) RangeSet {
+pub fn init(allocator: std.mem.Allocator) RangeSet {
     return .{
         .ranges = std.ArrayList(Range).init(allocator),
     };

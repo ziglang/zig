@@ -33,7 +33,7 @@ const InnerError = error{
     CodegenFail,
 };
 
-gpa: *Allocator,
+gpa: Allocator,
 air: Air,
 liveness: Liveness,
 bin_file: *link.File,
@@ -85,6 +85,9 @@ next_stack_offset: u32 = 0,
 
 /// Debug field, used to find bugs in the compiler.
 air_bookkeeping: @TypeOf(air_bookkeeping_init) = air_bookkeeping_init,
+
+/// For mir debug info, maps a mir index to a air index
+mir_to_air_map: if (builtin.mode == .Debug) std.AutoHashMap(Mir.Inst.Index, Air.Inst.Index) else void,
 
 const air_bookkeeping_init = if (std.debug.runtime_safety) @as(usize, 0) else {};
 
@@ -171,7 +174,7 @@ pub const MCValue = union(enum) {
 const Branch = struct {
     inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},
 
-    fn deinit(self: *Branch, gpa: *Allocator) void {
+    fn deinit(self: *Branch, gpa: Allocator) void {
         self.inst_table.deinit(gpa);
         self.* = undefined;
     }
@@ -272,12 +275,14 @@ pub fn generate(
         .stack_align = undefined,
         .end_di_line = module_fn.rbrace_line,
         .end_di_column = module_fn.rbrace_column,
+        .mir_to_air_map = if (builtin.mode == .Debug) std.AutoHashMap(Mir.Inst.Index, Air.Inst.Index).init(bin_file.allocator) else {},
     };
     defer function.stack.deinit(bin_file.allocator);
     defer function.blocks.deinit(bin_file.allocator);
     defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
     defer function.mir_instructions.deinit(bin_file.allocator);
     defer function.mir_extra.deinit(bin_file.allocator);
+    defer if (builtin.mode == .Debug) function.mir_to_air_map.deinit();
 
     var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
         error.CodegenFail => return FnResult{ .fail = function.err_msg.? },
@@ -318,6 +323,14 @@ pub fn generate(
         error.EmitFail => return FnResult{ .fail = emit.err_msg.? },
         else => |e| return e,
     };
+
+    if (builtin.mode == .Debug and bin_file.options.module.?.comp.verbose_mir) {
+        const w = std.io.getStdErr().writer();
+        w.print("# Begin Function MIR: {s}:\n", .{module_fn.owner_decl.name}) catch {};
+        const print = @import("./PrintMir.zig"){ .mir = mir };
+        print.printMir(w, function.mir_to_air_map, air) catch {}; // we don't care if the debug printing fails
+        w.print("# End Function MIR: {s}\n\n", .{module_fn.owner_decl.name}) catch {};
+    }
 
     if (function.err_msg) |em| {
         return FnResult{ .fail = em };
@@ -517,6 +530,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     for (body) |inst| {
         const old_air_bookkeeping = self.air_bookkeeping;
         try self.ensureProcessDeathCapacity(Liveness.bpi);
+        if (builtin.mode == .Debug) {
+            try self.mir_to_air_map.put(@intCast(u32, self.mir_instructions.len), inst);
+        }
 
         switch (air_tags[inst]) {
             // zig fmt: off
@@ -1950,7 +1966,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 });
             } else if (func_value.castTag(.extern_fn)) |func_payload| {
                 const decl = func_payload.data;
-                const n_strx = try macho_file.addExternFn(mem.spanZ(decl.name));
+                const n_strx = try macho_file.addExternFn(mem.sliceTo(decl.name, 0));
                 _ = try self.addInst(.{
                     .tag = .call_extern,
                     .ops = undefined,

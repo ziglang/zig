@@ -466,7 +466,7 @@ fn readUnitLength(in_stream: anytype, endian: std.builtin.Endian, is_64: *bool) 
 }
 
 // TODO the nosuspends here are workarounds
-fn readAllocBytes(allocator: *mem.Allocator, in_stream: anytype, size: usize) ![]u8 {
+fn readAllocBytes(allocator: mem.Allocator, in_stream: anytype, size: usize) ![]u8 {
     const buf = try allocator.alloc(u8, size);
     errdefer allocator.free(buf);
     if ((try nosuspend in_stream.read(buf)) < size) return error.EndOfFile;
@@ -481,18 +481,18 @@ fn readAddress(in_stream: anytype, endian: std.builtin.Endian, is_64: bool) !u64
         @as(u64, try in_stream.readInt(u32, endian));
 }
 
-fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: anytype, size: usize) !FormValue {
+fn parseFormValueBlockLen(allocator: mem.Allocator, in_stream: anytype, size: usize) !FormValue {
     const buf = try readAllocBytes(allocator, in_stream, size);
     return FormValue{ .Block = buf };
 }
 
 // TODO the nosuspends here are workarounds
-fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: anytype, endian: std.builtin.Endian, size: usize) !FormValue {
+fn parseFormValueBlock(allocator: mem.Allocator, in_stream: anytype, endian: std.builtin.Endian, size: usize) !FormValue {
     const block_len = try nosuspend in_stream.readVarInt(usize, endian, size);
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
-fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: anytype, signed: bool, endian: std.builtin.Endian, comptime size: i32) !FormValue {
+fn parseFormValueConstant(allocator: mem.Allocator, in_stream: anytype, signed: bool, endian: std.builtin.Endian, comptime size: i32) !FormValue {
     _ = allocator;
     // TODO: Please forgive me, I've worked around zig not properly spilling some intermediate values here.
     // `nosuspend` should be removed from all the function calls once it is fixed.
@@ -520,7 +520,7 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: anytype, signed:
 }
 
 // TODO the nosuspends here are workarounds
-fn parseFormValueRef(allocator: *mem.Allocator, in_stream: anytype, endian: std.builtin.Endian, size: i32) !FormValue {
+fn parseFormValueRef(allocator: mem.Allocator, in_stream: anytype, endian: std.builtin.Endian, size: i32) !FormValue {
     _ = allocator;
     return FormValue{
         .Ref = switch (size) {
@@ -535,7 +535,7 @@ fn parseFormValueRef(allocator: *mem.Allocator, in_stream: anytype, endian: std.
 }
 
 // TODO the nosuspends here are workarounds
-fn parseFormValue(allocator: *mem.Allocator, in_stream: anytype, form_id: u64, endian: std.builtin.Endian, is_64: bool) anyerror!FormValue {
+fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, endian: std.builtin.Endian, is_64: bool) anyerror!FormValue {
     return switch (form_id) {
         FORM.addr => FormValue{ .Address = try readAddress(in_stream, endian, @sizeOf(usize) == 8) },
         FORM.block1 => parseFormValueBlock(allocator, in_stream, endian, 1),
@@ -604,7 +604,7 @@ pub const DwarfInfo = struct {
     compile_unit_list: ArrayList(CompileUnit) = undefined,
     func_list: ArrayList(Func) = undefined,
 
-    pub fn allocator(self: DwarfInfo) *mem.Allocator {
+    pub fn allocator(self: DwarfInfo) mem.Allocator {
         return self.abbrev_table_list.allocator;
     }
 
@@ -1092,7 +1092,7 @@ pub const DwarfInfo = struct {
 /// the DwarfInfo fields before calling. These fields can be left undefined:
 /// * abbrev_table_list
 /// * compile_unit_list
-pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: *mem.Allocator) !void {
+pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
     di.abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator);
     di.compile_unit_list = ArrayList(CompileUnit).init(allocator);
     di.func_list = ArrayList(Func).init(allocator);

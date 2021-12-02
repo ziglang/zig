@@ -1,7 +1,6 @@
 const std = @import("std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const warn = std.debug.warn;
 const Order = std.math.Order;
 const testing = std.testing;
 const expect = testing.expect;
@@ -21,10 +20,10 @@ pub fn PriorityQueue(comptime T: type, comptime compareFn: fn (a: T, b: T) Order
 
         items: []T,
         len: usize,
-        allocator: *Allocator,
+        allocator: Allocator,
 
         /// Initialize and return a priority queue.
-        pub fn init(allocator: *Allocator) Self {
+        pub fn init(allocator: Allocator) Self {
             return Self{
                 .items = &[_]T{},
                 .len = 0,
@@ -154,7 +153,7 @@ pub fn PriorityQueue(comptime T: type, comptime compareFn: fn (a: T, b: T) Order
         /// PriorityQueue takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit`.
-        pub fn fromOwnedSlice(allocator: *Allocator, items: []T) Self {
+        pub fn fromOwnedSlice(allocator: Allocator, items: []T) Self {
             var queue = Self{
                 .items = items,
                 .len = items.len,
@@ -171,8 +170,7 @@ pub fn PriorityQueue(comptime T: type, comptime compareFn: fn (a: T, b: T) Order
             return queue;
         }
 
-        /// Deprecated: call `ensureUnusedCapacity` or `ensureTotalCapacity`.
-        pub const ensureCapacity = ensureTotalCapacity;
+        pub const ensureCapacity = @compileError("deprecated; use ensureUnusedCapacity or ensureTotalCapacity");
 
         /// Ensure that the queue can fit at least `new_capacity` items.
         pub fn ensureTotalCapacity(self: *Self, new_capacity: usize) !void {
@@ -242,19 +240,20 @@ pub fn PriorityQueue(comptime T: type, comptime compareFn: fn (a: T, b: T) Order
         }
 
         fn dump(self: *Self) void {
-            warn("{{ ", .{});
-            warn("items: ", .{});
+            const print = std.debug.print;
+            print("{{ ", .{});
+            print("items: ", .{});
             for (self.items) |e, i| {
                 if (i >= self.len) break;
-                warn("{}, ", .{e});
+                print("{}, ", .{e});
             }
-            warn("array: ", .{});
+            print("array: ", .{});
             for (self.items) |e| {
-                warn("{}, ", .{e});
+                print("{}, ", .{e});
             }
-            warn("len: {} ", .{self.len});
-            warn("capacity: {}", .{self.capacity()});
-            warn(" }}\n", .{});
+            print("len: {} ", .{self.len});
+            print("capacity: {}", .{self.capacity()});
+            print(" }}\n", .{});
         }
     };
 }

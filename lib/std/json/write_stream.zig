@@ -243,7 +243,7 @@ test "json write stream" {
     try w.beginObject();
 
     try w.objectField("object");
-    try w.emitJson(try getJsonObject(&arena_allocator.allocator));
+    try w.emitJson(try getJsonObject(arena_allocator.allocator()));
 
     try w.objectField("string");
     try w.emitString("This is a string");
@@ -286,7 +286,7 @@ test "json write stream" {
     try std.testing.expect(std.mem.eql(u8, expected, result));
 }
 
-fn getJsonObject(allocator: *std.mem.Allocator) !std.json.Value {
+fn getJsonObject(allocator: std.mem.Allocator) !std.json.Value {
     var value = std.json.Value{ .Object = std.json.ObjectMap.init(allocator) };
     try value.Object.put("one", std.json.Value{ .Integer = @intCast(i64, 1) });
     try value.Object.put("two", std.json.Value{ .Float = 2.0 });

@@ -142,10 +142,9 @@ pub const changeDetectionStream = @import("io/change_detection_stream.zig").chan
 
 pub const FindByteWriter = @import("io/find_byte_writer.zig").FindByteWriter;
 pub const findByteWriter = @import("io/find_byte_writer.zig").findByteWriter;
-/// Deprecated: use `FindByteWriter`.
-pub const FindByteOutStream = FindByteWriter;
-/// Deprecated: use `findByteWriter`.
-pub const findByteOutStream = findByteWriter;
+
+pub const FindByteOutStream = @compileError("deprecated; use `FindByteWriter`");
+pub const findByteOutStream = @compileError("deprecated; use `findByteWriter`");
 
 pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAtomicFile;
 
@@ -181,6 +180,3 @@ test {
     _ = @import("io/stream_source.zig");
     _ = @import("io/test.zig");
 }
-
-pub const writeFile = @compileError("deprecated: use std.fs.Dir.writeFile with math.maxInt(usize)");
-pub const readFileAlloc = @compileError("deprecated: use std.fs.Dir.readFileAlloc");

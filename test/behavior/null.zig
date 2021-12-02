@@ -115,3 +115,28 @@ test "optional pointer to 0 bit type null value at runtime" {
     var x: ?*EmptyStruct = null;
     try expect(x == null);
 }
+
+test "if var maybe pointer" {
+    try expect(shouldBeAPlus1(Particle{
+        .a = 14,
+        .b = 1,
+        .c = 1,
+        .d = 1,
+    }) == 15);
+}
+fn shouldBeAPlus1(p: Particle) u64 {
+    var maybe_particle: ?Particle = p;
+    if (maybe_particle) |*particle| {
+        particle.a += 1;
+    }
+    if (maybe_particle) |particle| {
+        return particle.a;
+    }
+    return 0;
+}
+const Particle = struct {
+    a: u64,
+    b: u64,
+    c: u64,
+    d: u64,
+};

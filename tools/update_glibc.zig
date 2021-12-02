@@ -133,7 +133,7 @@ const Function = struct {
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
     const args = try std.process.argsAlloc(allocator);
     const in_glibc_dir = args[1]; // path to the unzipped tarball of glibc, e.g. ~/downloads/glibc-2.25
     const zig_src_dir = args[2]; // path to the source checkout of zig, lib dir, e.g. ~/zig-src/lib
@@ -185,7 +185,7 @@ pub fn main() !void {
             };
             const max_bytes = 10 * 1024 * 1024;
             const contents = std.fs.cwd().readFileAlloc(allocator, abi_list_filename, max_bytes) catch |err| {
-                std.debug.warn("unable to open {s}: {}\n", .{ abi_list_filename, err });
+                std.debug.print("unable to open {s}: {}\n", .{ abi_list_filename, err });
                 std.process.exit(1);
             };
             var lines_it = std.mem.tokenize(u8, contents, "\n");

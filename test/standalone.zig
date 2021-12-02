@@ -69,6 +69,11 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         .build_modes = true,
         .requires_macos_sdk = true,
     });
+    // Try to build and run an Objective-C++ executable.
+    cases.addBuildFile("test/standalone/objcpp/build.zig", .{
+        .build_modes = true,
+        .requires_macos_sdk = true,
+    });
 
     // Ensure the development tools are buildable.
     cases.add("tools/gen_spirv_spec.zig");

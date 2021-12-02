@@ -1,6 +1,5 @@
 const std = @import("std");
 const mem = std.mem;
-const warn = std.debug.warn;
 const Tokenizer = std.zig.Tokenizer;
 const Parser = std.zig.Parser;
 const io = std.io;
@@ -34,7 +33,7 @@ pub fn main() !void {
 
 fn testOnce() usize {
     var fixed_buf_alloc = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-    var allocator = &fixed_buf_alloc.allocator;
+    var allocator = fixed_buf_alloc.allocator();
     _ = std.zig.parse(allocator, source) catch @panic("parse failure");
     return fixed_buf_alloc.end_index;
 }

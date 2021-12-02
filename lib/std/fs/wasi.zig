@@ -80,7 +80,7 @@ pub const PreopenList = struct {
     pub const Error = error{ OutOfMemory, Overflow } || os.UnexpectedError;
 
     /// Deinitialize with `deinit`.
-    pub fn init(allocator: *Allocator) Self {
+    pub fn init(allocator: Allocator) Self {
         return Self{ .buffer = InnerList.init(allocator) };
     }
 

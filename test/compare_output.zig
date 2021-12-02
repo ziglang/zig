@@ -491,12 +491,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() !void {
         \\    var allocator_buf: [10]u8 = undefined;
         \\    var fixedBufferAllocator = std.mem.validationWrap(std.heap.FixedBufferAllocator.init(&allocator_buf));
-        \\    const allocator = &std.heap.loggingAllocator(&fixedBufferAllocator.allocator).allocator;
+        \\    const allocator = std.heap.loggingAllocator(fixedBufferAllocator.allocator()).allocator();
         \\
         \\    var a = try allocator.alloc(u8, 10);
         \\    a = allocator.shrink(a, 5);
         \\    try std.testing.expect(a.len == 5);
-        \\    try std.testing.expectError(error.OutOfMemory, allocator.resize(a, 20));
+        \\    try std.testing.expect(allocator.resize(a, 20) == null);
         \\    allocator.free(a);
         \\}
         \\
@@ -514,8 +514,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     ,
         \\debug: alloc - success - len: 10, ptr_align: 1, len_align: 0
         \\debug: shrink - success - 10 to 5, len_align: 0, buf_align: 1
-        \\error: expand - failure: OutOfMemory - 5 to 20, len_align: 0, buf_align: 1
-        \\debug: free - success - len: 5
+        \\error: expand - failure - 5 to 20, len_align: 0, buf_align: 1
+        \\debug: free - len: 5
         \\
     );
 }

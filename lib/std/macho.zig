@@ -744,6 +744,55 @@ pub const nlist_64 = extern struct {
     n_sect: u8,
     n_desc: u16,
     n_value: u64,
+
+    pub fn stab(sym: nlist_64) bool {
+        return (N_STAB & sym.n_type) != 0;
+    }
+
+    pub fn pext(sym: nlist_64) bool {
+        return (N_PEXT & sym.n_type) != 0;
+    }
+
+    pub fn ext(sym: nlist_64) bool {
+        return (N_EXT & sym.n_type) != 0;
+    }
+
+    pub fn sect(sym: nlist_64) bool {
+        const type_ = N_TYPE & sym.n_type;
+        return type_ == N_SECT;
+    }
+
+    pub fn undf(sym: nlist_64) bool {
+        const type_ = N_TYPE & sym.n_type;
+        return type_ == N_UNDF;
+    }
+
+    pub fn indr(sym: nlist_64) bool {
+        const type_ = N_TYPE & sym.n_type;
+        return type_ == N_INDR;
+    }
+
+    pub fn abs(sym: nlist_64) bool {
+        const type_ = N_TYPE & sym.n_type;
+        return type_ == N_ABS;
+    }
+
+    pub fn weakDef(sym: nlist_64) bool {
+        return (sym.n_desc & N_WEAK_DEF) != 0;
+    }
+
+    pub fn weakRef(sym: nlist_64) bool {
+        return (sym.n_desc & N_WEAK_REF) != 0;
+    }
+
+    pub fn discarded(sym: nlist_64) bool {
+        return (sym.n_desc & N_DESC_DISCARDED) != 0;
+    }
+
+    pub fn tentative(sym: nlist_64) bool {
+        if (!sym.undf()) return false;
+        return sym.n_value != 0;
+    }
 };
 
 /// Format of a relocation entry of a Mach-O file.  Modified from the 4.3BSD

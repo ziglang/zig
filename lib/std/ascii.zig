@@ -301,7 +301,7 @@ test "lowerString" {
 
 /// Allocates a lower case copy of `ascii_string`.
 /// Caller owns returned string and must free with `allocator`.
-pub fn allocLowerString(allocator: *std.mem.Allocator, ascii_string: []const u8) ![]u8 {
+pub fn allocLowerString(allocator: std.mem.Allocator, ascii_string: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, ascii_string.len);
     return lowerString(result, ascii_string);
 }
@@ -330,7 +330,7 @@ test "upperString" {
 
 /// Allocates an upper case copy of `ascii_string`.
 /// Caller owns returned string and must free with `allocator`.
-pub fn allocUpperString(allocator: *std.mem.Allocator, ascii_string: []const u8) ![]u8 {
+pub fn allocUpperString(allocator: std.mem.Allocator, ascii_string: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, ascii_string.len);
     return upperString(result, ascii_string);
 }

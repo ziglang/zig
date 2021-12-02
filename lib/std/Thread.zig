@@ -17,8 +17,6 @@ pub const Mutex = @import("Thread/Mutex.zig");
 pub const Semaphore = @import("Thread/Semaphore.zig");
 pub const Condition = @import("Thread/Condition.zig");
 
-pub const spinLoopHint = @compileError("deprecated: use std.atomic.spinLoopHint");
-
 pub const use_pthreads = target.os.tag != .windows and target.os.tag != .wasi and builtin.link_libc;
 const is_gnu = target.abi.isGnu();
 
@@ -361,7 +359,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
             }
 
             @call(.{}, f, args) catch |err| {
-                std.debug.warn("error: {s}\n", .{@errorName(err)});
+                std.debug.print("error: {s}\n", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
@@ -462,7 +460,7 @@ const WindowsThreadImpl = struct {
         errdefer assert(windows.kernel32.HeapFree(heap_handle, 0, alloc_ptr) != 0);
 
         const instance_bytes = @ptrCast([*]u8, alloc_ptr)[0..alloc_bytes];
-        const instance = std.heap.FixedBufferAllocator.init(instance_bytes).allocator.create(Instance) catch unreachable;
+        const instance = std.heap.FixedBufferAllocator.init(instance_bytes).allocator().create(Instance) catch unreachable;
         instance.* = .{
             .fn_args = args,
             .thread = .{
@@ -577,11 +575,12 @@ const PosixThreadImpl = struct {
                 };
             },
             .haiku => {
-                var count: u32 = undefined;
-                var system_info: os.system_info = undefined;
-                _ = os.system.get_system_info(&system_info); // always returns B_OK
-                count = system_info.cpu_count;
-                return @intCast(usize, count);
+                var system_info: os.system.system_info = undefined;
+                const rc = os.system.get_system_info(&system_info); // always returns B_OK
+                return switch (os.errno(rc)) {
+                    .SUCCESS => @intCast(usize, system_info.cpu_count),
+                    else => |err| os.unexpectedErrno(err),
+                };
             },
             else => {
                 var count: c_int = undefined;

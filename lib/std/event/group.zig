@@ -15,7 +15,7 @@ pub fn Group(comptime ReturnType: type) type {
         frame_stack: Stack,
         alloc_stack: AllocStack,
         lock: Lock,
-        allocator: *Allocator,
+        allocator: Allocator,
 
         const Self = @This();
 
@@ -31,7 +31,7 @@ pub fn Group(comptime ReturnType: type) type {
             handle: anyframe->ReturnType,
         };
 
-        pub fn init(allocator: *Allocator) Self {
+        pub fn init(allocator: Allocator) Self {
             return Self{
                 .frame_stack = Stack.init(),
                 .alloc_stack = AllocStack.init(),
@@ -127,7 +127,7 @@ test "std.event.Group" {
 
     _ = async testGroup(std.heap.page_allocator);
 }
-fn testGroup(allocator: *Allocator) callconv(.Async) void {
+fn testGroup(allocator: Allocator) callconv(.Async) void {
     var count: usize = 0;
     var group = Group(void).init(allocator);
     var sleep_a_little_frame = async sleepALittle(&count);
