@@ -67,30 +67,30 @@ pub fn init(
     const alignment = ptr_info.Pointer.alignment;
 
     const gen = struct {
-        fn alloc(ptr: *c_void, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
+        fn allocImpl(ptr: *c_void, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
             const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
             return @call(.{ .modifier = .always_inline }, allocFn, .{ self, len, ptr_align, len_align, ret_addr });
         }
-        fn resize(ptr: *c_void, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize {
+        fn resizeImpl(ptr: *c_void, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize {
             assert(new_len != 0);
             const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
             return @call(.{ .modifier = .always_inline }, resizeFn, .{ self, buf, buf_align, new_len, len_align, ret_addr });
         }
-        fn free(ptr: *c_void, buf: []u8, buf_align: u29, ret_addr: usize) void {
+        fn freeImpl(ptr: *c_void, buf: []u8, buf_align: u29, ret_addr: usize) void {
             const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
             @call(.{ .modifier = .always_inline }, freeFn, .{ self, buf, buf_align, ret_addr });
         }
-    };
 
-    const vtable = VTable{
-        .alloc = gen.alloc,
-        .resize = gen.resize,
-        .free = gen.free,
+        const vtable = VTable{
+            .alloc = allocImpl,
+            .resize = resizeImpl,
+            .free = freeImpl,
+        };
     };
 
     return .{
         .ptr = pointer,
-        .vtable = &vtable,
+        .vtable = &gen.vtable,
     };
 }
 
