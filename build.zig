@@ -300,6 +300,7 @@ pub fn build(b: *Builder) !void {
     const is_qemu_enabled = b.option(bool, "enable-qemu", "Use QEMU to run cross compiled foreign architecture tests") orelse false;
     const is_wasmtime_enabled = b.option(bool, "enable-wasmtime", "Use Wasmtime to enable and run WASI libstd tests") orelse false;
     const is_darling_enabled = b.option(bool, "enable-darling", "[Experimental] Use Darling to run cross compiled macOS tests") orelse false;
+    const is_rosetta_enabled = b.option(bool, "enable-rosetta", "(Darwin) Use Rosetta to run x86_64 macOS tests on arm64 macOS") orelse false;
     const glibc_multi_dir = b.option([]const u8, "enable-foreign-glibc", "Provide directory with glibc installations to run cross compiled tests that link glibc");
 
     const test_stage2_options = b.addOptions();
@@ -319,6 +320,7 @@ pub fn build(b: *Builder) !void {
     test_stage2_options.addOption(bool, "enable_qemu", is_qemu_enabled);
     test_stage2_options.addOption(bool, "enable_wine", is_wine_enabled);
     test_stage2_options.addOption(bool, "enable_wasmtime", is_wasmtime_enabled);
+    test_stage2_options.addOption(bool, "enable_rosetta", is_rosetta_enabled);
     test_stage2_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
     test_stage2_options.addOption(bool, "enable_darling", is_darling_enabled);
     test_stage2_options.addOption(?[]const u8, "glibc_multi_install_dir", glibc_multi_dir);
@@ -370,6 +372,7 @@ pub fn build(b: *Builder) !void {
         is_qemu_enabled,
         is_wasmtime_enabled,
         is_darling_enabled,
+        is_rosetta_enabled,
         glibc_multi_dir,
     ));
 
@@ -387,6 +390,7 @@ pub fn build(b: *Builder) !void {
         is_qemu_enabled,
         is_wasmtime_enabled,
         is_darling_enabled,
+        is_rosetta_enabled,
         glibc_multi_dir,
     ));
 
@@ -404,6 +408,7 @@ pub fn build(b: *Builder) !void {
         is_qemu_enabled,
         is_wasmtime_enabled,
         is_darling_enabled,
+        is_rosetta_enabled,
         glibc_multi_dir,
     ));
 
@@ -434,6 +439,7 @@ pub fn build(b: *Builder) !void {
         is_qemu_enabled,
         is_wasmtime_enabled,
         is_darling_enabled,
+        is_rosetta_enabled,
         glibc_multi_dir,
     );
 

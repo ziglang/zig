@@ -612,6 +612,7 @@ pub fn vcpkgTriplet(self: CrossTarget, allocator: mem.Allocator, linkage: VcpkgL
 
 pub const Executor = union(enum) {
     native,
+    rosetta,
     qemu: []const u8,
     wine: []const u8,
     wasmtime: []const u8,
@@ -641,6 +642,14 @@ pub fn getExternalExecutor(self: CrossTarget) Executor {
             std.fs.cwd().access(dl, .{}) catch break :blk;
             return .native;
         }
+    }
+    // If the OS match and OS is macOS and CPU is arm64, we can use Rosetta 2
+    // to emulate the foreign architecture.
+    if (os_match and os_tag == .macos and builtin.cpu.arch == .aarch64) {
+        return switch (cpu_arch) {
+            .x86_64 => .rosetta,
+            else => .unavailable,
+        };
     }
 
     // If the OS matches, we can use QEMU to emulate a foreign architecture.

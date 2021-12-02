@@ -10,6 +10,7 @@ const enable_qemu: bool = build_options.enable_qemu;
 const enable_wine: bool = build_options.enable_wine;
 const enable_wasmtime: bool = build_options.enable_wasmtime;
 const enable_darling: bool = build_options.enable_darling;
+const enable_rosetta: bool = build_options.enable_rosetta;
 const glibc_multi_install_dir: ?[]const u8 = build_options.glibc_multi_install_dir;
 const skip_compile_errors = build_options.skip_compile_errors;
 const ThreadPool = @import("ThreadPool.zig");
@@ -1131,6 +1132,12 @@ pub const TestContext = struct {
                         } else switch (case.target.getExternalExecutor()) {
                             .native => try argv.append(exe_path),
                             .unavailable => return, // Pass test.
+
+                            .rosetta => if (enable_rosetta) {
+                                try argv.append(exe_path);
+                            } else {
+                                return; // Rosetta not available, pass test.
+                            },
 
                             .qemu => |qemu_bin_name| if (enable_qemu) {
                                 // TODO Ability for test cases to specify whether to link libc.
