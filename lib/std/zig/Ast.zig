@@ -136,6 +136,9 @@ pub fn renderError(tree: Tree, parse_error: Error, stream: anytype) !void {
             // location would point to the `*` after the `.*`.
             return stream.writeAll("'.*' cannot be followed by '*'. Are you missing a space?");
         },
+        .chained_comparison_operators => {
+            return stream.writeAll("comparison operators cannot be chained");
+        },
         .decl_between_fields => {
             return stream.writeAll("declarations are not allowed between container fields");
         },
@@ -2424,6 +2427,7 @@ pub const Error = struct {
 
     pub const Tag = enum {
         asterisk_after_ptr_deref,
+        chained_comparison_operators,
         decl_between_fields,
         expected_block,
         expected_block_or_assignment,

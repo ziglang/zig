@@ -1374,6 +1374,7 @@ const Parser = struct {
     });
 
     fn parseExprPrecedence(p: *Parser, min_prec: i32) Error!Node.Index {
+        assert(min_prec >= 0);
         var node = try p.parsePrefixExpr();
         if (node == 0) {
             return null_node;
@@ -1384,8 +1385,11 @@ const Parser = struct {
         while (true) {
             const tok_tag = p.token_tags[p.tok_i];
             const info = operTable[@intCast(usize, @enumToInt(tok_tag))];
-            if (info.prec < min_prec or info.prec == banned_prec) {
+            if (info.prec < min_prec) {
                 break;
+            }
+            if (info.prec == banned_prec) {
+                return p.fail(.chained_comparison_operators);
             }
             const oper_token = p.nextToken();
             // Special-case handling for "catch" and "&&".

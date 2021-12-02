@@ -5056,8 +5056,8 @@ test "recovery: non-associative operators" {
         \\const x = a == b == c;
         \\const x = a == b != c;
     , &[_]Error{
-        .expected_token,
-        .expected_token,
+        .chained_comparison_operators,
+        .chained_comparison_operators,
     });
 }
 
