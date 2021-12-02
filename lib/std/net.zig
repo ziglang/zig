@@ -816,7 +816,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
 
         return result;
     }
-    @compileError("std.net.getAddresses unimplemented for this OS");
+    @compileError("std.net.getAddressList unimplemented for this OS");
 }
 
 const LookupAddr = struct {
