@@ -2534,7 +2534,7 @@ fn buildOutputType(
             test_exec_args.items,
             self_exe_path,
             arg_mode,
-            target_info.target,
+            target_info,
             watch,
             &comp_destroyed,
             all_args,
@@ -2606,7 +2606,7 @@ fn buildOutputType(
                         test_exec_args.items,
                         self_exe_path,
                         arg_mode,
-                        target_info.target,
+                        target_info,
                         watch,
                         &comp_destroyed,
                         all_args,
@@ -2631,7 +2631,7 @@ fn buildOutputType(
                         test_exec_args.items,
                         self_exe_path,
                         arg_mode,
-                        target_info.target,
+                        target_info,
                         watch,
                         &comp_destroyed,
                         all_args,
@@ -2695,7 +2695,7 @@ fn runOrTest(
     test_exec_args: []const ?[]const u8,
     self_exe_path: []const u8,
     arg_mode: ArgMode,
-    target: std.Target,
+    target_info: std.zig.system.NativeTargetInfo,
     watch: bool,
     comp_destroyed: *bool,
     all_args: []const []const u8,
@@ -2711,20 +2711,6 @@ fn runOrTest(
     defer argv.deinit();
 
     if (test_exec_args.len == 0) {
-        if (!builtin.target.canExecBinariesOf(target)) {
-            switch (arg_mode) {
-                .zig_test => {
-                    warn("created {s} but skipping execution because it is non-native", .{exe_path});
-                    if (!watch) return cleanExit();
-                    return;
-                },
-                else => {
-                    std.log.err("unable to execute {s}: non-native", .{exe_path});
-                    if (!watch) process.exit(1);
-                    return;
-                },
-            }
-        }
         // when testing pass the zig_exe_path to argv
         if (arg_mode == .zig_test)
             try argv.appendSlice(&[_][]const u8{
@@ -2754,6 +2740,7 @@ fn runOrTest(
     if (std.process.can_execv and arg_mode == .run and !watch) {
         // execv releases the locks; no need to destroy the Compilation here.
         const err = std.process.execv(gpa, argv.items);
+        try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info);
         const cmd = try argvCmd(arena, argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
     } else {
@@ -2771,7 +2758,11 @@ fn runOrTest(
             comp_destroyed.* = true;
         }
 
-        const term = try child.spawnAndWait();
+        const term = child.spawnAndWait() catch |err| {
+            try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info);
+            const cmd = try argvCmd(arena, argv.items);
+            fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });
+        };
         switch (arg_mode) {
             .run, .build => {
                 switch (term) {
@@ -4664,4 +4655,41 @@ fn parseIntSuffix(arg: []const u8, prefix_len: usize) u64 {
     return std.fmt.parseUnsigned(u64, arg[prefix_len..], 0) catch |err| {
         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
     };
+}
+
+fn warnAboutForeignBinaries(
+    gpa: Allocator,
+    arena: Allocator,
+    arg_mode: ArgMode,
+    target_info: std.zig.system.NativeTargetInfo,
+) !void {
+    const host_cross_target: std.zig.CrossTarget = .{};
+    const host_target_info = try detectNativeTargetInfo(gpa, host_cross_target);
+
+    if (!host_target_info.target.canExecBinariesOf(target_info.target)) {
+        const host_name = try host_target_info.target.zigTriple(arena);
+        const foreign_name = try target_info.target.zigTriple(arena);
+        const tip_suffix = switch (arg_mode) {
+            .zig_test => ". Consider using --test-no-exec or --test-cmd",
+            else => "",
+        };
+        warn("the host system ({s}) does not appear to be capable of executing binaries from the target ({s}){s}", .{
+            host_name, foreign_name, tip_suffix,
+        });
+        return;
+    }
+
+    if (target_info.dynamic_linker.get()) |foreign_dl| {
+        std.fs.cwd().access(foreign_dl, .{}) catch {
+            const host_dl = host_target_info.dynamic_linker.get() orelse "(none)";
+            const tip_suffix = switch (arg_mode) {
+                .zig_test => ", --test-no-exec, or --test-cmd",
+                else => "",
+            };
+            warn("the host system does not appear to be capable of executing binaries from the target because the host dynamic linker is located at '{s}', while the target dynamic linker path is '{s}'. Consider using --dynamic-linker{s}", .{
+                host_dl, foreign_dl, tip_suffix,
+            });
+            return;
+        };
+    }
 }
