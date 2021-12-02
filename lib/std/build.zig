@@ -70,6 +70,22 @@ pub const Builder = struct {
     args: ?[][]const u8 = null,
     debug_log_scopes: []const []const u8 = &.{},
 
+    /// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
+    enable_darling: bool = false,
+    /// Use system QEMU installation to run cross compiled foreign architecture build artifacts.
+    enable_qemu: bool = false,
+    /// Darwin. Use Rosetta to run x86_64 macOS build artifacts on arm64 macOS.
+    enable_rosetta: bool = false,
+    /// Use system Wasmtime installation to run cross compiled wasm/wasi build artifacts.
+    enable_wasmtime: bool = false,
+    /// Use system Wine installation to run cross compiled Windows build artifacts.
+    enable_wine: bool = false,
+    /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
+    /// this will be the directory $glibc-build-dir/install/glibcs
+    /// Given the example of the aarch64 target, this is the directory
+    /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
+    glibc_runtimes_dir: ?[]const u8 = null,
+
     const PkgConfigError = error{
         PkgConfigCrashed,
         PkgConfigFailed,
@@ -1504,27 +1520,6 @@ pub const LibExeObjStep = struct {
     /// Permit read-only relocations in read-only segments. Disallowed by default.
     link_z_notext: bool = false,
 
-    /// Uses system Wine installation to run cross compiled Windows build artifacts.
-    enable_wine: bool = false,
-
-    /// Uses system QEMU installation to run cross compiled foreign architecture build artifacts.
-    enable_qemu: bool = false,
-
-    /// Uses system Wasmtime installation to run cross compiled wasm/wasi build artifacts.
-    enable_wasmtime: bool = false,
-
-    /// Experimental. Uses system Darling installation to run cross compiled macOS build artifacts.
-    enable_darling: bool = false,
-
-    /// Darwin. Uses Rosetta to run x86_64 macOS build artifacts on arm64 macOS.
-    enable_rosetta: bool = false,
-
-    /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
-    /// this will be the directory $glibc-build-dir/install/glibcs
-    /// Given the example of the aarch64 target, this is the directory
-    /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
-    glibc_multi_install_dir: ?[]const u8 = null,
-
     /// Position Independent Code
     force_pic: ?bool = null,
 
@@ -2533,13 +2528,13 @@ pub const LibExeObjStep = struct {
             }
         } else switch (self.target.getExternalExecutor()) {
             .native, .unavailable => {},
-            .rosetta => if (self.enable_rosetta) {
+            .rosetta => if (builder.enable_rosetta) {
                 try zig_args.append("--test-cmd-bin");
             },
-            .qemu => |bin_name| if (self.enable_qemu) qemu: {
+            .qemu => |bin_name| if (builder.enable_qemu) qemu: {
                 const need_cross_glibc = self.target.isGnuLibC() and self.is_linking_libc;
                 const glibc_dir_arg = if (need_cross_glibc)
-                    self.glibc_multi_install_dir orelse break :qemu
+                    builder.glibc_runtimes_dir orelse break :qemu
                 else
                     null;
                 try zig_args.append("--test-cmd");
@@ -2567,19 +2562,19 @@ pub const LibExeObjStep = struct {
                 }
                 try zig_args.append("--test-cmd-bin");
             },
-            .wine => |bin_name| if (self.enable_wine) {
+            .wine => |bin_name| if (builder.enable_wine) {
                 try zig_args.append("--test-cmd");
                 try zig_args.append(bin_name);
                 try zig_args.append("--test-cmd-bin");
             },
-            .wasmtime => |bin_name| if (self.enable_wasmtime) {
+            .wasmtime => |bin_name| if (builder.enable_wasmtime) {
                 try zig_args.append("--test-cmd");
                 try zig_args.append(bin_name);
                 try zig_args.append("--test-cmd");
                 try zig_args.append("--dir=.");
                 try zig_args.append("--test-cmd-bin");
             },
-            .darling => |bin_name| if (self.enable_darling) {
+            .darling => |bin_name| if (builder.enable_darling) {
                 try zig_args.append("--test-cmd");
                 try zig_args.append(bin_name);
                 try zig_args.append("--test-cmd-bin");

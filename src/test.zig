@@ -11,7 +11,7 @@ const enable_wine: bool = build_options.enable_wine;
 const enable_wasmtime: bool = build_options.enable_wasmtime;
 const enable_darling: bool = build_options.enable_darling;
 const enable_rosetta: bool = build_options.enable_rosetta;
-const glibc_multi_install_dir: ?[]const u8 = build_options.glibc_multi_install_dir;
+const glibc_runtimes_dir: ?[]const u8 = build_options.glibc_runtimes_dir;
 const skip_compile_errors = build_options.skip_compile_errors;
 const ThreadPool = @import("ThreadPool.zig");
 const CrossTarget = std.zig.CrossTarget;
@@ -1143,7 +1143,7 @@ pub const TestContext = struct {
                                 // TODO Ability for test cases to specify whether to link libc.
                                 const need_cross_glibc = false; // target.isGnuLibC() and self.is_linking_libc;
                                 const glibc_dir_arg = if (need_cross_glibc)
-                                    glibc_multi_install_dir orelse return // glibc dir not available; pass test
+                                    glibc_runtimes_dir orelse return // glibc dir not available; pass test
                                 else
                                     null;
                                 try argv.append(qemu_bin_name);
