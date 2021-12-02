@@ -348,6 +348,16 @@ pub const Inst = struct {
         /// Uses `tag`
         i64_and = 0x83,
         /// Uses `tag`
+        i64_or = 0x84,
+        /// Uses `tag`
+        i64_xor = 0x85,
+        /// Uses `tag`
+        i64_shl = 0x86,
+        /// Uses `tag`
+        i64_shr_s = 0x87,
+        /// Uses `tag`
+        i64_shr_u = 0x88,
+        /// Uses `tag`
         i32_wrap_i64 = 0xA7,
         /// Uses `tag`
         i64_extend_i32_s = 0xAC,

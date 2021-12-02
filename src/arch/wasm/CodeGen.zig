@@ -551,7 +551,7 @@ mir_extra: std.ArrayListUnmanaged(u32) = .{},
 initial_stack_value: WValue = .none,
 /// Arguments of this function declaration
 /// This will be set after `resolveCallingConventionValues`
-args: []WValue = undefined,
+args: []WValue = &.{},
 /// This will only be `.none` if the function returns void, or returns an immediate.
 /// When it returns a pointer to the stack, the `.local` tag will be active and must be populated
 /// before this function returns its execution to the caller.
@@ -1117,6 +1117,13 @@ fn moveStack(self: *Self, offset: u32, local: u32) !void {
     try self.addLabel(.global_set, 0);
 }
 
+/// From given zig bitsize, returns the wasm bitsize
+fn toWasmIntBits(bits: u16) ?u16 {
+    return for ([_]u16{ 32, 64 }) |wasm_bits| {
+        if (bits <= wasm_bits) return wasm_bits;
+    } else null;
+}
+
 fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
     const air_tags = self.air.instructions.items(.tag);
     return switch (air_tags[inst]) {
@@ -1563,6 +1570,7 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
 }
 
 fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
+    if (val.isUndefDeep()) return self.emitUndefined(ty);
     switch (ty.zigTypeTag()) {
         .Int => {
             const int_info = ty.intInfo(self.target);
@@ -1665,6 +1673,22 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             }
         },
         else => |zig_type| return self.fail("Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
+    }
+}
+
+fn emitUndefined(self: *Self, ty: Type) InnerError!void {
+    switch (ty.zigTypeTag()) {
+        .Int => switch (ty.intInfo(self.target).bits) {
+            0...32 => try self.addImm32(@bitCast(i32, @as(u32, 0xaaaaaaaa))),
+            33...64 => try self.addImm64(0xaaaaaaaaaaaaaaaa),
+            else => |bits| return self.fail("Wasm TODO: emitUndefined for integer bitsize: {d}", .{bits}),
+        },
+        .Float => switch (ty.floatBits(self.target)) {
+            0...32 => try self.addInst(.{ .tag = .f32_const, .data = .{ .float32 = @bitCast(f32, @as(u32, 0xaaaaaaaa)) } }),
+            33...64 => try self.addFloat64(@bitCast(f64, @as(u64, 0xaaaaaaaaaaaaaaaa))),
+            else => |bits| return self.fail("Wasm TODO: emitUndefined for float bitsize: {d}", .{bits}),
+        },
+        else => return self.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty}),
     }
 }
 
@@ -2233,19 +2257,21 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const operand = self.resolveInst(ty_op.operand);
     const pointer_width = self.target.cpu.arch.ptrBitWidth() / 8;
 
-    // Get pointer to slice
-    try self.emitWValue(operand);
-    // length of slice is stored after the pointer of the slice
-    const extra_index = try self.addExtra(Mir.MemArg{
-        .offset = pointer_width,
-        .alignment = pointer_width,
-    });
-    try self.addInst(.{ .tag = .i32_load, .data = .{ .payload = extra_index } });
+    return try self.load(operand, Type.usize, pointer_width);
 
-    const result = try self.allocLocal(Type.initTag(.i32)); // pointer is always i32
-    // store slice length in local
-    try self.addLabel(.local_set, result.local);
-    return result;
+    // // Get pointer to slice
+    // try self.emitWValue(operand);
+    // // length of slice is stored after the pointer of the slice
+    // const extra_index = try self.addExtra(Mir.MemArg{
+    //     .offset = pointer_width,
+    //     .alignment = pointer_width,
+    // });
+    // try self.addInst(.{ .tag = .i32_load, .data = .{ .payload = extra_index } });
+
+    // const result = try self.allocLocal(Type.initTag(.i32)); // pointer is always i32
+    // // store slice length in local
+    // try self.addLabel(.local_set, result.local);
+    // return result;
 }
 
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2269,6 +2295,73 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     try self.addTag(.i32_add);
 
     const result = try self.allocLocal(elem_ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn airSlicePtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue.none;
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const operand = self.resolveInst(ty_op.operand);
+    return try self.load(operand, Type.usize, 0);
+}
+
+fn airTrunc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue.none;
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const operand = self.resolveInst(ty_op.operand);
+    const op_ty = self.air.typeOf(ty_op.operand);
+    const int_info = self.air.getRefType(ty_op.ty).intInfo(self.target);
+    const wanted_bits = int_info.bits;
+    const result = try self.allocLocal(self.air.getRefType(ty_op.ty));
+    const op_bits = op_ty.intInfo(self.target).bits;
+
+    const wasm_bits = toWasmIntBits(wanted_bits) orelse
+        return self.fail("TODO: Implement wasm integer truncation for integer bitsize: {d}", .{wanted_bits});
+
+    // Use wasm's instruction to wrap from 64bit to 32bit integer when possible
+    if (op_bits == 64 and wanted_bits == 32) {
+        try self.emitWValue(operand);
+        try self.addTag(.i32_wrap_i64);
+        try self.addLabel(.local_set, result.local);
+        return result;
+    }
+
+    // Any other truncation must be done manually
+    if (int_info.signedness == .unsigned) {
+        const mask = (@as(u65, 1) << @intCast(u7, wanted_bits)) - 1;
+        try self.emitWValue(operand);
+        switch (wasm_bits) {
+            32 => {
+                try self.addImm32(@bitCast(i32, @intCast(u32, mask)));
+                try self.addTag(.i32_and);
+            },
+            64 => {
+                try self.addImm64(@intCast(u64, mask));
+                try self.addTag(.i64_and);
+            },
+            else => unreachable,
+        }
+    } else {
+        const shift_bits = wasm_bits - wanted_bits;
+        try self.emitWValue(operand);
+        switch (wasm_bits) {
+            32 => {
+                try self.addImm32(@bitCast(i16, shift_bits));
+                try self.addTag(.i32_shl);
+                try self.addImm32(@bitCast(i16, shift_bits));
+                try self.addTag(.i32_shr_s);
+            },
+            64 => {
+                try self.addImm64(shift_bits);
+                try self.addTag(.i64_shl);
+                try self.addImm64(shift_bits);
+                try self.addTag(.i64_shr_s);
+            },
+            else => unreachable,
+        }
+    }
+
     try self.addLabel(.local_set, result.local);
     return result;
 }
