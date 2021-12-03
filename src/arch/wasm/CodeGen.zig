@@ -1048,7 +1048,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
 
             const ret_ty = fn_ty.fnReturnType();
             switch (ret_ty.zigTypeTag()) {
-                .ErrorUnion, .Optional => result.return_value = try self.allocLocal(Type.initTag(.i32)),
+                .ErrorUnion, .Optional, .Pointer => result.return_value = try self.allocLocal(Type.initTag(.i32)),
                 .Int, .Float, .Bool, .Void, .NoReturn => {},
                 else => return self.fail("TODO: Implement function return type {}", .{ret_ty}),
             }
@@ -1062,6 +1062,11 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
                 };
 
                 try self.moveStack(offset, result.return_value.local);
+
+                // We want to make sure the return value's stack value doesn't get overwritten,
+                // so set initial stack value to current's position instead.
+                try self.addLabel(.global_get, 0);
+                try self.addLabel(.local_set, self.initial_stack_value.local);
             }
         },
         else => return self.fail("TODO implement function parameters for cc '{}' on wasm", .{cc}),
@@ -1076,10 +1081,6 @@ fn initializeStack(self: *Self) !void {
     assert(self.initial_stack_value == .none);
     // reserve space for immediate value
     // get stack pointer global
-    // TODO: For now, we hardcode the stack pointer to index '0',
-    // once the linker is further implemented, we can replace this by inserting
-    // a relocation and have the linker resolve the correct index to the stack pointer global.
-    // NOTE: relocations of the type GLOBAL_INDEX_LEB are 5-bytes big
     try self.addLabel(.global_get, 0);
 
     // Reserve a local to store the current stack pointer
@@ -1108,8 +1109,6 @@ fn restoreStackPointer(self: *Self) !void {
 /// the result back into the stack pointer.
 fn moveStack(self: *Self, offset: u32, local: u32) !void {
     if (offset == 0) return;
-    // TODO: Rather than hardcode the stack pointer to position 0,
-    // have the linker resolve its relocation
     try self.addLabel(.global_get, 0);
     try self.addImm32(@bitCast(i32, offset));
     try self.addTag(.i32_sub);
@@ -1170,11 +1169,15 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .load => self.airLoad(inst),
         .loop => self.airLoop(inst),
         .not => self.airNot(inst),
+        .optional_payload => self.airOptionalPayload(inst),
+        .optional_payload_ptr => self.airOptionalPayload(inst),
+        .optional_payload_ptr_set => self.airOptionalPayloadPtrSet(inst),
         .ret => self.airRet(inst),
         .ret_ptr => self.airRetPtr(inst),
         .ret_load => self.airRetLoad(inst),
         .slice_len => self.airSliceLen(inst),
         .slice_elem_val => self.airSliceElemVal(inst),
+        .slice_ptr => self.airSlicePtr(inst),
         .store => self.airStore(inst),
         .struct_field_ptr => self.airStructFieldPtr(inst),
         .struct_field_ptr_index_0 => self.airStructFieldPtrIndex(inst, 0),
@@ -1183,17 +1186,14 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .struct_field_ptr_index_3 => self.airStructFieldPtrIndex(inst, 3),
         .struct_field_val => self.airStructFieldVal(inst),
         .switch_br => self.airSwitchBr(inst),
+        .trunc => self.airTrunc(inst),
         .unreach => self.airUnreachable(inst),
-        .wrap_optional => self.airWrapOptional(inst),
 
+        .wrap_optional => self.airWrapOptional(inst),
         .unwrap_errunion_payload => self.airUnwrapErrUnionPayload(inst),
         .unwrap_errunion_err => self.airUnwrapErrUnionError(inst),
         .wrap_errunion_payload => self.airWrapErrUnionPayload(inst),
         .wrap_errunion_err => self.airWrapErrUnionErr(inst),
-
-        .optional_payload => self.airOptionalPayload(inst),
-        .optional_payload_ptr => self.airOptionalPayload(inst),
-        .optional_payload_ptr_set => self.airOptionalPayloadPtrSet(inst),
         else => |tag| self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
     };
 }
@@ -1273,8 +1273,25 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     };
 
     for (args) |arg| {
-        const arg_val = self.resolveInst(@intToEnum(Air.Inst.Ref, arg));
-        try self.emitWValue(arg_val);
+        const arg_ref = @intToEnum(Air.Inst.Ref, arg);
+        const arg_val = self.resolveInst(arg_ref);
+
+        const arg_ty = self.air.typeOf(arg_ref);
+        switch (arg_ty.zigTypeTag()) {
+            .Struct, .Pointer, .Optional, .ErrorUnion => {
+                // single pointer can be passed directly
+                if (arg_ty.isSinglePointer() or arg_val != .constant) {
+                    try self.emitWValue(arg_val);
+                    continue;
+                }
+                const abi_size = arg_ty.abiSize(self.target);
+                const arg_local = try self.allocLocal(Type.initTag(.i32));
+                try self.moveStack(@intCast(u32, abi_size), arg_local.local);
+                try self.store(arg_local, arg_val, arg_ty, 0);
+                try self.emitWValue(arg_local);
+            },
+            else => try self.emitWValue(arg_val),
+        }
     }
 
     if (target) |direct| {
@@ -1296,14 +1313,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     }
 
     const ret_ty = fn_ty.fnReturnType();
-    switch (ret_ty.zigTypeTag()) {
-        .Void, .NoReturn => return WValue.none,
-        else => {
-            const result_local = try self.allocLocal(ret_ty);
-            try self.addLabel(.local_set, result_local.local);
-            return result_local;
-        },
-    }
+    if (!ret_ty.hasCodeGenBits()) return WValue.none;
+
+    const result_local = try self.allocLocal(ret_ty);
+    try self.addLabel(.local_set, result_local.local);
+    // if the result was allocated on the virtual stack, we must load
+    return result_local;
 }
 
 fn airAlloc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1406,6 +1421,18 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                 try self.store(lhs, field_local, field_ty, field_offset);
             }
             return;
+        },
+        .Pointer => {
+            if (ty.isSlice() and rhs == .constant) {
+                try self.emitWValue(rhs);
+                const len_local = try self.allocLocal(Type.usize);
+                const ptr_local = try self.allocLocal(Type.usize);
+                try self.addLabel(.local_set, len_local.local);
+                try self.addLabel(.local_set, ptr_local.local);
+                try self.store(lhs, ptr_local, Type.usize, 0);
+                try self.store(lhs, len_local, Type.usize, self.target.cpu.arch.ptrBitWidth() / 8);
+                return;
+            }
         },
         else => {},
     }
@@ -1598,7 +1625,11 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             }
         },
         .Pointer => {
-            if (val.castTag(.decl_ref)) |payload| {
+            if (val.castTag(.slice)) |slice| {
+                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                try self.emitConstant(slice.data.ptr, ty.slicePtrFieldType(&buf));
+                try self.emitConstant(slice.data.len, Type.usize);
+            } else if (val.castTag(.decl_ref)) |payload| {
                 const decl = payload.data;
                 decl.alive = true;
                 try self.addLabel(.memory_address, decl.link.wasm.sym_index);
@@ -2258,20 +2289,6 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const pointer_width = self.target.cpu.arch.ptrBitWidth() / 8;
 
     return try self.load(operand, Type.usize, pointer_width);
-
-    // // Get pointer to slice
-    // try self.emitWValue(operand);
-    // // length of slice is stored after the pointer of the slice
-    // const extra_index = try self.addExtra(Mir.MemArg{
-    //     .offset = pointer_width,
-    //     .alignment = pointer_width,
-    // });
-    // try self.addInst(.{ .tag = .i32_load, .data = .{ .payload = extra_index } });
-
-    // const result = try self.allocLocal(Type.initTag(.i32)); // pointer is always i32
-    // // store slice length in local
-    // try self.addLabel(.local_set, result.local);
-    // return result;
 }
 
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2296,7 +2313,12 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const result = try self.allocLocal(elem_ty);
     try self.addLabel(.local_set, result.local);
-    return result;
+    return switch (elem_ty.zigTypeTag()) {
+        // pass as pointer
+        .Pointer, .Struct, .Optional => result,
+        // pass by value
+        else => try self.load(result, elem_ty, 0),
+    };
 }
 
 fn airSlicePtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
