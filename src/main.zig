@@ -2539,6 +2539,7 @@ fn buildOutputType(
             &comp_destroyed,
             all_args,
             runtime_args_start,
+            link_libc,
         );
     }
 
@@ -2611,6 +2612,7 @@ fn buildOutputType(
                         &comp_destroyed,
                         all_args,
                         runtime_args_start,
+                        link_libc,
                     );
                 },
                 .update_and_run => {
@@ -2636,6 +2638,7 @@ fn buildOutputType(
                         &comp_destroyed,
                         all_args,
                         runtime_args_start,
+                        link_libc,
                     );
                 },
             }
@@ -2700,6 +2703,7 @@ fn runOrTest(
     comp_destroyed: *bool,
     all_args: []const []const u8,
     runtime_args_start: ?usize,
+    link_libc: bool,
 ) !void {
     const exe_loc = emit_bin_loc orelse return;
     const exe_directory = exe_loc.directory orelse comp.bin_file.options.emit.?.directory;
@@ -2740,7 +2744,7 @@ fn runOrTest(
     if (std.process.can_execv and arg_mode == .run and !watch) {
         // execv releases the locks; no need to destroy the Compilation here.
         const err = std.process.execv(gpa, argv.items);
-        try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info);
+        try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info, link_libc);
         const cmd = try argvCmd(arena, argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
     } else {
@@ -2759,7 +2763,7 @@ fn runOrTest(
         }
 
         const term = child.spawnAndWait() catch |err| {
-            try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info);
+            try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info, link_libc);
             const cmd = try argvCmd(arena, argv.items);
             fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });
         };
@@ -4662,34 +4666,108 @@ fn warnAboutForeignBinaries(
     arena: Allocator,
     arg_mode: ArgMode,
     target_info: std.zig.system.NativeTargetInfo,
+    link_libc: bool,
 ) !void {
     const host_cross_target: std.zig.CrossTarget = .{};
     const host_target_info = try detectNativeTargetInfo(gpa, host_cross_target);
 
-    if (!host_target_info.target.canExecBinariesOf(target_info.target)) {
-        const host_name = try host_target_info.target.zigTriple(arena);
-        const foreign_name = try target_info.target.zigTriple(arena);
-        const tip_suffix = switch (arg_mode) {
-            .zig_test => ". Consider using --test-no-exec or --test-cmd",
-            else => "",
-        };
-        warn("the host system ({s}) does not appear to be capable of executing binaries from the target ({s}){s}", .{
-            host_name, foreign_name, tip_suffix,
-        });
-        return;
-    }
-
-    if (target_info.dynamic_linker.get()) |foreign_dl| {
-        std.fs.cwd().access(foreign_dl, .{}) catch {
+    switch (host_target_info.getExternalExecutor(target_info, .{ .link_libc = link_libc })) {
+        .native => return,
+        .rosetta => {
+            const host_name = try host_target_info.target.zigTriple(arena);
+            const foreign_name = try target_info.target.zigTriple(arena);
+            warn("the host system ({s}) does not appear to be capable of executing binaries from the target ({s}). Consider installing Rosetta.", .{
+                host_name, foreign_name,
+            });
+        },
+        .qemu => |qemu| {
+            const host_name = try host_target_info.target.zigTriple(arena);
+            const foreign_name = try target_info.target.zigTriple(arena);
+            switch (arg_mode) {
+                .zig_test => warn(
+                    "the host system ({s}) does not appear to be capable of executing binaries " ++
+                        "from the target ({s}). Consider using '--test-cmd {s} --test-cmd-bin' " ++
+                        "to run the tests",
+                    .{ host_name, foreign_name, qemu },
+                ),
+                else => warn(
+                    "the host system ({s}) does not appear to be capable of executing binaries " ++
+                        "from the target ({s}). Consider using '{s}' to run the binary",
+                    .{ host_name, foreign_name, qemu },
+                ),
+            }
+        },
+        .wine => |wine| {
+            const host_name = try host_target_info.target.zigTriple(arena);
+            const foreign_name = try target_info.target.zigTriple(arena);
+            switch (arg_mode) {
+                .zig_test => warn(
+                    "the host system ({s}) does not appear to be capable of executing binaries " ++
+                        "from the target ({s}). Consider using '--test-cmd {s} --test-cmd-bin' " ++
+                        "to run the tests",
+                    .{ host_name, foreign_name, wine },
+                ),
+                else => warn(
+                    "the host system ({s}) does not appear to be capable of executing binaries " ++
+                        "from the target ({s}). Consider using '{s}' to run the binary",
+                    .{ host_name, foreign_name, wine },
+                ),
+            }
+        },
+        .wasmtime => |wasmtime| {
+            const host_name = try host_target_info.target.zigTriple(arena);
+            const foreign_name = try target_info.target.zigTriple(arena);
+            switch (arg_mode) {
+                .zig_test => warn(
+                    "the host system ({s}) does not appear to be capable of executing binaries " ++
+                        "from the target ({s}). Consider using '--test-cmd {s} --test-cmd-bin' " ++
+                        "to run the tests",
+                    .{ host_name, foreign_name, wasmtime },
+                ),
+                else => warn(
+                    "the host system ({s}) does not appear to be capable of executing binaries " ++
+                        "from the target ({s}). Consider using '{s}' to run the binary",
+                    .{ host_name, foreign_name, wasmtime },
+                ),
+            }
+        },
+        .darling => |darling| {
+            const host_name = try host_target_info.target.zigTriple(arena);
+            const foreign_name = try target_info.target.zigTriple(arena);
+            switch (arg_mode) {
+                .zig_test => warn(
+                    "the host system ({s}) does not appear to be capable of executing binaries " ++
+                        "from the target ({s}). Consider using '--test-cmd {s} --test-cmd-bin' " ++
+                        "to run the tests",
+                    .{ host_name, foreign_name, darling },
+                ),
+                else => warn(
+                    "the host system ({s}) does not appear to be capable of executing binaries " ++
+                        "from the target ({s}). Consider using '{s}' to run the binary",
+                    .{ host_name, foreign_name, darling },
+                ),
+            }
+        },
+        .bad_dl => |foreign_dl| {
             const host_dl = host_target_info.dynamic_linker.get() orelse "(none)";
             const tip_suffix = switch (arg_mode) {
-                .zig_test => ", --test-no-exec, or --test-cmd",
+                .zig_test => ", '--test-no-exec', or '--test-cmd'",
                 else => "",
             };
-            warn("the host system does not appear to be capable of executing binaries from the target because the host dynamic linker is located at '{s}', while the target dynamic linker path is '{s}'. Consider using --dynamic-linker{s}", .{
+            warn("the host system does not appear to be capable of executing binaries from the target because the host dynamic linker is '{s}', while the target dynamic linker is '{s}'. Consider using '--dynamic-linker'{s}", .{
                 host_dl, foreign_dl, tip_suffix,
             });
-            return;
-        };
+        },
+        .bad_os_or_cpu => {
+            const host_name = try host_target_info.target.zigTriple(arena);
+            const foreign_name = try target_info.target.zigTriple(arena);
+            const tip_suffix = switch (arg_mode) {
+                .zig_test => ". Consider using '--test-no-exec' or '--test-cmd'",
+                else => "",
+            };
+            warn("the host system ({s}) does not appear to be capable of executing binaries from the target ({s}){s}", .{
+                host_name, foreign_name, tip_suffix,
+            });
+        },
     }
 }

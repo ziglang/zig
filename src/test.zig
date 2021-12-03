@@ -611,6 +611,8 @@ pub const TestContext = struct {
     }
 
     fn run(self: *TestContext) !void {
+        const host = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, .{});
+
         var progress = std.Progress{};
         const root_node = try progress.start("compiler", self.cases.items.len);
         defer root_node.end();
@@ -669,6 +671,7 @@ pub const TestContext = struct {
                 zig_lib_directory,
                 &thread_pool,
                 global_cache_directory,
+                host,
             ) catch |err| {
                 fail_count += 1;
                 print("test '{s}' failed: {s}\n\n", .{ case.name, @errorName(err) });
@@ -687,6 +690,7 @@ pub const TestContext = struct {
         zig_lib_directory: Compilation.Directory,
         thread_pool: *ThreadPool,
         global_cache_directory: Compilation.Directory,
+        host: std.zig.system.NativeTargetInfo,
     ) !void {
         const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
         const target = target_info.target;
@@ -882,6 +886,7 @@ pub const TestContext = struct {
             .stage1 => true,
             else => null,
         };
+        const link_libc = case.backend == .llvm;
         const comp = try Compilation.create(allocator, .{
             .local_cache_directory = zig_cache_directory,
             .global_cache_directory = global_cache_directory,
@@ -903,7 +908,7 @@ pub const TestContext = struct {
             .is_native_os = case.target.isNativeOs(),
             .is_native_abi = case.target.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),
-            .link_libc = case.backend == .llvm,
+            .link_libc = link_libc,
             .use_llvm = use_llvm,
             .use_stage1 = use_stage1,
             .self_exe_path = std.testing.zig_exe_path,
@@ -1113,7 +1118,7 @@ pub const TestContext = struct {
                         // child process.
                         const exe_path = try std.fmt.allocPrint(arena, "." ++ std.fs.path.sep_str ++ "{s}", .{bin_name});
                         if (case.object_format != null and case.object_format.? == .c) {
-                            if (case.target.getExternalExecutor() != .native) {
+                            if (host.getExternalExecutor(target_info, .{ .link_libc = true }) != .native) {
                                 // We wouldn't be able to run the compiled C code.
                                 return; // Pass test.
                             }
@@ -1129,9 +1134,9 @@ pub const TestContext = struct {
                                 "-lc",
                                 exe_path,
                             });
-                        } else switch (case.target.getExternalExecutor()) {
+                        } else switch (host.getExternalExecutor(target_info, .{ .link_libc = link_libc })) {
                             .native => try argv.append(exe_path),
-                            .unavailable => return, // Pass test.
+                            .bad_dl, .bad_os_or_cpu => return, // Pass test.
 
                             .rosetta => if (enable_rosetta) {
                                 try argv.append(exe_path);
