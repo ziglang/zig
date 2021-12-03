@@ -114,6 +114,16 @@ test "@tagName non-exhaustive enum" {
     comptime try expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
 }
 
+test "@tagName is null-terminated" {
+    const S = struct {
+        fn doTheTest(n: BareNumber) !void {
+            try expect(@tagName(n)[3] == 0);
+        }
+    };
+    try S.doTheTest(.Two);
+    try comptime S.doTheTest(.Two);
+}
+
 fn testEnumTagNameBare(n: anytype) []const u8 {
     return @tagName(n);
 }

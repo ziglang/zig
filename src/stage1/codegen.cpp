@@ -5402,8 +5402,9 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
     if (enum_type->data.enumeration.name_function)
         return enum_type->data.enumeration.name_function;
 
-    ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, false, false,
-            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false);
+    ZigType *u8_ptr_type = get_pointer_to_type_extra2(g, g->builtin_types.entry_u8, false, false,
+            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false,
+            VECTOR_INDEX_NONE, nullptr, g->intern.for_zero_byte());
     ZigType *u8_slice_type = get_slice_type(g, u8_ptr_type);
     ZigType *tag_int_type = enum_type->data.enumeration.tag_int_type;
 
@@ -5456,7 +5457,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
             continue;
         }
 
-        LLVMValueRef str_init = LLVMConstString(buf_ptr(name), (unsigned)buf_len(name), true);
+        LLVMValueRef str_init = LLVMConstString(buf_ptr(name), (unsigned)buf_len(name), false);
         LLVMValueRef str_global = LLVMAddGlobal(g->module, LLVMTypeOf(str_init), "");
         LLVMSetInitializer(str_global, str_init);
         LLVMSetLinkage(str_global, LLVMPrivateLinkage);
