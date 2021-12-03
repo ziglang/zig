@@ -1018,8 +1018,10 @@ pub const Builder = struct {
     }
 
     /// Output format (BIN vs Intel HEX) determined by filename
-    pub fn installRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) void {
-        self.getInstallStep().dependOn(&self.addInstallRaw(artifact, dest_filename, options).step);
+    pub fn installRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
+        const raw = self.addInstallRaw(artifact, dest_filename, options);
+        self.getInstallStep().dependOn(&raw.step);
+        return raw;
     }
 
     ///`dest_rel_path` is relative to install prefix path
@@ -1732,8 +1734,8 @@ pub const LibExeObjStep = struct {
         self.builder.installArtifact(self);
     }
 
-    pub fn installRaw(self: *LibExeObjStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) void {
-        self.builder.installRaw(self, dest_filename, options);
+    pub fn installRaw(self: *LibExeObjStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
+        return self.builder.installRaw(self, dest_filename, options);
     }
 
     /// Creates a `RunStep` with an executable built with `addExecutable`.
