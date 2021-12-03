@@ -296,13 +296,6 @@ pub fn build(b: *Builder) !void {
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
 
-    const is_wine_enabled = b.option(bool, "enable-wine", "Use Wine to run cross compiled Windows tests") orelse false;
-    const is_qemu_enabled = b.option(bool, "enable-qemu", "Use QEMU to run cross compiled foreign architecture tests") orelse false;
-    const is_wasmtime_enabled = b.option(bool, "enable-wasmtime", "Use Wasmtime to enable and run WASI libstd tests") orelse false;
-    const is_darling_enabled = b.option(bool, "enable-darling", "[Experimental] Use Darling to run cross compiled macOS tests") orelse false;
-    const is_rosetta_enabled = b.option(bool, "enable-rosetta", "(Darwin) Use Rosetta to run x86_64 macOS tests on arm64 macOS") orelse false;
-    const glibc_multi_dir = b.option([]const u8, "enable-foreign-glibc", "Provide directory with glibc installations to run cross compiled tests that link glibc");
-
     const test_stage2_options = b.addOptions();
     test_stage2.addOptions("build_options", test_stage2_options);
 
@@ -317,13 +310,13 @@ pub fn build(b: *Builder) !void {
     test_stage2_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
     test_stage2_options.addOption(bool, "llvm_has_ve", llvm_has_ve);
     test_stage2_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
-    test_stage2_options.addOption(bool, "enable_qemu", is_qemu_enabled);
-    test_stage2_options.addOption(bool, "enable_wine", is_wine_enabled);
-    test_stage2_options.addOption(bool, "enable_wasmtime", is_wasmtime_enabled);
-    test_stage2_options.addOption(bool, "enable_rosetta", is_rosetta_enabled);
+    test_stage2_options.addOption(bool, "enable_qemu", b.enable_qemu);
+    test_stage2_options.addOption(bool, "enable_wine", b.enable_wine);
+    test_stage2_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
+    test_stage2_options.addOption(bool, "enable_rosetta", b.enable_rosetta);
+    test_stage2_options.addOption(bool, "enable_darling", b.enable_darling);
     test_stage2_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
-    test_stage2_options.addOption(bool, "enable_darling", is_darling_enabled);
-    test_stage2_options.addOption(?[]const u8, "glibc_multi_install_dir", glibc_multi_dir);
+    test_stage2_options.addOption(?[]const u8, "glibc_runtimes_dir", b.glibc_runtimes_dir);
     test_stage2_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
     test_stage2_options.addOption(std.SemanticVersion, "semver", semver);
 
@@ -368,12 +361,6 @@ pub fn build(b: *Builder) !void {
         false, // skip_single_threaded
         skip_non_native,
         skip_libc,
-        is_wine_enabled,
-        is_qemu_enabled,
-        is_wasmtime_enabled,
-        is_darling_enabled,
-        is_rosetta_enabled,
-        glibc_multi_dir,
     ));
 
     toolchain_step.dependOn(tests.addPkgTests(
@@ -386,12 +373,6 @@ pub fn build(b: *Builder) !void {
         true, // skip_single_threaded
         skip_non_native,
         true, // skip_libc
-        is_wine_enabled,
-        is_qemu_enabled,
-        is_wasmtime_enabled,
-        is_darling_enabled,
-        is_rosetta_enabled,
-        glibc_multi_dir,
     ));
 
     toolchain_step.dependOn(tests.addPkgTests(
@@ -404,12 +385,6 @@ pub fn build(b: *Builder) !void {
         true, // skip_single_threaded
         skip_non_native,
         true, // skip_libc
-        is_wine_enabled,
-        is_qemu_enabled,
-        is_wasmtime_enabled,
-        is_darling_enabled,
-        is_rosetta_enabled,
-        glibc_multi_dir,
     ));
 
     toolchain_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
@@ -435,12 +410,6 @@ pub fn build(b: *Builder) !void {
         false,
         skip_non_native,
         skip_libc,
-        is_wine_enabled,
-        is_qemu_enabled,
-        is_wasmtime_enabled,
-        is_darling_enabled,
-        is_rosetta_enabled,
-        glibc_multi_dir,
     );
 
     const test_step = b.step("test", "Run all the tests");
