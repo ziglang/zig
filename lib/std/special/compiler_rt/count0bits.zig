@@ -11,7 +11,7 @@ const builtin = @import("builtin");
 
 // ffs - find first set
 // * ffs = (a == 0) => 0, (a != 0) => ctz + 1
-// * dont to pay for `if (x == 0) return shift;` inside ctz
+// * dont pay for `if (x == 0) return shift;` inside ctz
 // - ffsXi2_generic for unoptimized little and big endian
 
 fn clzXi2_generic(comptime T: type) fn (a: T) callconv(.C) i32 {
