@@ -115,7 +115,7 @@ To quickly test a change to a file in the standard library, you can run zig test
 
 #### Testing Non-Native Architectures with QEMU
 
-The Linux CI server additionally has qemu installed and sets `-Denable-qemu`.
+The Linux CI server additionally has qemu installed and sets `-fqemu`.
 This provides test coverage for, e.g. aarch64 even on x86_64 machines. It's 
 recommended for Linux users to install qemu and enable this testing option
 when editing the standard library or anything related to a non-native
@@ -124,7 +124,7 @@ architecture.
 ##### glibc
 
 Testing foreign architectures with dynamically linked glibc is one step trickier.
-This requires enabling `-Denable-foreign-glibc=/path/to/glibc/multi/install/glibcs`.
+This requires enabling `--glibc-runtimes /path/to/glibc/multi/install/glibcs`.
 This path is obtained by building glibc for multiple architectures. This
 process for me took an entire day to complete and takes up 65 GiB on my hard
 drive. The CI server does not provide this test coverage. Instructions for
@@ -136,7 +136,7 @@ It's understood that most contributors will not have these tests enabled.
 
 #### Testing Windows from a Linux Machine with Wine
 
-When developing on Linux, another option is available to you: `-Denable-wine`.
+When developing on Linux, another option is available to you: `-fwine`.
 This will enable running behavior tests and std lib tests with Wine. It's
 recommended for Linux users to install Wine and enable this testing option 
 when editing the standard library or anything Windows-related.
@@ -144,7 +144,7 @@ when editing the standard library or anything Windows-related.
 #### Testing WebAssembly using wasmtime
 
 If you have [wasmtime](https://wasmtime.dev/) installed, take advantage of the
-`-Denable-wasmtime` flag which will enable running WASI behavior tests and std
+`-fwasmtime` flag which will enable running WASI behavior tests and std
 lib tests. It's recommended for all users to install wasmtime and enable this
 testing option when editing the standard library and especially anything
 WebAssembly-related.
