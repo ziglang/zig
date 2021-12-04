@@ -89,13 +89,13 @@ pub inline fn unordcmp(comptime T: type, a: T, b: T) i32 {
 pub fn __lesf2(a: f32, b: f32) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
     const float = cmp(f32, LE, a, b);
-    return @bitCast(i32, float);
+    return @enumToInt(float);
 }
 
 pub fn __gesf2(a: f32, b: f32) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
     const float = cmp(f32, GE, a, b);
-    return @bitCast(i32, float);
+    return @enumToInt(float);
 }
 
 pub fn __eqsf2(a: f32, b: f32) callconv(.C) i32 {
@@ -119,13 +119,13 @@ pub fn __gtsf2(a: f32, b: f32) callconv(.C) i32 {
 pub fn __ledf2(a: f64, b: f64) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
     const float = cmp(f64, LE, a, b);
-    return @bitCast(i32, float);
+    return @enumToInt(float);
 }
 
 pub fn __gedf2(a: f64, b: f64) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
     const float = cmp(f64, GE, a, b);
-    return @bitCast(i32, float);
+    return @enumToInt(float);
 }
 
 pub fn __eqdf2(a: f64, b: f64) callconv(.C) i32 {
@@ -149,13 +149,13 @@ pub fn __gtdf2(a: f64, b: f64) callconv(.C) i32 {
 pub fn __letf2(a: f128, b: f128) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
     const float = cmp(f128, LE, a, b);
-    return @bitCast(i32, float);
+    return @enumToInt(float);
 }
 
 pub fn __getf2(a: f128, b: f128) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
     const float = cmp(f128, GE, a, b);
-    return @bitCast(i32, float);
+    return @enumToInt(float);
 }
 
 pub fn __eqtf2(a: f128, b: f128) callconv(.C) i32 {

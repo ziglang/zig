@@ -1496,6 +1496,17 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:24: error: cannot cast a value of type 'y'",
     });
 
+    ctx.objErrStage1("bitCast enum to integer type",
+        \\export fn entry() void {
+        \\    const Number = enum(u32) { one, two };
+        \\    const x: Number = .one;
+        \\    const y = @bitCast(u32, x);
+        \\    _ = y;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:29: error: @bitCast used instead of @enumToInt to convert an enum to an integer",
+    });
+
     ctx.objErrStage1("comparing against undefined produces undefined value",
         \\export fn entry() void {
         \\    if (2 == undefined) {}

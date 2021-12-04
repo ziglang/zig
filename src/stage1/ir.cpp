@@ -12110,6 +12110,12 @@ static Stage1AirInst *ir_resolve_result_raw(IrAnalyze *ira, Stage1ZirInst *suspe
                 return ira->codegen->invalid_inst_gen;
             }
 
+            if (value_type->id == ZigTypeIdEnum && dest_type->id == ZigTypeIdInt) {
+                ir_add_error_node(ira, suspend_source_instr->source_node,
+                        buf_sprintf("@bitCast used instead of @enumToInt to convert an enum to an integer"));
+                return ira->codegen->invalid_inst_gen;
+            }
+
             Stage1AirInst *bitcasted_value;
             if (value != nullptr) {
                 bitcasted_value = ir_analyze_bit_cast(ira, result_loc->source_instruction->scope,
