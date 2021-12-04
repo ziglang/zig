@@ -15,12 +15,12 @@ VERSION="$1"
 OAUTH_TOKEN="$2"
 YML_FILE="tmp.yml"
 
-if [[ -z "$VERSION" ]]; then
+if [ -z "$VERSION" ]; then
   echo "missing VERSION parameter"
   exit 1
 fi
 
-if [[ -z "$OAUTH_TOKEN" ]]; then
+if [ -z "$OAUTH_TOKEN" ]; then
   echo "missing OAUTH_TOKEN parameter"
   exit 1
 fi

@@ -9,6 +9,11 @@ const builtin = @import("builtin");
 // ctz - count trailing zeroes
 // - ctzXi2_generic for unoptimized little and big endian
 
+// ffs - find first set
+// * ffs = (a == 0) => 0, (a != 0) => ctz + 1
+// * dont pay for `if (x == 0) return shift;` inside ctz
+// - ffsXi2_generic for unoptimized little and big endian
+
 fn clzXi2_generic(comptime T: type) fn (a: T) callconv(.C) i32 {
     return struct {
         fn f(a: T) callconv(.C) i32 {
@@ -181,6 +186,43 @@ pub const __ctzdi2 = ctzXi2_generic(i64);
 
 pub const __ctzti2 = ctzXi2_generic(i128);
 
+fn ffsXi2_generic(comptime T: type) fn (a: T) callconv(.C) i32 {
+    return struct {
+        fn f(a: T) callconv(.C) i32 {
+            @setRuntimeSafety(builtin.is_test);
+
+            var x = switch (@bitSizeOf(T)) {
+                32 => @bitCast(u32, a),
+                64 => @bitCast(u64, a),
+                128 => @bitCast(u128, a),
+                else => unreachable,
+            };
+            var n: T = 1;
+            // adapted from Number of trailing zeroes (see ctzXi2_generic)
+            var mask: @TypeOf(x) = std.math.maxInt(@TypeOf(x));
+            comptime var shift = @bitSizeOf(T);
+            // In contrast to ctz return 0
+            if (x == 0) return 0;
+            inline while (shift > 1) {
+                shift = shift >> 1;
+                mask = mask >> shift;
+                if ((x & mask) == 0) {
+                    n = n + shift;
+                    x = x >> shift;
+                }
+            }
+            // return ctz + 1
+            return @intCast(i32, n - @bitCast(T, (x & 1))) + @as(i32, 1);
+        }
+    }.f;
+}
+
+pub const __ffssi2 = ffsXi2_generic(i32);
+
+pub const __ffsdi2 = ffsXi2_generic(i64);
+
+pub const __ffsti2 = ffsXi2_generic(i128);
+
 test {
     _ = @import("clzsi2_test.zig");
     _ = @import("clzdi2_test.zig");
@@ -189,4 +231,8 @@ test {
     _ = @import("ctzsi2_test.zig");
     _ = @import("ctzdi2_test.zig");
     _ = @import("ctzti2_test.zig");
+
+    _ = @import("ffssi2_test.zig");
+    _ = @import("ffsdi2_test.zig");
+    _ = @import("ffsti2_test.zig");
 }

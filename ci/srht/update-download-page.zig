@@ -74,7 +74,7 @@ fn render(
                             try writer.writeAll(trimmed);
                         }
                     } else {
-                        std.debug.warn("line {d}: missing variable: {s}\n", .{ line, var_name });
+                        std.debug.print("line {d}: missing variable: {s}\n", .{ line, var_name });
                         try writer.writeAll("(missing)");
                     }
                     state = State.EndBrace;
@@ -86,7 +86,7 @@ fn render(
                     state = State.Start;
                 },
                 else => {
-                    std.debug.warn("line {d}: invalid byte: '0x{x}'", .{ line, byte });
+                    std.debug.print("line {d}: invalid byte: '0x{x}'", .{ line, byte });
                     std.process.exit(1);
                 },
             },
