@@ -694,7 +694,19 @@ test "getrlimit and setrlimit" {
     inline for (std.meta.fields(os.rlimit_resource)) |field| {
         const resource = @intToEnum(os.rlimit_resource, field.value);
         const limit = try os.getrlimit(resource);
-        try os.setrlimit(resource, limit);
+
+        // On 32 bit MIPS musl includes a fix which changes limits greater than -1UL/2 to RLIM_INFINITY.
+        // See http://git.musl-libc.org/cgit/musl/commit/src/misc/getrlimit.c?id=8258014fd1e34e942a549c88c7e022a00445c352
+        //
+        // This happens for example if RLIMIT_MEMLOCK is bigger than ~2GiB.
+        // In that case the following the limit would be RLIM_INFINITY and the following setrlimit fails with EPERM.
+        if (comptime builtin.cpu.arch.isMIPS() and builtin.link_libc) {
+            if (limit.cur != os.linux.RLIM.INFINITY) {
+                try os.setrlimit(resource, limit);
+            }
+        } else {
+            try os.setrlimit(resource, limit);
+        }
     }
 }
 
