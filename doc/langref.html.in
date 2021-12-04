@@ -2916,6 +2916,45 @@ test "null terminated slice" {
     try expect(slice[5] == 0);
 }
       {#code_end#}
+      <p>
+      Sentinel-terminated slices can also be created using a variation of the slice syntax 
+      {#syntax#}data[start..end :x]{#endsyntax#}, where {#syntax#}data{#endsyntax#} is a many-item pointer, 
+      array or slice and {#syntax#}x{#endsyntax#} is the sentinel value.
+      </p>
+      {#code_begin|test|null_terminated_slicing#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+test "null terminated slicing" {
+    var array = [_]u8{ 3, 2, 1, 0, 3, 2, 1, 0 };
+    var runtime_length: usize = 3;
+    const slice = array[0..runtime_length :0];
+
+    try expect(@TypeOf(slice) == [:0]u8);
+    try expect(slice.len == 3);
+}
+      {#code_end#}
+      <p>
+      Sentinel-terminated slicing asserts that the element in the sentinel position of the backing data is 
+      actually the sentinel value. If this is not the case, safety-protected {#link|Undefined Behavior#} results.
+      </p>
+      {#code_begin|test_safety|sentinel mismatch#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+test "sentinel mismatch" {
+    var array = [_]u8{ 3, 2, 1, 0 };
+    
+    // Creating a sentinel-terminated slice from the array with a length of 2 
+    // will result in the value `1` occupying the sentinel element position. 
+    // This does not match the indicated sentinel value of `0` and will lead 
+    // to a runtime panic.
+    var runtime_length: usize = 2;
+    const slice = array[0..runtime_length :0];
+
+    _ = slice;
+}
+      {#code_end#}
       {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Arrays#}
       {#header_close#}
       {#header_close#}
