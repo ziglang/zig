@@ -2622,7 +2622,6 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                 zir.extra.len * 4;
             if (amt_read != amt_expected) {
                 log.warn("unexpected EOF reading cached ZIR for {s}", .{file.sub_file_path});
-                zir.deinit(gpa);
                 break :cached;
             }
             if (data_has_safety_tag) {
