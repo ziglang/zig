@@ -244,6 +244,12 @@ comptime {
         @export(__ctzdi2, .{ .name = "__ctzdi2", .linkage = linkage });
         const __ctzti2 = @import("compiler_rt/count0bits.zig").__ctzti2;
         @export(__ctzti2, .{ .name = "__ctzti2", .linkage = linkage });
+        const __ffssi2 = @import("compiler_rt/count0bits.zig").__ffssi2;
+        @export(__ffssi2, .{ .name = "__ffssi2", .linkage = linkage });
+        const __ffsdi2 = @import("compiler_rt/count0bits.zig").__ffsdi2;
+        @export(__ffsdi2, .{ .name = "__ffsdi2", .linkage = linkage });
+        const __ffsti2 = @import("compiler_rt/count0bits.zig").__ffsti2;
+        @export(__ffsti2, .{ .name = "__ffsti2", .linkage = linkage });
 
         const __paritysi2 = @import("compiler_rt/parity.zig").__paritysi2;
         @export(__paritysi2, .{ .name = "__paritysi2", .linkage = linkage });
