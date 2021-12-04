@@ -1481,6 +1481,7 @@ pub const Dir = struct {
             error.PathAlreadyExists => unreachable, // not providing O.CREAT
             error.FileLocksNotSupported => unreachable, // locking folders is not supported
             error.WouldBlock => unreachable, // can't happen for directories
+            error.FileBusy => unreachable, // can't happen for directories
             else => |e| return e,
         };
         return Dir{ .fd = fd };
@@ -1525,6 +1526,7 @@ pub const Dir = struct {
             error.PathAlreadyExists => unreachable, // not providing O.CREAT
             error.FileLocksNotSupported => unreachable, // locking folders is not supported
             error.WouldBlock => unreachable, // can't happen for directories
+            error.FileBusy => unreachable, // can't happen for directories
             else => |e| return e,
         };
         return Dir{ .fd = fd };

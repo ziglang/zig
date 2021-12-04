@@ -365,6 +365,7 @@ fn detectAbiAndDynamicLinker(
         error.PipeBusy => unreachable,
         error.FileLocksNotSupported => unreachable,
         error.WouldBlock => unreachable,
+        error.FileBusy => unreachable, // opened without write permissions
 
         error.IsDir,
         error.NotDir,

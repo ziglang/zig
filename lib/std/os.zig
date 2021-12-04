@@ -1275,6 +1275,16 @@ pub const OpenError = error{
     BadPathName,
     InvalidUtf8,
 
+    /// One of these three things:
+    /// * pathname  refers to an executable image which is currently being
+    ///   executed and write access was requested.
+    /// * pathname refers to a file that is currently in  use  as  a  swap
+    ///   file, and the O_TRUNC flag was specified.
+    /// * pathname  refers  to  a file that is currently being read by the
+    ///   kernel (e.g., for module/firmware loading), and write access was
+    ///   requested.
+    FileBusy,
+
     WouldBlock,
 } || UnexpectedError;
 
@@ -1468,6 +1478,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
             .BUSY => return error.DeviceBusy,
             .OPNOTSUPP => return error.FileLocksNotSupported,
             .AGAIN => return error.WouldBlock,
+            .TXTBSY => return error.FileBusy,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -4577,7 +4588,8 @@ pub const FlockError = error{
     FileLocksNotSupported,
 } || UnexpectedError;
 
-/// Depending on the operating system `flock` may or may not interact with `fcntl` locks made by other processes.
+/// Depending on the operating system `flock` may or may not interact with
+/// `fcntl` locks made by other processes.
 pub fn flock(fd: fd_t, operation: i32) FlockError!void {
     while (true) {
         const rc = system.flock(fd, operation);
@@ -4650,6 +4662,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         const fd = openZ(pathname, flags, 0) catch |err| switch (err) {
             error.FileLocksNotSupported => unreachable,
             error.WouldBlock => unreachable,
+            error.FileBusy => unreachable, // not asking for write permissions
             else => |e| return e,
         };
         defer close(fd);
