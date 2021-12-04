@@ -476,24 +476,24 @@ pub const DynamicBitSetUnmanaged = struct {
 
     /// Creates a bit set with no elements present.
     /// If bit_length is not zero, deinit must eventually be called.
-    pub fn initEmpty(bit_length: usize, allocator: Allocator) !Self {
+    pub fn initEmpty(allocator: Allocator, bit_length: usize) !Self {
         var self = Self{};
-        try self.resize(bit_length, false, allocator);
+        try self.resize(allocator, bit_length, false);
         return self;
     }
 
     /// Creates a bit set with all elements present.
     /// If bit_length is not zero, deinit must eventually be called.
-    pub fn initFull(bit_length: usize, allocator: Allocator) !Self {
+    pub fn initFull(allocator: Allocator, bit_length: usize) !Self {
         var self = Self{};
-        try self.resize(bit_length, true, allocator);
+        try self.resize(allocator, bit_length, true);
         return self;
     }
 
     /// Resizes to a new bit_length.  If the new length is larger
     /// than the old length, fills any added bits with `fill`.
     /// If new_len is not zero, deinit must eventually be called.
-    pub fn resize(self: *@This(), new_len: usize, fill: bool, allocator: Allocator) !void {
+    pub fn resize(self: *@This(), allocator: Allocator, new_len: usize, fill: bool) !void {
         const old_len = self.bit_length;
 
         const old_masks = numMasks(old_len);
@@ -557,14 +557,14 @@ pub const DynamicBitSetUnmanaged = struct {
     /// The passed allocator must be the same one used for
     /// init* or resize in the past.
     pub fn deinit(self: *Self, allocator: Allocator) void {
-        self.resize(0, false, allocator) catch unreachable;
+        self.resize(allocator, 0, false) catch unreachable;
     }
 
     /// Creates a duplicate of this bit set, using the new allocator.
     pub fn clone(self: *const Self, new_allocator: Allocator) !Self {
         const num_masks = numMasks(self.bit_length);
         var copy = Self{};
-        try copy.resize(self.bit_length, false, new_allocator);
+        try copy.resize(new_allocator, self.bit_length, false);
         std.mem.copy(MaskInt, copy.masks[0..num_masks], self.masks[0..num_masks]);
         return copy;
     }
@@ -748,17 +748,17 @@ pub const DynamicBitSet = struct {
     unmanaged: DynamicBitSetUnmanaged = .{},
 
     /// Creates a bit set with no elements present.
-    pub fn initEmpty(bit_length: usize, allocator: Allocator) !Self {
+    pub fn initEmpty(allocator: Allocator, bit_length: usize) !Self {
         return Self{
-            .unmanaged = try DynamicBitSetUnmanaged.initEmpty(bit_length, allocator),
+            .unmanaged = try DynamicBitSetUnmanaged.initEmpty(allocator, bit_length),
             .allocator = allocator,
         };
     }
 
     /// Creates a bit set with all elements present.
-    pub fn initFull(bit_length: usize, allocator: Allocator) !Self {
+    pub fn initFull(allocator: Allocator, bit_length: usize) !Self {
         return Self{
-            .unmanaged = try DynamicBitSetUnmanaged.initFull(bit_length, allocator),
+            .unmanaged = try DynamicBitSetUnmanaged.initFull(allocator, bit_length),
             .allocator = allocator,
         };
     }
@@ -766,7 +766,7 @@ pub const DynamicBitSet = struct {
     /// Resizes to a new length.  If the new length is larger
     /// than the old length, fills any added bits with `fill`.
     pub fn resize(self: *@This(), new_len: usize, fill: bool) !void {
-        try self.unmanaged.resize(new_len, fill, self.allocator);
+        try self.unmanaged.resize(self.allocator, new_len, fill);
     }
 
     /// deinitializes the array and releases its memory.
@@ -1182,11 +1182,11 @@ test "ArrayBitSet" {
 
 test "DynamicBitSetUnmanaged" {
     const allocator = std.testing.allocator;
-    var a = try DynamicBitSetUnmanaged.initEmpty(300, allocator);
+    var a = try DynamicBitSetUnmanaged.initEmpty(allocator, 300);
     try testing.expectEqual(@as(usize, 0), a.count());
     a.deinit(allocator);
 
-    a = try DynamicBitSetUnmanaged.initEmpty(0, allocator);
+    a = try DynamicBitSetUnmanaged.initEmpty(allocator, 0);
     defer a.deinit(allocator);
     for ([_]usize{ 1, 2, 31, 32, 33, 0, 65, 64, 63, 500, 254, 3000 }) |size| {
         const old_len = a.capacity();
@@ -1202,8 +1202,8 @@ test "DynamicBitSetUnmanaged" {
         a.toggleSet(a); // zero a
         tmp.toggleSet(tmp);
 
-        try a.resize(size, true, allocator);
-        try tmp.resize(size, false, allocator);
+        try a.resize(allocator, size, true);
+        try tmp.resize(allocator, size, false);
 
         if (size > old_len) {
             try testing.expectEqual(size - old_len, a.count());
@@ -1212,7 +1212,7 @@ test "DynamicBitSetUnmanaged" {
         }
         try testing.expectEqual(@as(usize, 0), tmp.count());
 
-        var b = try DynamicBitSetUnmanaged.initFull(size, allocator);
+        var b = try DynamicBitSetUnmanaged.initFull(allocator, size);
         defer b.deinit(allocator);
         try testing.expectEqual(@as(usize, size), b.count());
 
@@ -1222,11 +1222,11 @@ test "DynamicBitSetUnmanaged" {
 
 test "DynamicBitSet" {
     const allocator = std.testing.allocator;
-    var a = try DynamicBitSet.initEmpty(300, allocator);
+    var a = try DynamicBitSet.initEmpty(allocator, 300);
     try testing.expectEqual(@as(usize, 0), a.count());
     a.deinit();
 
-    a = try DynamicBitSet.initEmpty(0, allocator);
+    a = try DynamicBitSet.initEmpty(allocator, 0);
     defer a.deinit();
     for ([_]usize{ 1, 2, 31, 32, 33, 0, 65, 64, 63, 500, 254, 3000 }) |size| {
         const old_len = a.capacity();
@@ -1252,7 +1252,7 @@ test "DynamicBitSet" {
         }
         try testing.expectEqual(@as(usize, 0), tmp.count());
 
-        var b = try DynamicBitSet.initFull(size, allocator);
+        var b = try DynamicBitSet.initFull(allocator, size);
         defer b.deinit();
         try testing.expectEqual(@as(usize, size), b.count());
 

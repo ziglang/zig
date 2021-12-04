@@ -16,6 +16,7 @@ const BufMap = std.BufMap;
 const fmt_lib = std.fmt;
 const File = std.fs.File;
 const CrossTarget = std.zig.CrossTarget;
+const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 
 pub const FmtStep = @import("build/FmtStep.zig");
 pub const TranslateCStep = @import("build/TranslateCStep.zig");
@@ -69,6 +70,25 @@ pub const Builder = struct {
     pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
     args: ?[][]const u8 = null,
     debug_log_scopes: []const []const u8 = &.{},
+
+    /// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
+    enable_darling: bool = false,
+    /// Use system QEMU installation to run cross compiled foreign architecture build artifacts.
+    enable_qemu: bool = false,
+    /// Darwin. Use Rosetta to run x86_64 macOS build artifacts on arm64 macOS.
+    enable_rosetta: bool = false,
+    /// Use system Wasmtime installation to run cross compiled wasm/wasi build artifacts.
+    enable_wasmtime: bool = false,
+    /// Use system Wine installation to run cross compiled Windows build artifacts.
+    enable_wine: bool = false,
+    /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
+    /// this will be the directory $glibc-build-dir/install/glibcs
+    /// Given the example of the aarch64 target, this is the directory
+    /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
+    glibc_runtimes_dir: ?[]const u8 = null,
+
+    /// Information about the native target. Computed before build() is invoked.
+    host: NativeTargetInfo,
 
     const PkgConfigError = error{
         PkgConfigCrashed,
@@ -143,6 +163,8 @@ pub const Builder = struct {
         const env_map = try allocator.create(BufMap);
         env_map.* = try process.getEnvMap(allocator);
 
+        const host = try NativeTargetInfo.detect(allocator, .{});
+
         const self = try allocator.create(Builder);
         self.* = Builder{
             .zig_exe = zig_exe,
@@ -188,6 +210,7 @@ pub const Builder = struct {
             .install_path = undefined,
             .vcpkg_root = VcpkgRoot{ .unattempted = {} },
             .args = null,
+            .host = host,
         };
         try self.top_level_steps.append(&self.install_tls);
         try self.top_level_steps.append(&self.uninstall_tls);
@@ -995,12 +1018,10 @@ pub const Builder = struct {
     }
 
     /// Output format (BIN vs Intel HEX) determined by filename
-    pub fn installRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) void {
-        self.getInstallStep().dependOn(&self.addInstallRaw(artifact, dest_filename).step);
-    }
-
-    pub fn installRawWithFormat(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, format: InstallRawStep.RawFormat) void {
-        self.getInstallStep().dependOn(&self.addInstallRawWithFormat(artifact, dest_filename, format).step);
+    pub fn installRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
+        const raw = self.addInstallRaw(artifact, dest_filename, options);
+        self.getInstallStep().dependOn(&raw.step);
+        return raw;
     }
 
     ///`dest_rel_path` is relative to install prefix path
@@ -1018,12 +1039,8 @@ pub const Builder = struct {
         return self.addInstallFileWithDir(source.dupe(self), .lib, dest_rel_path);
     }
 
-    pub fn addInstallRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) *InstallRawStep {
-        return InstallRawStep.create(self, artifact, dest_filename, null);
-    }
-
-    pub fn addInstallRawWithFormat(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, format: InstallRawStep.RawFormat) *InstallRawStep {
-        return InstallRawStep.create(self, artifact, dest_filename, format);
+    pub fn addInstallRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
+        return InstallRawStep.create(self, artifact, dest_filename, options);
     }
 
     pub fn addInstallFileWithDir(
@@ -1420,6 +1437,7 @@ pub const LibExeObjStep = struct {
     builder: *Builder,
     name: []const u8,
     target: CrossTarget = CrossTarget{},
+    target_info: NativeTargetInfo,
     linker_script: ?FileSource = null,
     version_script: ?[]const u8 = null,
     out_filename: []const u8,
@@ -1503,27 +1521,6 @@ pub const LibExeObjStep = struct {
 
     /// Permit read-only relocations in read-only segments. Disallowed by default.
     link_z_notext: bool = false,
-
-    /// Uses system Wine installation to run cross compiled Windows build artifacts.
-    enable_wine: bool = false,
-
-    /// Uses system QEMU installation to run cross compiled foreign architecture build artifacts.
-    enable_qemu: bool = false,
-
-    /// Uses system Wasmtime installation to run cross compiled wasm/wasi build artifacts.
-    enable_wasmtime: bool = false,
-
-    /// Experimental. Uses system Darling installation to run cross compiled macOS build artifacts.
-    enable_darling: bool = false,
-
-    /// Darwin. Uses Rosetta to run x86_64 macOS build artifacts on arm64 macOS.
-    enable_rosetta: bool = false,
-
-    /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
-    /// this will be the directory $glibc-build-dir/install/glibcs
-    /// Given the example of the aarch64 target, this is the directory
-    /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
-    glibc_multi_install_dir: ?[]const u8 = null,
 
     /// Position Independent Code
     force_pic: ?bool = null,
@@ -1660,6 +1657,8 @@ pub const LibExeObjStep = struct {
             .output_lib_path_source = GeneratedFile{ .step = &self.step },
             .output_h_path_source = GeneratedFile{ .step = &self.step },
             .output_pdb_path_source = GeneratedFile{ .step = &self.step },
+
+            .target_info = undefined, // populated in computeOutFileNames
         };
         self.computeOutFileNames();
         if (root_src) |rs| rs.addStepDependencies(&self.step);
@@ -1667,11 +1666,11 @@ pub const LibExeObjStep = struct {
     }
 
     fn computeOutFileNames(self: *LibExeObjStep) void {
-        const target_info = std.zig.system.NativeTargetInfo.detect(
-            self.builder.allocator,
-            self.target,
-        ) catch unreachable;
-        const target = target_info.target;
+        self.target_info = NativeTargetInfo.detect(self.builder.allocator, self.target) catch
+            unreachable;
+
+        const target = self.target_info.target;
+
         self.out_filename = std.zig.binNameAlloc(self.builder.allocator, .{
             .root_name = self.name,
             .target = target,
@@ -1735,12 +1734,8 @@ pub const LibExeObjStep = struct {
         self.builder.installArtifact(self);
     }
 
-    pub fn installRaw(self: *LibExeObjStep, dest_filename: []const u8) void {
-        self.builder.installRaw(self, dest_filename);
-    }
-
-    pub fn installRawWithFormat(self: *LibExeObjStep, dest_filename: []const u8, format: InstallRawStep.RawFormat) void {
-        self.builder.installRawWithFormat(self, dest_filename, format);
+    pub fn installRaw(self: *LibExeObjStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
+        return self.builder.installRaw(self, dest_filename, options);
     }
 
     /// Creates a `RunStep` with an executable built with `addExecutable`.
@@ -2531,59 +2526,80 @@ pub const LibExeObjStep = struct {
                     try zig_args.append("--test-cmd-bin");
                 }
             }
-        } else switch (self.target.getExternalExecutor()) {
-            .native, .unavailable => {},
-            .rosetta => if (self.enable_rosetta) {
-                try zig_args.append("--test-cmd-bin");
-            },
-            .qemu => |bin_name| if (self.enable_qemu) qemu: {
-                const need_cross_glibc = self.target.isGnuLibC() and self.is_linking_libc;
-                const glibc_dir_arg = if (need_cross_glibc)
-                    self.glibc_multi_install_dir orelse break :qemu
-                else
-                    null;
-                try zig_args.append("--test-cmd");
-                try zig_args.append(bin_name);
-                if (glibc_dir_arg) |dir| {
-                    // TODO look into making this a call to `linuxTriple`. This
-                    // needs the directory to be called "i686" rather than
-                    // "i386" which is why we do it manually here.
-                    const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
-                    const cpu_arch = self.target.getCpuArch();
-                    const os_tag = self.target.getOsTag();
-                    const abi = self.target.getAbi();
-                    const cpu_arch_name: []const u8 = if (cpu_arch == .i386)
-                        "i686"
-                    else
-                        @tagName(cpu_arch);
-                    const full_dir = try std.fmt.allocPrint(builder.allocator, fmt_str, .{
-                        dir, cpu_arch_name, @tagName(os_tag), @tagName(abi),
-                    });
+        } else {
+            const need_cross_glibc = self.target.isGnuLibC() and self.is_linking_libc;
 
+            switch (self.builder.host.getExternalExecutor(self.target_info, .{
+                .qemu_fixes_dl = need_cross_glibc and builder.glibc_runtimes_dir != null,
+                .link_libc = self.is_linking_libc,
+            })) {
+                .native => {},
+                .bad_dl, .bad_os_or_cpu => {
+                    try zig_args.append("--test-no-exec");
+                },
+                .rosetta => if (builder.enable_rosetta) {
+                    try zig_args.append("--test-cmd-bin");
+                } else {
+                    try zig_args.append("--test-no-exec");
+                },
+                .qemu => |bin_name| ok: {
+                    if (builder.enable_qemu) qemu: {
+                        const glibc_dir_arg = if (need_cross_glibc)
+                            builder.glibc_runtimes_dir orelse break :qemu
+                        else
+                            null;
+                        try zig_args.append("--test-cmd");
+                        try zig_args.append(bin_name);
+                        if (glibc_dir_arg) |dir| {
+                            // TODO look into making this a call to `linuxTriple`. This
+                            // needs the directory to be called "i686" rather than
+                            // "i386" which is why we do it manually here.
+                            const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
+                            const cpu_arch = self.target.getCpuArch();
+                            const os_tag = self.target.getOsTag();
+                            const abi = self.target.getAbi();
+                            const cpu_arch_name: []const u8 = if (cpu_arch == .i386)
+                                "i686"
+                            else
+                                @tagName(cpu_arch);
+                            const full_dir = try std.fmt.allocPrint(builder.allocator, fmt_str, .{
+                                dir, cpu_arch_name, @tagName(os_tag), @tagName(abi),
+                            });
+
+                            try zig_args.append("--test-cmd");
+                            try zig_args.append("-L");
+                            try zig_args.append("--test-cmd");
+                            try zig_args.append(full_dir);
+                        }
+                        try zig_args.append("--test-cmd-bin");
+                        break :ok;
+                    }
+                    try zig_args.append("--test-no-exec");
+                },
+                .wine => |bin_name| if (builder.enable_wine) {
                     try zig_args.append("--test-cmd");
-                    try zig_args.append("-L");
+                    try zig_args.append(bin_name);
+                    try zig_args.append("--test-cmd-bin");
+                } else {
+                    try zig_args.append("--test-no-exec");
+                },
+                .wasmtime => |bin_name| if (builder.enable_wasmtime) {
                     try zig_args.append("--test-cmd");
-                    try zig_args.append(full_dir);
-                }
-                try zig_args.append("--test-cmd-bin");
-            },
-            .wine => |bin_name| if (self.enable_wine) {
-                try zig_args.append("--test-cmd");
-                try zig_args.append(bin_name);
-                try zig_args.append("--test-cmd-bin");
-            },
-            .wasmtime => |bin_name| if (self.enable_wasmtime) {
-                try zig_args.append("--test-cmd");
-                try zig_args.append(bin_name);
-                try zig_args.append("--test-cmd");
-                try zig_args.append("--dir=.");
-                try zig_args.append("--test-cmd-bin");
-            },
-            .darling => |bin_name| if (self.enable_darling) {
-                try zig_args.append("--test-cmd");
-                try zig_args.append(bin_name);
-                try zig_args.append("--test-cmd-bin");
-            },
+                    try zig_args.append(bin_name);
+                    try zig_args.append("--test-cmd");
+                    try zig_args.append("--dir=.");
+                    try zig_args.append("--test-cmd-bin");
+                } else {
+                    try zig_args.append("--test-no-exec");
+                },
+                .darling => |bin_name| if (builder.enable_darling) {
+                    try zig_args.append("--test-cmd");
+                    try zig_args.append(bin_name);
+                    try zig_args.append("--test-cmd-bin");
+                } else {
+                    try zig_args.append("--test-no-exec");
+                },
+            }
         }
 
         for (self.packages.items) |pkg| {

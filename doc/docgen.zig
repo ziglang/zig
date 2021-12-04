@@ -1202,6 +1202,7 @@ fn genHtml(
     var env_map = try process.getEnvMap(allocator);
     try env_map.put("ZIG_DEBUG_COLOR", "1");
 
+    const host = try std.zig.system.NativeTargetInfo.detect(allocator, .{});
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe);
 
     for (toc.nodes) |node| {
@@ -1424,13 +1425,17 @@ fn genHtml(
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
-                        try test_args.appendSlice(&[_][]const u8{ zig_exe, "test", tmp_source_file_name });
+                        try test_args.appendSlice(&[_][]const u8{
+                            zig_exe, "test", tmp_source_file_name,
+                        });
                         try shell_out.print("$ zig test {s}.zig ", .{code.name});
 
                         switch (code.mode) {
                             .Debug => {},
                             else => {
-                                try test_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
+                                try test_args.appendSlice(&[_][]const u8{
+                                    "-O", @tagName(code.mode),
+                                });
                                 try shell_out.print("-O {s} ", .{@tagName(code.mode)});
                             },
                         }
@@ -1441,8 +1446,26 @@ fn genHtml(
                         if (code.target_str) |triple| {
                             try test_args.appendSlice(&[_][]const u8{ "-target", triple });
                             try shell_out.print("-target {s} ", .{triple});
+
+                            const cross_target = try std.zig.CrossTarget.parse(.{
+                                .arch_os_abi = triple,
+                            });
+                            const target_info = try std.zig.system.NativeTargetInfo.detect(
+                                allocator,
+                                cross_target,
+                            );
+                            switch (host.getExternalExecutor(target_info, .{
+                                .link_libc = code.link_libc,
+                            })) {
+                                .native => {},
+                                else => {
+                                    try test_args.appendSlice(&[_][]const u8{"--test-no-exec"});
+                                    try shell_out.writeAll("--test-no-exec");
+                                },
+                            }
                         }
-                        const result = exec(allocator, &env_map, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
+                        const result = exec(allocator, &env_map, test_args.items) catch
+                            return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
                         try shell_out.print("\n{s}{s}\n", .{ escaped_stderr, escaped_stdout });
@@ -1504,9 +1527,7 @@ fn genHtml(
                         defer test_args.deinit();
 
                         try test_args.appendSlice(&[_][]const u8{
-                            zig_exe,
-                            "test",
-                            tmp_source_file_name,
+                            zig_exe, "test", tmp_source_file_name,
                         });
                         var mode_arg: []const u8 = "";
                         switch (code.mode) {

@@ -33,6 +33,9 @@ pub const pthread_attr_t = extern struct { // copied from freebsd
 
 pub const sem_t = ?*opaque {};
 
+pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8) E;
+pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
+
 // See:
 // - https://gitweb.dragonflybsd.org/dragonfly.git/blob/HEAD:/include/unistd.h
 // - https://gitweb.dragonflybsd.org/dragonfly.git/blob/HEAD:/sys/sys/types.h

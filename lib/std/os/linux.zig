@@ -4197,65 +4197,68 @@ pub const ifreq = extern struct {
 };
 
 // doc comments copied from musl
-pub const rlimit_resource = enum(c_int) {
-    /// Per-process CPU limit, in seconds.
-    CPU,
+pub const rlimit_resource = if (native_arch.isMIPS() or native_arch.isSPARC())
+    arch_bits.rlimit_resource
+else
+    enum(c_int) {
+        /// Per-process CPU limit, in seconds.
+        CPU,
 
-    /// Largest file that can be created, in bytes.
-    FSIZE,
+        /// Largest file that can be created, in bytes.
+        FSIZE,
 
-    /// Maximum size of data segment, in bytes.
-    DATA,
+        /// Maximum size of data segment, in bytes.
+        DATA,
 
-    /// Maximum size of stack segment, in bytes.
-    STACK,
+        /// Maximum size of stack segment, in bytes.
+        STACK,
 
-    /// Largest core file that can be created, in bytes.
-    CORE,
+        /// Largest core file that can be created, in bytes.
+        CORE,
 
-    /// Largest resident set size, in bytes.
-    /// This affects swapping; processes that are exceeding their
-    /// resident set size will be more likely to have physical memory
-    /// taken from them.
-    RSS,
+        /// Largest resident set size, in bytes.
+        /// This affects swapping; processes that are exceeding their
+        /// resident set size will be more likely to have physical memory
+        /// taken from them.
+        RSS,
 
-    /// Number of processes.
-    NPROC,
+        /// Number of processes.
+        NPROC,
 
-    /// Number of open files.
-    NOFILE,
+        /// Number of open files.
+        NOFILE,
 
-    /// Locked-in-memory address space.
-    MEMLOCK,
+        /// Locked-in-memory address space.
+        MEMLOCK,
 
-    /// Address space limit.
-    AS,
+        /// Address space limit.
+        AS,
 
-    /// Maximum number of file locks.
-    LOCKS,
+        /// Maximum number of file locks.
+        LOCKS,
 
-    /// Maximum number of pending signals.
-    SIGPENDING,
+        /// Maximum number of pending signals.
+        SIGPENDING,
 
-    /// Maximum bytes in POSIX message queues.
-    MSGQUEUE,
+        /// Maximum bytes in POSIX message queues.
+        MSGQUEUE,
 
-    /// Maximum nice priority allowed to raise to.
-    /// Nice levels 19 .. -20 correspond to 0 .. 39
-    /// values of this resource limit.
-    NICE,
+        /// Maximum nice priority allowed to raise to.
+        /// Nice levels 19 .. -20 correspond to 0 .. 39
+        /// values of this resource limit.
+        NICE,
 
-    /// Maximum realtime priority allowed for non-priviledged
-    /// processes.
-    RTPRIO,
+        /// Maximum realtime priority allowed for non-priviledged
+        /// processes.
+        RTPRIO,
 
-    /// Maximum CPU time in µs that a process scheduled under a real-time
-    /// scheduling policy may consume without making a blocking system
-    /// call before being forcibly descheduled.
-    RTTIME,
+        /// Maximum CPU time in µs that a process scheduled under a real-time
+        /// scheduling policy may consume without making a blocking system
+        /// call before being forcibly descheduled.
+        RTTIME,
 
-    _,
-};
+        _,
+    };
 
 pub const rlim_t = u64;
 

@@ -364,6 +364,7 @@ pub const Stage2Target = extern struct {
 
     llvm_cpu_name: ?[*:0]const u8,
     llvm_cpu_features: ?[*:0]const u8,
+    llvm_target_abi: ?[*:0]const u8,
 };
 
 // ABI warning

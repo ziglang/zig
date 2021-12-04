@@ -20,10 +20,10 @@ pub fn build(b: *Builder) void {
     const test_step = b.step("test", "Test the program");
     b.default_step.dependOn(test_step);
 
-    const hex_step = b.addInstallRaw(elf, "hello.hex");
+    const hex_step = b.addInstallRaw(elf, "hello.hex", .{});
     test_step.dependOn(&hex_step.step);
 
-    const explicit_format_hex_step = b.addInstallRawWithFormat(elf, "hello.foo", .hex);
+    const explicit_format_hex_step = b.addInstallRaw(elf, "hello.foo", .{ .format = .hex });
     test_step.dependOn(&explicit_format_hex_step.step);
 
     const expected_hex = &[_][]const u8{

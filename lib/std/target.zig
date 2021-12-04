@@ -1689,27 +1689,6 @@ pub const Target = struct {
         }
     }
 
-    /// Return whether or not the given host target is capable of executing natively executables
-    /// of the other target.
-    pub fn canExecBinariesOf(host_target: Target, binary_target: Target) bool {
-        if (host_target.os.tag != binary_target.os.tag)
-            return false;
-
-        if (host_target.cpu.arch == binary_target.cpu.arch)
-            return true;
-
-        if (host_target.cpu.arch == .x86_64 and binary_target.cpu.arch == .i386)
-            return true;
-
-        if (host_target.cpu.arch == .aarch64 and binary_target.cpu.arch == .arm)
-            return true;
-
-        if (host_target.cpu.arch == .aarch64_be and binary_target.cpu.arch == .armeb)
-            return true;
-
-        return false;
-    }
-
     /// 0c spim    little-endian MIPS 3000 family
     /// 1c 68000   Motorola MC68000
     /// 2c 68020   Motorola MC68020

@@ -599,3 +599,38 @@ pub fn defaultAddressSpace(
     _ = context;
     return .generic;
 }
+
+pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
+    const have_float = switch (target.abi) {
+        .gnuilp32 => return "ilp32",
+        .gnueabihf, .musleabihf, .eabihf => true,
+        else => false,
+    };
+
+    switch (target.cpu.arch) {
+        .riscv64 => {
+            const featureSetHas = std.Target.riscv.featureSetHas;
+            if (featureSetHas(target.cpu.features, .d)) {
+                return "lp64d";
+            } else if (have_float) {
+                return "lp64f";
+            } else {
+                return "lp64";
+            }
+        },
+        .riscv32 => {
+            const featureSetHas = std.Target.riscv.featureSetHas;
+            if (featureSetHas(target.cpu.features, .d)) {
+                return "ilp32d";
+            } else if (have_float) {
+                return "ilp32f";
+            } else if (featureSetHas(target.cpu.features, .e)) {
+                return "ilp32e";
+            } else {
+                return "ilp32";
+            }
+        },
+        //TODO add ARM, Mips, and PowerPC
+        else => return null,
+    }
+}

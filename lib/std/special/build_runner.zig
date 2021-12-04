@@ -142,6 +142,11 @@ pub fn main() !void {
                     return usageAndErr(builder, false, stderr_stream);
                 };
                 try debug_log_scopes.append(next_arg);
+            } else if (mem.eql(u8, arg, "--glibc-runtimes")) {
+                builder.glibc_runtimes_dir = nextArg(args, &arg_idx) orelse {
+                    std.debug.print("Expected argument after --glibc-runtimes\n\n", .{});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
             } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
                 builder.verbose_tokenize = true;
             } else if (mem.eql(u8, arg, "--verbose-ast")) {
@@ -160,6 +165,26 @@ pub fn main() !void {
                 builder.verbose_llvm_cpu_features = true;
             } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
                 builder.prominent_compile_errors = true;
+            } else if (mem.eql(u8, arg, "-fwine")) {
+                builder.enable_wine = true;
+            } else if (mem.eql(u8, arg, "-fno-wine")) {
+                builder.enable_wine = false;
+            } else if (mem.eql(u8, arg, "-fqemu")) {
+                builder.enable_qemu = true;
+            } else if (mem.eql(u8, arg, "-fno-qemu")) {
+                builder.enable_qemu = false;
+            } else if (mem.eql(u8, arg, "-fwasmtime")) {
+                builder.enable_wasmtime = true;
+            } else if (mem.eql(u8, arg, "-fno-wasmtime")) {
+                builder.enable_wasmtime = false;
+            } else if (mem.eql(u8, arg, "-frosetta")) {
+                builder.enable_rosetta = true;
+            } else if (mem.eql(u8, arg, "-fno-rosetta")) {
+                builder.enable_rosetta = false;
+            } else if (mem.eql(u8, arg, "-fdarling")) {
+                builder.enable_darling = true;
+            } else if (mem.eql(u8, arg, "-fno-darling")) {
+                builder.enable_darling = false;
             } else if (mem.eql(u8, arg, "--")) {
                 builder.args = argsRest(args, arg_idx);
                 break;
@@ -232,6 +257,22 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  --sysroot [path]             Set the system root directory (usually /)
         \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
         \\  --libc [file]                Provide a file which specifies libc paths
+        \\
+        \\  -fdarling,  -fno-darling     Integration with system-installed Darling to
+        \\                               execute macOS programs on Linux hosts
+        \\                               (default: no)
+        \\  -fqemu,     -fno-qemu        Integration with system-installed QEMU to execute
+        \\                               foreign-architecture programs on Linux hosts
+        \\                               (default: no)
+        \\  --glibc-runtimes [path]      Enhances QEMU integration by providing glibc built
+        \\                               for multiple foreign architectures, allowing
+        \\                               execution of non-native programs that link with glibc.
+        \\  -frosetta,  -fno-rosetta     Rely on Rosetta to execute x86_64 programs on
+        \\                               ARM64 macOS hosts. (default: no)
+        \\  -fwasmtime, -fno-wasmtime    Integration with system-installed wasmtime to
+        \\                               execute WASI binaries. (default: no)
+        \\  -fwine,     -fno-wine        Integration with system-installed Wine to execute
+        \\                               Windows programs on Linux hosts. (default: no)
         \\
         \\  -h, --help                   Print this help and exit
         \\  --verbose                    Print commands before executing them

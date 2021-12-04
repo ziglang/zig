@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Builder = std.build.Builder;
 const File = std.fs.File;
 const InstallDir = std.build.InstallDir;
@@ -17,6 +17,7 @@ const BinaryElfSection = struct {
     elfOffset: u64,
     binaryOffset: u64,
     fileSize: usize,
+    name: ?[]const u8,
     segment: ?*BinaryElfSegment,
 };
 
@@ -30,22 +31,54 @@ const BinaryElfSegment = struct {
 };
 
 const BinaryElfOutput = struct {
-    segments: ArrayList(*BinaryElfSegment),
-    sections: ArrayList(*BinaryElfSection),
+    segments: ArrayListUnmanaged(*BinaryElfSegment),
+    sections: ArrayListUnmanaged(*BinaryElfSection),
+    allocator: Allocator,
+    shstrtab: ?[]const u8,
 
     const Self = @This();
 
     pub fn deinit(self: *Self) void {
-        self.sections.deinit();
-        self.segments.deinit();
+        if (self.shstrtab) |shstrtab|
+            self.allocator.free(shstrtab);
+        self.sections.deinit(self.allocator);
+        self.segments.deinit(self.allocator);
     }
 
     pub fn parse(allocator: Allocator, elf_file: File) !Self {
         var self: Self = .{
-            .segments = ArrayList(*BinaryElfSegment).init(allocator),
-            .sections = ArrayList(*BinaryElfSection).init(allocator),
+            .segments = .{},
+            .sections = .{},
+            .allocator = allocator,
+            .shstrtab = null,
         };
+        errdefer self.sections.deinit(allocator);
+        errdefer self.segments.deinit(allocator);
+
         const elf_hdr = try std.elf.Header.read(&elf_file);
+
+        self.shstrtab = blk: {
+            if (elf_hdr.shstrndx >= elf_hdr.shnum) break :blk null;
+
+            var section_headers = elf_hdr.section_header_iterator(&elf_file);
+
+            var section_counter: usize = 0;
+            while (section_counter < elf_hdr.shstrndx) : (section_counter += 1) {
+                _ = (try section_headers.next()).?;
+            }
+
+            const shstrtab_shdr = (try section_headers.next()).?;
+
+            const buffer = try allocator.alloc(u8, shstrtab_shdr.sh_size);
+            errdefer allocator.free(buffer);
+
+            const num_read = try elf_file.preadAll(buffer, shstrtab_shdr.sh_offset);
+            if (num_read != buffer.len) return error.EndOfStream;
+
+            break :blk buffer;
+        };
+
+        errdefer if (self.shstrtab) |shstrtab| allocator.free(shstrtab);
 
         var section_headers = elf_hdr.section_header_iterator(&elf_file);
         while (try section_headers.next()) |section| {
@@ -57,7 +90,12 @@ const BinaryElfOutput = struct {
                 newSection.fileSize = @intCast(usize, section.sh_size);
                 newSection.segment = null;
 
-                try self.sections.append(newSection);
+                newSection.name = if (self.shstrtab) |shstrtab|
+                    std.mem.span(@ptrCast([*:0]const u8, &shstrtab[section.sh_name]))
+                else
+                    null;
+
+                try self.sections.append(allocator, newSection);
             }
         }
 
@@ -89,7 +127,7 @@ const BinaryElfOutput = struct {
                     }
                 }
 
-                try self.segments.append(newSegment);
+                try self.segments.append(allocator, newSegment);
             }
         }
 
@@ -150,8 +188,6 @@ const BinaryElfOutput = struct {
 };
 
 fn writeBinaryElfSection(elf_file: File, out_file: File, section: *BinaryElfSection) !void {
-    try out_file.seekTo(section.binaryOffset);
-
     try out_file.writeFileAll(elf_file, .{
         .in_offset = section.elfOffset,
         .in_len = section.fileSize,
@@ -298,7 +334,20 @@ fn containsValidAddressRange(segments: []*BinaryElfSegment) bool {
     return true;
 }
 
-fn emitRaw(allocator: Allocator, elf_path: []const u8, raw_path: []const u8, format: RawFormat) !void {
+fn padFile(f: fs.File, size: ?usize) !void {
+    if (size) |pad_size| {
+        const current_size = try f.getEndPos();
+        if (current_size < pad_size) {
+            try f.seekTo(pad_size - 1);
+            try f.writer().writeByte(0);
+        }
+        if (current_size > pad_size) {
+            return error.FileTooLarge; // Maybe this shouldn't be an error?
+        }
+    }
+}
+
+fn emitRaw(allocator: Allocator, elf_path: []const u8, raw_path: []const u8, options: CreateOptions) !void {
     var elf_file = try fs.cwd().openFile(elf_path, .{});
     defer elf_file.close();
 
@@ -308,11 +357,38 @@ fn emitRaw(allocator: Allocator, elf_path: []const u8, raw_path: []const u8, for
     var binary_elf_output = try BinaryElfOutput.parse(allocator, elf_file);
     defer binary_elf_output.deinit();
 
-    switch (format) {
+    const effective_format = options.format orelse detectFormat(raw_path);
+
+    if (options.only_section_name) |target_name| {
+        switch (effective_format) {
+            // Hex format can only write segments/phdrs, sections not supported yet
+            .hex => return error.NotYetImplemented,
+            .bin => {
+                for (binary_elf_output.sections.items) |section| {
+                    if (section.name) |curr_name| {
+                        if (!std.mem.eql(u8, curr_name, target_name))
+                            continue;
+                    } else {
+                        continue;
+                    }
+
+                    try writeBinaryElfSection(elf_file, out_file, section);
+                    try padFile(out_file, options.pad_to_size);
+                    return;
+                }
+            },
+        }
+
+        return error.SectionNotFound;
+    }
+
+    switch (effective_format) {
         .bin => {
             for (binary_elf_output.sections.items) |section| {
+                try out_file.seekTo(section.binaryOffset);
                 try writeBinaryElfSection(elf_file, out_file, section);
             }
+            try padFile(out_file, options.pad_to_size);
         },
         .hex => {
             if (binary_elf_output.segments.items.len == 0) return;
@@ -325,6 +401,10 @@ fn emitRaw(allocator: Allocator, elf_path: []const u8, raw_path: []const u8, for
                 if (section.segment) |segment| {
                     try hex_writer.writeSegment(segment, elf_file);
                 }
+            }
+            if (options.pad_to_size) |_| {
+                // Padding to a size in hex files isn't applicable
+                return error.InvalidArgument;
             }
             try hex_writer.writeEOF();
         },
@@ -345,7 +425,7 @@ builder: *Builder,
 artifact: *LibExeObjStep,
 dest_dir: InstallDir,
 dest_filename: []const u8,
-format: RawFormat,
+options: CreateOptions,
 output_file: std.build.GeneratedFile,
 
 fn detectFormat(filename: []const u8) RawFormat {
@@ -355,20 +435,27 @@ fn detectFormat(filename: []const u8) RawFormat {
     return .bin;
 }
 
-pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, format: ?RawFormat) *InstallRawStep {
+pub const CreateOptions = struct {
+    format: ?RawFormat = null,
+    dest_dir: ?InstallDir = null,
+    only_section_name: ?[]const u8 = null,
+    pad_to_size: ?usize = null,
+};
+
+pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, options: CreateOptions) *InstallRawStep {
     const self = builder.allocator.create(InstallRawStep) catch unreachable;
     self.* = InstallRawStep{
         .step = Step.init(.install_raw, builder.fmt("install raw binary {s}", .{artifact.step.name}), builder.allocator, make),
         .builder = builder,
         .artifact = artifact,
-        .dest_dir = switch (artifact.kind) {
+        .dest_dir = if (options.dest_dir) |d| d else switch (artifact.kind) {
             .obj => unreachable,
             .@"test" => unreachable,
             .exe => .bin,
             .lib => unreachable,
         },
         .dest_filename = dest_filename,
-        .format = format orelse detectFormat(dest_filename),
+        .options = options,
         .output_file = std.build.GeneratedFile{ .step = &self.step },
     };
     self.step.dependOn(&artifact.step);
@@ -394,7 +481,7 @@ fn make(step: *Step) !void {
     const full_dest_path = builder.getInstallPath(self.dest_dir, self.dest_filename);
 
     fs.cwd().makePath(builder.getInstallPath(self.dest_dir, "")) catch unreachable;
-    try emitRaw(builder.allocator, full_src_path, full_dest_path, self.format);
+    try emitRaw(builder.allocator, full_src_path, full_dest_path, self.options);
     self.output_file.path = full_dest_path;
 }
 
