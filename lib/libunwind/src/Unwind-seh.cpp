@@ -28,6 +28,8 @@
 #include "libunwind_ext.h"
 #include "UnwindCursor.hpp"
 
+#pragma clang diagnostic ignored "-Wdll-attribute-on-redeclaration"
+
 using namespace libunwind;
 
 #define STATUS_USER_DEFINED (1u << 29)

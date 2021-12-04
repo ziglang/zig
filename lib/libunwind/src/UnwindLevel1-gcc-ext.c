@@ -22,6 +22,8 @@
 #include "Unwind-EHABI.h"
 #include "unwind.h"
 
+#pragma clang diagnostic ignored "-Wdll-attribute-on-redeclaration"
+
 #if defined(_LIBUNWIND_BUILD_ZERO_COST_APIS)
 
 #if defined(_LIBUNWIND_SUPPORT_SEH_UNWIND)

@@ -30,6 +30,8 @@
 #include "libunwind_ext.h"
 #include "unwind.h"
 
+#pragma clang diagnostic ignored "-Wdll-attribute-on-redeclaration"
+
 #if !defined(_LIBUNWIND_ARM_EHABI) && !defined(__USING_SJLJ_EXCEPTIONS__)
 
 #ifndef _LIBUNWIND_SUPPORT_SEH_UNWIND
