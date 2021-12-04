@@ -474,7 +474,9 @@ pub fn parseIntoAtoms(self: *Object, allocator: Allocator, macho_file: *MachO) !
             try self.sections_as_symbols.putNoClobber(allocator, sect_id, atom_local_sym_index);
             break :blk atom_local_sym_index;
         };
-        const atom = try macho_file.createEmptyAtom(atom_local_sym_index, sect.size, sect.@"align");
+        const alignment = try math.powi(u32, 2, sect.@"align");
+        const aligned_size = mem.alignForwardGeneric(u64, sect.size, alignment);
+        const atom = try macho_file.createEmptyAtom(atom_local_sym_index, aligned_size, sect.@"align");
 
         const is_zerofill = blk: {
             const section_type = commands.sectionType(sect);

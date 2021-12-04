@@ -344,7 +344,8 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                 const local_sym_index = context.object.sections_as_symbols.get(sect_id) orelse blk: {
                     const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
                     const sect = seg.sections.items[sect_id];
-                    const match = (try context.macho_file.getMatchingSection(sect)) orelse unreachable;
+                    const match = (try context.macho_file.getMatchingSection(sect)) orelse
+                        unreachable;
                     const local_sym_index = @intCast(u32, context.macho_file.locals.items.len);
                     try context.macho_file.locals.append(context.allocator, .{
                         .n_strx = 0,
