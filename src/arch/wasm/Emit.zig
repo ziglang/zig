@@ -50,6 +50,7 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .call_indirect => try emit.emitCallIndirect(inst),
             .global_get => try emit.emitGlobal(tag, inst),
             .global_set => try emit.emitGlobal(tag, inst),
+            .function_index => try emit.emitFunctionIndex(inst),
             .memory_address => try emit.emitMemAddress(inst),
 
             // immediates
@@ -240,7 +241,7 @@ fn emitImm64(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const value = emit.mir.extraData(Mir.Imm64, extra_index);
     try emit.code.append(std.wasm.opcode(.i64_const));
-    try leb128.writeULEB128(emit.code.writer(), value.data.toU64());
+    try leb128.writeILEB128(emit.code.writer(), @bitCast(i64, value.data.toU64()));
 }
 
 fn emitFloat32(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -287,6 +288,21 @@ fn emitCallIndirect(emit: *Emit, inst: Mir.Inst.Index) !void {
     try emit.code.append(std.wasm.opcode(.call_indirect));
     try leb128.writeULEB128(emit.code.writer(), @as(u32, 0)); // TODO: Emit relocation for table index
     try leb128.writeULEB128(emit.code.writer(), label);
+}
+
+fn emitFunctionIndex(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const symbol_index = emit.mir.instructions.items(.data)[inst].label;
+    try emit.code.append(std.wasm.opcode(.i32_const));
+    const index_offset = emit.offset();
+    var buf: [5]u8 = undefined;
+    leb128.writeUnsignedFixed(5, &buf, symbol_index);
+    try emit.code.appendSlice(&buf);
+
+    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
+        .offset = index_offset,
+        .index = symbol_index,
+        .relocation_type = .R_WASM_TABLE_INDEX_SLEB,
+    });
 }
 
 fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {

@@ -1235,15 +1235,15 @@ fn airRetPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     // local, containing the offset to the stack position
     const local = try self.allocLocal(Type.initTag(.i32)); // always pointer therefore i32
     try self.moveStack(@intCast(u32, abi_size), local.local);
-
     return local;
 }
 
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
-    const result = try self.load(operand, self.air.typeOf(un_op), 0);
-    try self.addLabel(.local_get, result.local);
+
+    const result = try self.load(operand, self.air.typeOf(un_op).childType(), 0);
+    try self.emitWValue(result);
     try self.restoreStackPointer();
     try self.addTag(.@"return");
     return .none;
@@ -1301,8 +1301,11 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         // so load its value onto the stack
         std.debug.assert(ty.zigTypeTag() == .Pointer);
         const operand = self.resolveInst(pl_op.operand);
-        try self.emitWValue(operand);
-        const result = try self.load(operand, fn_ty, operand.local_with_offset.offset);
+        const offset = switch (operand) {
+            .local_with_offset => |with_offset| with_offset.offset,
+            else => @as(u32, 0),
+        };
+        const result = try self.load(operand, fn_ty, offset);
         try self.addLabel(.local_get, result.local);
 
         var fn_type = try self.genFunctype(fn_ty);
@@ -1335,7 +1338,6 @@ fn airAlloc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     // local, containing the offset to the stack position
     const local = try self.allocLocal(Type.initTag(.i32)); // always pointer therefore i32
     try self.moveStack(@intCast(u32, abi_size), local.local);
-
     return local;
 }
 
@@ -1469,6 +1471,8 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = self.resolveInst(ty_op.operand);
     const ty = self.air.getRefType(ty_op.ty);
+
+    if (!ty.hasCodeGenBits()) return WValue{ .none = {} };
 
     return switch (ty.zigTypeTag()) {
         .Struct, .ErrorUnion, .Optional, .Pointer => operand, // pass as pointer
@@ -1632,7 +1636,14 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             } else if (val.castTag(.decl_ref)) |payload| {
                 const decl = payload.data;
                 decl.alive = true;
-                try self.addLabel(.memory_address, decl.link.wasm.sym_index);
+                // Function pointers use a table index, rather than a memory address
+                if (decl.ty.zigTypeTag() == .Fn) {
+                    const target_sym_index = decl.link.wasm.sym_index;
+                    try self.bin_file.addTableFunction(target_sym_index);
+                    try self.addLabel(.function_index, target_sym_index);
+                } else {
+                    try self.addLabel(.memory_address, decl.link.wasm.sym_index);
+                }
             } else return self.fail("Wasm TODO: emitConstant for other const pointer tag {s}", .{val.tag()});
         },
         .Void => {},
@@ -1873,7 +1884,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) Inner
     });
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
 
-    const cmp_tmp = try self.allocLocal(lhs_ty);
+    const cmp_tmp = try self.allocLocal(Type.initTag(.i32)); // bool is always i32
     try self.addLabel(.local_set, cmp_tmp.local);
     return cmp_tmp;
 }
@@ -2200,20 +2211,26 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const operand = self.resolveInst(ty_op.operand);
     const ref_ty = self.air.typeOf(ty_op.operand);
     const ref_info = ref_ty.intInfo(self.target);
-    const op_bits = ref_info.bits;
-    const wanted_bits = ty.intInfo(self.target).bits;
+    const wanted_info = ty.intInfo(self.target);
 
-    if (op_bits > 32 and wanted_bits <= 32) {
+    const op_bits = toWasmIntBits(ref_info.bits) orelse
+        return self.fail("TODO: Wasm intcast integer types of bitsize: {d}", .{ref_info.bits});
+    const wanted_bits = toWasmIntBits(wanted_info.bits) orelse
+        return self.fail("TODO: Wasm intcast integer types of bitsize: {d}", .{wanted_info.bits});
+
+    // hot path
+    if (op_bits == wanted_bits) return operand;
+
+    if (op_bits > 32 and wanted_bits == 32) {
         try self.emitWValue(operand);
         try self.addTag(.i32_wrap_i64);
-    } else if (op_bits <= 32 and wanted_bits > 32) {
+    } else if (op_bits == 32 and wanted_bits > 32) {
         try self.emitWValue(operand);
         try self.addTag(switch (ref_info.signedness) {
             .signed => .i64_extend_i32_s,
             .unsigned => .i64_extend_i32_u,
         });
-    } else return operand;
-
+    }
     const result = try self.allocLocal(ty);
     try self.addLabel(.local_set, result.local);
     return result;

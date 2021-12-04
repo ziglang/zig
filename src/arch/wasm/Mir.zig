@@ -373,11 +373,17 @@ pub const Inst = struct {
         i64_extend16_s = 0xC3,
         /// Uses `tag`
         i64_extend32_s = 0xC4,
+        /// Contains a symbol to a function pointer
+        /// uses `label`
+        ///
+        /// Note: This uses `0xFE` as value as it is unused and not reserved
+        /// by the wasm specification, making it safe to use.
+        function_index = 0xFE,
         /// Contains a symbol to a memory address
         /// Uses `label`
         ///
-        /// Note: This uses `0xFF` as value as it is unused and not-reserved
-        /// by the wasm specification, making it safe to use
+        /// Note: This uses `0xFF` as value as it is unused and not reserved
+        /// by the wasm specification, making it safe to use.
         memory_address = 0xFF,
 
         /// From a given wasm opcode, returns a MIR tag.
