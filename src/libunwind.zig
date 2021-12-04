@@ -124,7 +124,6 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
-        .target_abi = comp.bin_file.options.target_abi,
         .self_exe_path = comp.self_exe_path,
         .c_source_files = &c_source_files,
         .verbose_cc = comp.verbose_cc,

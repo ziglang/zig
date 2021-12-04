@@ -15,6 +15,7 @@ const TypedValue = @import("../TypedValue.zig");
 const Zir = @import("../Zir.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
+const target_util = @import("../target.zig");
 
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
@@ -244,8 +245,6 @@ pub const Object = struct {
         // TODO handle float ABI better- it should depend on the ABI portion of std.Target
         const float_abi: llvm.ABIType = .Default;
 
-        const abi_name: ?[*:0]const u8 = if (options.target_abi) |t| @tagName(t) else null;
-
         const target_machine = llvm.TargetMachine.create(
             target,
             llvm_target_triple.ptr,
@@ -256,7 +255,7 @@ pub const Object = struct {
             code_model,
             options.function_sections,
             float_abi,
-            abi_name,
+            if (target_util.llvmMachineAbi(options.target)) |s| s.ptr else null,
         );
         errdefer target_machine.dispose();
 

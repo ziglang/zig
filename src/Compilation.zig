@@ -767,7 +767,6 @@ pub const InitOptions = struct {
     compatibility_version: ?std.builtin.Version = null,
     libc_installation: ?*const LibCInstallation = null,
     machine_code_model: std.builtin.CodeModel = .default,
-    target_abi: ?std.Target.TargetAbi,
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
     /// This is for stage1 and should be deleted upon completion of self-hosting.
     color: @import("main.zig").Color = .auto,
@@ -1183,7 +1182,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.target.os.getVersionRange());
         cache.hash.add(options.is_native_os);
         cache.hash.add(options.target.abi);
-        cache.hash.addOptionalBytes(if (options.target_abi) |t| @tagName(t) else null);
         cache.hash.add(ofmt);
         cache.hash.add(pic);
         cache.hash.add(pie);
@@ -1496,7 +1494,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .single_threaded = single_threaded,
             .verbose_link = options.verbose_link,
             .machine_code_model = options.machine_code_model,
-            .target_abi = options.target_abi,
             .dll_export_fns = dll_export_fns,
             .error_return_tracing = error_return_tracing,
             .llvm_cpu_features = llvm_cpu_features,
@@ -3460,9 +3457,6 @@ pub fn addCCArgs(
                 try argv.append("-mthumb");
             }
 
-            if (comp.bin_file.options.target_abi) |target_abi| {
-                try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{@tagName(target_abi)}));
-            }
             if (comp.sanitize_c and !comp.bin_file.options.tsan) {
                 try argv.append("-fsanitize=undefined");
                 try argv.append("-fsanitize-trap=undefined");
@@ -3595,11 +3589,6 @@ pub fn addCCArgs(
                     // TODO
                 },
             }
-
-            if (comp.bin_file.options.target_abi) |target_abi| {
-                try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{@tagName(target_abi)}));
-            }
-
             if (target_util.clangAssemblerSupportsMcpuArg(target)) {
                 if (target.cpu.model.llvm_name) |llvm_name| {
                     try argv.append(try std.fmt.allocPrint(arena, "-mcpu={s}", .{llvm_name}));
@@ -3607,6 +3596,11 @@ pub fn addCCArgs(
             }
         },
     }
+
+    if (target_util.llvmMachineAbi(target)) |mabi| {
+        try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{mabi}));
+    }
+
     if (out_dep_path) |p| {
         try argv.appendSlice(&[_][]const u8{ "-MD", "-MV", "-MF", p });
     }
@@ -4395,7 +4389,6 @@ fn buildOutputFromZig(
         .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
-        .target_abi = comp.bin_file.options.target_abi,
         .self_exe_path = comp.self_exe_path,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
@@ -4584,7 +4577,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .is_native_cpu = false, // Only true when bootstrapping the compiler.
         .llvm_cpu_name = if (target.cpu.model.llvm_name) |s| s.ptr else null,
         .llvm_cpu_features = comp.bin_file.options.llvm_cpu_features.?,
-        .llvm_target_abi = if (comp.bin_file.options.target_abi) |t| @tagName(t) else null,
+        .llvm_target_abi = if (target_util.llvmMachineAbi(target)) |s| s.ptr else null,
     };
 
     comp.stage1_cache_manifest = &man;
@@ -4836,7 +4829,6 @@ pub fn build_crt_file(
         .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
-        .target_abi = comp.bin_file.options.target_abi,
         .self_exe_path = comp.self_exe_path,
         .c_source_files = c_source_files,
         .verbose_cc = comp.verbose_cc,
