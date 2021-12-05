@@ -1454,10 +1454,15 @@ pub const LibExeObjStep = struct {
     frameworks: BufSet,
     verbose_link: bool,
     verbose_cc: bool,
-    emit_llvm_ir: bool = false,
-    emit_asm: bool = false,
-    emit_bin: bool = true,
-    emit_docs: bool = false,
+    emit_analysis: EmitOption = .default,
+    emit_asm: EmitOption = .default,
+    emit_bin: EmitOption = .default,
+    emit_docs: EmitOption = .default,
+    emit_implib: EmitOption = .default,
+    emit_llvm_bc: EmitOption = .default,
+    emit_llvm_ir: EmitOption = .default,
+    // Lots of things depend on emit_h having a consistent path,
+    // so it is not an EmitOption for now.
     emit_h: bool = false,
     bundle_compiler_rt: ?bool = null,
     single_threaded: ?bool = null,
@@ -1544,7 +1549,7 @@ pub const LibExeObjStep = struct {
     output_h_path_source: GeneratedFile,
     output_pdb_path_source: GeneratedFile,
 
-    const LinkObject = union(enum) {
+    pub const LinkObject = union(enum) {
         static_path: FileSource,
         other_step: *LibExeObjStep,
         system_lib: []const u8,
@@ -1553,25 +1558,41 @@ pub const LibExeObjStep = struct {
         c_source_files: *CSourceFiles,
     };
 
-    const IncludeDir = union(enum) {
+    pub const IncludeDir = union(enum) {
         raw_path: []const u8,
         raw_path_system: []const u8,
         other_step: *LibExeObjStep,
     };
 
-    const Kind = enum {
+    pub const Kind = enum {
         exe,
         lib,
         obj,
         @"test",
     };
 
-    const SharedLibKind = union(enum) {
+    pub const SharedLibKind = union(enum) {
         versioned: std.builtin.Version,
         unversioned: void,
     };
 
     pub const Linkage = enum { dynamic, static };
+
+    pub const EmitOption = union (enum) {
+        default: void,
+        no_emit: void,
+        emit: void,
+        emit_to: []const u8,
+
+        fn getArg(self: @This(), b: *Builder, arg_name: []const u8) ?[]const u8 {
+            return switch (self) {
+                .no_emit => b.fmt("-fno-{s}", .{arg_name}),
+                .default => null,
+                .emit => b.fmt("-f{s}", .{arg_name}),
+                .emit_to => |path| b.fmt("-f{s}={s}", .{arg_name, path}),
+            };
+        }
+    };
 
     pub fn createSharedLibrary(builder: *Builder, name: []const u8, root_src: ?FileSource, kind: SharedLibKind) *LibExeObjStep {
         return initExtraArgs(builder, name, root_src, .lib, .dynamic, switch (kind) {
@@ -2348,10 +2369,14 @@ pub const LibExeObjStep = struct {
         if (builder.verbose_cc or self.verbose_cc) zig_args.append("--verbose-cc") catch unreachable;
         if (builder.verbose_llvm_cpu_features) zig_args.append("--verbose-llvm-cpu-features") catch unreachable;
 
-        if (self.emit_llvm_ir) try zig_args.append("-femit-llvm-ir");
-        if (self.emit_asm) try zig_args.append("-femit-asm");
-        if (!self.emit_bin) try zig_args.append("-fno-emit-bin");
-        if (self.emit_docs) try zig_args.append("-femit-docs");
+        if (self.emit_analysis.getArg(builder, "emit-analysis")) |arg| try zig_args.append(arg);
+        if (self.emit_asm.getArg(builder, "emit-asm")) |arg| try zig_args.append(arg);
+        if (self.emit_bin.getArg(builder, "emit-bin")) |arg| try zig_args.append(arg);
+        if (self.emit_docs.getArg(builder, "emit-docs")) |arg| try zig_args.append(arg);
+        if (self.emit_implib.getArg(builder, "emit-implib")) |arg| try zig_args.append(arg);
+        if (self.emit_llvm_bc.getArg(builder, "emit-llvm-bc")) |arg| try zig_args.append(arg);
+        if (self.emit_llvm_ir.getArg(builder, "emit-llvm-ir")) |arg| try zig_args.append(arg);
+
         if (self.emit_h) try zig_args.append("-femit-h");
 
         if (self.strip) {
