@@ -186,7 +186,7 @@ pub fn __rem_pio2(x: f64, y: *[2]f64) i32 {
     while (tx[U(i)] == 0.0) {
         i -= 1;
     }
-    n = __rem_pio2_large(tx[0..], ty[0..], @intCast(i32, (ix >> 20) - (0x3ff + 23)), i + 1, 1);
+    n = __rem_pio2_large(tx[0..], ty[0..], @intCast(i32, (ix >> 20)) - (0x3ff + 23), i + 1, 1);
     if (sign) {
         y[0] = -ty[0];
         y[1] = -ty[1];
