@@ -6,7 +6,6 @@ ZIG=$DEBUG_STAGING/bin/zig
 
 $ZIG test test/behavior.zig -fno-stage1 -fLLVM -I test
 $ZIG test test/behavior.zig -fno-stage1 -ofmt=c -I test
-$ZIG test test/behavior.zig -fno-stage1 -target wasm32-wasi --test-cmd wasmtime --test-cmd-bin
 
 $ZIG build test-behavior         -fqemu -fwasmtime
 $ZIG build test-compiler-rt      -fqemu -fwasmtime

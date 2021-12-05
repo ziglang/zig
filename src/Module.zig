@@ -1226,20 +1226,19 @@ pub const Fn = struct {
     };
 
     pub fn deinit(func: *Fn, gpa: Allocator) void {
-        if (func.getInferredErrorSet()) |error_set_data| {
-            error_set_data.map.deinit(gpa);
-            error_set_data.functions.deinit(gpa);
+        if (func.getInferredErrorSet()) |map| {
+            map.deinit(gpa);
         }
     }
 
-    pub fn getInferredErrorSet(func: *Fn) ?*Type.Payload.ErrorSetInferred.Data {
+    pub fn getInferredErrorSet(func: *Fn) ?*std.StringHashMapUnmanaged(void) {
         const ret_ty = func.owner_decl.ty.fnReturnType();
         if (ret_ty.tag() == .generic_poison) {
             return null;
         }
         if (ret_ty.zigTypeTag() == .ErrorUnion) {
             if (ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
-                return &payload.data;
+                return &payload.data.map;
             }
         }
         return null;
@@ -1302,7 +1301,6 @@ pub const Namespace = struct {
             key.destroy(mod);
         }
         anon_decls.deinit(gpa);
-        ns.usingnamespace_set.deinit(gpa);
     }
 
     pub fn deleteAllDecls(
@@ -1334,8 +1332,6 @@ pub const Namespace = struct {
             child_decl.destroy(mod);
         }
         anon_decls.deinit(gpa);
-
-        ns.usingnamespace_set.deinit(gpa);
     }
 
     // This renders e.g. "std.fs.Dir.OpenOptions"

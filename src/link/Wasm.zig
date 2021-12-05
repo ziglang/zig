@@ -162,8 +162,9 @@ pub fn deinit(self: *Wasm) void {
         decl.link.wasm.deinit(self.base.allocator);
     }
 
-    for (self.func_types.items) |*func_type| {
-        func_type.deinit(self.base.allocator);
+    for (self.func_types.items) |func_type| {
+        self.base.allocator.free(func_type.params);
+        self.base.allocator.free(func_type.returns);
     }
     for (self.segment_info.items) |segment_info| {
         self.base.allocator.free(segment_info.name);
@@ -277,7 +278,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     defer codegen.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = codegen.genDecl() catch |err| switch (err) {
+    const result = codegen.genDecl(decl.ty, decl.val) catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
@@ -297,7 +298,6 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, cod
 
     if (decl.isExtern()) {
         try self.addOrUpdateImport(decl);
-        return;
     }
 
     if (code.len == 0) return;
@@ -574,6 +574,7 @@ fn resetState(self: *Wasm) void {
     self.segments.clearRetainingCapacity();
     self.segment_info.clearRetainingCapacity();
     self.data_segments.clearRetainingCapacity();
+    self.function_table.clearRetainingCapacity();
     self.atoms.clearRetainingCapacity();
     self.code_section_index = null;
 }
@@ -683,16 +684,12 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         );
     }
 
-    // Table section
     if (self.function_table.count() > 0) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
 
         try leb.writeULEB128(writer, wasm.reftype(.funcref));
-        try emitLimits(writer, .{
-            .min = @intCast(u32, self.function_table.count()),
-            .max = null,
-        });
+        try emitLimits(writer, .{ .min = 1, .max = null });
 
         try writeVecSectionHeader(
             file,
