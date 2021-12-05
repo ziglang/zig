@@ -1,11 +1,16 @@
-// Ported from go, which is licensed under a BSD-3 license.
-// https://golang.org/LICENSE
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// https://golang.org/src/math/sin.go
+// https://git.musl-libc.org/cgit/musl/tree/src/math/cosf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/cos.c
 
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
+
+const kernel = @import("__trig.zig");
+const __rem_pio2 = @import("__rem_pio2.zig").__rem_pio2;
+const __rem_pio2f = @import("__rem_pio2f.zig").__rem_pio2f;
 
 /// Returns the cosine of the radian value x.
 ///
@@ -15,109 +20,135 @@ const expect = std.testing.expect;
 pub fn cos(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
-        f32 => cos_(f32, x),
-        f64 => cos_(f64, x),
+        f32 => cos32(x),
+        f64 => cos64(x),
         else => @compileError("cos not implemented for " ++ @typeName(T)),
     };
 }
 
-// sin polynomial coefficients
-const S0 = 1.58962301576546568060E-10;
-const S1 = -2.50507477628578072866E-8;
-const S2 = 2.75573136213857245213E-6;
-const S3 = -1.98412698295895385996E-4;
-const S4 = 8.33333333332211858878E-3;
-const S5 = -1.66666666666666307295E-1;
+fn cos32(x: f32) f32 {
+    // Small multiples of pi/2 rounded to double precision.
+    const c1pio2: f64 = 1.0 * math.pi / 2.0; // 0x3FF921FB, 0x54442D18
+    const c2pio2: f64 = 2.0 * math.pi / 2.0; // 0x400921FB, 0x54442D18
+    const c3pio2: f64 = 3.0 * math.pi / 2.0; // 0x4012D97C, 0x7F3321D2
+    const c4pio2: f64 = 4.0 * math.pi / 2.0; // 0x401921FB, 0x54442D18
 
-// cos polynomial coeffiecients
-const C0 = -1.13585365213876817300E-11;
-const C1 = 2.08757008419747316778E-9;
-const C2 = -2.75573141792967388112E-7;
-const C3 = 2.48015872888517045348E-5;
-const C4 = -1.38888888888730564116E-3;
-const C5 = 4.16666666666665929218E-2;
+    var ix = @bitCast(u32, x);
+    const sign = ix >> 31 != 0;
+    ix &= 0x7fffffff;
 
-const pi4a = 7.85398125648498535156e-1;
-const pi4b = 3.77489470793079817668E-8;
-const pi4c = 2.69515142907905952645E-15;
-const m4pi = 1.273239544735162542821171882678754627704620361328125;
-
-fn cos_(comptime T: type, x_: T) T {
-    const I = std.meta.Int(.signed, @typeInfo(T).Float.bits);
-
-    var x = x_;
-    if (math.isNan(x) or math.isInf(x)) {
-        return math.nan(T);
+    if (ix <= 0x3f490fda) { // |x| ~<= pi/4
+        if (ix < 0x39800000) { // |x| < 2**-12
+            // raise inexact if x != 0
+            math.doNotOptimizeAway(x + 0x1p120);
+            return 1.0;
+        }
+        return kernel.__cosdf(x);
+    }
+    if (ix <= 0x407b53d1) { // |x| ~<= 5*pi/4
+        if (ix > 0x4016cbe3) { // |x|  ~> 3*pi/4
+            return -kernel.__cosdf(if (sign) x + c2pio2 else x - c2pio2);
+        } else {
+            if (sign) {
+                return kernel.__sindf(x + c1pio2);
+            } else {
+                return kernel.__sindf(c1pio2 - x);
+            }
+        }
+    }
+    if (ix <= 0x40e231d5) { // |x| ~<= 9*pi/4
+        if (ix > 0x40afeddf) { // |x| ~> 7*pi/4
+            return kernel.__cosdf(if (sign) x + c4pio2 else x - c4pio2);
+        } else {
+            if (sign) {
+                return kernel.__sindf(-x - c3pio2);
+            } else {
+                return kernel.__sindf(x - c3pio2);
+            }
+        }
     }
 
-    var sign = false;
-    x = math.fabs(x);
-
-    var y = math.floor(x * m4pi);
-    var j = @floatToInt(I, y);
-
-    if (j & 1 == 1) {
-        j += 1;
-        y += 1;
+    // cos(Inf or NaN) is NaN
+    if (ix >= 0x7f800000) {
+        return x - x;
     }
 
-    j &= 7;
-    if (j > 3) {
-        j -= 4;
-        sign = !sign;
+    var y: f64 = undefined;
+    const n = __rem_pio2f(x, &y);
+    return switch (n & 3) {
+        0 => kernel.__cosdf(y),
+        1 => kernel.__sindf(-y),
+        2 => -kernel.__cosdf(y),
+        else => kernel.__sindf(y),
+    };
+}
+
+fn cos64(x: f64) f64 {
+    var ix = @bitCast(u64, x) >> 32;
+    ix &= 0x7fffffff;
+
+    // |x| ~< pi/4
+    if (ix <= 0x3fe921fb) {
+        if (ix < 0x3e46a09e) { // |x| < 2**-27 * sqrt(2)
+            // raise inexact if x!=0
+            math.doNotOptimizeAway(x + 0x1p120);
+            return 1.0;
+        }
+        return kernel.__cos(x, 0);
     }
-    if (j > 1) {
-        sign = !sign;
+
+    // cos(Inf or NaN) is NaN
+    if (ix >= 0x7ff00000) {
+        return x - x;
     }
 
-    const z = ((x - y * pi4a) - y * pi4b) - y * pi4c;
-    const w = z * z;
-
-    const r = if (j == 1 or j == 2)
-        z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))))
-    else
-        1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))));
-
-    return if (sign) -r else r;
+    var y: [2]f64 = undefined;
+    const n = __rem_pio2(x, &y);
+    return switch (n & 3) {
+        0 => kernel.__cos(y[0], y[1]),
+        1 => -kernel.__sin(y[0], y[1], 1),
+        2 => -kernel.__cos(y[0], y[1]),
+        else => kernel.__sin(y[0], y[1], 1),
+    };
 }
 
 test "math.cos" {
-    try expect(cos(@as(f32, 0.0)) == cos_(f32, 0.0));
-    try expect(cos(@as(f64, 0.0)) == cos_(f64, 0.0));
+    try expect(cos(@as(f32, 0.0)) == cos32(0.0));
+    try expect(cos(@as(f64, 0.0)) == cos64(0.0));
 }
 
 test "math.cos32" {
-    const epsilon = 0.000001;
+    const epsilon = 0.00001;
 
-    try expect(math.approxEqAbs(f32, cos_(f32, 0.0), 1.0, epsilon));
-    try expect(math.approxEqAbs(f32, cos_(f32, 0.2), 0.980067, epsilon));
-    try expect(math.approxEqAbs(f32, cos_(f32, 0.8923), 0.627623, epsilon));
-    try expect(math.approxEqAbs(f32, cos_(f32, 1.5), 0.070737, epsilon));
-    try expect(math.approxEqAbs(f32, cos_(f32, -1.5), 0.070737, epsilon));
-    try expect(math.approxEqAbs(f32, cos_(f32, 37.45), 0.969132, epsilon));
-    try expect(math.approxEqAbs(f32, cos_(f32, 89.123), 0.400798, epsilon));
+    try expect(math.approxEqAbs(f32, cos32(0.0), 1.0, epsilon));
+    try expect(math.approxEqAbs(f32, cos32(0.2), 0.980067, epsilon));
+    try expect(math.approxEqAbs(f32, cos32(0.8923), 0.627623, epsilon));
+    try expect(math.approxEqAbs(f32, cos32(1.5), 0.070737, epsilon));
+    try expect(math.approxEqAbs(f32, cos32(-1.5), 0.070737, epsilon));
+    try expect(math.approxEqAbs(f32, cos32(37.45), 0.969132, epsilon));
+    try expect(math.approxEqAbs(f32, cos32(89.123), 0.400798, epsilon));
 }
 
 test "math.cos64" {
     const epsilon = 0.000001;
 
-    try expect(math.approxEqAbs(f64, cos_(f64, 0.0), 1.0, epsilon));
-    try expect(math.approxEqAbs(f64, cos_(f64, 0.2), 0.980067, epsilon));
-    try expect(math.approxEqAbs(f64, cos_(f64, 0.8923), 0.627623, epsilon));
-    try expect(math.approxEqAbs(f64, cos_(f64, 1.5), 0.070737, epsilon));
-    try expect(math.approxEqAbs(f64, cos_(f64, -1.5), 0.070737, epsilon));
-    try expect(math.approxEqAbs(f64, cos_(f64, 37.45), 0.969132, epsilon));
-    try expect(math.approxEqAbs(f64, cos_(f64, 89.123), 0.40080, epsilon));
+    try expect(math.approxEqAbs(f64, cos64(0.0), 1.0, epsilon));
+    try expect(math.approxEqAbs(f64, cos64(0.2), 0.980067, epsilon));
+    try expect(math.approxEqAbs(f64, cos64(0.8923), 0.627623, epsilon));
+    try expect(math.approxEqAbs(f64, cos64(1.5), 0.070737, epsilon));
+    try expect(math.approxEqAbs(f64, cos64(-1.5), 0.070737, epsilon));
+    try expect(math.approxEqAbs(f64, cos64(37.45), 0.969132, epsilon));
+    try expect(math.approxEqAbs(f64, cos64(89.123), 0.40080, epsilon));
 }
 
 test "math.cos32.special" {
-    try expect(math.isNan(cos_(f32, math.inf(f32))));
-    try expect(math.isNan(cos_(f32, -math.inf(f32))));
-    try expect(math.isNan(cos_(f32, math.nan(f32))));
+    try expect(math.isNan(cos32(math.inf(f32))));
+    try expect(math.isNan(cos32(-math.inf(f32))));
+    try expect(math.isNan(cos32(math.nan(f32))));
 }
 
 test "math.cos64.special" {
-    try expect(math.isNan(cos_(f64, math.inf(f64))));
-    try expect(math.isNan(cos_(f64, -math.inf(f64))));
-    try expect(math.isNan(cos_(f64, math.nan(f64))));
+    try expect(math.isNan(cos64(math.inf(f64))));
+    try expect(math.isNan(cos64(-math.inf(f64))));
+    try expect(math.isNan(cos64(math.nan(f64))));
 }
