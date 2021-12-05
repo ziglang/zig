@@ -925,57 +925,21 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             try self.allocateDataConstSegment();
             try self.allocateDataSegment();
             self.allocateLinkeditSegment();
-            try self.allocLocalSymbols();
+            try self.allocateLocals();
         }
 
-        try self.allocateGlobalSymbols();
+        try self.allocateGlobals();
 
-        log.debug("locals:", .{});
-        for (self.locals.items) |sym, id| {
-            log.debug("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
-        }
-        log.debug("globals:", .{});
-        for (self.globals.items) |sym, id| {
-            log.debug("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
-        }
-        log.debug("undefs:", .{});
-        for (self.undefs.items) |sym, id| {
-            log.debug("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
-        }
-        {
-            log.debug("resolver:", .{});
-            var it = self.symbol_resolver.iterator();
-            while (it.next()) |entry| {
-                log.debug("  {s} => {}", .{ self.getString(entry.key_ptr.*), entry.value_ptr.* });
-            }
+        if (build_options.enable_logging) {
+            self.logSymtab();
+            self.logSectionOrdinals();
         }
 
-        log.debug("GOT entries:", .{});
-        for (self.got_entries_map.keys()) |key| {
-            switch (key) {
-                .local => |sym_index| log.debug("  {} => {d}", .{ key, sym_index }),
-                .global => |n_strx| log.debug("  {} => {s}", .{ key, self.getString(n_strx) }),
-            }
+        if (use_stage1) {
+            try self.writeAllAtoms();
+        } else {
+            try self.writeAtoms();
         }
-
-        log.debug("stubs:", .{});
-        for (self.stubs_map.keys()) |key| {
-            log.debug("  {} => {s}", .{ key, self.getString(key) });
-        }
-
-        for (self.section_ordinals.keys()) |match, i| {
-            const seg = self.load_commands.items[match.seg].Segment;
-            const sect = seg.sections.items[match.sect];
-            log.debug("{d}: {d},{d} == {s},{s}", .{
-                i + 1,
-                match.seg,
-                match.sect,
-                commands.segmentName(sect),
-                commands.sectionName(sect),
-            });
-        }
-
-        try self.writeAtoms();
 
         if (self.bss_section_index) |idx| {
             const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
@@ -1910,7 +1874,7 @@ pub fn writeAtom(self: *MachO, atom: *Atom, match: MatchingSection) !void {
     try self.base.file.?.pwriteAll(atom.code.items, file_offset);
 }
 
-fn allocLocalSymbols(self: *MachO) !void {
+fn allocateLocals(self: *MachO) !void {
     var it = self.atoms.iterator();
     while (it.next()) |entry| {
         const match = entry.key_ptr.*;
@@ -1938,7 +1902,7 @@ fn allocLocalSymbols(self: *MachO) !void {
             sym.n_value = base_vaddr;
             sym.n_sect = n_sect;
 
-            log.debug("  {d}: {s} @0x{x}", .{
+            log.debug("  {d}: {s} allocated at 0x{x}", .{
                 atom.local_sym_index,
                 self.getString(sym.n_strx),
                 base_vaddr,
@@ -1967,7 +1931,7 @@ fn allocLocalSymbols(self: *MachO) !void {
     }
 }
 
-fn allocateLocalSymbols(self: *MachO, match: MatchingSection, offset: i64) !void {
+fn shiftLocalsByOffset(self: *MachO, match: MatchingSection, offset: i64) !void {
     var atom = self.atoms.get(match) orelse return;
 
     while (true) {
@@ -1990,7 +1954,9 @@ fn allocateLocalSymbols(self: *MachO, match: MatchingSection, offset: i64) !void
     }
 }
 
-fn allocateGlobalSymbols(self: *MachO) !void {
+fn allocateGlobals(self: *MachO) !void {
+    log.debug("allocating global symbols", .{});
+
     var sym_it = self.symbol_resolver.valueIterator();
     while (sym_it.next()) |resolv| {
         if (resolv.where != .global) continue;
@@ -2000,7 +1966,60 @@ fn allocateGlobalSymbols(self: *MachO) !void {
         const sym = &self.globals.items[resolv.where_index];
         sym.n_value = local_sym.n_value;
         sym.n_sect = local_sym.n_sect;
-        log.debug("allocating global symbol {s} at 0x{x}", .{ self.getString(sym.n_strx), local_sym.n_value });
+
+        log.debug("  {d}: {s} allocated at 0x{x}", .{
+            resolv.where_index,
+            self.getString(sym.n_strx),
+            local_sym.n_value,
+        });
+    }
+}
+
+fn writeAllAtoms(self: *MachO) !void {
+    var it = self.atoms.iterator();
+    while (it.next()) |entry| {
+        const match = entry.key_ptr.*;
+        const seg = self.load_commands.items[match.seg].Segment;
+        const sect = seg.sections.items[match.sect];
+        var atom: *Atom = entry.value_ptr.*;
+
+        var buffer = std.ArrayList(u8).init(self.base.allocator);
+        defer buffer.deinit();
+        try buffer.ensureTotalCapacity(sect.size);
+
+        log.debug("writing atoms in {s},{s}", .{ commands.segmentName(sect), commands.sectionName(sect) });
+
+        while (atom.prev) |prev| {
+            atom = prev;
+        }
+
+        while (true) {
+            const atom_sym = self.locals.items[atom.local_sym_index];
+            const padding_size: usize = if (atom.next) |next| blk: {
+                const next_sym = self.locals.items[next.local_sym_index];
+                const size = next_sym.n_value - (atom_sym.n_value + atom.size);
+                break :blk try math.cast(usize, size);
+            } else 0;
+
+            log.debug("  (adding atom {s} to buffer: {})", .{ self.getString(atom_sym.n_strx), atom_sym });
+
+            try atom.resolveRelocs(self);
+            buffer.appendSliceAssumeCapacity(atom.code.items);
+
+            var i: usize = 0;
+            while (i < padding_size) : (i += 1) {
+                buffer.appendAssumeCapacity(0);
+            }
+
+            if (atom.next) |next| {
+                atom = next;
+            } else {
+                assert(buffer.items.len == sect.size);
+                log.debug("  (writing at file offset 0x{x})", .{sect.offset});
+                try self.base.file.?.pwriteAll(buffer.items, sect.offset);
+                break;
+            }
+        }
     }
 }
 
@@ -2048,6 +2067,7 @@ fn writeAtoms(self: *MachO) !void {
                 atom.dirty = false;
             } else {
                 if (file_offset) |off| {
+                    log.debug("  (writing at file offset 0x{x})", .{off});
                     try self.base.file.?.pwriteAll(buffer.items, off);
                 }
                 file_offset = null;
@@ -2057,13 +2077,6 @@ fn writeAtoms(self: *MachO) !void {
             if (atom.next) |next| {
                 atom = next;
             } else {
-                if (buffer.items.len != sect.size) {
-                    log.warn("{s},{s}", .{ commands.segmentName(sect), commands.sectionName(sect) });
-                    log.warn("  alignment: 0x{x}", .{sect.@"align"});
-                    log.warn("  expected: 0x{x}", .{sect.size});
-                    log.warn("  given: 0x{x}", .{buffer.items.len});
-                }
-                assert(buffer.items.len == sect.size);
                 if (file_offset) |off| {
                     log.debug("  (writing at file offset 0x{x})", .{off});
                     try self.base.file.?.pwriteAll(buffer.items, off);
@@ -4576,7 +4589,7 @@ fn growSegment(self: *MachO, seg_id: u16, new_size: u64) !void {
                 moved_sect.addr + moved_sect.size,
             });
 
-            try self.allocateLocalSymbols(.{
+            try self.shiftLocalsByOffset(.{
                 .seg = @intCast(u16, next),
                 .sect = @intCast(u16, moved_sect_id),
             }, @intCast(i64, offset_amt));
@@ -4650,7 +4663,7 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
                 moved_sect.addr + moved_sect.size,
             });
 
-            try self.allocateLocalSymbols(.{
+            try self.shiftLocalsByOffset(.{
                 .seg = match.seg,
                 .sect = next,
             }, @intCast(i64, offset_amt));
@@ -5733,7 +5746,7 @@ pub fn makeString(self: *MachO, string: []const u8) !u32 {
     return new_off;
 }
 
-pub fn getString(self: *MachO, off: u32) []const u8 {
+pub fn getString(self: MachO, off: u32) []const u8 {
     assert(off < self.strtab.items.len);
     return mem.sliceTo(@ptrCast([*:0]const u8, self.strtab.items.ptr + off), 0);
 }
@@ -6025,4 +6038,56 @@ fn snapshotState(self: *MachO) !void {
 
     try std.json.stringify(snapshot, .{}, writer);
     try writer.writeByte(']');
+}
+
+fn logSymtab(self: MachO) void {
+    log.debug("locals:", .{});
+    for (self.locals.items) |sym, id| {
+        log.debug("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
+    }
+
+    log.debug("globals:", .{});
+    for (self.globals.items) |sym, id| {
+        log.debug("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
+    }
+
+    log.debug("undefs:", .{});
+    for (self.undefs.items) |sym, id| {
+        log.debug("  {d}: {s}: {}", .{ id, self.getString(sym.n_strx), sym });
+    }
+
+    {
+        log.debug("resolver:", .{});
+        var it = self.symbol_resolver.iterator();
+        while (it.next()) |entry| {
+            log.debug("  {s} => {}", .{ self.getString(entry.key_ptr.*), entry.value_ptr.* });
+        }
+    }
+
+    log.debug("GOT entries:", .{});
+    for (self.got_entries_map.keys()) |key| {
+        switch (key) {
+            .local => |sym_index| log.debug("  {} => {d}", .{ key, sym_index }),
+            .global => |n_strx| log.debug("  {} => {s}", .{ key, self.getString(n_strx) }),
+        }
+    }
+
+    log.debug("stubs:", .{});
+    for (self.stubs_map.keys()) |key| {
+        log.debug("  {} => {s}", .{ key, self.getString(key) });
+    }
+}
+
+fn logSectionOrdinals(self: MachO) void {
+    for (self.section_ordinals.keys()) |match, i| {
+        const seg = self.load_commands.items[match.seg].Segment;
+        const sect = seg.sections.items[match.sect];
+        log.debug("ord {d}: {d},{d} => {s},{s}", .{
+            i + 1,
+            match.seg,
+            match.sect,
+            commands.segmentName(sect),
+            commands.sectionName(sect),
+        });
+    }
 }
