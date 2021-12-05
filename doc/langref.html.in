@@ -402,7 +402,7 @@ pub fn main() !void {
         <p>
           For more advanced use cases, Zig offers other features to inform the compiler where the start of
           the program exists. Also, libraries do not need a {#syntax#}pub fn main{#endsyntax#} function because
-          library code is called by other programs or libraries.
+          library code is called by programs or other libraries.
         </p>
       </aside>
       <p>
