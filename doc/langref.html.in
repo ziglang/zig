@@ -1260,7 +1260,7 @@ test "expectEqual demo" {
 
     // The first argument to `expectEqual` is the known, expected, result.
     // The second argument is the result of some expression.
-    // The actual's type is casted to the type of expected.
+    // The actual's type is cast to the type of expected.
     try std.testing.expectEqual(expected, actual);
 }
 
@@ -5807,8 +5807,8 @@ test "float widening" {
       two choices about the coercion.
       </p>
       <ul>
-        <li> Cast {#syntax#}54.0{#endsyntax#} to {#syntax#}comptime_int{#endsyntax#} resulting in {#syntax#}@as(comptime_int, 10){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10){#endsyntax#}</li>
-        <li> Cast {#syntax#}5{#endsyntax#} to {#syntax#}comptime_float{#endsyntax#} resulting in {#syntax#}@as(comptime_float, 10.8){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10.8){#endsyntax#}</li>
+        <li> Cast {#syntax#}54.0{#endsyntax#} to {#syntax#}comptime_int{#endsyntax#} resulting in {#syntax#}@as(comptime_int, 10){#endsyntax#}, which is cast to {#syntax#}@as(f32, 10){#endsyntax#}</li>
+        <li> Cast {#syntax#}5{#endsyntax#} to {#syntax#}comptime_float{#endsyntax#} resulting in {#syntax#}@as(comptime_float, 10.8){#endsyntax#}, which is cast to {#syntax#}@as(f32, 10.8){#endsyntax#}</li>
       </ul>
       {#code_begin|test_err#}
 // Compile time coercion of float to int
@@ -10067,7 +10067,7 @@ fn bar(f: *Foo) void {
       allow address zero, but normal {#link|Pointers#} do not.
       </p>
       <p>At compile-time:</p>
-      {#code_begin|test_err|null pointer casted to type#}
+      {#code_begin|test_err|null pointer cast to type#}
 comptime {
     const opt_ptr: ?*i32 = null;
     const ptr = @ptrCast(*i32, opt_ptr);
