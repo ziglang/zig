@@ -2,6 +2,8 @@
 
 . ./ci/zinc/linux_base.sh
 
+VERSION=$($RELEASE_STAGING/zig version)
+
 # Avoid leaking oauth token.
 set +x
 
