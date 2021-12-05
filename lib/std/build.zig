@@ -1578,7 +1578,7 @@ pub const LibExeObjStep = struct {
 
     pub const Linkage = enum { dynamic, static };
 
-    pub const EmitOption = union (enum) {
+    pub const EmitOption = union(enum) {
         default: void,
         no_emit: void,
         emit: void,
@@ -1589,7 +1589,7 @@ pub const LibExeObjStep = struct {
                 .no_emit => b.fmt("-fno-{s}", .{arg_name}),
                 .default => null,
                 .emit => b.fmt("-f{s}", .{arg_name}),
-                .emit_to => |path| b.fmt("-f{s}={s}", .{arg_name, path}),
+                .emit_to => |path| b.fmt("-f{s}={s}", .{ arg_name, path }),
             };
         }
     };
