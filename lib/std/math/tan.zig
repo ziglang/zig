@@ -28,7 +28,7 @@ pub fn tan(x: anytype) @TypeOf(x) {
     };
 }
 
-pub fn tan32(x: f32) f32 {
+fn tan32(x: f32) f32 {
     // Small multiples of pi/2 rounded to double precision.
     const t1pio2: f64 = 1.0 * math.pi / 2.0; // 0x3FF921FB, 0x54442D18
     const t2pio2: f64 = 2.0 * math.pi / 2.0; // 0x400921FB, 0x54442D18
@@ -72,7 +72,7 @@ pub fn tan32(x: f32) f32 {
     return kernel.__tandf(y, n & 1 != 0);
 }
 
-pub fn tan64(x: f64) f64 {
+fn tan64(x: f64) f64 {
     var ix = @bitCast(u64, x) >> 32;
     ix &= 0x7fffffff;
 

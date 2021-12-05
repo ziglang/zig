@@ -26,7 +26,7 @@ pub fn cos(x: anytype) @TypeOf(x) {
     };
 }
 
-pub fn cos32(x: f32) f32 {
+fn cos32(x: f32) f32 {
     // Small multiples of pi/2 rounded to double precision.
     const c1pio2: f64 = 1.0 * math.pi / 2.0; // 0x3FF921FB, 0x54442D18
     const c2pio2: f64 = 2.0 * math.pi / 2.0; // 0x400921FB, 0x54442D18
@@ -83,7 +83,7 @@ pub fn cos32(x: f32) f32 {
     };
 }
 
-pub fn cos64(x: f64) f64 {
+fn cos64(x: f64) f64 {
     var ix = @bitCast(u64, x) >> 32;
     ix &= 0x7fffffff;
 
