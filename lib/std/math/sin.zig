@@ -156,3 +156,13 @@ test "math.sin64.special" {
     try expect(math.isNan(sin64(-math.inf(f64))));
     try expect(math.isNan(sin64(math.nan(f64))));
 }
+
+test "math.sin32 #9901" {
+    const float = @bitCast(f32, @as(u32, 0b11100011111111110000000000000000));
+    _ = std.math.sin(float);
+}
+
+test "math.sin64 #9901" {
+    const float = @bitCast(f64, @as(u64, 0b1111111101000001000000001111110111111111100000000000000000000001));
+    _ = std.math.sin(float);
+}
