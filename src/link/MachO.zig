@@ -2551,8 +2551,6 @@ fn createDsoHandleAtom(self: *MachO) !void {
             const vaddr = try self.allocateAtom(atom, 0, 1, match);
             sym.n_value = vaddr;
         } else try self.addAtomAndBumpSectionSize(atom, match);
-
-        atom.dirty = false; // We don't really want to write it to file.
     }
 }
 
@@ -2898,7 +2896,6 @@ fn createMhExecuteHeaderAtom(self: *MachO) !void {
         sym.n_value = vaddr;
     } else try self.addAtomAndBumpSectionSize(atom, match);
 
-    atom.dirty = false;
     self.mh_execute_header_index = local_sym_index;
 }
 
@@ -2963,6 +2960,8 @@ fn resolveDyldStubBinder(self: *MachO) !void {
 }
 
 fn parseObjectsIntoAtoms(self: *MachO) !void {
+    // TODO I need to see if I can simplify this logic, or perhaps split it into two functions:
+    // one for non-prealloc traditional path, and one for incremental prealloc path.
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3078,6 +3077,11 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
             };
             if (!section_metadata.contains(match)) continue;
 
+            var base_vaddr = if (self.atoms.get(match)) |last| blk: {
+                const last_atom_sym = self.locals.items[last.local_sym_index];
+                break :blk last_atom_sym.n_value + last.size;
+            } else sect.addr;
+
             if (self.atoms.getPtr(match)) |last| {
                 const first_atom = first_atoms.get(match).?;
                 last.*.next = first_atom;
@@ -3088,10 +3092,6 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
 
             if (!self.needs_prealloc) continue;
 
-            var base_vaddr = if (self.atoms.get(match)) |last| blk: {
-                const last_atom_sym = self.locals.items[last.local_sym_index];
-                break :blk last_atom_sym.n_value + last.size;
-            } else sect.addr;
             const n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
 
             var atom = first_atoms.get(match).?;
