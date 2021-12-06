@@ -1401,7 +1401,8 @@ pub fn closesocket(s: ws2_32.SOCKET) !void {
 }
 
 pub fn acceptEx(listening_s: ws2_32.SOCKET, accepting_s: ws2_32.SOCKET, name: ?*ws2_32.sockaddr, namelen: ?*ws2_32.socklen_t) ?ws2_32.WinsockError {
-    assert(std.io.is_async);
+    if(!std.io.is_async) unreachable;
+
     _ = namelen;
 
     const loop = std.event.Loop.instance.?;
