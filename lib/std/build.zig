@@ -1775,13 +1775,17 @@ pub const LibExeObjStep = struct {
     /// Creates a `RunStep` with an executable built with `addExecutable`.
     /// Add command line arguments with `addArg`.
     pub fn run(exe: *LibExeObjStep) *RunStep {
-        assert(exe.kind == .exe);
+        assert(exe.kind == .exe or exe.kind == .test_exe);
 
         // It doesn't have to be native. We catch that if you actually try to run it.
         // Consider that this is declarative; the run step may not be run unless a user
         // option is supplied.
         const run_step = RunStep.create(exe.builder, exe.builder.fmt("run {s}", .{exe.step.name}));
         run_step.addArtifactArg(exe);
+
+        if (exe.kind == .test_exe) {
+            run_step.addArg(exe.builder.zig_exe);
+        }
 
         if (exe.vcpkg_bin_path) |path| {
             run_step.addPathDir(path);
@@ -2065,7 +2069,7 @@ pub const LibExeObjStep = struct {
     /// Returns the generated header file.
     /// This function can only be called for libraries or object files which have `emit_h` set.
     pub fn getOutputHSource(self: *LibExeObjStep) FileSource {
-        assert(self.kind != .exe);
+        assert(self.kind != .exe and self.kind != .test_exe and self.kind != .@"test");
         assert(self.emit_h);
         return FileSource{ .generated = &self.output_h_path_source };
     }
