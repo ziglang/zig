@@ -2152,15 +2152,6 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     defer main_progress_node.end();
     if (self.color == .off) progress.terminal = null;
 
-    // If we need to write out builtin.zig, it needs to be done before starting
-    // the AstGen tasks.
-    if (self.bin_file.options.module) |mod| {
-        if (mod.job_queued_update_builtin_zig) {
-            mod.job_queued_update_builtin_zig = false;
-            try self.updateBuiltinZigFile(mod);
-        }
-    }
-
     // Here we queue up all the AstGen tasks first, followed by C object compilation.
     // We wait until the AstGen tasks are all completed before proceeding to the
     // (at least for now) single-threaded main work queue. However, C object compilation
@@ -2184,6 +2175,21 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
 
         self.astgen_wait_group.reset();
         defer self.astgen_wait_group.wait();
+
+        // builtin.zig is handled specially for two reasons:
+        // 1. to avoid race condition of zig processes truncating each other's builtin.zig files
+        // 2. optimization; in the hot path it only incurs a stat() syscall, which happens
+        //    in the `astgen_wait_group`.
+        if (self.bin_file.options.module) |mod| {
+            if (mod.job_queued_update_builtin_zig) {
+                mod.job_queued_update_builtin_zig = false;
+
+                self.astgen_wait_group.start();
+                try self.thread_pool.spawn(workerUpdateBuiltinZigFile, .{
+                    self, mod, &self.astgen_wait_group,
+                });
+            }
+        }
 
         while (self.astgen_work_queue.readItem()) |file| {
             self.astgen_wait_group.start();
@@ -2748,6 +2754,8 @@ fn workerAstGenFile(
             extra_index = item.end;
 
             const import_path = file.zir.nullTerminatedString(item.data.name);
+            // `@import("builtin")` is handled specially.
+            if (mem.eql(u8, import_path, "builtin")) continue;
 
             const import_result = blk: {
                 comp.mutex.lock();
@@ -2773,6 +2781,29 @@ fn workerAstGenFile(
             }
         }
     }
+}
+
+fn workerUpdateBuiltinZigFile(
+    comp: *Compilation,
+    mod: *Module,
+    wg: *WaitGroup,
+) void {
+    defer wg.finish();
+
+    mod.populateBuiltinFile() catch |err| {
+        const dir_path: []const u8 = mod.zig_cache_artifact_directory.path orelse ".";
+
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+
+        comp.setMiscFailure(.write_builtin_zig, "unable to write builtin.zig to {s}: {s}", .{
+            dir_path, @errorName(err),
+        }) catch |oom| switch (oom) {
+            error.OutOfMemory => log.err("unable to write builtin.zig to {s}: {s}", .{
+                dir_path, @errorName(err),
+            }),
+        };
+    };
 }
 
 fn workerCheckEmbedFile(
@@ -4046,22 +4077,6 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
         comp.bin_file.options.object_format != .c;
 }
 
-fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) Allocator.Error!void {
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
-
-    const source = try comp.generateBuiltinZigSource(comp.gpa);
-    defer comp.gpa.free(source);
-
-    mod.zig_cache_artifact_directory.handle.writeFile("builtin.zig", source) catch |err| {
-        const dir_path: []const u8 = mod.zig_cache_artifact_directory.path orelse ".";
-        try comp.setMiscFailure(.write_builtin_zig, "unable to write builtin.zig to {s}: {s}", .{
-            dir_path,
-            @errorName(err),
-        });
-    };
-}
-
 fn setMiscFailure(
     comp: *Compilation,
     tag: MiscTask,
@@ -4084,7 +4099,7 @@ pub fn dump_argv(argv: []const []const u8) void {
     std.debug.print("{s}\n", .{argv[argv.len - 1]});
 }
 
-pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Allocator.Error![]u8 {
+pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Allocator.Error![:0]u8 {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
@@ -4290,7 +4305,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         }
     }
 
-    return buffer.toOwnedSlice();
+    return buffer.toOwnedSliceSentinel(0);
 }
 
 pub fn updateSubCompilation(sub_compilation: *Compilation) !void {

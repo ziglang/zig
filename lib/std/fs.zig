@@ -2170,6 +2170,16 @@ pub const Dir = struct {
         return file.stat();
     }
 
+    pub const StatFileError = File.OpenError || StatError;
+
+    // TODO: improve this to use the fstatat syscall instead of making 2 syscalls here.
+    pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!File.Stat {
+        var file = try self.openFile(sub_path, .{});
+        defer file.close();
+
+        return file.stat();
+    }
+
     pub const ChmodError = File.ChmodError;
 
     /// Changes the mode of the directory.
