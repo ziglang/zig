@@ -2967,6 +2967,78 @@ fn updateZirRefs(gpa: Allocator, file: *File, old_zir: Zir) !void {
     }
 }
 
+pub fn populateBuiltinFile(mod: *Module) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const comp = mod.comp;
+    const pkg_and_file = blk: {
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+
+        const builtin_pkg = mod.main_pkg.table.get("builtin").?;
+        const result = try mod.importPkg(builtin_pkg);
+        break :blk .{
+            .file = result.file,
+            .pkg = builtin_pkg,
+        };
+    };
+    const file = pkg_and_file.file;
+    const builtin_pkg = pkg_and_file.pkg;
+    const gpa = mod.gpa;
+    file.source = try comp.generateBuiltinZigSource(gpa);
+    file.source_loaded = true;
+
+    if (builtin_pkg.root_src_directory.handle.statFile(builtin_pkg.root_src_path)) |stat| {
+        if (stat.size != file.source.len) {
+            const full_path = try builtin_pkg.root_src_directory.join(gpa, &.{
+                builtin_pkg.root_src_path,
+            });
+            defer gpa.free(full_path);
+
+            log.warn(
+                "the cached file '{s}' had the wrong size. Expected {d}, found {d}. " ++
+                    "Overwriting with correct file contents now",
+                .{ full_path, file.source.len, stat.size },
+            );
+
+            try writeBuiltinFile(file, builtin_pkg);
+        } else {
+            file.stat_size = stat.size;
+            file.stat_inode = stat.inode;
+            file.stat_mtime = stat.mtime;
+        }
+    } else |err| switch (err) {
+        error.BadPathName => unreachable, // it's always "builtin.zig"
+        error.NameTooLong => unreachable, // it's always "builtin.zig"
+        error.PipeBusy => unreachable, // it's not a pipe
+        error.WouldBlock => unreachable, // not asking for non-blocking I/O
+
+        error.FileNotFound => try writeBuiltinFile(file, builtin_pkg),
+
+        else => |e| return e,
+    }
+
+    file.tree = try std.zig.parse(gpa, file.source);
+    file.tree_loaded = true;
+    assert(file.tree.errors.len == 0); // builtin.zig must parse
+
+    file.zir = try AstGen.generate(gpa, file.tree);
+    file.zir_loaded = true;
+    file.status = .success_zir;
+}
+
+pub fn writeBuiltinFile(file: *File, builtin_pkg: *Package) !void {
+    var af = try builtin_pkg.root_src_directory.handle.atomicFile(builtin_pkg.root_src_path, .{});
+    defer af.deinit();
+    try af.file.writeAll(file.source);
+    try af.finish();
+
+    file.stat_size = file.source.len;
+    file.stat_inode = 0; // dummy value
+    file.stat_mtime = 0; // dummy value
+}
+
 pub fn mapOldZirToNew(
     gpa: Allocator,
     old_zir: Zir,
