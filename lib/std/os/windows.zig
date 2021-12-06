@@ -454,20 +454,38 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
                 },
             },
         };
+
         loop.beginOneEvent();
+
+        var initiateReadErr: ?Win32Error = null;
+        var eventCompletedOutsideLoop = false;
+
         suspend {
             // TODO handle buffer bigger than DWORD can hold
             if (kernel32.ReadFile(in_hFile, buffer.ptr, @intCast(DWORD, buffer.len), null, &resume_node.base.overlapped) == FALSE) {
                 switch (kernel32.GetLastError()) {
                     .IO_PENDING => {},
                     else => |err| {
+                        eventCompletedOutsideLoop = true;
+                        initiateReadErr = err;
                         resume @frame();
-                        loop.finishOneEvent();
-                        return unexpectedError(err);
                     },
                 }
+            } else {
+                //Completed synchroniously
+                //@TODO: handle SetFileCompletionNotificationModes
+                unreachable;
             }
         }
+
+        if (eventCompletedOutsideLoop) {
+            loop.finishOneEvent();
+        }
+
+        if (initiateReadErr) |err| {
+            return unexpectedError(err);
+        }
+
         var bytes_transferred: DWORD = undefined;
         if (kernel32.GetOverlappedResult(in_hFile, &resume_node.base.overlapped, &bytes_transferred, FALSE) == FALSE) {
             switch (kernel32.GetLastError()) {
@@ -561,20 +579,38 @@ pub fn WriteFile(
                 },
             },
         };
+
         loop.beginOneEvent();
+
+        var initiateWriteErr: ?Win32Error = null;
+        var eventCompletedOutsideLoop = false;
+
         suspend {
             const adjusted_len = math.cast(DWORD, bytes.len) catch maxInt(DWORD);
             if (kernel32.WriteFile(handle, bytes.ptr, adjusted_len, null, &resume_node.base.overlapped) == FALSE) {
                 switch (kernel32.GetLastError()) {
                     .IO_PENDING => {},
                     else => |err| {
+                        eventCompletedOutsideLoop = true;
+                        initiateWriteErr = err;
                         resume @frame();
-                        loop.finishOneEvent();
-                        return unexpectedError(err);
                     },
                 }
+            } else {
+                //Completed synchroniously
+                //@TODO: handle SetFileCompletionNotificationModes
+                unreachable;
             }
         }
+
+        if (eventCompletedOutsideLoop) {
+            loop.finishOneEvent();
+        }
+
+        if (initiateWriteErr) |err| {
+            return unexpectedError(err);
+        }
+
         var bytes_transferred: DWORD = undefined;
         if (kernel32.GetOverlappedResult(handle, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
             switch (kernel32.GetLastError()) {
@@ -1401,7 +1437,7 @@ pub fn closesocket(s: ws2_32.SOCKET) !void {
 }
 
 pub fn acceptEx(listening_s: ws2_32.SOCKET, accepting_s: ws2_32.SOCKET, name: ?*ws2_32.sockaddr, namelen: ?*ws2_32.socklen_t) ?ws2_32.WinsockError {
-    if(!std.io.is_async) unreachable;
+    if (!std.io.is_async) unreachable;
 
     _ = namelen;
 
@@ -1428,9 +1464,12 @@ pub fn acceptEx(listening_s: ws2_32.SOCKET, accepting_s: ws2_32.SOCKET, name: ?*
     const addressSize = @sizeOf(std.net.Address);
     const sizeOfAddressInBuffer = addressSize + 16;
     var buffer: [sizeOfAddressInBuffer * 2]u8 = undefined;
-    var bytesRead: u32 = 0;
+    var syncBytesRead: u32 = 0;
 
     loop.beginOneEvent();
+
+    var acceptErr: ?ws2_32.WinsockError = null;
+    var eventCompletedOutsideLoop = false;
 
     suspend {
         if (ws2_32.AcceptEx(
@@ -1440,27 +1479,37 @@ pub fn acceptEx(listening_s: ws2_32.SOCKET, accepting_s: ws2_32.SOCKET, name: ?*
             0,
             addressSize + 16,
             addressSize + 16,
-            &bytesRead,
+            &syncBytesRead,
             &resume_node.base.overlapped,
         ) == FALSE) {
             switch (ws2_32.WSAGetLastError()) {
                 .WSA_IO_PENDING => {},
                 else => |err| {
+                    acceptErr = err;
+                    eventCompletedOutsideLoop = true;
                     resume @frame();
-                    loop.finishOneEvent();
-                    return err;
                 },
             }
         } else {
             //Completed synchroniously
-            resume @frame();
-            loop.finishOneEvent();
+            //@TODO: handle SetFileCompletionNotificationModes
+            unreachable;
         }
+    }
+
+    if (eventCompletedOutsideLoop) {
+        loop.finishOneEvent();
+    }
+
+    if (acceptErr) |err| {
+        return err;
     }
 
     var bytesTransfered: DWORD = undefined;
     var completionFlags: DWORD = undefined;
-    if (ws2_32.WSAGetOverlappedResult(listening_s, &resume_node.base.overlapped, &bytesTransfered, @boolToInt(false), &completionFlags) == 0) {
+
+    //Handle evented connection errors
+    if (ws2_32.WSAGetOverlappedResult(listening_s, &resume_node.base.overlapped, &bytesTransfered, FALSE, &completionFlags) == 0) {
         switch (ws2_32.WSAGetLastError()) {
             .WSA_IO_INCOMPLETE => unreachable,
             else => |err| return err,
