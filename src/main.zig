@@ -2237,11 +2237,14 @@ fn buildOutputType(
     };
     defer emit_docs_resolved.deinit();
 
-    const is_dyn_lib = switch (output_mode) {
-        .Obj, .Exe => false,
+    const is_exe_or_dyn_lib = switch (output_mode) {
+        .Obj => false,
         .Lib => (link_mode orelse .Static) == .Dynamic,
+        .Exe => true,
     };
-    const implib_eligible = is_dyn_lib and
+    // Note that cmake when targeting Windows will try to execute
+    // zig cc to make an executable and output an implib too.
+    const implib_eligible = is_exe_or_dyn_lib and
         emit_bin_loc != null and target_info.target.os.tag == .windows;
     if (!implib_eligible) {
         if (!emit_implib_arg_provided) {
