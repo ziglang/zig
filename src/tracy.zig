@@ -124,7 +124,7 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
         }
 
         fn allocFn(self: *Self, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) std.mem.Allocator.Error![]u8 {
-            const result = self.parent_allocator.allocFn(self.parent_allocator, len, ptr_align, len_align, ret_addr);
+            const result = self.parent_allocator.rawAlloc(len, ptr_align, len_align, ret_addr);
             if (result) |data| {
                 if (data.len != 0) {
                     if (name) |n| {
@@ -139,22 +139,14 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
             return result;
         }
 
-        fn resizeFn(self: *Self, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) std.mem.Allocator.Error!usize {
-            if (self.parent_allocator.resizeFn(self.parent_allocator, buf, buf_align, new_len, len_align, ret_addr)) |resized_len| {
-                // this condition is to handle free being called on an empty slice that was never even allocated
-                // example case: `std.process.getSelfExeSharedLibPaths` can return `&[_][:0]u8{}`
-                if (buf.len != 0) {
-                    if (name) |n| {
-                        freeNamed(buf.ptr, n);
-                    } else {
-                        free(buf.ptr);
-                    }
-                }
-
+        fn resizeFn(self: *Self, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize {
+            if (self.parent_allocator.rawResize(buf, buf_align, new_len, len_align, ret_addr)) |resized_len| {
                 if (name) |n| {
+                    freeNamed(buf.ptr, n);
                     allocNamed(buf.ptr, resized_len, n);
                 } else {
                     alloc(buf.ptr, resized_len);
+                    free(buf.ptr);
                 }
 
                 return resized_len;
@@ -167,10 +159,14 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
 
         fn freeFn(self: *Self, buf: []u8, buf_align: u29, ret_addr: usize) void {
             self.parent_allocator.rawFree(buf, buf_align, ret_addr);
-            if (name) |n| {
-                freeNamed(buf.ptr, n);
-            } else {
-                free(buf.ptr);
+            // this condition is to handle free being called on an empty slice that was never even allocated
+            // example case: `std.process.getSelfExeSharedLibPaths` can return `&[_][:0]u8{}`
+            if (buf.len != 0) {
+                if (name) |n| {
+                    freeNamed(buf.ptr, n);
+                } else {
+                    free(buf.ptr);
+                }
             }
         }
     };
