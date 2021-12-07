@@ -451,7 +451,7 @@ pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []cons
         .dest_dir = if (options.dest_dir) |d| d else switch (artifact.kind) {
             .obj => unreachable,
             .@"test" => unreachable,
-            .exe => .bin,
+            .exe, .test_exe => .bin,
             .lib => unreachable,
         },
         .dest_filename = dest_filename,
