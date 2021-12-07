@@ -7226,6 +7226,16 @@ fn builtinCall(
             });
             return rvalue(gz, rl, result, node);
         },
+        .prefetch => {
+            const ptr = try expr(gz, scope, .none, params[0]);
+            const options = try comptimeExpr(gz, scope, .{ .ty = .prefetch_options_type }, params[1]);
+            const result = try gz.addExtendedPayload(.prefetch, Zir.Inst.BinNode{
+                .node = gz.nodeIndexToRelative(node),
+                .lhs = ptr,
+                .rhs = options,
+            });
+            return rvalue(gz, rl, result, node);
+        },
     }
 }
 
