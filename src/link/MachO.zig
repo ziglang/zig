@@ -5400,6 +5400,21 @@ fn writeSymbolTable(self: *MachO) !void {
         try locals.append(sym);
     }
 
+    // TODO How do we handle null global symbols in incremental context?
+    var undefs = std.ArrayList(macho.nlist_64).init(self.base.allocator);
+    defer undefs.deinit();
+    var undefs_table = std.AutoHashMap(u32, u32).init(self.base.allocator);
+    defer undefs_table.deinit();
+    try undefs.ensureTotalCapacity(self.undefs.items.len);
+    try undefs_table.ensureTotalCapacity(@intCast(u32, self.undefs.items.len));
+
+    for (self.undefs.items) |sym, i| {
+        if (sym.n_strx == 0) continue;
+        const new_index = @intCast(u32, undefs.items.len);
+        undefs.appendAssumeCapacity(sym);
+        undefs_table.putAssumeCapacityNoClobber(@intCast(u32, i), new_index);
+    }
+
     if (self.has_stabs) {
         for (self.objects.items) |object| {
             if (object.debug_info == null) continue;
@@ -5456,7 +5471,7 @@ fn writeSymbolTable(self: *MachO) !void {
 
     const nlocals = locals.items.len;
     const nexports = self.globals.items.len;
-    const nundefs = self.undefs.items.len;
+    const nundefs = undefs.items.len;
 
     const locals_off = symtab.symoff;
     const locals_size = nlocals * @sizeOf(macho.nlist_64);
@@ -5471,7 +5486,7 @@ fn writeSymbolTable(self: *MachO) !void {
     const undefs_off = exports_off + exports_size;
     const undefs_size = nundefs * @sizeOf(macho.nlist_64);
     log.debug("writing undefined symbols from 0x{x} to 0x{x}", .{ undefs_off, undefs_size + undefs_off });
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.undefs.items), undefs_off);
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(undefs.items), undefs_off);
 
     symtab.nsyms = @intCast(u32, nlocals + nexports + nundefs);
     seg.inner.filesize += locals_size + exports_size + undefs_size;
@@ -5513,10 +5528,10 @@ fn writeSymbolTable(self: *MachO) !void {
 
     stubs.reserved1 = 0;
     for (self.stubs_map.keys()) |key| {
-        const resolv = self.symbol_resolver.get(key) orelse continue;
+        const resolv = self.symbol_resolver.get(key).?;
         switch (resolv.where) {
             .global => try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL),
-            .undef => try writer.writeIntLittle(u32, dysymtab.iundefsym + resolv.where_index),
+            .undef => try writer.writeIntLittle(u32, dysymtab.iundefsym + undefs_table.get(resolv.where_index).?),
         }
     }
 
@@ -5525,10 +5540,10 @@ fn writeSymbolTable(self: *MachO) !void {
         switch (key) {
             .local => try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL),
             .global => |n_strx| {
-                const resolv = self.symbol_resolver.get(n_strx) orelse continue;
+                const resolv = self.symbol_resolver.get(n_strx).?;
                 switch (resolv.where) {
                     .global => try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL),
-                    .undef => try writer.writeIntLittle(u32, dysymtab.iundefsym + resolv.where_index),
+                    .undef => try writer.writeIntLittle(u32, dysymtab.iundefsym + undefs_table.get(resolv.where_index).?),
                 }
             },
         }
@@ -5536,10 +5551,10 @@ fn writeSymbolTable(self: *MachO) !void {
 
     la_symbol_ptr.reserved1 = got.reserved1 + ngot_entries;
     for (self.stubs_map.keys()) |key| {
-        const resolv = self.symbol_resolver.get(key) orelse continue;
+        const resolv = self.symbol_resolver.get(key).?;
         switch (resolv.where) {
             .global => try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL),
-            .undef => try writer.writeIntLittle(u32, dysymtab.iundefsym + resolv.where_index),
+            .undef => try writer.writeIntLittle(u32, dysymtab.iundefsym + undefs_table.get(resolv.where_index).?),
         }
     }
 
