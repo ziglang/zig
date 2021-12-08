@@ -4369,6 +4369,19 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.load_commands_dirty = true;
     }
 
+    if (self.function_starts_cmd_index == null) {
+        self.function_starts_cmd_index = @intCast(u16, self.load_commands.items.len);
+        try self.load_commands.append(self.base.allocator, .{
+            .LinkeditData = .{
+                .cmd = macho.LC_FUNCTION_STARTS,
+                .cmdsize = @sizeOf(macho.linkedit_data_command),
+                .dataoff = 0,
+                .datasize = 0,
+            },
+        });
+        self.load_commands_dirty = true;
+    }
+
     if (self.data_in_code_cmd_index == null) {
         self.data_in_code_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
@@ -5324,6 +5337,95 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
     }
 }
 
+fn writeFunctionStarts(self: *MachO) !void {
+    var atom = self.atoms.get(.{
+        .seg = self.text_segment_cmd_index orelse return,
+        .sect = self.text_section_index orelse return,
+    }) orelse return;
+
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    while (atom.prev) |prev| {
+        atom = prev;
+    }
+
+    var offsets = std.ArrayList(u32).init(self.base.allocator);
+    defer offsets.deinit();
+
+    const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    var last_off: u32 = 0;
+
+    while (true) {
+        const atom_sym = self.locals.items[atom.local_sym_index];
+
+        if (atom_sym.n_strx != 0) blk: {
+            if (self.symbol_resolver.get(atom_sym.n_strx)) |resolv| {
+                assert(resolv.where == .global);
+                if (resolv.local_sym_index != atom.local_sym_index) break :blk;
+            }
+
+            const offset = @intCast(u32, atom_sym.n_value - text_seg.inner.vmaddr);
+            const diff = offset - last_off;
+
+            if (diff == 0) break :blk;
+
+            try offsets.append(diff);
+            last_off = offset;
+        }
+
+        for (atom.contained.items) |cont| {
+            const cont_sym = self.locals.items[cont.local_sym_index];
+
+            if (cont_sym.n_strx == 0) continue;
+            if (self.symbol_resolver.get(cont_sym.n_strx)) |resolv| {
+                assert(resolv.where == .global);
+                if (resolv.local_sym_index != cont.local_sym_index) continue;
+            }
+
+            const offset = @intCast(u32, cont_sym.n_value - text_seg.inner.vmaddr);
+            const diff = offset - last_off;
+
+            if (diff == 0) continue;
+
+            try offsets.append(diff);
+            last_off = offset;
+        }
+
+        if (atom.next) |next| {
+            atom = next;
+        } else break;
+    }
+
+    const max_size = @intCast(usize, offsets.items.len * @sizeOf(u64));
+    var buffer = try self.base.allocator.alloc(u8, max_size);
+    defer self.base.allocator.free(buffer);
+    mem.set(u8, buffer, 0);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    var writer = stream.writer();
+
+    for (offsets.items) |offset| {
+        try std.leb.writeULEB128(writer, offset);
+    }
+
+    const needed_size = @intCast(u32, mem.alignForwardGeneric(u64, stream.pos, @sizeOf(u64)));
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    const fn_cmd = &self.load_commands.items[self.function_starts_cmd_index.?].LinkeditData;
+
+    fn_cmd.dataoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
+    fn_cmd.datasize = needed_size;
+    seg.inner.filesize += needed_size;
+
+    log.debug("writing function starts info from 0x{x} to 0x{x}", .{
+        fn_cmd.dataoff,
+        fn_cmd.dataoff + fn_cmd.datasize,
+    });
+
+    try self.base.file.?.pwriteAll(buffer[0..needed_size], fn_cmd.dataoff);
+    self.load_commands_dirty = true;
+}
+
 fn writeDices(self: *MachO) !void {
     if (!self.has_dices) return;
 
@@ -5591,6 +5693,7 @@ fn writeLinkeditSegment(self: *MachO) !void {
     seg.inner.filesize = 0;
 
     try self.writeDyldInfoData();
+    try self.writeFunctionStarts();
     try self.writeDices();
     try self.writeSymbolTable();
     try self.writeStringTable();
