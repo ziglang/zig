@@ -571,6 +571,10 @@ fn addGotEntry(target: Relocation.Target, context: RelocContext) !void {
 fn addStub(target: Relocation.Target, context: RelocContext) !void {
     if (target != .global) return;
     if (context.macho_file.stubs_map.contains(target.global)) return;
+    // If the symbol has been resolved as defined globally elsewhere (in a different translation unit),
+    // then skip creating stub entry.
+    // TODO Is this the correct for the incremental?
+    if (context.macho_file.symbol_resolver.get(target.global).?.where == .global) return;
 
     const value_ptr = blk: {
         if (context.macho_file.stubs_map_free_list.popOrNull()) |i| {
