@@ -393,11 +393,15 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                         try addGotEntry(target, context);
                     },
                     .ARM64_RELOC_UNSIGNED => {
-                        assert(rel.r_extern == 1);
                         addend = if (rel.r_length == 3)
                             mem.readIntLittle(i64, self.code.items[offset..][0..8])
                         else
                             mem.readIntLittle(i32, self.code.items[offset..][0..4]);
+                        if (rel.r_extern == 0) {
+                            const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+                            const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
+                            addend -= @intCast(i64, target_sect_base_addr);
+                        }
                         try self.addPtrBindingOrRebase(rel, target, context);
                     },
                     else => {},
