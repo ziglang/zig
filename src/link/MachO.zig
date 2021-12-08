@@ -1985,7 +1985,7 @@ fn writeAllAtoms(self: *MachO) !void {
 
         var buffer = std.ArrayList(u8).init(self.base.allocator);
         defer buffer.deinit();
-        try buffer.ensureTotalCapacity(sect.size);
+        try buffer.ensureTotalCapacity(try math.cast(usize, sect.size));
 
         log.debug("writing atoms in {s},{s}", .{ commands.segmentName(sect), commands.sectionName(sect) });
 
