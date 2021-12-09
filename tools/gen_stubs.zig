@@ -1,120 +1,180 @@
+//! Example usage:
+//! ./gen_stubs /path/to/musl/build-all
+//!
+//! The directory 'build-all' is expected to contain these subdirectories:
+//! arm  i386  mips  mips64  powerpc  powerpc64  riscv64  x86_64
+//!
+//! ...each with 'lib/libc.so' inside of them.
+
 const std = @import("std");
-
+const builtin = std.builtin;
 const mem = std.mem;
+const elf = std.elf;
+const native_endian = @import("builtin").target.cpu.arch.endian();
 
-const Symbol = struct {
-    name: []const u8,
-    section: []const u8,
-    kind: enum {
-        global,
-        weak,
-    },
-    type: enum {
-        none,
-        function,
-        object,
-    },
-    protected: bool,
-};
-
-// Example usage:
-// objdump --dynamic-syms /path/to/libc.so | ./gen_stubs > lib/libc/musl/libc.s
 pub fn main() !void {
-    const stdin = std.io.getStdIn().reader();
+    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    const args = try std.process.argsAlloc(arena);
+    const libc_so_path = args[1];
+
+    // Read the ELF header.
+    const elf_bytes = try std.fs.cwd().readFileAllocOptions(
+        arena,
+        libc_so_path,
+        100 * 1024 * 1024,
+        1 * 1024 * 1024,
+        @alignOf(elf.Elf64_Ehdr),
+        null,
+    );
+    const header = try elf.Header.parse(elf_bytes[0..@sizeOf(elf.Elf64_Ehdr)]);
+
+    switch (header.is_64) {
+        true => switch (header.endian) {
+            .Big => return finishMain(arena, elf_bytes, header, true, .Big),
+            .Little => return finishMain(arena, elf_bytes, header, true, .Little),
+        },
+        false => switch (header.endian) {
+            .Big => return finishMain(arena, elf_bytes, header, false, .Big),
+            .Little => return finishMain(arena, elf_bytes, header, false, .Little),
+        },
+    }
+}
+
+fn finishMain(
+    arena: mem.Allocator,
+    elf_bytes: []align(@alignOf(elf.Elf64_Ehdr)) u8,
+    header: elf.Header,
+    comptime is_64: bool,
+    comptime endian: builtin.Endian,
+) !void {
+    _ = arena;
+    const Sym = if (is_64) elf.Elf64_Sym else elf.Elf32_Sym;
+    const S = struct {
+        fn endianSwap(x: anytype) @TypeOf(x) {
+            if (endian != native_endian) {
+                return @byteSwap(@TypeOf(x), x);
+            } else {
+                return x;
+            }
+        }
+        fn symbolAddrLessThan(_: void, lhs: Sym, rhs: Sym) bool {
+            return endianSwap(lhs.st_value) < endianSwap(rhs.st_value);
+        }
+    };
+    // A little helper to do endian swapping.
+    const s = S.endianSwap;
+
+    // Obtain list of sections.
+    const Shdr = if (is_64) elf.Elf64_Shdr else elf.Elf32_Shdr;
+    const shdrs = mem.bytesAsSlice(Shdr, elf_bytes[header.shoff..])[0..header.shnum];
+
+    // Obtain the section header string table.
+    const shstrtab_offset = s(shdrs[header.shstrndx].sh_offset);
+    std.log.debug("shstrtab is at offset {d}", .{shstrtab_offset});
+    const shstrtab = elf_bytes[shstrtab_offset..];
+
+    // Find the offset of the dynamic symbol table.
+    const dynsym_index = for (shdrs) |shdr, i| {
+        const sh_name = mem.sliceTo(shstrtab[s(shdr.sh_name)..], 0);
+        std.log.debug("found section: {s}", .{sh_name});
+        if (mem.eql(u8, sh_name, ".dynsym")) break @intCast(u16, i);
+    } else @panic("did not find the .dynsym section");
+
+    std.log.debug("found .dynsym section at index {d}", .{dynsym_index});
+
+    // Read the dynamic symbols into a list.
+    const dyn_syms_off = s(shdrs[dynsym_index].sh_offset);
+    const dyn_syms_size = s(shdrs[dynsym_index].sh_size);
+    const dyn_syms = mem.bytesAsSlice(Sym, elf_bytes[dyn_syms_off..][0..dyn_syms_size]);
+
+    const dynstr_offset = s(shdrs[s(shdrs[dynsym_index].sh_link)].sh_offset);
+    const dynstr = elf_bytes[dynstr_offset..];
+
+    // Sort the list by address, ascending.
+    std.sort.sort(Sym, dyn_syms, {}, S.symbolAddrLessThan);
+
     const stdout = std.io.getStdOut().writer();
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const ally = arena.allocator();
+    var prev_section: u16 = 0;
+    for (dyn_syms) |sym| {
+        const name = mem.sliceTo(dynstr[s(sym.st_name)..], 0);
+        const ty = @truncate(u4, sym.st_info);
+        const binding = @truncate(u4, sym.st_info >> 4);
+        const visib = @intToEnum(elf.STV, @truncate(u2, sym.st_other));
+        const size = s(sym.st_size);
 
-    var symbols = std.ArrayList(Symbol).init(ally);
-    var sections = std.ArrayList([]const u8).init(ally);
+        if (size == 0) {
+            std.log.warn("symbol '{s}' has size 0", .{name});
+            continue;
+        }
 
-    // This is many times larger than any line objdump produces should ever be
-    var buf: [4096]u8 = undefined;
-    var line_number: usize = 0;
-
-    // Sample input line:
-    // 00000000000241b0 g    DF .text	000000000000001b copy_file_range
-    while (try stdin.readUntilDelimiterOrEof(&buf, '\n')) |line| {
-        line_number += 1;
-
-        // the lines we want all start with a 16 digit hex value
-        if (line.len < 16) continue;
-        _ = std.fmt.parseInt(u64, line[0..16], 16) catch continue;
-
-        // Ignore non-dynamic symbols
-        if (line[22] != 'D') continue;
-
-        const section = line[25 .. 25 + mem.indexOfAny(u8, line[25..], &std.ascii.spaces).?];
-
-        // the last whitespace-separated column is the symbol name
-        const name = line[1 + mem.lastIndexOfAny(u8, line, &std.ascii.spaces).? ..];
-
-        const symbol = Symbol{
-            .name = try ally.dupe(u8, name),
-            .section = try ally.dupe(u8, section),
-
-            .kind = if (line[17] == 'g' and line[18] == ' ')
-                .global
-            else if (line[17] == ' ' and line[18] == 'w')
-                .weak
-            else
-                std.debug.panic("unexpected kind on line {d}:\n{s}", .{ line_number, line }),
-
-            .type = switch (line[23]) {
-                'F' => .function,
-                'O' => .object,
-                ' ' => .none,
-                else => unreachable,
+        switch (binding) {
+            elf.STB_GLOBAL, elf.STB_WEAK => {},
+            else => {
+                std.log.debug("skipping '{s}' due to it having binding '{d}'", .{ name, binding });
+                continue;
             },
-
-            .protected = mem.indexOf(u8, line, ".protected") != null,
-        };
-
-        for (sections.items) |s| {
-            if (mem.eql(u8, s, symbol.section)) break;
-        } else {
-            try sections.append(symbol.section);
         }
 
-        try symbols.append(symbol);
-    }
-
-    std.sort.sort(Symbol, symbols.items, {}, cmpSymbols);
-    std.sort.sort([]const u8, sections.items, {}, alphabetical);
-
-    for (sections.items) |section| {
-        try stdout.print("{s}\n", .{section});
-
-        for (symbols.items) |symbol| {
-            if (!mem.eql(u8, symbol.section, section)) continue;
-
-            switch (symbol.kind) {
-                .global => try stdout.print(".globl {s}\n", .{symbol.name}),
-                .weak => try stdout.print(".weak {s}\n", .{symbol.name}),
-            }
-            switch (symbol.type) {
-                .function => try stdout.print(".type {s}, %function;\n", .{symbol.name}),
-                .object => try stdout.print(".type {s}, %object;\n", .{symbol.name}),
-                .none => {},
-            }
-            if (symbol.protected)
-                try stdout.print(".protected {s}\n", .{symbol.name});
-            try stdout.print("{s}:\n", .{symbol.name});
+        switch (ty) {
+            elf.STT_NOTYPE, elf.STT_FUNC, elf.STT_OBJECT => {},
+            else => {
+                std.log.debug("skipping '{s}' due to it having type '{d}'", .{ name, ty });
+                continue;
+            },
         }
-    }
-}
 
-fn cmpSymbols(_: void, lhs: Symbol, rhs: Symbol) bool {
-    return alphabetical({}, lhs.name, rhs.name);
-}
+        switch (visib) {
+            .DEFAULT, .PROTECTED => {},
+            .INTERNAL, .HIDDEN => {
+                std.log.debug("skipping '{s}' due to it having visibility '{s}'", .{
+                    name, @tagName(visib),
+                });
+                continue;
+            },
+        }
 
-fn alphabetical(_: void, lhs: []const u8, rhs: []const u8) bool {
-    var i: usize = 0;
-    while (i < lhs.len and i < rhs.len) : (i += 1) {
-        if (lhs[i] == rhs[i]) continue;
-        return lhs[i] < rhs[i];
+        const this_section = s(sym.st_shndx);
+        if (this_section != prev_section) {
+            prev_section = this_section;
+            const sh_name = mem.sliceTo(shstrtab[s(shdrs[this_section].sh_name)..], 0);
+            try stdout.print("{s}\n", .{sh_name});
+        }
+
+        switch (binding) {
+            elf.STB_GLOBAL => {
+                try stdout.print(".globl {s}\n", .{name});
+            },
+            elf.STB_WEAK => {
+                try stdout.print(".weak {s}\n", .{name});
+            },
+            else => unreachable,
+        }
+
+        switch (ty) {
+            elf.STT_NOTYPE => {},
+            elf.STT_FUNC => {
+                try stdout.print(".type {s}, %function;\n", .{name});
+                // omitting the size is OK for functions
+            },
+            elf.STT_OBJECT => {
+                try stdout.print(".type {s}, %object;\n", .{name});
+                if (size != 0) {
+                    try stdout.print(".size {s}, {d}\n", .{ name, size });
+                }
+            },
+            else => unreachable,
+        }
+
+        switch (visib) {
+            .DEFAULT => {},
+            .PROTECTED => try stdout.print(".protected {s}\n", .{name}),
+            .INTERNAL, .HIDDEN => unreachable,
+        }
+
+        try stdout.print("{s}:\n", .{name});
     }
-    return lhs.len < rhs.len;
 }
