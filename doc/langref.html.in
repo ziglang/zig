@@ -2557,8 +2557,10 @@ test "Conversion between vectors, arrays, and slices" {
     try expectEqual(vec2, vec3);
 }
       {#code_end#}
-      <p>TODO talk about C ABI interop</p>
-      <p>TODO consider suggesting std.MultiArrayList</p>
+      <p>
+      TODO talk about C ABI interop<br>
+      TODO consider suggesting std.MultiArrayList
+      </p>
       {#see_also|@splat|@shuffle|@select|@reduce#}
       
       {#header_close#}
