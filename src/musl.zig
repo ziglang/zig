@@ -191,11 +191,20 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             return comp.build_crt_file("c", .Lib, c_source_files.items);
         },
         .libc_so => {
+            const target = comp.getTarget();
+            const arch_define = try std.fmt.allocPrint(arena, "-DARCH_{s}", .{
+                @tagName(target.cpu.arch),
+            });
+            const clang_argv: []const []const u8 = if (target.cpu.arch.ptrBitWidth() == 64)
+                &[_][]const u8{ "-DPTR64", arch_define }
+            else
+                &[_][]const u8{arch_define};
+
             const sub_compilation = try Compilation.create(comp.gpa, .{
                 .local_cache_directory = comp.global_cache_directory,
                 .global_cache_directory = comp.global_cache_directory,
                 .zig_lib_directory = comp.zig_lib_directory,
-                .target = comp.getTarget(),
+                .target = target,
                 .root_name = "c",
                 .main_pkg = null,
                 .output_mode = .Lib,
@@ -223,8 +232,9 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
                 .clang_passthrough_mode = comp.clang_passthrough_mode,
                 .c_source_files = &[_]Compilation.CSourceFile{
-                    .{ .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "libc.s" }) },
+                    .{ .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "libc.S" }) },
                 },
+                .clang_argv = clang_argv,
                 .skip_linker_dependencies = true,
                 .soname = "libc.so",
             });

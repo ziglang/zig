@@ -1,3 +1,25 @@
+#ifdef PTR64
+#define WEAK64 .weak
+#define PTR_SIZE_BYTES 8
+#define PTR2_SIZE_BYTES 16
+#else
+#define WEAK64 .globl
+#define PTR_SIZE_BYTES 4
+#define PTR2_SIZE_BYTES 8
+#endif
+.rodata
+.globl in6addr_any
+.type in6addr_any, %object;
+.size in6addr_any, 16
+in6addr_any:
+.globl in6addr_loopback
+.type in6addr_loopback, %object;
+.size in6addr_loopback, 16
+in6addr_loopback:
+.globl _ns_flagdata
+.type _ns_flagdata, %object;
+.size _ns_flagdata, 128
+_ns_flagdata:
 .text
 .weak aio_read64
 .type aio_read64, %function;
@@ -5,30 +27,30 @@ aio_read64:
 .globl aio_read
 .type aio_read, %function;
 aio_read:
-.weak aio_write64
-.type aio_write64, %function;
-aio_write64:
 .globl aio_write
 .type aio_write, %function;
 aio_write:
-.weak aio_fsync64
-.type aio_fsync64, %function;
-aio_fsync64:
+.weak aio_write64
+.type aio_write64, %function;
+aio_write64:
 .globl aio_fsync
 .type aio_fsync, %function;
 aio_fsync:
+.weak aio_fsync64
+.type aio_fsync64, %function;
+aio_fsync64:
 .weak aio_return64
 .type aio_return64, %function;
 aio_return64:
 .globl aio_return
 .type aio_return, %function;
 aio_return:
-.weak aio_error64
-.type aio_error64, %function;
-aio_error64:
 .globl aio_error
 .type aio_error, %function;
 aio_error:
+.weak aio_error64
+.type aio_error64, %function;
+aio_error64:
 .globl aio_cancel
 .type aio_cancel, %function;
 aio_cancel:
@@ -41,12 +63,12 @@ aio_suspend:
 .weak aio_suspend64
 .type aio_suspend64, %function;
 aio_suspend64:
-.weak lio_listio64
-.type lio_listio64, %function;
-lio_listio64:
 .globl lio_listio
 .type lio_listio, %function;
 lio_listio:
+.weak lio_listio64
+.type lio_listio64, %function;
+lio_listio64:
 .globl cabs
 .type cabs, %function;
 cabs:
@@ -305,12 +327,12 @@ isalnum_l:
 .globl isalpha
 .type isalpha, %function;
 isalpha:
-.globl __isalpha_l
-.type __isalpha_l, %function;
-__isalpha_l:
 .weak isalpha_l
 .type isalpha_l, %function;
 isalpha_l:
+.globl __isalpha_l
+.type __isalpha_l, %function;
+__isalpha_l:
 .globl isascii
 .type isascii, %function;
 isascii:
@@ -326,21 +348,21 @@ isblank_l:
 .globl iscntrl
 .type iscntrl, %function;
 iscntrl:
-.globl __iscntrl_l
-.type __iscntrl_l, %function;
-__iscntrl_l:
 .weak iscntrl_l
 .type iscntrl_l, %function;
 iscntrl_l:
+.globl __iscntrl_l
+.type __iscntrl_l, %function;
+__iscntrl_l:
 .globl isdigit
 .type isdigit, %function;
 isdigit:
-.globl __isdigit_l
-.type __isdigit_l, %function;
-__isdigit_l:
 .weak isdigit_l
 .type isdigit_l, %function;
 isdigit_l:
+.globl __isdigit_l
+.type __isdigit_l, %function;
+__isdigit_l:
 .globl isgraph
 .type isgraph, %function;
 isgraph:
@@ -362,21 +384,21 @@ __islower_l:
 .globl isprint
 .type isprint, %function;
 isprint:
-.globl __isprint_l
-.type __isprint_l, %function;
-__isprint_l:
 .weak isprint_l
 .type isprint_l, %function;
 isprint_l:
+.globl __isprint_l
+.type __isprint_l, %function;
+__isprint_l:
 .globl ispunct
 .type ispunct, %function;
 ispunct:
-.globl __ispunct_l
-.type __ispunct_l, %function;
-__ispunct_l:
 .weak ispunct_l
 .type ispunct_l, %function;
 ispunct_l:
+.globl __ispunct_l
+.type __ispunct_l, %function;
+__ispunct_l:
 .globl isspace
 .type isspace, %function;
 isspace:
@@ -389,21 +411,21 @@ __isspace_l:
 .globl isupper
 .type isupper, %function;
 isupper:
-.globl __isupper_l
-.type __isupper_l, %function;
-__isupper_l:
 .weak isupper_l
 .type isupper_l, %function;
 isupper_l:
+.globl __isupper_l
+.type __isupper_l, %function;
+__isupper_l:
 .globl iswalnum
 .type iswalnum, %function;
 iswalnum:
-.weak iswalnum_l
-.type iswalnum_l, %function;
-iswalnum_l:
 .globl __iswalnum_l
 .type __iswalnum_l, %function;
 __iswalnum_l:
+.weak iswalnum_l
+.type iswalnum_l, %function;
+iswalnum_l:
 .globl iswalpha
 .type iswalpha, %function;
 iswalpha:
@@ -416,33 +438,33 @@ iswalpha_l:
 .globl iswblank
 .type iswblank, %function;
 iswblank:
-.weak iswblank_l
-.type iswblank_l, %function;
-iswblank_l:
 .globl __iswblank_l
 .type __iswblank_l, %function;
 __iswblank_l:
+.weak iswblank_l
+.type iswblank_l, %function;
+iswblank_l:
 .globl iswcntrl
 .type iswcntrl, %function;
 iswcntrl:
-.weak iswcntrl_l
-.type iswcntrl_l, %function;
-iswcntrl_l:
 .globl __iswcntrl_l
 .type __iswcntrl_l, %function;
 __iswcntrl_l:
+.weak iswcntrl_l
+.type iswcntrl_l, %function;
+iswcntrl_l:
 .globl iswctype
 .type iswctype, %function;
 iswctype:
 .globl wctype
 .type wctype, %function;
 wctype:
-.weak iswctype_l
-.type iswctype_l, %function;
-iswctype_l:
 .globl __iswctype_l
 .type __iswctype_l, %function;
 __iswctype_l:
+.weak iswctype_l
+.type iswctype_l, %function;
+iswctype_l:
 .globl __wctype_l
 .type __wctype_l, %function;
 __wctype_l:
@@ -479,57 +501,57 @@ __iswlower_l:
 .globl iswprint
 .type iswprint, %function;
 iswprint:
-.weak iswprint_l
-.type iswprint_l, %function;
-iswprint_l:
 .globl __iswprint_l
 .type __iswprint_l, %function;
 __iswprint_l:
+.weak iswprint_l
+.type iswprint_l, %function;
+iswprint_l:
 .globl iswpunct
 .type iswpunct, %function;
 iswpunct:
-.weak iswpunct_l
-.type iswpunct_l, %function;
-iswpunct_l:
 .globl __iswpunct_l
 .type __iswpunct_l, %function;
 __iswpunct_l:
+.weak iswpunct_l
+.type iswpunct_l, %function;
+iswpunct_l:
 .globl iswspace
 .type iswspace, %function;
 iswspace:
-.weak iswspace_l
-.type iswspace_l, %function;
-iswspace_l:
 .globl __iswspace_l
 .type __iswspace_l, %function;
 __iswspace_l:
+.weak iswspace_l
+.type iswspace_l, %function;
+iswspace_l:
 .globl iswupper
 .type iswupper, %function;
 iswupper:
-.weak iswupper_l
-.type iswupper_l, %function;
-iswupper_l:
 .globl __iswupper_l
 .type __iswupper_l, %function;
 __iswupper_l:
+.weak iswupper_l
+.type iswupper_l, %function;
+iswupper_l:
 .globl iswxdigit
 .type iswxdigit, %function;
 iswxdigit:
-.weak iswxdigit_l
-.type iswxdigit_l, %function;
-iswxdigit_l:
 .globl __iswxdigit_l
 .type __iswxdigit_l, %function;
 __iswxdigit_l:
+.weak iswxdigit_l
+.type iswxdigit_l, %function;
+iswxdigit_l:
 .globl isxdigit
 .type isxdigit, %function;
 isxdigit:
-.weak isxdigit_l
-.type isxdigit_l, %function;
-isxdigit_l:
 .globl __isxdigit_l
 .type __isxdigit_l, %function;
 __isxdigit_l:
+.weak isxdigit_l
+.type isxdigit_l, %function;
+isxdigit_l:
 .globl toascii
 .type toascii, %function;
 toascii:
@@ -545,30 +567,30 @@ tolower_l:
 .globl toupper
 .type toupper, %function;
 toupper:
-.globl __toupper_l
-.type __toupper_l, %function;
-__toupper_l:
 .weak toupper_l
 .type toupper_l, %function;
 toupper_l:
+.globl __toupper_l
+.type __toupper_l, %function;
+__toupper_l:
 .globl towlower
 .type towlower, %function;
 towlower:
 .globl towupper
 .type towupper, %function;
 towupper:
-.weak towupper_l
-.type towupper_l, %function;
-towupper_l:
 .globl __towupper_l
 .type __towupper_l, %function;
 __towupper_l:
-.weak towlower_l
-.type towlower_l, %function;
-towlower_l:
+.weak towupper_l
+.type towupper_l, %function;
+towupper_l:
 .globl __towlower_l
 .type __towlower_l, %function;
 __towlower_l:
+.weak towlower_l
+.type towlower_l, %function;
+towlower_l:
 .globl wcswidth
 .type wcswidth, %function;
 wcswidth:
@@ -593,12 +615,12 @@ __towctrans_l:
 .globl wcwidth
 .type wcwidth, %function;
 wcwidth:
-.weak alphasort64
-.type alphasort64, %function;
-alphasort64:
 .globl alphasort
 .type alphasort, %function;
 alphasort:
+.weak alphasort64
+.type alphasort64, %function;
+alphasort64:
 .globl closedir
 .type closedir, %function;
 closedir:
@@ -617,12 +639,12 @@ readdir:
 .weak readdir64
 .type readdir64, %function;
 readdir64:
-.globl readdir_r
-.type readdir_r, %function;
-readdir_r:
 .weak readdir64_r
 .type readdir64_r, %function;
 readdir64_r:
+.globl readdir_r
+.type readdir_r, %function;
+readdir_r:
 .globl rewinddir
 .type rewinddir, %function;
 rewinddir:
@@ -638,12 +660,12 @@ seekdir:
 .globl telldir
 .type telldir, %function;
 telldir:
-.weak versionsort64
-.type versionsort64, %function;
-versionsort64:
 .globl versionsort
 .type versionsort, %function;
 versionsort:
+.weak versionsort64
+.type versionsort64, %function;
+versionsort64:
 .weak _init
 .type _init, %function;
 _init:
@@ -722,18 +744,18 @@ creat64:
 .globl fcntl
 .type fcntl, %function;
 fcntl:
-.globl open
-.type open, %function;
-open:
 .weak open64
 .type open64, %function;
 open64:
-.globl openat
-.type openat, %function;
-openat:
+.globl open
+.type open, %function;
+open:
 .weak openat64
 .type openat64, %function;
 openat64:
+.globl openat
+.type openat, %function;
+openat:
 .weak posix_fadvise64
 .type posix_fadvise64, %function;
 posix_fadvise64:
@@ -764,6 +786,24 @@ fesetround:
 .globl feupdateenv
 .type feupdateenv, %function;
 feupdateenv:
+.globl feclearexcept
+.type feclearexcept, %function;
+feclearexcept:
+.globl feraiseexcept
+.type feraiseexcept, %function;
+feraiseexcept:
+.globl fetestexcept
+.type fetestexcept, %function;
+fetestexcept:
+.globl fegetround
+.type fegetround, %function;
+fegetround:
+.globl fegetenv
+.type fegetenv, %function;
+fegetenv:
+.globl fesetenv
+.type fesetenv, %function;
+fesetenv:
 .globl ftok
 .type ftok, %function;
 ftok:
@@ -812,6 +852,9 @@ dlerror:
 .globl dlinfo
 .type dlinfo, %function;
 dlinfo:
+.globl dlsym
+.type dlsym, %function;
+dlsym:
 .globl cuserid
 .type cuserid, %function;
 cuserid:
@@ -848,12 +891,12 @@ euidaccess:
 .weak eaccess
 .type eaccess, %function;
 eaccess:
-.globl ftw
-.type ftw, %function;
-ftw:
 .weak ftw64
 .type ftw64, %function;
 ftw64:
+.globl ftw
+.type ftw, %function;
+ftw:
 .globl futimes
 .type futimes, %function;
 futimes:
@@ -893,48 +936,48 @@ endutent:
 .globl endutxent
 .type endutxent, %function;
 endutxent:
-.globl setutxent
-.type setutxent, %function;
-setutxent:
 .weak setutent
 .type setutent, %function;
 setutent:
+.globl setutxent
+.type setutxent, %function;
+setutxent:
 .globl getutxent
 .type getutxent, %function;
 getutxent:
 .weak getutent
 .type getutent, %function;
 getutent:
-.globl getutxid
-.type getutxid, %function;
-getutxid:
 .weak getutid
 .type getutid, %function;
 getutid:
+.globl getutxid
+.type getutxid, %function;
+getutxid:
 .weak getutline
 .type getutline, %function;
 getutline:
 .globl getutxline
 .type getutxline, %function;
 getutxline:
-.globl pututxline
-.type pututxline, %function;
-pututxline:
 .weak pututline
 .type pututline, %function;
 pututline:
-.globl updwtmpx
-.type updwtmpx, %function;
-updwtmpx:
+.globl pututxline
+.type pututxline, %function;
+pututxline:
 .weak updwtmp
 .type updwtmp, %function;
 updwtmp:
-.weak utmpname
-.type utmpname, %function;
-utmpname:
+.globl updwtmpx
+.type updwtmpx, %function;
+updwtmpx:
 .weak utmpxname
 .type utmpxname, %function;
 utmpxname:
+.weak utmpname
+.type utmpname, %function;
+utmpname:
 .globl valloc
 .type valloc, %function;
 valloc:
@@ -944,12 +987,19 @@ adjtime:
 .globl adjtimex
 .type adjtimex, %function;
 adjtimex:
-.globl arch_prctl
-.type arch_prctl, %function;
-arch_prctl:
 .globl brk
 .type brk, %function;
 brk:
+#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+.weak riscv_flush_icache
+.type riscv_flush_icache, %function;
+riscv_flush_icache:
+#endif
+#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+.globl __riscv_flush_icache
+.type __riscv_flush_icache, %function;
+__riscv_flush_icache:
+#endif
 .globl capset
 .type capset, %function;
 capset:
@@ -968,12 +1018,12 @@ clone:
 .globl copy_file_range
 .type copy_file_range, %function;
 copy_file_range:
-.globl epoll_create1
-.type epoll_create1, %function;
-epoll_create1:
 .globl epoll_create
 .type epoll_create, %function;
 epoll_create:
+.globl epoll_create1
+.type epoll_create1, %function;
+epoll_create1:
 .globl epoll_ctl
 .type epoll_ctl, %function;
 epoll_ctl:
@@ -1007,36 +1057,30 @@ fanotify_mark:
 .globl flock
 .type flock, %function;
 flock:
-.weak getdents64
-.type getdents64, %function;
-getdents64:
 .globl getdents
 .type getdents, %function;
 getdents:
+.weak getdents64
+.type getdents64, %function;
+getdents64:
 .globl getrandom
 .type getrandom, %function;
 getrandom:
 .globl gettid
 .type gettid, %function;
 gettid:
-.globl inotify_init1
-.type inotify_init1, %function;
-inotify_init1:
 .globl inotify_init
 .type inotify_init, %function;
 inotify_init:
+.globl inotify_init1
+.type inotify_init1, %function;
+inotify_init1:
 .globl inotify_add_watch
 .type inotify_add_watch, %function;
 inotify_add_watch:
 .globl inotify_rm_watch
 .type inotify_rm_watch, %function;
 inotify_rm_watch:
-.globl ioperm
-.type ioperm, %function;
-ioperm:
-.globl iopl
-.type iopl, %function;
-iopl:
 .globl klogctl
 .type klogctl, %function;
 klogctl:
@@ -1253,18 +1297,18 @@ dngettext:
 .globl dgettext
 .type dgettext, %function;
 dgettext:
-.globl __duplocale
-.type __duplocale, %function;
-__duplocale:
 .weak duplocale
 .type duplocale, %function;
 duplocale:
-.globl freelocale
-.type freelocale, %function;
-freelocale:
+.globl __duplocale
+.type __duplocale, %function;
+__duplocale:
 .weak __freelocale
 .type __freelocale, %function;
 __freelocale:
+.globl freelocale
+.type freelocale, %function;
+freelocale:
 .globl iconv_open
 .type iconv_open, %function;
 iconv_open:
@@ -1274,12 +1318,12 @@ iconv:
 .globl iconv_close
 .type iconv_close, %function;
 iconv_close:
-.globl __nl_langinfo_l
-.type __nl_langinfo_l, %function;
-__nl_langinfo_l:
 .weak nl_langinfo_l
 .type nl_langinfo_l, %function;
 nl_langinfo_l:
+.globl __nl_langinfo_l
+.type __nl_langinfo_l, %function;
+__nl_langinfo_l:
 .globl __nl_langinfo
 .type __nl_langinfo, %function;
 __nl_langinfo:
@@ -1415,6 +1459,9 @@ acoshf:
 .globl acoshl
 .type acoshl, %function;
 acoshl:
+.globl acosl
+.type acosl, %function;
+acosl:
 .globl asin
 .type asin, %function;
 asin:
@@ -1430,6 +1477,9 @@ asinhf:
 .globl asinhl
 .type asinhl, %function;
 asinhl:
+.globl asinl
+.type asinl, %function;
+asinl:
 .globl atan
 .type atan, %function;
 atan:
@@ -1439,6 +1489,9 @@ atan2:
 .globl atan2f
 .type atan2f, %function;
 atan2f:
+.globl atan2l
+.type atan2l, %function;
+atan2l:
 .globl atanf
 .type atanf, %function;
 atanf:
@@ -1451,6 +1504,9 @@ atanhf:
 .globl atanhl
 .type atanhl, %function;
 atanhl:
+.globl atanl
+.type atanl, %function;
+atanl:
 .globl cbrt
 .type cbrt, %function;
 cbrt:
@@ -1466,12 +1522,9 @@ ceil:
 .globl ceilf
 .type ceilf, %function;
 ceilf:
-.globl copysign
-.type copysign, %function;
-copysign:
-.globl copysignf
-.type copysignf, %function;
-copysignf:
+.globl ceill
+.type ceill, %function;
+ceill:
 .globl copysignl
 .type copysignl, %function;
 copysignl:
@@ -1520,33 +1573,45 @@ pow10:
 .globl exp10
 .type exp10, %function;
 exp10:
-.globl exp10f
-.type exp10f, %function;
-exp10f:
 .weak pow10f
 .type pow10f, %function;
 pow10f:
-.globl exp10l
-.type exp10l, %function;
-exp10l:
+.globl exp10f
+.type exp10f, %function;
+exp10f:
 .weak pow10l
 .type pow10l, %function;
 pow10l:
+.globl exp10l
+.type exp10l, %function;
+exp10l:
 .globl exp2
 .type exp2, %function;
 exp2:
 .globl exp2f
 .type exp2f, %function;
 exp2f:
+.globl exp2l
+.type exp2l, %function;
+exp2l:
 .globl expf
 .type expf, %function;
 expf:
+.globl expl
+.type expl, %function;
+expl:
 .globl expm1
 .type expm1, %function;
 expm1:
 .globl expm1f
 .type expm1f, %function;
 expm1f:
+.globl expm1l
+.type expm1l, %function;
+expm1l:
+.globl fabsl
+.type fabsl, %function;
+fabsl:
 .globl fdim
 .type fdim, %function;
 fdim:
@@ -1568,24 +1633,15 @@ floor:
 .globl floorf
 .type floorf, %function;
 floorf:
+.globl floorl
+.type floorl, %function;
+floorl:
 .globl fmal
 .type fmal, %function;
 fmal:
-.globl fmax
-.type fmax, %function;
-fmax:
-.globl fmaxf
-.type fmaxf, %function;
-fmaxf:
 .globl fmaxl
 .type fmaxl, %function;
 fmaxl:
-.globl fmin
-.type fmin, %function;
-fmin:
-.globl fminf
-.type fminf, %function;
-fminf:
 .globl fminl
 .type fminl, %function;
 fminl:
@@ -1595,6 +1651,9 @@ fmod:
 .globl fmodf
 .type fmodf, %function;
 fmodf:
+.globl fmodl
+.type fmodl, %function;
+fmodl:
 .globl frexp
 .type frexp, %function;
 frexp:
@@ -1679,15 +1738,24 @@ lgammaf:
 .weak lgammaf_r
 .type lgammaf_r, %function;
 lgammaf_r:
-.globl __lgammal_r
-.type __lgammal_r, %function;
-__lgammal_r:
 .weak lgammal_r
 .type lgammal_r, %function;
 lgammal_r:
+.globl __lgammal_r
+.type __lgammal_r, %function;
+__lgammal_r:
 .globl lgammal
 .type lgammal, %function;
 lgammal:
+.globl llrint
+.type llrint, %function;
+llrint:
+.globl llrintf
+.type llrintf, %function;
+llrintf:
+.globl llrintl
+.type llrintl, %function;
+llrintl:
 .globl llround
 .type llround, %function;
 llround:
@@ -1706,18 +1774,27 @@ log10:
 .globl log10f
 .type log10f, %function;
 log10f:
+.globl log10l
+.type log10l, %function;
+log10l:
 .globl log1p
 .type log1p, %function;
 log1p:
 .globl log1pf
 .type log1pf, %function;
 log1pf:
+.globl log1pl
+.type log1pl, %function;
+log1pl:
 .globl log2
 .type log2, %function;
 log2:
 .globl log2f
 .type log2f, %function;
 log2f:
+.globl log2l
+.type log2l, %function;
+log2l:
 .globl logb
 .type logb, %function;
 logb:
@@ -1730,6 +1807,18 @@ logbl:
 .globl logf
 .type logf, %function;
 logf:
+.globl logl
+.type logl, %function;
+logl:
+.globl lrint
+.type lrint, %function;
+lrint:
+.globl lrintf
+.type lrintf, %function;
+lrintf:
+.globl lrintl
+.type lrintl, %function;
+lrintl:
 .globl lround
 .type lround, %function;
 lround:
@@ -1799,24 +1888,69 @@ remainder:
 .weak drem
 .type drem, %function;
 drem:
-.globl remainderf
-.type remainderf, %function;
-remainderf:
 .weak dremf
 .type dremf, %function;
 dremf:
+.globl remainderf
+.type remainderf, %function;
+remainderf:
+.globl remainderl
+.type remainderl, %function;
+remainderl:
 .globl remquo
 .type remquo, %function;
 remquo:
 .globl remquof
 .type remquof, %function;
 remquof:
+.globl remquol
+.type remquol, %function;
+remquol:
 .globl rint
 .type rint, %function;
 rint:
 .globl rintf
 .type rintf, %function;
 rintf:
+.globl rintl
+.type rintl, %function;
+rintl:
+.globl copysign
+.type copysign, %function;
+copysign:
+.globl copysignf
+.type copysignf, %function;
+copysignf:
+.globl fabs
+.type fabs, %function;
+fabs:
+.globl fabsf
+.type fabsf, %function;
+fabsf:
+.globl fma
+.type fma, %function;
+fma:
+.globl fmaf
+.type fmaf, %function;
+fmaf:
+.globl fmax
+.type fmax, %function;
+fmax:
+.globl fmaxf
+.type fmaxf, %function;
+fmaxf:
+.globl fmin
+.type fmin, %function;
+fmin:
+.globl fminf
+.type fminf, %function;
+fminf:
+.globl sqrt
+.type sqrt, %function;
+sqrt:
+.globl sqrtf
+.type sqrtf, %function;
+sqrtf:
 .globl round
 .type round, %function;
 round:
@@ -1883,6 +2017,9 @@ sinhl:
 .globl sinl
 .type sinl, %function;
 sinl:
+.globl sqrtl
+.type sqrtl, %function;
+sqrtl:
 .globl tan
 .type tan, %function;
 tan:
@@ -1916,72 +2053,21 @@ trunc:
 .globl truncf
 .type truncf, %function;
 truncf:
-.globl fabs
-.type fabs, %function;
-fabs:
-.globl fabsf
-.type fabsf, %function;
-fabsf:
-.globl fabsl
-.type fabsl, %function;
-fabsl:
-.globl fma
-.type fma, %function;
-fma:
-.globl fmaf
-.type fmaf, %function;
-fmaf:
-.globl fmodl
-.type fmodl, %function;
-fmodl:
-.globl llrint
-.type llrint, %function;
-llrint:
-.globl llrintf
-.type llrintf, %function;
-llrintf:
-.globl llrintl
-.type llrintl, %function;
-llrintl:
-.globl lrint
-.type lrint, %function;
-lrint:
-.globl lrintf
-.type lrintf, %function;
-lrintf:
-.globl lrintl
-.type lrintl, %function;
-lrintl:
-.globl remainderl
-.type remainderl, %function;
-remainderl:
-.globl remquol
-.type remquol, %function;
-remquol:
-.globl rintl
-.type rintl, %function;
-rintl:
-.globl sqrt
-.type sqrt, %function;
-sqrt:
-.globl sqrtf
-.type sqrtf, %function;
-sqrtf:
-.globl sqrtl
-.type sqrtl, %function;
-sqrtl:
+.globl truncl
+.type truncl, %function;
+truncl:
 .globl a64l
 .type a64l, %function;
 a64l:
 .globl l64a
 .type l64a, %function;
 l64a:
-.globl basename
-.type basename, %function;
-basename:
 .weak __xpg_basename
 .type __xpg_basename, %function;
 __xpg_basename:
+.globl basename
+.type basename, %function;
+basename:
 .globl dirname
 .type dirname, %function;
 dirname:
@@ -2057,12 +2143,12 @@ ioctl:
 .globl issetugid
 .type issetugid, %function;
 issetugid:
-.globl lockf
-.type lockf, %function;
-lockf:
 .weak lockf64
 .type lockf64, %function;
 lockf64:
+.globl lockf
+.type lockf, %function;
+lockf:
 .globl login_tty
 .type login_tty, %function;
 login_tty:
@@ -2084,12 +2170,12 @@ addmntent:
 .globl hasmntopt
 .type hasmntopt, %function;
 hasmntopt:
-.globl nftw
-.type nftw, %function;
-nftw:
 .weak nftw64
 .type nftw64, %function;
 nftw64:
+.globl nftw
+.type nftw, %function;
+nftw:
 .globl openpty
 .type openpty, %function;
 openpty:
@@ -2135,21 +2221,21 @@ closelog:
 .globl openlog
 .type openlog, %function;
 openlog:
-.weak vsyslog
-.type vsyslog, %function;
-vsyslog:
 .globl syslog
 .type syslog, %function;
 syslog:
+.weak vsyslog
+.type vsyslog, %function;
+vsyslog:
 .globl uname
 .type uname, %function;
 uname:
-.globl wordfree
-.type wordfree, %function;
-wordfree:
 .globl wordexp
 .type wordexp, %function;
 wordexp:
+.globl wordfree
+.type wordfree, %function;
+wordfree:
 .weak madvise
 .type madvise, %function;
 madvise:
@@ -2162,12 +2248,12 @@ mlock:
 .globl mlockall
 .type mlockall, %function;
 mlockall:
-.weak mmap64
-.type mmap64, %function;
-mmap64:
 .weak mmap
 .type mmap, %function;
 mmap:
+.weak mmap64
+.type mmap64, %function;
+mmap64:
 .weak mprotect
 .type mprotect, %function;
 mprotect:
@@ -2474,18 +2560,18 @@ ns_put16:
 .globl ns_put32
 .type ns_put32, %function;
 ns_put32:
-.globl ns_skiprr
-.type ns_skiprr, %function;
-ns_skiprr:
 .globl ns_initparse
 .type ns_initparse, %function;
 ns_initparse:
-.globl ns_name_uncompress
-.type ns_name_uncompress, %function;
-ns_name_uncompress:
+.globl ns_skiprr
+.type ns_skiprr, %function;
+ns_skiprr:
 .globl ns_parserr
 .type ns_parserr, %function;
 ns_parserr:
+.globl ns_name_uncompress
+.type ns_name_uncompress, %function;
+ns_name_uncompress:
 .globl ntohl
 .type ntohl, %function;
 ntohl:
@@ -2525,12 +2611,12 @@ res_init:
 .weak res_mkquery
 .type res_mkquery, %function;
 res_mkquery:
-.weak res_search
-.type res_search, %function;
-res_search:
 .globl res_query
 .type res_query, %function;
 res_query:
+.weak res_search
+.type res_search, %function;
+res_search:
 .globl res_querydomain
 .type res_querydomain, %function;
 res_querydomain:
@@ -2615,12 +2701,12 @@ getpwnam_r:
 .globl getpwuid_r
 .type getpwuid_r, %function;
 getpwuid_r:
-.globl setpwent
-.type setpwent, %function;
-setpwent:
 .weak endpwent
 .type endpwent, %function;
 endpwent:
+.globl setpwent
+.type setpwent, %function;
+setpwent:
 .globl getpwent
 .type getpwent, %function;
 getpwent:
@@ -2810,6 +2896,9 @@ posix_spawnp:
 .globl system
 .type system, %function;
 system:
+.globl vfork
+.type vfork, %function;
+vfork:
 .globl wait
 .type wait, %function;
 wait:
@@ -2822,24 +2911,24 @@ waitpid:
 .globl fnmatch
 .type fnmatch, %function;
 fnmatch:
-.weak glob64
-.type glob64, %function;
-glob64:
 .globl glob
 .type glob, %function;
 glob:
-.weak globfree64
-.type globfree64, %function;
-globfree64:
+.weak glob64
+.type glob64, %function;
+glob64:
 .globl globfree
 .type globfree, %function;
 globfree:
-.globl regfree
-.type regfree, %function;
-regfree:
+.weak globfree64
+.type globfree64, %function;
+globfree64:
 .globl regcomp
 .type regcomp, %function;
 regcomp:
+.globl regfree
+.type regfree, %function;
+regfree:
 .globl regerror
 .type regerror, %function;
 regerror:
@@ -2888,24 +2977,24 @@ sched_setscheduler:
 .globl sched_yield
 .type sched_yield, %function;
 sched_yield:
-.weak hcreate_r
-.type hcreate_r, %function;
-hcreate_r:
 .globl hcreate
 .type hcreate, %function;
 hcreate:
-.weak hdestroy_r
-.type hdestroy_r, %function;
-hdestroy_r:
+.weak hcreate_r
+.type hcreate_r, %function;
+hcreate_r:
 .globl hdestroy
 .type hdestroy, %function;
 hdestroy:
-.weak hsearch_r
-.type hsearch_r, %function;
-hsearch_r:
+.weak hdestroy_r
+.type hdestroy_r, %function;
+hdestroy_r:
 .globl hsearch
 .type hsearch, %function;
 hsearch:
+.weak hsearch_r
+.type hsearch_r, %function;
+hsearch_r:
 .globl insque
 .type insque, %function;
 insque:
@@ -2942,6 +3031,26 @@ pselect:
 .globl select
 .type select, %function;
 select:
+.globl _longjmp
+.type _longjmp, %function;
+_longjmp:
+#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+.globl __longjmp
+.type __longjmp, %function;
+__longjmp:
+#endif
+.globl longjmp
+.type longjmp, %function;
+longjmp:
+.globl _setjmp
+.type _setjmp, %function;
+_setjmp:
+.globl setjmp
+.type setjmp, %function;
+setjmp:
+.globl __setjmp
+.type __setjmp, %function;
+__setjmp:
 .globl getitimer
 .type getitimer, %function;
 getitimer:
@@ -2960,6 +3069,12 @@ psignal:
 .globl raise
 .type raise, %function;
 raise:
+.globl __sigsetjmp
+.type __sigsetjmp, %function;
+__sigsetjmp:
+.globl sigsetjmp
+.type sigsetjmp, %function;
+sigsetjmp:
 .globl setitimer
 .type setitimer, %function;
 setitimer:
@@ -3002,15 +3117,15 @@ sigismember:
 .globl siglongjmp
 .type siglongjmp, %function;
 siglongjmp:
+.globl signal
+.type signal, %function;
+signal:
 .weak __sysv_signal
 .type __sysv_signal, %function;
 __sysv_signal:
 .weak bsd_signal
 .type bsd_signal, %function;
 bsd_signal:
-.globl signal
-.type signal, %function;
-signal:
 .globl sigorset
 .type sigorset, %function;
 sigorset:
@@ -3050,28 +3165,36 @@ sigwait:
 .globl sigwaitinfo
 .type sigwaitinfo, %function;
 sigwaitinfo:
-.weak __fxstat64
+WEAK64 __fxstat64
 .type __fxstat64, %function;
 __fxstat64:
+#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_powerpc)
 .globl __fxstat
 .type __fxstat, %function;
 __fxstat:
+#endif
+#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_powerpc)
 .globl __fxstatat
 .type __fxstatat, %function;
 __fxstatat:
-.weak __fxstatat64
+#endif
+WEAK64 __fxstatat64
 .type __fxstatat64, %function;
 __fxstatat64:
-.weak __lxstat64
+WEAK64 __lxstat64
 .type __lxstat64, %function;
 __lxstat64:
+#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_powerpc)
 .globl __lxstat
 .type __lxstat, %function;
 __lxstat:
+#endif
+#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_powerpc)
 .globl __xstat
 .type __xstat, %function;
 __xstat:
-.weak __xstat64
+#endif
+WEAK64 __xstat64
 .type __xstat64, %function;
 __xstat64:
 .globl __xmknod
@@ -3104,18 +3227,18 @@ fstatat64:
 .globl futimens
 .type futimens, %function;
 futimens:
-.weak futimesat
+WEAK64 futimesat
 .type futimesat, %function;
 futimesat:
 .globl lchmod
 .type lchmod, %function;
 lchmod:
-.globl lstat
-.type lstat, %function;
-lstat:
 .weak lstat64
 .type lstat64, %function;
 lstat64:
+.globl lstat
+.type lstat, %function;
+lstat:
 .globl mkdir
 .type mkdir, %function;
 mkdir:
@@ -3134,36 +3257,36 @@ mknod:
 .globl mknodat
 .type mknodat, %function;
 mknodat:
-.weak stat64
-.type stat64, %function;
-stat64:
 .globl stat
 .type stat, %function;
 stat:
-.weak statfs64
-.type statfs64, %function;
-statfs64:
+.weak stat64
+.type stat64, %function;
+stat64:
 .weak statfs
 .type statfs, %function;
 statfs:
+.weak statfs64
+.type statfs64, %function;
+statfs64:
 .weak fstatfs
 .type fstatfs, %function;
 fstatfs:
 .weak fstatfs64
 .type fstatfs64, %function;
 fstatfs64:
-.globl statvfs
-.type statvfs, %function;
-statvfs:
 .weak statvfs64
 .type statvfs64, %function;
 statvfs64:
-.globl fstatvfs
-.type fstatvfs, %function;
-fstatvfs:
+.globl statvfs
+.type statvfs, %function;
+statvfs:
 .weak fstatvfs64
 .type fstatvfs64, %function;
 fstatvfs64:
+.globl fstatvfs
+.type fstatvfs, %function;
+fstatvfs:
 .globl umask
 .type umask, %function;
 umask:
@@ -3184,12 +3307,12 @@ __uflow:
 .globl asprintf
 .type asprintf, %function;
 asprintf:
-.globl clearerr
-.type clearerr, %function;
-clearerr:
 .weak clearerr_unlocked
 .type clearerr_unlocked, %function;
 clearerr_unlocked:
+.globl clearerr
+.type clearerr, %function;
+clearerr:
 .globl dprintf
 .type dprintf, %function;
 dprintf:
@@ -3241,66 +3364,66 @@ __fseterr:
 .globl fclose
 .type fclose, %function;
 fclose:
-.weak feof_unlocked
-.type feof_unlocked, %function;
-feof_unlocked:
-.globl feof
-.type feof, %function;
-feof:
 .weak _IO_feof_unlocked
 .type _IO_feof_unlocked, %function;
 _IO_feof_unlocked:
-.weak _IO_ferror_unlocked
-.type _IO_ferror_unlocked, %function;
-_IO_ferror_unlocked:
-.weak ferror_unlocked
-.type ferror_unlocked, %function;
-ferror_unlocked:
+.globl feof
+.type feof, %function;
+feof:
+.weak feof_unlocked
+.type feof_unlocked, %function;
+feof_unlocked:
 .globl ferror
 .type ferror, %function;
 ferror:
-.globl fflush
-.type fflush, %function;
-fflush:
+.weak ferror_unlocked
+.type ferror_unlocked, %function;
+ferror_unlocked:
+.weak _IO_ferror_unlocked
+.type _IO_ferror_unlocked, %function;
+_IO_ferror_unlocked:
 .weak fflush_unlocked
 .type fflush_unlocked, %function;
 fflush_unlocked:
+.globl fflush
+.type fflush, %function;
+fflush:
 .globl fgetc
 .type fgetc, %function;
 fgetc:
 .globl fgetln
 .type fgetln, %function;
 fgetln:
-.weak fgetpos64
-.type fgetpos64, %function;
-fgetpos64:
 .globl fgetpos
 .type fgetpos, %function;
 fgetpos:
-.globl fgets
-.type fgets, %function;
-fgets:
+.weak fgetpos64
+.type fgetpos64, %function;
+fgetpos64:
 .weak fgets_unlocked
 .type fgets_unlocked, %function;
 fgets_unlocked:
+.globl fgets
+.type fgets, %function;
+fgets:
 .weak getwc_unlocked
 .type getwc_unlocked, %function;
 getwc_unlocked:
-.globl __fgetwc_unlocked
-.type __fgetwc_unlocked, %function;
-__fgetwc_unlocked:
 .weak fgetwc_unlocked
 .type fgetwc_unlocked, %function;
 fgetwc_unlocked:
+.globl __fgetwc_unlocked
+.type __fgetwc_unlocked, %function;
+__fgetwc_unlocked:
 .globl fgetwc
 .type fgetwc, %function;
 fgetwc:
-.globl fgetws
-.type fgetws, %function;
-fgetws:
 .weak fgetws_unlocked
 .type fgetws_unlocked, %function;
 fgetws_unlocked:
+.globl fgetws
+.type fgetws, %function;
+fgetws:
 .weak fileno_unlocked
 .type fileno_unlocked, %function;
 fileno_unlocked:
@@ -3313,12 +3436,12 @@ flockfile:
 .globl fmemopen
 .type fmemopen, %function;
 fmemopen:
-.globl fopen
-.type fopen, %function;
-fopen:
 .weak fopen64
 .type fopen64, %function;
 fopen64:
+.globl fopen
+.type fopen, %function;
+fopen:
 .globl fopencookie
 .type fopencookie, %function;
 fopencookie:
@@ -3337,12 +3460,12 @@ fputs:
 .weak putwc_unlocked
 .type putwc_unlocked, %function;
 putwc_unlocked:
-.globl __fputwc_unlocked
-.type __fputwc_unlocked, %function;
-__fputwc_unlocked:
 .weak fputwc_unlocked
 .type fputwc_unlocked, %function;
 fputwc_unlocked:
+.globl __fputwc_unlocked
+.type __fputwc_unlocked, %function;
+__fputwc_unlocked:
 .globl fputwc
 .type fputwc, %function;
 fputwc:
@@ -3352,12 +3475,12 @@ fputws:
 .weak fputws_unlocked
 .type fputws_unlocked, %function;
 fputws_unlocked:
-.weak fread_unlocked
-.type fread_unlocked, %function;
-fread_unlocked:
 .globl fread
 .type fread, %function;
 fread:
+.weak fread_unlocked
+.type fread_unlocked, %function;
+fread_unlocked:
 .weak freopen64
 .type freopen64, %function;
 freopen64:
@@ -3370,12 +3493,12 @@ __isoc99_fscanf:
 .globl fscanf
 .type fscanf, %function;
 fscanf:
-.weak fseeko64
-.type fseeko64, %function;
-fseeko64:
 .weak fseeko
 .type fseeko, %function;
 fseeko:
+.weak fseeko64
+.type fseeko64, %function;
+fseeko64:
 .globl fseek
 .type fseek, %function;
 fseek:
@@ -3385,12 +3508,12 @@ fsetpos:
 .weak fsetpos64
 .type fsetpos64, %function;
 fsetpos64:
-.weak ftello64
-.type ftello64, %function;
-ftello64:
 .weak ftello
 .type ftello, %function;
 ftello:
+.weak ftello64
+.type ftello64, %function;
+ftello64:
 .globl ftell
 .type ftell, %function;
 ftell:
@@ -3412,24 +3535,24 @@ fwrite_unlocked:
 .globl fwrite
 .type fwrite, %function;
 fwrite:
-.weak __isoc99_fwscanf
-.type __isoc99_fwscanf, %function;
-__isoc99_fwscanf:
 .globl fwscanf
 .type fwscanf, %function;
 fwscanf:
+.weak __isoc99_fwscanf
+.type __isoc99_fwscanf, %function;
+__isoc99_fwscanf:
 .globl getc
 .type getc, %function;
 getc:
 .weak _IO_getc
 .type _IO_getc, %function;
 _IO_getc:
-.globl getc_unlocked
-.type getc_unlocked, %function;
-getc_unlocked:
 .weak _IO_getc_unlocked
 .type _IO_getc_unlocked, %function;
 _IO_getc_unlocked:
+.globl getc_unlocked
+.type getc_unlocked, %function;
+getc_unlocked:
 .weak fgetc_unlocked
 .type fgetc_unlocked, %function;
 fgetc_unlocked:
@@ -3457,12 +3580,12 @@ getw:
 .globl getwc
 .type getwc, %function;
 getwc:
-.weak getwchar_unlocked
-.type getwchar_unlocked, %function;
-getwchar_unlocked:
 .globl getwchar
 .type getwchar, %function;
 getwchar:
+.weak getwchar_unlocked
+.type getwchar_unlocked, %function;
+getwchar_unlocked:
 .globl open_memstream
 .type open_memstream, %function;
 open_memstream:
@@ -3487,12 +3610,12 @@ putc:
 .weak _IO_putc
 .type _IO_putc, %function;
 _IO_putc:
-.globl putc_unlocked
-.type putc_unlocked, %function;
-putc_unlocked:
 .weak _IO_putc_unlocked
 .type _IO_putc_unlocked, %function;
 _IO_putc_unlocked:
+.globl putc_unlocked
+.type putc_unlocked, %function;
+putc_unlocked:
 .weak fputc_unlocked
 .type fputc_unlocked, %function;
 fputc_unlocked:
@@ -3511,12 +3634,12 @@ putw:
 .globl putwc
 .type putwc, %function;
 putwc:
-.weak putwchar_unlocked
-.type putwchar_unlocked, %function;
-putwchar_unlocked:
 .globl putwchar
 .type putwchar, %function;
 putwchar:
+.weak putwchar_unlocked
+.type putwchar_unlocked, %function;
+putwchar_unlocked:
 .globl remove
 .type remove, %function;
 remove:
@@ -3550,21 +3673,21 @@ snprintf:
 .globl sprintf
 .type sprintf, %function;
 sprintf:
-.globl sscanf
-.type sscanf, %function;
-sscanf:
 .weak __isoc99_sscanf
 .type __isoc99_sscanf, %function;
 __isoc99_sscanf:
+.globl sscanf
+.type sscanf, %function;
+sscanf:
 .globl swprintf
 .type swprintf, %function;
 swprintf:
-.weak __isoc99_swscanf
-.type __isoc99_swscanf, %function;
-__isoc99_swscanf:
 .globl swscanf
 .type swscanf, %function;
 swscanf:
+.weak __isoc99_swscanf
+.type __isoc99_swscanf, %function;
+__isoc99_swscanf:
 .globl tempnam
 .type tempnam, %function;
 tempnam:
@@ -3592,42 +3715,42 @@ vdprintf:
 .globl vfprintf
 .type vfprintf, %function;
 vfprintf:
-.globl vfscanf
-.type vfscanf, %function;
-vfscanf:
 .weak __isoc99_vfscanf
 .type __isoc99_vfscanf, %function;
 __isoc99_vfscanf:
+.globl vfscanf
+.type vfscanf, %function;
+vfscanf:
 .globl vfwprintf
 .type vfwprintf, %function;
 vfwprintf:
-.weak __isoc99_vfwscanf
-.type __isoc99_vfwscanf, %function;
-__isoc99_vfwscanf:
 .globl vfwscanf
 .type vfwscanf, %function;
 vfwscanf:
+.weak __isoc99_vfwscanf
+.type __isoc99_vfwscanf, %function;
+__isoc99_vfwscanf:
 .globl vprintf
 .type vprintf, %function;
 vprintf:
-.globl vscanf
-.type vscanf, %function;
-vscanf:
 .weak __isoc99_vscanf
 .type __isoc99_vscanf, %function;
 __isoc99_vscanf:
+.globl vscanf
+.type vscanf, %function;
+vscanf:
 .globl vsnprintf
 .type vsnprintf, %function;
 vsnprintf:
 .globl vsprintf
 .type vsprintf, %function;
 vsprintf:
-.weak __isoc99_vsscanf
-.type __isoc99_vsscanf, %function;
-__isoc99_vsscanf:
 .globl vsscanf
 .type vsscanf, %function;
 vsscanf:
+.weak __isoc99_vsscanf
+.type __isoc99_vsscanf, %function;
+__isoc99_vsscanf:
 .globl vswprintf
 .type vswprintf, %function;
 vswprintf:
@@ -3640,21 +3763,21 @@ vswscanf:
 .globl vwprintf
 .type vwprintf, %function;
 vwprintf:
-.weak __isoc99_vwscanf
-.type __isoc99_vwscanf, %function;
-__isoc99_vwscanf:
 .globl vwscanf
 .type vwscanf, %function;
 vwscanf:
+.weak __isoc99_vwscanf
+.type __isoc99_vwscanf, %function;
+__isoc99_vwscanf:
 .globl wprintf
 .type wprintf, %function;
 wprintf:
-.globl wscanf
-.type wscanf, %function;
-wscanf:
 .weak __isoc99_wscanf
 .type __isoc99_wscanf, %function;
 __isoc99_wscanf:
+.globl wscanf
+.type wscanf, %function;
+wscanf:
 .globl abs
 .type abs, %function;
 abs:
@@ -3715,60 +3838,60 @@ strtof_l:
 .globl strtof
 .type strtof, %function;
 strtof:
-.weak strtod_l
-.type strtod_l, %function;
-strtod_l:
 .globl strtod
 .type strtod, %function;
 strtod:
 .weak __strtod_l
 .type __strtod_l, %function;
 __strtod_l:
-.weak __strtold_l
-.type __strtold_l, %function;
-__strtold_l:
-.globl strtold
-.type strtold, %function;
-strtold:
+.weak strtod_l
+.type strtod_l, %function;
+strtod_l:
 .weak strtold_l
 .type strtold_l, %function;
 strtold_l:
-.weak __strtoull_internal
-.type __strtoull_internal, %function;
-__strtoull_internal:
+.globl strtold
+.type strtold, %function;
+strtold:
+.weak __strtold_l
+.type __strtold_l, %function;
+__strtold_l:
 .globl strtoull
 .type strtoull, %function;
 strtoull:
+.weak __strtoull_internal
+.type __strtoull_internal, %function;
+__strtoull_internal:
 .globl strtoll
 .type strtoll, %function;
 strtoll:
 .weak __strtoll_internal
 .type __strtoll_internal, %function;
 __strtoll_internal:
-.weak __strtoul_internal
-.type __strtoul_internal, %function;
-__strtoul_internal:
 .globl strtoul
 .type strtoul, %function;
 strtoul:
-.globl strtol
-.type strtol, %function;
-strtol:
+.weak __strtoul_internal
+.type __strtoul_internal, %function;
+__strtoul_internal:
 .weak __strtol_internal
 .type __strtol_internal, %function;
 __strtol_internal:
+.globl strtol
+.type strtol, %function;
+strtol:
 .globl strtoimax
 .type strtoimax, %function;
 strtoimax:
 .weak __strtoimax_internal
 .type __strtoimax_internal, %function;
 __strtoimax_internal:
-.weak __strtoumax_internal
-.type __strtoumax_internal, %function;
-__strtoumax_internal:
 .globl strtoumax
 .type strtoumax, %function;
 strtoumax:
+.weak __strtoumax_internal
+.type __strtoumax_internal, %function;
+__strtoumax_internal:
 .globl wcstof
 .type wcstof, %function;
 wcstof:
@@ -3778,18 +3901,18 @@ wcstod:
 .globl wcstold
 .type wcstold, %function;
 wcstold:
-.globl wcstoul
-.type wcstoul, %function;
-wcstoul:
 .globl wcstoull
 .type wcstoull, %function;
 wcstoull:
-.globl wcstol
-.type wcstol, %function;
-wcstol:
 .globl wcstoll
 .type wcstoll, %function;
 wcstoll:
+.globl wcstoul
+.type wcstoul, %function;
+wcstoul:
+.globl wcstol
+.type wcstol, %function;
+wcstol:
 .globl wcstoimax
 .type wcstoimax, %function;
 wcstoimax:
@@ -3820,15 +3943,24 @@ memchr:
 .globl memcmp
 .type memcmp, %function;
 memcmp:
+.globl memcpy
+.type memcpy, %function;
+memcpy:
 .globl memmem
 .type memmem, %function;
 memmem:
+.globl memmove
+.type memmove, %function;
+memmove:
 .globl mempcpy
 .type mempcpy, %function;
 mempcpy:
 .weak memrchr
 .type memrchr, %function;
 memrchr:
+.globl memset
+.type memset, %function;
+memset:
 .globl rindex
 .type rindex, %function;
 rindex:
@@ -4033,12 +4165,12 @@ mkostemp:
 .weak mkostemp64
 .type mkostemp64, %function;
 mkostemp64:
-.weak mkostemps64
-.type mkostemps64, %function;
-mkostemps64:
 .weak mkostemps
 .type mkostemps, %function;
 mkostemps:
+.weak mkostemps64
+.type mkostemps64, %function;
+mkostemps64:
 .globl mkstemp
 .type mkstemp, %function;
 mkstemp:
@@ -4261,7 +4393,7 @@ pthread_cond_init:
 .globl pthread_cond_signal
 .type pthread_cond_signal, %function;
 pthread_cond_signal:
-.weak pthread_cond_timedwait
+WEAK64 pthread_cond_timedwait
 .type pthread_cond_timedwait, %function;
 pthread_cond_timedwait:
 .globl pthread_cond_wait
@@ -4285,18 +4417,18 @@ pthread_exit:
 .weak pthread_create
 .type pthread_create, %function;
 pthread_create:
-.weak thrd_detach
-.type thrd_detach, %function;
-thrd_detach:
 .weak pthread_detach
 .type pthread_detach, %function;
 pthread_detach:
-.weak thrd_equal
-.type thrd_equal, %function;
-thrd_equal:
+.weak thrd_detach
+.type thrd_detach, %function;
+thrd_detach:
 .weak pthread_equal
 .type pthread_equal, %function;
 pthread_equal:
+.weak thrd_equal
+.type thrd_equal, %function;
+thrd_equal:
 .globl pthread_getattr_np
 .type pthread_getattr_np, %function;
 pthread_getattr_np:
@@ -4315,12 +4447,12 @@ tss_get:
 .weak pthread_getspecific
 .type pthread_getspecific, %function;
 pthread_getspecific:
-.weak pthread_timedjoin_np
-.type pthread_timedjoin_np, %function;
-pthread_timedjoin_np:
 .weak pthread_join
 .type pthread_join, %function;
 pthread_join:
+WEAK64 pthread_timedjoin_np
+.type pthread_timedjoin_np, %function;
+pthread_timedjoin_np:
 .weak pthread_tryjoin_np
 .type pthread_tryjoin_np, %function;
 pthread_tryjoin_np:
@@ -4351,7 +4483,7 @@ pthread_mutex_lock:
 .globl pthread_mutex_setprioceiling
 .type pthread_mutex_setprioceiling, %function;
 pthread_mutex_setprioceiling:
-.weak pthread_mutex_timedlock
+WEAK64 pthread_mutex_timedlock
 .type pthread_mutex_timedlock, %function;
 pthread_mutex_timedlock:
 .weak pthread_mutex_trylock
@@ -4390,10 +4522,10 @@ pthread_rwlock_init:
 .weak pthread_rwlock_rdlock
 .type pthread_rwlock_rdlock, %function;
 pthread_rwlock_rdlock:
-.weak pthread_rwlock_timedrdlock
+WEAK64 pthread_rwlock_timedrdlock
 .type pthread_rwlock_timedrdlock, %function;
 pthread_rwlock_timedrdlock:
-.weak pthread_rwlock_timedwrlock
+WEAK64 pthread_rwlock_timedwrlock
 .type pthread_rwlock_timedwrlock, %function;
 pthread_rwlock_timedwrlock:
 .weak pthread_rwlock_tryrdlock
@@ -4417,12 +4549,12 @@ pthread_rwlockattr_init:
 .globl pthread_rwlockattr_setpshared
 .type pthread_rwlockattr_setpshared, %function;
 pthread_rwlockattr_setpshared:
-.weak thrd_current
-.type thrd_current, %function;
-thrd_current:
 .weak pthread_self
 .type pthread_self, %function;
 pthread_self:
+.weak thrd_current
+.type thrd_current, %function;
+thrd_current:
 .globl pthread_setattr_default_np
 .type pthread_setattr_default_np, %function;
 pthread_setattr_default_np:
@@ -4543,10 +4675,10 @@ clock_getcpuclockid:
 .globl clock_getres
 .type clock_getres, %function;
 clock_getres:
-.weak clock_gettime
+WEAK64 clock_gettime
 .type clock_gettime, %function;
 clock_gettime:
-.weak clock_nanosleep
+WEAK64 clock_nanosleep
 .type clock_nanosleep, %function;
 clock_nanosleep:
 .globl clock_settime
@@ -4573,13 +4705,13 @@ gettimeofday:
 .globl gmtime
 .type gmtime, %function;
 gmtime:
-.weak gmtime_r
+WEAK64 gmtime_r
 .type gmtime_r, %function;
 gmtime_r:
 .globl localtime
 .type localtime, %function;
 localtime:
-.weak localtime_r
+WEAK64 localtime_r
 .type localtime_r, %function;
 localtime_r:
 .globl mktime
@@ -4687,12 +4819,12 @@ fdatasync:
 .globl fsync
 .type fsync, %function;
 fsync:
-.globl ftruncate
-.type ftruncate, %function;
-ftruncate:
 .weak ftruncate64
 .type ftruncate64, %function;
 ftruncate64:
+.globl ftruncate
+.type ftruncate, %function;
+ftruncate:
 .globl getcwd
 .type getcwd, %function;
 getcwd:
@@ -4747,12 +4879,12 @@ link:
 .globl linkat
 .type linkat, %function;
 linkat:
-.weak lseek64
-.type lseek64, %function;
-lseek64:
 .weak lseek
 .type lseek, %function;
 lseek:
+.weak lseek64
+.type lseek64, %function;
+lseek64:
 .globl nice
 .type nice, %function;
 nice:
@@ -4768,30 +4900,30 @@ pipe2:
 .globl posix_close
 .type posix_close, %function;
 posix_close:
-.globl pread
-.type pread, %function;
-pread:
 .weak pread64
 .type pread64, %function;
 pread64:
-.weak preadv64
-.type preadv64, %function;
-preadv64:
+.globl pread
+.type pread, %function;
+pread:
 .globl preadv
 .type preadv, %function;
 preadv:
+.weak preadv64
+.type preadv64, %function;
+preadv64:
 .globl pwrite
 .type pwrite, %function;
 pwrite:
 .weak pwrite64
 .type pwrite64, %function;
 pwrite64:
-.globl pwritev
-.type pwritev, %function;
-pwritev:
 .weak pwritev64
 .type pwritev64, %function;
 pwritev64:
+.globl pwritev
+.type pwritev, %function;
+pwritev:
 .globl read
 .type read, %function;
 read:
@@ -4861,12 +4993,12 @@ tcgetpgrp:
 .globl tcsetpgrp
 .type tcsetpgrp, %function;
 tcsetpgrp:
-.globl truncate
-.type truncate, %function;
-truncate:
 .weak truncate64
 .type truncate64, %function;
 truncate64:
+.globl truncate
+.type truncate, %function;
+truncate:
 .globl ttyname
 .type ttyname, %function;
 ttyname:
@@ -4891,6 +5023,9 @@ write:
 .globl writev
 .type writev, %function;
 writev:
+.globl _dlstart
+.type _dlstart, %function;
+_dlstart:
 .weak _dl_debug_state
 .type _dl_debug_state, %function;
 _dl_debug_state:
@@ -4909,110 +5044,77 @@ dladdr:
 .globl dl_iterate_phdr
 .type dl_iterate_phdr, %function;
 dl_iterate_phdr:
-.rodata
-.globl _ns_flagdata
-.type _ns_flagdata, %object;
-.size _ns_flagdata, 128
-_ns_flagdata:
-.globl in6addr_any
-.type in6addr_any, %object;
-.size in6addr_any, 16
-in6addr_any:
-.globl in6addr_loopback
-.type in6addr_loopback, %object;
-.size in6addr_loopback, 16
-in6addr_loopback:
 .data.rel.ro
 .globl stderr
 .type stderr, %object;
-.size stderr, 8
+.size stderr, PTR_SIZE_BYTES
 stderr:
 .globl stdin
 .type stdin, %object;
-.size stdin, 8
+.size stdin, PTR_SIZE_BYTES
 stdin:
 .globl stdout
 .type stdout, %object;
-.size stdout, 8
+.size stdout, PTR_SIZE_BYTES
 stdout:
 .data
-.globl _dl_debug_addr
-.type _dl_debug_addr, %object;
-.size _dl_debug_addr, 8
-_dl_debug_addr:
-.globl opterr
-.type opterr, %object;
-.size opterr, 4
-opterr:
 .globl optind
 .type optind, %object;
 .size optind, 4
 optind:
+.globl opterr
+.type opterr, %object;
+.size opterr, 4
+opterr:
+.globl _dl_debug_addr
+.type _dl_debug_addr, %object;
+.size _dl_debug_addr, PTR_SIZE_BYTES
+_dl_debug_addr:
 .bss
-.weak tzname
-.type tzname, %object;
-.size tzname, 16
-tzname:
-.globl __tzname
-.type __tzname, %object;
-.size __tzname, 16
-__tzname:
-.weak daylight
-.type daylight, %object;
-.size daylight, 4
-daylight:
-.globl __daylight
-.type __daylight, %object;
-.size __daylight, 4
-__daylight:
-.weak timezone
-.type timezone, %object;
-.size timezone, 8
-timezone:
-.globl __timezone
-.type __timezone, %object;
-.size __timezone, 8
-__timezone:
-.globl __environ
-.type __environ, %object;
-.size __environ, 8
-__environ:
 .weak ___environ
 .type ___environ, %object;
-.size ___environ, 8
+.size ___environ, PTR_SIZE_BYTES
 ___environ:
 .weak _environ
 .type _environ, %object;
-.size _environ, 8
+.size _environ, PTR_SIZE_BYTES
 _environ:
+.globl __environ
+.type __environ, %object;
+.size __environ, PTR_SIZE_BYTES
+__environ:
 .weak environ
 .type environ, %object;
-.size environ, 8
+.size environ, PTR_SIZE_BYTES
 environ:
-.weak program_invocation_name
-.type program_invocation_name, %object;
-.size program_invocation_name, 8
-program_invocation_name:
-.globl __progname_full
-.type __progname_full, %object;
-.size __progname_full, 8
-__progname_full:
+.globl __stack_chk_guard
+.type __stack_chk_guard, %object;
+.size __stack_chk_guard, PTR_SIZE_BYTES
+__stack_chk_guard:
 .weak program_invocation_short_name
 .type program_invocation_short_name, %object;
-.size program_invocation_short_name, 8
+.size program_invocation_short_name, PTR_SIZE_BYTES
 program_invocation_short_name:
 .globl __progname
 .type __progname, %object;
-.size __progname, 8
+.size __progname, PTR_SIZE_BYTES
 __progname:
-.weak signgam
-.type signgam, %object;
-.size signgam, 4
-signgam:
+.weak program_invocation_name
+.type program_invocation_name, %object;
+.size program_invocation_name, PTR_SIZE_BYTES
+program_invocation_name:
+.globl __progname_full
+.type __progname_full, %object;
+.size __progname_full, PTR_SIZE_BYTES
+__progname_full:
 .globl __signgam
 .type __signgam, %object;
 .size __signgam, 4
 __signgam:
+.weak signgam
+.type signgam, %object;
+.size signgam, 4
+signgam:
 .globl __optreset
 .type __optreset, %object;
 .size __optreset, 4
@@ -5021,18 +5123,14 @@ __optreset:
 .type optreset, %object;
 .size optreset, 4
 optreset:
-.globl __stack_chk_guard
-.type __stack_chk_guard, %object;
-.size __stack_chk_guard, 8
-__stack_chk_guard:
-.globl optarg
-.type optarg, %object;
-.size optarg, 8
-optarg:
 .globl __optpos
 .type __optpos, %object;
 .size __optpos, 4
 __optpos:
+.globl optarg
+.type optarg, %object;
+.size optarg, PTR_SIZE_BYTES
+optarg:
 .globl optopt
 .type optopt, %object;
 .size optopt, 4
@@ -5041,7 +5139,267 @@ optopt:
 .type h_errno, %object;
 .size h_errno, 4
 h_errno:
+.globl __timezone
+.type __timezone, %object;
+.size __timezone, PTR_SIZE_BYTES
+__timezone:
+.weak timezone
+.type timezone, %object;
+.size timezone, PTR_SIZE_BYTES
+timezone:
+.globl __daylight
+.type __daylight, %object;
+.size __daylight, 4
+__daylight:
+.weak daylight
+.type daylight, %object;
+.size daylight, 4
+daylight:
+.globl __tzname
+.type __tzname, %object;
+.size __tzname, PTR2_SIZE_BYTES
+__tzname:
+.weak tzname
+.type tzname, %object;
+.size tzname, PTR2_SIZE_BYTES
+tzname:
 .globl getdate_err
 .type getdate_err, %object;
 .size getdate_err, 4
 getdate_err:
+.text
+#ifdef PTR32
+.globl __aio_suspend_time64
+.type __aio_suspend_time64, %function;
+__aio_suspend_time64:
+.globl __semtimedop_time64
+.type __semtimedop_time64, %function;
+__semtimedop_time64:
+.globl __dlsym_time64
+.type __dlsym_time64, %function;
+__dlsym_time64:
+.globl __futimes_time64
+.type __futimes_time64, %function;
+__futimes_time64:
+.globl __lutimes_time64
+.type __lutimes_time64, %function;
+__lutimes_time64:
+.globl __adjtime64
+.type __adjtime64, %function;
+__adjtime64:
+.globl __adjtimex_time64
+.type __adjtimex_time64, %function;
+__adjtimex_time64:
+#endif
+#if !defined(ARCH_riscv64) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+.globl _flush_cache
+.type _flush_cache, %function;
+_flush_cache:
+#endif
+#if !defined(ARCH_riscv64) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+.weak cacheflush
+.type cacheflush, %function;
+cacheflush:
+#endif
+#if !defined(ARCH_riscv64) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+.globl __cachectl
+.type __cachectl, %function;
+__cachectl:
+#endif
+#if !defined(ARCH_riscv64) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+.weak cachectl
+.type cachectl, %function;
+cachectl:
+#endif
+#ifdef PTR32
+.globl __clock_adjtime64
+.type __clock_adjtime64, %function;
+__clock_adjtime64:
+#endif
+#if !defined(ARCH_riscv64) && !defined(ARCH_aarch64)
+.globl ioperm
+.type ioperm, %function;
+ioperm:
+#endif
+#if !defined(ARCH_riscv64) && !defined(ARCH_aarch64)
+.globl iopl
+.type iopl, %function;
+iopl:
+#endif
+#ifdef PTR32
+.globl __ppoll_time64
+.type __ppoll_time64, %function;
+__ppoll_time64:
+.globl __settimeofday_time64
+.type __settimeofday_time64, %function;
+__settimeofday_time64:
+.globl __stime64
+.type __stime64, %function;
+__stime64:
+.globl __timerfd_settime64
+.type __timerfd_settime64, %function;
+__timerfd_settime64:
+.globl __timerfd_gettime64
+.type __timerfd_gettime64, %function;
+__timerfd_gettime64:
+.globl __utimes_time64
+.type __utimes_time64, %function;
+__utimes_time64:
+.globl __wait3_time64
+.type __wait3_time64, %function;
+__wait3_time64:
+.globl __wait4_time64
+.type __wait4_time64, %function;
+__wait4_time64:
+.globl __getrusage_time64
+.type __getrusage_time64, %function;
+__getrusage_time64:
+.globl __mq_timedreceive_time64
+.type __mq_timedreceive_time64, %function;
+__mq_timedreceive_time64:
+.globl __mq_timedsend_time64
+.type __mq_timedsend_time64, %function;
+__mq_timedsend_time64:
+.globl __recvmmsg_time64
+.type __recvmmsg_time64, %function;
+__recvmmsg_time64:
+.globl __sched_rr_get_interval_time64
+.type __sched_rr_get_interval_time64, %function;
+__sched_rr_get_interval_time64:
+.globl __pselect_time64
+.type __pselect_time64, %function;
+__pselect_time64:
+.globl __select_time64
+.type __select_time64, %function;
+__select_time64:
+.globl __getitimer_time64
+.type __getitimer_time64, %function;
+__getitimer_time64:
+.globl __setitimer_time64
+.type __setitimer_time64, %function;
+__setitimer_time64:
+.globl __sigtimedwait_time64
+.type __sigtimedwait_time64, %function;
+__sigtimedwait_time64:
+.globl __fstat_time64
+.type __fstat_time64, %function;
+__fstat_time64:
+.globl __fstatat_time64
+.type __fstatat_time64, %function;
+__fstatat_time64:
+.globl __futimens_time64
+.type __futimens_time64, %function;
+__futimens_time64:
+.weak __futimesat_time64
+.type __futimesat_time64, %function;
+__futimesat_time64:
+.globl __lstat_time64
+.type __lstat_time64, %function;
+__lstat_time64:
+.globl __stat_time64
+.type __stat_time64, %function;
+__stat_time64:
+.globl __utimensat_time64
+.type __utimensat_time64, %function;
+__utimensat_time64:
+.globl __cnd_timedwait_time64
+.type __cnd_timedwait_time64, %function;
+__cnd_timedwait_time64:
+.globl __mtx_timedlock_time64
+.type __mtx_timedlock_time64, %function;
+__mtx_timedlock_time64:
+.weak __pthread_cond_timedwait_time64
+.type __pthread_cond_timedwait_time64, %function;
+__pthread_cond_timedwait_time64:
+.weak __pthread_timedjoin_np_time64
+.type __pthread_timedjoin_np_time64, %function;
+__pthread_timedjoin_np_time64:
+.weak __pthread_mutex_timedlock_time64
+.type __pthread_mutex_timedlock_time64, %function;
+__pthread_mutex_timedlock_time64:
+.weak __pthread_rwlock_timedrdlock_time64
+.type __pthread_rwlock_timedrdlock_time64, %function;
+__pthread_rwlock_timedrdlock_time64:
+.weak __pthread_rwlock_timedwrlock_time64
+.type __pthread_rwlock_timedwrlock_time64, %function;
+__pthread_rwlock_timedwrlock_time64:
+.globl __sem_timedwait_time64
+.type __sem_timedwait_time64, %function;
+__sem_timedwait_time64:
+.globl __thrd_sleep_time64
+.type __thrd_sleep_time64, %function;
+__thrd_sleep_time64:
+.globl __clock_getres_time64
+.type __clock_getres_time64, %function;
+__clock_getres_time64:
+.weak __clock_gettime64
+.type __clock_gettime64, %function;
+__clock_gettime64:
+.weak __clock_nanosleep_time64
+.type __clock_nanosleep_time64, %function;
+__clock_nanosleep_time64:
+.globl __clock_settime64
+.type __clock_settime64, %function;
+__clock_settime64:
+.globl __ctime64
+.type __ctime64, %function;
+__ctime64:
+.globl __ctime64_r
+.type __ctime64_r, %function;
+__ctime64_r:
+.globl __difftime64
+.type __difftime64, %function;
+__difftime64:
+.globl __ftime64
+.type __ftime64, %function;
+__ftime64:
+.globl __gettimeofday_time64
+.type __gettimeofday_time64, %function;
+__gettimeofday_time64:
+.globl __gmtime64
+.type __gmtime64, %function;
+__gmtime64:
+.weak __gmtime64_r
+.type __gmtime64_r, %function;
+__gmtime64_r:
+.globl __localtime64
+.type __localtime64, %function;
+__localtime64:
+.weak __localtime64_r
+.type __localtime64_r, %function;
+__localtime64_r:
+.globl __mktime64
+.type __mktime64, %function;
+__mktime64:
+.globl __nanosleep_time64
+.type __nanosleep_time64, %function;
+__nanosleep_time64:
+.globl __time64
+.type __time64, %function;
+__time64:
+.globl __timegm_time64
+.type __timegm_time64, %function;
+__timegm_time64:
+.globl __timer_gettime64
+.type __timer_gettime64, %function;
+__timer_gettime64:
+.globl __timer_settime64
+.type __timer_settime64, %function;
+__timer_settime64:
+.globl __timespec_get_time64
+.type __timespec_get_time64, %function;
+__timespec_get_time64:
+.globl __utime64
+.type __utime64, %function;
+__utime64:
+#endif
+#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+.globl arch_prctl
+.type arch_prctl, %function;
+arch_prctl:
+#endif
+#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+.globl ___tls_get_addr
+.type ___tls_get_addr, %function;
+___tls_get_addr:
+#endif
