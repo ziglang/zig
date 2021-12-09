@@ -1,15 +1,25 @@
 //! Example usage:
-//! ./gen_stubs /path/to/musl/build-all
+//! ./gen_stubs /path/to/musl/build-all >libc.S
 //!
 //! The directory 'build-all' is expected to contain these subdirectories:
 //! arm  i386  mips  mips64  powerpc  powerpc64  riscv64  x86_64
 //!
 //! ...each with 'lib/libc.so' inside of them.
+//!
+//! When building the resulting libc.S file, these defines are required:
+//! * `-DPTR64`: when the architecture is 64-bit
+//! * One of the following, corresponding to the CPU architecture:
+//!   - `-DARCH_riscv64`
+//!   - `-DARCH_mips`
+//!   - `-DARCH_i386`
+//!   - `-DARCH_x86_64`
+//!   - `-DARCH_powerpc`
+//!   - `-DARCH_powerpc64`
+//!   - `-DARCH_aarch64`
 
 // TODO: pick the best index to put them into instead of at the end
 //       - e.g. find a common previous symbol and put it after that one
 //       - they definitely need to go into the correct section
-// TODO: emit MultiSyms to use the preprocessor
 
 const std = @import("std");
 const builtin = std.builtin;
@@ -18,9 +28,9 @@ const log = std.log;
 const elf = std.elf;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
-const arches: [6]std.Target.Cpu.Arch = blk: {
-    var result: [6]std.Target.Cpu.Arch = undefined;
-    for (.{ .riscv64, .mips, .i386, .x86_64, .powerpc, .powerpc64 }) |arch| {
+const arches: [7]std.Target.Cpu.Arch = blk: {
+    var result: [7]std.Target.Cpu.Arch = undefined;
+    for (.{ .riscv64, .mips, .i386, .x86_64, .powerpc, .powerpc64, .aarch64 }) |arch| {
         result[archIndex(arch)] = arch;
     }
     break :blk result;
@@ -29,16 +39,129 @@ const arches: [6]std.Target.Cpu.Arch = blk: {
 const MultiSym = struct {
     size: [arches.len]u64,
     present: [arches.len]bool,
+    binding: [arches.len]u4,
     section: u16,
     ty: u4,
-    binding: u4,
     visib: elf.STV,
+
+    fn allPresent(ms: MultiSym) bool {
+        for (arches) |_, i| {
+            if (!ms.present[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    fn is32Only(ms: MultiSym) bool {
+        return ms.present[archIndex(.riscv64)] == false and
+            ms.present[archIndex(.mips)] == true and
+            ms.present[archIndex(.i386)] == true and
+            ms.present[archIndex(.x86_64)] == false and
+            ms.present[archIndex(.powerpc)] == true and
+            ms.present[archIndex(.powerpc64)] == false and
+            ms.present[archIndex(.aarch64)] == false;
+    }
+
+    fn commonSize(ms: MultiSym) ?u64 {
+        var size: ?u64 = null;
+        for (arches) |_, i| {
+            if (!ms.present[i]) continue;
+            if (size) |s| {
+                if (ms.size[i] != s) {
+                    return null;
+                }
+            } else {
+                size = ms.size[i];
+            }
+        }
+        return size.?;
+    }
+
+    fn commonBinding(ms: MultiSym) ?u4 {
+        var binding: ?u4 = null;
+        for (arches) |_, i| {
+            if (!ms.present[i]) continue;
+            if (binding) |b| {
+                if (ms.binding[i] != b) {
+                    return null;
+                }
+            } else {
+                binding = ms.binding[i];
+            }
+        }
+        return binding.?;
+    }
+
+    fn isPtrSize(ms: MultiSym) bool {
+        const map = .{
+            .{ .riscv64, 8 },
+            .{ .mips, 4 },
+            .{ .i386, 4 },
+            .{ .x86_64, 8 },
+            .{ .powerpc, 4 },
+            .{ .powerpc64, 8 },
+            .{ .aarch64, 8 },
+        };
+        inline for (map) |item| {
+            const arch = item[0];
+            const size = item[1];
+            const arch_index = archIndex(arch);
+            if (ms.present[arch_index] and ms.size[arch_index] != size) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    fn isPtr2Size(ms: MultiSym) bool {
+        const map = .{
+            .{ .riscv64, 16 },
+            .{ .mips, 8 },
+            .{ .i386, 8 },
+            .{ .x86_64, 16 },
+            .{ .powerpc, 8 },
+            .{ .powerpc64, 16 },
+            .{ .aarch64, 16 },
+        };
+        inline for (map) |item| {
+            const arch = item[0];
+            const size = item[1];
+            const arch_index = archIndex(arch);
+            if (ms.present[arch_index] and ms.size[arch_index] != size) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    fn isWeak64(ms: MultiSym) bool {
+        const map = .{
+            .{ .riscv64, 2 },
+            .{ .mips, 1 },
+            .{ .i386, 1 },
+            .{ .x86_64, 2 },
+            .{ .powerpc, 1 },
+            .{ .powerpc64, 2 },
+            .{ .aarch64, 2 },
+        };
+        inline for (map) |item| {
+            const arch = item[0];
+            const binding = item[1];
+            const arch_index = archIndex(arch);
+            if (ms.present[arch_index] and ms.binding[arch_index] != binding) {
+                return false;
+            }
+        }
+        return true;
+    }
 };
 
 const Parse = struct {
     arena: mem.Allocator,
     sym_table: *std.StringArrayHashMap(MultiSym),
     sections: *std.StringArrayHashMap(void),
+    blacklist: std.StringArrayHashMap(void),
     elf_bytes: []align(@alignOf(elf.Elf64_Ehdr)) u8,
     header: elf.Header,
     arch: std.Target.Cpu.Arch,
@@ -54,6 +177,15 @@ pub fn main() !void {
 
     var build_all_dir = try std.fs.cwd().openDir(build_all_path, .{});
 
+    var sym_table = std.StringArrayHashMap(MultiSym).init(arena);
+    var sections = std.StringArrayHashMap(void).init(arena);
+    var blacklist = std.StringArrayHashMap(void).init(arena);
+
+    try blacklist.ensureUnusedCapacity(blacklisted_symbols.len);
+    for (blacklisted_symbols) |name| {
+        blacklist.putAssumeCapacityNoClobber(name, {});
+    }
+
     for (arches) |arch| {
         const libc_so_path = try std.fmt.allocPrint(arena, "{s}/lib/libc.so", .{@tagName(arch)});
 
@@ -68,13 +200,11 @@ pub fn main() !void {
         );
         const header = try elf.Header.parse(elf_bytes[0..@sizeOf(elf.Elf64_Ehdr)]);
 
-        var sym_table = std.StringArrayHashMap(MultiSym).init(arena);
-        var sections = std.StringArrayHashMap(void).init(arena);
-
         const parse: Parse = .{
             .arena = arena,
             .sym_table = &sym_table,
             .sections = &sections,
+            .blacklist = blacklist,
             .elf_bytes = elf_bytes,
             .header = header,
             .arch = arch,
@@ -93,50 +223,132 @@ pub fn main() !void {
     }
 
     const stdout = std.io.getStdOut().writer();
-    _ = stdout;
+    try stdout.writeAll(
+        \\#ifdef PTR64
+        \\#define WEAK64 .weak
+        \\#define PTR_SIZE_BYTES 8
+        \\#define PTR2_SIZE_BYTES 16
+        \\#else
+        \\#define WEAK64 .globl
+        \\#define PTR_SIZE_BYTES 4
+        \\#define PTR2_SIZE_BYTES 8
+        \\#endif
+        \\
+    );
 
-    //var prev_section: u16 = 0;
-    //for (all_syms) |sym| {
-    //    const this_section = s(sym.st_shndx);
-    //    if (this_section != prev_section) {
-    //        prev_section = this_section;
-    //        const sh_name = mem.sliceTo(shstrtab[s(shdrs[this_section].sh_name)..], 0);
-    //        try stdout.print("{s}\n", .{sh_name});
-    //    }
+    var prev_section: u16 = std.math.maxInt(u16);
+    var prev_pp_state: enum { none, ptr32, special } = .none;
+    for (sym_table.values()) |multi_sym, sym_index| {
+        const name = sym_table.keys()[sym_index];
 
-    //    switch (binding) {
-    //        elf.STB_GLOBAL => {
-    //            try stdout.print(".globl {s}\n", .{name});
-    //        },
-    //        elf.STB_WEAK => {
-    //            try stdout.print(".weak {s}\n", .{name});
-    //        },
-    //        else => unreachable,
-    //    }
+        if (multi_sym.section != prev_section) {
+            prev_section = multi_sym.section;
+            const sh_name = sections.keys()[multi_sym.section];
+            try stdout.print("{s}\n", .{sh_name});
+        }
 
-    //    switch (ty) {
-    //        elf.STT_NOTYPE => {},
-    //        elf.STT_FUNC => {
-    //            try stdout.print(".type {s}, %function;\n", .{name});
-    //            // omitting the size is OK for functions
-    //        },
-    //        elf.STT_OBJECT => {
-    //            try stdout.print(".type {s}, %object;\n", .{name});
-    //            if (size != 0) {
-    //                try stdout.print(".size {s}, {d}\n", .{ name, size });
-    //            }
-    //        },
-    //        else => unreachable,
-    //    }
+        if (multi_sym.allPresent()) {
+            switch (prev_pp_state) {
+                .none => {},
+                .ptr32, .special => {
+                    try stdout.writeAll("#endif\n");
+                    prev_pp_state = .none;
+                },
+            }
+        } else if (multi_sym.is32Only()) {
+            switch (prev_pp_state) {
+                .none => {
+                    try stdout.writeAll("#ifdef PTR32\n");
+                    prev_pp_state = .ptr32;
+                },
+                .special => {
+                    try stdout.writeAll("#endif\n#ifdef PTR32\n");
+                    prev_pp_state = .ptr32;
+                },
+                .ptr32 => {},
+            }
+        } else {
+            switch (prev_pp_state) {
+                .none => {},
+                .special, .ptr32 => {
+                    try stdout.writeAll("#endif\n");
+                },
+            }
+            prev_pp_state = .special;
 
-    //    switch (visib) {
-    //        .DEFAULT => {},
-    //        .PROTECTED => try stdout.print(".protected {s}\n", .{name}),
-    //        .INTERNAL, .HIDDEN => unreachable,
-    //    }
+            var first = true;
+            try stdout.writeAll("#if ");
 
-    //    try stdout.print("{s}:\n", .{name});
-    //}
+            for (arches) |arch, i| {
+                if (multi_sym.present[i]) continue;
+
+                if (!first) try stdout.writeAll(" && ");
+                first = false;
+                try stdout.print("!defined(ARCH_{s})", .{@tagName(arch)});
+            }
+
+            try stdout.writeAll("\n");
+        }
+
+        if (multi_sym.commonBinding()) |binding| {
+            switch (binding) {
+                elf.STB_GLOBAL => {
+                    try stdout.print(".globl {s}\n", .{name});
+                },
+                elf.STB_WEAK => {
+                    try stdout.print(".weak {s}\n", .{name});
+                },
+                else => unreachable,
+            }
+        } else if (multi_sym.isWeak64()) {
+            try stdout.print("WEAK64 {s}\n", .{name});
+        } else {
+            for (arches) |arch, i| {
+                log.info("symbol '{s}' binding on {s}: {d}", .{
+                    name, @tagName(arch), multi_sym.binding[i],
+                });
+            }
+        }
+
+        switch (multi_sym.ty) {
+            elf.STT_NOTYPE => {},
+            elf.STT_FUNC => {
+                try stdout.print(".type {s}, %function;\n", .{name});
+                // omitting the size is OK for functions
+            },
+            elf.STT_OBJECT => {
+                try stdout.print(".type {s}, %object;\n", .{name});
+                if (multi_sym.commonSize()) |size| {
+                    try stdout.print(".size {s}, {d}\n", .{ name, size });
+                } else if (multi_sym.isPtrSize()) {
+                    try stdout.print(".size {s}, PTR_SIZE_BYTES\n", .{name});
+                } else if (multi_sym.isPtr2Size()) {
+                    try stdout.print(".size {s}, PTR2_SIZE_BYTES\n", .{name});
+                } else {
+                    for (arches) |arch, i| {
+                        log.info("symbol '{s}' size on {s}: {d}", .{
+                            name, @tagName(arch), multi_sym.size[i],
+                        });
+                    }
+                    //try stdout.print(".size {s}, {d}\n", .{ name, size });
+                }
+            },
+            else => unreachable,
+        }
+
+        switch (multi_sym.visib) {
+            .DEFAULT => {},
+            .PROTECTED => try stdout.print(".protected {s}\n", .{name}),
+            .INTERNAL, .HIDDEN => unreachable,
+        }
+
+        try stdout.print("{s}:\n", .{name});
+    }
+
+    switch (prev_pp_state) {
+        .none => {},
+        .ptr32, .special => try stdout.writeAll("#endif\n"),
+    }
 }
 
 fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian) !void {
@@ -205,9 +417,10 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
         const visib = @intToEnum(elf.STV, @truncate(u2, sym.st_other));
         const size = s(sym.st_size);
 
+        if (parse.blacklist.contains(name)) continue;
+
         if (size == 0) {
             log.warn("{s}: symbol '{s}' has size 0", .{ @tagName(parse.arch), name });
-            continue;
         }
 
         switch (binding) {
@@ -245,26 +458,50 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
             if (gop.value_ptr.section != section_index_map[this_section]) {
                 const sh_name = mem.sliceTo(shstrtab[s(shdrs[this_section].sh_name)..], 0);
                 fatal("symbol '{s}' in arch {s} is in section {s} but in arch {s} is in section {s}", .{
-                    name,                               @tagName(parse.arch),                         sh_name,
-                    archSetName(gop.value_ptr.present), parse.sections.keys()[gop.value_ptr.section],
+                    name,
+                    @tagName(parse.arch),
+                    sh_name,
+                    archSetName(gop.value_ptr.present),
+                    parse.sections.keys()[gop.value_ptr.section],
                 });
             }
-            if (gop.value_ptr.ty != ty) {
+            if (gop.value_ptr.ty != ty) blk: {
+                if (ty == elf.STT_NOTYPE) {
+                    log.warn("symbol '{s}' in arch {s} has type {d} but in arch {s} has type {d}. going with the one that is not STT_NOTYPE", .{
+                        name,
+                        @tagName(parse.arch),
+                        ty,
+                        archSetName(gop.value_ptr.present),
+                        gop.value_ptr.ty,
+                    });
+                    break :blk;
+                }
+                if (gop.value_ptr.ty == elf.STT_NOTYPE) {
+                    log.warn("symbol '{s}' in arch {s} has type {d} but in arch {s} has type {d}. going with the one that is not STT_NOTYPE", .{
+                        name,
+                        @tagName(parse.arch),
+                        ty,
+                        archSetName(gop.value_ptr.present),
+                        gop.value_ptr.ty,
+                    });
+                    gop.value_ptr.ty = ty;
+                    break :blk;
+                }
                 fatal("symbol '{s}' in arch {s} has type {d} but in arch {s} has type {d}", .{
-                    name,                               @tagName(parse.arch), ty,
-                    archSetName(gop.value_ptr.present), gop.value_ptr.ty,
-                });
-            }
-            if (gop.value_ptr.binding != binding) {
-                fatal("symbol '{s}' in arch {s} has binding {d} but in arch {s} has binding {d}", .{
-                    name,                               @tagName(parse.arch),  binding,
-                    archSetName(gop.value_ptr.present), gop.value_ptr.binding,
+                    name,
+                    @tagName(parse.arch),
+                    ty,
+                    archSetName(gop.value_ptr.present),
+                    gop.value_ptr.ty,
                 });
             }
             if (gop.value_ptr.visib != visib) {
                 fatal("symbol '{s}' in arch {s} has visib {s} but in arch {s} has visib {s}", .{
-                    name,                               @tagName(parse.arch),          @tagName(visib),
-                    archSetName(gop.value_ptr.present), @tagName(gop.value_ptr.visib),
+                    name,
+                    @tagName(parse.arch),
+                    @tagName(visib),
+                    archSetName(gop.value_ptr.present),
+                    @tagName(gop.value_ptr.visib),
                 });
             }
         } else {
@@ -272,13 +509,14 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
                 .present = [1]bool{false} ** arches.len,
                 .section = section_index_map[this_section],
                 .ty = ty,
-                .binding = binding,
+                .binding = [1]u4{0} ** arches.len,
                 .visib = visib,
                 .size = [1]u64{0} ** arches.len,
             };
         }
         gop.value_ptr.present[archIndex(parse.arch)] = true;
         gop.value_ptr.size[archIndex(parse.arch)] = size;
+        gop.value_ptr.binding[archIndex(parse.arch)] = binding;
     }
 }
 
@@ -291,6 +529,7 @@ fn archIndex(arch: std.Target.Cpu.Arch) u8 {
         .x86_64    => 3,
         .powerpc   => 4,
         .powerpc64 => 5,
+        .aarch64   => 6,
         else       => unreachable,
         // zig fmt: on
     };
@@ -309,3 +548,211 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
     log.err(format, args);
     std.process.exit(1);
 }
+
+const blacklisted_symbols = [_][]const u8{
+    "__adddf3",
+    "__addkf3",
+    "__addsf3",
+    "__addtf3",
+    "__ashldi3",
+    "__ashlti3",
+    "__ashrdi3",
+    "__ashrti3",
+    "__atomic_compare_exchange",
+    "__atomic_compare_exchange_1",
+    "__atomic_compare_exchange_2",
+    "__atomic_compare_exchange_4",
+    "__atomic_compare_exchange_8",
+    "__atomic_exchange",
+    "__atomic_exchange_1",
+    "__atomic_exchange_2",
+    "__atomic_exchange_4",
+    "__atomic_exchange_8",
+    "__atomic_fetch_add_1",
+    "__atomic_fetch_add_2",
+    "__atomic_fetch_add_4",
+    "__atomic_fetch_add_8",
+    "__atomic_fetch_and_1",
+    "__atomic_fetch_and_2",
+    "__atomic_fetch_and_4",
+    "__atomic_fetch_and_8",
+    "__atomic_fetch_nand_1",
+    "__atomic_fetch_nand_2",
+    "__atomic_fetch_nand_4",
+    "__atomic_fetch_nand_8",
+    "__atomic_fetch_or_1",
+    "__atomic_fetch_or_2",
+    "__atomic_fetch_or_4",
+    "__atomic_fetch_or_8",
+    "__atomic_fetch_sub_1",
+    "__atomic_fetch_sub_2",
+    "__atomic_fetch_sub_4",
+    "__atomic_fetch_sub_8",
+    "__atomic_fetch_xor_1",
+    "__atomic_fetch_xor_2",
+    "__atomic_fetch_xor_4",
+    "__atomic_fetch_xor_8",
+    "__atomic_load",
+    "__atomic_load_1",
+    "__atomic_load_2",
+    "__atomic_load_4",
+    "__atomic_load_8",
+    "__atomic_store",
+    "__atomic_store_1",
+    "__atomic_store_2",
+    "__atomic_store_4",
+    "__atomic_store_8",
+    "__clear_cache",
+    "__clzdi2",
+    "__clzsi2",
+    "__clzti2",
+    "__cmpdf2",
+    "__cmpsf2",
+    "__cmptf2",
+    "__ctzdi2",
+    "__ctzsi2",
+    "__ctzti2",
+    "__divdf3",
+    "__divdi3",
+    "__divkf3",
+    "__divmoddi4",
+    "__divmodsi4",
+    "__divsf3",
+    "__divsi3",
+    "__divtf3",
+    "__divti3",
+    "__dlstart",
+    "__eqdf2",
+    "__eqkf2",
+    "__eqsf2",
+    "__eqtf2",
+    "__extenddfkf2",
+    "__extenddftf2",
+    "__extendhfsf2",
+    "__extendhftf2",
+    "__extendsfdf2",
+    "__extendsfkf2",
+    "__extendsftf2",
+    "__ffsdi2",
+    "__ffssi2",
+    "__ffsti2",
+    "__fixdfdi",
+    "__fixdfsi",
+    "__fixdfti",
+    "__fixkfdi",
+    "__fixkfsi",
+    "__fixsfdi",
+    "__fixsfsi",
+    "__fixsfti",
+    "__fixtfdi",
+    "__fixtfsi",
+    "__fixtfti",
+    "__fixunsdfdi",
+    "__fixunsdfsi",
+    "__fixunsdfti",
+    "__fixunskfdi",
+    "__fixunskfsi",
+    "__fixunssfdi",
+    "__fixunssfsi",
+    "__fixunssfti",
+    "__fixunstfdi",
+    "__fixunstfsi",
+    "__fixunstfti",
+    "__floatdidf",
+    "__floatdikf",
+    "__floatdisf",
+    "__floatditf",
+    "__floatsidf",
+    "__floatsikf",
+    "__floatsisf",
+    "__floatsitf",
+    "__floattidf",
+    "__floattisf",
+    "__floattitf",
+    "__floatundidf",
+    "__floatundikf",
+    "__floatundisf",
+    "__floatunditf",
+    "__floatunsidf",
+    "__floatunsikf",
+    "__floatunsisf",
+    "__floatunsitf",
+    "__floatuntidf",
+    "__floatuntisf",
+    "__floatuntitf",
+    "__gedf2",
+    "__gekf2",
+    "__gesf2",
+    "__getf2",
+    "__gnu_f2h_ieee",
+    "__gnu_h2f_ieee",
+    "__gtdf2",
+    "__gtkf2",
+    "__gtsf2",
+    "__gttf2",
+    "__ledf2",
+    "__lekf2",
+    "__lesf2",
+    "__letf2",
+    "__lshrdi3",
+    "__lshrti3",
+    "__ltdf2",
+    "__ltkf2",
+    "__ltsf2",
+    "__lttf2",
+    "__moddi3",
+    "__modsi3",
+    "__modti3",
+    "__muldc3",
+    "__muldf3",
+    "__muldi3",
+    "__mulkf3",
+    "__mulodi4",
+    "__muloti4",
+    "__mulsc3",
+    "__mulsf3",
+    "__mulsi3",
+    "__multc3",
+    "__multf3",
+    "__multi3",
+    "__mulxc3",
+    "__nedf2",
+    "__negdf2",
+    "__negsf2",
+    "__nekf2",
+    "__nesf2",
+    "__netf2",
+    "__paritydi2",
+    "__paritysi2",
+    "__parityti2",
+    "__popcountdi2",
+    "__popcountsi2",
+    "__popcountti2",
+    "__subdf3",
+    "__subkf3",
+    "__subsf3",
+    "__subtf3",
+    "__truncdfhf2",
+    "__truncdfsf2",
+    "__trunckfdf2",
+    "__trunckfsf2",
+    "__truncsfhf2",
+    "__trunctfdf2",
+    "__trunctfhf2",
+    "__trunctfsf2",
+    "__udivdi3",
+    "__udivmoddi4",
+    "__udivmodsi4",
+    "__udivmodti4",
+    "__udivsi3",
+    "__udivti3",
+    "__umoddi3",
+    "__umodsi3",
+    "__umodti3",
+    "__unorddf2",
+    "__unordkf2",
+    "__unordsf2",
+    "__unordtf2",
+    "__zig_probe_stack",
+    "fmaq",
+};
