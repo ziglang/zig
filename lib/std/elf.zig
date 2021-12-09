@@ -1688,3 +1688,10 @@ pub const R_X86_64_GOTPCRELX = 41;
 /// Load from 32 bit signed PC relative offset to GOT entry with REX prefix, relaxable
 pub const R_X86_64_REX_GOTPCRELX = 42;
 pub const R_X86_64_NUM = 43;
+
+pub const STV = enum(u2) {
+    DEFAULT = 0,
+    INTERNAL = 1,
+    HIDDEN = 2,
+    PROTECTED = 3,
+};
