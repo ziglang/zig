@@ -10121,6 +10121,30 @@ static Stage1AirInst *ir_analyze_bit_shift(IrAnalyze *ira, Stage1ZirInstBinOp *b
         if (op2_val == nullptr)
             return ira->codegen->invalid_inst_gen;
 
+        if (op2_val->type->id == ZigTypeIdVector) {
+            expand_undef_array(ira->codegen, op2_val);
+            size_t len = op2_val->type->data.vector.len;
+            for (size_t i = 0; i < len; i += 1) {
+                ZigValue *scalar_val = &op2_val->data.x_array.data.s_none.elements[i];
+                if (scalar_val->data.x_bigint.is_negative) {
+                    Buf *val_buf = buf_alloc();
+                    bigint_append_buf(val_buf, &scalar_val->data.x_bigint, 10);
+                    ir_add_error(ira, casted_op2,
+                        buf_sprintf("shift by negative value %s at vector index %zu",
+                            buf_ptr(val_buf), i));
+                    return ira->codegen->invalid_inst_gen;
+                }
+            }
+        } else {
+            if (op2_val->data.x_bigint.is_negative) {
+                Buf *val_buf = buf_alloc();
+                bigint_append_buf(val_buf, &op2_val->data.x_bigint, 10);
+                ir_add_error(ira, casted_op2,
+                    buf_sprintf("shift by negative value %s", buf_ptr(val_buf)));
+                return ira->codegen->invalid_inst_gen;
+            }
+        }
+
         if (value_cmp_numeric_val_all(op2_val, CmpEQ, nullptr))
             return ir_analyze_cast(ira, bin_op_instruction->base.scope, bin_op_instruction->base.source_node, op1->value->type, op1);
     }
@@ -10514,14 +10538,6 @@ static Stage1AirInst *ir_analyze_bin_op_math(IrAnalyze *ira, Stage1ZirInstBinOp 
                             buf_ptr(&op2->value->type->name)));
                     return ira->codegen->invalid_inst_gen;
                 }
-            }
-        } else if (op_id == IrBinOpShlSat) {
-            if (op2_val->data.x_bigint.is_negative) {
-                Buf *val_buf = buf_alloc();
-                bigint_append_buf(val_buf, &op2_val->data.x_bigint, 10);
-                ir_add_error(ira, casted_op2,
-                    buf_sprintf("shift by negative value %s", buf_ptr(val_buf)));
-                return ira->codegen->invalid_inst_gen;
             }
         }
 
