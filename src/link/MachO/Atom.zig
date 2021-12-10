@@ -4,7 +4,6 @@ const std = @import("std");
 const build_options = @import("build_options");
 const aarch64 = @import("../../arch/aarch64/bits.zig");
 const assert = std.debug.assert;
-const commands = @import("commands.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
@@ -342,7 +341,7 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
             if (rel.r_extern == 0) {
                 const sect_id = @intCast(u16, rel.r_symbolnum - 1);
                 const local_sym_index = context.object.sections_as_symbols.get(sect_id) orelse blk: {
-                    const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+                    const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].segment;
                     const sect = seg.sections.items[sect_id];
                     const match = (try context.macho_file.getMatchingSection(sect)) orelse
                         unreachable;
@@ -398,7 +397,7 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                         else
                             mem.readIntLittle(i32, self.code.items[offset..][0..4]);
                         if (rel.r_extern == 0) {
-                            const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+                            const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].segment;
                             const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
                             addend -= @intCast(i64, target_sect_base_addr);
                         }
@@ -425,7 +424,7 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                         else
                             mem.readIntLittle(i32, self.code.items[offset..][0..4]);
                         if (rel.r_extern == 0) {
-                            const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+                            const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].segment;
                             const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
                             addend -= @intCast(i64, target_sect_base_addr);
                         }
@@ -447,7 +446,7 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                         if (rel.r_extern == 0) {
                             // Note for the future self: when r_extern == 0, we should subtract correction from the
                             // addend.
-                            const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].Segment;
+                            const seg = context.object.load_commands.items[context.object.segment_cmd_index.?].segment;
                             const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
                             addend += @intCast(i64, context.base_addr + offset + 4) -
                                 @intCast(i64, target_sect_base_addr);
@@ -490,9 +489,9 @@ fn addPtrBindingOrRebase(
         .local => {
             const source_sym = context.macho_file.locals.items[self.local_sym_index];
             const match = context.macho_file.section_ordinals.keys()[source_sym.n_sect - 1];
-            const seg = context.macho_file.load_commands.items[match.seg].Segment;
+            const seg = context.macho_file.load_commands.items[match.seg].segment;
             const sect = seg.sections.items[match.sect];
-            const sect_type = commands.sectionType(sect);
+            const sect_type = sect.type_();
 
             const should_rebase = rebase: {
                 if (rel.r_length != 3) break :rebase false;
@@ -705,9 +704,9 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                     const is_tlv = is_tlv: {
                         const source_sym = macho_file.locals.items[self.local_sym_index];
                         const match = macho_file.section_ordinals.keys()[source_sym.n_sect - 1];
-                        const seg = macho_file.load_commands.items[match.seg].Segment;
+                        const seg = macho_file.load_commands.items[match.seg].segment;
                         const sect = seg.sections.items[match.sect];
-                        break :is_tlv commands.sectionType(sect) == macho.S_THREAD_LOCAL_VARIABLES;
+                        break :is_tlv sect.type_() == macho.S_THREAD_LOCAL_VARIABLES;
                     };
                     if (is_tlv) {
                         // For TLV relocations, the value specified as a relocation is the displacement from the
@@ -715,7 +714,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                         // defined TLV template init section in the following order:
                         // * wrt to __thread_data if defined, then
                         // * wrt to __thread_bss
-                        const seg = macho_file.load_commands.items[macho_file.data_segment_cmd_index.?].Segment;
+                        const seg = macho_file.load_commands.items[macho_file.data_segment_cmd_index.?].segment;
                         const base_address = inner: {
                             if (macho_file.tlv_data_section_index) |i| {
                                 break :inner seg.sections.items[i].addr;

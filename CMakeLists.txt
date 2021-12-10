@@ -590,7 +590,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Object.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Trie.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/bind.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/MachO/commands.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Plan9.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Plan9/aout.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Wasm.zig"
