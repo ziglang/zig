@@ -1,6 +1,7 @@
 gpa: Allocator,
 manifest_dir: fs.Dir,
 hash: HashHelper = .{},
+recent_problematic_timestamp: i128 = 0,
 
 const Cache = @This();
 const std = @import("std");
@@ -16,7 +17,7 @@ const Compilation = @import("Compilation.zig");
 const log = std.log.scoped(.cache);
 
 /// Be sure to call `Manifest.deinit` after successful initialization.
-pub fn obtain(cache: *const Cache) Manifest {
+pub fn obtain(cache: *Cache) Manifest {
     return Manifest{
         .cache = cache,
         .hash = cache.hash,
@@ -170,7 +171,7 @@ pub const Lock = struct {
 /// This is not a general-purpose cache.
 /// It is designed to be fast and simple, not to withstand attacks using specially-crafted input.
 pub const Manifest = struct {
-    cache: *const Cache,
+    cache: *Cache,
     /// Current state for incremental hashing.
     hash: HashHelper,
     manifest_file: ?fs.File,
@@ -186,9 +187,6 @@ pub const Manifest = struct {
     /// Populated when hit() returns an error because of one
     /// of the files listed in the manifest.
     failed_file_index: ?usize = null,
-
-    /// most recent problematic timestamp
-    recent_problematic_timestamp: i128 = 0,
 
     /// Add a file as a dependency of process being cached. When `hit` is
     /// called, the file's contents will be checked to ensure that it matches
@@ -417,7 +415,7 @@ pub const Manifest = struct {
 
                 cache_hash_file.stat = actual_stat;
 
-                if (try self.isProblematicTimestamp(cache_hash_file.stat.mtime)) {
+                if (self.cache.isProblematicTimestamp(cache_hash_file.stat.mtime)) {
                     // The actual file has an unreliable timestamp, force it to be hashed
                     cache_hash_file.stat.mtime = 0;
                     cache_hash_file.stat.inode = 0;
@@ -489,7 +487,7 @@ pub const Manifest = struct {
 
         ch_file.stat = try file.stat();
 
-        if (try self.isProblematicTimestamp(ch_file.stat.mtime)) {
+        if (self.cache.isProblematicTimestamp(ch_file.stat.mtime)) {
             // The actual file has an unreliable timestamp, force it to be hashed
             ch_file.stat.mtime = 0;
             ch_file.stat.inode = 0;
@@ -684,26 +682,6 @@ pub const Manifest = struct {
         self.have_exclusive_lock = true;
     }
 
-    // Create/Write a file, close it, then grab its stat.mtime timestamp.
-    fn isProblematicTimestamp(self: *Manifest, file_time: i128) !bool {
-
-        // PERF: Check if the file_time is prior to the most recent problematic timestamp
-        // and break out early if so (avoids an I/O to update the recent_problematic_timestamp)
-        if (file_time < self.recent_problematic_timestamp)
-            return false;
-
-        var timestamp_file = try self.cache.manifest_dir.createFile("filetimestamp.tmp", .{
-            .read = true,
-            .truncate = false,
-        });
-        defer timestamp_file.close();
-        try timestamp_file.setEndPos(0);
-
-        self.recent_problematic_timestamp = (try timestamp_file.stat()).mtime;
-
-        return (file_time >= self.recent_problematic_timestamp);
-    }
-
     /// Obtain only the data needed to maintain a lock on the manifest file.
     /// The `Manifest` remains safe to deinit.
     /// Don't forget to call `writeManifest` before this!
@@ -766,16 +744,34 @@ fn hashFile(file: fs.File, bin_digest: *[Hasher.mac_length]u8) !void {
     hasher.final(bin_digest);
 }
 
+/// Create/Write a file, grab its stat.mtime timestamp, then close it.
+/// If any filesystem errors occur, this function returns `true`.
+fn isProblematicTimestamp(cache: *Cache, file_time: i128) bool {
+    // If the file_time is prior to the most recent problematic timestamp
+    // then we don't need to access the filesystem.
+    if (file_time < cache.recent_problematic_timestamp)
+        return false;
+
+    var file = cache.manifest_dir.createFile("timestamp", .{
+        .read = true,
+        .truncate = true,
+    }) catch return true;
+    defer file.close();
+
+    cache.recent_problematic_timestamp = (file.stat() catch return true).mtime;
+
+    return file_time >= cache.recent_problematic_timestamp;
+}
+
 // Create/Write a file, close it, then grab its stat.mtime timestamp.
 fn testGetCurrentFileTimestamp() !i128 {
-    var timestamp_file = try fs.cwd().createFile("zig-cache/filetimestamp.tmp", .{
+    var file = try fs.cwd().createFile("test-filetimestamp.tmp", .{
         .read = true,
-        .truncate = false,
+        .truncate = true,
     });
-    defer timestamp_file.close();
-    try timestamp_file.setEndPos(0);
+    defer file.close();
 
-    return (try timestamp_file.stat()).mtime;
+    return (try file.stat()).mtime;
 }
 
 test "cache file and then recall it" {
