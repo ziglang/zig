@@ -8674,6 +8674,50 @@ test "@wasmMemoryGrow" {
       {#see_also|@ctz|@clz#}
       {#header_close#}
 
+      {#header_open|@prefetch#}
+      <pre>{#syntax#}@prefetch(ptr: anytype, comptime options: std.builtin.PrefetchOptions){#endsyntax#}</pre>
+      <p>
+      This builtin tells the compiler to emit a prefetch instruction if supported by the
+      target CPU. If the target CPU does not support the requested prefetch instruction,
+      this builtin is a noop. This function has no effect on the behavior of the program,
+      only on the performance characteristics.
+      </p>
+      <p>
+      The {#syntax#}ptr{#endsyntax#} argument may be any pointer type and determines the memory
+      address to prefetch. This function does not dereference the pointer, it is perfectly legal
+      to pass a pointer to invalid memory to this function and no illegal behavior will result.
+      </p>
+      <p>
+      The {#syntax#}options{#endsyntax#} argument is the following struct:
+      </p>
+      {#code_begin|syntax|builtin#}
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const PrefetchOptions = struct {
+    /// Whether the prefetch should prepare for a read or a write.
+    rw: Rw = .read,
+    /// 0 means no temporal locality. That is, the data can be immediately
+    /// dropped from the cache after it is accessed.
+    ///
+    /// 3 means high temporal locality. That is, the data should be kept in
+    /// the cache as it is likely to be accessed again soon.
+    locality: u2 = 3,
+    /// The cache that the prefetch should be preformed on.
+    cache: Cache = .data,
+
+    pub const Rw = enum {
+        read,
+        write,
+    };
+
+    pub const Cache = enum {
+        instruction,
+        data,
+    };
+};
+      {#code_end#}
+      {#header_close#}
+
       {#header_open|@ptrCast#}
       <pre>{#syntax#}@ptrCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
       <p>
