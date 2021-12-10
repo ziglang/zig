@@ -1703,6 +1703,16 @@ fn buildOutputType(
                     }
                     emit_implib = .{ .yes = linker_args.items[i] };
                     emit_implib_arg_provided = true;
+                } else if (mem.eql(u8, arg, "-undefined")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    if (mem.eql(u8, "dynamic_lookup", linker_args.items[i])) {
+                        linker_allow_shlib_undefined = true;
+                    } else {
+                        fatal("unsupported -undefined option '{s}'", .{linker_args.items[i]});
+                    }
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
