@@ -1,8 +1,9 @@
 gpa: Allocator,
 manifest_dir: fs.Dir,
 hash: HashHelper = .{},
+/// This value is accessed from multiple threads, protected by mutex.
 recent_problematic_timestamp: i128 = 0,
-want_refresh_timestamp: bool = true,
+mutex: std.Thread.Mutex = .{},
 
 const Cache = @This();
 const std = @import("std");
@@ -183,11 +184,18 @@ pub const Manifest = struct {
     /// the same cache directory at the same time.
     want_shared_lock: bool = true,
     have_exclusive_lock: bool = false,
+    // Indicate that we want isProblematicTimestamp to perform a filesystem write in
+    // order to obtain a problematic timestamp for the next call. Calls after that
+    // will then use the same timestamp, to avoid unnecessary filesystem writes.
+    want_refresh_timestamp: bool = true,
     files: std.ArrayListUnmanaged(File) = .{},
     hex_digest: [hex_digest_len]u8,
     /// Populated when hit() returns an error because of one
     /// of the files listed in the manifest.
     failed_file_index: ?usize = null,
+    /// Keeps track of the last time we performed a file system write to observe
+    /// what time the file system thinks it is, according to its own granularity.
+    recent_problematic_timestamp: i128 = 0,
 
     /// Add a file as a dependency of process being cached. When `hit` is
     /// called, the file's contents will be checked to ensure that it matches
@@ -347,11 +355,7 @@ pub const Manifest = struct {
             }
         }
 
-        // Indicate that we want isProblematicTimestamp to perform a filesystem write in
-        // order to obtain a problematic timestamp for the next call. Calls after that
-        // in this same hit() function call will then use the same timestamp, to avoid
-        // writing multiple times to the filesystem.
-        @atomicStore(bool, &self.cache.want_refresh_timestamp, true, .Monotonic);
+        self.want_refresh_timestamp = true;
 
         const file_contents = try self.manifest_file.?.reader().readAllAlloc(self.cache.gpa, manifest_file_size_max);
         defer self.cache.gpa.free(file_contents);
@@ -422,7 +426,7 @@ pub const Manifest = struct {
 
                 cache_hash_file.stat = actual_stat;
 
-                if (self.cache.isProblematicTimestamp(cache_hash_file.stat.mtime)) {
+                if (self.isProblematicTimestamp(cache_hash_file.stat.mtime)) {
                     // The actual file has an unreliable timestamp, force it to be hashed
                     cache_hash_file.stat.mtime = 0;
                     cache_hash_file.stat.inode = 0;
@@ -487,6 +491,40 @@ pub const Manifest = struct {
         }
     }
 
+    fn isProblematicTimestamp(man: *Manifest, file_time: i128) bool {
+        // If the file_time is prior to the most recent problematic timestamp
+        // then we don't need to access the filesystem.
+        if (file_time < man.recent_problematic_timestamp)
+            return false;
+
+        // Next we will check the globally shared Cache timestamp, which is accessed
+        // from multiple threads.
+        man.cache.mutex.lock();
+        defer man.cache.mutex.unlock();
+
+        // Save the global one to our local one to avoid locking next time.
+        man.recent_problematic_timestamp = man.cache.recent_problematic_timestamp;
+        if (file_time < man.recent_problematic_timestamp)
+            return false;
+
+        // This flag prevents multiple filesystem writes for the same hit() call.
+        if (man.want_refresh_timestamp) {
+            man.want_refresh_timestamp = false;
+
+            var file = man.cache.manifest_dir.createFile("timestamp", .{
+                .read = true,
+                .truncate = true,
+            }) catch return true;
+            defer file.close();
+
+            // Save locally and also save globally (we still hold the global lock).
+            man.recent_problematic_timestamp = (file.stat() catch return true).mtime;
+            man.cache.recent_problematic_timestamp = man.recent_problematic_timestamp;
+        }
+
+        return file_time >= man.recent_problematic_timestamp;
+    }
+
     fn populateFileHash(self: *Manifest, ch_file: *File) !void {
         log.debug("populateFileHash {s}", .{ch_file.path.?});
         const file = try fs.cwd().openFile(ch_file.path.?, .{});
@@ -494,7 +532,7 @@ pub const Manifest = struct {
 
         ch_file.stat = try file.stat();
 
-        if (self.cache.isProblematicTimestamp(ch_file.stat.mtime)) {
+        if (self.isProblematicTimestamp(ch_file.stat.mtime)) {
             // The actual file has an unreliable timestamp, force it to be hashed
             ch_file.stat.mtime = 0;
             ch_file.stat.inode = 0;
@@ -749,36 +787,6 @@ fn hashFile(file: fs.File, bin_digest: *[Hasher.mac_length]u8) !void {
     }
 
     hasher.final(bin_digest);
-}
-
-/// Create/Write a file, grab its stat.mtime timestamp, then close it.
-/// If any filesystem errors occur, this function returns `true`.
-fn isProblematicTimestamp(cache: *Cache, file_time: i128) bool {
-    // If the file_time is prior to the most recent problematic timestamp
-    // then we don't need to access the filesystem.
-    var ts = @atomicLoad(i128, &cache.recent_problematic_timestamp, .Monotonic);
-    if (file_time < ts)
-        return false;
-
-    if (@atomicRmw(bool, &cache.want_refresh_timestamp, .Xchg, false, .Monotonic)) {
-        var file = cache.manifest_dir.createFile("timestamp", .{
-            .read = true,
-            .truncate = true,
-        }) catch return true;
-        defer file.close();
-
-        const new_ts = (file.stat() catch return true).mtime;
-        ts = if (@cmpxchgWeak(
-            i128,
-            &cache.recent_problematic_timestamp,
-            ts,
-            new_ts,
-            .Monotonic,
-            .Monotonic,
-        )) |race_ts| race_ts else new_ts;
-    }
-
-    return file_time >= ts;
 }
 
 // Create/Write a file, close it, then grab its stat.mtime timestamp.
