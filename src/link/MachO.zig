@@ -444,6 +444,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const stack_size = self.base.options.stack_size_override orelse 0;
+    const allow_undef = is_dyn_lib and (self.base.options.allow_shlib_undefined orelse false);
 
     const id_symlink_basename = "zld.id";
 
@@ -847,6 +848,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                     try argv.append(try std.fmt.allocPrint(arena, "-F{s}", .{framework_dir}));
                 }
 
+                if (allow_undef) {
+                    try argv.append("-undefined");
+                    try argv.append("dynamic_lookup");
+                }
+
                 Compilation.dump_argv(argv.items);
             }
 
@@ -897,6 +903,16 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                         .n_desc = 0,
                         .n_value = 0,
                     };
+                    _ = self.unresolved.swapRemove(resolv.where_index);
+                    continue;
+                } else if (allow_undef) {
+                    const n_desc = @bitCast(
+                        u16,
+                        macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP * @intCast(i16, macho.N_SYMBOL_RESOLVER),
+                    );
+                    // TODO allow_shlib_undefined is an ELF flag so figure out macOS specific flags too.
+                    sym.n_type = macho.N_EXT;
+                    sym.n_desc = n_desc;
                     _ = self.unresolved.swapRemove(resolv.where_index);
                     continue;
                 }
@@ -5111,7 +5127,7 @@ fn writeDyldInfoData(self: *MachO) !void {
                             try bind_pointers.append(.{
                                 .offset = binding.offset + base_offset,
                                 .segment_id = match.seg,
-                                .dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER),
+                                .dylib_ordinal = @divExact(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER),
                                 .name = self.getString(bind_sym.n_strx),
                             });
                         },
@@ -5133,7 +5149,7 @@ fn writeDyldInfoData(self: *MachO) !void {
                             try lazy_bind_pointers.append(.{
                                 .offset = binding.offset + base_offset,
                                 .segment_id = match.seg,
-                                .dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER),
+                                .dylib_ordinal = @divExact(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER),
                                 .name = self.getString(bind_sym.n_strx),
                             });
                         },
