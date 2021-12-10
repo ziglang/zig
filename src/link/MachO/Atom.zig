@@ -4,7 +4,6 @@ const std = @import("std");
 const build_options = @import("build_options");
 const aarch64 = @import("../../arch/aarch64/bits.zig");
 const assert = std.debug.assert;
-const commands = @import("commands.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
@@ -492,7 +491,7 @@ fn addPtrBindingOrRebase(
             const match = context.macho_file.section_ordinals.keys()[source_sym.n_sect - 1];
             const seg = context.macho_file.load_commands.items[match.seg].Segment;
             const sect = seg.sections.items[match.sect];
-            const sect_type = commands.sectionType(sect);
+            const sect_type = sect.type_();
 
             const should_rebase = rebase: {
                 if (rel.r_length != 3) break :rebase false;
@@ -707,7 +706,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                         const match = macho_file.section_ordinals.keys()[source_sym.n_sect - 1];
                         const seg = macho_file.load_commands.items[match.seg].Segment;
                         const sect = seg.sections.items[match.sect];
-                        break :is_tlv commands.sectionType(sect) == macho.S_THREAD_LOCAL_VARIABLES;
+                        break :is_tlv sect.type_() == macho.S_THREAD_LOCAL_VARIABLES;
                     };
                     if (is_tlv) {
                         // For TLV relocations, the value specified as a relocation is the displacement from the

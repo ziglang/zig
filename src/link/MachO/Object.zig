@@ -11,14 +11,11 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const sort = std.sort;
-const commands = @import("commands.zig");
-const segmentName = commands.segmentName;
-const sectionName = commands.sectionName;
 const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
-const LoadCommand = commands.LoadCommand;
+const LoadCommand = @import("commands.zig").LoadCommand;
 const MachO = @import("../MachO.zig");
 
 file: fs.File,
@@ -278,8 +275,8 @@ pub fn readLoadCommands(self: *Object, allocator: Allocator, reader: anytype) !v
                 var seg = cmd.Segment;
                 for (seg.sections.items) |*sect, j| {
                     const index = @intCast(u16, j);
-                    const segname = segmentName(sect.*);
-                    const sectname = sectionName(sect.*);
+                    const segname = sect.segName();
+                    const sectname = sect.sectName();
                     if (mem.eql(u8, segname, "__DWARF")) {
                         if (mem.eql(u8, sectname, "__debug_info")) {
                             self.dwarf_debug_info_index = index;
@@ -424,10 +421,7 @@ pub fn parseIntoAtoms(self: *Object, allocator: Allocator, macho_file: *MachO) !
 
     for (seg.sections.items) |sect, id| {
         const sect_id = @intCast(u8, id);
-        log.debug("putting section '{s},{s}' as an Atom", .{
-            segmentName(sect),
-            sectionName(sect),
-        });
+        log.debug("putting section '{s},{s}' as an Atom", .{ sect.segName(), sect.sectName() });
 
         // Get matching segment/section in the final artifact.
         const match = (try macho_file.getMatchingSection(sect)) orelse {
@@ -479,7 +473,7 @@ pub fn parseIntoAtoms(self: *Object, allocator: Allocator, macho_file: *MachO) !
         const atom = try macho_file.createEmptyAtom(atom_local_sym_index, aligned_size, sect.@"align");
 
         const is_zerofill = blk: {
-            const section_type = commands.sectionType(sect);
+            const section_type = sect.type_();
             break :blk section_type == macho.S_ZEROFILL or section_type == macho.S_THREAD_LOCAL_ZEROFILL;
         };
         if (!is_zerofill) {

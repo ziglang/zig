@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const mach_header = extern struct {
     magic: u32,
     cputype: cpu_type_t,
@@ -9,14 +11,14 @@ pub const mach_header = extern struct {
 };
 
 pub const mach_header_64 = extern struct {
-    magic: u32,
-    cputype: cpu_type_t,
-    cpusubtype: cpu_subtype_t,
-    filetype: u32,
-    ncmds: u32,
-    sizeofcmds: u32,
-    flags: u32,
-    reserved: u32,
+    magic: u32 = MH_MAGIC_64,
+    cputype: cpu_type_t = 0,
+    cpusubtype: cpu_subtype_t = 0,
+    filetype: u32 = 0,
+    ncmds: u32 = 0,
+    sizeofcmds: u32 = 0,
+    flags: u32 = 0,
+    reserved: u32 = 0,
 };
 
 pub const fat_header = extern struct {
@@ -630,6 +632,10 @@ pub const segment_command_64 = extern struct {
     /// number of sections in segment
     nsects: u32 = 0,
     flags: u32 = 0,
+
+    pub fn segName(seg: segment_command_64) []const u8 {
+        return parseName(&seg.segname);
+    }
 };
 
 /// A segment is made up of zero or more sections.  Non-MH_OBJECT files have
@@ -728,7 +734,45 @@ pub const section_64 = extern struct {
 
     /// reserved
     reserved3: u32 = 0,
+
+    pub fn sectName(sect: section_64) []const u8 {
+        return parseName(&sect.sectname);
+    }
+
+    pub fn segName(sect: section_64) []const u8 {
+        return parseName(&sect.segname);
+    }
+
+    pub fn type_(sect: section_64) u8 {
+        return @truncate(u8, sect.flags & 0xff);
+    }
+
+    pub fn attrs(sect: section_64) u32 {
+        return sect.flags & 0xffffff00;
+    }
+
+    pub fn isCode(sect: section_64) bool {
+        const attr = sect.attrs();
+        return attr & S_ATTR_PURE_INSTRUCTIONS != 0 or attr & S_ATTR_SOME_INSTRUCTIONS != 0;
+    }
+
+    pub fn isDebug(sect: section_64) bool {
+        return sect.attrs() & S_ATTR_DEBUG != 0;
+    }
+
+    pub fn isDontDeadStrip(sect: section_64) bool {
+        return sect.attrs() & S_ATTR_NO_DEAD_STRIP != 0;
+    }
+
+    pub fn isDontDeadStripIfReferencesLive(sect: section_64) bool {
+        return sect.attrs() & S_ATTR_LIVE_SUPPORT != 0;
+    }
 };
+
+fn parseName(name: *const [16]u8) []const u8 {
+    const len = std.mem.indexOfScalar(u8, name, @as(u8, 0)) orelse name.len;
+    return name[0..len];
+}
 
 pub const nlist = extern struct {
     n_strx: u32,

@@ -1324,10 +1324,10 @@ pub const MatchingSection = struct {
 };
 
 pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSection {
-    const segname = commands.segmentName(sect);
-    const sectname = commands.sectionName(sect);
+    const segname = sect.segName();
+    const sectname = sect.sectName();
     const res: ?MatchingSection = blk: {
-        switch (commands.sectionType(sect)) {
+        switch (sect.type_()) {
             macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
                 if (self.text_const_section_index == null) {
                     self.text_const_section_index = try self.initSection(
@@ -1579,7 +1579,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                 };
             },
             macho.S_REGULAR => {
-                if (commands.sectionIsCode(sect)) {
+                if (sect.isCode()) {
                     if (self.text_section_index == null) {
                         self.text_section_index = try self.initSection(
                             self.text_segment_cmd_index.?,
@@ -1599,7 +1599,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         .sect = self.text_section_index.?,
                     };
                 }
-                if (commands.sectionIsDebug(sect)) {
+                if (sect.isDebug()) {
                     // TODO debug attributes
                     if (mem.eql(u8, "__LD", segname) and mem.eql(u8, "__compact_unwind", sectname)) {
                         log.debug("TODO compact unwind section: type 0x{x}, name '{s},{s}'", .{
@@ -1889,10 +1889,7 @@ fn allocateLocals(self: *MachO) !void {
         const sect = seg.sections.items[match.sect];
         var base_vaddr = sect.addr;
 
-        log.debug("allocating local symbols in {s},{s}", .{
-            commands.segmentName(sect),
-            commands.sectionName(sect),
-        });
+        log.debug("allocating local symbols in {s},{s}", .{ sect.segName(), sect.sectName() });
 
         while (true) {
             const alignment = try math.powi(u32, 2, atom.alignment);
@@ -1987,7 +1984,7 @@ fn writeAllAtoms(self: *MachO) !void {
         defer buffer.deinit();
         try buffer.ensureTotalCapacity(try math.cast(usize, sect.size));
 
-        log.debug("writing atoms in {s},{s}", .{ commands.segmentName(sect), commands.sectionName(sect) });
+        log.debug("writing atoms in {s},{s}", .{ sect.segName(), sect.sectName() });
 
         while (atom.prev) |prev| {
             atom = prev;
@@ -2035,7 +2032,7 @@ fn writeAtoms(self: *MachO) !void {
         const sect = seg.sections.items[match.sect];
         var atom: *Atom = entry.value_ptr.*;
 
-        log.debug("writing atoms in {s},{s}", .{ commands.segmentName(sect), commands.sectionName(sect) });
+        log.debug("writing atoms in {s},{s}", .{ sect.segName(), sect.sectName() });
 
         while (atom.prev) |prev| {
             atom = prev;
@@ -3005,7 +3002,7 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
                 };
             }
 
-            log.debug("{s},{s}", .{ commands.segmentName(sect), commands.sectionName(sect) });
+            log.debug("{s},{s}", .{ sect.segName(), sect.sectName() });
 
             while (true) {
                 const alignment = try math.powi(u32, 2, atom.alignment);
@@ -3049,8 +3046,8 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
         const seg = &self.load_commands.items[match.seg].Segment;
         const sect = &seg.sections.items[match.sect];
         log.debug("{s},{s} => size: 0x{x}, alignment: 0x{x}", .{
-            commands.segmentName(sect.*),
-            commands.sectionName(sect.*),
+            sect.segName(),
+            sect.sectName(),
             metadata.size,
             metadata.alignment,
         });
@@ -4507,8 +4504,8 @@ fn initSection(
         const padding: ?u64 = if (segment_id == self.text_segment_cmd_index.?) self.header_pad else null;
         const off = self.findFreeSpace(segment_id, alignment_pow_2, padding);
         log.debug("allocating {s},{s} section from 0x{x} to 0x{x}", .{
-            commands.segmentName(sect),
-            commands.sectionName(sect),
+            sect.segName(),
+            sect.sectName(),
             off,
             off + size,
         });
@@ -4596,8 +4593,8 @@ fn growSegment(self: *MachO, seg_id: u16, new_size: u64) !void {
             moved_sect.addr += offset_amt;
 
             log.debug("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
-                commands.segmentName(moved_sect.*),
-                commands.sectionName(moved_sect.*),
+                moved_sect.segName(),
+                moved_sect.sectName(),
                 moved_sect.offset,
                 moved_sect.offset + moved_sect.size,
                 moved_sect.addr,
@@ -4670,8 +4667,8 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
             moved_sect.addr += offset_amt;
 
             log.debug("  (new {s},{s} file offsets from 0x{x} to 0x{x} (in memory 0x{x} to 0x{x}))", .{
-                commands.segmentName(moved_sect.*),
-                commands.sectionName(moved_sect.*),
+                moved_sect.segName(),
+                moved_sect.sectName(),
                 moved_sect.offset,
                 moved_sect.offset + moved_sect.size,
                 moved_sect.addr,
@@ -5784,9 +5781,8 @@ fn writeLoadCommands(self: *MachO) !void {
 
 /// Writes Mach-O file header.
 fn writeHeader(self: *MachO) !void {
-    var header = commands.emptyHeader(.{
-        .flags = macho.MH_NOUNDEFS | macho.MH_DYLDLINK | macho.MH_PIE | macho.MH_TWOLEVEL,
-    });
+    var header: macho.mach_header_64 = .{};
+    header.flags = macho.MH_NOUNDEFS | macho.MH_DYLDLINK | macho.MH_PIE | macho.MH_TWOLEVEL;
 
     switch (self.base.options.target.cpu.arch) {
         .aarch64 => {
@@ -5961,10 +5957,7 @@ fn snapshotState(self: *MachO) !void {
     for (self.section_ordinals.keys()) |key| {
         const seg = self.load_commands.items[key.seg].Segment;
         const sect = seg.sections.items[key.sect];
-        const sect_name = try std.fmt.allocPrint(arena, "{s},{s}", .{
-            commands.segmentName(sect),
-            commands.sectionName(sect),
-        });
+        const sect_name = try std.fmt.allocPrint(arena, "{s},{s}", .{ sect.segName(), sect.sectName() });
         try nodes.append(.{
             .address = sect.addr,
             .tag = .section_start,
@@ -6037,7 +6030,7 @@ fn snapshotState(self: *MachO) !void {
                                 const match = self.section_ordinals.keys()[source_sym.n_sect - 1];
                                 const match_seg = self.load_commands.items[match.seg].Segment;
                                 const match_sect = match_seg.sections.items[match.sect];
-                                break :is_tlv commands.sectionType(match_sect) == macho.S_THREAD_LOCAL_VARIABLES;
+                                break :is_tlv match_sect.type_() == macho.S_THREAD_LOCAL_VARIABLES;
                             };
                             if (is_tlv) {
                                 const match_seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
@@ -6206,8 +6199,8 @@ fn logSectionOrdinals(self: MachO) void {
             i + 1,
             match.seg,
             match.sect,
-            commands.segmentName(sect),
-            commands.sectionName(sect),
+            sect.segName(),
+            sect.sectName(),
         });
     }
 }

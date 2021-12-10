@@ -241,8 +241,8 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
     assert(off + size <= seg.inner.fileoff + seg.inner.filesize); // TODO expand
 
     log.debug("found {s},{s} section free space 0x{x} to 0x{x}", .{
-        commands.segmentName(sect),
-        commands.sectionName(sect),
+        sect.segName(),
+        sect.sectName(),
         off,
         off + size,
     });
@@ -670,9 +670,8 @@ fn writeLoadCommands(self: *DebugSymbols, allocator: Allocator) !void {
 }
 
 fn writeHeader(self: *DebugSymbols) !void {
-    var header = commands.emptyHeader(.{
-        .filetype = macho.MH_DSYM,
-    });
+    var header: macho.mach_header_64 = .{};
+    header.filetype = macho.MH_DSYM;
 
     switch (self.base.base.options.target.cpu.arch) {
         .aarch64 => {
