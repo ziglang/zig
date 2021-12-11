@@ -140,5 +140,5 @@ pub const Ip6IcmpType = extern struct {
 pub const Ip6CompletionToken = extern struct {
     event: Event,
     status: Status,
-    packet: *c_void, // union TODO
+    packet: *anyopaque, // union TODO
 };

@@ -29,13 +29,13 @@ pub extern "NtDll" fn RtlGetVersion(
 pub extern "NtDll" fn RtlCaptureStackBackTrace(
     FramesToSkip: DWORD,
     FramesToCapture: DWORD,
-    BackTrace: **c_void,
+    BackTrace: **anyopaque,
     BackTraceHash: ?*DWORD,
 ) callconv(WINAPI) WORD;
 pub extern "NtDll" fn NtQueryInformationFile(
     FileHandle: HANDLE,
     IoStatusBlock: *IO_STATUS_BLOCK,
-    FileInformation: *c_void,
+    FileInformation: *anyopaque,
     Length: ULONG,
     FileInformationClass: FILE_INFORMATION_CLASS,
 ) callconv(WINAPI) NTSTATUS;
@@ -62,17 +62,17 @@ pub extern "NtDll" fn NtCreateFile(
     ShareAccess: ULONG,
     CreateDisposition: ULONG,
     CreateOptions: ULONG,
-    EaBuffer: ?*c_void,
+    EaBuffer: ?*anyopaque,
     EaLength: ULONG,
 ) callconv(WINAPI) NTSTATUS;
 pub extern "NtDll" fn NtDeviceIoControlFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
     ApcRoutine: ?IO_APC_ROUTINE,
-    ApcContext: ?*c_void,
+    ApcContext: ?*anyopaque,
     IoStatusBlock: *IO_STATUS_BLOCK,
     IoControlCode: ULONG,
-    InputBuffer: ?*const c_void,
+    InputBuffer: ?*const anyopaque,
     InputBufferLength: ULONG,
     OutputBuffer: ?PVOID,
     OutputBufferLength: ULONG,
@@ -81,10 +81,10 @@ pub extern "NtDll" fn NtFsControlFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
     ApcRoutine: ?IO_APC_ROUTINE,
-    ApcContext: ?*c_void,
+    ApcContext: ?*anyopaque,
     IoStatusBlock: *IO_STATUS_BLOCK,
     FsControlCode: ULONG,
-    InputBuffer: ?*const c_void,
+    InputBuffer: ?*const anyopaque,
     InputBufferLength: ULONG,
     OutputBuffer: ?PVOID,
     OutputBufferLength: ULONG,
@@ -102,9 +102,9 @@ pub extern "NtDll" fn NtQueryDirectoryFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
     ApcRoutine: ?IO_APC_ROUTINE,
-    ApcContext: ?*c_void,
+    ApcContext: ?*anyopaque,
     IoStatusBlock: *IO_STATUS_BLOCK,
-    FileInformation: *c_void,
+    FileInformation: *anyopaque,
     Length: ULONG,
     FileInformationClass: FILE_INFORMATION_CLASS,
     ReturnSingleEntry: BOOLEAN,
@@ -121,14 +121,14 @@ pub extern "NtDll" fn NtCreateKeyedEvent(
 
 pub extern "NtDll" fn NtReleaseKeyedEvent(
     EventHandle: ?HANDLE,
-    Key: ?*const c_void,
+    Key: ?*const anyopaque,
     Alertable: BOOLEAN,
     Timeout: ?*const LARGE_INTEGER,
 ) callconv(WINAPI) NTSTATUS;
 
 pub extern "NtDll" fn NtWaitForKeyedEvent(
     EventHandle: ?HANDLE,
-    Key: ?*const c_void,
+    Key: ?*const anyopaque,
     Alertable: BOOLEAN,
     Timeout: ?*const LARGE_INTEGER,
 ) callconv(WINAPI) NTSTATUS;
@@ -144,16 +144,16 @@ pub extern "NtDll" fn NtQueryObject(
 ) callconv(WINAPI) NTSTATUS;
 
 pub extern "NtDll" fn RtlWakeAddressAll(
-    Address: ?*const c_void,
+    Address: ?*const anyopaque,
 ) callconv(WINAPI) void;
 
 pub extern "NtDll" fn RtlWakeAddressSingle(
-    Address: ?*const c_void,
+    Address: ?*const anyopaque,
 ) callconv(WINAPI) void;
 
 pub extern "NtDll" fn RtlWaitOnAddress(
-    Address: ?*const c_void,
-    CompareAddress: ?*const c_void,
+    Address: ?*const anyopaque,
+    CompareAddress: ?*const anyopaque,
     AddressSize: SIZE_T,
     Timeout: ?*const LARGE_INTEGER,
 ) callconv(WINAPI) NTSTATUS;
@@ -162,7 +162,7 @@ pub extern "NtDll" fn NtLockFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
     ApcRoutine: ?*IO_APC_ROUTINE,
-    ApcContext: ?*c_void,
+    ApcContext: ?*anyopaque,
     IoStatusBlock: *IO_STATUS_BLOCK,
     ByteOffset: *const LARGE_INTEGER,
     Length: *const LARGE_INTEGER,

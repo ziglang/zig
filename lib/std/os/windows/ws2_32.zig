@@ -1095,7 +1095,7 @@ pub const addrinfoexA = extern struct {
     ai_addrlen: usize,
     ai_canonname: [*:0]u8,
     ai_addr: *sockaddr,
-    ai_blob: *c_void,
+    ai_blob: *anyopaque,
     ai_bloblen: usize,
     ai_provider: *GUID,
     ai_next: *addrinfoexA,
@@ -1167,9 +1167,9 @@ pub const pollfd = extern struct {
 };
 
 pub const TRANSMIT_FILE_BUFFERS = extern struct {
-    Head: *c_void,
+    Head: *anyopaque,
     HeadLength: u32,
-    Tail: *c_void,
+    Tail: *anyopaque,
     TailLength: u32,
 };
 
@@ -1186,7 +1186,7 @@ pub const LPFN_TRANSMITFILE = fn (
 pub const LPFN_ACCEPTEX = fn (
     sListenSocket: SOCKET,
     sAcceptSocket: SOCKET,
-    lpOutputBuffer: *c_void,
+    lpOutputBuffer: *anyopaque,
     dwReceiveDataLength: u32,
     dwLocalAddressLength: u32,
     dwRemoteAddressLength: u32,
@@ -1195,7 +1195,7 @@ pub const LPFN_ACCEPTEX = fn (
 ) callconv(WINAPI) BOOL;
 
 pub const LPFN_GETACCEPTEXSOCKADDRS = fn (
-    lpOutputBuffer: *c_void,
+    lpOutputBuffer: *anyopaque,
     dwReceiveDataLength: u32,
     dwLocalAddressLength: u32,
     dwRemoteAddressLength: u32,
@@ -2017,9 +2017,9 @@ pub extern "ws2_32" fn WSAHtons(
 pub extern "ws2_32" fn WSAIoctl(
     s: SOCKET,
     dwIoControlCode: u32,
-    lpvInBuffer: ?*const c_void,
+    lpvInBuffer: ?*const anyopaque,
     cbInBuffer: u32,
-    lpvOutbuffer: ?*c_void,
+    lpvOutbuffer: ?*anyopaque,
     cbOutbuffer: u32,
     lpcbBytesReturned: *u32,
     lpOverlapped: ?*OVERLAPPED,
@@ -2216,7 +2216,7 @@ pub extern "mswsock" fn TransmitFile(
 pub extern "mswsock" fn AcceptEx(
     sListenSocket: SOCKET,
     sAcceptSocket: SOCKET,
-    lpOutputBuffer: *c_void,
+    lpOutputBuffer: *anyopaque,
     dwReceiveDataLength: u32,
     dwLocalAddressLength: u32,
     dwRemoteAddressLength: u32,
@@ -2225,7 +2225,7 @@ pub extern "mswsock" fn AcceptEx(
 ) callconv(WINAPI) BOOL;
 
 pub extern "mswsock" fn GetAcceptExSockaddrs(
-    lpOutputBuffer: *c_void,
+    lpOutputBuffer: *anyopaque,
     dwReceiveDataLength: u32,
     dwLocalAddressLength: u32,
     dwRemoteAddressLength: u32,
@@ -2242,13 +2242,13 @@ pub extern "ws2_32" fn WSAProviderCompleteAsyncCall(
 
 pub extern "mswsock" fn EnumProtocolsA(
     lpiProtocols: ?*i32,
-    lpProtocolBuffer: *c_void,
+    lpProtocolBuffer: *anyopaque,
     lpdwBufferLength: *u32,
 ) callconv(WINAPI) i32;
 
 pub extern "mswsock" fn EnumProtocolsW(
     lpiProtocols: ?*i32,
-    lpProtocolBuffer: *c_void,
+    lpProtocolBuffer: *anyopaque,
     lpdwBufferLength: *u32,
 ) callconv(WINAPI) i32;
 
@@ -2259,7 +2259,7 @@ pub extern "mswsock" fn GetAddressByNameA(
     lpiProtocols: ?*i32,
     dwResolution: u32,
     lpServiceAsyncInfo: ?*SERVICE_ASYNC_INFO,
-    lpCsaddrBuffer: *c_void,
+    lpCsaddrBuffer: *anyopaque,
     lpAliasBuffer: ?[*:0]const u8,
     lpdwAliasBufferLength: *u32,
 ) callconv(WINAPI) i32;
@@ -2271,7 +2271,7 @@ pub extern "mswsock" fn GetAddressByNameW(
     lpiProtocols: ?*i32,
     dwResolution: u32,
     lpServiceAsyncInfo: ?*SERVICE_ASYNC_INFO,
-    lpCsaddrBuffer: *c_void,
+    lpCsaddrBuffer: *anyopaque,
     ldwBufferLEngth: *u32,
     lpAliasBuffer: ?[*:0]u16,
     lpdwAliasBufferLength: *u32,

@@ -630,7 +630,7 @@ pub const msghdr = extern struct {
     msg_namelen: socklen_t,
     msg_iov: [*]iovec,
     msg_iovlen: usize,
-    msg_control: ?*c_void,
+    msg_control: ?*anyopaque,
     msg_controllen: usize,
     msg_flags: i32,
 };
@@ -640,7 +640,7 @@ pub const msghdr_const = extern struct {
     msg_namelen: socklen_t,
     msg_iov: [*]iovec_const,
     msg_iovlen: usize,
-    msg_control: ?*c_void,
+    msg_control: ?*anyopaque,
     msg_controllen: usize,
     msg_flags: i32,
 };
@@ -718,7 +718,7 @@ pub const mcontext_t = extern struct {
     _pad0: i32,
     handler: u64,
     oldmask: u64,
-    regs: ?*c_void,
+    regs: ?*anyopaque,
     gp_regs: gregset_t,
     fp_regs: fpregset_t,
     v_regs: *vrregset_t,

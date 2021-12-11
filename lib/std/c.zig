@@ -121,9 +121,9 @@ pub extern "c" fn writev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint) i
 pub extern "c" fn pwritev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, offset: c.off_t) isize;
 pub extern "c" fn write(fd: c.fd_t, buf: [*]const u8, nbyte: usize) isize;
 pub extern "c" fn pwrite(fd: c.fd_t, buf: [*]const u8, nbyte: usize, offset: c.off_t) isize;
-pub extern "c" fn mmap(addr: ?*align(page_size) c_void, len: usize, prot: c_uint, flags: c_uint, fd: c.fd_t, offset: c.off_t) *c_void;
-pub extern "c" fn munmap(addr: *align(page_size) const c_void, len: usize) c_int;
-pub extern "c" fn mprotect(addr: *align(page_size) c_void, len: usize, prot: c_uint) c_int;
+pub extern "c" fn mmap(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: c.fd_t, offset: c.off_t) *anyopaque;
+pub extern "c" fn munmap(addr: *align(page_size) const anyopaque, len: usize) c_int;
+pub extern "c" fn mprotect(addr: *align(page_size) anyopaque, len: usize, prot: c_uint) c_int;
 pub extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: c_int) c_int;
 pub extern "c" fn linkat(oldfd: c.fd_t, oldpath: [*:0]const u8, newfd: c.fd_t, newpath: [*:0]const u8, flags: c_int) c_int;
 pub extern "c" fn unlink(path: [*:0]const u8) c_int;
@@ -152,8 +152,8 @@ pub extern "c" fn fchown(fd: c.fd_t, owner: c.uid_t, group: c.gid_t) c_int;
 
 pub extern "c" fn rmdir(path: [*:0]const u8) c_int;
 pub extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
-pub extern "c" fn sysctl(name: [*]const c_int, namelen: c_uint, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
-pub extern "c" fn sysctlbyname(name: [*:0]const u8, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
+pub extern "c" fn sysctl(name: [*]const c_int, namelen: c_uint, oldp: ?*anyopaque, oldlenp: ?*usize, newp: ?*anyopaque, newlen: usize) c_int;
+pub extern "c" fn sysctlbyname(name: [*:0]const u8, oldp: ?*anyopaque, oldlenp: ?*usize, newp: ?*anyopaque, newlen: usize) c_int;
 pub extern "c" fn sysctlnametomib(name: [*:0]const u8, mibp: ?*c_int, sizep: ?*usize) c_int;
 pub extern "c" fn tcgetattr(fd: c.fd_t, termios_p: *c.termios) c_int;
 pub extern "c" fn tcsetattr(fd: c.fd_t, optional_action: c.TCSA, termios_p: *const c.termios) c_int;
@@ -172,12 +172,12 @@ pub extern "c" fn getpeername(sockfd: c.fd_t, noalias addr: *c.sockaddr, noalias
 pub extern "c" fn connect(sockfd: c.fd_t, sock_addr: *const c.sockaddr, addrlen: c.socklen_t) c_int;
 pub extern "c" fn accept(sockfd: c.fd_t, noalias addr: ?*c.sockaddr, noalias addrlen: ?*c.socklen_t) c_int;
 pub extern "c" fn accept4(sockfd: c.fd_t, noalias addr: ?*c.sockaddr, noalias addrlen: ?*c.socklen_t, flags: c_uint) c_int;
-pub extern "c" fn getsockopt(sockfd: c.fd_t, level: u32, optname: u32, noalias optval: ?*c_void, noalias optlen: *c.socklen_t) c_int;
-pub extern "c" fn setsockopt(sockfd: c.fd_t, level: u32, optname: u32, optval: ?*const c_void, optlen: c.socklen_t) c_int;
-pub extern "c" fn send(sockfd: c.fd_t, buf: *const c_void, len: usize, flags: u32) isize;
+pub extern "c" fn getsockopt(sockfd: c.fd_t, level: u32, optname: u32, noalias optval: ?*anyopaque, noalias optlen: *c.socklen_t) c_int;
+pub extern "c" fn setsockopt(sockfd: c.fd_t, level: u32, optname: u32, optval: ?*const anyopaque, optlen: c.socklen_t) c_int;
+pub extern "c" fn send(sockfd: c.fd_t, buf: *const anyopaque, len: usize, flags: u32) isize;
 pub extern "c" fn sendto(
     sockfd: c.fd_t,
-    buf: *const c_void,
+    buf: *const anyopaque,
     len: usize,
     flags: u32,
     dest_addr: ?*const c.sockaddr,
@@ -185,10 +185,10 @@ pub extern "c" fn sendto(
 ) isize;
 pub extern "c" fn sendmsg(sockfd: c.fd_t, msg: *const std.x.os.Socket.Message, flags: c_int) isize;
 
-pub extern "c" fn recv(sockfd: c.fd_t, arg1: ?*c_void, arg2: usize, arg3: c_int) isize;
+pub extern "c" fn recv(sockfd: c.fd_t, arg1: ?*anyopaque, arg2: usize, arg3: c_int) isize;
 pub extern "c" fn recvfrom(
     sockfd: c.fd_t,
-    noalias buf: *c_void,
+    noalias buf: *anyopaque,
     len: usize,
     flags: u32,
     noalias src_addr: ?*c.sockaddr,
@@ -208,9 +208,9 @@ pub extern "c" fn setregid(rgid: c.gid_t, egid: c.gid_t) c_int;
 pub extern "c" fn setresuid(ruid: c.uid_t, euid: c.uid_t, suid: c.uid_t) c_int;
 pub extern "c" fn setresgid(rgid: c.gid_t, egid: c.gid_t, sgid: c.gid_t) c_int;
 
-pub extern "c" fn malloc(usize) ?*c_void;
-pub extern "c" fn realloc(?*c_void, usize) ?*c_void;
-pub extern "c" fn free(?*c_void) void;
+pub extern "c" fn malloc(usize) ?*anyopaque;
+pub extern "c" fn realloc(?*anyopaque, usize) ?*anyopaque;
+pub extern "c" fn free(?*anyopaque) void;
 
 pub extern "c" fn futimes(fd: c.fd_t, times: *[2]c.timeval) c_int;
 pub extern "c" fn utimes(path: [*:0]const u8, times: *[2]c.timeval) c_int;
@@ -218,24 +218,24 @@ pub extern "c" fn utimes(path: [*:0]const u8, times: *[2]c.timeval) c_int;
 pub extern "c" fn utimensat(dirfd: c.fd_t, pathname: [*:0]const u8, times: *[2]c.timespec, flags: u32) c_int;
 pub extern "c" fn futimens(fd: c.fd_t, times: *const [2]c.timespec) c_int;
 
-pub extern "c" fn pthread_create(noalias newthread: *pthread_t, noalias attr: ?*const c.pthread_attr_t, start_routine: fn (?*c_void) callconv(.C) ?*c_void, noalias arg: ?*c_void) c.E;
+pub extern "c" fn pthread_create(noalias newthread: *pthread_t, noalias attr: ?*const c.pthread_attr_t, start_routine: fn (?*anyopaque) callconv(.C) ?*anyopaque, noalias arg: ?*anyopaque) c.E;
 pub extern "c" fn pthread_attr_init(attr: *c.pthread_attr_t) c.E;
-pub extern "c" fn pthread_attr_setstack(attr: *c.pthread_attr_t, stackaddr: *c_void, stacksize: usize) c.E;
+pub extern "c" fn pthread_attr_setstack(attr: *c.pthread_attr_t, stackaddr: *anyopaque, stacksize: usize) c.E;
 pub extern "c" fn pthread_attr_setstacksize(attr: *c.pthread_attr_t, stacksize: usize) c.E;
 pub extern "c" fn pthread_attr_setguardsize(attr: *c.pthread_attr_t, guardsize: usize) c.E;
 pub extern "c" fn pthread_attr_destroy(attr: *c.pthread_attr_t) c.E;
 pub extern "c" fn pthread_self() pthread_t;
-pub extern "c" fn pthread_join(thread: pthread_t, arg_return: ?*?*c_void) c.E;
+pub extern "c" fn pthread_join(thread: pthread_t, arg_return: ?*?*anyopaque) c.E;
 pub extern "c" fn pthread_detach(thread: pthread_t) c.E;
 pub extern "c" fn pthread_atfork(
     prepare: ?fn () callconv(.C) void,
     parent: ?fn () callconv(.C) void,
     child: ?fn () callconv(.C) void,
 ) c_int;
-pub extern "c" fn pthread_key_create(key: *c.pthread_key_t, destructor: ?fn (value: *c_void) callconv(.C) void) c.E;
+pub extern "c" fn pthread_key_create(key: *c.pthread_key_t, destructor: ?fn (value: *anyopaque) callconv(.C) void) c.E;
 pub extern "c" fn pthread_key_delete(key: c.pthread_key_t) c.E;
-pub extern "c" fn pthread_getspecific(key: c.pthread_key_t) ?*c_void;
-pub extern "c" fn pthread_setspecific(key: c.pthread_key_t, value: ?*c_void) c_int;
+pub extern "c" fn pthread_getspecific(key: c.pthread_key_t) ?*anyopaque;
+pub extern "c" fn pthread_setspecific(key: c.pthread_key_t, value: ?*anyopaque) c_int;
 pub extern "c" fn sem_init(sem: *c.sem_t, pshared: c_int, value: c_uint) c_int;
 pub extern "c" fn sem_destroy(sem: *c.sem_t) c_int;
 pub extern "c" fn sem_post(sem: *c.sem_t) c_int;
@@ -260,16 +260,16 @@ pub extern "c" fn port_associate(
     source: u32,
     object: usize,
     events: u32,
-    user_var: ?*c_void,
+    user_var: ?*anyopaque,
 ) c_int;
 pub extern "c" fn port_dissociate(port: c.port_t, source: u32, object: usize) c_int;
-pub extern "c" fn port_send(port: c.port_t, events: u32, user_var: ?*c_void) c_int;
+pub extern "c" fn port_send(port: c.port_t, events: u32, user_var: ?*anyopaque) c_int;
 pub extern "c" fn port_sendn(
     ports: [*]c.port_t,
     errors: []u32,
     num_ports: u32,
     events: u32,
-    user_var: ?*c_void,
+    user_var: ?*anyopaque,
 ) c_int;
 pub extern "c" fn port_get(port: c.port_t, event: *c.port_event, timeout: ?*c.timespec) c_int;
 pub extern "c" fn port_getn(
@@ -279,7 +279,7 @@ pub extern "c" fn port_getn(
     events_retrieved: *u32,
     timeout: ?*c.timespec,
 ) c_int;
-pub extern "c" fn port_alert(port: c.port_t, flags: u32, events: u32, user_var: ?*c_void) c_int;
+pub extern "c" fn port_alert(port: c.port_t, flags: u32, events: u32, user_var: ?*anyopaque) c_int;
 
 pub extern "c" fn getaddrinfo(
     noalias node: ?[*:0]const u8,
@@ -336,9 +336,9 @@ pub extern "c" fn pthread_rwlock_unlock(rwl: *c.pthread_rwlock_t) callconv(.C) c
 pub const pthread_t = *opaque {};
 pub const FILE = opaque {};
 
-pub extern "c" fn dlopen(path: [*:0]const u8, mode: c_int) ?*c_void;
-pub extern "c" fn dlclose(handle: *c_void) c_int;
-pub extern "c" fn dlsym(handle: ?*c_void, symbol: [*:0]const u8) ?*c_void;
+pub extern "c" fn dlopen(path: [*:0]const u8, mode: c_int) ?*anyopaque;
+pub extern "c" fn dlclose(handle: *anyopaque) c_int;
+pub extern "c" fn dlsym(handle: ?*anyopaque, symbol: [*:0]const u8) ?*anyopaque;
 
 pub extern "c" fn sync() void;
 pub extern "c" fn syncfs(fd: c_int) c_int;
@@ -350,7 +350,7 @@ pub extern "c" fn prctl(option: c_int, ...) c_int;
 pub extern "c" fn getrlimit(resource: c.rlimit_resource, rlim: *c.rlimit) c_int;
 pub extern "c" fn setrlimit(resource: c.rlimit_resource, rlim: *const c.rlimit) c_int;
 
-pub extern "c" fn fmemopen(noalias buf: ?*c_void, size: usize, noalias mode: [*:0]const u8) ?*FILE;
+pub extern "c" fn fmemopen(noalias buf: ?*anyopaque, size: usize, noalias mode: [*:0]const u8) ?*FILE;
 
 pub extern "c" fn syslog(priority: c_int, message: [*:0]const u8, ...) void;
 pub extern "c" fn openlog(ident: [*:0]const u8, logopt: c_int, facility: c_int) void;

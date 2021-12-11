@@ -68,7 +68,7 @@ pub const Type = extern union {
             .error_set_merged,
             => return .ErrorSet,
 
-            .c_void, .@"opaque" => return .Opaque,
+            .anyopaque, .@"opaque" => return .Opaque,
             .bool => return .Bool,
             .void => return .Void,
             .type => return .Type,
@@ -764,7 +764,7 @@ pub const Type = extern union {
             .c_longlong,
             .c_ulonglong,
             .c_longdouble,
-            .c_void,
+            .anyopaque,
             .f16,
             .f32,
             .f64,
@@ -965,7 +965,7 @@ pub const Type = extern union {
                 .c_longlong,
                 .c_ulonglong,
                 .c_longdouble,
-                .c_void,
+                .anyopaque,
                 .f16,
                 .f32,
                 .f64,
@@ -1257,7 +1257,7 @@ pub const Type = extern union {
             .c_longlong,
             .c_ulonglong,
             .c_longdouble,
-            .c_void,
+            .anyopaque,
             .f16,
             .f32,
             .f64,
@@ -1365,7 +1365,7 @@ pub const Type = extern union {
             .f32,
             .f64,
             .f128,
-            .c_void,
+            .anyopaque,
             .bool,
             .void,
             .anyerror,
@@ -1476,7 +1476,7 @@ pub const Type = extern union {
             .c_longlong => return Value.initTag(.c_longlong_type),
             .c_ulonglong => return Value.initTag(.c_ulonglong_type),
             .c_longdouble => return Value.initTag(.c_longdouble_type),
-            .c_void => return Value.initTag(.c_void_type),
+            .anyopaque => return Value.initTag(.anyopaque_type),
             .f16 => return Value.initTag(.f16_type),
             .f32 => return Value.initTag(.f32_type),
             .f64 => return Value.initTag(.f64_type),
@@ -1653,7 +1653,7 @@ pub const Type = extern union {
                 return payload.error_set.hasCodeGenBits() or payload.payload.hasCodeGenBits();
             },
 
-            .c_void,
+            .anyopaque,
             .void,
             .type,
             .comptime_int,
@@ -1897,7 +1897,7 @@ pub const Type = extern union {
 
             .empty_struct,
             .void,
-            .c_void,
+            .anyopaque,
             => return 0,
 
             .empty_struct_literal,
@@ -1942,7 +1942,7 @@ pub const Type = extern union {
             .extern_options => unreachable, // missing call to resolveTypeFields
             .type_info => unreachable, // missing call to resolveTypeFields
 
-            .c_void,
+            .anyopaque,
             .type,
             .comptime_int,
             .comptime_float,
@@ -2116,7 +2116,7 @@ pub const Type = extern union {
             .fn_naked_noreturn_no_args => unreachable, // represents machine code; not a pointer
             .fn_ccc_void_no_args => unreachable, // represents machine code; not a pointer
             .function => unreachable, // represents machine code; not a pointer
-            .c_void => unreachable,
+            .anyopaque => unreachable,
             .void => unreachable,
             .type => unreachable,
             .comptime_int => unreachable,
@@ -3283,7 +3283,7 @@ pub const Type = extern union {
             .const_slice_u8,
             .const_slice,
             .mut_slice,
-            .c_void,
+            .anyopaque,
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
@@ -3860,7 +3860,7 @@ pub const Type = extern union {
         f32,
         f64,
         f128,
-        c_void,
+        anyopaque,
         bool,
         void,
         type,
@@ -3975,7 +3975,7 @@ pub const Type = extern union {
                 .f32,
                 .f64,
                 .f128,
-                .c_void,
+                .anyopaque,
                 .bool,
                 .void,
                 .type,

@@ -660,7 +660,7 @@ pub const msghdr = extern struct {
     namelen: socklen_t,
     iov: [*]iovec,
     iovlen: i32,
-    control: ?*c_void,
+    control: ?*anyopaque,
     controllen: socklen_t,
     flags: i32,
 };
@@ -670,7 +670,7 @@ pub const msghdr_const = extern struct {
     namelen: socklen_t,
     iov: [*]iovec_const,
     iovlen: i32,
-    control: ?*c_void,
+    control: ?*anyopaque,
     controllen: socklen_t,
     flags: i32,
 };

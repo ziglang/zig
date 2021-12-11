@@ -87,6 +87,21 @@ test "zig fmt: rewrite @byteOffsetOf to @offsetOf" {
     );
 }
 
+// TODO Remove this after zig 0.10.0 is released.
+test "zig fmt: rewrite c_void to anyopaque" {
+    try testTransform(
+        \\fn foo(a: ?*c_void) !*c_void {
+        \\    return a orelse unreachable;
+        \\}
+        \\
+    ,
+        \\fn foo(a: ?*anyopaque) !*anyopaque {
+        \\    return a orelse unreachable;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: simple top level comptime block" {
     try testCanonical(
         \\// line comment

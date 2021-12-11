@@ -2290,7 +2290,12 @@ fn renderToken(ais: *Ais, tree: Ast, token_index: Ast.TokenIndex, space: Space) 
     const token_start = token_starts[token_index];
     const lexeme = tokenSliceForRender(tree, token_index);
 
-    try ais.writer().writeAll(lexeme);
+    // TODO remove this c_void -> anyopaque rewrite after the 0.10.0 release
+    if (mem.eql(u8, lexeme, "c_void")) {
+        try ais.writer().writeAll("anyopaque");
+    } else {
+        try ais.writer().writeAll(lexeme);
+    }
 
     if (space == .skip) return;
 

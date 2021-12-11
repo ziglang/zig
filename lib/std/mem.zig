@@ -151,11 +151,11 @@ const fail_allocator = Allocator{
 
 const failAllocator_vtable = Allocator.VTable{
     .alloc = failAllocatorAlloc,
-    .resize = Allocator.NoResize(c_void).noResize,
-    .free = Allocator.NoOpFree(c_void).noOpFree,
+    .resize = Allocator.NoResize(anyopaque).noResize,
+    .free = Allocator.NoOpFree(anyopaque).noOpFree,
 };
 
-fn failAllocatorAlloc(_: *c_void, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
+fn failAllocatorAlloc(_: *anyopaque, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
     _ = n;
     _ = alignment;
     _ = len_align;

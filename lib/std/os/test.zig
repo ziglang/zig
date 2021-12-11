@@ -408,7 +408,7 @@ test "sigaltstack" {
 
 // If the type is not available use void to avoid erroring out when `iter_fn` is
 // analyzed
-const dl_phdr_info = if (@hasDecl(os.system, "dl_phdr_info")) os.dl_phdr_info else c_void;
+const dl_phdr_info = if (@hasDecl(os.system, "dl_phdr_info")) os.dl_phdr_info else anyopaque;
 
 const IterFnError = error{
     MissingPtLoadSegment,
@@ -740,7 +740,7 @@ test "sigaction" {
         return error.SkipZigTest;
 
     const S = struct {
-        fn handler(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_void) callconv(.C) void {
+        fn handler(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) void {
             _ = ctx_ptr;
             // Check that we received the correct signal.
             switch (native_os) {

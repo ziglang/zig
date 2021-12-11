@@ -12354,9 +12354,9 @@ fn coerce(
                 }
             }
 
-            // cast from *T and [*]T to *c_void
+            // cast from *T and [*]T to *anyopaque
             // but don't do it if the source type is a double pointer
-            if (dest_info.pointee_type.tag() == .c_void and inst_ty.zigTypeTag() == .Pointer and
+            if (dest_info.pointee_type.tag() == .anyopaque and inst_ty.zigTypeTag() == .Pointer and
                 inst_ty.childType().zigTypeTag() != .Pointer)
             {
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
@@ -14809,7 +14809,7 @@ fn typeHasOnePossibleValue(
         .const_slice_u8,
         .const_slice,
         .mut_slice,
-        .c_void,
+        .anyopaque,
         .optional,
         .optional_single_mut_pointer,
         .optional_single_const_pointer,
@@ -15026,7 +15026,7 @@ pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
         .f32 => return .f32_type,
         .f64 => return .f64_type,
         .f128 => return .f128_type,
-        .c_void => return .c_void_type,
+        .anyopaque => return .anyopaque_type,
         .bool => return .bool_type,
         .void => return .void_type,
         .type => return .type_type,

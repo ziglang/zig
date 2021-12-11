@@ -29,8 +29,8 @@ pub const Xoshiro256 = @import("rand/Xoshiro256.zig");
 pub const Sfc64 = @import("rand/Sfc64.zig");
 
 pub const Random = struct {
-    ptr: *c_void,
-    fillFn: fn (ptr: *c_void, buf: []u8) void,
+    ptr: *anyopaque,
+    fillFn: fn (ptr: *anyopaque, buf: []u8) void,
 
     pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: []u8) void) Random {
         const Ptr = @TypeOf(pointer);
@@ -38,7 +38,7 @@ pub const Random = struct {
         assert(@typeInfo(Ptr).Pointer.size == .One); // Must be a single-item pointer
         assert(@typeInfo(@typeInfo(Ptr).Pointer.child) == .Struct); // Must point to a struct
         const gen = struct {
-            fn fill(ptr: *c_void, buf: []u8) void {
+            fn fill(ptr: *anyopaque, buf: []u8) void {
                 const alignment = @typeInfo(Ptr).Pointer.alignment;
                 const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
                 fillFn(self, buf);

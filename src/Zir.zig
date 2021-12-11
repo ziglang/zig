@@ -1632,7 +1632,7 @@ pub const Inst = struct {
         f32_type,
         f64_type,
         f128_type,
-        c_void_type,
+        anyopaque_type,
         bool_type,
         void_type,
         type_type,
@@ -1805,9 +1805,9 @@ pub const Inst = struct {
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.f128_type),
             },
-            .c_void_type = .{
+            .anyopaque_type = .{
                 .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_void_type),
+                .val = Value.initTag(.anyopaque_type),
             },
             .bool_type = .{
                 .ty = Type.initTag(.type),

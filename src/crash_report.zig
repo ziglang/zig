@@ -179,7 +179,7 @@ pub fn attachSegfaultHandler() void {
     os.sigaction(os.SIG.BUS, &act, null);
 }
 
-fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_void) callconv(.C) noreturn {
+fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) noreturn {
     // TODO: use alarm() here to prevent infinite loops
     PanicSwitch.preDispatch();
 

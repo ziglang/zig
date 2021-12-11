@@ -357,7 +357,7 @@ pub const WindowsDynLib = struct {
 pub const DlDynlib = struct {
     pub const Error = error{FileNotFound};
 
-    handle: *c_void,
+    handle: *anyopaque,
 
     pub fn open(path: []const u8) !DlDynlib {
         const path_c = try os.toPosixPath(path);
