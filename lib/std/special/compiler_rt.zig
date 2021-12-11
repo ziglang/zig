@@ -382,6 +382,12 @@ comptime {
         }
 
         // Integral arithmetic
+        const __negsi2 = @import("compiler_rt/negXi2.zig").__negsi2;
+        @export(__negsi2, .{ .name = "__negsi2", .linkage = linkage });
+        const __negdi2 = @import("compiler_rt/negXi2.zig").__negdi2;
+        @export(__negdi2, .{ .name = "__negdi2", .linkage = linkage });
+        const __negti2 = @import("compiler_rt/negXi2.zig").__negti2;
+        @export(__negti2, .{ .name = "__negti2", .linkage = linkage });
         const __mulsi3 = @import("compiler_rt/int.zig").__mulsi3;
         @export(__mulsi3, .{ .name = "__mulsi3", .linkage = linkage });
         const __muldi3 = @import("compiler_rt/muldi3.zig").__muldi3;
