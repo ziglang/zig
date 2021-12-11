@@ -1,9 +1,11 @@
-const __mulodi4 = @import("mulodi4.zig").__mulodi4;
+const mulo = @import("mulo.zig");
 const testing = @import("std").testing;
+
+// ported from https://github.com/llvm-mirror/compiler-rt/tree/release_80/test/builtins/Unit
 
 fn test__mulodi4(a: i64, b: i64, expected: i64, expected_overflow: c_int) !void {
     var overflow: c_int = undefined;
-    const x = __mulodi4(a, b, &overflow);
+    const x = mulo.__mulodi4(a, b, &overflow);
     try testing.expect(overflow == expected_overflow and (expected_overflow != 0 or x == expected));
 }
 

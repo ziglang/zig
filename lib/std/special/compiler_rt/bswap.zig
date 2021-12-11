@@ -6,7 +6,6 @@ const builtin = @import("builtin");
 // ie for u32
 // DE AD BE EF   <- little|big endian
 // FE BE AD DE   <- big|little endian
-// ie for u32
 // ff 00 00 00 >> 3*8 (leftmost  byte)
 // 00 ff 00 00 >> 1*8 (2nd left  byte)
 // 00 00 ff 00 << 1*8 (2n right  byte)
