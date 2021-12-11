@@ -67,6 +67,7 @@ pub const Tag = enum {
     mul_with_overflow,
     panic,
     pop_count,
+    prefetch,
     ptr_cast,
     ptr_to_int,
     rem,
@@ -612,6 +613,13 @@ pub const list = list: {
             "@popCount",
             .{
                 .tag = .pop_count,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@prefetch",
+            .{
+                .tag = .prefetch,
                 .param_count = 2,
             },
         },

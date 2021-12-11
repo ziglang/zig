@@ -349,6 +349,8 @@ void destroy_instruction_src(Stage1ZirInst *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstWasmMemoryGrow *>(inst));
         case Stage1ZirInstIdSrc:
             return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstSrc *>(inst));
+        case Stage1ZirInstIdPrefetch:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1ZirInstPrefetch *>(inst));
     }
     zig_unreachable();
 }
@@ -939,6 +941,10 @@ static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstWasmMemoryGrow *) {
 
 static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstSrc *) {
     return Stage1ZirInstIdSrc;
+}
+
+static constexpr Stage1ZirInstId ir_inst_id(Stage1ZirInstPrefetch *) {
+    return Stage1ZirInstIdPrefetch;
 }
 
 template<typename T>
@@ -2869,6 +2875,21 @@ static Stage1ZirInst *ir_build_src(Stage1AstGen *ag, Scope *scope, AstNode *sour
 
     return &instruction->base;
 }
+
+static Stage1ZirInst *ir_build_prefetch(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+        Stage1ZirInst *ptr, Stage1ZirInst *options)
+{
+    Stage1ZirInstPrefetch *prefetch_instruction = ir_build_instruction<Stage1ZirInstPrefetch>(
+            ag, scope, source_node);
+    prefetch_instruction->ptr = ptr;
+    prefetch_instruction->options = options;
+
+    ir_ref_instruction(ptr, ag->current_basic_block);
+    ir_ref_instruction(options, ag->current_basic_block);
+
+    return &prefetch_instruction->base;
+}
+
 
 static void ir_count_defers(Stage1AstGen *ag, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
@@ -5415,6 +5436,29 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
             {
                 Stage1ZirInst *src_inst = ir_build_src(ag, scope, node);
                 return ir_lval_wrap(ag, scope, src_inst, lval, result_loc);
+            }
+        case BuiltinFnIdPrefetch:
+            {
+                ZigType *options_type = get_builtin_type(ag->codegen, "PrefetchOptions");
+                Stage1ZirInst *options_type_inst = ir_build_const_type(ag, scope, node, options_type);
+                ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, options_type_inst, no_result_loc());
+
+                AstNode *ptr_node = node->data.fn_call_expr.params.at(0);
+                Stage1ZirInst *ptr_value = astgen_node(ag, ptr_node, scope);
+                if (ptr_value == ag->codegen->invalid_inst_src)
+                    return ptr_value;
+
+                AstNode *options_node = node->data.fn_call_expr.params.at(1);
+                Stage1ZirInst *options_value = astgen_node_extra(ag, options_node,
+                    scope, LValNone, &result_loc_cast->base);
+                if (options_value == ag->codegen->invalid_inst_src)
+                    return options_value;
+
+                Stage1ZirInst *casted_options_value = ir_build_implicit_cast(
+                    ag, scope, options_node, options_value, result_loc_cast);
+
+                Stage1ZirInst *ir_extern = ir_build_prefetch(ag, scope, node, ptr_value, casted_options_value);
+                return ir_lval_wrap(ag, scope, ir_extern, lval, result_loc);
             }
     }
     zig_unreachable();

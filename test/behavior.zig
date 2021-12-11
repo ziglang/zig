@@ -169,6 +169,7 @@ test {
                 _ = @import("behavior/optional_stage1.zig");
                 _ = @import("behavior/pointers_stage1.zig");
                 _ = @import("behavior/popcount_stage1.zig");
+                _ = @import("behavior/prefetch.zig");
                 _ = @import("behavior/ptrcast_stage1.zig");
                 _ = @import("behavior/reflection.zig");
                 _ = @import("behavior/saturating_arithmetic_stage1.zig");

@@ -371,6 +371,8 @@ const char* ir_inst_src_type_str(Stage1ZirInstId id) {
             return "SrcWasmMemoryGrow";
         case Stage1ZirInstIdSrc:
             return "SrcSrc";
+        case Stage1ZirInstIdPrefetch:
+            return "SrcPrefetch";
     }
     zig_unreachable();
 }
@@ -559,6 +561,8 @@ const char* ir_inst_gen_type_str(Stage1AirInstId id) {
             return "GenWasmMemoryGrow";
         case Stage1AirInstIdExtern:
             return "GenExtern";
+        case Stage1AirInstIdPrefetch:
+            return "GenPrefetch";
     }
     zig_unreachable();
 }
@@ -2436,6 +2440,18 @@ static void ir_print_extern(IrPrintSrc *irp, Stage1ZirInstExtern *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_prefetch(IrPrintSrc *irp, Stage1ZirInstPrefetch *instruction) {
+    fprintf(irp->f, "@prefetch(");
+    ir_print_other_inst_src(irp, instruction->ptr);
+    fprintf(irp->f, ",");
+    ir_print_other_inst_src(irp, instruction->options);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_prefetch(IrPrintGen *irp, Stage1AirInstPrefetch *instruction) {
+    fprintf(irp->f, "@prefetch(...)");
+}
+
 static void ir_print_error_return_trace(IrPrintSrc *irp, Stage1ZirInstErrorReturnTrace *instruction) {
     fprintf(irp->f, "@errorReturnTrace(");
     switch (instruction->optional) {
@@ -3108,6 +3124,9 @@ static void ir_print_inst_src(IrPrintSrc *irp, Stage1ZirInst *instruction, bool 
         case Stage1ZirInstIdSrc:
             ir_print_builtin_src(irp, (Stage1ZirInstSrc *)instruction);
             break;
+        case Stage1ZirInstIdPrefetch:
+            ir_print_prefetch(irp, (Stage1ZirInstPrefetch *)instruction);
+            break;
     }
     fprintf(irp->f, "\n");
 }
@@ -3386,6 +3405,9 @@ static void ir_print_inst_gen(IrPrintGen *irp, Stage1AirInst *instruction, bool 
             break;
         case Stage1AirInstIdExtern:
             ir_print_extern(irp, (Stage1AirInstExtern *)instruction);
+            break;
+        case Stage1AirInstIdPrefetch:
+            ir_print_prefetch(irp, (Stage1AirInstPrefetch *)instruction);
             break;
 
     }

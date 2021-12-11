@@ -467,6 +467,8 @@ void destroy_instruction_gen(Stage1AirInst *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<Stage1AirInstWasmMemoryGrow *>(inst));
         case Stage1AirInstIdExtern:
             return heap::c_allocator.destroy(reinterpret_cast<Stage1AirInstExtern *>(inst));
+        case Stage1AirInstIdPrefetch:
+            return heap::c_allocator.destroy(reinterpret_cast<Stage1AirInstPrefetch *>(inst));
     }
     zig_unreachable();
 }
@@ -1113,6 +1115,10 @@ static constexpr Stage1AirInstId ir_inst_id(Stage1AirInstWasmMemoryGrow *) {
 
 static constexpr Stage1AirInstId ir_inst_id(Stage1AirInstExtern *) {
     return Stage1AirInstIdExtern;
+}
+
+static constexpr Stage1AirInstId ir_inst_id(Stage1AirInstPrefetch *) {
+    return Stage1AirInstIdPrefetch;
 }
 
 template<typename T>
@@ -24853,6 +24859,52 @@ static Stage1AirInst *ir_analyze_instruction_src(IrAnalyze *ira, Stage1ZirInstSr
     return ir_const_move(ira, instruction->base.scope, instruction->base.source_node, result);
 }
 
+static Stage1AirInst *ir_analyze_instruction_prefetch(IrAnalyze *ira, Stage1ZirInstPrefetch *instruction) {
+    Stage1AirInst *ptr = instruction->ptr->child;
+    if (type_is_invalid(ptr->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    Stage1AirInst *raw_options_inst = instruction->options->child;
+    if (type_is_invalid(raw_options_inst->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    ZigType *options_type = get_builtin_type(ira->codegen, "PrefetchOptions");
+    Stage1AirInst *options_inst = ir_implicit_cast(ira, raw_options_inst, options_type);
+    if (type_is_invalid(options_inst->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    ZigValue *options_val = ir_resolve_const(ira, options_inst, UndefBad);
+    if (options_val == nullptr)
+        return ira->codegen->invalid_inst_gen;
+
+    ZigValue *rw_val = get_const_field(ira, options_inst->source_node, options_val, "rw", 0);
+    if (rw_val == nullptr)
+        return ira->codegen->invalid_inst_gen;
+    PrefetchRw rw = (PrefetchRw)bigint_as_u8(&rw_val->data.x_enum_tag);
+
+    ZigValue *locality_val = get_const_field(ira, options_inst->source_node, options_val, "locality", 1);
+    if (locality_val == nullptr)
+        return ira->codegen->invalid_inst_gen;
+    uint8_t locality = bigint_as_u8(&locality_val->data.x_bigint);
+    assert(locality <= 3);
+
+    ZigValue *cache_val = get_const_field(ira, options_inst->source_node, options_val, "cache", 2);
+    if (cache_val == nullptr)
+        return ira->codegen->invalid_inst_gen;
+    PrefetchCache cache = (PrefetchCache)bigint_as_u8(&cache_val->data.x_enum_tag);
+
+    Stage1AirInstPrefetch *air_instruction = ir_build_inst_void<Stage1AirInstPrefetch>(&ira->new_irb,
+            instruction->base.scope, instruction->base.source_node);
+    air_instruction->ptr = ptr;
+    air_instruction->rw = rw;
+    air_instruction->locality = locality;
+    air_instruction->cache = cache;
+
+    ir_ref_inst_gen(ptr);
+
+    return &air_instruction->base;
+}
+
 static Stage1AirInst *ir_analyze_instruction_base(IrAnalyze *ira, Stage1ZirInst *instruction) {
     switch (instruction->id) {
         case Stage1ZirInstIdInvalid:
@@ -25138,6 +25190,8 @@ static Stage1AirInst *ir_analyze_instruction_base(IrAnalyze *ira, Stage1ZirInst 
             return ir_analyze_instruction_wasm_memory_grow(ira, (Stage1ZirInstWasmMemoryGrow *)instruction);
         case Stage1ZirInstIdSrc:
             return ir_analyze_instruction_src(ira, (Stage1ZirInstSrc *)instruction);
+        case Stage1ZirInstIdPrefetch:
+            return ir_analyze_instruction_prefetch(ira, (Stage1ZirInstPrefetch *)instruction);
     }
     zig_unreachable();
 }
@@ -25305,6 +25359,7 @@ bool ir_inst_gen_has_side_effects(Stage1AirInst *instruction) {
         case Stage1AirInstIdSpillBegin:
         case Stage1AirInstIdWasmMemoryGrow:
         case Stage1AirInstIdExtern:
+        case Stage1AirInstIdPrefetch:
             return true;
 
         case Stage1AirInstIdPhi:
@@ -25444,6 +25499,7 @@ bool ir_inst_src_has_side_effects(Stage1ZirInst *instruction) {
         case Stage1ZirInstIdAwait:
         case Stage1ZirInstIdSpillBegin:
         case Stage1ZirInstIdWasmMemoryGrow:
+        case Stage1ZirInstIdPrefetch:
             return true;
 
         case Stage1ZirInstIdPhi:

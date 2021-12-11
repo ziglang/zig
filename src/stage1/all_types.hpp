@@ -898,6 +898,18 @@ struct AstNodeFnCallExpr {
     bool seen; // used by @compileLog
 };
 
+// Must be kept in sync with std.builtin.PrefetchOptions.Rw
+enum PrefetchRw {
+    PrefetchRwRead,
+    PrefetchRwWrite,
+};
+
+// Must be kept in sync with std.builtin.PrefetchOptions.Cache
+enum PrefetchCache {
+    PrefetchCacheInstruction,
+    PrefetchCacheData,
+};
+
 struct AstNodeArrayAccessExpr {
     AstNode *array_ref_expr;
     AstNode *subscript;
@@ -1818,6 +1830,7 @@ enum BuiltinFnId {
     BuiltinFnIdReduce,
     BuiltinFnIdMaximum,
     BuiltinFnIdMinimum,
+    BuiltinFnIdPrefetch,
 };
 
 struct BuiltinFnEntry {
@@ -2021,6 +2034,7 @@ struct CodeGen {
     LLVMValueRef return_err_fn;
     LLVMValueRef wasm_memory_size;
     LLVMValueRef wasm_memory_grow;
+    LLVMValueRef prefetch;
     LLVMTypeRef anyframe_fn_type;
 
     // reminder: hash tables must be initialized before use
@@ -2647,6 +2661,7 @@ enum Stage1ZirInstId : uint8_t {
     Stage1ZirInstIdWasmMemorySize,
     Stage1ZirInstIdWasmMemoryGrow,
     Stage1ZirInstIdSrc,
+    Stage1ZirInstIdPrefetch,
 };
 
 // ir_render_* functions in codegen.cpp consume Gen instructions and produce LLVM IR.
@@ -2743,6 +2758,7 @@ enum Stage1AirInstId : uint8_t {
     Stage1AirInstIdWasmMemorySize,
     Stage1AirInstIdWasmMemoryGrow,
     Stage1AirInstIdExtern,
+    Stage1AirInstIdPrefetch,
 };
 
 struct Stage1ZirInst {
@@ -3682,6 +3698,24 @@ struct Stage1AirInstWasmMemoryGrow {
 struct Stage1ZirInstSrc {
     Stage1ZirInst base;
 };
+
+struct Stage1ZirInstPrefetch {
+    Stage1ZirInst base;
+
+    Stage1ZirInst *ptr;
+    Stage1ZirInst *options;
+};
+
+struct Stage1AirInstPrefetch {
+    Stage1AirInst base;
+
+    Stage1AirInst *ptr;
+    PrefetchRw rw;
+    // Must be in the range 0-3 inclusive
+    uint8_t locality;
+    PrefetchCache cache;
+};
+
 
 struct Stage1ZirInstSlice {
     Stage1ZirInst base;
