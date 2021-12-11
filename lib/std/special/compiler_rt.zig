@@ -77,9 +77,11 @@ comptime {
         @export(__extendhfsf2, .{ .name = "__gnu_h2f_ieee", .linkage = linkage });
 
         // Integral arithmetic which returns if overflow
-        const __mulodi4 = @import("compiler_rt/mulodi4.zig").__mulodi4;
+        const __mulosi4 = @import("compiler_rt/mulo.zig").__mulosi4;
+        @export(__mulosi4, .{ .name = "__mulosi4", .linkage = linkage });
+        const __mulodi4 = @import("compiler_rt/mulo.zig").__mulodi4;
         @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
-        const __muloti4 = @import("compiler_rt/muloti4.zig").__muloti4;
+        const __muloti4 = @import("compiler_rt/mulo.zig").__muloti4;
         @export(__muloti4, .{ .name = "__muloti4", .linkage = linkage });
     }
 
