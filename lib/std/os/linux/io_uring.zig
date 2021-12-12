@@ -731,6 +731,22 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform a `shutdown(2)`.
+    /// Returns a pointer to the SQE.
+    ///
+    /// The operation is identified by its `user_data`.
+    pub fn shutdown(
+        self: *IO_Uring,
+        user_data: u64,
+        sockfd: os.socket_t,
+        how: u32,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_shutdown(sqe, sockfd, how);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Registers an array of file descriptors.
     /// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
     /// retrieve a reference to the file, and once I/O has completed the file reference must be
@@ -798,7 +814,7 @@ pub const IO_Uring = struct {
     }
 
     /// Registers the file descriptor for an eventfd that will be notified of completion events on
-    /// an io_uring instance. Notifications are only posted for events that complete in an async manner. 
+    /// an io_uring instance. Notifications are only posted for events that complete in an async manner.
     /// This means that events that complete inline while being submitted do not trigger a notification event.
     /// Only a single eventfd can be registered at any given point in time.
     pub fn register_eventfd_async(self: *IO_Uring, fd: os.fd_t) !void {
@@ -1277,6 +1293,14 @@ pub fn io_uring_prep_cancel(
 ) void {
     io_uring_prep_rw(.ASYNC_CANCEL, sqe, -1, cancel_user_data, 0, 0);
     sqe.rw_flags = flags;
+}
+
+pub fn io_uring_prep_shutdown(
+    sqe: *io_uring_sqe,
+    sockfd: os.socket_t,
+    how: u32,
+) void {
+    io_uring_prep_rw(.SHUTDOWN, sqe, sockfd, 0, how, 0);
 }
 
 test "structs/offsets/entries" {
@@ -2190,4 +2214,64 @@ test "register_files_update" {
     }
 
     try ring.unregister_files();
+}
+
+test "shutdown" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const address = try net.Address.parseIp4("127.0.0.1", 3131);
+
+    // Socket bound, expect shutdown to work
+    {
+        const server = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+        defer os.close(server);
+        try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
+        try os.bind(server, &address.any, address.getOsSockLen());
+        try os.listen(server, 1);
+
+        var shutdown_sqe = try ring.shutdown(0x445445445, server, os.linux.SHUT.RD);
+        try testing.expectEqual(linux.IORING_OP.SHUTDOWN, shutdown_sqe.opcode);
+        try testing.expectEqual(@as(i32, server), shutdown_sqe.fd);
+
+        try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+        const cqe = try ring.copy_cqe();
+        switch (cqe.err()) {
+            .SUCCESS => {},
+            // This kernel's io_uring does not yet implement shutdown (kernel version < 5.11)
+            .INVAL => return error.SkipZigTest,
+            else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
+        }
+
+        try testing.expectEqual(linux.io_uring_cqe{
+            .user_data = 0x445445445,
+            .res = 0,
+            .flags = 0,
+        }, cqe);
+    }
+
+    // Socket not bound, expect to fail with ENOTCONN
+    {
+        const server = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+        defer os.close(server);
+
+        var shutdown_sqe = ring.shutdown(0x445445445, server, os.linux.SHUT.RD) catch |err| switch (err) {
+            else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
+        };
+        try testing.expectEqual(linux.IORING_OP.SHUTDOWN, shutdown_sqe.opcode);
+        try testing.expectEqual(@as(i32, server), shutdown_sqe.fd);
+
+        try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+        const cqe = try ring.copy_cqe();
+        try testing.expectEqual(@as(u64, 0x445445445), cqe.user_data);
+        try testing.expectEqual(os.linux.E.NOTCONN, cqe.err());
+    }
 }
