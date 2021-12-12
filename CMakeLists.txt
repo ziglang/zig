@@ -444,6 +444,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/rand.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/sort.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/absv.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/addXf3.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/atomics.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/bswap.zig"
