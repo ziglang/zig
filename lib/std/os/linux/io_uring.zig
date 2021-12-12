@@ -764,6 +764,21 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform a `unlinkat(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn unlinkat(
+        self: *IO_Uring,
+        user_data: u64,
+        dir_fd: os.fd_t,
+        path: [*:0]const u8,
+        flags: u32,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_unlinkat(sqe, dir_fd, path, flags);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Registers an array of file descriptors.
     /// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
     /// retrieve a reference to the file, and once I/O has completed the file reference must be
@@ -1337,6 +1352,16 @@ pub fn io_uring_prep_renameat(
         @ptrToInt(new_path),
     );
     sqe.len = @bitCast(u32, new_dir_fd);
+    sqe.rw_flags = flags;
+}
+
+pub fn io_uring_prep_unlinkat(
+    sqe: *io_uring_sqe,
+    dir_fd: os.fd_t,
+    path: [*:0]const u8,
+    flags: u32,
+) void {
+    io_uring_prep_rw(.UNLINKAT, sqe, dir_fd, @ptrToInt(path), 0, 0);
     sqe.rw_flags = flags;
 }
 
@@ -2380,4 +2405,54 @@ test "renameat" {
         const read = try new_file.readAll(&new_file_data);
         try testing.expectEqualStrings("hello", new_file_data[0..read]);
     }
+}
+
+test "unlinkat" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const path = "test_io_uring_unlinkat";
+
+    // Write old file with data
+
+    const file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    defer file.close();
+    defer std.fs.cwd().deleteFile(path) catch {};
+
+    // Submit unlinkat
+
+    var sqe = try ring.unlinkat(
+        0x12121212,
+        linux.AT.FDCWD,
+        path,
+        0,
+    );
+    try testing.expectEqual(linux.IORING_OP.UNLINKAT, sqe.opcode);
+    try testing.expectEqual(@as(i32, linux.AT.FDCWD), sqe.fd);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    const cqe = try ring.copy_cqe();
+    switch (cqe.err()) {
+        .SUCCESS => {},
+        // This kernel's io_uring does not yet implement unlinkat (kernel version < 5.11)
+        .INVAL => return error.SkipZigTest,
+        else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
+    }
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x12121212,
+        .res = 0,
+        .flags = 0,
+    }, cqe);
+
+    // Validate that the file doesn't exist anymore
+    _ = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => std.debug.panic("unexpected error: {}", .{err}),
+    };
 }
