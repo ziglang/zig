@@ -747,6 +747,23 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform a `renameat2(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn renameat(
+        self: *IO_Uring,
+        user_data: u64,
+        old_dir_fd: os.fd_t,
+        old_path: [*:0]const u8,
+        new_dir_fd: os.fd_t,
+        new_path: [*:0]const u8,
+        flags: u32,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_renameat(sqe, old_dir_fd, old_path, new_dir_fd, new_path, flags);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Registers an array of file descriptors.
     /// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
     /// retrieve a reference to the file, and once I/O has completed the file reference must be
@@ -1301,6 +1318,26 @@ pub fn io_uring_prep_shutdown(
     how: u32,
 ) void {
     io_uring_prep_rw(.SHUTDOWN, sqe, sockfd, 0, how, 0);
+}
+
+pub fn io_uring_prep_renameat(
+    sqe: *io_uring_sqe,
+    old_dir_fd: os.fd_t,
+    old_path: [*:0]const u8,
+    new_dir_fd: os.fd_t,
+    new_path: [*:0]const u8,
+    flags: u32,
+) void {
+    io_uring_prep_rw(
+        .RENAMEAT,
+        sqe,
+        old_dir_fd,
+        @ptrToInt(old_path),
+        0,
+        @ptrToInt(new_path),
+    );
+    sqe.len = @bitCast(u32, new_dir_fd);
+    sqe.rw_flags = flags;
 }
 
 test "structs/offsets/entries" {
@@ -2273,5 +2310,74 @@ test "shutdown" {
         const cqe = try ring.copy_cqe();
         try testing.expectEqual(@as(u64, 0x445445445), cqe.user_data);
         try testing.expectEqual(os.linux.E.NOTCONN, cqe.err());
+    }
+}
+
+test "renameat" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const old_path = "test_io_uring_renameat_old";
+    const new_path = "test_io_uring_renameat_new";
+
+    // Write old file with data
+
+    const old_file = try std.fs.cwd().createFile(old_path, .{ .truncate = true, .mode = 0o666 });
+    defer {
+        old_file.close();
+        std.fs.cwd().deleteFile(new_path) catch {};
+    }
+    try old_file.writeAll("hello");
+
+    // Submit renameat
+
+    var sqe = try ring.renameat(
+        0x12121212,
+        linux.AT.FDCWD,
+        old_path,
+        linux.AT.FDCWD,
+        new_path,
+        0,
+    );
+    try testing.expectEqual(linux.IORING_OP.RENAMEAT, sqe.opcode);
+    try testing.expectEqual(@as(i32, linux.AT.FDCWD), sqe.fd);
+    try testing.expectEqual(@as(i32, linux.AT.FDCWD), @bitCast(i32, sqe.len));
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    const cqe = try ring.copy_cqe();
+    switch (cqe.err()) {
+        .SUCCESS => {},
+        // This kernel's io_uring does not yet implement renameat (kernel version < 5.11)
+        .INVAL => return error.SkipZigTest,
+        else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
+    }
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x12121212,
+        .res = 0,
+        .flags = 0,
+    }, cqe);
+
+    // Validate that the old file doesn't exist anymore
+    {
+        _ = std.fs.cwd().openFile(old_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => std.debug.panic("unexpected error: {}", .{err}),
+        };
+    }
+
+    // Validate that the new file exists with the proper content
+    {
+        const new_file = try std.fs.cwd().openFile(new_path, .{});
+        defer new_file.close();
+
+        var new_file_data: [16]u8 = undefined;
+        const read = try new_file.readAll(&new_file_data);
+        try testing.expectEqualStrings("hello", new_file_data[0..read]);
     }
 }
