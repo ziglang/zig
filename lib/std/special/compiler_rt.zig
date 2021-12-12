@@ -423,6 +423,12 @@ comptime {
         @export(__absvdi2, .{ .name = "__absvdi2", .linkage = linkage });
         const __absvti2 = @import("compiler_rt/absv.zig").__absvti2;
         @export(__absvti2, .{ .name = "__absvti2", .linkage = linkage });
+        const __negvsi2 = @import("compiler_rt/negv.zig").__negvsi2;
+        @export(__negvsi2, .{ .name = "__negvsi2", .linkage = linkage });
+        const __negvdi2 = @import("compiler_rt/negv.zig").__negvdi2;
+        @export(__negvdi2, .{ .name = "__negvdi2", .linkage = linkage });
+        const __negvti2 = @import("compiler_rt/negv.zig").__negvti2;
+        @export(__negvti2, .{ .name = "__negvti2", .linkage = linkage });
 
         // missing: Integral arithmetic which returns if overflow
 
