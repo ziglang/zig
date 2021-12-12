@@ -809,6 +809,23 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform a `linkat(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn linkat(
+        self: *IO_Uring,
+        user_data: u64,
+        old_dir_fd: os.fd_t,
+        old_path: [*:0]const u8,
+        new_dir_fd: os.fd_t,
+        new_path: [*:0]const u8,
+        flags: u32,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_linkat(sqe, old_dir_fd, old_path, new_dir_fd, new_path, flags);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Registers an array of file descriptors.
     /// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
     /// retrieve a reference to the file, and once I/O has completed the file reference must be
@@ -1418,6 +1435,26 @@ pub fn io_uring_prep_symlinkat(
         0,
         @ptrToInt(link_path),
     );
+}
+
+pub fn io_uring_prep_linkat(
+    sqe: *io_uring_sqe,
+    old_dir_fd: os.fd_t,
+    old_path: [*:0]const u8,
+    new_dir_fd: os.fd_t,
+    new_path: [*:0]const u8,
+    flags: u32,
+) void {
+    io_uring_prep_rw(
+        .LINKAT,
+        sqe,
+        old_dir_fd,
+        @ptrToInt(old_path),
+        0,
+        @ptrToInt(new_path),
+    );
+    sqe.len = @bitCast(u32, new_dir_fd);
+    sqe.rw_flags = flags;
 }
 
 test "structs/offsets/entries" {
@@ -2602,4 +2639,64 @@ test "symlinkat" {
 
     // Validate that the symlink exist
     _ = try std.fs.cwd().openFile(link_path, .{});
+}
+
+test "linkat" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const first_path = "test_io_uring_linkat_first";
+    const second_path = "test_io_uring_linkat_second";
+
+    // Write file with data
+
+    const first_file = try std.fs.cwd().createFile(first_path, .{ .truncate = true, .mode = 0o666 });
+    defer {
+        first_file.close();
+        std.fs.cwd().deleteFile(first_path) catch {};
+        std.fs.cwd().deleteFile(second_path) catch {};
+    }
+    try first_file.writeAll("hello");
+
+    // Submit linkat
+
+    var sqe = try ring.linkat(
+        0x12121212,
+        linux.AT.FDCWD,
+        first_path,
+        linux.AT.FDCWD,
+        second_path,
+        0,
+    );
+    try testing.expectEqual(linux.IORING_OP.LINKAT, sqe.opcode);
+    try testing.expectEqual(@as(i32, linux.AT.FDCWD), sqe.fd);
+    try testing.expectEqual(@as(i32, linux.AT.FDCWD), @bitCast(i32, sqe.len));
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    const cqe = try ring.copy_cqe();
+    switch (cqe.err()) {
+        .SUCCESS => {},
+        // This kernel's io_uring does not yet implement linkat (kernel version < 5.15)
+        .INVAL => return error.SkipZigTest,
+        else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
+    }
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x12121212,
+        .res = 0,
+        .flags = 0,
+    }, cqe);
+
+    // Validate the second file
+    const second_file = try std.fs.cwd().openFile(second_path, .{});
+    defer second_file.close();
+
+    var second_file_data: [16]u8 = undefined;
+    const read = try second_file.readAll(&second_file_data);
+    try testing.expectEqualStrings("hello", second_file_data[0..read]);
 }
