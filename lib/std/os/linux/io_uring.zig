@@ -794,6 +794,21 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform a `symlinkat(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn symlinkat(
+        self: *IO_Uring,
+        user_data: u64,
+        target: [*:0]const u8,
+        new_dir_fd: os.fd_t,
+        link_path: [*:0]const u8,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_symlinkat(sqe, target, new_dir_fd, link_path);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Registers an array of file descriptors.
     /// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
     /// retrieve a reference to the file, and once I/O has completed the file reference must be
@@ -1387,6 +1402,22 @@ pub fn io_uring_prep_mkdirat(
     mode: os.mode_t,
 ) void {
     io_uring_prep_rw(.MKDIRAT, sqe, dir_fd, @ptrToInt(path), mode, 0);
+}
+
+pub fn io_uring_prep_symlinkat(
+    sqe: *io_uring_sqe,
+    target: [*:0]const u8,
+    new_dir_fd: os.fd_t,
+    link_path: [*:0]const u8,
+) void {
+    io_uring_prep_rw(
+        .SYMLINKAT,
+        sqe,
+        new_dir_fd,
+        @ptrToInt(target),
+        0,
+        @ptrToInt(link_path),
+    );
 }
 
 test "structs/offsets/entries" {
@@ -2522,4 +2553,53 @@ test "mkdirat" {
 
     // Validate that the directory exist
     _ = try std.fs.cwd().openDir(path, .{});
+}
+
+test "symlinkat" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const path = "test_io_uring_symlinkat";
+    const link_path = "test_io_uring_symlinkat_link";
+
+    const file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    defer {
+        file.close();
+        std.fs.cwd().deleteFile(path) catch {};
+        std.fs.cwd().deleteFile(link_path) catch {};
+    }
+
+    // Submit symlinkat
+
+    var sqe = try ring.symlinkat(
+        0x12121212,
+        path,
+        linux.AT.FDCWD,
+        link_path,
+    );
+    try testing.expectEqual(linux.IORING_OP.SYMLINKAT, sqe.opcode);
+    try testing.expectEqual(@as(i32, linux.AT.FDCWD), sqe.fd);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    const cqe = try ring.copy_cqe();
+    switch (cqe.err()) {
+        .SUCCESS => {},
+        // This kernel's io_uring does not yet implement symlinkat (kernel version < 5.15)
+        .INVAL => return error.SkipZigTest,
+        else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
+    }
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x12121212,
+        .res = 0,
+        .flags = 0,
+    }, cqe);
+
+    // Validate that the symlink exist
+    _ = try std.fs.cwd().openFile(link_path, .{});
 }
