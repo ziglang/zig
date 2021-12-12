@@ -779,6 +779,21 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform a `mkdirat(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn mkdirat(
+        self: *IO_Uring,
+        user_data: u64,
+        dir_fd: os.fd_t,
+        path: [*:0]const u8,
+        mode: os.mode_t,
+    ) !*io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_mkdirat(sqe, dir_fd, path, mode);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Registers an array of file descriptors.
     /// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
     /// retrieve a reference to the file, and once I/O has completed the file reference must be
@@ -1363,6 +1378,15 @@ pub fn io_uring_prep_unlinkat(
 ) void {
     io_uring_prep_rw(.UNLINKAT, sqe, dir_fd, @ptrToInt(path), 0, 0);
     sqe.rw_flags = flags;
+}
+
+pub fn io_uring_prep_mkdirat(
+    sqe: *io_uring_sqe,
+    dir_fd: os.fd_t,
+    path: [*:0]const u8,
+    mode: os.mode_t,
+) void {
+    io_uring_prep_rw(.MKDIRAT, sqe, dir_fd, @ptrToInt(path), mode, 0);
 }
 
 test "structs/offsets/entries" {
@@ -2455,4 +2479,47 @@ test "unlinkat" {
         error.FileNotFound => {},
         else => std.debug.panic("unexpected error: {}", .{err}),
     };
+}
+
+test "mkdirat" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const path = "test_io_uring_mkdirat";
+
+    defer std.fs.cwd().deleteDir(path) catch {};
+
+    // Submit mkdirat
+
+    var sqe = try ring.mkdirat(
+        0x12121212,
+        linux.AT.FDCWD,
+        path,
+        0o0755,
+    );
+    try testing.expectEqual(linux.IORING_OP.MKDIRAT, sqe.opcode);
+    try testing.expectEqual(@as(i32, linux.AT.FDCWD), sqe.fd);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    const cqe = try ring.copy_cqe();
+    switch (cqe.err()) {
+        .SUCCESS => {},
+        // This kernel's io_uring does not yet implement mkdirat (kernel version < 5.15)
+        .INVAL => return error.SkipZigTest,
+        else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
+    }
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x12121212,
+        .res = 0,
+        .flags = 0,
+    }, cqe);
+
+    // Validate that the directory exist
+    _ = try std.fs.cwd().openDir(path, .{});
 }
