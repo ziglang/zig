@@ -572,6 +572,9 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             try self.populateMissingMetadata();
         }
 
+        var lib_not_found = false;
+        var framework_not_found = false;
+
         if (needs_full_relink) {
             for (self.objects.items) |*object| {
                 object.free(self.base.allocator, self);
@@ -688,7 +691,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             }
 
             var libs = std.ArrayList([]const u8).init(arena);
-            var lib_not_found = false;
             for (search_lib_names.items) |lib_name| {
                 // Assume ld64 default: -search_paths_first
                 // Look in each directory for a dylib (stub first), and then for archive
@@ -760,13 +762,14 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                     }
                 } else {
                     log.warn("framework not found for '-framework {s}'", .{framework});
-                    log.warn("Framework search paths:", .{});
-                    for (framework_dirs.items) |dir| {
-                        log.warn("  {s}", .{dir});
-                    } else {
-                        log.warn("  <empty>. Consider specifying --sysroot", .{});
-                    }
-                    return error.FrameworkNotFound;
+                    framework_not_found = true;
+                }
+            }
+
+            if (framework_not_found) {
+                log.warn("Framework search paths:", .{});
+                for (framework_dirs.items) |dir| {
+                    log.warn("  {s}", .{dir});
                 }
             }
 
@@ -925,6 +928,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         }
         if (self.unresolved.count() > 0) {
             return error.UndefinedSymbolReference;
+        }
+        if (lib_not_found) {
+            return error.LibraryNotFound;
+        }
+        if (framework_not_found) {
+            return error.FrameworkNotFound;
         }
 
         try self.createTentativeDefAtoms();
