@@ -83,6 +83,8 @@ max_end_stack: u32 = 0,
 /// to place a new stack allocation, it goes here, and then bumps `max_end_stack`.
 next_stack_offset: u32 = 0,
 
+saved_regs_stack_space: u32 = 0,
+
 /// Debug field, used to find bugs in the compiler.
 air_bookkeeping: @TypeOf(air_bookkeeping_init) = air_bookkeeping_init,
 
@@ -350,12 +352,7 @@ pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
 fn gen(self: *Self) !void {
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
-        // TODO Finish function prologue and epilogue for aarch64.
-
         // stp fp, lr, [sp, #-16]!
-        // mov fp, sp
-        // sub sp, sp, #reloc
-
         _ = try self.addInst(.{
             .tag = .stp,
             .data = .{ .load_store_register_pair = .{
@@ -366,11 +363,19 @@ fn gen(self: *Self) !void {
             } },
         });
 
+        // <store other registers>
+        const backpatch_save_registers = try self.addInst(.{
+            .tag = .nop,
+            .data = .{ .nop = {} },
+        });
+
+        // mov fp, sp
         _ = try self.addInst(.{
             .tag = .mov_to_from_sp,
             .data = .{ .rr = .{ .rd = .x29, .rn = .xzr } },
         });
 
+        // sub sp, sp, #reloc
         const backpatch_reloc = try self.addInst(.{
             .tag = .nop,
             .data = .{ .nop = {} },
@@ -383,10 +388,33 @@ fn gen(self: *Self) !void {
 
         try self.genBody(self.air.getMainBody());
 
+        // Backpatch push callee saved regs
+        var saved_regs: u32 = 0;
+        self.saved_regs_stack_space = 16;
+        inline for (callee_preserved_regs) |reg| {
+            if (self.register_manager.isRegAllocated(reg)) {
+                saved_regs |= @as(u32, 1) << reg.id();
+                self.saved_regs_stack_space += 8;
+            }
+        }
+
+        // Emit.mirPopPushRegs automatically adds extra empty space so
+        // that sp is always aligned to 16
+        if (!std.mem.isAlignedGeneric(u32, self.saved_regs_stack_space, 16)) {
+            self.saved_regs_stack_space += 8;
+        }
+        assert(std.mem.isAlignedGeneric(u32, self.saved_regs_stack_space, 16));
+
+        self.mir_instructions.set(backpatch_save_registers, .{
+            .tag = .push_regs,
+            .data = .{ .reg_list = saved_regs },
+        });
+
         // Backpatch stack offset
-        const stack_end = self.max_end_stack;
-        const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
-        if (math.cast(u12, aligned_stack_end)) |size| {
+        const total_stack_size = self.max_end_stack + self.saved_regs_stack_space;
+        const aligned_total_stack_end = mem.alignForwardGeneric(u32, total_stack_size, self.stack_align);
+        const stack_size = aligned_total_stack_end - self.saved_regs_stack_space;
+        if (math.cast(u12, stack_size)) |size| {
             self.mir_instructions.set(backpatch_reloc, .{
                 .tag = .sub_immediate,
                 .data = .{ .rr_imm12_sh = .{ .rd = .xzr, .rn = .xzr, .imm12 = size } },
@@ -418,7 +446,13 @@ fn gen(self: *Self) !void {
         // add sp, sp, #stack_size
         _ = try self.addInst(.{
             .tag = .add_immediate,
-            .data = .{ .rr_imm12_sh = .{ .rd = .xzr, .rn = .xzr, .imm12 = @intCast(u12, aligned_stack_end) } },
+            .data = .{ .rr_imm12_sh = .{ .rd = .xzr, .rn = .xzr, .imm12 = @intCast(u12, stack_size) } },
+        });
+
+        // <load other registers>
+        _ = try self.addInst(.{
+            .tag = .pop_regs,
+            .data = .{ .reg_list = saved_regs },
         });
 
         // ldp fp, lr, [sp], #16
@@ -1754,7 +1788,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
                 },
             },
         }),
-        else => return self.fail("TODO implement condr when condition is {s}", .{@tagName(cond)}),
+        else => return self.fail("TODO implement condbr when condition is {s}", .{@tagName(cond)}),
     };
 
     // Capture the state of register and stack allocation state so that we can revert to it.
