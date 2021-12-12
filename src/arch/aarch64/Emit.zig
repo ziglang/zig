@@ -126,6 +126,9 @@ pub fn emitMir(
             .movz => try emit.mirMoveWideImmediate(inst),
 
             .nop => try emit.mirNop(),
+
+            .push_regs => try emit.mirPushPopRegs(inst),
+            .pop_regs => try emit.mirPushPopRegs(inst),
         }
     }
 }
@@ -797,4 +800,80 @@ fn mirMoveWideImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirNop(emit: *Emit) !void {
     try emit.writeInstruction(Instruction.nop());
+}
+
+fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const reg_list = emit.mir.instructions.items(.data)[inst].reg_list;
+
+    if (reg_list & @as(u32, 1) << 31 != 0) return emit.fail("xzr is not a valid register for {}", .{tag});
+
+    // sp must be aligned at all times, so we only use stp and ldp
+    // instructions for minimal instruction count. However, if we do
+    // not have an even number of registers, we use str and ldr
+    const number_of_regs = @popCount(u32, reg_list);
+
+    switch (tag) {
+        .pop_regs => {
+            var i: u6 = 32;
+            var count: u6 = 0;
+            var other_reg: Register = undefined;
+            while (i > 0) : (i -= 1) {
+                const reg = @intToEnum(Register, i - 1);
+                if (reg_list & @as(u32, 1) << reg.id() != 0) {
+                    if (count % 2 == 0) {
+                        if (count == number_of_regs - 1) {
+                            try emit.writeInstruction(Instruction.ldr(
+                                reg,
+                                Register.sp,
+                                Instruction.LoadStoreOffset.imm_post_index(16),
+                            ));
+                        } else {
+                            other_reg = reg;
+                        }
+                    } else {
+                        try emit.writeInstruction(Instruction.ldp(
+                            reg,
+                            other_reg,
+                            Register.sp,
+                            Instruction.LoadStorePairOffset.post_index(16),
+                        ));
+                    }
+                    count += 1;
+                }
+            }
+            assert(count == number_of_regs);
+        },
+        .push_regs => {
+            var i: u6 = 0;
+            var count: u6 = 0;
+            var other_reg: Register = undefined;
+            while (i < 32) : (i += 1) {
+                const reg = @intToEnum(Register, i);
+                if (reg_list & @as(u32, 1) << reg.id() != 0) {
+                    if (count % 2 == 0) {
+                        if (count == number_of_regs - 1) {
+                            try emit.writeInstruction(Instruction.str(
+                                reg,
+                                Register.sp,
+                                Instruction.LoadStoreOffset.imm_pre_index(-16),
+                            ));
+                        } else {
+                            other_reg = reg;
+                        }
+                    } else {
+                        try emit.writeInstruction(Instruction.stp(
+                            other_reg,
+                            reg,
+                            Register.sp,
+                            Instruction.LoadStorePairOffset.pre_index(-16),
+                        ));
+                    }
+                    count += 1;
+                }
+            }
+            assert(count == number_of_regs);
+        },
+        else => unreachable,
+    }
 }
