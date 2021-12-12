@@ -1491,6 +1491,8 @@ pub const LibExeObjStep = struct {
     test_evented_io: bool = false,
     code_model: std.builtin.CodeModel = .default,
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
+    /// Symbols to be exported when compiling to wasm
+    export_symbol_names: []const []const u8 = &.{},
 
     root_src: ?FileSource,
     out_h_filename: []const u8,
@@ -2510,6 +2512,9 @@ pub const LibExeObjStep = struct {
         }
         if (self.wasi_exec_model) |model| {
             try zig_args.append(builder.fmt("-mexec-model={s}", .{@tagName(model)}));
+        }
+        for (self.export_symbol_names) |symbol_name| {
+            try zig_args.append(builder.fmt("--export={s}", .{symbol_name}));
         }
 
         if (!self.target.isNative()) {

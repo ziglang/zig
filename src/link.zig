@@ -104,6 +104,7 @@ pub const Options = struct {
     import_memory: bool,
     initial_memory: ?u64,
     max_memory: ?u64,
+    export_symbol_names: []const []const u8,
     global_base: ?u64,
     is_native_os: bool,
     is_native_abi: bool,
