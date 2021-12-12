@@ -1992,6 +1992,34 @@ pub const LibExeObjStep = struct {
         self.linkSystemLibraryName(name);
     }
 
+    pub fn setAnalysisEmit(self: *LibExeObjStep, emit_option: EmitOption) void {
+        self.emit_analysis = emit_option;
+    }
+    
+    pub fn setAsmEmit(self: *LibExeObjStep, emit_option: EmitOption) void {
+        self.emit_asm = emit_option;
+    }
+
+    pub fn setBinEmit(self: *LibExeObjStep, emit_option: EmitOption) void {
+        self.emit_bin = emit_option;
+    }
+
+    pub fn setDocsEmit(self: *LibExeObjStep, emit_option: EmitOption) void {
+        self.emit_docs = emit_option;
+    }
+
+    pub fn setImplibEmit(self: *LibExeObjStep, emit_option: EmitOption) void {
+        self.emit_implib = emit_option;
+    }
+
+    pub fn setLLVMBcEmit(self: *LibExeObjStep, emit_option: EmitOption) void {
+        self.emit_llvm_bc = emit_option;
+    }
+
+    pub fn setLLVMIrEmit(self: *LibExeObjStep, emit_option: EmitOption) void {
+        self.emit_llvm_ir = emit_option;
+    }
+
     pub fn setNamePrefix(self: *LibExeObjStep, text: []const u8) void {
         assert(self.kind == .@"test" or self.kind == .test_exe);
         self.name_prefix = self.builder.dupe(text);
