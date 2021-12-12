@@ -448,6 +448,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/atomics.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/bswap.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/clear_cache.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/cmp.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/compareXf2.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/count0bits.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/divdf3.zig"

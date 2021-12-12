@@ -413,10 +413,22 @@ comptime {
 
         // missing: Integral arithmetic which returns if overflow
 
-        // missing: Integral comparison
+        // Integral comparison
         // (a <  b) => 0
         // (a == b) => 1
         // (a >  b) => 2
+        const __cmpsi2 = @import("compiler_rt/cmp.zig").__cmpsi2;
+        @export(__cmpsi2, .{ .name = "__cmpsi2", .linkage = linkage });
+        const __cmpdi2 = @import("compiler_rt/cmp.zig").__cmpdi2;
+        @export(__cmpdi2, .{ .name = "__cmpdi2", .linkage = linkage });
+        const __cmpti2 = @import("compiler_rt/cmp.zig").__cmpti2;
+        @export(__cmpti2, .{ .name = "__cmpti2", .linkage = linkage });
+        const __ucmpsi2 = @import("compiler_rt/cmp.zig").__ucmpsi2;
+        @export(__ucmpsi2, .{ .name = "__ucmpsi2", .linkage = linkage });
+        const __ucmpdi2 = @import("compiler_rt/cmp.zig").__ucmpdi2;
+        @export(__ucmpdi2, .{ .name = "__ucmpdi2", .linkage = linkage });
+        const __ucmpti2 = @import("compiler_rt/cmp.zig").__ucmpti2;
+        @export(__ucmpti2, .{ .name = "__ucmpti2", .linkage = linkage });
 
         // missing: Floating point raised to integer power
 
