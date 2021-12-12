@@ -416,7 +416,13 @@ comptime {
         const __udivmodsi4 = @import("compiler_rt/int.zig").__udivmodsi4;
         @export(__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = linkage });
 
-        // missing: Integral arithmetic with trapping overflow
+        // Integral arithmetic with trapping overflow
+        const __absvsi2 = @import("compiler_rt/absv.zig").__absvsi2;
+        @export(__absvsi2, .{ .name = "__absvsi2", .linkage = linkage });
+        const __absvdi2 = @import("compiler_rt/absv.zig").__absvdi2;
+        @export(__absvdi2, .{ .name = "__absvdi2", .linkage = linkage });
+        const __absvti2 = @import("compiler_rt/absv.zig").__absvti2;
+        @export(__absvti2, .{ .name = "__absvti2", .linkage = linkage });
 
         // missing: Integral arithmetic which returns if overflow
 
