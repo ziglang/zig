@@ -108,6 +108,17 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return result[0 .. result.len - 1 :sentinel];
         }
 
+        /// Creates a copy of this ArrayList, using the same allocator.
+        pub fn clone(self: *Self) !Self {
+            const items_copy = try self.allocator.alloc(T, self.capacity);
+            mem.copy(T, items_copy, self.items);
+            return Self{
+                .items = items_copy,
+                .capacity = self.capacity,
+                .allocator = self.allocator,
+            };
+        }
+
         /// Insert `item` at index `n` by moving `list[n .. list.len]` to make room.
         /// This operation is O(N).
         pub fn insert(self: *Self, n: usize, item: T) !void {
@@ -489,6 +500,16 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return result[0 .. result.len - 1 :sentinel];
         }
 
+        /// Creates a copy of this ArrayList.
+        pub fn clone(self: *Self, allocator: Allocator) !Self {
+            const items_copy = try allocator.alloc(T, self.capacity);
+            mem.copy(T, items_copy, self.items);
+            return Self{
+                .items = items_copy,
+                .capacity = self.capacity,
+            };
+        }
+
         /// Insert `item` at index `n`. Moves `list[n .. list.len]`
         /// to higher indices to make room.
         /// This operation is O(N).
@@ -799,6 +820,53 @@ test "std.ArrayList/ArrayListUnmanaged.initCapacity" {
         defer list.deinit(a);
         try testing.expect(list.items.len == 0);
         try testing.expect(list.capacity >= 200);
+    }
+}
+
+test "std.ArrayList/ArrayListUnmanaged.clone" {
+    const a = testing.allocator;
+    {
+        var array = ArrayList(i32).init(a);
+        try array.append(-1);
+        try array.append(3);
+        try array.append(5);
+
+        const cloned = try array.clone();
+        defer cloned.deinit();
+
+        var i: usize = 0;
+        while (i < array.items.len) : (i += 1) {
+            try testing.expectEqual(array.items[i], cloned.items[i]);
+        }
+        try testing.expectEqual(array.capacity, cloned.capacity);
+        try testing.expectEqual(array.allocator, cloned.allocator);
+
+        array.deinit();
+
+        try testing.expectEqual(cloned.items[0], -1);
+        try testing.expectEqual(cloned.items[1], 3);
+        try testing.expectEqual(cloned.items[2], 5);
+    }
+    {
+        var array = ArrayListUnmanaged(i32){};
+        try array.append(a, -1);
+        try array.append(a, 3);
+        try array.append(a, 5);
+
+        var cloned = try array.clone(a);
+        defer cloned.deinit(a);
+
+        var i: usize = 0;
+        while (i < array.items.len) : (i += 1) {
+            try testing.expectEqual(array.items[i], cloned.items[i]);
+        }
+        try testing.expectEqual(array.capacity, cloned.capacity);
+
+        array.deinit(a);
+
+        try testing.expectEqual(cloned.items[0], -1);
+        try testing.expectEqual(cloned.items[1], 3);
+        try testing.expectEqual(cloned.items[2], 5);
     }
 }
 
