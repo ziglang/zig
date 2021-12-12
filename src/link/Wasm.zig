@@ -1011,6 +1011,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         man.hash.addOptional(self.base.options.initial_memory);
         man.hash.addOptional(self.base.options.max_memory);
         man.hash.addOptional(self.base.options.global_base);
+        man.hash.add(self.base.options.export_symbol_names.len);
+        for (self.base.options.export_symbol_names) |symbol_name| {
+            man.hash.addBytes(symbol_name);
+        }
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -1103,6 +1107,16 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             try argv.append(arg);
         }
 
+        // Users are allowed to specify which symbols they want to export to the wasm host.
+        for (self.base.options.export_symbol_names) |symbol_name| {
+            const arg = try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name});
+            try argv.append(arg);
+        }
+
+        if (self.base.options.rdynamic) {
+            try argv.append("--export-dynamic");
+        }
+
         if (self.base.options.output_mode == .Exe) {
             // Increase the default stack size to a more reasonable value of 1MB instead of
             // the default of 1 Wasm page being 64KB, unless overridden by the user.
@@ -1119,7 +1133,11 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 // Reactor execution model does not have _start so lld doesn't look for it.
                 try argv.append("--no-entry");
                 // Make sure "_initialize" and other used-defined functions are exported if this is WASI reactor.
-                try argv.append("--export-dynamic");
+                // If rdynamic is true, it will already be appended, so only verify if the user did not specify
+                // the flag in which case, we ensure `--export-dynamic` is called.
+                if (!self.base.options.rdynamic) {
+                    try argv.append("--export-dynamic");
+                }
             }
         } else {
             if (self.base.options.stack_size_override) |stack_size| {
@@ -1127,8 +1145,13 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
                 try argv.append(arg);
             }
+
+            // Only when the user has not specified how they want to export the symbols, do we want
+            // to export all symbols.
+            if (self.base.options.export_symbol_names.len == 0 and !self.base.options.rdynamic) {
+                try argv.append("--export-all");
+            }
             try argv.append("--no-entry"); // So lld doesn't look for _start.
-            try argv.append("--export-all");
         }
         try argv.appendSlice(&[_][]const u8{
             "--allow-undefined",

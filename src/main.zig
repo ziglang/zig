@@ -434,6 +434,7 @@ const usage_build_generic =
     \\  --initial-memory=[bytes]       (WebAssembly) initial size of the linear memory
     \\  --max-memory=[bytes]           (WebAssembly) maximum size of the linear memory
     \\  --global-base=[addr]           (WebAssembly) where to start to place global data
+    \\  --export=[value]               (WebAssembly) Force a symbol to be exported
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match filter
@@ -710,6 +711,9 @@ fn buildOutputType(
     // null means replace with the test executable binary
     var test_exec_args = std.ArrayList(?[]const u8).init(gpa);
     defer test_exec_args.deinit();
+
+    var linker_export_symbol_names = std.ArrayList([]const u8).init(gpa);
+    defer linker_export_symbol_names.deinit();
 
     // This package only exists to clean up the code parsing --pkg-begin and
     // --pkg-end flags. Use dummy values that are safe for the destroy call.
@@ -1175,6 +1179,8 @@ fn buildOutputType(
                         linker_max_memory = parseIntSuffix(arg, "--max-memory=".len);
                     } else if (mem.startsWith(u8, arg, "--global-base=")) {
                         linker_global_base = parseIntSuffix(arg, "--global-base=".len);
+                    } else if (mem.startsWith(u8, arg, "--export=")) {
+                        try linker_export_symbol_names.append(arg["--export=".len..]);
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
@@ -1554,6 +1560,8 @@ fn buildOutputType(
                     linker_max_memory = parseIntSuffix(arg, "--max-memory=".len);
                 } else if (mem.startsWith(u8, arg, "--global-base=")) {
                     linker_global_base = parseIntSuffix(arg, "--global-base=".len);
+                } else if (mem.startsWith(u8, arg, "--export=")) {
+                    try linker_export_symbol_names.append(arg["--export=".len..]);
                 } else if (mem.eql(u8, arg, "-z")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
@@ -2438,6 +2446,7 @@ fn buildOutputType(
         .linker_initial_memory = linker_initial_memory,
         .linker_max_memory = linker_max_memory,
         .linker_global_base = linker_global_base,
+        .linker_export_symbol_names = linker_export_symbol_names.items,
         .linker_z_nodelete = linker_z_nodelete,
         .linker_z_notext = linker_z_notext,
         .linker_z_defs = linker_z_defs,
