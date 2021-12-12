@@ -752,7 +752,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 }
             }
 
-            var framework_not_found = false;
             for (self.base.options.frameworks) |framework| {
                 for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
                     if (try resolveFramework(arena, framework_dirs.items, framework, ext)) |full_path| {
@@ -761,14 +760,13 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                     }
                 } else {
                     log.warn("framework not found for '-framework {s}'", .{framework});
-                    framework_not_found = true;
-                }
-            }
-
-            if (framework_not_found) {
-                log.warn("Framework search paths:", .{});
-                for (framework_dirs.items) |dir| {
-                    log.warn("  {s}", .{dir});
+                    log.warn("Framework search paths:", .{});
+                    for (framework_dirs.items) |dir| {
+                        log.warn("  {s}", .{dir});
+                    } else {
+                        log.warn("  <empty>. Consider specifying --sysroot", .{});
+                    }
+                    return error.FrameworkNotFound;
                 }
             }
 
