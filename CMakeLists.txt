@@ -500,6 +500,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/multi3.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/negXf2.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/negXi2.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/negv.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/os_version_check.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/parity.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/popcount.zig"
