@@ -6,6 +6,7 @@ const math = std.math;
 const mem = std.mem;
 const pwhash = crypto.pwhash;
 const testing = std.testing;
+const Sha512 = crypto.hash.sha2.Sha512;
 const utils = crypto.utils;
 
 const phc_format = @import("phc_encoding.zig");
@@ -176,6 +177,88 @@ pub fn bcrypt(
         mem.writeIntBig(u32, ct[i * 4 ..][0..4], c);
     }
     return ct[0..dk_length].*;
+}
+
+const pbkdf_prf = struct {
+    const Self = @This();
+    pub const mac_length = 32;
+
+    hasher: Sha512,
+    sha2pass: [Sha512.digest_length]u8,
+
+    pub fn create(out: *[mac_length]u8, msg: []const u8, key: []const u8) void {
+        var ctx = Self.init(key);
+        ctx.update(msg);
+        ctx.final(out);
+    }
+
+    pub fn init(key: []const u8) Self {
+        var self: Self = undefined;
+        self.hasher = Sha512.init(.{});
+        Sha512.hash(key, &self.sha2pass, .{});
+        return self;
+    }
+
+    pub fn update(self: *Self, msg: []const u8) void {
+        self.hasher.update(msg);
+    }
+
+    pub fn final(self: *Self, out: *[mac_length]u8) void {
+        var sha2salt: [Sha512.digest_length]u8 = undefined;
+        self.hasher.final(&sha2salt);
+        out.* = hash(self.sha2pass, sha2salt);
+    }
+
+    /// Matches OpenBSD function
+    /// https://github.com/openbsd/src/blob/6df1256b7792691e66c2ed9d86a8c103069f9e34/lib/libutil/bcrypt_pbkdf.c#L98
+    fn hash(sha2pass: [Sha512.digest_length]u8, sha2salt: [Sha512.digest_length]u8) [32]u8 {
+        var cdata: [8]u32 = undefined;
+        {
+            const ciphertext = "OxychromaticBlowfishSwatDynamite";
+            var j: usize = 0;
+            for (cdata) |*v| {
+                v.* = State.toWord(ciphertext, &j);
+            }
+        }
+
+        var state = State{};
+
+        { // key expansion
+            state.expand(&sha2salt, &sha2pass);
+            var i: usize = 0;
+            while (i < 64) : (i += 1) {
+                state.expand0(&sha2salt);
+                state.expand0(&sha2pass);
+            }
+        }
+
+        { // encryption
+            var i: usize = 0;
+            while (i < 64) : (i += 1) {
+                state.encrypt(&cdata);
+            }
+        }
+
+        // copy out
+        var out: [32]u8 = undefined;
+        for (cdata) |v, i| {
+            std.mem.writeIntLittle(u32, out[4 * i ..][0..4], v);
+        }
+
+        // zap
+        crypto.utils.secureZero(u32, &cdata);
+        crypto.utils.secureZero(State, @as(*[1]State, &state));
+
+        return out;
+    }
+};
+
+/// bcrypt PBKDF2 implementation with variations to match OpenBSD
+/// https://github.com/openbsd/src/blob/6df1256b7792691e66c2ed9d86a8c103069f9e34/lib/libutil/bcrypt_pbkdf.c#L98
+///
+/// This particular variant is used in e.g. SSH
+pub fn pbkdf(pass: []const u8, salt: []const u8, key: []u8, rounds: u32) !void {
+    try crypto.pwhash.pbkdf2(key, pass, salt, rounds, pbkdf_prf);
 }
 
 const crypt_format = struct {
