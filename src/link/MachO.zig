@@ -130,6 +130,7 @@ objc_imageinfo_section_index: ?u16 = null,
 tlv_section_index: ?u16 = null,
 tlv_data_section_index: ?u16 = null,
 tlv_bss_section_index: ?u16 = null,
+tlv_ptrs_section_index: ?u16 = null,
 la_symbol_ptr_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
 bss_section_index: ?u16 = null,
@@ -163,6 +164,9 @@ stub_helper_preamble_atom: ?*Atom = null,
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
 strtab_dir: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
+
+tlv_ptr_entries_map: std.AutoArrayHashMapUnmanaged(Atom.Relocation.Target, *Atom) = .{},
+tlv_ptr_entries_map_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 got_entries_map: std.AutoArrayHashMapUnmanaged(Atom.Relocation.Target, *Atom) = .{},
 got_entries_map_free_list: std.ArrayListUnmanaged(u32) = .{},
@@ -1525,6 +1529,24 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     .sect = self.tlv_section_index.?,
                 };
             },
+            macho.S_THREAD_LOCAL_VARIABLE_POINTERS => {
+                if (self.tlv_ptrs_section_index == null) {
+                    self.tlv_ptrs_section_index = try self.initSection(
+                        self.data_segment_cmd_index.?,
+                        "__thread_ptrs",
+                        sect.size,
+                        sect.@"align",
+                        .{
+                            .flags = macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
+                        },
+                    );
+                }
+
+                break :blk .{
+                    .seg = self.data_segment_cmd_index.?,
+                    .sect = self.tlv_ptrs_section_index.?,
+                };
+            },
             macho.S_THREAD_LOCAL_REGULAR => {
                 if (self.tlv_data_section_index == null) {
                     self.tlv_data_section_index = try self.initSection(
@@ -2139,6 +2161,24 @@ pub fn createGotAtom(self: *MachO, target: Atom.Relocation.Target) !*Atom {
             });
         },
     }
+    return atom;
+}
+
+pub fn createTlvPtrAtom(self: *MachO, target: Atom.Relocation.Target) !*Atom {
+    const local_sym_index = @intCast(u32, self.locals.items.len);
+    try self.locals.append(self.base.allocator, .{
+        .n_strx = 0,
+        .n_type = macho.N_SECT,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    const atom = try self.createEmptyAtom(local_sym_index, @sizeOf(u64), 3);
+    assert(target == .global);
+    try atom.bindings.append(self.base.allocator, .{
+        .n_strx = target.global,
+        .offset = 0,
+    });
     return atom;
 }
 
@@ -3214,6 +3254,8 @@ pub fn deinit(self: *MachO) void {
     }
 
     self.section_ordinals.deinit(self.base.allocator);
+    self.tlv_ptr_entries_map.deinit(self.base.allocator);
+    self.tlv_ptr_entries_map_free_list.deinit(self.base.allocator);
     self.got_entries_map.deinit(self.base.allocator);
     self.got_entries_map_free_list.deinit(self.base.allocator);
     self.stubs_map.deinit(self.base.allocator);
@@ -4989,6 +5031,7 @@ fn sortSections(self: *MachO) !void {
             &self.objc_data_section_index,
             &self.data_section_index,
             &self.tlv_section_index,
+            &self.tlv_ptrs_section_index,
             &self.tlv_data_section_index,
             &self.tlv_bss_section_index,
             &self.bss_section_index,
@@ -6212,6 +6255,14 @@ fn logSymtab(self: MachO) void {
     for (self.got_entries_map.keys()) |key| {
         switch (key) {
             .local => |sym_index| log.debug("  {} => {d}", .{ key, sym_index }),
+            .global => |n_strx| log.debug("  {} => {s}", .{ key, self.getString(n_strx) }),
+        }
+    }
+
+    log.debug("__thread_ptrs entries:", .{});
+    for (self.tlv_ptr_entries_map.keys()) |key| {
+        switch (key) {
+            .local => unreachable,
             .global => |n_strx| log.debug("  {} => {s}", .{ key, self.getString(n_strx) }),
         }
     }
