@@ -110,14 +110,9 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Creates a copy of this ArrayList, using the same allocator.
         pub fn clone(self: *Self) !Self {
-            var items_copy = try self.allocator.alloc(T, self.capacity);
-            mem.copy(T, items_copy, self.items);
-            items_copy.len = self.items.len;
-            return Self{
-                .items = items_copy,
-                .capacity = self.capacity,
-                .allocator = self.allocator,
-            };
+            var cloned = try ArrayList(T).initCapacity(self.allocator, self.capacity);
+            cloned.appendSliceAssumeCapacity(self.items);
+            return cloned;
         }
 
         /// Insert `item` at index `n` by moving `list[n .. list.len]` to make room.
@@ -503,13 +498,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Creates a copy of this ArrayList.
         pub fn clone(self: *Self, allocator: Allocator) !Self {
-            var items_copy = try allocator.alloc(T, self.capacity);
-            mem.copy(T, items_copy, self.items);
-            items_copy.len = self.items.len;
-            return Self{
-                .items = items_copy,
-                .capacity = self.capacity,
-            };
+            var cloned = try ArrayListUnmanaged(T).initCapacity(allocator, self.capacity);
+            cloned.appendSliceAssumeCapacity(self.items);
+            return cloned;
         }
 
         /// Insert `item` at index `n`. Moves `list[n .. list.len]`
@@ -837,8 +828,8 @@ test "std.ArrayList/ArrayListUnmanaged.clone" {
         defer cloned.deinit();
 
         try testing.expectEqualSlices(i32, array.items, cloned.items);
-        try testing.expectEqual(array.capacity, cloned.capacity);
         try testing.expectEqual(array.allocator, cloned.allocator);
+        try testing.expect(cloned.capacity >= array.capacity);
 
         array.deinit();
 
@@ -856,7 +847,7 @@ test "std.ArrayList/ArrayListUnmanaged.clone" {
         defer cloned.deinit(a);
 
         try testing.expectEqualSlices(i32, array.items, cloned.items);
-        try testing.expectEqual(array.capacity, cloned.capacity);
+        try testing.expect(cloned.capacity >= array.capacity);
 
         array.deinit(a);
 
