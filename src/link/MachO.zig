@@ -2163,7 +2163,7 @@ fn createDyldPrivateAtom(self: *MachO) !void {
         const vaddr = try self.allocateAtom(atom, @sizeOf(u64), 8, match);
         log.debug("allocated {s} atom at 0x{x}", .{ self.getString(sym.n_strx), vaddr });
         sym.n_value = vaddr;
-    } else try self.addAtomAndBumpSectionSize(atom, match);
+    } else try self.addAtomToSection(atom, match);
 
     sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
 }
@@ -2297,7 +2297,7 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
         const vaddr = try self.allocateAtom(atom, atom.size, alignment_pow_2, match);
         log.debug("allocated {s} atom at 0x{x}", .{ self.getString(sym.n_strx), vaddr });
         sym.n_value = vaddr;
-    } else try self.addAtomAndBumpSectionSize(atom, match);
+    } else try self.addAtomToSection(atom, match);
 
     sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
 }
@@ -2513,7 +2513,7 @@ fn createTentativeDefAtoms(self: *MachO) !void {
             const vaddr = try self.allocateAtom(atom, size, alignment_pow_2, match);
             local_sym.n_value = vaddr;
             global_sym.n_value = vaddr;
-        } else try self.addAtomAndBumpSectionSize(atom, match);
+        } else try self.addAtomToSection(atom, match);
     }
 }
 
@@ -2566,7 +2566,7 @@ fn createDsoHandleAtom(self: *MachO) !void {
             const sym = &self.locals.items[local_sym_index];
             const vaddr = try self.allocateAtom(atom, 0, 1, match);
             sym.n_value = vaddr;
-        } else try self.addAtomAndBumpSectionSize(atom, match);
+        } else try self.addAtomToSection(atom, match);
     }
 }
 
@@ -2912,7 +2912,7 @@ fn createMhExecuteHeaderAtom(self: *MachO) !void {
         const sym = &self.locals.items[local_sym_index];
         const vaddr = try self.allocateAtom(atom, 0, 1, match);
         sym.n_value = vaddr;
-    } else try self.addAtomAndBumpSectionSize(atom, match);
+    } else try self.addAtomToSection(atom, match);
 
     self.mh_execute_header_index = local_sym_index;
 }
@@ -2972,7 +2972,7 @@ fn resolveDyldStubBinder(self: *MachO) !void {
         const vaddr = try self.allocateAtom(atom, @sizeOf(u64), 8, match);
         log.debug("allocated {s} atom at 0x{x}", .{ self.getString(sym.n_strx), vaddr });
         atom_sym.n_value = vaddr;
-    } else try self.addAtomAndBumpSectionSize(atom, match);
+    } else try self.addAtomToSection(atom, match);
 
     atom_sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
 }
@@ -4473,13 +4473,36 @@ fn allocateSegment(self: *MachO, index: u16, offset: u64) !void {
 
     // Allocate the sections according to their alignment at the beginning of the segment.
     var start: u64 = offset;
-    for (seg.sections.items) |*sect| {
+    for (seg.sections.items) |*sect, sect_id| {
         const alignment = try math.powi(u32, 2, sect.@"align");
         const start_aligned = mem.alignForwardGeneric(u64, start, alignment);
-        const end = start_aligned + sect.size;
         sect.offset = @intCast(u32, seg.inner.fileoff + start_aligned);
         sect.addr = seg.inner.vmaddr + start_aligned;
-        start = end;
+
+        // Recalculate section size given the allocated start address
+        sect.size = if (self.atoms.get(.{
+            .seg = index,
+            .sect = @intCast(u16, sect_id),
+        })) |last_atom| blk: {
+            var atom = last_atom;
+            while (atom.prev) |prev| {
+                atom = prev;
+            }
+
+            var base_addr = sect.addr;
+
+            while (true) {
+                const atom_alignment = try math.powi(u32, 2, atom.alignment);
+                base_addr = mem.alignForwardGeneric(u64, base_addr, atom_alignment) + atom.size;
+                if (atom.next) |next| {
+                    atom = next;
+                } else break;
+            }
+
+            break :blk base_addr - sect.addr;
+        } else 0;
+
+        start = start_aligned + sect.size;
     }
 
     const seg_size_aligned = mem.alignForwardGeneric(u64, start, self.page_size);
@@ -4827,12 +4850,7 @@ fn allocateAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64, m
     return vaddr;
 }
 
-fn addAtomAndBumpSectionSize(self: *MachO, atom: *Atom, match: MatchingSection) !void {
-    const seg = &self.load_commands.items[match.seg].segment;
-    const sect = &seg.sections.items[match.sect];
-    const alignment = try math.powi(u32, 2, atom.alignment);
-    sect.size = mem.alignForwardGeneric(u64, sect.size, alignment) + atom.size;
-
+fn addAtomToSection(self: *MachO, atom: *Atom, match: MatchingSection) !void {
     if (self.atoms.getPtr(match)) |last| {
         last.*.next = atom;
         atom.prev = last.*;
