@@ -843,7 +843,7 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
     const symtab = while (ncmd != 0) : (ncmd -= 1) {
         const lc = @ptrCast(*const std.macho.load_command, ptr);
         switch (lc.cmd) {
-            std.macho.LC_SYMTAB => break @ptrCast(*const std.macho.symtab_command, ptr),
+            .SYMTAB => break @ptrCast(*const std.macho.symtab_command, ptr),
             else => {},
         }
         ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
@@ -1072,7 +1072,7 @@ pub const DebugInfo = struct {
                     @alignCast(@alignOf(macho.load_command), cmd_ptr),
                 );
                 cmd_ptr += lc.cmdsize;
-                if (lc.cmd != macho.LC_SEGMENT_64) continue;
+                if (lc.cmd != .SEGMENT_64) continue;
 
                 const segment_cmd = @ptrCast(
                     *const std.macho.segment_command_64,
@@ -1303,14 +1303,14 @@ pub const ModuleDebugInfo = switch (native_os) {
             while (ncmd != 0) : (ncmd -= 1) {
                 const lc = @ptrCast(*const std.macho.load_command, ptr);
                 switch (lc.cmd) {
-                    std.macho.LC_SEGMENT_64 => {
+                    .SEGMENT_64 => {
                         segcmd = @ptrCast(
                             *const std.macho.segment_command_64,
                             @alignCast(@alignOf(std.macho.segment_command_64), ptr),
                         );
                         segptr = ptr;
                     },
-                    std.macho.LC_SYMTAB => {
+                    .SYMTAB => {
                         symtabcmd = @ptrCast(
                             *const std.macho.symtab_command,
                             @alignCast(@alignOf(std.macho.symtab_command), ptr),

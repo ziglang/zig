@@ -269,7 +269,7 @@ pub fn readLoadCommands(self: *Object, allocator: Allocator, reader: anytype) !v
     while (i < header.ncmds) : (i += 1) {
         var cmd = try macho.LoadCommand.read(allocator, reader);
         switch (cmd.cmd()) {
-            macho.LC_SEGMENT_64 => {
+            .SEGMENT_64 => {
                 self.segment_cmd_index = i;
                 var seg = cmd.segment;
                 for (seg.sections.items) |*sect, j| {
@@ -302,18 +302,18 @@ pub fn readLoadCommands(self: *Object, allocator: Allocator, reader: anytype) !v
 
                 seg.inner.fileoff += offset;
             },
-            macho.LC_SYMTAB => {
+            .SYMTAB => {
                 self.symtab_cmd_index = i;
                 cmd.symtab.symoff += offset;
                 cmd.symtab.stroff += offset;
             },
-            macho.LC_DYSYMTAB => {
+            .DYSYMTAB => {
                 self.dysymtab_cmd_index = i;
             },
-            macho.LC_BUILD_VERSION => {
+            .BUILD_VERSION => {
                 self.build_version_cmd_index = i;
             },
-            macho.LC_DATA_IN_CODE => {
+            .DATA_IN_CODE => {
                 self.data_in_code_cmd_index = i;
                 cmd.linkedit_data.dataoff += offset;
             },

@@ -783,7 +783,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                     @sizeOf(u64),
                 ));
                 var rpath_cmd = macho.emptyGenericCommandWithData(macho.rpath_command{
-                    .cmd = macho.LC_RPATH,
                     .cmdsize = cmdsize,
                     .path = @sizeOf(macho.rpath_command),
                 });
@@ -3174,7 +3173,7 @@ fn addCodeSignatureLC(self: *MachO) !void {
     self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
     try self.load_commands.append(self.base.allocator, .{
         .linkedit_data = .{
-            .cmd = macho.LC_CODE_SIGNATURE,
+            .cmd = .CODE_SIGNATURE,
             .cmdsize = @sizeOf(macho.linkedit_data_command),
             .dataoff = 0,
             .datasize = 0,
@@ -4203,7 +4202,7 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.dyld_info_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .dyld_info_only = .{
-                .cmd = macho.LC_DYLD_INFO_ONLY,
+                .cmd = .DYLD_INFO_ONLY,
                 .cmdsize = @sizeOf(macho.dyld_info_command),
                 .rebase_off = 0,
                 .rebase_size = 0,
@@ -4224,7 +4223,6 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.symtab_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .symtab = .{
-                .cmd = macho.LC_SYMTAB,
                 .cmdsize = @sizeOf(macho.symtab_command),
                 .symoff = 0,
                 .nsyms = 0,
@@ -4239,7 +4237,6 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.dysymtab_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .dysymtab = .{
-                .cmd = macho.LC_DYSYMTAB,
                 .cmdsize = @sizeOf(macho.dysymtab_command),
                 .ilocalsym = 0,
                 .nlocalsym = 0,
@@ -4272,7 +4269,7 @@ fn populateMissingMetadata(self: *MachO) !void {
             @sizeOf(u64),
         ));
         var dylinker_cmd = macho.emptyGenericCommandWithData(macho.dylinker_command{
-            .cmd = macho.LC_LOAD_DYLINKER,
+            .cmd = .LOAD_DYLINKER,
             .cmdsize = cmdsize,
             .name = @sizeOf(macho.dylinker_command),
         });
@@ -4287,7 +4284,6 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.main_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .main = .{
-                .cmd = macho.LC_MAIN,
                 .cmdsize = @sizeOf(macho.entry_point_command),
                 .entryoff = 0x0,
                 .stacksize = 0,
@@ -4314,7 +4310,7 @@ fn populateMissingMetadata(self: *MachO) !void {
             compat_version.major << 16 | compat_version.minor << 8 | compat_version.patch,
         );
         errdefer dylib_cmd.deinit(self.base.allocator);
-        dylib_cmd.inner.cmd = macho.LC_ID_DYLIB;
+        dylib_cmd.inner.cmd = .ID_DYLIB;
         try self.load_commands.append(self.base.allocator, .{ .dylib = dylib_cmd });
         self.load_commands_dirty = true;
     }
@@ -4323,7 +4319,6 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.source_version_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .source_version = .{
-                .cmd = macho.LC_SOURCE_VERSION,
                 .cmdsize = @sizeOf(macho.source_version_command),
                 .version = 0x0,
             },
@@ -4350,13 +4345,12 @@ fn populateMissingMetadata(self: *MachO) !void {
         } else platform_version;
         const is_simulator_abi = self.base.options.target.abi == .simulator;
         var cmd = macho.emptyGenericCommandWithData(macho.build_version_command{
-            .cmd = macho.LC_BUILD_VERSION,
             .cmdsize = cmdsize,
             .platform = switch (self.base.options.target.os.tag) {
-                .macos => macho.PLATFORM_MACOS,
-                .ios => if (is_simulator_abi) macho.PLATFORM_IOSSIMULATOR else macho.PLATFORM_IOS,
-                .watchos => if (is_simulator_abi) macho.PLATFORM_WATCHOSSIMULATOR else macho.PLATFORM_WATCHOS,
-                .tvos => if (is_simulator_abi) macho.PLATFORM_TVOSSIMULATOR else macho.PLATFORM_TVOS,
+                .macos => .MACOS,
+                .ios => if (is_simulator_abi) macho.PLATFORM.IOSSIMULATOR else macho.PLATFORM.IOS,
+                .watchos => if (is_simulator_abi) macho.PLATFORM.WATCHOSSIMULATOR else macho.PLATFORM.WATCHOS,
+                .tvos => if (is_simulator_abi) macho.PLATFORM.TVOSSIMULATOR else macho.PLATFORM.TVOS,
                 else => unreachable,
             },
             .minos = platform_version,
@@ -4364,7 +4358,7 @@ fn populateMissingMetadata(self: *MachO) !void {
             .ntools = 1,
         });
         const ld_ver = macho.build_tool_version{
-            .tool = macho.TOOL_LD,
+            .tool = .LD,
             .version = 0x0,
         };
         cmd.data = try self.base.allocator.alloc(u8, cmdsize - @sizeOf(macho.build_version_command));
@@ -4377,7 +4371,6 @@ fn populateMissingMetadata(self: *MachO) !void {
     if (self.uuid_cmd_index == null) {
         self.uuid_cmd_index = @intCast(u16, self.load_commands.items.len);
         var uuid_cmd: macho.uuid_command = .{
-            .cmd = macho.LC_UUID,
             .cmdsize = @sizeOf(macho.uuid_command),
             .uuid = undefined,
         };
@@ -4390,7 +4383,7 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.function_starts_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .linkedit_data = .{
-                .cmd = macho.LC_FUNCTION_STARTS,
+                .cmd = .FUNCTION_STARTS,
                 .cmdsize = @sizeOf(macho.linkedit_data_command),
                 .dataoff = 0,
                 .datasize = 0,
@@ -4403,7 +4396,7 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.data_in_code_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .linkedit_data = .{
-                .cmd = macho.LC_DATA_IN_CODE,
+                .cmd = .DATA_IN_CODE,
                 .cmdsize = @sizeOf(macho.linkedit_data_command),
                 .dataoff = 0,
                 .datasize = 0,
