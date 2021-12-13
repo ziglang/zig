@@ -110,8 +110,9 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Creates a copy of this ArrayList, using the same allocator.
         pub fn clone(self: *Self) !Self {
-            const items_copy = try self.allocator.alloc(T, self.capacity);
+            var items_copy = try self.allocator.alloc(T, self.capacity);
             mem.copy(T, items_copy, self.items);
+            items_copy.len = self.items.len;
             return Self{
                 .items = items_copy,
                 .capacity = self.capacity,
@@ -502,8 +503,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Creates a copy of this ArrayList.
         pub fn clone(self: *Self, allocator: Allocator) !Self {
-            const items_copy = try allocator.alloc(T, self.capacity);
+            var items_copy = try allocator.alloc(T, self.capacity);
             mem.copy(T, items_copy, self.items);
+            items_copy.len = self.items.len;
             return Self{
                 .items = items_copy,
                 .capacity = self.capacity,
@@ -838,14 +840,15 @@ test "std.ArrayList/ArrayListUnmanaged.clone" {
         while (i < array.items.len) : (i += 1) {
             try testing.expectEqual(array.items[i], cloned.items[i]);
         }
+        try testing.expectEqual(array.items.len, cloned.items.len);
         try testing.expectEqual(array.capacity, cloned.capacity);
         try testing.expectEqual(array.allocator, cloned.allocator);
 
         array.deinit();
 
-        try testing.expectEqual(cloned.items[0], -1);
-        try testing.expectEqual(cloned.items[1], 3);
-        try testing.expectEqual(cloned.items[2], 5);
+        try testing.expectEqual(@as(i32, -1), cloned.items[0]);
+        try testing.expectEqual(@as(i32, 3), cloned.items[1]);
+        try testing.expectEqual(@as(i32, 5), cloned.items[2]);
     }
     {
         var array = ArrayListUnmanaged(i32){};
@@ -860,13 +863,14 @@ test "std.ArrayList/ArrayListUnmanaged.clone" {
         while (i < array.items.len) : (i += 1) {
             try testing.expectEqual(array.items[i], cloned.items[i]);
         }
+        try testing.expectEqual(array.items.len, cloned.items.len);
         try testing.expectEqual(array.capacity, cloned.capacity);
 
         array.deinit(a);
 
-        try testing.expectEqual(cloned.items[0], -1);
-        try testing.expectEqual(cloned.items[1], 3);
-        try testing.expectEqual(cloned.items[2], 5);
+        try testing.expectEqual(@as(i32, -1), cloned.items[0]);
+        try testing.expectEqual(@as(i32, 3), cloned.items[1]);
+        try testing.expectEqual(@as(i32, 5), cloned.items[2]);
     }
 }
 
