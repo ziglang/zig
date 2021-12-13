@@ -836,11 +836,7 @@ test "std.ArrayList/ArrayListUnmanaged.clone" {
         const cloned = try array.clone();
         defer cloned.deinit();
 
-        var i: usize = 0;
-        while (i < array.items.len) : (i += 1) {
-            try testing.expectEqual(array.items[i], cloned.items[i]);
-        }
-        try testing.expectEqual(array.items.len, cloned.items.len);
+        try testing.expectEqualSlices(i32, array.items, cloned.items);
         try testing.expectEqual(array.capacity, cloned.capacity);
         try testing.expectEqual(array.allocator, cloned.allocator);
 
@@ -859,11 +855,7 @@ test "std.ArrayList/ArrayListUnmanaged.clone" {
         var cloned = try array.clone(a);
         defer cloned.deinit(a);
 
-        var i: usize = 0;
-        while (i < array.items.len) : (i += 1) {
-            try testing.expectEqual(array.items[i], cloned.items[i]);
-        }
-        try testing.expectEqual(array.items.len, cloned.items.len);
+        try testing.expectEqualSlices(i32, array.items, cloned.items);
         try testing.expectEqual(array.capacity, cloned.capacity);
 
         array.deinit(a);
