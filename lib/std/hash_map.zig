@@ -1007,10 +1007,8 @@ pub fn HashMapUnmanaged(
                 metadata = self.metadata.? + idx;
             }
 
-            if (!metadata[0].isTombstone()) {
-                assert(self.available > 0);
-                self.available -= 1;
-            }
+            assert(self.available > 0);
+            self.available -= 1;
 
             const fingerprint = Metadata.takeFingerprint(hash);
             metadata[0].fill(fingerprint);
@@ -1112,10 +1110,12 @@ pub fn HashMapUnmanaged(
             }
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
+            // Don't loop indefinitely when there are no empty slots.
+            var limit = self.capacity();
             var idx = @truncate(usize, hash & mask);
 
             var metadata = self.metadata.? + idx;
-            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+            while ((metadata[0].isUsed() or metadata[0].isTombstone()) and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const test_key = &self.keys()[idx];
                     // If you get a compile error on this line, it means that your generic eql
@@ -1131,6 +1131,7 @@ pub fn HashMapUnmanaged(
                     }
                 }
 
+                limit -= 1;
                 idx = (idx + 1) & mask;
                 metadata = self.metadata.? + idx;
             }
@@ -1288,11 +1289,12 @@ pub fn HashMapUnmanaged(
             }
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
+            var limit = self.capacity();
             var idx = @truncate(usize, hash & mask);
 
             var first_tombstone_idx: usize = self.capacity(); // invalid index
             var metadata = self.metadata.? + idx;
-            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+            while ((metadata[0].isUsed() or metadata[0].isTombstone()) and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const test_key = &self.keys()[idx];
                     // If you get a compile error on this line, it means that your generic eql
@@ -1314,6 +1316,7 @@ pub fn HashMapUnmanaged(
                     first_tombstone_idx = idx;
                 }
 
+                limit -= 1;
                 idx = (idx + 1) & mask;
                 metadata = self.metadata.? + idx;
             }
@@ -1322,10 +1325,9 @@ pub fn HashMapUnmanaged(
                 // Cheap try to lower probing lengths after deletions. Recycle a tombstone.
                 idx = first_tombstone_idx;
                 metadata = self.metadata.? + idx;
-            } else {
-                // We're using a slot previously free.
-                self.available -= 1;
             }
+            // We're using a slot previously free or a tombstone.
+            self.available -= 1;
 
             metadata[0].fill(fingerprint);
             const new_key = &self.keys()[idx];
@@ -1385,6 +1387,7 @@ pub fn HashMapUnmanaged(
                 self.keys()[idx] = undefined;
                 self.values()[idx] = undefined;
                 self.size -= 1;
+                self.available += 1;
                 return true;
             }
 
@@ -1395,7 +1398,7 @@ pub fn HashMapUnmanaged(
             @memset(@ptrCast([*]u8, self.metadata.?), 0, @sizeOf(Metadata) * self.capacity());
         }
 
-        // This counts the number of occupied slots, used + tombstones, which is
+        // This counts the number of occupied slots (not counting tombstones), which is
         // what has to stay under the max_load_percentage of capacity.
         fn load(self: *const Self) Size {
             const max_load = (self.capacity() * max_load_percentage) / 100;
@@ -1587,7 +1590,6 @@ test "std.hash_map ensureUnusedCapacity with tombstones" {
     while (i < 100) : (i += 1) {
         try map.ensureUnusedCapacity(1);
         map.putAssumeCapacity(i, i);
-        // Remove to create tombstones that still count as load in the hashmap.
         _ = map.remove(i);
     }
 }
@@ -1892,6 +1894,38 @@ test "std.hash_map putAssumeCapacity" {
         sum += map.get(i).?;
     }
     try expectEqual(sum, 20);
+}
+
+test "std.hash_map repeat putAssumeCapacity/remove" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    try map.ensureTotalCapacity(20);
+    const limit = map.unmanaged.available;
+
+    var i: u32 = 0;
+    while (i < limit) : (i += 1) {
+        map.putAssumeCapacityNoClobber(i, i);
+    }
+
+    // Repeatedly delete/insert an entry without resizing the map.
+    // Put to different keys so entries don't land in the just-freed slot.
+    i = 0;
+    while (i < 10 * limit) : (i += 1) {
+        try testing.expect(map.remove(i));
+        if (i % 2 == 0) {
+            map.putAssumeCapacityNoClobber(limit + i, i);
+        } else {
+            map.putAssumeCapacity(limit + i, i);
+        }
+    }
+
+    i = 9 * limit;
+    while (i < 10 * limit) : (i += 1) {
+        try expectEqual(map.get(limit + i), i);
+    }
+    try expectEqual(map.unmanaged.available, 0);
+    try expectEqual(map.unmanaged.count(), limit);
 }
 
 test "std.hash_map getOrPut" {
