@@ -2967,12 +2967,16 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
 
         try out_zig_file.writeAll(formatted);
 
-        man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
-        };
-
         break :digest digest;
     } else man.final();
+
+    // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
+    // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
+    // the contents were the same, we hit the cache but the manifest is dirty and we need to update
+    // it to prevent doing a full file content comparison the next time around.
+    man.writeManifest() catch |err| {
+        log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
+    };
 
     const out_zig_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
         "o", &digest, cimport_zig_basename,
@@ -3288,11 +3292,15 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         defer o_dir.close();
         const tmp_basename = std.fs.path.basename(out_obj_path);
         try std.fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, o_basename);
-
-        man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ c_object.src.src_path, @errorName(err) });
-        };
         break :blk digest;
+    };
+
+    // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
+    // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
+    // the contents were the same, we hit the cache but the manifest is dirty and we need to update
+    // it to prevent doing a full file content comparison the next time around.
+    man.writeManifest() catch |err| {
+        log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ c_object.src.src_path, @errorName(err) });
     };
 
     const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, o_ext });
