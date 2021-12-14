@@ -3576,6 +3576,12 @@ pub const IORING_OP = enum(u8) {
     PROVIDE_BUFFERS,
     REMOVE_BUFFERS,
     TEE,
+    SHUTDOWN,
+    RENAMEAT,
+    UNLINKAT,
+    MKDIRAT,
+    SYMLINKAT,
+    LINKAT,
 
     _,
 };
