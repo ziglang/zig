@@ -424,13 +424,13 @@ fn glibcVerFromSO(so_path: [:0]const u8) !std.builtin.Version {
         error.BadPathName => unreachable, // Windows only
         error.UnsupportedReparsePointType => unreachable, // Windows only
     };
-    return glibcVerFromLinkName(link_name);
+    return glibcVerFromLinkName(link_name, "libc-");
 }
 
-fn glibcVerFromLinkName(link_name: []const u8) !std.builtin.Version {
+fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) !std.builtin.Version {
     // example: "libc-2.3.4.so"
     // example: "libc-2.27.so"
-    const prefix = "libc-";
+    // example: "ld-2.33.so"
     const suffix = ".so";
     if (!mem.startsWith(u8, link_name, prefix) or !mem.endsWith(u8, link_name, suffix)) {
         return error.UnrecognizedGnuLibCFileName;
@@ -590,7 +590,9 @@ pub fn abiAndDynamicLinkerFromFile(
         }
     }
 
-    if (builtin.target.os.tag == .linux and result.target.isGnuLibC() and cross_target.glibc_version == null) {
+    if (builtin.target.os.tag == .linux and result.target.isGnuLibC() and
+        cross_target.glibc_version == null)
+    {
         if (rpath_offset) |rpoff| {
             const shstrndx = elfInt(is_64, need_bswap, hdr32.e_shstrndx, hdr64.e_shstrndx);
 
@@ -706,6 +708,7 @@ pub fn abiAndDynamicLinkerFromFile(
                     };
                     result.target.os.version_range.linux.glibc = glibcVerFromLinkName(
                         link_name,
+                        "libc-",
                     ) catch |err| switch (err) {
                         error.UnrecognizedGnuLibCFileName,
                         error.InvalidGnuLibCVersion,
@@ -714,6 +717,36 @@ pub fn abiAndDynamicLinkerFromFile(
                     break;
                 }
             }
+        } else if (result.dynamic_linker.get()) |dl_path| glibc_ver: {
+            // There is no DT_RUNPATH but we can try to see if the information is
+            // present in the symlink data for the dynamic linker path.
+            var link_buf: [std.os.PATH_MAX]u8 = undefined;
+            const link_name = std.os.readlink(dl_path, &link_buf) catch |err| switch (err) {
+                error.NameTooLong => unreachable,
+                error.InvalidUtf8 => unreachable, // Windows only
+                error.BadPathName => unreachable, // Windows only
+                error.UnsupportedReparsePointType => unreachable, // Windows only
+
+                error.AccessDenied,
+                error.FileNotFound,
+                error.NotLink,
+                error.NotDir,
+                => break :glibc_ver,
+
+                error.SystemResources,
+                error.FileSystem,
+                error.SymLinkLoop,
+                error.Unexpected,
+                => |e| return e,
+            };
+            result.target.os.version_range.linux.glibc = glibcVerFromLinkName(
+                fs.path.basename(link_name),
+                "ld-",
+            ) catch |err| switch (err) {
+                error.UnrecognizedGnuLibCFileName,
+                error.InvalidGnuLibCVersion,
+                => break :glibc_ver,
+            };
         }
     }
 
