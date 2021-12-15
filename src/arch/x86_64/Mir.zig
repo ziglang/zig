@@ -136,10 +136,24 @@ pub const Inst = struct {
         cmp_scale_src,
         cmp_scale_dst,
         cmp_scale_imm,
+
+        /// ops flags:  form:
+        ///       0b00  reg1, reg2 (MR)
+        ///       0b00  reg1, imm32
+        ///       0b01  reg1, [reg2 + imm32]
+        ///       0b01  reg1, [ds:imm32]
+        ///       0b10  [reg1 + imm32], reg2
+        ///       0b10  [reg1 + 0], imm32
+        ///       0b11  [reg1 + imm32], imm32
+        ///       0b11  reg1, reg2 (RM)
+        /// Notes:
+        ///  * If reg2 is `none` then it means Data field `imm` is used as the immediate.
+        ///  * When two imm32 values are required, Data field `payload` points at `ImmPair`.
         mov,
         mov_scale_src,
         mov_scale_dst,
         mov_scale_imm,
+
         lea,
         lea_scale_src,
         lea_scale_dst,
@@ -292,6 +306,7 @@ pub const Inst = struct {
         /// Another instruction.
         inst: Index,
         /// A 32-bit immediate value.
+        /// TODO we should add support for 16- and 8-bit immediate values.
         imm: i32,
         /// An extern function.
         /// Index into the linker's string table.
@@ -378,14 +393,14 @@ pub const Ops = struct {
     }
 };
 
-pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
+pub fn extraData(mir_extra: []const u32, comptime T: type, index: usize) struct { data: T, end: usize } {
     const fields = std.meta.fields(T);
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.field_type) {
-            u32 => mir.extra[i],
-            i32 => @bitCast(i32, mir.extra[i]),
+            u32 => mir_extra[i],
+            i32 => @bitCast(i32, mir_extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;

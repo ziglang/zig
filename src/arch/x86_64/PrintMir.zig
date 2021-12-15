@@ -481,7 +481,7 @@ fn mirArith(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: any
         0b11 => {
             if (ops.reg2 == .none) {
                 const payload = print.mir.instructions.items(.data)[inst].payload;
-                const imm_pair = print.mir.extraData(Mir.ImmPair, payload).data;
+                const imm_pair = Mir.extraData(print.mir.extra, Mir.ImmPair, payload).data;
                 try w.print("[{s} + {d}], {d}", .{ @tagName(ops.reg1), imm_pair.dest_off, imm_pair.operand });
             }
             try w.writeAll("TODO");
@@ -516,7 +516,7 @@ fn mirArithScaleImm(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index
     const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     const payload = print.mir.instructions.items(.data)[inst].payload;
-    const imm_pair = print.mir.extraData(Mir.ImmPair, payload).data;
+    const imm_pair = Mir.extraData(print.mir.extra, Mir.ImmPair, payload).data;
     try w.print("{s} [{s} + {d}*rcx + {d}], {d}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm_pair.dest_off, imm_pair.operand });
 }
 
@@ -528,7 +528,7 @@ fn mirMovabs(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
     const is_64 = ops.reg1.size() == 64;
     const imm: i128 = if (is_64) blk: {
         const payload = print.mir.instructions.items(.data)[inst].payload;
-        const imm64 = print.mir.extraData(Mir.Imm64, payload).data;
+        const imm64 = Mir.extraData(print.mir.extra, Mir.Imm64, payload).data;
         break :blk imm64.decode();
     } else print.mir.instructions.items(.data)[inst].imm;
     if (ops.flags == 0b00) {
