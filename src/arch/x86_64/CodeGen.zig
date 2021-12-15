@@ -2835,11 +2835,12 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             }
             const abi_size = ty.abiSize(self.target.*);
             const adj_off = stack_offset + abi_size;
+            // TODO select instruction size
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
                     .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
-                    .reg2 = .ebp,
+                    .reg2 = .rbp,
                     .flags = 0b10,
                 }).encode(),
                 .data = .{ .imm = -@intCast(i32, adj_off) },
