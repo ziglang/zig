@@ -4823,8 +4823,7 @@ fn allocateAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64, m
                 // should be deleted because the atom that it points to has grown to take up
                 // more of the extra capacity.
                 if (!big_atom.freeListEligible(self.*)) {
-                    const bl = free_list.swapRemove(i);
-                    bl.deinit(self.base.allocator);
+                    _ = free_list.swapRemove(i);
                 } else {
                     i += 1;
                 }

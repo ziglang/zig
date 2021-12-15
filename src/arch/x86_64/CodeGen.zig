@@ -1635,7 +1635,7 @@ fn genBinMathOpMir(
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
                             .reg1 = registerAlias(dst_reg, @intCast(u32, abi_size)),
-                            .reg2 = .ebp,
+                            .reg2 = registerAlias(.rbp, @intCast(u32, abi_size)),
                             .flags = 0b01,
                         }).encode(),
                         .data = .{ .imm = -@intCast(i32, adj_off) },
@@ -1666,7 +1666,7 @@ fn genBinMathOpMir(
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
                             .reg1 = registerAlias(src_reg, @intCast(u32, abi_size)),
-                            .reg2 = .ebp,
+                            .reg2 = registerAlias(.rbp, @intCast(u32, abi_size)),
                             .flags = 0b10,
                         }).encode(),
                         .data = .{ .imm = -@intCast(i32, adj_off) },
@@ -2839,7 +2839,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 .tag = .mov,
                 .ops = (Mir.Ops{
                     .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
-                    .reg2 = .ebp,
+                    .reg2 = registerAlias(.rbp, @intCast(u32, abi_size)),
                     .flags = 0b10,
                 }).encode(),
                 .data = .{ .imm = -@intCast(i32, adj_off) },
@@ -3060,7 +3060,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .tag = .mov,
                 .ops = (Mir.Ops{
                     .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
-                    .reg2 = .ebp,
+                    .reg2 = registerAlias(.rbp, @intCast(u32, abi_size)),
                     .flags = 0b01,
                 }).encode(),
                 .data = .{ .imm = ioff },
