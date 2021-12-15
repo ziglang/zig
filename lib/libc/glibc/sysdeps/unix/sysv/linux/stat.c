@@ -1,4 +1,5 @@
-/* Copyright (C) 1996-2021 Free Software Foundation, Inc.
+/* Get file status.  Linux version.
+   Copyright (C) 2020-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -17,7 +18,9 @@
 
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <kernel_stat.h>
 
+#if !XSTAT_IS_XSTAT64
 int
 __stat (const char *file, struct stat *buf)
 {
@@ -25,3 +28,4 @@ __stat (const char *file, struct stat *buf)
 }
 
 weak_alias (__stat, stat)
+#endif

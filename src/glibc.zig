@@ -269,23 +269,25 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             return comp.build_crt_file("Scrt1", .Obj, &[_]Compilation.CSourceFile{ start_os, abi_note_o });
         },
         .libc_nonshared_a => {
+            const s = path.sep_str;
+            const linux_prefix = lib_libc_glibc ++
+                "sysdeps" ++ s ++ "unix" ++ s ++ "sysv" ++ s ++ "linux" ++ s;
             const deps = [_][]const u8{
-                lib_libc_glibc ++ "stdlib" ++ path.sep_str ++ "atexit.c",
-                lib_libc_glibc ++ "stdlib" ++ path.sep_str ++ "at_quick_exit.c",
-                lib_libc_glibc ++ "io" ++ path.sep_str ++ "stat.c",
-                lib_libc_glibc ++ "io" ++ path.sep_str ++ "fstat.c",
-                lib_libc_glibc ++ "io" ++ path.sep_str ++ "lstat.c",
-                lib_libc_glibc ++ "io" ++ path.sep_str ++ "stat64.c",
-                lib_libc_glibc ++ "io" ++ path.sep_str ++ "fstat64.c",
-                lib_libc_glibc ++ "io" ++ path.sep_str ++ "lstat64.c",
-                lib_libc_glibc ++ "io" ++ path.sep_str ++ "fstatat.c",
-                lib_libc_glibc ++ "io" ++ path.sep_str ++ "fstatat64.c",
-                lib_libc_glibc ++ "io" ++ path.sep_str ++ "mknod.c",
-                lib_libc_glibc ++ "io" ++ path.sep_str ++ "mknodat.c",
-                lib_libc_glibc ++ "sysdeps" ++ path.sep_str ++ "pthread" ++ path.sep_str ++
-                    "pthread_atfork.c",
-                lib_libc_glibc ++ "debug" ++ path.sep_str ++ "stack_chk_fail_local.c",
-                lib_libc_glibc ++ "csu" ++ path.sep_str ++ "errno.c",
+                lib_libc_glibc ++ "stdlib" ++ s ++ "atexit.c",
+                lib_libc_glibc ++ "stdlib" ++ s ++ "at_quick_exit.c",
+                linux_prefix ++ "stat.c",
+                linux_prefix ++ "fstat.c",
+                linux_prefix ++ "lstat.c",
+                linux_prefix ++ "stat64.c",
+                linux_prefix ++ "fstat64.c",
+                linux_prefix ++ "lstat64.c",
+                linux_prefix ++ "fstatat.c",
+                linux_prefix ++ "fstatat64.c",
+                linux_prefix ++ "mknodat.c",
+                lib_libc_glibc ++ "io" ++ s ++ "mknod.c",
+                lib_libc_glibc ++ "sysdeps" ++ s ++ "pthread" ++ s ++ "pthread_atfork.c",
+                lib_libc_glibc ++ "debug" ++ s ++ "stack_chk_fail_local.c",
+                lib_libc_glibc ++ "csu" ++ s ++ "errno.c",
             };
 
             var c_source_files: [deps.len]Compilation.CSourceFile = undefined;

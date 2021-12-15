@@ -1,4 +1,5 @@
-/* Copyright (C) 1996-2021 Free Software Foundation, Inc.
+/* Internal definitions for stat functions.
+   Copyright (C) 2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,13 +16,7 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
-#include <sys/stat.h>
-#include <fcntl.h>
-
-int
-__stat64 (const char *file, struct stat64 *buf)
-{
-  return __fstatat64 (AT_FDCWD, file, buf, 0);
-}
-hidden_def (__stat64)
-weak_alias (__stat64, stat64)
+/* The default Linux ABI assumes only LFS support.  */
+#define XSTAT_IS_XSTAT64     1
+#define STATFS_IS_STATFS64   __STATFS_MATCHES_STATFS64
+#define STAT_IS_KERNEL_STAT  1

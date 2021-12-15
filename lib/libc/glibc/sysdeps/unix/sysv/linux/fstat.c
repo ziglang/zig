@@ -1,4 +1,5 @@
-/* Copyright (C) 1996-2021 Free Software Foundation, Inc.
+/* Get file status.  Linux version.
+   Copyright (C) 2020-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -16,9 +17,11 @@
    <https://www.gnu.org/licenses/>.  */
 
 #include <sys/stat.h>
-#include <errno.h>
+#include <kernel_stat.h>
 #include <fcntl.h>
+#include <errno.h>
 
+#if !XSTAT_IS_XSTAT64
 int
 __fstat (int fd, struct stat *buf)
 {
@@ -31,3 +34,4 @@ __fstat (int fd, struct stat *buf)
 }
 
 weak_alias (__fstat, fstat)
+#endif
