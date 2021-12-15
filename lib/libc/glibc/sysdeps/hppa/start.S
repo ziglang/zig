@@ -1,5 +1,5 @@
 /* ELF startup code for HPPA.
-   Copyright (C) 2002-2020 Free Software Foundation, Inc.
+   Copyright (C) 2002-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -36,8 +36,6 @@
 	.import main, code
 	.import $global$, data
 	.import __libc_start_main, code
-	.import __libc_csu_fini, code
-	.import __libc_csu_init, code
 
 	/* Have the linker create plabel words so we get PLABEL32
 	   relocs and not 21/14.  The use of 21/14 relocs is only
@@ -52,10 +50,6 @@
 	.word P%main
 .Lp__libc_start_main:
 	.word P%__libc_start_main
-.Lp__libc_csu_fini:
-	.word P%__libc_csu_fini
-.Lp__libc_csu_init:
-	.word P%__libc_csu_init
 
 	.text
 	.align 4
@@ -77,8 +71,8 @@ _start:
 		1. r26 - Application main
 		2. r25 - argc
 		3. r24 - argv
-		4. r23 - __libc_csu_init
-		5. sp-52 - __libc_csu_fini
+		4. r23 - init (unused)
+		5. sp-52 - fini (unused)
 		6. sp-56 - rtld_fini
 		7. sp-60 - stackend  */
 
@@ -108,14 +102,6 @@ _start:
 	addil	LT'.Lpmain, %r19
 	ldw	RT'.Lpmain(%r1), %r26
 	ldw	0(%r26),%r26
-	/* void (*init) (void) (4th argument) */
-	addil	LT'.Lp__libc_csu_init, %r19
-	ldw	RT'.Lp__libc_csu_init(%r1), %r23
-	ldw	0(%r23), %r23
-	/* void (*fini) (void) (5th argument) */
-	addil	LT'.Lp__libc_csu_fini, %r19
-	ldw	RT'.Lp__libc_csu_fini(%r1), %r22
-	ldw	0(%r22), %r22
 #else
 	/* Load $global$ address into %dp */
 	ldil	L%$global$, %dp
@@ -124,13 +110,9 @@ _start:
 	/* load main (1st argument) */
 	ldil	LR'.Lpmain, %r26
 	ldw	RR'.Lpmain(%r26), %r26
-	/* void (*init) (void) (4th argument) */
-	ldil	LR'.Lp__libc_csu_init, %r23
-	ldw	RR'.Lp__libc_csu_init(%r23), %r23
-	/* void (*fini) (void) (5th argument) */
-	ldil	LR'.Lp__libc_csu_fini, %r22
-	ldw	RR'.Lp__libc_csu_fini(%r22), %r22
 #endif
+	ldi	0,%r23		/* Used to be init.  */
+	ldi	0,%r22		/* Used to be fini.  */
 	/* Store 5th argument */
 	stw	%r22, -52(%sp)
 	/* void *stack_end (7th argument) */

@@ -1,4 +1,4 @@
-/* Copyright (C) 1996-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1996-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Written by Andreas Schwab, <schwab@issan.informatik.uni-dortmund.de>,
    December 1995.
@@ -44,6 +44,7 @@
 
 /* We don't want the label for the error handler to be visible in the symbol
    table when we define it here.  */
+#undef SYSCALL_ERROR_LABEL
 #ifdef PIC
 #define SYSCALL_ERROR_LABEL .Lsyscall_error
 #else
@@ -221,27 +222,12 @@ SYSCALL_ERROR_LABEL:							      \
 
 #else /* not __ASSEMBLER__ */
 
-/* Define a macro which expands into the inline wrapper code for a system
-   call.  */
-#undef INLINE_SYSCALL
-#define INLINE_SYSCALL(name, nr, args...)				\
-  ({ unsigned int _sys_result = INTERNAL_SYSCALL (name, , nr, args);	\
-     if (__builtin_expect (INTERNAL_SYSCALL_ERROR_P (_sys_result, ), 0))\
-       {								\
-	 __set_errno (INTERNAL_SYSCALL_ERRNO (_sys_result, ));		\
-	 _sys_result = (unsigned int) -1;				\
-       }								\
-     (int) _sys_result; })
-
-#undef INTERNAL_SYSCALL_DECL
-#define INTERNAL_SYSCALL_DECL(err) do { } while (0)
-
 /* Define a macro which expands inline into the wrapper code for a system
    call.  This use is for internal calls that do not need to handle errors
    normally.  It will never touch errno.  This returns just what the kernel
    gave back.  */
 #undef INTERNAL_SYSCALL
-#define INTERNAL_SYSCALL_NCS(name, err, nr, args...)	\
+#define INTERNAL_SYSCALL_NCS(name, nr, args...)	\
   ({ unsigned int _sys_result;				\
      {							\
        /* Load argument values in temporary variables
@@ -257,15 +243,8 @@ SYSCALL_ERROR_LABEL:							      \
        _sys_result = _d0;				\
      }							\
      (int) _sys_result; })
-#define INTERNAL_SYSCALL(name, err, nr, args...)	\
-  INTERNAL_SYSCALL_NCS (__NR_##name, err, nr, ##args)
-
-#undef INTERNAL_SYSCALL_ERROR_P
-#define INTERNAL_SYSCALL_ERROR_P(val, err)		\
-  ((unsigned int) (val) >= -4095U)
-
-#undef INTERNAL_SYSCALL_ERRNO
-#define INTERNAL_SYSCALL_ERRNO(val, err)	(-(val))
+#define INTERNAL_SYSCALL(name, nr, args...)	\
+  INTERNAL_SYSCALL_NCS (__NR_##name, nr, ##args)
 
 #define LOAD_ARGS_0()
 #define LOAD_REGS_0
@@ -312,6 +291,9 @@ SYSCALL_ERROR_LABEL:							      \
   register int _a0 asm ("a0") = __arg6;		\
   LOAD_REGS_5
 #define ASM_ARGS_6	ASM_ARGS_5, "a" (_a0)
+
+#undef HAVE_INTERNAL_BRK_ADDR_SYMBOL
+#define HAVE_INTERNAL_BRK_ADDR_SYMBOL 1
 
 #endif /* not __ASSEMBLER__ */
 

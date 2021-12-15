@@ -1,6 +1,6 @@
 /* Set flags signalling availability of kernel features based on given
    kernel version number.  SPARC version.
-   Copyright (C) 1999-2020 Free Software Foundation, Inc.
+   Copyright (C) 1999-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -38,10 +38,11 @@
 # undef __ASSUME_CONNECT_SYSCALL
 # undef __ASSUME_RECVFROM_SYSCALL
 # undef __ASSUME_SENDTO_SYSCALL
+# undef __ASSUME_GETSOCKOPT_SYSCALL
+# undef __ASSUME_SETSOCKOPT_SYSCALL
 #else
 # define __ASSUME_SOCKET_SYSCALL             1
 # define __ASSUME_SOCKETPAIR_SYSCALL         1
-# define __ASSUME_GETSOCKOPT_SYSCALL         1
 # define __ASSUME_SHUTDOWN_SYSCALL           1
 #endif
 
@@ -49,7 +50,6 @@
 #if __LINUX_KERNEL_VERSION >= 0x040400
 # define __ASSUME_BIND_SYSCALL               1
 # define __ASSUME_LISTEN_SYSCALL             1
-# define __ASSUME_SETSOCKOPT_SYSCALL         1
 #endif
 
 #ifdef __arch64__

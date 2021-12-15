@@ -22,6 +22,32 @@
 #include <sysdeps/unix/sysv/linux/generic/sysdep.h>
 #include <tls.h>
 
+#undef SYS_ify
+#define SYS_ify(syscall_name)	__NR_##syscall_name
+
+#if __WORDSIZE == 32
+
+/* Workarounds for generic code needing to handle 64-bit time_t.  */
+
+/* Fix sysdeps/unix/sysv/linux/clock_getcpuclockid.c.  */
+#define __NR_clock_getres	__NR_clock_getres_time64
+/* Fix sysdeps/nptl/lowlevellock-futex.h.  */
+#define __NR_futex		__NR_futex_time64
+/* Fix sysdeps/unix/sysv/linux/pause.c.  */
+#define __NR_ppoll		__NR_ppoll_time64
+/* Fix sysdeps/unix/sysv/linux/select.c.  */
+#define __NR_pselect6		__NR_pselect6_time64
+/* Fix sysdeps/unix/sysv/linux/recvmmsg.c.  */
+#define __NR_recvmmsg		__NR_recvmmsg_time64
+/* Fix sysdeps/unix/sysv/linux/sigtimedwait.c.  */
+#define __NR_rt_sigtimedwait	__NR_rt_sigtimedwait_time64
+/* Fix sysdeps/unix/sysv/linux/semtimedop.c.  */
+#define __NR_semtimedop		__NR_semtimedop_time64
+/* Hack sysdeps/unix/sysv/linux/generic/utimes.c.  */
+#define __NR_utimensat		__NR_utimensat_time64
+
+#endif /* __WORDSIZE == 32 */
+
 #ifdef __ASSEMBLER__
 
 # include <sys/asm.h>
@@ -107,56 +133,38 @@
 # undef ret_ERRVAL
 # define ret_ERRVAL ret
 
-#endif /* __ASSEMBLER__ */
+#else /* !__ASSEMBLER__ */
 
-/* In order to get __set_errno() definition in INLINE_SYSCALL.  */
-#ifndef __ASSEMBLER__
-# include <errno.h>
-#endif
+# if __WORDSIZE == 64
+#  define VDSO_NAME	"LINUX_4.15"
+#  define VDSO_HASH	182943605
 
-#include <sysdeps/unix/sysdep.h>
+/* List of system calls which are supported as vsyscalls only
+   for RV64.  */
+#  define HAVE_CLOCK_GETRES64_VSYSCALL	"__vdso_clock_getres"
+#  define HAVE_CLOCK_GETTIME64_VSYSCALL	"__vdso_clock_gettime"
+#  define HAVE_GETTIMEOFDAY_VSYSCALL	"__vdso_gettimeofday"
+# else
+#  define VDSO_NAME	"LINUX_5.4"
+#  define VDSO_HASH	61765876
 
-#undef SYS_ify
-#define SYS_ify(syscall_name)	__NR_##syscall_name
+/* RV32 does not support the gettime VDSO syscalls.  */
+# endif
 
-#ifndef __ASSEMBLER__
-
-# define VDSO_NAME  "LINUX_4.15"
-# define VDSO_HASH  182943605
-
-/* List of system calls which are supported as vsyscalls.  */
-# define HAVE_CLOCK_GETRES64_VSYSCALL	"__vdso_clock_getres"
-# define HAVE_CLOCK_GETTIME64_VSYSCALL	"__vdso_clock_gettime"
-# define HAVE_GETTIMEOFDAY_VSYSCALL	"__vdso_gettimeofday"
+/* List of system calls which are supported as vsyscalls (for RV32 and
+   RV64).  */
 # define HAVE_GETCPU_VSYSCALL		"__vdso_getcpu"
 
-/* Define a macro which expands into the inline wrapper code for a system
-   call.  */
-# undef INLINE_SYSCALL
-# define INLINE_SYSCALL(name, nr, args...)				\
-  ({ INTERNAL_SYSCALL_DECL (err);					\
-     long int __sys_result = INTERNAL_SYSCALL (name, err, nr, args);	\
-     if (__glibc_unlikely (INTERNAL_SYSCALL_ERROR_P (__sys_result, )))  \
-       {								\
-         __set_errno (INTERNAL_SYSCALL_ERRNO (__sys_result, ));		\
-	 __sys_result = (unsigned long) -1;				\
-       }								\
-     __sys_result; })
+# undef HAVE_INTERNAL_BRK_ADDR_SYMBOL
+# define HAVE_INTERNAL_BRK_ADDR_SYMBOL 1
 
-# define INTERNAL_SYSCALL_DECL(err) do { } while (0)
+# define INTERNAL_SYSCALL(name, nr, args...) \
+	internal_syscall##nr (SYS_ify (name), args)
 
-# define INTERNAL_SYSCALL_ERROR_P(val, err) \
-        ((unsigned long int) (val) > -4096UL)
+# define INTERNAL_SYSCALL_NCS(number, nr, args...) \
+	internal_syscall##nr (number, args)
 
-# define INTERNAL_SYSCALL_ERRNO(val, err)     (-val)
-
-# define INTERNAL_SYSCALL(name, err, nr, args...) \
-	internal_syscall##nr (SYS_ify (name), err, args)
-
-# define INTERNAL_SYSCALL_NCS(number, err, nr, args...) \
-	internal_syscall##nr (number, err, args)
-
-# define internal_syscall0(number, err, dummy...)			\
+# define internal_syscall0(number, dummy...)			\
 ({ 									\
 	long int _sys_result;						\
 									\
@@ -173,13 +181,14 @@
 	_sys_result;							\
 })
 
-# define internal_syscall1(number, err, arg0)				\
+# define internal_syscall1(number, arg0)				\
 ({ 									\
 	long int _sys_result;						\
+	long int _arg0 = (long int) (arg0);				\
 									\
 	{								\
 	register long int __a7 asm ("a7") = number;			\
-	register long int __a0 asm ("a0") = (long int) (arg0);		\
+	register long int __a0 asm ("a0") = _arg0;			\
 	__asm__ volatile ( 						\
 	"scall\n\t" 							\
 	: "+r" (__a0)							\
@@ -190,14 +199,16 @@
 	_sys_result;							\
 })
 
-# define internal_syscall2(number, err, arg0, arg1)	    		\
+# define internal_syscall2(number, arg0, arg1)	    		\
 ({ 									\
 	long int _sys_result;						\
+	long int _arg0 = (long int) (arg0);				\
+	long int _arg1 = (long int) (arg1);				\
 									\
 	{								\
 	register long int __a7 asm ("a7") = number;			\
-	register long int __a0 asm ("a0") = (long int) (arg0);		\
-	register long int __a1 asm ("a1") = (long int) (arg1);		\
+	register long int __a0 asm ("a0") = _arg0;			\
+	register long int __a1 asm ("a1") = _arg1;			\
 	__asm__ volatile ( 						\
 	"scall\n\t" 							\
 	: "+r" (__a0)							\
@@ -208,15 +219,18 @@
 	_sys_result;							\
 })
 
-# define internal_syscall3(number, err, arg0, arg1, arg2)      		\
+# define internal_syscall3(number, arg0, arg1, arg2)      		\
 ({ 									\
 	long int _sys_result;						\
+	long int _arg0 = (long int) (arg0);				\
+	long int _arg1 = (long int) (arg1);				\
+	long int _arg2 = (long int) (arg2);				\
 									\
 	{								\
 	register long int __a7 asm ("a7") = number;			\
-	register long int __a0 asm ("a0") = (long int) (arg0);		\
-	register long int __a1 asm ("a1") = (long int) (arg1);		\
-	register long int __a2 asm ("a2") = (long int) (arg2);		\
+	register long int __a0 asm ("a0") = _arg0;			\
+	register long int __a1 asm ("a1") = _arg1;			\
+	register long int __a2 asm ("a2") = _arg2;			\
 	__asm__ volatile ( 						\
 	"scall\n\t" 							\
 	: "+r" (__a0)							\
@@ -227,16 +241,20 @@
 	_sys_result;							\
 })
 
-# define internal_syscall4(number, err, arg0, arg1, arg2, arg3)	  \
+# define internal_syscall4(number, arg0, arg1, arg2, arg3)	  \
 ({ 									\
 	long int _sys_result;						\
+	long int _arg0 = (long int) (arg0);				\
+	long int _arg1 = (long int) (arg1);				\
+	long int _arg2 = (long int) (arg2);				\
+	long int _arg3 = (long int) (arg3);				\
 									\
 	{								\
 	register long int __a7 asm ("a7") = number;			\
-	register long int __a0 asm ("a0") = (long int) (arg0);		\
-	register long int __a1 asm ("a1") = (long int) (arg1);		\
-	register long int __a2 asm ("a2") = (long int) (arg2);		\
-	register long int __a3 asm ("a3") = (long int) (arg3);		\
+	register long int __a0 asm ("a0") = _arg0;			\
+	register long int __a1 asm ("a1") = _arg1;			\
+	register long int __a2 asm ("a2") = _arg2;			\
+	register long int __a3 asm ("a3") = _arg3;			\
 	__asm__ volatile ( 						\
 	"scall\n\t" 							\
 	: "+r" (__a0)							\
@@ -247,17 +265,22 @@
 	_sys_result;							\
 })
 
-# define internal_syscall5(number, err, arg0, arg1, arg2, arg3, arg4)   \
+# define internal_syscall5(number, arg0, arg1, arg2, arg3, arg4)   \
 ({ 									\
 	long int _sys_result;						\
+	long int _arg0 = (long int) (arg0);				\
+	long int _arg1 = (long int) (arg1);				\
+	long int _arg2 = (long int) (arg2);				\
+	long int _arg3 = (long int) (arg3);				\
+	long int _arg4 = (long int) (arg4);				\
 									\
 	{								\
 	register long int __a7 asm ("a7") = number;			\
-	register long int __a0 asm ("a0") = (long int) (arg0);		\
-	register long int __a1 asm ("a1") = (long int) (arg1);		\
-	register long int __a2 asm ("a2") = (long int) (arg2);		\
-	register long int __a3 asm ("a3") = (long int) (arg3);		\
-	register long int __a4 asm ("a4") = (long int) (arg4);		\
+	register long int __a0 asm ("a0") = _arg0;			\
+	register long int __a1 asm ("a1") = _arg1;			\
+	register long int __a2 asm ("a2") = _arg2;			\
+	register long int __a3 asm ("a3") = _arg3;			\
+	register long int __a4 asm ("a4") = _arg4;			\
 	__asm__ volatile ( 						\
 	"scall\n\t" 							\
 	: "+r" (__a0)							\
@@ -268,18 +291,24 @@
 	_sys_result;							\
 })
 
-# define internal_syscall6(number, err, arg0, arg1, arg2, arg3, arg4, arg5) \
+# define internal_syscall6(number, arg0, arg1, arg2, arg3, arg4, arg5) \
 ({ 									\
 	long int _sys_result;						\
+	long int _arg0 = (long int) (arg0);				\
+	long int _arg1 = (long int) (arg1);				\
+	long int _arg2 = (long int) (arg2);				\
+	long int _arg3 = (long int) (arg3);				\
+	long int _arg4 = (long int) (arg4);				\
+	long int _arg5 = (long int) (arg5);				\
 									\
 	{								\
 	register long int __a7 asm ("a7") = number;			\
-	register long int __a0 asm ("a0") = (long int) (arg0);		\
-	register long int __a1 asm ("a1") = (long int) (arg1);		\
-	register long int __a2 asm ("a2") = (long int) (arg2);		\
-	register long int __a3 asm ("a3") = (long int) (arg3);		\
-	register long int __a4 asm ("a4") = (long int) (arg4);		\
-	register long int __a5 asm ("a5") = (long int) (arg5);		\
+	register long int __a0 asm ("a0") = _arg0;			\
+	register long int __a1 asm ("a1") = _arg1;			\
+	register long int __a2 asm ("a2") = _arg2;			\
+	register long int __a3 asm ("a3") = _arg3;			\
+	register long int __a4 asm ("a4") = _arg4;			\
+	register long int __a5 asm ("a5") = _arg5;			\
 	__asm__ volatile ( 						\
 	"scall\n\t" 							\
 	: "+r" (__a0)							\
@@ -291,19 +320,26 @@
 	_sys_result;							\
 })
 
-# define internal_syscall7(number, err, arg0, arg1, arg2, arg3, arg4, arg5, arg6) \
+# define internal_syscall7(number, arg0, arg1, arg2, arg3, arg4, arg5, arg6) \
 ({ 									\
 	long int _sys_result;						\
+	long int _arg0 = (long int) (arg0);				\
+	long int _arg1 = (long int) (arg1);				\
+	long int _arg2 = (long int) (arg2);				\
+	long int _arg3 = (long int) (arg3);				\
+	long int _arg4 = (long int) (arg4);				\
+	long int _arg5 = (long int) (arg5);				\
+	long int _arg6 = (long int) (arg6);				\
 									\
 	{								\
 	register long int __a7 asm ("a7") = number;			\
-	register long int __a0 asm ("a0") = (long int) (arg0);		\
-	register long int __a1 asm ("a1") = (long int) (arg1);		\
-	register long int __a2 asm ("a2") = (long int) (arg2);		\
-	register long int __a3 asm ("a3") = (long int) (arg3);		\
-	register long int __a4 asm ("a4") = (long int) (arg4);		\
-	register long int __a5 asm ("a5") = (long int) (arg5);		\
-	register long int __a6 asm ("a6") = (long int) (arg6);		\
+	register long int __a0 asm ("a0") = _arg0;			\
+	register long int __a1 asm ("a1") = _arg1;			\
+	register long int __a2 asm ("a2") = _arg2;			\
+	register long int __a3 asm ("a3") = _arg3;			\
+	register long int __a4 asm ("a4") = _arg4;			\
+	register long int __a5 asm ("a5") = _arg5;			\
+	register long int __a6 asm ("a6") = _arg6;			\
 	__asm__ volatile ( 						\
 	"scall\n\t" 							\
 	: "+r" (__a0)							\

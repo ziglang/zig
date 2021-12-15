@@ -282,46 +282,13 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 lib_libc_glibc ++ "io" ++ path.sep_str ++ "fstatat64.c",
                 lib_libc_glibc ++ "io" ++ path.sep_str ++ "mknod.c",
                 lib_libc_glibc ++ "io" ++ path.sep_str ++ "mknodat.c",
-                lib_libc_glibc ++ "nptl" ++ path.sep_str ++ "pthread_atfork.c",
+                lib_libc_glibc ++ "sysdeps" ++ path.sep_str ++ "pthread" ++ path.sep_str ++
+                    "pthread_atfork.c",
                 lib_libc_glibc ++ "debug" ++ path.sep_str ++ "stack_chk_fail_local.c",
+                lib_libc_glibc ++ "csu" ++ path.sep_str ++ "errno.c",
             };
 
-            var c_source_files: [deps.len + 1]Compilation.CSourceFile = undefined;
-
-            c_source_files[0] = blk: {
-                var args = std.ArrayList([]const u8).init(arena);
-                try args.appendSlice(&[_][]const u8{
-                    "-std=gnu11",
-                    "-fgnu89-inline",
-                    "-fmerge-all-constants",
-                    "-fno-stack-protector",
-                    "-fmath-errno",
-                    "-fno-stack-protector",
-                    "-I",
-                    try lib_path(comp, arena, lib_libc_glibc ++ "csu"),
-                });
-                try add_include_dirs(comp, arena, &args);
-                try args.appendSlice(&[_][]const u8{
-                    "-DSTACK_PROTECTOR_LEVEL=0",
-                    "-fPIC",
-                    "-fno-stack-protector",
-                    "-ftls-model=initial-exec",
-                    "-D_LIBC_REENTRANT",
-                    "-include",
-                    try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
-                    "-DMODULE_NAME=libc",
-                    "-Wno-nonportable-include-path",
-                    "-include",
-                    try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
-                    "-DPIC",
-                    "-DLIBC_NONSHARED=1",
-                    "-DTOP_NAMESPACE=glibc",
-                });
-                break :blk .{
-                    .src_path = try lib_path(comp, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "elf-init.c"),
-                    .extra_flags = args.items,
-                };
-            };
+            var c_source_files: [deps.len]Compilation.CSourceFile = undefined;
 
             for (deps) |dep, i| {
                 var args = std.ArrayList([]const u8).init(arena);
@@ -347,7 +314,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-DLIBC_NONSHARED=1",
                     "-DTOP_NAMESPACE=glibc",
                 });
-                c_source_files[i + 1] = .{
+                c_source_files[i] = .{
                     .src_path = try lib_path(comp, arena, dep),
                     .extra_flags = args.items,
                 };

@@ -1,5 +1,5 @@
 /* Assembler macros for i386.
-   Copyright (C) 1991-2020 Free Software Foundation, Inc.
+   Copyright (C) 1991-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -17,8 +17,6 @@
    <https://www.gnu.org/licenses/>.  */
 
 #include <sysdeps/x86/sysdep.h>
-
-#include <features.h> /* For __GNUC_PREREQ.  */
 
 /* It is desirable that the names of PIC thunks match those used by
    GCC so that multiple copies are eliminated by the linker.  Because
@@ -97,9 +95,9 @@ GET_PC_THUNK(reg):							      \
 
 # define SETUP_PIC_REG_STR(reg)						\
   ".ifndef " GET_PC_THUNK_STR (reg) "\n"				\
-  "section .text." GET_PC_THUNK_STR (reg) ",\"axG\",@progbits," 	\
+  ".section .text." GET_PC_THUNK_STR (reg) ",\"axG\",@progbits,"	\
+    GET_PC_THUNK_STR (reg) ",comdat\n"					\
   ".globl " GET_PC_THUNK_STR (reg) "\n"					\
-  GET_PC_THUNK_STR (reg) ",comdat\n" \
   ".hidden " GET_PC_THUNK_STR (reg) "\n"				\
   ".p2align 4\n"							\
   ".type " GET_PC_THUNK_STR (reg) ",@function\n"			\

@@ -1,5 +1,5 @@
 /* Assembler macros for x86.
-   Copyright (C) 2017-2020 Free Software Foundation, Inc.
+   Copyright (C) 2017-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -56,6 +56,11 @@ enum cf_protection_level
 /* Save SSE, AVX, AVX512, mask and bound registers.  */
 #define STATE_SAVE_MASK \
   ((1 << 1) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 6) | (1 << 7))
+
+/* Constants for bits in __x86_string_control:  */
+
+/* Avoid short distance REP MOVSB.  */
+#define X86_STRING_CONTROL_AVOID_SHORT_DISTANCE_REP_MOVSB	(1 << 0)
 
 #ifdef	__ASSEMBLER__
 

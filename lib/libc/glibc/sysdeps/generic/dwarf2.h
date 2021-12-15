@@ -1,6 +1,6 @@
 /* Declarations and definitions of codes relating to the DWARF2 symbolic
    debugging information format.
-   Copyright (C) 1992-2020 Free Software Foundation, Inc.
+   Copyright (C) 1992-2021 Free Software Foundation, Inc.
    Contributed by Gary Funck (gary@intrepid.com).  Derived from the
    DWARF 1 implementation written by Ron Guilmette (rfg@monkeys.com).
 

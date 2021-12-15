@@ -1,5 +1,5 @@
 /* Posix threads.  Hurd version.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -222,6 +222,32 @@ extern void pthread_exit (void *__status) __attribute__ ((__noreturn__));
    the exit status of the thread in *STATUS.  */
 extern int pthread_join (pthread_t __threadp, void **__status);
 
+#ifdef __USE_GNU
+/* Check whether thread TH has terminated.  If yes return the status of
+   the thread in *THREAD_RETURN, if THREAD_RETURN is not NULL.  */
+extern int pthread_tryjoin_np (pthread_t __th, void **__thread_return) __THROW;
+
+/* Make calling thread wait for termination of the thread TH, but only
+   until TIMEOUT.  The exit status of the thread is stored in
+   *THREAD_RETURN, if THREAD_RETURN is not NULL.
+
+   This function is a cancellation point and therefore not marked with
+   __THROW.  */
+extern int pthread_timedjoin_np (pthread_t __th, void **__thread_return,
+				 const struct timespec *__abstime);
+
+/* Make calling thread wait for termination of the thread TH, but only
+   until TIMEOUT measured against the clock specified by CLOCKID.  The
+   exit status of the thread is stored in *THREAD_RETURN, if
+   THREAD_RETURN is not NULL.
+
+   This function is a cancellation point and therefore not marked with
+   __THROW.  */
+extern int pthread_clockjoin_np (pthread_t __th, void **__thread_return,
+                                 clockid_t __clockid,
+				 const struct timespec *__abstime);
+#endif
+
 /* Indicate that the storage for THREAD can be reclaimed when it
    terminates.  */
 extern int pthread_detach (pthread_t __threadp);
@@ -273,6 +299,7 @@ extern pthread_t pthread_self (void) __THROW;
 #ifdef __USE_XOPEN2K
 # define PTHREAD_MUTEX_STALLED __PTHREAD_MUTEX_STALLED
 # define PTHREAD_MUTEX_ROBUST __PTHREAD_MUTEX_ROBUST
+# define PTHREAD_MUTEX_ROBUST_NP __PTHREAD_MUTEX_ROBUST
 #endif
 
 #include <bits/types/struct___pthread_mutexattr.h>
@@ -400,6 +427,13 @@ extern int pthread_mutex_timedlock (struct __pthread_mutex *__restrict __mutex,
 	__THROWNL __nonnull ((1, 2));
 #endif
 
+#ifdef __USE_GNU
+extern int pthread_mutex_clocklock (pthread_mutex_t *__restrict __mutex,
+				    clockid_t __clockid,
+				    const struct timespec *__restrict
+				    __abstime) __THROWNL __nonnull ((1, 3));
+#endif
+
 /* Unlock MUTEX.  */
 extern int pthread_mutex_unlock (pthread_mutex_t *__mutex)
 	__THROWNL __nonnull ((1));
@@ -516,6 +550,21 @@ extern int pthread_cond_timedwait (pthread_cond_t *__restrict __cond,
 				   pthread_mutex_t *__restrict __mutex,
 				   __const struct timespec *__restrict __abstime)
 	 __nonnull ((1, 2, 3));
+
+# ifdef __USE_GNU
+/* Wait for condition variable COND to be signaled or broadcast until
+   ABSTIME measured by the specified clock. MUTEX is assumed to be
+   locked before. CLOCK is the clock to use. ABSTIME is an absolute
+   time specification against CLOCK's epoch.
+
+   This function is a cancellation point and therefore not marked with
+   __THROW. */
+extern int pthread_cond_clockwait (pthread_cond_t *__restrict __cond,
+				   pthread_mutex_t *__restrict __mutex,
+				   __clockid_t __clock_id,
+				   const struct timespec *__restrict __abstime)
+     __nonnull ((1, 2, 4));
+# endif
 
 
 /* Spin locks.  */
@@ -548,42 +597,6 @@ extern int pthread_spin_trylock (pthread_spinlock_t *__lock)
 /* Unlock the spin lock object LOCK.  */
 extern int pthread_spin_unlock (pthread_spinlock_t *__lock)
 	__nonnull ((1));
-
-# if defined __USE_EXTERN_INLINES && defined _LIBC
-
-# include <bits/spin-lock-inline.h>
-
-__extern_inline int
-pthread_spin_destroy (pthread_spinlock_t *__lock)
-{
-  return __pthread_spin_destroy (__lock);
-}
-
-__extern_inline int
-pthread_spin_init (pthread_spinlock_t *__lock, int __pshared)
-{
-  return __pthread_spin_init (__lock, __pshared);
-}
-
-__extern_inline int
-pthread_spin_lock (pthread_spinlock_t *__lock)
-{
-  return __pthread_spin_lock (__lock);
-}
-
-__extern_inline int
-pthread_spin_trylock (pthread_spinlock_t *__lock)
-{
-  return __pthread_spin_trylock (__lock);
-}
-
-__extern_inline int
-pthread_spin_unlock (pthread_spinlock_t *__lock)
-{
-  return __pthread_spin_unlock (__lock);
-}
-
-# endif /* Use extern inlines.  */
 
 #endif /* XPG6.  */
 
@@ -658,6 +671,13 @@ extern int pthread_rwlock_timedrdlock (struct __pthread_rwlock *__restrict __rwl
 	__THROWNL __nonnull ((1, 2));
 # endif
 
+# ifdef __USE_GNU
+extern int pthread_rwlock_clockrdlock (pthread_rwlock_t *__restrict __rwlock,
+				       clockid_t __clockid,
+				       const struct timespec *__restrict
+				       __abstime) __THROWNL __nonnull ((1, 3));
+# endif
+
 /* Acquire the rwlock *RWLOCK for writing.  */
 extern int pthread_rwlock_wrlock (pthread_rwlock_t *__rwlock)
 	__THROWNL __nonnull ((1));
@@ -672,6 +692,13 @@ extern int pthread_rwlock_trywrlock (pthread_rwlock_t *__rwlock)
 extern int pthread_rwlock_timedwrlock (struct __pthread_rwlock *__restrict __rwlock,
 				       const struct timespec *__restrict __abstime)
 	__THROWNL __nonnull ((1, 2));
+# endif
+
+# ifdef __USE_GNU
+extern int pthread_rwlock_clockwrlock (pthread_rwlock_t *__restrict __rwlock,
+				       clockid_t __clockid,
+				       const struct timespec *__restrict
+				       __abstime) __THROWNL __nonnull ((1, 3));
 # endif
 
 /* Release the lock held by the current thread on *RWLOCK.  */
@@ -795,14 +822,14 @@ extern void *pthread_getspecific (pthread_key_t __key) __THROW;
 
 /* Set the caller thread's thread specific value of KEY to VALUE.  */
 extern int pthread_setspecific (pthread_key_t __key, const void *__value)
-	__THROW;
+	__THROW __attr_access_none (2);
 
 
 /* Dynamic package initialization.  */
 
 #include <bits/types/struct___pthread_once.h>
 
-#define PTHREAD_ONCE_INIT __PTHREAD_ONCE_INIT
+#define PTHREAD_ONCE_INIT (struct __pthread_once) { __PTHREAD_ONCE_INIT }
 
 /* Call INIT_ROUTINE if this function has never been called with
    *ONCE_CONTROL, otherwise do nothing.  */

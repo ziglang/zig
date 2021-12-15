@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -28,24 +28,24 @@
 #define __SYSCALL_CONCAT(a,b)       __SYSCALL_CONCAT_X (a, b)
 
 
-#define __INTERNAL_SYSCALL0(name, err) \
-  INTERNAL_SYSCALL (name, err, 0)
-#define __INTERNAL_SYSCALL1(name, err, a1) \
-  INTERNAL_SYSCALL (name, err, 1, a1)
-#define __INTERNAL_SYSCALL2(name, err, a1, a2) \
-  INTERNAL_SYSCALL (name, err, 2, a1, a2)
-#define __INTERNAL_SYSCALL3(name, err, a1, a2, a3) \
-  INTERNAL_SYSCALL (name, err, 3, a1, a2, a3)
-#define __INTERNAL_SYSCALL4(name, err, a1, a2, a3, a4) \
-  INTERNAL_SYSCALL (name, err, 4, a1, a2, a3, a4)
-#define __INTERNAL_SYSCALL5(name, err, a1, a2, a3, a4, a5) \
-  INTERNAL_SYSCALL (name, err, 5, a1, a2, a3, a4, a5)
-#define __INTERNAL_SYSCALL6(name, err, a1, a2, a3, a4, a5, a6) \
-  INTERNAL_SYSCALL (name, err, 6, a1, a2, a3, a4, a5, a6)
-#define __INTERNAL_SYSCALL7(name, err, a1, a2, a3, a4, a5, a6, a7) \
-  INTERNAL_SYSCALL (name, err, 7, a1, a2, a3, a4, a5, a6, a7)
+#define __INTERNAL_SYSCALL0(name) \
+  INTERNAL_SYSCALL (name, 0)
+#define __INTERNAL_SYSCALL1(name, a1) \
+  INTERNAL_SYSCALL (name, 1, a1)
+#define __INTERNAL_SYSCALL2(name, a1, a2) \
+  INTERNAL_SYSCALL (name, 2, a1, a2)
+#define __INTERNAL_SYSCALL3(name, a1, a2, a3) \
+  INTERNAL_SYSCALL (name, 3, a1, a2, a3)
+#define __INTERNAL_SYSCALL4(name, a1, a2, a3, a4) \
+  INTERNAL_SYSCALL (name, 4, a1, a2, a3, a4)
+#define __INTERNAL_SYSCALL5(name, a1, a2, a3, a4, a5) \
+  INTERNAL_SYSCALL (name, 5, a1, a2, a3, a4, a5)
+#define __INTERNAL_SYSCALL6(name, a1, a2, a3, a4, a5, a6) \
+  INTERNAL_SYSCALL (name, 6, a1, a2, a3, a4, a5, a6)
+#define __INTERNAL_SYSCALL7(name, a1, a2, a3, a4, a5, a6, a7) \
+  INTERNAL_SYSCALL (name, 7, a1, a2, a3, a4, a5, a6, a7)
 
-#define __INTERNAL_SYSCALL_NARGS_X(a,b,c,d,e,f,g,h,n,o,...) o
+#define __INTERNAL_SYSCALL_NARGS_X(a,b,c,d,e,f,g,h,n,...) n
 #define __INTERNAL_SYSCALL_NARGS(...) \
   __INTERNAL_SYSCALL_NARGS_X (__VA_ARGS__,7,6,5,4,3,2,1,0,)
 #define __INTERNAL_SYSCALL_DISP(b,...) \
@@ -88,10 +88,17 @@
 #define INLINE_SYSCALL_CALL(...) \
   __INLINE_SYSCALL_DISP (__INLINE_SYSCALL, __VA_ARGS__)
 
+#if IS_IN (rtld)
+/* All cancellation points are compiled out in the dynamic loader.  */
+# define NO_SYSCALL_CANCEL_CHECKING 1
+#else
+# define NO_SYSCALL_CANCEL_CHECKING SINGLE_THREAD_P
+#endif
+
 #define SYSCALL_CANCEL(...) \
   ({									     \
     long int sc_ret;							     \
-    if (SINGLE_THREAD_P) 						     \
+    if (NO_SYSCALL_CANCEL_CHECKING)					     \
       sc_ret = INLINE_SYSCALL_CALL (__VA_ARGS__); 			     \
     else								     \
       {									     \
@@ -107,7 +114,7 @@
 #define INTERNAL_SYSCALL_CANCEL(...) \
   ({									     \
     long int sc_ret;							     \
-    if (SINGLE_THREAD_P) 						     \
+    if (NO_SYSCALL_CANCEL_CHECKING) 					     \
       sc_ret = INTERNAL_SYSCALL_CALL (__VA_ARGS__); 			     \
     else								     \
       {									     \

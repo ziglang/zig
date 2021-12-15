@@ -84,5 +84,6 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.add("tools/gen_stubs.zig");
     cases.add("tools/update_clang_options.zig");
     cases.add("tools/update_cpu_features.zig");
+    cases.add("tools/update_glibc.zig");
     cases.add("tools/update_spirv_features.zig");
 }

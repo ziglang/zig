@@ -1,5 +1,5 @@
 /* Startup code for programs linked with GNU libc.
-   Copyright (C) 1998-2020 Free Software Foundation, Inc.
+   Copyright (C) 1998-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -52,8 +52,8 @@
 L(start_addresses):
 	.long	_SDA_BASE_
 	.long	main
-	.long 	__libc_csu_init
-	.long 	__libc_csu_fini
+	.long 	0 /* Used to be init.  */
+	.long 	0 /* Used to be fini.  */
 	ASM_SIZE_DIRECTIVE(L(start_addresses))
 
 	.section ".text"

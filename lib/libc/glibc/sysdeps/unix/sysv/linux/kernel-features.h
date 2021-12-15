@@ -1,6 +1,6 @@
 /* Set flags signalling availability of kernel features based on given
    kernel version number.
-   Copyright (C) 1999-2020 Free Software Foundation, Inc.
+   Copyright (C) 1999-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -49,10 +49,6 @@
    SH this appeared first in 2.6.19-rc1, on ia64 in 2.6.22-rc1.  */
 #define __ASSUME_PSELECT	1
 
-/* The *at syscalls were introduced just after 2.6.16-rc1.  On PPC
-   they were introduced in 2.6.17-rc1, on SH in 2.6.19-rc1.  */
-#define __ASSUME_ATFCTS	1
-
 /* Support for inter-process robust mutexes was added in 2.6.17 (but
    some architectures lack futex_atomic_cmpxchg_inatomic in some
    configurations).  */
@@ -81,6 +77,8 @@
 #define __ASSUME_ACCEPT4_SYSCALL	1
 #define __ASSUME_RECVMMSG_SYSCALL	1
 #define __ASSUME_SENDMMSG_SYSCALL	1
+#define __ASSUME_GETSOCKOPT_SYSCALL	1
+#define __ASSUME_SETSOCKOPT_SYSCALL	1
 
 /* Support for SysV IPC through wired syscalls.  All supported architectures
    either support ipc syscall and/or all the ipc correspondent syscalls.  */
@@ -212,6 +210,14 @@
    process group.  */
 #if __LINUX_KERNEL_VERSION >= 0x050400
 # define __ASSUME_WAITID_PID0_P_PGID
+#endif
+
+/* The faccessat2 system call was introduced across all architectures
+   in Linux 5.8.  */
+#if __LINUX_KERNEL_VERSION >= 0x050800
+# define __ASSUME_FACCESSAT2 1
+#else
+# define __ASSUME_FACCESSAT2 0
 #endif
 
 #endif /* kernel-features.h */

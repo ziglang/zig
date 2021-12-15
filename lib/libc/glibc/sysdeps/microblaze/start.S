@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1995-2021 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -63,14 +63,14 @@ _start:
     mfs     r20,rpc
     addik   r20,r20,_GLOBAL_OFFSET_TABLE_+8
     lwi     r5,r20,main@GOT
-    lwi     r8,r20,__libc_csu_init@GOT
-    lwi     r9,r20,__libc_csu_fini@GOT
+    addk    r8,r0,r0		/* Used to be init.  */
+    addk    r9,r0,r0		/* Used to be fini.  */
     brid    __libc_start_main@PLT
     addk    r10,r0,r0
 #else
     addik   r5,r0,main
-    addik   r8,r0,__libc_csu_init
-    addik   r9,r0,__libc_csu_fini
+    addk    r8,r0,r0		/* Used to be init.  */
+    addk    r9,r0,r0		/* Used to be fini.  */
     brid    __libc_start_main
     addk    r10,r0,r0
 #endif
