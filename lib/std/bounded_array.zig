@@ -121,7 +121,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
         /// Insert `item` at index `i` by moving `slice[n .. slice.len]` to make room.
         /// This operation is O(N).
         pub fn insert(self: *Self, i: usize, item: T) !void {
-            if (i >= self.len) {
+            if (i > self.len) {
                 return error.IndexOutOfBounds;
             }
             _ = try self.addOne();
@@ -288,6 +288,10 @@ test "BoundedArray" {
     try testing.expectEqual(a.get(5), 0xaa);
     try testing.expectEqual(a.get(9), 3);
     try testing.expectEqual(a.get(10), 4);
+
+    try a.insert(11, 0xbb);
+    try testing.expectEqual(a.len, 12);
+    try testing.expectEqual(a.pop(), 0xbb);
 
     try a.appendSlice(&x);
     try testing.expectEqual(a.len, 11 + x.len);
