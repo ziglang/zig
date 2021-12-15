@@ -12,13 +12,22 @@ const log = std.log;
 const fs = std.fs;
 
 const exempt_files = [_][]const u8{
+    // This file is maintained by a separate project and does not come from glibc.
     "abilists",
+
+    // Generated files.
     "include/libc-modules.h",
     "include/config.h",
+
     // These are easier to maintain like this, without updating to the abi-note.c
     // that glibc did upstream.
     "csu/abi-tag.h",
     "csu/abi-note.S",
+
+    // We have patched these files to require fewer includes.
+    "stdlib/at_quick_exit.c",
+    "stdlib/atexit.c",
+    "sysdeps/pthread/pthread_atfork.c",
 };
 
 pub fn main() !void {
