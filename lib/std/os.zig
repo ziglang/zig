@@ -1544,32 +1544,6 @@ pub fn execveZ(
     child_argv: [*:null]const ?[*:0]const u8,
     envp: [*:null]const ?[*:0]const u8,
 ) ExecveError {
-    if (comptime builtin.target.isDarwin()) {
-        // Darwin gets its own branch because it has BADEXEC and BADARCH
-        // which are beyond posix.
-        switch (errno(system.execve(path, child_argv, envp))) {
-            .SUCCESS => unreachable,
-            .FAULT => unreachable,
-            .@"2BIG" => return error.SystemResources,
-            .MFILE => return error.ProcessFdQuotaExceeded,
-            .NAMETOOLONG => return error.NameTooLong,
-            .NFILE => return error.SystemFdQuotaExceeded,
-            .NOMEM => return error.SystemResources,
-            .ACCES => return error.AccessDenied,
-            .PERM => return error.AccessDenied,
-            .INVAL => return error.InvalidExe,
-            .NOEXEC => return error.InvalidExe,
-            .BADEXEC => return error.InvalidExe,
-            .BADARCH => return error.InvalidExe,
-            .IO => return error.FileSystem,
-            .LOOP => return error.FileSystem,
-            .ISDIR => return error.IsDir,
-            .NOENT => return error.FileNotFound,
-            .NOTDIR => return error.NotDir,
-            .TXTBSY => return error.FileBusy,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
     switch (errno(system.execve(path, child_argv, envp))) {
         .SUCCESS => unreachable,
         .FAULT => unreachable,
@@ -1588,7 +1562,18 @@ pub fn execveZ(
         .NOENT => return error.FileNotFound,
         .NOTDIR => return error.NotDir,
         .TXTBSY => return error.FileBusy,
-        else => |err| return unexpectedErrno(err),
+        else => |err| switch (builtin.os.tag) {
+            .macos, .ios, .tvos, .watchos => switch (err) {
+                .BADEXEC => return error.InvalidExe,
+                .BADARCH => return error.InvalidExe,
+                else => return unexpectedErrno(err),
+            },
+            .linux, .solaris => switch (err) {
+                .LIBBAD => return error.InvalidExe,
+                else => return unexpectedErrno(err),
+            },
+            else => return unexpectedErrno(err),
+        },
     }
 }
 
