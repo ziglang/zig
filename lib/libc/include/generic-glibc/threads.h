@@ -88,8 +88,18 @@ extern thrd_t thrd_current (void);
    __TIME_POINT.  The current thread may resume if receives a signal.  In
    that case, if __REMAINING is not NULL, the remaining time is stored in
    the object pointed by it.  */
+#ifndef __USE_TIME_BITS64
 extern int thrd_sleep (const struct timespec *__time_point,
 		       struct timespec *__remaining);
+#else
+# ifdef __REDIRECT
+extern int __REDIRECT (thrd_sleep, (const struct timespec *__time_point,
+                                    struct timespec *__remaining),
+                       __thrd_sleep64);
+# else
+#  define thrd_sleep __thrd_sleep64
+# endif
+#endif
 
 /* Terminate current thread execution, cleaning up any thread local
    storage and freeing resources.  Returns the value specified in __RES.  */
@@ -131,8 +141,19 @@ extern int mtx_lock (mtx_t *__mutex);
 /* Block the current thread until the mutex pointed by __MUTEX is unlocked
    or time pointed by __TIME_POINT is reached.  In case the mutex is unlock,
    the current thread will not be blocked.  */
+#ifndef __USE_TIME_BITS64
 extern int mtx_timedlock (mtx_t *__restrict __mutex,
 			  const struct timespec *__restrict __time_point);
+#else
+# ifdef __REDIRECT
+extern int __REDIRECT (mtx_timedlock, (mtx_t *__restrict __mutex,
+                                       const struct timespec *__restrict
+                                       __time_point),
+                       __mtx_timedlock64);
+# else
+#  define mtx_timedlock __mtx_timedlock64
+# endif
+#endif
 
 /* Try to lock the mutex pointed by __MUTEX without blocking.  If the mutex
    is free the current threads takes control of it, otherwise it returns
@@ -171,9 +192,21 @@ extern int cnd_wait (cnd_t *__cond, mtx_t *__mutex);
 /* Block current thread on the condition variable until condition variable
    pointed by __COND is signaled or time pointed by __TIME_POINT is
    reached.  */
+#ifndef __USE_TIME_BITS64
 extern int cnd_timedwait (cnd_t *__restrict __cond,
 			  mtx_t *__restrict __mutex,
 			  const struct timespec *__restrict __time_point);
+#else
+# ifdef __REDIRECT
+extern int __REDIRECT (cnd_timedwait, (cnd_t *__restrict __cond,
+                                       mtx_t *__restrict __mutex,
+                                       const struct timespec *__restrict
+                                       __time_point),
+                       __cnd_timedwait64);
+# else
+#  define cnd_timedwait __cnd_timedwait64
+# endif
+#endif
 
 /* Destroy condition variable pointed by __cond and free all of its
    resources.  */

@@ -213,6 +213,14 @@ extern int posix_spawn_file_actions_addchdir_np (posix_spawn_file_actions_t *
 extern int posix_spawn_file_actions_addfchdir_np (posix_spawn_file_actions_t *,
 						  int __fd)
      __THROW __nonnull ((1));
+
+/* Add an action to close all file descriptor greater than or equal to FROM
+   during spawn.  This affects the subsequent file actions.  */
+extern int
+posix_spawn_file_actions_addclosefrom_np (posix_spawn_file_actions_t *,
+					  int __from)
+     __THROW __nonnull ((1));
+
 #endif
 
 __END_DECLS

@@ -187,6 +187,7 @@ FTSENT	*fts_read (FTS *);
 int	 fts_set (FTS *, FTSENT *, int) __THROW;
 #else
 # ifdef __REDIRECT
+#  ifndef __USE_TIME_BITS64
 FTSENT	*__REDIRECT (fts_children, (FTS *, int), fts64_children);
 int	 __REDIRECT (fts_close, (FTS *), fts64_close);
 FTS	*__REDIRECT (fts_open, (char * const *, int,
@@ -194,21 +195,53 @@ FTS	*__REDIRECT (fts_open, (char * const *, int,
 		     fts64_open);
 FTSENT	*__REDIRECT (fts_read, (FTS *), fts64_read);
 int	 __REDIRECT_NTH (fts_set, (FTS *, FTSENT *, int), fts64_set);
+#  else
+FTSENT	*__REDIRECT (fts_children, (FTS *, int), __fts64_children_time64);
+int	 __REDIRECT (fts_close, (FTS *), __fts64_close_time64);
+FTS	*__REDIRECT (fts_open, (char * const *, int,
+				int (*)(const FTSENT **, const FTSENT **)),
+		     __fts64_open_time64);
+FTSENT	*__REDIRECT (fts_read, (FTS *), __fts64_read_time64);
+int	 __REDIRECT_NTH (fts_set, (FTS *, FTSENT *, int),
+			 __fts64_set_time64);
+#  endif
 # else
-#  define fts_children fts64_children
-#  define fts_close fts64_close
-#  define fts_open fts64_open
-#  define fts_read fts64_read
-#  define fts_set fts64_set
+#  ifndef __USE_TIME_BITS64
+#   define fts_children fts64_children
+#   define fts_close fts64_close
+#   define fts_open fts64_open
+#   define fts_read fts64_read
+#   define fts_set fts64_set
+#  else
+#  endif
 # endif
 #endif
 #ifdef __USE_LARGEFILE64
+# ifndef __USE_TIME_BITS64
 FTSENT64 *fts64_children (FTS64 *, int);
 int	  fts64_close (FTS64 *);
 FTS64	 *fts64_open (char * const *, int,
 		      int (*)(const FTSENT64 **, const FTSENT64 **));
 FTSENT64 *fts64_read (FTS64 *);
 int	 fts64_set (FTS64 *, FTSENT64 *, int) __THROW;
+# else
+#  ifdef __REDIRECT
+FTSENT	*__REDIRECT (fts64_children, (FTS64 *, int), __fts64_children_time64);
+int	 __REDIRECT (fts64_close, (FTS64 *), __fts64_close_time64);
+FTS	*__REDIRECT (fts64_open, (char * const *, int,
+				int (*)(const FTSENT64 **, const FTSENT64 **)),
+		     __fts64_open_time64);
+FTSENT	*__REDIRECT (fts64_read, (FTS64 *), __fts64_read_time64);
+int	 __REDIRECT_NTH (fts64_set, (FTS64 *, FTSENT64 *, int),
+			 __fts64_set_time64);
+#  else
+#   define fts_children __fts64_children_time64
+#   define fts_close __fts64_close_time64
+#   define fts_open __fts64_open_time64
+#   define fts_read __fts64_read_time64
+#   define fts_set __fts64_set_time64
+#  endif
+# endif
 #endif
 __END_DECLS
 

@@ -52,6 +52,12 @@
 #include <sys/types.h>
 #include <stdint.h>
 
+#ifdef _LIBC
+# define __NAMESER_DEPRECATED
+#else
+# define __NAMESER_DEPRECATED __attribute_deprecated__
+#endif
+
 /*
  * Define constants based on RFC 883, RFC 1034, RFC 1035
  */
@@ -401,14 +407,18 @@ int		ns_skiprr (const unsigned char *, const unsigned char *,
 int		ns_parserr (ns_msg *, ns_sect, int, ns_rr *) __THROW;
 int		ns_sprintrr (const ns_msg *, const ns_rr *,
 			     const char *, const char *, char *, size_t)
-     __THROW;
+  __THROW __NAMESER_DEPRECATED;
 int		ns_sprintrrf (const unsigned char *, size_t, const char *,
 			      ns_class, ns_type, unsigned long,
 			      const unsigned char *, size_t, const char *,
-			      const char *, char *, size_t) __THROW;
-int		ns_format_ttl (unsigned long, char *, size_t) __THROW;
-int		ns_parse_ttl (const char *, unsigned long *) __THROW;
-uint32_t	ns_datetosecs (const char *, int *) __THROW;
+			      const char *, char *, size_t)
+  __THROW __NAMESER_DEPRECATED;
+int		ns_format_ttl (unsigned long, char *, size_t)
+  __THROW __NAMESER_DEPRECATED;
+int		ns_parse_ttl (const char *, unsigned long *)
+  __THROW __NAMESER_DEPRECATED;
+uint32_t	ns_datetosecs (const char *, int *)
+  __THROW __NAMESER_DEPRECATED;
 int		ns_name_ntol (const unsigned char *, unsigned char *, size_t)
      __THROW;
 int		ns_name_ntop (const unsigned char *, char *, size_t) __THROW;
@@ -431,10 +441,15 @@ int		ns_name_skip (const unsigned char **, const unsigned char *)
 void		ns_name_rollback (const unsigned char *,
 				  const unsigned char **,
 				  const unsigned char **) __THROW;
-int		ns_samedomain (const char *, const char *) __THROW;
-int		ns_subdomain (const char *, const char *) __THROW;
-int		ns_makecanon (const char *, char *, size_t) __THROW;
-int		ns_samename (const char *, const char *) __THROW;
+
+int		ns_samedomain (const char *, const char *) __THROW
+  __NAMESER_DEPRECATED;
+int		ns_subdomain (const char *, const char *) __THROW
+  __NAMESER_DEPRECATED;
+int		ns_makecanon (const char *, char *, size_t) __THROW
+  __NAMESER_DEPRECATED;
+int		ns_samename (const char *, const char *) __THROW
+  __NAMESER_DEPRECATED;
 __END_DECLS
 
 #include <arpa/nameser_compat.h>

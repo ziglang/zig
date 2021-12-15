@@ -364,17 +364,21 @@ __MATHDECL (__intmax_t, fromfpx,, (_Mdouble_ __x, int __round,
 __MATHDECL (__uintmax_t, ufromfpx,, (_Mdouble_ __x, int __round,
 				     unsigned int __width));
 
+/* Canonicalize floating-point representation.  */
+__MATHDECL_1 (int, canonicalize,, (_Mdouble_ *__cx, const _Mdouble_ *__x));
+#endif
+
+#if (__GLIBC_USE (IEC_60559_BFP_EXT)				\
+     || (__MATH_DECLARING_FLOATN				\
+	 && (defined __USE_GNU || !__GLIBC_USE (ISOC2X))))
 /* Return value with maximum magnitude.  */
 __MATHCALLX (fmaxmag,, (_Mdouble_ __x, _Mdouble_ __y), (__const__));
 
 /* Return value with minimum magnitude.  */
 __MATHCALLX (fminmag,, (_Mdouble_ __x, _Mdouble_ __y), (__const__));
-
-/* Canonicalize floating-point representation.  */
-__MATHDECL_1 (int, canonicalize,, (_Mdouble_ *__cx, const _Mdouble_ *__x));
 #endif
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT) || __MATH_DECLARING_FLOATN
+#if __GLIBC_USE (IEC_60559_EXT) || __MATH_DECLARING_FLOATN
 /* Total order operation.  */
 __MATHDECL_1 (int, totalorder,, (const _Mdouble_ *__x,
 				 const _Mdouble_ *__y))

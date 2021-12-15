@@ -35,15 +35,31 @@ __BEGIN_DECLS
 /* Structure describing file times.  */
 struct utimbuf
   {
+#ifdef __USE_TIME_BITS64
+    __time64_t actime;		/* Access time.  */
+    __time64_t modtime;		/* Modification time.  */
+#else
     __time_t actime;		/* Access time.  */
     __time_t modtime;		/* Modification time.  */
+#endif
   };
 
 /* Set the access and modification times of FILE to those given in
    *FILE_TIMES.  If FILE_TIMES is NULL, set them to the current time.  */
+#ifndef __USE_TIME_BITS64
 extern int utime (const char *__file,
 		  const struct utimbuf *__file_times)
      __THROW __nonnull ((1));
+
+#else
+# ifdef __REDIRECT_NTH
+extern int __REDIRECT_NTH (utime, (const char *__file,
+                                   const struct utimbuf *__file_times),
+                           __utime64);
+# else
+#  define utime __utime64
+# endif
+#endif
 
 __END_DECLS
 

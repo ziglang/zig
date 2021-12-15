@@ -536,7 +536,8 @@ extern reg_syntax_t re_set_syntax (reg_syntax_t __syntax);
    'regcomp', with a malloc'ed value, or set to NULL before calling
    'regfree'.  */
 extern const char *re_compile_pattern (const char *__pattern, size_t __length,
-				       struct re_pattern_buffer *__buffer);
+				       struct re_pattern_buffer *__buffer)
+    __attr_access ((__read_only__, 1, 2));
 
 
 /* Compile a fastmap for the compiled pattern in BUFFER; used to
@@ -553,7 +554,8 @@ extern int re_compile_fastmap (struct re_pattern_buffer *__buffer);
 extern regoff_t re_search (struct re_pattern_buffer *__buffer,
 			   const char *__String, regoff_t __length,
 			   regoff_t __start, regoff_t __range,
-			   struct re_registers *__regs);
+			   struct re_registers *__regs)
+    __attr_access ((__read_only__, 2, 3));
 
 
 /* Like 're_search', but search in the concatenation of STRING1 and
@@ -563,14 +565,17 @@ extern regoff_t re_search_2 (struct re_pattern_buffer *__buffer,
 			     const char *__string2, regoff_t __length2,
 			     regoff_t __start, regoff_t __range,
 			     struct re_registers *__regs,
-			     regoff_t __stop);
+			     regoff_t __stop)
+    __attr_access ((__read_only__, 2, 3))
+    __attr_access ((__read_only__, 4, 5));
 
 
 /* Like 're_search', but return how many characters in STRING the regexp
    in BUFFER matched, starting at position START.  */
 extern regoff_t re_match (struct re_pattern_buffer *__buffer,
 			  const char *__String, regoff_t __length,
-			  regoff_t __start, struct re_registers *__regs);
+			  regoff_t __start, struct re_registers *__regs)
+    __attr_access ((__read_only__, 2, 3));
 
 
 /* Relates to 're_match' as 're_search_2' relates to 're_search'.  */
@@ -578,7 +583,9 @@ extern regoff_t re_match_2 (struct re_pattern_buffer *__buffer,
 			    const char *__string1, regoff_t __length1,
 			    const char *__string2, regoff_t __length2,
 			    regoff_t __start, struct re_registers *__regs,
-			    regoff_t __stop);
+			    regoff_t __stop)
+    __attr_access ((__read_only__, 2, 3))
+    __attr_access ((__read_only__, 4, 5));
 
 
 /* Set REGS to hold NUM_REGS registers, storing them in STARTS and
@@ -648,10 +655,12 @@ extern int regcomp (regex_t *_Restrict_ __preg,
 extern int regexec (const regex_t *_Restrict_ __preg,
 		    const char *_Restrict_ __String, size_t __nmatch,
 		    regmatch_t __pmatch[_Restrict_arr_],
-		    int __eflags);
+		    int __eflags)
+    __attr_access ((__write_only__, 4, 3));
 
 extern size_t regerror (int __errcode, const regex_t *_Restrict_ __preg,
-			char *_Restrict_ __errbuf, size_t __errbuf_size);
+			char *_Restrict_ __errbuf, size_t __errbuf_size)
+    __attr_access ((__write_only__, 3, 4));
 
 extern void regfree (regex_t *__preg);
 

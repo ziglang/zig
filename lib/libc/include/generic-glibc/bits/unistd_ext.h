@@ -33,4 +33,27 @@
    not detached and has not been joined.  */
 extern __pid_t gettid (void) __THROW;
 
+#ifdef __has_include
+# if __has_include ("linux/close_range.h")
+#  include "linux/close_range.h"
+# endif
 #endif
+/* Unshare the file descriptor table before closing file descriptors.  */
+#ifndef CLOSE_RANGE_UNSHARE
+# define CLOSE_RANGE_UNSHARE (1U << 1)
+#endif
+/* Set the FD_CLOEXEC bit instead of closing the file descriptor.  */
+#ifndef CLOSE_RANGE_CLOEXEC
+# define CLOSE_RANGE_CLOEXEC (1U << 2)
+#endif
+
+/* Close all file descriptors in the range FD up to MAX_FD.  The flag FLAGS
+   are define by the CLOSE_RANGE prefix.  This function behaves like close
+   on the range, but in a fail-safe where it will either fail and not close
+   any file descriptor or close all of them.  Gaps where the file descriptor
+   is invalid are ignored.   Returns 0 on successor or -1 for failure (and
+   sets errno accordingly).  */
+extern int close_range (unsigned int __fd, unsigned int __max_fd,
+			int __flags) __THROW;
+
+#endif /* __USE_GNU  */

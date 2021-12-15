@@ -26,13 +26,14 @@ __BEGIN_DECLS
 extern int __REDIRECT (__poll_alias, (struct pollfd *__fds, nfds_t __nfds,
 				      int __timeout), poll);
 extern int __poll_chk (struct pollfd *__fds, nfds_t __nfds, int __timeout,
-		       __SIZE_TYPE__ __fdslen);
+		       __SIZE_TYPE__ __fdslen)
+    __attr_access ((__write_only__, 1, 2));
 extern int __REDIRECT (__poll_chk_warn, (struct pollfd *__fds, nfds_t __nfds,
 					 int __timeout, __SIZE_TYPE__ __fdslen),
 		       __poll_chk)
   __warnattr ("poll called with fds buffer too small file nfds entries");
 
-__fortify_function int
+__fortify_function __attr_access ((__write_only__, 1, 2)) int
 poll (struct pollfd *__fds, nfds_t __nfds, int __timeout)
 {
   if (__glibc_objsize (__fds) != (__SIZE_TYPE__) -1)
@@ -54,7 +55,8 @@ extern int __REDIRECT (__ppoll_alias, (struct pollfd *__fds, nfds_t __nfds,
 				       const __sigset_t *__ss), ppoll);
 extern int __ppoll_chk (struct pollfd *__fds, nfds_t __nfds,
 			const struct timespec *__timeout,
-			const __sigset_t *__ss, __SIZE_TYPE__ __fdslen);
+			const __sigset_t *__ss, __SIZE_TYPE__ __fdslen)
+    __attr_access ((__write_only__, 1, 2));
 extern int __REDIRECT (__ppoll_chk_warn, (struct pollfd *__fds, nfds_t __nfds,
 					  const struct timespec *__timeout,
 					  const __sigset_t *__ss,
@@ -62,7 +64,7 @@ extern int __REDIRECT (__ppoll_chk_warn, (struct pollfd *__fds, nfds_t __nfds,
 		       __ppoll_chk)
   __warnattr ("ppoll called with fds buffer too small file nfds entries");
 
-__fortify_function int
+__fortify_function __attr_access ((__write_only__, 1, 2)) int
 ppoll (struct pollfd *__fds, nfds_t __nfds, const struct timespec *__timeout,
        const __sigset_t *__ss)
 {

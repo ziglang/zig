@@ -1,11 +1,11 @@
 /* Generated at libc build time from syscall list.  */
-/* The system call list corresponds to kernel 5.10.  */
+/* The system call list corresponds to kernel 5.13.  */
 
 #ifndef _SYSCALL_H
 # error "Never use <bits/syscall.h> directly; include <sys/syscall.h> instead."
 #endif
 
-#define __GLIBC_LINUX_VERSION_CODE 330240
+#define __GLIBC_LINUX_VERSION_CODE 331008
 
 #ifdef __NR_FAST_atomic_update
 # define SYS_FAST_atomic_update __NR_FAST_atomic_update
@@ -289,6 +289,10 @@
 
 #ifdef __NR_epoll_pwait
 # define SYS_epoll_pwait __NR_epoll_pwait
+#endif
+
+#ifdef __NR_epoll_pwait2
+# define SYS_epoll_pwait2 __NR_epoll_pwait2
 #endif
 
 #ifdef __NR_epoll_wait
@@ -803,6 +807,18 @@
 # define SYS_kill __NR_kill
 #endif
 
+#ifdef __NR_landlock_add_rule
+# define SYS_landlock_add_rule __NR_landlock_add_rule
+#endif
+
+#ifdef __NR_landlock_create_ruleset
+# define SYS_landlock_create_ruleset __NR_landlock_create_ruleset
+#endif
+
+#ifdef __NR_landlock_restrict_self
+# define SYS_landlock_restrict_self __NR_landlock_restrict_self
+#endif
+
 #ifdef __NR_lchown
 # define SYS_lchown __NR_lchown
 #endif
@@ -937,6 +953,10 @@
 
 #ifdef __NR_mount
 # define SYS_mount __NR_mount
+#endif
+
+#ifdef __NR_mount_setattr
+# define SYS_mount_setattr __NR_mount_setattr
 #endif
 
 #ifdef __NR_move_mount

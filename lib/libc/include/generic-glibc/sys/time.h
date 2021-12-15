@@ -63,10 +63,21 @@ struct timezone
    use localtime etc. instead.
    This function itself is semi-obsolete;
    most callers should use time or clock_gettime instead. */
+#ifndef __USE_TIME_BITS64
 extern int gettimeofday (struct timeval *__restrict __tv,
 			 void *__restrict __tz) __THROW __nonnull ((1));
+#else
+# ifdef __REDIRECT_NTH
+extern int __REDIRECT_NTH (gettimeofday, (struct timeval *__restrict __tv,
+                                          void *__restrict __tz),
+                           __gettimeofday64) __nonnull ((1));
+# else
+#  define gettimeofday __gettimeofday64
+# endif
+#endif
 
 #ifdef __USE_MISC
+# ifndef __USE_TIME_BITS64
 /* Set the current time of day and timezone information.
    This call is restricted to the super-user.
    Setting the timezone in this way is obsolete, but we don't yet
@@ -82,6 +93,20 @@ extern int settimeofday (const struct timeval *__tv,
    This call is restricted to the super-user.  */
 extern int adjtime (const struct timeval *__delta,
 		    struct timeval *__olddelta) __THROW;
+# else
+#  ifdef __REDIRECT_NTH
+extern int __REDIRECT_NTH (settimeofday, (const struct timeval *__tv,
+                                          const struct timezone *__tz),
+                           __settimeofday64);
+
+extern int __REDIRECT_NTH (adjtime, (const struct timeval *__delta,
+                                     struct timeval *__olddelta),
+                           __adjtime64);
+#  else
+#   define settimeofday __settimeofday64
+#   define adjtime __adjtime64
+#  endif
+# endif
 #endif
 
 
@@ -118,6 +143,7 @@ typedef enum __itimer_which __itimer_which_t;
 typedef int __itimer_which_t;
 #endif
 
+#ifndef __USE_TIME_BITS64
 /* Set *VALUE to the current setting of timer WHICH.
    Return 0 on success, -1 on errors.  */
 extern int getitimer (__itimer_which_t __which,
@@ -136,21 +162,66 @@ extern int setitimer (__itimer_which_t __which,
 extern int utimes (const char *__file, const struct timeval __tvp[2])
      __THROW __nonnull ((1));
 
+#else
+# ifdef __REDIRECT_NTH
+extern int __REDIRECT_NTH (getitimer, (__itimer_which_t __which,
+                                       struct itimerval *__value),
+                           __getitimer64);
+
+extern int __REDIRECT_NTH (setitimer, (__itimer_which_t __which,
+                                       const struct itimerval *__restrict __new,
+                                       struct itimerval *__restrict __old),
+                           __setitimer64);
+
+extern int __REDIRECT_NTH (utimes, (const char *__file,
+                                    const struct timeval __tvp[2]),
+                           __utimes64) __nonnull ((1));
+# else
+#  define getitimer __getitimer64
+#  define setitimer __setitimer64
+#  define utimes __utimes64
+# endif
+#endif
+
 #ifdef __USE_MISC
+# ifndef __USE_TIME_BITS64
 /* Same as `utimes', but does not follow symbolic links.  */
 extern int lutimes (const char *__file, const struct timeval __tvp[2])
      __THROW __nonnull ((1));
 
 /* Same as `utimes', but takes an open file descriptor instead of a name.  */
 extern int futimes (int __fd, const struct timeval __tvp[2]) __THROW;
+# else
+#  ifdef __REDIRECT_NTH
+extern int __REDIRECT_NTH (lutimes, (const char *__file,
+                                     const struct timeval __tvp[2]),
+                           __lutimes64) __nonnull ((1));
+
+extern int __REDIRECT_NTH (futimes, (int __fd, const struct timeval __tvp[2]),
+                           __futimes64);
+#  else
+#   define lutimes __lutimes64
+#   define futimes __futimes64
+#  endif
+# endif
 #endif
 
 #ifdef __USE_GNU
+# ifndef __USE_TIME_BITS64
 /* Change the access time of FILE relative to FD to TVP[0] and the
    modification time of FILE to TVP[1].  If TVP is a null pointer, use
    the current time instead.  Returns 0 on success, -1 on errors.  */
 extern int futimesat (int __fd, const char *__file,
 		      const struct timeval __tvp[2]) __THROW;
+# else
+#  ifdef __REDIRECT_NTH
+extern int __REDIRECT_NTH (futimesat, (int __fd, const char *__file,
+                                       const struct timeval __tvp[2]),
+                           __futimesat64);
+#  else
+#   define futimesat __futimesat64
+#  endif
+# endif
 #endif
 
 

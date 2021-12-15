@@ -22,6 +22,7 @@
 #include <sys/types.h>
 #include <bits/timesize.h>
 #include <bits/types/struct_semid_ds.h>
+#include <bits/types/struct_semid64_ds.h>
 
 /* Flags for `semop'.  */
 #define SEM_UNDO	0x1000		/* undo the operation on exit */

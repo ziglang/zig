@@ -20,23 +20,28 @@
 # error "Never use <bits/msq.h> directly; include <sys/msg.h> instead."
 #endif
 
+#include <bits/types/time_t.h>
+
 /* Structure of record for one message inside the kernel.
    The type `struct msg' is opaque.  */
 struct msqid_ds
 {
+#ifdef __USE_TIME_BITS64
+# include <bits/types/struct_msqid64_ds_helper.h>
+#else
   struct ipc_perm msg_perm;	/* structure describing operation permission */
-#if __TIMESIZE == 32
+# if __TIMESIZE == 32
   unsigned long int __msg_stime_high;
   __time_t msg_stime;		/* time of last msgsnd command */
   unsigned long int __msg_rtime_high;
   __time_t msg_rtime;		/* time of last msgsnd command */
   unsigned long int __msg_ctime_high;
   __time_t msg_ctime;		/* time of last change */
-#else
+# else
   __time_t msg_stime;		/* time of last msgsnd command */
   __time_t msg_rtime;		/* time of last msgsnd command */
   __time_t msg_ctime;		/* time of last change */
-#endif
+# endif
   __syscall_ulong_t __msg_cbytes; /* current number of bytes on queue */
   msgqnum_t msg_qnum;		/* number of messages currently on queue */
   msglen_t msg_qbytes;		/* max number of bytes allowed on queue */
@@ -44,4 +49,5 @@ struct msqid_ds
   __pid_t msg_lrpid;		/* pid of last msgrcv() */
   __syscall_ulong_t __glibc_reserved4;
   __syscall_ulong_t __glibc_reserved5;
+#endif
 };

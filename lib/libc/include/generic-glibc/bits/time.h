@@ -77,6 +77,16 @@ __BEGIN_DECLS
 /* Tune a POSIX clock.  */
 extern int clock_adjtime (__clockid_t __clock_id, struct timex *__utx) __THROW;
 
+#ifdef __USE_TIME_BITS64
+# if defined(__REDIRECT_NTH)
+extern int __REDIRECT_NTH (clock_adjtime, (__clockid_t __clock_id,
+                                           struct timex *__utx),
+                           __clock_adjtime64);
+# else
+# define clock_adjtime __clock_adjtime64
+# endif
+#endif
+
 __END_DECLS
 #endif /* use GNU */
 

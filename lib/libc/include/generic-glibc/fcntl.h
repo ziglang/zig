@@ -172,17 +172,30 @@ typedef __pid_t pid_t;
 
    This function is a cancellation point and therefore not marked with
    __THROW.  */
-#ifndef __USE_FILE_OFFSET64
+#ifndef __USE_TIME_BITS64
+# ifndef __USE_FILE_OFFSET64
 extern int fcntl (int __fd, int __cmd, ...);
-#else
-# ifdef __REDIRECT
-extern int __REDIRECT (fcntl, (int __fd, int __cmd, ...), fcntl64);
 # else
-#  define fcntl fcntl64
+#  ifdef __REDIRECT
+extern int __REDIRECT (fcntl, (int __fd, int __cmd, ...), fcntl64);
+#  else
+#   define fcntl fcntl64
+#  endif
 # endif
-#endif
-#ifdef __USE_LARGEFILE64
+# ifdef __USE_LARGEFILE64
 extern int fcntl64 (int __fd, int __cmd, ...);
+# endif
+#else /* __USE_TIME_BITS64 */
+# ifdef __REDIRECT
+extern int __REDIRECT (fcntl, (int __fd, int __request, ...),
+		       __fcntl_time64)  __THROW;
+extern int __REDIRECT (fcntl64, (int __fd, int __request, ...),
+		       __fcntl_time64)  __THROW;
+# else
+extern int __fcntl_time64 (int __fd, int __request, ...) __THROW;
+#  define fcntl64 __fcntl_time64
+#  define fcntl __fcntl_time64
+# endif
 #endif
 
 /* Open FILE and return a new file descriptor for it, or -1 on error.

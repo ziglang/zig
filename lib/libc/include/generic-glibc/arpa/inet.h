@@ -74,7 +74,8 @@ extern int inet_aton (const char *__cp, struct in_addr *__inp) __THROW;
 
 /* Format a network number NET into presentation format and place result
    in buffer starting at BUF with length of LEN bytes.  */
-extern char *inet_neta (in_addr_t __net, char *__buf, size_t __len) __THROW;
+extern char *inet_neta (in_addr_t __net, char *__buf, size_t __len) __THROW
+  __attribute_deprecated_msg__ ("Use inet_ntop instead");
 
 /* Convert network number for interface type AF in buffer starting at
    CP to presentation format.  The result will specifiy BITS bits of

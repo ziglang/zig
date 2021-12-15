@@ -46,3 +46,5 @@
 #define HWCAP_S390_VXRS_PDE     65536
 #define HWCAP_S390_SORT         131072
 #define HWCAP_S390_DFLT         262144
+#define HWCAP_S390_VXRS_PDE2    524288
+#define HWCAP_S390_NNPA         1048576
