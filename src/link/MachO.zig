@@ -130,6 +130,7 @@ objc_imageinfo_section_index: ?u16 = null,
 tlv_section_index: ?u16 = null,
 tlv_data_section_index: ?u16 = null,
 tlv_bss_section_index: ?u16 = null,
+tlv_ptrs_section_index: ?u16 = null,
 la_symbol_ptr_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
 bss_section_index: ?u16 = null,
@@ -163,6 +164,9 @@ stub_helper_preamble_atom: ?*Atom = null,
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
 strtab_dir: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
+
+tlv_ptr_entries_map: std.AutoArrayHashMapUnmanaged(Atom.Relocation.Target, *Atom) = .{},
+tlv_ptr_entries_map_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 got_entries_map: std.AutoArrayHashMapUnmanaged(Atom.Relocation.Target, *Atom) = .{},
 got_entries_map_free_list: std.ArrayListUnmanaged(u32) = .{},
@@ -783,7 +787,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                     @sizeOf(u64),
                 ));
                 var rpath_cmd = macho.emptyGenericCommandWithData(macho.rpath_command{
-                    .cmd = macho.LC_RPATH,
                     .cmdsize = cmdsize,
                     .path = @sizeOf(macho.rpath_command),
                 });
@@ -1526,6 +1529,24 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                     .sect = self.tlv_section_index.?,
                 };
             },
+            macho.S_THREAD_LOCAL_VARIABLE_POINTERS => {
+                if (self.tlv_ptrs_section_index == null) {
+                    self.tlv_ptrs_section_index = try self.initSection(
+                        self.data_segment_cmd_index.?,
+                        "__thread_ptrs",
+                        sect.size,
+                        sect.@"align",
+                        .{
+                            .flags = macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
+                        },
+                    );
+                }
+
+                break :blk .{
+                    .seg = self.data_segment_cmd_index.?,
+                    .sect = self.tlv_ptrs_section_index.?,
+                };
+            },
             macho.S_THREAD_LOCAL_REGULAR => {
                 if (self.tlv_data_section_index == null) {
                     self.tlv_data_section_index = try self.initSection(
@@ -2143,6 +2164,24 @@ pub fn createGotAtom(self: *MachO, target: Atom.Relocation.Target) !*Atom {
     return atom;
 }
 
+pub fn createTlvPtrAtom(self: *MachO, target: Atom.Relocation.Target) !*Atom {
+    const local_sym_index = @intCast(u32, self.locals.items.len);
+    try self.locals.append(self.base.allocator, .{
+        .n_strx = 0,
+        .n_type = macho.N_SECT,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    const atom = try self.createEmptyAtom(local_sym_index, @sizeOf(u64), 3);
+    assert(target == .global);
+    try atom.bindings.append(self.base.allocator, .{
+        .n_strx = target.global,
+        .offset = 0,
+    });
+    return atom;
+}
+
 fn createDyldPrivateAtom(self: *MachO) !void {
     if (self.dyld_private_atom != null) return;
     const local_sym_index = @intCast(u32, self.locals.items.len);
@@ -2164,7 +2203,7 @@ fn createDyldPrivateAtom(self: *MachO) !void {
         const vaddr = try self.allocateAtom(atom, @sizeOf(u64), 8, match);
         log.debug("allocated {s} atom at 0x{x}", .{ self.getString(sym.n_strx), vaddr });
         sym.n_value = vaddr;
-    } else try self.addAtomAndBumpSectionSize(atom, match);
+    } else try self.addAtomToSection(atom, match);
 
     sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
 }
@@ -2298,7 +2337,7 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
         const vaddr = try self.allocateAtom(atom, atom.size, alignment_pow_2, match);
         log.debug("allocated {s} atom at 0x{x}", .{ self.getString(sym.n_strx), vaddr });
         sym.n_value = vaddr;
-    } else try self.addAtomAndBumpSectionSize(atom, match);
+    } else try self.addAtomToSection(atom, match);
 
     sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
 }
@@ -2514,7 +2553,7 @@ fn createTentativeDefAtoms(self: *MachO) !void {
             const vaddr = try self.allocateAtom(atom, size, alignment_pow_2, match);
             local_sym.n_value = vaddr;
             global_sym.n_value = vaddr;
-        } else try self.addAtomAndBumpSectionSize(atom, match);
+        } else try self.addAtomToSection(atom, match);
     }
 }
 
@@ -2567,7 +2606,7 @@ fn createDsoHandleAtom(self: *MachO) !void {
             const sym = &self.locals.items[local_sym_index];
             const vaddr = try self.allocateAtom(atom, 0, 1, match);
             sym.n_value = vaddr;
-        } else try self.addAtomAndBumpSectionSize(atom, match);
+        } else try self.addAtomToSection(atom, match);
     }
 }
 
@@ -2913,7 +2952,7 @@ fn createMhExecuteHeaderAtom(self: *MachO) !void {
         const sym = &self.locals.items[local_sym_index];
         const vaddr = try self.allocateAtom(atom, 0, 1, match);
         sym.n_value = vaddr;
-    } else try self.addAtomAndBumpSectionSize(atom, match);
+    } else try self.addAtomToSection(atom, match);
 
     self.mh_execute_header_index = local_sym_index;
 }
@@ -2973,7 +3012,7 @@ fn resolveDyldStubBinder(self: *MachO) !void {
         const vaddr = try self.allocateAtom(atom, @sizeOf(u64), 8, match);
         log.debug("allocated {s} atom at 0x{x}", .{ self.getString(sym.n_strx), vaddr });
         atom_sym.n_value = vaddr;
-    } else try self.addAtomAndBumpSectionSize(atom, match);
+    } else try self.addAtomToSection(atom, match);
 
     atom_sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
 }
@@ -3174,7 +3213,7 @@ fn addCodeSignatureLC(self: *MachO) !void {
     self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
     try self.load_commands.append(self.base.allocator, .{
         .linkedit_data = .{
-            .cmd = macho.LC_CODE_SIGNATURE,
+            .cmd = .CODE_SIGNATURE,
             .cmdsize = @sizeOf(macho.linkedit_data_command),
             .dataoff = 0,
             .datasize = 0,
@@ -3215,6 +3254,8 @@ pub fn deinit(self: *MachO) void {
     }
 
     self.section_ordinals.deinit(self.base.allocator);
+    self.tlv_ptr_entries_map.deinit(self.base.allocator);
+    self.tlv_ptr_entries_map_free_list.deinit(self.base.allocator);
     self.got_entries_map.deinit(self.base.allocator);
     self.got_entries_map_free_list.deinit(self.base.allocator);
     self.stubs_map.deinit(self.base.allocator);
@@ -4203,7 +4244,7 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.dyld_info_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .dyld_info_only = .{
-                .cmd = macho.LC_DYLD_INFO_ONLY,
+                .cmd = .DYLD_INFO_ONLY,
                 .cmdsize = @sizeOf(macho.dyld_info_command),
                 .rebase_off = 0,
                 .rebase_size = 0,
@@ -4224,7 +4265,6 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.symtab_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .symtab = .{
-                .cmd = macho.LC_SYMTAB,
                 .cmdsize = @sizeOf(macho.symtab_command),
                 .symoff = 0,
                 .nsyms = 0,
@@ -4239,7 +4279,6 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.dysymtab_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .dysymtab = .{
-                .cmd = macho.LC_DYSYMTAB,
                 .cmdsize = @sizeOf(macho.dysymtab_command),
                 .ilocalsym = 0,
                 .nlocalsym = 0,
@@ -4272,7 +4311,7 @@ fn populateMissingMetadata(self: *MachO) !void {
             @sizeOf(u64),
         ));
         var dylinker_cmd = macho.emptyGenericCommandWithData(macho.dylinker_command{
-            .cmd = macho.LC_LOAD_DYLINKER,
+            .cmd = .LOAD_DYLINKER,
             .cmdsize = cmdsize,
             .name = @sizeOf(macho.dylinker_command),
         });
@@ -4287,7 +4326,6 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.main_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .main = .{
-                .cmd = macho.LC_MAIN,
                 .cmdsize = @sizeOf(macho.entry_point_command),
                 .entryoff = 0x0,
                 .stacksize = 0,
@@ -4314,7 +4352,7 @@ fn populateMissingMetadata(self: *MachO) !void {
             compat_version.major << 16 | compat_version.minor << 8 | compat_version.patch,
         );
         errdefer dylib_cmd.deinit(self.base.allocator);
-        dylib_cmd.inner.cmd = macho.LC_ID_DYLIB;
+        dylib_cmd.inner.cmd = .ID_DYLIB;
         try self.load_commands.append(self.base.allocator, .{ .dylib = dylib_cmd });
         self.load_commands_dirty = true;
     }
@@ -4323,7 +4361,6 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.source_version_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .source_version = .{
-                .cmd = macho.LC_SOURCE_VERSION,
                 .cmdsize = @sizeOf(macho.source_version_command),
                 .version = 0x0,
             },
@@ -4350,13 +4387,12 @@ fn populateMissingMetadata(self: *MachO) !void {
         } else platform_version;
         const is_simulator_abi = self.base.options.target.abi == .simulator;
         var cmd = macho.emptyGenericCommandWithData(macho.build_version_command{
-            .cmd = macho.LC_BUILD_VERSION,
             .cmdsize = cmdsize,
             .platform = switch (self.base.options.target.os.tag) {
-                .macos => macho.PLATFORM_MACOS,
-                .ios => if (is_simulator_abi) macho.PLATFORM_IOSSIMULATOR else macho.PLATFORM_IOS,
-                .watchos => if (is_simulator_abi) macho.PLATFORM_WATCHOSSIMULATOR else macho.PLATFORM_WATCHOS,
-                .tvos => if (is_simulator_abi) macho.PLATFORM_TVOSSIMULATOR else macho.PLATFORM_TVOS,
+                .macos => .MACOS,
+                .ios => if (is_simulator_abi) macho.PLATFORM.IOSSIMULATOR else macho.PLATFORM.IOS,
+                .watchos => if (is_simulator_abi) macho.PLATFORM.WATCHOSSIMULATOR else macho.PLATFORM.WATCHOS,
+                .tvos => if (is_simulator_abi) macho.PLATFORM.TVOSSIMULATOR else macho.PLATFORM.TVOS,
                 else => unreachable,
             },
             .minos = platform_version,
@@ -4364,7 +4400,7 @@ fn populateMissingMetadata(self: *MachO) !void {
             .ntools = 1,
         });
         const ld_ver = macho.build_tool_version{
-            .tool = macho.TOOL_LD,
+            .tool = .LD,
             .version = 0x0,
         };
         cmd.data = try self.base.allocator.alloc(u8, cmdsize - @sizeOf(macho.build_version_command));
@@ -4377,7 +4413,6 @@ fn populateMissingMetadata(self: *MachO) !void {
     if (self.uuid_cmd_index == null) {
         self.uuid_cmd_index = @intCast(u16, self.load_commands.items.len);
         var uuid_cmd: macho.uuid_command = .{
-            .cmd = macho.LC_UUID,
             .cmdsize = @sizeOf(macho.uuid_command),
             .uuid = undefined,
         };
@@ -4390,7 +4425,7 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.function_starts_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .linkedit_data = .{
-                .cmd = macho.LC_FUNCTION_STARTS,
+                .cmd = .FUNCTION_STARTS,
                 .cmdsize = @sizeOf(macho.linkedit_data_command),
                 .dataoff = 0,
                 .datasize = 0,
@@ -4403,7 +4438,7 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.data_in_code_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .linkedit_data = .{
-                .cmd = macho.LC_DATA_IN_CODE,
+                .cmd = .DATA_IN_CODE,
                 .cmdsize = @sizeOf(macho.linkedit_data_command),
                 .dataoff = 0,
                 .datasize = 0,
@@ -4480,13 +4515,36 @@ fn allocateSegment(self: *MachO, index: u16, offset: u64) !void {
 
     // Allocate the sections according to their alignment at the beginning of the segment.
     var start: u64 = offset;
-    for (seg.sections.items) |*sect| {
+    for (seg.sections.items) |*sect, sect_id| {
         const alignment = try math.powi(u32, 2, sect.@"align");
         const start_aligned = mem.alignForwardGeneric(u64, start, alignment);
-        const end = start_aligned + sect.size;
         sect.offset = @intCast(u32, seg.inner.fileoff + start_aligned);
         sect.addr = seg.inner.vmaddr + start_aligned;
-        start = end;
+
+        // Recalculate section size given the allocated start address
+        sect.size = if (self.atoms.get(.{
+            .seg = index,
+            .sect = @intCast(u16, sect_id),
+        })) |last_atom| blk: {
+            var atom = last_atom;
+            while (atom.prev) |prev| {
+                atom = prev;
+            }
+
+            var base_addr = sect.addr;
+
+            while (true) {
+                const atom_alignment = try math.powi(u32, 2, atom.alignment);
+                base_addr = mem.alignForwardGeneric(u64, base_addr, atom_alignment) + atom.size;
+                if (atom.next) |next| {
+                    atom = next;
+                } else break;
+            }
+
+            break :blk base_addr - sect.addr;
+        } else 0;
+
+        start = start_aligned + sect.size;
     }
 
     const seg_size_aligned = mem.alignForwardGeneric(u64, start, self.page_size);
@@ -4834,12 +4892,7 @@ fn allocateAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64, m
     return vaddr;
 }
 
-fn addAtomAndBumpSectionSize(self: *MachO, atom: *Atom, match: MatchingSection) !void {
-    const seg = &self.load_commands.items[match.seg].segment;
-    const sect = &seg.sections.items[match.sect];
-    const alignment = try math.powi(u32, 2, atom.alignment);
-    sect.size = mem.alignForwardGeneric(u64, sect.size, alignment) + atom.size;
-
+fn addAtomToSection(self: *MachO, atom: *Atom, match: MatchingSection) !void {
     if (self.atoms.getPtr(match)) |last| {
         last.*.next = atom;
         atom.prev = last.*;
@@ -4978,6 +5031,7 @@ fn sortSections(self: *MachO) !void {
             &self.objc_data_section_index,
             &self.data_section_index,
             &self.tlv_section_index,
+            &self.tlv_ptrs_section_index,
             &self.tlv_data_section_index,
             &self.tlv_bss_section_index,
             &self.bss_section_index,
@@ -6201,6 +6255,14 @@ fn logSymtab(self: MachO) void {
     for (self.got_entries_map.keys()) |key| {
         switch (key) {
             .local => |sym_index| log.debug("  {} => {d}", .{ key, sym_index }),
+            .global => |n_strx| log.debug("  {} => {s}", .{ key, self.getString(n_strx) }),
+        }
+    }
+
+    log.debug("__thread_ptrs entries:", .{});
+    for (self.tlv_ptr_entries_map.keys()) |key| {
+        switch (key) {
+            .local => unreachable,
             .global => |n_strx| log.debug("  {} => {s}", .{ key, self.getString(n_strx) }),
         }
     }

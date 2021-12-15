@@ -43,7 +43,7 @@ pub const fat_arch = extern struct {
 };
 
 pub const load_command = extern struct {
-    cmd: u32,
+    cmd: LC,
     cmdsize: u32,
 };
 
@@ -51,7 +51,7 @@ pub const load_command = extern struct {
 /// identifies an object produced by the static link editor.
 pub const uuid_command = extern struct {
     /// LC_UUID
-    cmd: u32,
+    cmd: LC = .UUID,
 
     /// sizeof(struct uuid_command)
     cmdsize: u32,
@@ -64,7 +64,7 @@ pub const uuid_command = extern struct {
 /// binary was built to run.
 pub const version_min_command = extern struct {
     /// LC_VERSION_MIN_MACOSX or LC_VERSION_MIN_IPHONEOS or LC_VERSION_MIN_WATCHOS or LC_VERSION_MIN_TVOS
-    cmd: u32,
+    cmd: LC,
 
     /// sizeof(struct version_min_command)
     cmdsize: u32,
@@ -80,7 +80,7 @@ pub const version_min_command = extern struct {
 /// the version of the sources used to build the binary.
 pub const source_version_command = extern struct {
     /// LC_SOURCE_VERSION
-    cmd: u32,
+    cmd: LC = .SOURCE_VERSION,
 
     /// sizeof(source_version_command)
     cmdsize: u32,
@@ -94,14 +94,14 @@ pub const source_version_command = extern struct {
 /// tool values following it.
 pub const build_version_command = extern struct {
     /// LC_BUILD_VERSION
-    cmd: u32,
+    cmd: LC = .BUILD_VERSION,
 
     /// sizeof(struct build_version_command) plus
     /// ntools * sizeof(struct build_version_command)
     cmdsize: u32,
 
     /// platform
-    platform: u32,
+    platform: PLATFORM,
 
     /// X.Y.Z is encoded in nibbles xxxx.yy.zz
     minos: u32,
@@ -115,26 +115,32 @@ pub const build_version_command = extern struct {
 
 pub const build_tool_version = extern struct {
     /// enum for the tool
-    tool: u32,
+    tool: TOOL,
 
     /// version number of the tool
     version: u32,
 };
 
-pub const PLATFORM_MACOS: u32 = 0x1;
-pub const PLATFORM_IOS: u32 = 0x2;
-pub const PLATFORM_TVOS: u32 = 0x3;
-pub const PLATFORM_WATCHOS: u32 = 0x4;
-pub const PLATFORM_BRIDGEOS: u32 = 0x5;
-pub const PLATFORM_MACCATALYST: u32 = 0x6;
-pub const PLATFORM_IOSSIMULATOR: u32 = 0x7;
-pub const PLATFORM_TVOSSIMULATOR: u32 = 0x8;
-pub const PLATFORM_WATCHOSSIMULATOR: u32 = 0x9;
-pub const PLATFORM_DRIVERKIT: u32 = 0x10;
+pub const PLATFORM = enum(u32) {
+    MACOS = 0x1,
+    IOS = 0x2,
+    TVOS = 0x3,
+    WATCHOS = 0x4,
+    BRIDGEOS = 0x5,
+    MACCATALYST = 0x6,
+    IOSSIMULATOR = 0x7,
+    TVOSSIMULATOR = 0x8,
+    WATCHOSSIMULATOR = 0x9,
+    DRIVERKIT = 0x10,
+    _,
+};
 
-pub const TOOL_CLANG: u32 = 0x1;
-pub const TOOL_SWIFT: u32 = 0x2;
-pub const TOOL_LD: u32 = 0x3;
+pub const TOOL = enum(u32) {
+    CLANG = 0x1,
+    SWIFT = 0x2,
+    LD = 0x3,
+    _,
+};
 
 /// The entry_point_command is a replacement for thread_command.
 /// It is used for main executables to specify the location (file offset)
@@ -142,7 +148,7 @@ pub const TOOL_LD: u32 = 0x3;
 /// field will contain the stack size needed for the main thread.
 pub const entry_point_command = extern struct {
     /// LC_MAIN only used in MH_EXECUTE filetypes
-    cmd: u32,
+    cmd: LC = .MAIN,
 
     /// sizeof(struct entry_point_command)
     cmdsize: u32,
@@ -159,7 +165,7 @@ pub const entry_point_command = extern struct {
 /// <nlist.h> and <stab.h>.
 pub const symtab_command = extern struct {
     /// LC_SYMTAB
-    cmd: u32,
+    cmd: LC = .SYMTAB,
 
     /// sizeof(struct symtab_command)
     cmdsize: u32,
@@ -217,7 +223,7 @@ pub const symtab_command = extern struct {
 /// off the section structures.
 pub const dysymtab_command = extern struct {
     /// LC_DYSYMTAB
-    cmd: u32,
+    cmd: LC = .DYSYMTAB,
 
     /// sizeof(struct dysymtab_command)
     cmdsize: u32,
@@ -357,7 +363,7 @@ pub const dysymtab_command = extern struct {
 /// of data in the __LINKEDIT segment.
 pub const linkedit_data_command = extern struct {
     /// LC_CODE_SIGNATURE, LC_SEGMENT_SPLIT_INFO, LC_FUNCTION_STARTS, LC_DATA_IN_CODE, LC_DYLIB_CODE_SIGN_DRS or LC_LINKER_OPTIMIZATION_HINT.
-    cmd: u32,
+    cmd: LC,
 
     /// sizeof(struct linkedit_data_command)
     cmdsize: u32,
@@ -377,7 +383,7 @@ pub const linkedit_data_command = extern struct {
 /// to interpret it.
 pub const dyld_info_command = extern struct {
     /// LC_DYLD_INFO or LC_DYLD_INFO_ONLY
-    cmd: u32,
+    cmd: LC,
 
     /// sizeof(struct dyld_info_command)
     cmdsize: u32,
@@ -498,7 +504,7 @@ pub const dyld_info_command = extern struct {
 /// string for dyld to treat like an environment variable.
 pub const dylinker_command = extern struct {
     /// LC_ID_DYLINKER, LC_LOAD_DYLINKER, or LC_DYLD_ENVIRONMENT
-    cmd: u32,
+    cmd: LC,
 
     /// includes pathname string
     cmdsize: u32,
@@ -519,7 +525,7 @@ pub const dylinker_command = extern struct {
 /// LC_REEXPORT_DYLIB) for each library it uses.
 pub const dylib_command = extern struct {
     /// LC_ID_DYLIB, LC_LOAD_WEAK_DYLIB, LC_LOAD_DYLIB, LC_REEXPORT_DYLIB
-    cmd: u32,
+    cmd: LC,
 
     /// includes pathname string
     cmdsize: u32,
@@ -553,7 +559,7 @@ pub const dylib = extern struct {
 /// run path used to find @rpath prefixed dylibs.
 pub const rpath_command = extern struct {
     /// LC_RPATH
-    cmd: u32,
+    cmd: LC = .RPATH,
 
     /// includes string
     cmdsize: u32,
@@ -574,7 +580,7 @@ pub const rpath_command = extern struct {
 /// reflected in cmdsize.
 pub const segment_command = extern struct {
     /// LC_SEGMENT
-    cmd: u32,
+    cmd: LC = .SEGMENT,
 
     /// includes sizeof section structs
     cmdsize: u32,
@@ -611,7 +617,7 @@ pub const segment_command = extern struct {
 /// command and their size is reflected in cmdsize.
 pub const segment_command_64 = extern struct {
     /// LC_SEGMENT_64
-    cmd: u32 = LC_SEGMENT_64,
+    cmd: LC = .SEGMENT_64,
 
     /// includes sizeof section_64 structs
     cmdsize: u32 = @sizeOf(segment_command_64),
@@ -882,159 +888,163 @@ pub const relocation_info = packed struct {
 /// simply be ignored.
 pub const LC_REQ_DYLD = 0x80000000;
 
-/// segment of this file to be mapped
-pub const LC_SEGMENT = 0x1;
+pub const LC = enum(u32) {
+    /// segment of this file to be mapped
+    SEGMENT = 0x1,
 
-/// link-edit stab symbol table info
-pub const LC_SYMTAB = 0x2;
+    /// link-edit stab symbol table info
+    SYMTAB = 0x2,
 
-/// link-edit gdb symbol table info (obsolete)
-pub const LC_SYMSEG = 0x3;
+    /// link-edit gdb symbol table info (obsolete)
+    SYMSEG = 0x3,
 
-/// thread
-pub const LC_THREAD = 0x4;
+    /// thread
+    THREAD = 0x4,
 
-/// unix thread (includes a stack)
-pub const LC_UNIXTHREAD = 0x5;
+    /// unix thread (includes a stack)
+    UNIXTHREAD = 0x5,
 
-/// load a specified fixed VM shared library
-pub const LC_LOADFVMLIB = 0x6;
+    /// load a specified fixed VM shared library
+    LOADFVMLIB = 0x6,
 
-/// fixed VM shared library identification
-pub const LC_IDFVMLIB = 0x7;
+    /// fixed VM shared library identification
+    IDFVMLIB = 0x7,
 
-/// object identification info (obsolete)
-pub const LC_IDENT = 0x8;
+    /// object identification info (obsolete)
+    IDENT = 0x8,
 
-/// fixed VM file inclusion (internal use)
-pub const LC_FVMFILE = 0x9;
+    /// fixed VM file inclusion (internal use)
+    FVMFILE = 0x9,
 
-/// prepage command (internal use)
-pub const LC_PREPAGE = 0xa;
+    /// prepage command (internal use)
+    PREPAGE = 0xa,
 
-/// dynamic link-edit symbol table info
-pub const LC_DYSYMTAB = 0xb;
+    /// dynamic link-edit symbol table info
+    DYSYMTAB = 0xb,
 
-/// load a dynamically linked shared library
-pub const LC_LOAD_DYLIB = 0xc;
+    /// load a dynamically linked shared library
+    LOAD_DYLIB = 0xc,
 
-/// dynamically linked shared lib ident
-pub const LC_ID_DYLIB = 0xd;
+    /// dynamically linked shared lib ident
+    ID_DYLIB = 0xd,
 
-/// load a dynamic linker
-pub const LC_LOAD_DYLINKER = 0xe;
+    /// load a dynamic linker
+    LOAD_DYLINKER = 0xe,
 
-/// dynamic linker identification
-pub const LC_ID_DYLINKER = 0xf;
+    /// dynamic linker identification
+    ID_DYLINKER = 0xf,
 
-/// modules prebound for a dynamically
-pub const LC_PREBOUND_DYLIB = 0x10;
+    /// modules prebound for a dynamically
+    PREBOUND_DYLIB = 0x10,
 
-/// image routines
-pub const LC_ROUTINES = 0x11;
+    /// image routines
+    ROUTINES = 0x11,
 
-/// sub framework
-pub const LC_SUB_FRAMEWORK = 0x12;
+    /// sub framework
+    SUB_FRAMEWORK = 0x12,
 
-/// sub umbrella
-pub const LC_SUB_UMBRELLA = 0x13;
+    /// sub umbrella
+    SUB_UMBRELLA = 0x13,
 
-/// sub client
-pub const LC_SUB_CLIENT = 0x14;
+    /// sub client
+    SUB_CLIENT = 0x14,
 
-/// sub library
-pub const LC_SUB_LIBRARY = 0x15;
+    /// sub library
+    SUB_LIBRARY = 0x15,
 
-/// two-level namespace lookup hints
-pub const LC_TWOLEVEL_HINTS = 0x16;
+    /// two-level namespace lookup hints
+    TWOLEVEL_HINTS = 0x16,
 
-/// prebind checksum
-pub const LC_PREBIND_CKSUM = 0x17;
+    /// prebind checksum
+    PREBIND_CKSUM = 0x17,
 
-/// load a dynamically linked shared library that is allowed to be missing
-/// (all symbols are weak imported).
-pub const LC_LOAD_WEAK_DYLIB = (0x18 | LC_REQ_DYLD);
+    /// load a dynamically linked shared library that is allowed to be missing
+    /// (all symbols are weak imported).
+    LOAD_WEAK_DYLIB = (0x18 | LC_REQ_DYLD),
 
-/// 64-bit segment of this file to be mapped
-pub const LC_SEGMENT_64 = 0x19;
+    /// 64-bit segment of this file to be mapped
+    SEGMENT_64 = 0x19,
 
-/// 64-bit image routines
-pub const LC_ROUTINES_64 = 0x1a;
+    /// 64-bit image routines
+    ROUTINES_64 = 0x1a,
 
-/// the uuid
-pub const LC_UUID = 0x1b;
+    /// the uuid
+    UUID = 0x1b,
 
-/// runpath additions
-pub const LC_RPATH = (0x1c | LC_REQ_DYLD);
+    /// runpath additions
+    RPATH = (0x1c | LC_REQ_DYLD),
 
-/// local of code signature
-pub const LC_CODE_SIGNATURE = 0x1d;
+    /// local of code signature
+    CODE_SIGNATURE = 0x1d,
 
-/// local of info to split segments
-pub const LC_SEGMENT_SPLIT_INFO = 0x1e;
+    /// local of info to split segments
+    SEGMENT_SPLIT_INFO = 0x1e,
 
-/// load and re-export dylib
-pub const LC_REEXPORT_DYLIB = (0x1f | LC_REQ_DYLD);
+    /// load and re-export dylib
+    REEXPORT_DYLIB = (0x1f | LC_REQ_DYLD),
 
-/// delay load of dylib until first use
-pub const LC_LAZY_LOAD_DYLIB = 0x20;
+    /// delay load of dylib until first use
+    LAZY_LOAD_DYLIB = 0x20,
 
-/// encrypted segment information
-pub const LC_ENCRYPTION_INFO = 0x21;
+    /// encrypted segment information
+    ENCRYPTION_INFO = 0x21,
 
-/// compressed dyld information
-pub const LC_DYLD_INFO = 0x22;
+    /// compressed dyld information
+    DYLD_INFO = 0x22,
 
-/// compressed dyld information only
-pub const LC_DYLD_INFO_ONLY = (0x22 | LC_REQ_DYLD);
+    /// compressed dyld information only
+    DYLD_INFO_ONLY = (0x22 | LC_REQ_DYLD),
 
-/// load upward dylib
-pub const LC_LOAD_UPWARD_DYLIB = (0x23 | LC_REQ_DYLD);
+    /// load upward dylib
+    LOAD_UPWARD_DYLIB = (0x23 | LC_REQ_DYLD),
 
-/// build for MacOSX min OS version
-pub const LC_VERSION_MIN_MACOSX = 0x24;
+    /// build for MacOSX min OS version
+    VERSION_MIN_MACOSX = 0x24,
 
-/// build for iPhoneOS min OS version
-pub const LC_VERSION_MIN_IPHONEOS = 0x25;
+    /// build for iPhoneOS min OS version
+    VERSION_MIN_IPHONEOS = 0x25,
 
-/// compressed table of function start addresses
-pub const LC_FUNCTION_STARTS = 0x26;
+    /// compressed table of function start addresses
+    FUNCTION_STARTS = 0x26,
 
-/// string for dyld to treat like environment variable
-pub const LC_DYLD_ENVIRONMENT = 0x27;
+    /// string for dyld to treat like environment variable
+    DYLD_ENVIRONMENT = 0x27,
 
-/// replacement for LC_UNIXTHREAD
-pub const LC_MAIN = (0x28 | LC_REQ_DYLD);
+    /// replacement for LC_UNIXTHREAD
+    MAIN = (0x28 | LC_REQ_DYLD),
 
-/// table of non-instructions in __text
-pub const LC_DATA_IN_CODE = 0x29;
+    /// table of non-instructions in __text
+    DATA_IN_CODE = 0x29,
 
-/// source version used to build binary
-pub const LC_SOURCE_VERSION = 0x2A;
+    /// source version used to build binary
+    SOURCE_VERSION = 0x2A,
 
-/// Code signing DRs copied from linked dylibs
-pub const LC_DYLIB_CODE_SIGN_DRS = 0x2B;
+    /// Code signing DRs copied from linked dylibs
+    DYLIB_CODE_SIGN_DRS = 0x2B,
 
-/// 64-bit encrypted segment information
-pub const LC_ENCRYPTION_INFO_64 = 0x2C;
+    /// 64-bit encrypted segment information
+    ENCRYPTION_INFO_64 = 0x2C,
 
-/// linker options in MH_OBJECT files
-pub const LC_LINKER_OPTION = 0x2D;
+    /// linker options in MH_OBJECT files
+    LINKER_OPTION = 0x2D,
 
-/// optimization hints in MH_OBJECT files
-pub const LC_LINKER_OPTIMIZATION_HINT = 0x2E;
+    /// optimization hints in MH_OBJECT files
+    LINKER_OPTIMIZATION_HINT = 0x2E,
 
-/// build for AppleTV min OS version
-pub const LC_VERSION_MIN_TVOS = 0x2F;
+    /// build for AppleTV min OS version
+    VERSION_MIN_TVOS = 0x2F,
 
-/// build for Watch min OS version
-pub const LC_VERSION_MIN_WATCHOS = 0x30;
+    /// build for Watch min OS version
+    VERSION_MIN_WATCHOS = 0x30,
 
-/// arbitrary data included within a Mach-O file
-pub const LC_NOTE = 0x31;
+    /// arbitrary data included within a Mach-O file
+    NOTE = 0x31,
 
-/// build for platform min OS version
-pub const LC_BUILD_VERSION = 0x32;
+    /// build for platform min OS version
+    BUILD_VERSION = 0x32,
+
+    _,
+};
 
 /// the mach magic number
 pub const MH_MAGIC = 0xfeedface;
@@ -1537,7 +1547,7 @@ pub const reloc_type_x86_64 = enum(u4) {
 
 pub const reloc_type_arm64 = enum(u4) {
     /// For pointers.
-    ARM64_RELOC_UNSIGNED,
+    ARM64_RELOC_UNSIGNED = 0,
 
     /// Must be followed by a ARM64_RELOC_UNSIGNED.
     ARM64_RELOC_SUBTRACTOR,
@@ -1840,43 +1850,43 @@ pub const LoadCommand = union(enum) {
         var stream = io.fixedBufferStream(buffer);
 
         return switch (header.cmd) {
-            LC_SEGMENT_64 => LoadCommand{
+            .SEGMENT_64 => LoadCommand{
                 .segment = try SegmentCommand.read(allocator, stream.reader()),
             },
-            LC_DYLD_INFO, LC_DYLD_INFO_ONLY => LoadCommand{
+            .DYLD_INFO, .DYLD_INFO_ONLY => LoadCommand{
                 .dyld_info_only = try stream.reader().readStruct(dyld_info_command),
             },
-            LC_SYMTAB => LoadCommand{
+            .SYMTAB => LoadCommand{
                 .symtab = try stream.reader().readStruct(symtab_command),
             },
-            LC_DYSYMTAB => LoadCommand{
+            .DYSYMTAB => LoadCommand{
                 .dysymtab = try stream.reader().readStruct(dysymtab_command),
             },
-            LC_ID_DYLINKER, LC_LOAD_DYLINKER, LC_DYLD_ENVIRONMENT => LoadCommand{
+            .ID_DYLINKER, .LOAD_DYLINKER, .DYLD_ENVIRONMENT => LoadCommand{
                 .dylinker = try GenericCommandWithData(dylinker_command).read(allocator, stream.reader()),
             },
-            LC_ID_DYLIB, LC_LOAD_WEAK_DYLIB, LC_LOAD_DYLIB, LC_REEXPORT_DYLIB => LoadCommand{
+            .ID_DYLIB, .LOAD_WEAK_DYLIB, .LOAD_DYLIB, .REEXPORT_DYLIB => LoadCommand{
                 .dylib = try GenericCommandWithData(dylib_command).read(allocator, stream.reader()),
             },
-            LC_MAIN => LoadCommand{
+            .MAIN => LoadCommand{
                 .main = try stream.reader().readStruct(entry_point_command),
             },
-            LC_VERSION_MIN_MACOSX, LC_VERSION_MIN_IPHONEOS, LC_VERSION_MIN_WATCHOS, LC_VERSION_MIN_TVOS => LoadCommand{
+            .VERSION_MIN_MACOSX, .VERSION_MIN_IPHONEOS, .VERSION_MIN_WATCHOS, .VERSION_MIN_TVOS => LoadCommand{
                 .version_min = try stream.reader().readStruct(version_min_command),
             },
-            LC_SOURCE_VERSION => LoadCommand{
+            .SOURCE_VERSION => LoadCommand{
                 .source_version = try stream.reader().readStruct(source_version_command),
             },
-            LC_BUILD_VERSION => LoadCommand{
+            .BUILD_VERSION => LoadCommand{
                 .build_version = try GenericCommandWithData(build_version_command).read(allocator, stream.reader()),
             },
-            LC_UUID => LoadCommand{
+            .UUID => LoadCommand{
                 .uuid = try stream.reader().readStruct(uuid_command),
             },
-            LC_FUNCTION_STARTS, LC_DATA_IN_CODE, LC_CODE_SIGNATURE => LoadCommand{
+            .FUNCTION_STARTS, .DATA_IN_CODE, .CODE_SIGNATURE => LoadCommand{
                 .linkedit_data = try stream.reader().readStruct(linkedit_data_command),
             },
-            LC_RPATH => LoadCommand{
+            .RPATH => LoadCommand{
                 .rpath = try GenericCommandWithData(rpath_command).read(allocator, stream.reader()),
             },
             else => LoadCommand{
@@ -1904,7 +1914,7 @@ pub const LoadCommand = union(enum) {
         };
     }
 
-    pub fn cmd(self: LoadCommand) u32 {
+    pub fn cmd(self: LoadCommand) LC {
         return switch (self) {
             .dyld_info_only => |x| x.cmd,
             .symtab => |x| x.cmd,
@@ -2078,7 +2088,7 @@ pub fn createLoadDylibCommand(
     ));
 
     var dylib_cmd = emptyGenericCommandWithData(dylib_command{
-        .cmd = LC_LOAD_DYLIB,
+        .cmd = .LOAD_DYLIB,
         .cmdsize = cmdsize,
         .dylib = .{
             .name = @sizeOf(dylib_command),
@@ -2189,7 +2199,7 @@ test "read-write generic command with data" {
     };
     var cmd = GenericCommandWithData(dylib_command){
         .inner = .{
-            .cmd = LC_LOAD_DYLIB,
+            .cmd = .LOAD_DYLIB,
             .cmdsize = 32,
             .dylib = .{
                 .name = 24,
@@ -2227,7 +2237,7 @@ test "read-write C struct command" {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // stacksize
     };
     const cmd = .{
-        .cmd = LC_MAIN,
+        .cmd = .MAIN,
         .cmdsize = 24,
         .entryoff = 16644,
         .stacksize = 0,

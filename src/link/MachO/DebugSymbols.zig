@@ -122,7 +122,6 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void 
 
         try self.load_commands.append(allocator, .{
             .symtab = .{
-                .cmd = macho.LC_SYMTAB,
                 .cmdsize = @sizeOf(macho.symtab_command),
                 .symoff = @intCast(u32, symtab_off),
                 .nsyms = base_cmd.nsyms,

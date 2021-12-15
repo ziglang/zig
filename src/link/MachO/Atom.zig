@@ -403,6 +403,13 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                         }
                         try self.addPtrBindingOrRebase(rel, target, context);
                     },
+                    .ARM64_RELOC_TLVP_LOAD_PAGE21,
+                    .ARM64_RELOC_TLVP_LOAD_PAGEOFF12,
+                    => {
+                        if (target == .global) {
+                            try addTlvPtrEntry(target, context);
+                        }
+                    },
                     else => {},
                 }
             },
@@ -450,6 +457,11 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                             const target_sect_base_addr = seg.sections.items[rel.r_symbolnum - 1].addr;
                             addend += @intCast(i64, context.base_addr + offset + 4) -
                                 @intCast(i64, target_sect_base_addr);
+                        }
+                    },
+                    .X86_64_RELOC_TLV => {
+                        if (target == .global) {
+                            try addTlvPtrEntry(target, context);
                         }
                     },
                     else => {},
@@ -528,6 +540,47 @@ fn addPtrBindingOrRebase(
                 try self.rebases.append(context.allocator, @intCast(u32, rel.r_address));
             }
         },
+    }
+}
+
+fn addTlvPtrEntry(target: Relocation.Target, context: RelocContext) !void {
+    if (context.macho_file.tlv_ptr_entries_map.contains(target)) return;
+
+    const value_ptr = blk: {
+        if (context.macho_file.tlv_ptr_entries_map_free_list.popOrNull()) |i| {
+            log.debug("reusing __thread_ptrs entry index {d} for {}", .{ i, target });
+            context.macho_file.tlv_ptr_entries_map.keys()[i] = target;
+            const value_ptr = context.macho_file.tlv_ptr_entries_map.getPtr(target).?;
+            break :blk value_ptr;
+        } else {
+            const res = try context.macho_file.tlv_ptr_entries_map.getOrPut(
+                context.macho_file.base.allocator,
+                target,
+            );
+            log.debug("creating new __thread_ptrs entry at index {d} for {}", .{
+                context.macho_file.tlv_ptr_entries_map.getIndex(target).?,
+                target,
+            });
+            break :blk res.value_ptr;
+        }
+    };
+    const atom = try context.macho_file.createTlvPtrAtom(target);
+    value_ptr.* = atom;
+
+    const match = (try context.macho_file.getMatchingSection(.{
+        .segname = MachO.makeStaticString("__DATA"),
+        .sectname = MachO.makeStaticString("__thread_ptrs"),
+        .flags = macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
+    })).?;
+    if (!context.object.start_atoms.contains(match)) {
+        try context.object.start_atoms.putNoClobber(context.allocator, match, atom);
+    }
+    if (context.object.end_atoms.getPtr(match)) |last| {
+        last.*.next = atom;
+        atom.prev = last.*;
+        last.* = atom;
+    } else {
+        try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
     }
 }
 
@@ -667,6 +720,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
             const sym = macho_file.locals.items[self.local_sym_index];
             break :blk sym.n_value + rel.offset;
         };
+        var is_via_thread_ptrs: bool = false;
         const target_addr = blk: {
             const is_via_got = got: {
                 switch (arch) {
@@ -742,8 +796,13 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                         .undef => {
                             break :blk if (macho_file.stubs_map.get(n_strx)) |atom|
                                 macho_file.locals.items[atom.local_sym_index].n_value
-                            else
-                                0;
+                            else inner: {
+                                if (macho_file.tlv_ptr_entries_map.get(rel.target)) |atom| {
+                                    is_via_thread_ptrs = true;
+                                    break :inner macho_file.locals.items[atom.local_sym_index].n_value;
+                                }
+                                break :inner 0;
+                            };
                         },
                     }
                 },
@@ -854,10 +913,12 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                     },
                     .ARM64_RELOC_TLVP_LOAD_PAGEOFF12 => {
                         const code = self.code.items[rel.offset..][0..4];
+                        const actual_target_addr = @intCast(i64, target_addr) + rel.addend;
+
                         const RegInfo = struct {
                             rd: u5,
                             rn: u5,
-                            size: u1,
+                            size: u2,
                         };
                         const reg_info: RegInfo = blk: {
                             if (isArithmeticOp(code)) {
@@ -878,13 +939,25 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                                 break :blk .{
                                     .rd = inst.rt,
                                     .rn = inst.rn,
-                                    .size = @truncate(u1, inst.size),
+                                    .size = inst.size,
                                 };
                             }
                         };
-                        const actual_target_addr = @intCast(i64, target_addr) + rel.addend;
                         const narrowed = @truncate(u12, @intCast(u64, actual_target_addr));
-                        var inst = aarch64.Instruction{
+                        var inst = if (is_via_thread_ptrs) blk: {
+                            const offset = try math.divExact(u12, narrowed, 8);
+                            break :blk aarch64.Instruction{
+                                .load_store_register = .{
+                                    .rt = reg_info.rd,
+                                    .rn = reg_info.rn,
+                                    .offset = offset,
+                                    .opc = 0b01,
+                                    .op1 = 0b01,
+                                    .v = 0,
+                                    .size = reg_info.size,
+                                },
+                            };
+                        } else aarch64.Instruction{
                             .add_subtract_immediate = .{
                                 .rd = reg_info.rd,
                                 .rn = reg_info.rn,
@@ -892,7 +965,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                                 .sh = 0,
                                 .s = 0,
                                 .op = 0,
-                                .sf = reg_info.size,
+                                .sf = @truncate(u1, reg_info.size),
                             },
                         };
                         mem.writeIntLittle(u32, code, inst.toU32());
@@ -942,8 +1015,10 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                         mem.writeIntLittle(u32, self.code.items[rel.offset..][0..4], @bitCast(u32, displacement));
                     },
                     .X86_64_RELOC_TLV => {
-                        // We need to rewrite the opcode from movq to leaq.
-                        self.code.items[rel.offset - 2] = 0x8d;
+                        if (!is_via_thread_ptrs) {
+                            // We need to rewrite the opcode from movq to leaq.
+                            self.code.items[rel.offset - 2] = 0x8d;
+                        }
                         const displacement = try math.cast(
                             i32,
                             @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4 + rel.addend,

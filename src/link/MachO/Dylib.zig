@@ -177,16 +177,16 @@ fn readLoadCommands(self: *Dylib, allocator: Allocator, reader: anytype, depende
     while (i < self.header.?.ncmds) : (i += 1) {
         var cmd = try macho.LoadCommand.read(allocator, reader);
         switch (cmd.cmd()) {
-            macho.LC_SYMTAB => {
+            .SYMTAB => {
                 self.symtab_cmd_index = i;
             },
-            macho.LC_DYSYMTAB => {
+            .DYSYMTAB => {
                 self.dysymtab_cmd_index = i;
             },
-            macho.LC_ID_DYLIB => {
+            .ID_DYLIB => {
                 self.id_cmd_index = i;
             },
-            macho.LC_REEXPORT_DYLIB => {
+            .REEXPORT_DYLIB => {
                 if (should_lookup_reexports) {
                     // Parse install_name to dependent dylib.
                     var id = try Id.fromLoadCommand(allocator, cmd.dylib);
