@@ -3397,6 +3397,14 @@ pub fn addCCArgs(
         try argv.append(libunwind_include_path);
     }
 
+    if (comp.bin_file.options.link_libc and target.isGnuLibC()) {
+        const target_version = target.os.version_range.linux.glibc;
+        const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
+            target_version.minor,
+        });
+        try argv.append(glibc_minor_define);
+    }
+
     const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
