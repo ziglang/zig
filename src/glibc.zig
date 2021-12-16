@@ -272,22 +272,69 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             const s = path.sep_str;
             const linux_prefix = lib_libc_glibc ++
                 "sysdeps" ++ s ++ "unix" ++ s ++ "sysv" ++ s ++ "linux" ++ s;
-            const deps = [_][]const u8{
-                lib_libc_glibc ++ "stdlib" ++ s ++ "atexit.c",
-                lib_libc_glibc ++ "stdlib" ++ s ++ "at_quick_exit.c",
-                linux_prefix ++ "stat.c",
-                linux_prefix ++ "fstat.c",
-                linux_prefix ++ "lstat.c",
-                linux_prefix ++ "stat64.c",
-                linux_prefix ++ "fstat64.c",
-                linux_prefix ++ "lstat64.c",
-                linux_prefix ++ "fstatat.c",
-                linux_prefix ++ "fstatat64.c",
-                linux_prefix ++ "mknodat.c",
-                lib_libc_glibc ++ "io" ++ s ++ "mknod.c",
-                lib_libc_glibc ++ "sysdeps" ++ s ++ "pthread" ++ s ++ "pthread_atfork.c",
-                lib_libc_glibc ++ "debug" ++ s ++ "stack_chk_fail_local.c",
-                lib_libc_glibc ++ "csu" ++ s ++ "errno.c",
+            const Flavor = enum { nonshared, shared };
+            const Dep = struct { path: []const u8, flavor: Flavor };
+            const deps = [_]Dep{
+                .{
+                    .path = lib_libc_glibc ++ "stdlib" ++ s ++ "atexit.c",
+                    .flavor = .nonshared,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "stdlib" ++ s ++ "at_quick_exit.c",
+                    .flavor = .nonshared,
+                },
+                .{
+                    .path = linux_prefix ++ "stat.c",
+                    .flavor = .shared,
+                },
+                .{
+                    .path = linux_prefix ++ "fstat.c",
+                    .flavor = .shared,
+                },
+                .{
+                    .path = linux_prefix ++ "lstat.c",
+                    .flavor = .shared,
+                },
+                .{
+                    .path = linux_prefix ++ "stat64.c",
+                    .flavor = .shared,
+                },
+                .{
+                    .path = linux_prefix ++ "fstat64.c",
+                    .flavor = .shared,
+                },
+                .{
+                    .path = linux_prefix ++ "lstat64.c",
+                    .flavor = .shared,
+                },
+                .{
+                    .path = linux_prefix ++ "fstatat.c",
+                    .flavor = .shared,
+                },
+                .{
+                    .path = linux_prefix ++ "fstatat64.c",
+                    .flavor = .shared,
+                },
+                .{
+                    .path = linux_prefix ++ "mknodat.c",
+                    .flavor = .shared,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "mknod.c",
+                    .flavor = .shared,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "sysdeps" ++ s ++ "pthread" ++ s ++ "pthread_atfork.c",
+                    .flavor = .nonshared,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "debug" ++ s ++ "stack_chk_fail_local.c",
+                    .flavor = .nonshared,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "csu" ++ s ++ "errno.c",
+                    .flavor = .shared,
+                },
             };
 
             var c_source_files: [deps.len]Compilation.CSourceFile = undefined;
@@ -298,12 +345,19 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-std=gnu11",
                     "-fgnu89-inline",
                     "-fmerge-all-constants",
+                    "-frounding-math",
                     "-fno-stack-protector",
+                    "-fno-common",
                     "-fmath-errno",
                     "-ftls-model=initial-exec",
                     "-Wno-ignored-attributes",
                 });
                 try add_include_dirs(comp, arena, &args);
+
+                const shared_def = switch (dep.flavor) {
+                    .shared => "-DSHARED",
+                    .nonshared => "-DLIBC_NONSHARED=1",
+                };
                 try args.appendSlice(&[_][]const u8{
                     "-D_LIBC_REENTRANT",
                     "-include",
@@ -313,11 +367,11 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-include",
                     try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
                     "-DPIC",
-                    "-DLIBC_NONSHARED=1",
+                    shared_def,
                     "-DTOP_NAMESPACE=glibc",
                 });
                 c_source_files[i] = .{
-                    .src_path = try lib_path(comp, arena, dep),
+                    .src_path = try lib_path(comp, arena, dep.path),
                     .extra_flags = args.items,
                 };
             }
