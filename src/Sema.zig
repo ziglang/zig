@@ -2025,15 +2025,22 @@ fn zirErrorSetDecl(
     }, type_name);
     new_decl.owns_tv = true;
     errdefer sema.mod.abortAnonDecl(new_decl);
-    const names = try new_decl_arena_allocator.alloc([]const u8, fields.len);
-    for (fields) |str_index, i| {
-        names[i] = try new_decl_arena_allocator.dupe(u8, sema.code.nullTerminatedString(str_index));
+
+    var names = Module.ErrorSet.NameMap{};
+    try names.ensureUnusedCapacity(new_decl_arena_allocator, fields.len);
+    for (fields) |str_index| {
+        const name = try new_decl_arena_allocator.dupe(u8, sema.code.nullTerminatedString(str_index));
+
+        // TODO: This check should be performed in AstGen instead.
+        const result = names.getOrPutAssumeCapacity(name);
+        if (result.found_existing) {
+            return sema.fail(block, src, "duplicate error set field {s}", .{name});
+        }
     }
     error_set.* = .{
         .owner_decl = new_decl,
         .node_offset = inst_data.src_node,
-        .names_ptr = names.ptr,
-        .names_len = @intCast(u32, names.len),
+        .names = names,
     };
     try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclVal(block, src, new_decl);
@@ -4556,63 +4563,43 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         return Air.Inst.Ref.anyerror_type;
     }
     // Resolve both error sets now.
-    var set: std.StringHashMapUnmanaged(void) = .{};
-    defer set.deinit(sema.gpa);
+    const lhs_names = switch (lhs_ty.tag()) {
+        .error_set_single => blk: {
+            // Work around coercion problems
+            const tmp: *const [1][]const u8 = &lhs_ty.castTag(.error_set_single).?.data;
+            break :blk tmp;
+        },
+        .error_set_merged => lhs_ty.castTag(.error_set_merged).?.data.keys(),
+        .error_set => lhs_ty.castTag(.error_set).?.data.names.keys(),
+        else => unreachable,
+    };
 
-    switch (lhs_ty.tag()) {
-        .error_set_single => {
-            const name = lhs_ty.castTag(.error_set_single).?.data;
-            try set.put(sema.gpa, name, {});
+    const rhs_names = switch (rhs_ty.tag()) {
+        .error_set_single => blk: {
+            const tmp: *const [1][]const u8 = &rhs_ty.castTag(.error_set_single).?.data;
+            break :blk tmp;
         },
-        .error_set_merged => {
-            const names = lhs_ty.castTag(.error_set_merged).?.data;
-            for (names) |name| {
-                try set.put(sema.gpa, name, {});
-            }
-        },
-        .error_set => {
-            const lhs_set = lhs_ty.castTag(.error_set).?.data;
-            try set.ensureUnusedCapacity(sema.gpa, lhs_set.names_len);
-            for (lhs_set.names_ptr[0..lhs_set.names_len]) |name| {
-                set.putAssumeCapacityNoClobber(name, {});
-            }
-        },
+        .error_set_merged => rhs_ty.castTag(.error_set_merged).?.data.keys(),
+        .error_set => rhs_ty.castTag(.error_set).?.data.names.keys(),
         else => unreachable,
-    }
-    switch (rhs_ty.tag()) {
-        .error_set_single => {
-            const name = rhs_ty.castTag(.error_set_single).?.data;
-            try set.put(sema.gpa, name, {});
-        },
-        .error_set_merged => {
-            const names = rhs_ty.castTag(.error_set_merged).?.data;
-            for (names) |name| {
-                try set.put(sema.gpa, name, {});
-            }
-        },
-        .error_set => {
-            const rhs_set = rhs_ty.castTag(.error_set).?.data;
-            try set.ensureUnusedCapacity(sema.gpa, rhs_set.names_len);
-            for (rhs_set.names_ptr[0..rhs_set.names_len]) |name| {
-                set.putAssumeCapacity(name, {});
-            }
-        },
-        else => unreachable,
-    }
+    };
 
     // TODO do we really want to create a Decl for this?
     // The reason we do it right now is for memory management.
     var anon_decl = try block.startAnonDecl();
     defer anon_decl.deinit();
 
-    const new_names = try anon_decl.arena().alloc([]const u8, set.count());
-    var it = set.keyIterator();
-    var i: usize = 0;
-    while (it.next()) |key| : (i += 1) {
-        new_names[i] = key.*;
+    var names = Module.ErrorSet.NameMap{};
+    // TODO: Guess is an upper bound, but maybe this needs to be reduced by computing the exact size first.
+    try names.ensureUnusedCapacity(anon_decl.arena(), @intCast(u32, lhs_names.len + rhs_names.len));
+    for (lhs_names) |name| {
+        names.putAssumeCapacityNoClobber(name, {});
+    }
+    for (rhs_names) |name| {
+        names.putAssumeCapacity(name, {});
     }
 
-    const err_set_ty = try Type.Tag.error_set_merged.create(anon_decl.arena(), new_names);
+    const err_set_ty = try Type.Tag.error_set_merged.create(anon_decl.arena(), names);
     const err_set_decl = try anon_decl.finish(
         Type.type,
         try Value.Tag.ty.create(anon_decl.arena(), err_set_ty),
@@ -11425,14 +11412,8 @@ fn fieldVal(
             switch (child_type.zigTypeTag()) {
                 .ErrorSet => {
                     const name: []const u8 = if (child_type.castTag(.error_set)) |payload| blk: {
-                        const error_set = payload.data;
-                        // TODO this is O(N). I'm putting off solving this until we solve inferred
-                        // error sets at the same time.
-                        const names = error_set.names_ptr[0..error_set.names_len];
-                        for (names) |name| {
-                            if (mem.eql(u8, field_name, name)) {
-                                break :blk name;
-                            }
+                        if (payload.data.names.getEntry(field_name)) |entry| {
+                            break :blk entry.key_ptr.*;
                         }
                         return sema.fail(block, src, "no error named '{s}' in '{}'", .{
                             field_name, child_type,
@@ -11630,14 +11611,8 @@ fn fieldPtr(
                 .ErrorSet => {
                     // TODO resolve inferred error sets
                     const name: []const u8 = if (child_type.castTag(.error_set)) |payload| blk: {
-                        const error_set = payload.data;
-                        // TODO this is O(N). I'm putting off solving this until we solve inferred
-                        // error sets at the same time.
-                        const names = error_set.names_ptr[0..error_set.names_len];
-                        for (names) |name| {
-                            if (mem.eql(u8, field_name, name)) {
-                                break :blk name;
-                            }
+                        if (payload.data.names.getEntry(field_name)) |entry| {
+                            break :blk entry.key_ptr.*;
                         }
                         return sema.fail(block, src, "no error named '{s}' in '{}'", .{
                             field_name, child_type,
@@ -13916,16 +13891,12 @@ fn wrapErrorUnion(
                 if (mem.eql(u8, expected_name, n)) break :ok;
                 return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
             },
-            .error_set => ok: {
+            .error_set => {
                 const expected_name = val.castTag(.@"error").?.data.name;
                 const error_set = dest_err_set_ty.castTag(.error_set).?.data;
-                const names = error_set.names_ptr[0..error_set.names_len];
-                // TODO this is O(N). I'm putting off solving this until we solve inferred
-                // error sets at the same time.
-                for (names) |name| {
-                    if (mem.eql(u8, expected_name, name)) break :ok;
+                if (!error_set.names.contains(expected_name)) {
+                    return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
                 }
-                return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
             },
             .error_set_inferred => ok: {
                 const err_set_payload = dest_err_set_ty.castTag(.error_set_inferred).?.data;

@@ -796,15 +796,11 @@ pub const ErrorSet = struct {
     owner_decl: *Decl,
     /// Offset from Decl node index, points to the error set AST node.
     node_offset: i32,
-    names_len: u32,
     /// The string bytes are stored in the owner Decl arena.
     /// They are in the same order they appear in the AST.
-    /// The length is given by `names_len`.
-    names_ptr: [*]const []const u8,
+    names: NameMap,
 
-    pub fn names(self: ErrorSet) []const []const u8 {
-        return self.names_ptr[0..self.names_len];
-    }
+    pub const NameMap = std.StringArrayHashMapUnmanaged(void);
 
     pub fn srcLoc(self: ErrorSet) SrcLoc {
         return .{

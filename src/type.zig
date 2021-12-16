@@ -904,10 +904,11 @@ pub const Type = extern union {
                 });
             },
             .error_set_merged => {
-                const names = self.castTag(.error_set_merged).?.data;
-                const duped_names = try allocator.alloc([]const u8, names.len);
-                for (duped_names) |*name, i| {
-                    name.* = try allocator.dupe(u8, names[i]);
+                const names = self.castTag(.error_set_merged).?.data.keys();
+                var duped_names = Module.ErrorSet.NameMap{};
+                try duped_names.ensureTotalCapacity(allocator, names.len);
+                for (names) |name| {
+                    duped_names.putAssumeCapacityNoClobber(name, .{});
                 }
                 return Tag.error_set_merged.create(allocator, duped_names);
             },
@@ -1206,7 +1207,7 @@ pub const Type = extern union {
                     return writer.print("(inferred error set of {s})", .{func.owner_decl.name});
                 },
                 .error_set_merged => {
-                    const names = ty.castTag(.error_set_merged).?.data;
+                    const names = ty.castTag(.error_set_merged).?.data.keys();
                     try writer.writeAll("error{");
                     for (names) |name, i| {
                         if (i != 0) try writer.writeByte(',');
@@ -4148,7 +4149,7 @@ pub const Type = extern union {
             pub const base_tag = Tag.error_set_merged;
 
             base: Payload = Payload{ .tag = base_tag },
-            data: []const []const u8,
+            data: Module.ErrorSet.NameMap,
         };
 
         pub const ErrorSetInferred = struct {
@@ -4168,7 +4169,7 @@ pub const Type = extern union {
                 pub fn addErrorSet(self: *Data, gpa: Allocator, err_set_ty: Type) !void {
                     switch (err_set_ty.tag()) {
                         .error_set => {
-                            const names = err_set_ty.castTag(.error_set).?.data.names();
+                            const names = err_set_ty.castTag(.error_set).?.data.names.keys();
                             for (names) |name| {
                                 try self.map.put(gpa, name, {});
                             }
@@ -4187,7 +4188,7 @@ pub const Type = extern union {
                             }
                         },
                         .error_set_merged => {
-                            const names = err_set_ty.castTag(.error_set_merged).?.data;
+                            const names = err_set_ty.castTag(.error_set_merged).?.data.keys();
                             for (names) |name| {
                                 try self.map.put(gpa, name, {});
                             }
