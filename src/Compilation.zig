@@ -1586,6 +1586,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
         if (comp.wantBuildGLibCFromSource()) {
+            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+
             if (glibc.needsCrtiCrtn(comp.getTarget())) {
                 try comp.work_queue.write(&[_]Job{
                     .{ .glibc_crt_file = .crti_o },
@@ -1599,6 +1601,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             });
         }
         if (comp.wantBuildMuslFromSource()) {
+            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+
             try comp.work_queue.ensureUnusedCapacity(6);
             if (musl.needsCrtiCrtn(comp.getTarget())) {
                 comp.work_queue.writeAssumeCapacity(&[_]Job{
@@ -1617,6 +1621,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             });
         }
         if (comp.wantBuildWasiLibcFromSource()) {
+            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+
             const wasi_emulated_libs = comp.bin_file.options.wasi_emulated_libs;
             try comp.work_queue.ensureUnusedCapacity(wasi_emulated_libs.len + 2); // worst-case we need all components
             for (wasi_emulated_libs) |crt_file| {
@@ -1630,6 +1636,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             });
         }
         if (comp.wantBuildMinGWFromSource()) {
+            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+
             const static_lib_jobs = [_]Job{
                 .{ .mingw_crt_file = .mingw32_lib },
                 .{ .mingw_crt_file = .msvcrt_os_lib },
