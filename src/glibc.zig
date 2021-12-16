@@ -269,6 +269,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             return comp.build_crt_file("Scrt1", .Obj, &[_]Compilation.CSourceFile{ start_os, abi_note_o });
         },
         .libc_nonshared_a => {
+            const target = comp.getTarget();
             const s = path.sep_str;
             const linux_prefix = lib_libc_glibc ++
                 "sysdeps" ++ s ++ "unix" ++ s ++ "sysv" ++ s ++ "linux" ++ s;
@@ -353,6 +354,13 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-Wno-ignored-attributes",
                 });
                 try add_include_dirs(comp, arena, &args);
+
+                if (target.cpu.arch == .i386) {
+                    // This prevents i386/sysdep.h from trying to do some
+                    // silly and unnecessary inline asm hack that uses weird
+                    // syntax that clang does not support.
+                    try args.append("-DCAN_USE_REGISTER_ASM_EBP");
+                }
 
                 const shared_def = switch (dep.flavor) {
                     .shared => "-DSHARED",
