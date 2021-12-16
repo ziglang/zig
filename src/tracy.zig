@@ -145,8 +145,8 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
                     freeNamed(buf.ptr, n);
                     allocNamed(buf.ptr, resized_len, n);
                 } else {
-                    alloc(buf.ptr, resized_len);
                     free(buf.ptr);
+                    alloc(buf.ptr, resized_len);
                 }
 
                 return resized_len;
