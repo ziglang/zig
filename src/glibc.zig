@@ -317,7 +317,8 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-std=gnu11",
                     "-fgnu89-inline",
                     "-fmerge-all-constants",
-                    "-frounding-math",
+                    // glibc sets this flag but clang does not support it.
+                    // "-frounding-math",
                     "-fno-stack-protector",
                     "-fno-common",
                     "-fmath-errno",
