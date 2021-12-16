@@ -5107,12 +5107,7 @@ fn funcCommon(
         const return_type = if (!inferred_error_set or bare_return_type.tag() == .generic_poison)
             bare_return_type
         else blk: {
-            const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, .{
-                .func = new_func,
-                .map = .{},
-                .functions = .{},
-                .is_anyerror = false,
-            });
+            const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, new_func);
             break :blk try Type.Tag.error_union.create(sema.arena, .{
                 .error_set = error_set_ty,
                 .payload = bare_return_type,
@@ -9209,14 +9204,14 @@ fn analyzeRet(
     // add the error tag to the inferred error set of the in-scope function, so
     // that the coercion below works correctly.
     if (sema.fn_ret_ty.zigTypeTag() == .ErrorUnion) {
-        if (sema.fn_ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
+        if (sema.fn_ret_ty.errorUnionSet().tag() == .error_set_inferred) {
             const op_ty = sema.typeOf(uncasted_operand);
             switch (op_ty.zigTypeTag()) {
                 .ErrorSet => {
-                    try payload.data.addErrorSet(sema.gpa, op_ty);
+                    try sema.func.?.addErrorSet(sema.gpa, op_ty);
                 },
                 .ErrorUnion => {
-                    try payload.data.addErrorSet(sema.gpa, op_ty.errorUnionSet());
+                    try sema.func.?.addErrorSet(sema.gpa, op_ty.errorUnionSet());
                 },
                 else => {},
             }
@@ -12501,10 +12496,10 @@ fn coerceInMemoryAllowedErrorSets(
     // of inferred error sets.
     if (src_ty.castTag(.error_set_inferred)) |src_payload| {
         if (dest_ty.castTag(.error_set_inferred)) |dst_payload| {
-            const src_func = src_payload.data.func;
-            const dst_func = dst_payload.data.func;
+            const src_func = src_payload.data;
+            const dst_func = dst_payload.data;
 
-            if (src_func == dst_func or dst_payload.data.functions.contains(src_func)) {
+            if (src_func == dst_func or dst_func.inferred_error_set.functions.contains(src_func)) {
                 return .ok;
             }
         }
@@ -13899,10 +13894,10 @@ fn wrapErrorUnion(
                 }
             },
             .error_set_inferred => ok: {
-                const err_set_payload = dest_err_set_ty.castTag(.error_set_inferred).?.data;
-                if (err_set_payload.is_anyerror) break :ok;
+                const func = dest_err_set_ty.castTag(.error_set_inferred).?.data;
+                if (func.inferred_error_set.is_anyerror) break :ok;
                 const expected_name = val.castTag(.@"error").?.data.name;
-                if (err_set_payload.map.contains(expected_name)) break :ok;
+                if (func.inferred_error_set.errors.contains(expected_name)) break :ok;
                 // TODO error set resolution here before emitting a compile error
                 return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
             },

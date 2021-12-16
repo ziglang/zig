@@ -1207,6 +1207,24 @@ pub const Fn = struct {
     is_cold: bool = false,
     is_noinline: bool = false,
 
+    /// These fields are used to keep track of any dependencies related to functions
+    /// that return inferred error sets. It's values are not used when the function
+    /// does not return an inferred error set.
+    inferred_error_set: struct {
+        /// All currently known errors that this function returns. This includes direct additions
+        /// via `return error.Foo;`, and possibly also errors that are returned from any dependent functions.
+        /// When the inferred error set is fully resolved, this map contains all the errors that the function might return.
+        errors: std.StringHashMapUnmanaged(void) = .{},
+
+        /// Other functions with inferred error sets which the inferred error set of this
+        /// function should include.
+        functions: std.AutoHashMapUnmanaged(*Fn, void) = .{},
+
+        /// Whether the function returned anyerror. This is true if either of the dependent functions
+        /// returns anyerror.
+        is_anyerror: bool = false,
+    } = .{},
+
     pub const Analysis = enum {
         queued,
         /// This function intentionally only has ZIR generated because it is marked
@@ -1222,23 +1240,37 @@ pub const Fn = struct {
     };
 
     pub fn deinit(func: *Fn, gpa: Allocator) void {
-        if (func.getInferredErrorSet()) |error_set_data| {
-            error_set_data.map.deinit(gpa);
-            error_set_data.functions.deinit(gpa);
-        }
+        func.inferred_error_set.errors.deinit(gpa);
+        func.inferred_error_set.functions.deinit(gpa);
     }
 
-    pub fn getInferredErrorSet(func: *Fn) ?*Type.Payload.ErrorSetInferred.Data {
-        const ret_ty = func.owner_decl.ty.fnReturnType();
-        if (ret_ty.tag() == .generic_poison) {
-            return null;
+    pub fn addErrorSet(func: *Fn, gpa: Allocator, err_set_ty: Type) !void {
+        switch (err_set_ty.tag()) {
+            .error_set => {
+                const names = err_set_ty.castTag(.error_set).?.data.names.keys();
+                for (names) |name| {
+                    try func.inferred_error_set.errors.put(gpa, name, {});
+                }
+            },
+            .error_set_single => {
+                const name = err_set_ty.castTag(.error_set_single).?.data;
+                try func.inferred_error_set.errors.put(gpa, name, {});
+            },
+            .error_set_inferred => {
+                const dependent_func = err_set_ty.castTag(.error_set_inferred).?.data;
+                try func.inferred_error_set.functions.put(gpa, dependent_func, {});
+            },
+            .error_set_merged => {
+                const names = err_set_ty.castTag(.error_set_merged).?.data.keys();
+                for (names) |name| {
+                    try func.inferred_error_set.errors.put(gpa, name, {});
+                }
+            },
+            .anyerror => {
+                func.inferred_error_set.is_anyerror = true;
+            },
+            else => unreachable,
         }
-        if (ret_ty.zigTypeTag() == .ErrorUnion) {
-            if (ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
-                return &payload.data;
-            }
-        }
-        return null;
     }
 };
 
