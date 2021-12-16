@@ -780,6 +780,8 @@ pub const InitOptions = struct {
     enable_link_snapshots: bool = false,
     /// (Darwin) Path and version of the native SDK if detected.
     native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
+    /// (Darwin) Install name of the dylib
+    install_name: ?[]const u8 = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -1509,6 +1511,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .use_stage1 = use_stage1,
             .enable_link_snapshots = options.enable_link_snapshots,
             .native_darwin_sdk = options.native_darwin_sdk,
+            .install_name = options.install_name,
         });
         errdefer bin_file.destroy();
         comp.* = .{

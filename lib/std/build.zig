@@ -1537,6 +1537,9 @@ pub const LibExeObjStep = struct {
     /// Permit read-only relocations in read-only segments. Disallowed by default.
     link_z_notext: bool = false,
 
+    /// (Darwin) Install name for the dylib
+    install_name: ?[]const u8 = null,
+
     /// Position Independent Code
     force_pic: ?bool = null,
 
@@ -2450,6 +2453,16 @@ pub const LibExeObjStep = struct {
             if (self.version) |version| {
                 zig_args.append("--version") catch unreachable;
                 zig_args.append(builder.fmt("{}", .{version})) catch unreachable;
+            }
+
+            if (self.target.isDarwin()) {
+                const install_name = self.install_name orelse builder.fmt("@rpath/{s}{s}{s}", .{
+                    self.target.libPrefix(),
+                    self.name,
+                    self.target.dynamicLibSuffix(),
+                });
+                try zig_args.append("-install_name");
+                try zig_args.append(install_name);
             }
         }
 
