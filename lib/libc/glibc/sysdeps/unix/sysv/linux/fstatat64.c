@@ -53,8 +53,8 @@ fstatat64_time64_statx (int fd, const char *file, struct __stat64_t64 *buf,
     return r;
 
   *buf = (struct __stat64_t64) {
-    .st_dev = __gnu_dev_makedev (tmp.stx_dev_major, tmp.stx_dev_minor),
-    .st_rdev = __gnu_dev_makedev (tmp.stx_rdev_major, tmp.stx_rdev_minor),
+    .st_dev = gnu_dev_makedev (tmp.stx_dev_major, tmp.stx_dev_minor),
+    .st_rdev = gnu_dev_makedev (tmp.stx_rdev_major, tmp.stx_rdev_minor),
     .st_ino = tmp.stx_ino,
     .st_mode = tmp.stx_mode,
     .st_nlink = tmp.stx_nlink,
@@ -78,6 +78,17 @@ fstatat64_time64_statx (int fd, const char *file, struct __stat64_t64 *buf,
 /* Only statx supports 64-bit timestamps for 32-bit architectures with
    __ASSUME_STATX, so there is no point in building the fallback.  */
 #if !FSTATAT_USE_STATX || (FSTATAT_USE_STATX && !defined __ASSUME_STATX)
+static inline struct __timespec64
+valid_timespec_to_timespec64 (const struct timespec ts)
+{
+  struct __timespec64 ts64;
+
+  ts64.tv_sec = ts.tv_sec;
+  ts64.tv_nsec = ts.tv_nsec;
+
+  return ts64;
+}
+
 static inline int
 fstatat64_time64_stat (int fd, const char *file, struct __stat64_t64 *buf,
 		       int flag)
