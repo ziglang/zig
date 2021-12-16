@@ -152,7 +152,12 @@ const glibc_targets = [_]LibCTarget{
     LibCTarget{
         .name = "powerpc-linux-gnu",
         .arch = MultiArch{ .specific = Arch.powerpc },
-        .abi = MultiAbi{ .specific = Abi.gnu },
+        .abi = MultiAbi{ .specific = Abi.gnueabihf },
+    },
+    LibCTarget{
+        .name = "powerpc-linux-gnu-soft",
+        .arch = MultiArch{ .specific = Arch.powerpc },
+        .abi = MultiAbi{ .specific = Abi.gnueabi },
     },
     LibCTarget{
         .name = "riscv64-linux-gnu-rv64imac-lp64",
