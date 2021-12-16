@@ -479,6 +479,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         man.hash.addListOfBytes(self.base.options.frameworks);
         man.hash.addListOfBytes(self.base.options.rpath_list);
         if (is_dyn_lib) {
+            man.hash.addOptionalBytes(self.base.options.install_name);
             man.hash.addOptional(self.base.options.version);
         }
         link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
@@ -811,11 +812,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 if (is_dyn_lib) {
                     try argv.append("-dylib");
 
-                    const install_name = try std.fmt.allocPrint(arena, "@rpath/{s}", .{
-                        self.base.options.emit.?.sub_path,
-                    });
-                    try argv.append("-install_name");
-                    try argv.append(install_name);
+                    if (self.base.options.install_name) |install_name| {
+                        try argv.append("-install_name");
+                        try argv.append(install_name);
+                    }
                 }
 
                 if (self.base.options.sysroot) |syslibroot| {
@@ -4336,10 +4336,7 @@ fn populateMissingMetadata(self: *MachO) !void {
 
     if (self.dylib_id_cmd_index == null and self.base.options.output_mode == .Lib) {
         self.dylib_id_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const install_name = try std.fmt.allocPrint(self.base.allocator, "@rpath/{s}", .{
-            self.base.options.emit.?.sub_path,
-        });
-        defer self.base.allocator.free(install_name);
+        const install_name = self.base.options.install_name orelse self.base.options.emit.?.sub_path;
         const current_version = self.base.options.version orelse
             std.builtin.Version{ .major = 1, .minor = 0, .patch = 0 };
         const compat_version = self.base.options.compatibility_version orelse

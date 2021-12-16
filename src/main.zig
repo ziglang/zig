@@ -430,6 +430,7 @@ const usage_build_generic =
     \\  --image-base [addr]            Set base address for executable image
     \\  -framework [name]              (Darwin) link against framework
     \\  -F[dir]                        (Darwin) add search path for frameworks
+    \\  -install_name=[value]          (Darwin) add dylib's install name
     \\  --import-memory                (WebAssembly) import memory from the environment
     \\  --initial-memory=[bytes]       (WebAssembly) initial size of the linear memory
     \\  --max-memory=[bytes]           (WebAssembly) maximum size of the linear memory
@@ -668,6 +669,7 @@ fn buildOutputType(
     var wasi_exec_model: ?std.builtin.WasiExecModel = null;
     var enable_link_snapshots: bool = false;
     var native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null;
+    var install_name: ?[]const u8 = null;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -873,6 +875,10 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
                         try frameworks.append(args[i]);
+                    } else if (mem.eql(u8, arg, "-install_name")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
+                        i += 1;
+                        install_name = args[i];
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
@@ -1721,6 +1727,12 @@ fn buildOutputType(
                     } else {
                         fatal("unsupported -undefined option '{s}'", .{linker_args.items[i]});
                     }
+                } else if (mem.eql(u8, arg, "-install_name")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    install_name = linker_args.items[i];
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
@@ -2495,6 +2507,7 @@ fn buildOutputType(
         .debug_compile_errors = debug_compile_errors,
         .enable_link_snapshots = enable_link_snapshots,
         .native_darwin_sdk = native_darwin_sdk,
+        .install_name = install_name,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;

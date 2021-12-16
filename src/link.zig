@@ -157,6 +157,9 @@ pub const Options = struct {
     /// (Darwin) Path and version of the native SDK if detected.
     native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
 
+    /// (Darwin) Install name for the dylib
+    install_name: ?[]const u8 = null,
+
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }
