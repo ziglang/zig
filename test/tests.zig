@@ -189,7 +189,7 @@ const test_targets = blk: {
         //    .target = .{
         //        .cpu_arch = .mips,
         //        .os_tag = .linux,
-        //        .abi = .gnu,
+        //        .abi = .gnueabihf,
         //    },
         //    .link_libc = true,
         //},
@@ -216,7 +216,7 @@ const test_targets = blk: {
         //    .target = .{
         //        .cpu_arch = .mipsel,
         //        .os_tag = .linux,
-        //        .abi = .gnu,
+        //        .abi = .gnueabihf,
         //    },
         //    .link_libc = true,
         //},

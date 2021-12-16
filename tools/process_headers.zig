@@ -122,12 +122,22 @@ const glibc_targets = [_]LibCTarget{
     LibCTarget{
         .name = "mipsel-linux-gnu",
         .arch = MultiArch{ .specific = Arch.mipsel },
-        .abi = MultiAbi{ .specific = Abi.gnu },
+        .abi = MultiAbi{ .specific = Abi.gnueabihf },
+    },
+    LibCTarget{
+        .name = "mipsel-linux-gnu-soft",
+        .arch = MultiArch{ .specific = Arch.mipsel },
+        .abi = MultiAbi{ .specific = Abi.gnueabi },
     },
     LibCTarget{
         .name = "mips-linux-gnu",
         .arch = MultiArch{ .specific = Arch.mips },
-        .abi = MultiAbi{ .specific = Abi.gnu },
+        .abi = MultiAbi{ .specific = Abi.gnueabihf },
+    },
+    LibCTarget{
+        .name = "mips-linux-gnu-soft",
+        .arch = MultiArch{ .specific = Arch.mips },
+        .abi = MultiAbi{ .specific = Abi.gnueabi },
     },
     LibCTarget{
         .name = "powerpc64le-linux-gnu",

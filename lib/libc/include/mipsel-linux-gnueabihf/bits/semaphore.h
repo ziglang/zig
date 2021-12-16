@@ -15,17 +15,22 @@
    License along with the GNU C Library.  If not, see
    <https://www.gnu.org/licenses/>.  */
 
-#include <sgidefs.h>
-
-#define __WORDSIZE			_MIPS_SZPTR
+#ifndef _SEMAPHORE_H
+# error "Never use <bits/semaphore.h> directly; include <semaphore.h> instead."
+#endif
 
 #if _MIPS_SIM == _ABI64
-# define __WORDSIZE_TIME64_COMPAT32	1
+# define __SIZEOF_SEM_T	32
 #else
-# define __WORDSIZE_TIME64_COMPAT32	0
+# define __SIZEOF_SEM_T	16
 #endif
 
-#if __WORDSIZE == 32
-#define __WORDSIZE32_SIZE_ULONG		0
-#define __WORDSIZE32_PTRDIFF_LONG	0
-#endif
+/* Value returned if `sem_open' failed.  */
+#define SEM_FAILED      ((sem_t *) 0)
+
+
+typedef union
+{
+  char __size[__SIZEOF_SEM_T];
+  long int __align;
+} sem_t;

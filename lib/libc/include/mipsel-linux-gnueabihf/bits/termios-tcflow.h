@@ -1,4 +1,5 @@
-/* Copyright (C) 2002-2021 Free Software Foundation, Inc.
+/* termios local mode definitions.  Linux/mips version.
+   Copyright (C) 2019-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,17 +16,11 @@
    License along with the GNU C Library.  If not, see
    <https://www.gnu.org/licenses/>.  */
 
-#include <sgidefs.h>
-
-#define __WORDSIZE			_MIPS_SZPTR
-
-#if _MIPS_SIM == _ABI64
-# define __WORDSIZE_TIME64_COMPAT32	1
-#else
-# define __WORDSIZE_TIME64_COMPAT32	0
+#ifndef _TERMIOS_H
+# error "Never include <bits/termios-tcflow.h> directly; use <termios.h> instead."
 #endif
 
-#if __WORDSIZE == 32
-#define __WORDSIZE32_SIZE_ULONG		0
-#define __WORDSIZE32_PTRDIFF_LONG	0
-#endif
+/* tcsetattr uses these */
+#define	TCSANOW		0x540e	/* Same as TCSETS; change immediately.  */
+#define	TCSADRAIN	0x540f	/* Same as TCSETSW; change when pending output is written.  */
+#define	TCSAFLUSH	0x5410	/* Same as TCSETSF; flush pending input before changing.  */
