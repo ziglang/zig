@@ -1062,3 +1062,11 @@ fn buildSharedLib(
 
     try sub_compilation.updateSubCompilation();
 }
+
+// Return true if glibc has crti/crtn sources for that architecture.
+pub fn needsCrtiCrtn(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .riscv32, .riscv64 => false,
+        else => true,
+    };
+}

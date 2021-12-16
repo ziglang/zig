@@ -1586,7 +1586,17 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
         if (comp.wantBuildGLibCFromSource()) {
-            try comp.addBuildingGLibCJobs();
+            if (glibc.needsCrtiCrtn(comp.getTarget())) {
+                try comp.work_queue.write(&[_]Job{
+                    .{ .glibc_crt_file = .crti_o },
+                    .{ .glibc_crt_file = .crtn_o },
+                });
+            }
+            try comp.work_queue.write(&[_]Job{
+                .{ .glibc_crt_file = .scrt1_o },
+                .{ .glibc_crt_file = .libc_nonshared_a },
+                .{ .glibc_shared_objects = {} },
+            });
         }
         if (comp.wantBuildMuslFromSource()) {
             try comp.work_queue.ensureUnusedCapacity(6);
@@ -4044,16 +4054,6 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const
     const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
     const full_path = try std.fs.path.join(arena, &[_][]const u8{ crt_dir_path, basename });
     return full_path;
-}
-
-fn addBuildingGLibCJobs(comp: *Compilation) !void {
-    try comp.work_queue.write(&[_]Job{
-        .{ .glibc_crt_file = .crti_o },
-        .{ .glibc_crt_file = .crtn_o },
-        .{ .glibc_crt_file = .scrt1_o },
-        .{ .glibc_crt_file = .libc_nonshared_a },
-        .{ .glibc_shared_objects = {} },
-    });
 }
 
 fn wantBuildLibCFromSource(comp: Compilation) bool {
