@@ -274,7 +274,10 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             const linux_prefix = lib_libc_glibc ++
                 "sysdeps" ++ s ++ "unix" ++ s ++ "sysv" ++ s ++ "linux" ++ s;
             const Flavor = enum { nonshared, shared };
-            const Dep = struct { path: []const u8, flavor: Flavor };
+            const Dep = struct {
+                path: []const u8,
+                flavor: Flavor = .shared,
+            };
             const deps = [_]Dep{
                 .{
                     .path = lib_libc_glibc ++ "stdlib" ++ s ++ "atexit.c",
@@ -285,46 +288,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .flavor = .nonshared,
                 },
                 .{
-                    .path = linux_prefix ++ "stat.c",
-                    .flavor = .shared,
-                },
-                .{
-                    .path = linux_prefix ++ "fstat.c",
-                    .flavor = .shared,
-                },
-                .{
-                    .path = linux_prefix ++ "lstat.c",
-                    .flavor = .shared,
-                },
-                .{
-                    .path = linux_prefix ++ "stat64.c",
-                    .flavor = .shared,
-                },
-                .{
-                    .path = linux_prefix ++ "fstat64.c",
-                    .flavor = .shared,
-                },
-                .{
-                    .path = linux_prefix ++ "lstat64.c",
-                    .flavor = .shared,
-                },
-                .{
-                    .path = linux_prefix ++ "fstatat.c",
-                    .flavor = .shared,
-                },
-                .{
-                    .path = linux_prefix ++ "fstatat64.c",
-                    .flavor = .shared,
-                },
-                .{
-                    .path = linux_prefix ++ "mknodat.c",
-                    .flavor = .shared,
-                },
-                .{
-                    .path = lib_libc_glibc ++ "io" ++ s ++ "mknod.c",
-                    .flavor = .shared,
-                },
-                .{
                     .path = lib_libc_glibc ++ "sysdeps" ++ s ++ "pthread" ++ s ++ "pthread_atfork.c",
                     .flavor = .nonshared,
                 },
@@ -332,10 +295,18 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .path = lib_libc_glibc ++ "debug" ++ s ++ "stack_chk_fail_local.c",
                     .flavor = .nonshared,
                 },
-                .{
-                    .path = lib_libc_glibc ++ "csu" ++ s ++ "errno.c",
-                    .flavor = .shared,
-                },
+                .{ .path = lib_libc_glibc ++ "csu" ++ s ++ "errno.c" },
+                .{ .path = linux_prefix ++ "stat.c" },
+                .{ .path = linux_prefix ++ "fstat.c" },
+                .{ .path = linux_prefix ++ "lstat.c" },
+                .{ .path = linux_prefix ++ "stat64.c" },
+                .{ .path = linux_prefix ++ "fstat64.c" },
+                .{ .path = linux_prefix ++ "lstat64.c" },
+                .{ .path = linux_prefix ++ "fstatat.c" },
+                .{ .path = linux_prefix ++ "fstatat64.c" },
+                .{ .path = linux_prefix ++ "mknodat.c" },
+                .{ .path = lib_libc_glibc ++ "io" ++ s ++ "mknod.c" },
+                .{ .path = linux_prefix ++ "stat_t64_cp.c" },
             };
 
             var c_source_files: [deps.len]Compilation.CSourceFile = undefined;
