@@ -19,8 +19,28 @@
 #include <sys/stat.h>
 #include <kernel_stat.h>
 #include <sysdep.h>
+#include <string.h>
 
 #if !XSTAT_IS_XSTAT64
+
+static inline bool
+in_time_t_range (__time64_t t)
+{
+  time_t s = t;
+  return s == t;
+}
+
+static inline struct timespec
+valid_timespec64_to_timespec (const struct __timespec64 ts64)
+{
+  struct timespec ts;
+
+  ts.tv_sec = (time_t) ts64.tv_sec;
+  ts.tv_nsec = ts64.tv_nsec;
+
+  return ts;
+}
+
 int
 __fstatat (int fd, const char *file, struct stat *buf, int flag)
 {
