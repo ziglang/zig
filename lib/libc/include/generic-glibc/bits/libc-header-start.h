@@ -44,8 +44,26 @@
 
 /* ISO/IEC TS 18661-1:2014 defines the __STDC_WANT_IEC_60559_BFP_EXT__
    macro.  Most but not all symbols enabled by that macro in TS
-   18661-1 are enabled unconditionally in C2X; the symbols in Annex F
-   still require that macro in C2X.  */
+   18661-1 are enabled unconditionally in C2X.  In C2X, the symbols in
+   Annex F still require a new feature test macro
+   __STDC_WANT_IEC_60559_EXT__ instead (C2X does not define
+   __STDC_WANT_IEC_60559_BFP_EXT__), while a few features from TS
+   18661-1 are not included in C2X (and thus should depend on
+   __STDC_WANT_IEC_60559_BFP_EXT__ even when C2X features are
+   enabled).
+
+   __GLIBC_USE (IEC_60559_BFP_EXT) controls those features from TS
+   18661-1 not included in C2X.
+
+   __GLIBC_USE (IEC_60559_BFP_EXT_C2X) controls those features from TS
+   18661-1 that are also included in C2X (with no feature test macro
+   required in C2X).
+
+   __GLIBC_USE (IEC_60559_EXT) controls those features from TS 18661-1
+   that are included in C2X but conditional on
+   __STDC_WANT_IEC_60559_EXT__.  (There are currently no features
+   conditional on __STDC_WANT_IEC_60559_EXT__ that are not in TS
+   18661-1.)  */
 #undef __GLIBC_USE_IEC_60559_BFP_EXT
 #if defined __USE_GNU || defined __STDC_WANT_IEC_60559_BFP_EXT__
 # define __GLIBC_USE_IEC_60559_BFP_EXT 1
@@ -57,6 +75,12 @@
 # define __GLIBC_USE_IEC_60559_BFP_EXT_C2X 1
 #else
 # define __GLIBC_USE_IEC_60559_BFP_EXT_C2X 0
+#endif
+#undef __GLIBC_USE_IEC_60559_EXT
+#if __GLIBC_USE (IEC_60559_BFP_EXT) || defined __STDC_WANT_IEC_60559_EXT__
+# define __GLIBC_USE_IEC_60559_EXT 1
+#else
+# define __GLIBC_USE_IEC_60559_EXT 0
 #endif
 
 /* ISO/IEC TS 18661-4:2015 defines the

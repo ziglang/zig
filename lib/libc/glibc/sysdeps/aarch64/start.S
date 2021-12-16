@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1995-2021 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -43,10 +43,9 @@
  */
 
 	.text
-	.globl _start
-	.type _start,#function
-_start:
+ENTRY(_start)
 	/* Create an initial frame with 0 LR and FP */
+	cfi_undefined (x30)
 	mov	x29, #0
 	mov	x30, #0
 
@@ -64,26 +63,16 @@ _start:
 # ifdef SHARED
         adrp    x0, :got:main
 	ldr     PTR_REG (0), [x0, #:got_lo12:main]
-
-        adrp    x3, :got:__libc_csu_init
-	ldr     PTR_REG (3), [x3, #:got_lo12:__libc_csu_init]
-
-        adrp    x4, :got:__libc_csu_fini
-	ldr     PTR_REG (4), [x4, #:got_lo12:__libc_csu_fini]
 # else
 	adrp	x0, __wrap_main
 	add	x0, x0, :lo12:__wrap_main
-	adrp	x3, __libc_csu_init
-	add	x3, x3, :lo12:__libc_csu_init
-	adrp	x4, __libc_csu_fini
-	add	x4, x4, :lo12:__libc_csu_fini
 # endif
 #else
 	/* Set up the other arguments in registers */
 	MOVL (0, main)
-	MOVL (3, __libc_csu_init)
-	MOVL (4, __libc_csu_fini)
 #endif
+	mov	x3, #0		/* Used to be init.  */
+	mov	x4, #0		/* Used to be fini.  */
 
 	/* __libc_start_main (main, argc, argv, init, fini, rtld_fini,
 			      stack_end) */
@@ -100,8 +89,10 @@ _start:
 	   because crt1.o and rcrt1.o share code and the later must avoid the
 	   use of GOT relocations before __libc_start_main is called.  */
 __wrap_main:
+	BTI_C
 	b	main
 #endif
+END(_start)
 
 	/* Define a symbol for the first piece of initialized data.  */
 	.data

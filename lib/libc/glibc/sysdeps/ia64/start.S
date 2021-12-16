@@ -1,4 +1,4 @@
-/* Copyright (C) 1999-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1999-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Written by Jes Sorensen, <Jes.Sorensen@cern.ch>, April 1999.
 
@@ -82,19 +82,14 @@ _start:
 	{
 	  addl r11 = @ltoff(__libc_ia64_register_backing_store_base), gp
 	  addl out0 = @ltoff(@fptr(main)), gp
-	  addl out3 = @ltoff(@fptr(__libc_csu_init)), gp
+	  mov out3 = r0		/* Used to be init.  */
 	  ;;
 	}
 	{ .mmi
 	  ld8 r3 = [r11]	/* pointer to __libc_ia64_register_backing_store_base */
 	  ld8 out0 = [out0]	/* pointer to `main' function descriptor */
-	  addl out4 = @ltoff(@fptr(__libc_csu_fini)), gp
+	  mov out4 = r0		/* Used to be fini.  */
 	  ;;
-	}
-	{ .mmi
-	  ld8 out3 = [out3]	/* pointer to `init' function descriptor */
-	  ld8 out4 = [out4]	/* pointer to `fini' function descriptor */
-	  nop 0
 	}
 	.body
 	{ .mib

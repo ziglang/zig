@@ -30,7 +30,7 @@ extern const struct cpuid_feature *__x86_get_cpuid_feature_leaf (unsigned int)
      __attribute__ ((pure));
 
 static __inline__ _Bool
-x86_cpu_has_feature (unsigned int __index)
+x86_cpu_present (unsigned int __index)
 {
   const struct cpuid_feature *__ptr = __x86_get_cpuid_feature_leaf
     (__index / (8 * sizeof (unsigned int) * 4));
@@ -43,7 +43,7 @@ x86_cpu_has_feature (unsigned int __index)
 }
 
 static __inline__ _Bool
-x86_cpu_is_usable (unsigned int __index)
+x86_cpu_active (unsigned int __index)
 {
   const struct cpuid_feature *__ptr = __x86_get_cpuid_feature_leaf
     (__index / (8 * sizeof (unsigned int) * 4));
@@ -52,13 +52,13 @@ x86_cpu_is_usable (unsigned int __index)
   unsigned int __bit = __reg & (8 * sizeof (unsigned int) - 1);
   __reg /= 8 * sizeof (unsigned int);
 
-  return __ptr->usable_array[__reg] & (1 << __bit);
+  return __ptr->active_array[__reg] & (1 << __bit);
 }
 
-/* HAS_CPU_FEATURE evaluates to true if CPU supports the feature.  */
-#define HAS_CPU_FEATURE(name) x86_cpu_has_feature (x86_cpu_##name)
-/* CPU_FEATURE_USABLE evaluates to true if the feature is usable.  */
-#define CPU_FEATURE_USABLE(name) x86_cpu_is_usable (x86_cpu_##name)
+/* CPU_FEATURE_PRESENT evaluates to true if CPU supports the feature.  */
+#define CPU_FEATURE_PRESENT(name) x86_cpu_present (x86_cpu_##name)
+/* CPU_FEATURE_ACTIVE evaluates to true if the feature is active.  */
+#define CPU_FEATURE_ACTIVE(name) x86_cpu_active (x86_cpu_##name)
 
 __END_DECLS
 

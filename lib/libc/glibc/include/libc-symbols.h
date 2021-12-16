@@ -1,6 +1,6 @@
 /* Support macros for making weak and strong aliases for symbols,
    and for using symbol sets and linker warnings with GNU ld.
-   Copyright (C) 1995-2020 Free Software Foundation, Inc.
+   Copyright (C) 1995-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -83,6 +83,9 @@
 #endif
 
 #include <config.h>
+
+/* Obtain the definition of symbol_version_reference.  */
+#include <libc-symver.h>
 
 /* When PIC is defined and SHARED isn't defined, we are building PIE
    by default.  */
@@ -307,7 +310,7 @@ for linking")
 
 /* Resource freeing functions from libc.so go in this section.  */
 #define __libc_freeres_fn_section \
-  __attribute__ ((section ("__libc_freeres_fn")))
+  __attribute__ ((__used__, section ("__libc_freeres_fn")))
 
 /* Resource freeing functions for libc.so.  */
 #define libc_freeres_fn(name) \
@@ -349,6 +352,12 @@ for linking")
 
 */
 
+#ifdef HAVE_GNU_RETAIN
+# define attribute_used_retain __attribute__ ((__used__, __retain__))
+#else
+# define attribute_used_retain __attribute__ ((__used__))
+#endif
+
 /* Symbol set support macros.  */
 
 /* Make SYMBOL, which is in the text segment, an element of SET.  */
@@ -364,12 +373,12 @@ for linking")
 /* When building a shared library, make the set section writable,
    because it will need to be relocated at run time anyway.  */
 # define _elf_set_element(set, symbol) \
-  static const void *__elf_set_##set##_element_##symbol##__ \
-    __attribute__ ((used, section (#set))) = &(symbol)
+    static const void *__elf_set_##set##_element_##symbol##__ \
+      attribute_used_retain __attribute__ ((section (#set))) = &(symbol)
 #else
 # define _elf_set_element(set, symbol) \
-  static const void *const __elf_set_##set##_element_##symbol##__ \
-    __attribute__ ((used, section (#set))) = &(symbol)
+    static const void *const __elf_set_##set##_element_##symbol##__ \
+      attribute_used_retain __attribute__ ((section (#set))) = &(symbol)
 #endif
 
 /* Define SET as a symbol set.  This may be required (it is in a.out) to
@@ -396,32 +405,27 @@ for linking")
    past the last element in SET.  */
 #define symbol_set_end_p(set, ptr) ((ptr) >= (void *const *) &__stop_##set)
 
-/* Use symbol_version_reference to specify the version a symbol
-   reference should link to.  Use symbol_version or
-   default_symbol_version for the definition of a versioned symbol.
-   The difference is that the latter is a no-op in non-shared
-   builds.  */
-#ifdef __ASSEMBLER__
-# define symbol_version_reference(real, name, version) \
-     .symver real, name##@##version
-#else  /* !__ASSEMBLER__ */
-# define symbol_version_reference(real, name, version) \
-  __asm__ (".symver " #real "," #name "@" #version)
-#endif
-
 #ifdef SHARED
 # define symbol_version(real, name, version) \
   symbol_version_reference(real, name, version)
 # define default_symbol_version(real, name, version) \
      _default_symbol_version(real, name, version)
+/* See <libc-symver.h>.  */
 # ifdef __ASSEMBLER__
 #  define _default_symbol_version(real, name, version) \
-     .symver real, name##@##@##version
+  _set_symbol_version (real, name@@version)
 # else
 #  define _default_symbol_version(real, name, version) \
-     __asm__ (".symver " #real "," #name "@@" #version)
+  _set_symbol_version (real, #name "@@" #version)
 # endif
-#else
+
+/* Evalutes to a string literal for VERSION in LIB.  */
+# define symbol_version_string(lib, version) \
+  _symbol_version_stringify_1 (VERSION_##lib##_##version)
+# define _symbol_version_stringify_1(arg) _symbol_version_stringify_2 (arg)
+# define _symbol_version_stringify_2(arg) #arg
+
+#else /* !SHARED */
 # define symbol_version(real, name, version)
 # define default_symbol_version(real, name, version) \
   strong_alias(real, name)
@@ -618,12 +622,7 @@ for linking")
 # define libc_hidden_tls_proto(name, attrs...) hidden_tls_proto (name, ##attrs)
 # define libc_hidden_def(name) hidden_def (name)
 # define libc_hidden_weak(name) hidden_weak (name)
-# ifdef LINK_OBSOLETE_RPC
-   /* libc_hidden_nolink_sunrpc should only get used in sunrpc code.  */
-#  define libc_hidden_nolink_sunrpc(name, version) hidden_def (name)
-# else
-#  define libc_hidden_nolink_sunrpc(name, version) hidden_nolink (name, libc, version)
-# endif
+# define libc_hidden_nolink_sunrpc(name, version) hidden_nolink (name, libc, version)
 # define libc_hidden_ver(local, name) hidden_ver (local, name)
 # define libc_hidden_data_def(name) hidden_data_def (name)
 # define libc_hidden_tls_def(name) hidden_tls_def (name)
@@ -641,7 +640,7 @@ for linking")
 # define libc_hidden_data_ver(local, name)
 #endif
 
-#if IS_IN (rtld) && !defined NO_RTLD_HIDDEN
+#if IS_IN (rtld)
 # define rtld_hidden_proto(name, attrs...) hidden_proto (name, ##attrs)
 # define rtld_hidden_tls_proto(name, attrs...) hidden_tls_proto (name, ##attrs)
 # define rtld_hidden_def(name) hidden_def (name)
@@ -730,6 +729,29 @@ for linking")
 # define libresolv_hidden_data_ver(local, name)
 #endif
 
+#if IS_IN (libpthread)
+# define libpthread_hidden_proto(name, attrs...) hidden_proto (name, ##attrs)
+# define libpthread_hidden_tls_proto(name, attrs...) \
+  hidden_tls_proto (name, ##attrs)
+# define libpthread_hidden_def(name) hidden_def (name)
+# define libpthread_hidden_weak(name) hidden_weak (name)
+# define libpthread_hidden_ver(local, name) hidden_ver (local, name)
+# define libpthread_hidden_data_def(name) hidden_data_def (name)
+# define libpthread_hidden_tls_def(name) hidden_tls_def (name)
+# define libpthread_hidden_data_weak(name) hidden_data_weak (name)
+# define libpthread_hidden_data_ver(local, name) hidden_data_ver (local, name)
+#else
+# define libpthread_hidden_proto(name, attrs...)
+# define libpthread_hidden_tls_proto(name, attrs...)
+# define libpthread_hidden_def(name)
+# define libpthread_hidden_weak(name)
+# define libpthread_hidden_ver(local, name)
+# define libpthread_hidden_data_def(name)
+# define libpthread_hidden_tls_def(name)
+# define libpthread_hidden_data_weak(name)
+# define libpthread_hidden_data_ver(local, name)
+#endif
+
 #if IS_IN (librt)
 # define librt_hidden_proto(name, attrs...) hidden_proto (name, ##attrs)
 # define librt_hidden_tls_proto(name, attrs...) \
@@ -776,40 +798,11 @@ for linking")
 # define libdl_hidden_data_ver(local, name)
 #endif
 
-#if IS_IN (libnss_files)
-# define libnss_files_hidden_proto(name, attrs...) hidden_proto (name, ##attrs)
-# define libnss_files_hidden_tls_proto(name, attrs...) \
-  hidden_tls_proto (name, ##attrs)
-# define libnss_files_hidden_def(name) hidden_def (name)
-# define libnss_files_hidden_weak(name) hidden_weak (name)
-# define libnss_files_hidden_ver(local, name) hidden_ver (local, name)
-# define libnss_files_hidden_data_def(name) hidden_data_def (name)
-# define libnss_files_hidden_tls_def(name) hidden_tls_def (name)
-# define libnss_files_hidden_data_weak(name) hidden_data_weak (name)
-# define libnss_files_hidden_data_ver(local, name) hidden_data_ver(local, name)
-#else
-# define libnss_files_hidden_proto(name, attrs...)
-# define libnss_files_hidden_tls_proto(name, attrs...)
-# define libnss_files_hidden_def(name)
-# define libnss_files_hidden_weak(name)
-# define libnss_files_hidden_ver(local, name)
-# define libnss_files_hidden_data_def(name)
-# define libnss_files_hidden_tls_def(name)
-# define libnss_files_hidden_data_weak(name)
-# define libnss_files_hidden_data_ver(local, name)
-#endif
-
 #if IS_IN (libnsl)
 # define libnsl_hidden_proto(name, attrs...) hidden_proto (name, ##attrs)
 # define libnsl_hidden_tls_proto(name, attrs...) \
   hidden_tls_proto (name, ##attrs)
-# ifdef LINK_OBSOLETE_NSL
-   /* libnsl_hidden_nolink should only get used in libnsl code.  */
-#  define libnsl_hidden_nolink_def(name, version) libnsl_hidden_def (name)
-# else
-#  define libnsl_hidden_nolink_def(name, version) hidden_nolink (name, libnsl, version)
-# endif
-# define libnsl_hidden_def(name) hidden_def (name)
+# define libnsl_hidden_nolink_def(name, version) hidden_nolink (name, libnsl, version)
 # define libnsl_hidden_weak(name) hidden_weak (name)
 # define libnsl_hidden_ver(local, name) hidden_ver (local, name)
 # define libnsl_hidden_data_def(name) hidden_data_def (name)
@@ -819,7 +812,6 @@ for linking")
 #else
 # define libnsl_hidden_proto(name, attrs...)
 # define libnsl_hidden_tls_proto(name, attrs...)
-# define libnsl_hidden_def(name)
 # define libnsl_hidden_weak(name)
 # define libnsl_hidden_ver(local, name)
 # define libnsl_hidden_data_def(name)
@@ -828,33 +820,12 @@ for linking")
 # define libnsl_hidden_data_ver(local, name)
 #endif
 
-#if IS_IN (libnss_nisplus)
-# define libnss_nisplus_hidden_proto(name, attrs...) hidden_proto (name, ##attrs)
-# define libnss_nisplus_hidden_tls_proto(name, attrs...) \
-  hidden_tls_proto (name, ##attrs)
-# define libnss_nisplus_hidden_def(name) hidden_def (name)
-# define libnss_nisplus_hidden_weak(name) hidden_weak (name)
-# define libnss_nisplus_hidden_ver(local, name) hidden_ver (local, name)
-# define libnss_nisplus_hidden_data_def(name) hidden_data_def (name)
-# define libnss_nisplus_hidden_tls_def(name) hidden_tls_def (name)
-# define libnss_nisplus_hidden_data_weak(name) hidden_data_weak (name)
-# define libnss_nisplus_hidden_data_ver(local, name) hidden_data_ver (local, name)
-#else
-# define libnss_nisplus_hidden_proto(name, attrs...)
-# define libnss_nisplus_hidden_tls_proto(name, attrs...)
-# define libnss_nisplus_hidden_def(name)
-# define libnss_nisplus_hidden_weak(name)
-# define libnss_nisplus_hidden_ver(local, name)
-# define libnss_nisplus_hidden_data_def(name)
-# define libnss_nisplus_hidden_tls_def(name)
-# define libnss_nisplus_hidden_data_weak(name)
-# define libnss_nisplus_hidden_data_ver(local, name)
-#endif
-
 #define libc_hidden_builtin_proto(name, attrs...) libc_hidden_proto (name, ##attrs)
 #define libc_hidden_builtin_def(name) libc_hidden_def (name)
 #define libc_hidden_builtin_weak(name) libc_hidden_weak (name)
 #define libc_hidden_builtin_ver(local, name) libc_hidden_ver (local, name)
+
+#define libc_hidden_ldbl_proto(name, attrs...) libc_hidden_proto (name, ##attrs)
 #ifdef __ASSEMBLER__
 # define HIDDEN_BUILTIN_JUMPTARGET(name) HIDDEN_JUMPTARGET(name)
 #endif
@@ -880,6 +851,14 @@ for linking")
 # define libutil_hidden_tls_def(name)
 # define libutil_hidden_data_weak(name)
 # define libutil_hidden_data_ver(local, name)
+#endif
+
+#if IS_IN (libanl)
+# define libanl_hidden_proto(name, attrs...) hidden_proto (name, ##attrs)
+# define libanl_hidden_def(name) hidden_def (name)
+#else
+# define libanl_hidden_proto(name, attrs...)
+# define libanl_hidden_def(name)
 #endif
 
 /* Get some dirty hacks.  */

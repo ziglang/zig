@@ -26,6 +26,7 @@ typedef __syscall_ulong_t msgqnum_t;
 typedef __syscall_ulong_t msglen_t;
 
 #include <bits/types/struct_msqid_ds.h>
+#include <bits/types/struct_msqid64_ds.h>
 
 /* Define options for message queue functions.  */
 #define MSG_NOERROR	010000	/* no error if message is too big */

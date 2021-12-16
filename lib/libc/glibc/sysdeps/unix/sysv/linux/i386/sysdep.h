@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Ulrich Drepper, <drepper@gnu.org>, August 1995.
 
@@ -48,7 +48,7 @@
    to compile glibc.  Disable GCC 5 optimization when compiling for
    profiling or when -fno-omit-frame-pointer is used since asm ("ebp")
    can't be used to put the 6th argument in %ebp for syscall.  */
-#if __GNUC_PREREQ (5,0) && !defined PROF && CAN_USE_REGISTER_ASM_EBP
+#if !defined PROF && CAN_USE_REGISTER_ASM_EBP
 # define OPTIMIZE_FOR_GCC_5
 #endif
 
@@ -67,6 +67,7 @@
 
 /* We don't want the label for the error handle to be global when we define
    it here.  */
+#undef SYSCALL_ERROR_LABEL
 #define SYSCALL_ERROR_LABEL __syscall_error
 
 #undef	PSEUDO
@@ -280,35 +281,6 @@ struct libc_do_syscall_args
 };
 #endif
 
-/* Define a macro which expands inline into the wrapper code for a system
-   call.  */
-#undef INLINE_SYSCALL
-#if IS_IN (libc)
-# define INLINE_SYSCALL(name, nr, args...) \
-  ({									      \
-    unsigned int resultvar = INTERNAL_SYSCALL (name, , nr, args);	      \
-    __glibc_unlikely (INTERNAL_SYSCALL_ERROR_P (resultvar, ))		      \
-    ? __syscall_error (-INTERNAL_SYSCALL_ERRNO (resultvar, ))		      \
-    : (int) resultvar; })
-#else
-# define INLINE_SYSCALL(name, nr, args...) \
-  ({									      \
-    unsigned int resultvar = INTERNAL_SYSCALL (name, , nr, args);	      \
-    if (__glibc_unlikely (INTERNAL_SYSCALL_ERROR_P (resultvar, )))	      \
-      {									      \
-	__set_errno (INTERNAL_SYSCALL_ERRNO (resultvar, ));		      \
-	resultvar = 0xffffffff;						      \
-      }									      \
-    (int) resultvar; })
-#endif
-
-/* Set error number and return -1.  Return the internal function,
-   __syscall_error, which sets errno from the negative error number
-   and returns -1, to avoid PIC.  */
-#undef INLINE_SYSCALL_ERROR_RETURN_VALUE
-#define INLINE_SYSCALL_ERROR_RETURN_VALUE(resultvar) \
-  __syscall_error (-(resultvar))
-
 # define VDSO_NAME  "LINUX_2.6"
 # define VDSO_HASH  61765110
 
@@ -319,6 +291,11 @@ struct libc_do_syscall_args
 # define HAVE_TIME_VSYSCALL             "__vdso_time"
 # define HAVE_CLOCK_GETRES_VSYSCALL     "__vdso_clock_getres"
 
+# define HAVE_CLONE3_WRAPPER		1
+
+# undef HAVE_INTERNAL_BRK_ADDR_SYMBOL
+# define HAVE_INTERNAL_BRK_ADDR_SYMBOL 1
+
 /* Define a macro which expands inline into the wrapper code for a system
    call.  This use is for internal calls that do not need to handle errors
    normally.  It will never touch errno.  This returns just what the kernel
@@ -327,25 +304,41 @@ struct libc_do_syscall_args
    The _NCS variant allows non-constant syscall numbers but it is not
    possible to use more than four parameters.  */
 #undef INTERNAL_SYSCALL
-#define INTERNAL_SYSCALL_MAIN_0(name, err, args...) \
-    INTERNAL_SYSCALL_MAIN_INLINE(name, err, 0, args)
-#define INTERNAL_SYSCALL_MAIN_1(name, err, args...) \
-    INTERNAL_SYSCALL_MAIN_INLINE(name, err, 1, args)
-#define INTERNAL_SYSCALL_MAIN_2(name, err, args...) \
-    INTERNAL_SYSCALL_MAIN_INLINE(name, err, 2, args)
-#define INTERNAL_SYSCALL_MAIN_3(name, err, args...) \
-    INTERNAL_SYSCALL_MAIN_INLINE(name, err, 3, args)
-#define INTERNAL_SYSCALL_MAIN_4(name, err, args...) \
-    INTERNAL_SYSCALL_MAIN_INLINE(name, err, 4, args)
-#define INTERNAL_SYSCALL_MAIN_5(name, err, args...) \
-    INTERNAL_SYSCALL_MAIN_INLINE(name, err, 5, args)
+#define INTERNAL_SYSCALL_MAIN_0(name, args...) \
+    INTERNAL_SYSCALL_MAIN_INLINE(name, 0, args)
+#define INTERNAL_SYSCALL_MAIN_1(name, args...) \
+    INTERNAL_SYSCALL_MAIN_INLINE(name, 1, args)
+#define INTERNAL_SYSCALL_MAIN_2(name, args...) \
+    INTERNAL_SYSCALL_MAIN_INLINE(name, 2, args)
+#define INTERNAL_SYSCALL_MAIN_3(name, args...) \
+    INTERNAL_SYSCALL_MAIN_INLINE(name, 3, args)
+#define INTERNAL_SYSCALL_MAIN_4(name, args...) \
+    INTERNAL_SYSCALL_MAIN_INLINE(name, 4, args)
+#define INTERNAL_SYSCALL_MAIN_5(name, args...) \
+    INTERNAL_SYSCALL_MAIN_INLINE(name, 5, args)
+
+#define INTERNAL_SYSCALL_MAIN_NCS_0(name, args...) \
+    INTERNAL_SYSCALL_MAIN_NCS(name, 0, args)
+#define INTERNAL_SYSCALL_MAIN_NCS_1(name, args...) \
+    INTERNAL_SYSCALL_MAIN_NCS(name, 1, args)
+#define INTERNAL_SYSCALL_MAIN_NCS_2(name, args...) \
+    INTERNAL_SYSCALL_MAIN_NCS(name, 2, args)
+#define INTERNAL_SYSCALL_MAIN_NCS_3(name, args...) \
+    INTERNAL_SYSCALL_MAIN_NCS(name, 3, args)
+#define INTERNAL_SYSCALL_MAIN_NCS_4(name, args...) \
+    INTERNAL_SYSCALL_MAIN_NCS(name, 4, args)
+#define INTERNAL_SYSCALL_MAIN_NCS_5(name, args...) \
+    INTERNAL_SYSCALL_MAIN_NCS(name, 5, args)
+
 /* Each object using 6-argument inline syscalls must include a
    definition of __libc_do_syscall.  */
 #ifdef OPTIMIZE_FOR_GCC_5
-# define INTERNAL_SYSCALL_MAIN_6(name, err, args...) \
-    INTERNAL_SYSCALL_MAIN_INLINE(name, err, 6, args)
+# define INTERNAL_SYSCALL_MAIN_6(name, args...) \
+    INTERNAL_SYSCALL_MAIN_INLINE(name, 6, args)
+# define INTERNAL_SYSCALL_MAIN_NCS_6(name, args...) \
+    INTERNAL_SYSCALL_MAIN_NCS(name, 6, args)
 #else /* GCC 5  */
-# define INTERNAL_SYSCALL_MAIN_6(name, err, arg1, arg2, arg3,		\
+# define INTERNAL_SYSCALL_MAIN_6(name, arg1, arg2, arg3,		\
 				 arg4, arg5, arg6)			\
   struct libc_do_syscall_args _xv =					\
     {									\
@@ -359,52 +352,67 @@ struct libc_do_syscall_args
     : "=a" (resultvar)							\
     : "i" (__NR_##name), "c" (arg2), "d" (arg3), "S" (arg4), "D" (&_xv) \
     : "memory", "cc")
+# define INTERNAL_SYSCALL_MAIN_NCS_6(name, arg1, arg2, arg3,		\
+				     arg4, arg5, arg6)			\
+  struct libc_do_syscall_args _xv =					\
+    {									\
+      (int) (arg1),							\
+      (int) (arg5),							\
+      (int) (arg6)							\
+    };									\
+    asm volatile (							\
+    "movl %1, %%eax\n\t"						\
+    "call __libc_do_syscall"						\
+    : "=a" (resultvar)							\
+    : "a" (name), "c" (arg2), "d" (arg3), "S" (arg4), "D" (&_xv)	\
+    : "memory", "cc")
 #endif /* GCC 5  */
-#define INTERNAL_SYSCALL(name, err, nr, args...) \
+
+#define INTERNAL_SYSCALL(name, nr, args...) \
   ({									      \
     register unsigned int resultvar;					      \
-    INTERNAL_SYSCALL_MAIN_##nr (name, err, args);			      \
+    INTERNAL_SYSCALL_MAIN_##nr (name, args);			      	      \
     (int) resultvar; })
+#define INTERNAL_SYSCALL_NCS(name, nr, args...) \
+  ({									      \
+    register unsigned int resultvar;					      \
+    INTERNAL_SYSCALL_MAIN_NCS_##nr (name, args);		      	      \
+    (int) resultvar; })
+
 #if I386_USE_SYSENTER
 # ifdef OPTIMIZE_FOR_GCC_5
 #  ifdef PIC
-#   define INTERNAL_SYSCALL_MAIN_INLINE(name, err, nr, args...) \
+#   define INTERNAL_SYSCALL_MAIN_INLINE(name, nr, args...) \
     LOADREGS_##nr(args)							\
     asm volatile (							\
     "call *%%gs:%P2"							\
     : "=a" (resultvar)							\
     : "a" (__NR_##name), "i" (offsetof (tcbhead_t, sysinfo))		\
       ASMARGS_##nr(args) : "memory", "cc")
-#   define INTERNAL_SYSCALL_NCS(name, err, nr, args...) \
-  ({									\
-    register unsigned int resultvar;					\
+#   define INTERNAL_SYSCALL_MAIN_NCS(name, nr, args...) \
     LOADREGS_##nr(args)							\
     asm volatile (							\
     "call *%%gs:%P2"							\
     : "=a" (resultvar)							\
     : "a" (name), "i" (offsetof (tcbhead_t, sysinfo))			\
-      ASMARGS_##nr(args) : "memory", "cc");				\
-    (int) resultvar; })
+      ASMARGS_##nr(args) : "memory", "cc")
 #  else
-#   define INTERNAL_SYSCALL_MAIN_INLINE(name, err, nr, args...) \
+#   define INTERNAL_SYSCALL_MAIN_INLINE(name, nr, args...) \
     LOADREGS_##nr(args)							\
     asm volatile (							\
     "call *_dl_sysinfo"							\
     : "=a" (resultvar)							\
     : "a" (__NR_##name) ASMARGS_##nr(args) : "memory", "cc")
-#   define INTERNAL_SYSCALL_NCS(name, err, nr, args...) \
-  ({									\
-    register unsigned int resultvar;					\
+#   define INTERNAL_SYSCALL_MAIN_NCS(name, nr, args...) \
     LOADREGS_##nr(args)							\
     asm volatile (							\
     "call *_dl_sysinfo"							\
     : "=a" (resultvar)							\
-    : "a" (name) ASMARGS_##nr(args) : "memory", "cc");			\
-    (int) resultvar; })
+    : "a" (name) ASMARGS_##nr(args) : "memory", "cc")
 #  endif
 # else /* GCC 5  */
 #  ifdef PIC
-#   define INTERNAL_SYSCALL_MAIN_INLINE(name, err, nr, args...) \
+#   define INTERNAL_SYSCALL_MAIN_INLINE(name, nr, args...) \
     EXTRAVAR_##nr							      \
     asm volatile (							      \
     LOADARGS_##nr							      \
@@ -414,9 +422,7 @@ struct libc_do_syscall_args
     : "=a" (resultvar)							      \
     : "i" (__NR_##name), "i" (offsetof (tcbhead_t, sysinfo))		      \
       ASMFMT_##nr(args) : "memory", "cc")
-#   define INTERNAL_SYSCALL_NCS(name, err, nr, args...) \
-  ({									      \
-    register unsigned int resultvar;					      \
+#   define INTERNAL_SYSCALL_MAIN_NCS(name, nr, args...) \
     EXTRAVAR_##nr							      \
     asm volatile (							      \
     LOADARGS_##nr							      \
@@ -424,10 +430,9 @@ struct libc_do_syscall_args
     RESTOREARGS_##nr							      \
     : "=a" (resultvar)							      \
     : "0" (name), "i" (offsetof (tcbhead_t, sysinfo))			      \
-      ASMFMT_##nr(args) : "memory", "cc");				      \
-    (int) resultvar; })
+      ASMFMT_##nr(args) : "memory", "cc")
 #  else
-#   define INTERNAL_SYSCALL_MAIN_INLINE(name, err, nr, args...) \
+#   define INTERNAL_SYSCALL_MAIN_INLINE(name, nr, args...) \
     EXTRAVAR_##nr							      \
     asm volatile (							      \
     LOADARGS_##nr							      \
@@ -436,38 +441,32 @@ struct libc_do_syscall_args
     RESTOREARGS_##nr							      \
     : "=a" (resultvar)							      \
     : "i" (__NR_##name) ASMFMT_##nr(args) : "memory", "cc")
-#   define INTERNAL_SYSCALL_NCS(name, err, nr, args...) \
-  ({									      \
-    register unsigned int resultvar;					      \
+#   define INTERNAL_SYSCALL_MAIN_NCS(name, nr, args...) \
     EXTRAVAR_##nr							      \
     asm volatile (							      \
     LOADARGS_##nr							      \
     "call *_dl_sysinfo\n\t"						      \
     RESTOREARGS_##nr							      \
     : "=a" (resultvar)							      \
-    : "0" (name) ASMFMT_##nr(args) : "memory", "cc");			      \
-    (int) resultvar; })
+    : "0" (name) ASMFMT_##nr(args) : "memory", "cc")
 #  endif
 # endif /* GCC 5  */
 #else
 # ifdef OPTIMIZE_FOR_GCC_5
-#  define INTERNAL_SYSCALL_MAIN_INLINE(name, err, nr, args...) \
+#  define INTERNAL_SYSCALL_MAIN_INLINE(name, nr, args...) \
     LOADREGS_##nr(args)							\
     asm volatile (							\
     "int $0x80"								\
     : "=a" (resultvar)							\
     : "a" (__NR_##name) ASMARGS_##nr(args) : "memory", "cc")
-#  define INTERNAL_SYSCALL_NCS(name, err, nr, args...) \
-  ({									\
-    register unsigned int resultvar;					\
+#  define INTERNAL_SYSCALL_MAIN_NCS(name, nr, args...) \
     LOADREGS_##nr(args)							\
     asm volatile (							\
     "int $0x80"								\
     : "=a" (resultvar)							\
-    : "a" (name) ASMARGS_##nr(args) : "memory", "cc");			\
-    (int) resultvar; })
+    : "a" (name) ASMARGS_##nr(args) : "memory", "cc")
 # else /* GCC 5  */
-#  define INTERNAL_SYSCALL_MAIN_INLINE(name, err, nr, args...) \
+#  define INTERNAL_SYSCALL_MAIN_INLINE(name, nr, args...) \
     EXTRAVAR_##nr							      \
     asm volatile (							      \
     LOADARGS_##nr							      \
@@ -476,29 +475,16 @@ struct libc_do_syscall_args
     RESTOREARGS_##nr							      \
     : "=a" (resultvar)							      \
     : "i" (__NR_##name) ASMFMT_##nr(args) : "memory", "cc")
-#  define INTERNAL_SYSCALL_NCS(name, err, nr, args...) \
-  ({									      \
-    register unsigned int resultvar;					      \
+#  define INTERNAL_SYSCALL_MAIN_NCS(name, nr, args...) \
     EXTRAVAR_##nr							      \
     asm volatile (							      \
     LOADARGS_##nr							      \
     "int $0x80\n\t"							      \
     RESTOREARGS_##nr							      \
     : "=a" (resultvar)							      \
-    : "0" (name) ASMFMT_##nr(args) : "memory", "cc");			      \
-    (int) resultvar; })
+    : "0" (name) ASMFMT_##nr(args) : "memory", "cc")
 # endif /* GCC 5  */
 #endif
-
-#undef INTERNAL_SYSCALL_DECL
-#define INTERNAL_SYSCALL_DECL(err) do { } while (0)
-
-#undef INTERNAL_SYSCALL_ERROR_P
-#define INTERNAL_SYSCALL_ERROR_P(val, err) \
-  ((unsigned int) (val) >= 0xfffff001u)
-
-#undef INTERNAL_SYSCALL_ERRNO
-#define INTERNAL_SYSCALL_ERRNO(val, err)	(-(val))
 
 #define LOADARGS_0
 #ifdef __PIC__
@@ -618,20 +604,6 @@ struct libc_do_syscall_args
 # define EXTRAVAR_5
 #endif
 
-/* Consistency check for position-independent code.  */
-#if defined __PIC__ && !defined OPTIMIZE_FOR_GCC_5
-# define check_consistency()						      \
-  ({ int __res;								      \
-     __asm__ __volatile__						      \
-       (LOAD_PIC_REG_STR (cx) ";"					      \
-	"subl %%ebx, %%ecx;"						      \
-	"je 1f;"							      \
-	"ud2;"								      \
-	"1:\n"								      \
-	: "=c" (__res));						      \
-     __res; })
-#endif
-
 #endif	/* __ASSEMBLER__ */
 
 
@@ -661,5 +633,10 @@ struct libc_do_syscall_args
 						      pointer_guard)))
 # endif
 #endif
+
+/* Each shadow stack slot takes 4 bytes.  Assuming that each stack
+   frame takes 128 bytes, this is used to compute shadow stack size
+   from stack size.  */
+#define STACK_SIZE_TO_SHADOW_STACK_SIZE_SHIFT 5
 
 #endif /* linux/i386/sysdep.h */

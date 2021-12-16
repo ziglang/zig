@@ -1,5 +1,5 @@
 /* Assembly macros for 32-bit PowerPC.
-   Copyright (C) 1999-2020 Free Software Foundation, Inc.
+   Copyright (C) 1999-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -92,7 +92,10 @@ GOT_LABEL:			;					      \
 
 #define DO_CALL(syscall)						      \
     li 0,syscall;							      \
-    sc
+    DO_CALL_SC
+
+#define DO_CALL_SC \
+	sc
 
 #undef JUMPTARGET
 #ifdef PIC
@@ -106,14 +109,20 @@ GOT_LABEL:			;					      \
 # define HIDDEN_JUMPTARGET(name) __GI_##name##@local
 #endif
 
+#define TAIL_CALL_SYSCALL_ERROR \
+    b __syscall_error@local
+
 #define PSEUDO(name, syscall_name, args)				      \
   .section ".text";							      \
   ENTRY (name)								      \
     DO_CALL (SYS_ify (syscall_name));
 
+#define RET_SC \
+    bnslr+;
+
 #define PSEUDO_RET							      \
-    bnslr+;								      \
-    b __syscall_error@local
+    RET_SC;								      \
+    TAIL_CALL_SYSCALL_ERROR
 #define ret PSEUDO_RET
 
 #undef	PSEUDO_END
@@ -179,8 +188,8 @@ GOT_LABEL:			;					      \
 #else
 /* Position-dependent code does not require access to the GOT.  */
 # define __GLRO(rOUT, rGOT, member, offset)				\
-	lis     rOUT,(member+LOWORD)@ha;					\
-	lwz     rOUT,(member+LOWORD)@l(rOUT)
+	lis     rOUT,(member)@ha;					\
+	lwz     rOUT,(member)@l(rOUT)
 #endif	/* PIC */
 
 #endif	/* __ASSEMBLER__ */

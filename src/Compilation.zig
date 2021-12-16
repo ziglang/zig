@@ -1586,9 +1586,23 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
         if (comp.wantBuildGLibCFromSource()) {
-            try comp.addBuildingGLibCJobs();
+            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+
+            if (glibc.needsCrtiCrtn(comp.getTarget())) {
+                try comp.work_queue.write(&[_]Job{
+                    .{ .glibc_crt_file = .crti_o },
+                    .{ .glibc_crt_file = .crtn_o },
+                });
+            }
+            try comp.work_queue.write(&[_]Job{
+                .{ .glibc_crt_file = .scrt1_o },
+                .{ .glibc_crt_file = .libc_nonshared_a },
+                .{ .glibc_shared_objects = {} },
+            });
         }
         if (comp.wantBuildMuslFromSource()) {
+            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+
             try comp.work_queue.ensureUnusedCapacity(6);
             if (musl.needsCrtiCrtn(comp.getTarget())) {
                 comp.work_queue.writeAssumeCapacity(&[_]Job{
@@ -1607,6 +1621,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             });
         }
         if (comp.wantBuildWasiLibcFromSource()) {
+            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+
             const wasi_emulated_libs = comp.bin_file.options.wasi_emulated_libs;
             try comp.work_queue.ensureUnusedCapacity(wasi_emulated_libs.len + 2); // worst-case we need all components
             for (wasi_emulated_libs) |crt_file| {
@@ -1620,6 +1636,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             });
         }
         if (comp.wantBuildMinGWFromSource()) {
+            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+
             const static_lib_jobs = [_]Job{
                 .{ .mingw_crt_file = .mingw32_lib },
                 .{ .mingw_crt_file = .msvcrt_os_lib },
@@ -3397,6 +3415,14 @@ pub fn addCCArgs(
         try argv.append(libunwind_include_path);
     }
 
+    if (comp.bin_file.options.link_libc and target.isGnuLibC()) {
+        const target_version = target.os.version_range.linux.glibc;
+        const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
+            target_version.minor,
+        });
+        try argv.append(glibc_minor_define);
+    }
+
     const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
@@ -4036,16 +4062,6 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const
     const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
     const full_path = try std.fs.path.join(arena, &[_][]const u8{ crt_dir_path, basename });
     return full_path;
-}
-
-fn addBuildingGLibCJobs(comp: *Compilation) !void {
-    try comp.work_queue.write(&[_]Job{
-        .{ .glibc_crt_file = .crti_o },
-        .{ .glibc_crt_file = .crtn_o },
-        .{ .glibc_crt_file = .scrt1_o },
-        .{ .glibc_crt_file = .libc_nonshared_a },
-        .{ .glibc_shared_objects = {} },
-    });
 }
 
 fn wantBuildLibCFromSource(comp: Compilation) bool {

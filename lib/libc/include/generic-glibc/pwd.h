@@ -139,20 +139,23 @@ extern struct passwd *getpwnam (const char *__name) __nonnull ((1));
 extern int getpwent_r (struct passwd *__restrict __resultbuf,
 		       char *__restrict __buffer, size_t __buflen,
 		       struct passwd **__restrict __result)
-		       __nonnull ((1, 2, 4));
+    __nonnull ((1, 2, 4))
+    __attr_access ((__write_only__, 2, 3));
 # endif
 
 extern int getpwuid_r (__uid_t __uid,
 		       struct passwd *__restrict __resultbuf,
 		       char *__restrict __buffer, size_t __buflen,
 		       struct passwd **__restrict __result)
-		       __nonnull ((2, 3, 5));
+    __nonnull ((2, 3, 5))
+    __attr_access ((__write_only__, 3, 4));
 
 extern int getpwnam_r (const char *__restrict __name,
 		       struct passwd *__restrict __resultbuf,
 		       char *__restrict __buffer, size_t __buflen,
 		       struct passwd **__restrict __result)
-		       __nonnull ((1, 2, 3, 5));
+    __nonnull ((1, 2, 3, 5))
+    __attr_access ((__write_only__, 3, 4));
 
 
 # ifdef	__USE_MISC
@@ -167,7 +170,8 @@ extern int fgetpwent_r (FILE *__restrict __stream,
 			struct passwd *__restrict __resultbuf,
 			char *__restrict __buffer, size_t __buflen,
 			struct passwd **__restrict __result)
-			__nonnull ((1, 2, 3, 5));
+    __nonnull ((1, 2, 3, 5))
+    __attr_access ((__write_only__, 3, 4));
 # endif
 
 #endif	/* POSIX or reentrant */

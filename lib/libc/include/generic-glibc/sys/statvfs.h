@@ -21,7 +21,7 @@
 
 #include <features.h>
 
-/* Get the system-specific definition of `struct statfs'.  */
+/* Get the system-specific definition of `struct statvfs'.  */
 #include <bits/statvfs.h>
 
 #ifndef __USE_FILE_OFFSET64

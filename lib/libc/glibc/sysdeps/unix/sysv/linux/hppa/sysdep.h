@@ -1,5 +1,5 @@
 /* Assembler macros for PA-RISC.
-   Copyright (C) 1999-2020 Free Software Foundation, Inc.
+   Copyright (C) 1999-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Ulrich Drepper, <drepper@cygnus.com>, August 1999.
    Linux/PA-RISC changes by Philipp Rumpf, <prumpf@tux.org>, March 2000.
@@ -27,6 +27,8 @@
 
 /* Defines RTLD_PRIVATE_ERRNO.  */
 #include <dl-sysdep.h>
+
+#include <tls.h>
 
 /* In order to get __set_errno() definition in INLINE_SYSCALL.  */
 #ifndef __ASSEMBLER__
@@ -360,39 +362,9 @@ L(pre_end):					ASM_LINE_SEP	\
 #define CALL_CLOB_REGS	"%r1", "%r2", CLOB_TREG \
 			"%r20", "%r29", "%r31"
 
-#undef INLINE_SYSCALL
-#define INLINE_SYSCALL(name, nr, args...)				\
-({									\
-    long __sys_res = INTERNAL_SYSCALL (name, , nr, args);		\
-    if (__glibc_unlikely (INTERNAL_SYSCALL_ERROR_P (__sys_res, )))	\
-      {									\
-	__set_errno (INTERNAL_SYSCALL_ERRNO (__sys_res, ));		\
-	__sys_res = -1;							\
-      }									\
-    __sys_res;								\
-})
-
-/* INTERNAL_SYSCALL_DECL - Allows us to setup some function static
-   value to use within the context of the syscall
-   INTERNAL_SYSCALL_ERROR_P - Returns 0 if it wasn't an error, 1 otherwise
-   You are allowed to use the syscall result (val) and the DECL error
-   variable to determine what went wrong.
-   INTERLAL_SYSCALL_ERRNO - Munges the val/err pair into the error number.
-   In our case we just flip the sign. */
-
-#undef INTERNAL_SYSCALL_DECL
-#define INTERNAL_SYSCALL_DECL(err)
-
-#undef INTERNAL_SYSCALL_ERROR_P
-#define INTERNAL_SYSCALL_ERROR_P(val, err) \
-	((val < 0) && (val > -4095))
-
-#undef INTERNAL_SYSCALL_ERRNO
-#define INTERNAL_SYSCALL_ERRNO(val, err) (-(val))
-
 /* Similar to INLINE_SYSCALL but we don't set errno */
 #undef INTERNAL_SYSCALL
-#define INTERNAL_SYSCALL(name, err, nr, args...)			\
+#define INTERNAL_SYSCALL(name, nr, args...)				\
 ({									\
 	long __sys_res;							\
 	{								\
@@ -418,7 +390,7 @@ L(pre_end):					ASM_LINE_SEP	\
 
 /* The _NCS variant allows non-constant syscall numbers.  */
 #undef INTERNAL_SYSCALL_NCS
-#define INTERNAL_SYSCALL_NCS(name, err, nr, args...)			\
+#define INTERNAL_SYSCALL_NCS(name, nr, args...)				\
 ({									\
 	long __sys_res;							\
 	{								\

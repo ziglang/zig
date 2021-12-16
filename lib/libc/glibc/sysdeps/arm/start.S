@@ -1,5 +1,5 @@
 /* Startup code for ARM & ELF
-   Copyright (C) 1995-2020 Free Software Foundation, Inc.
+   Copyright (C) 1995-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -94,30 +94,20 @@ _start:
 	adr a4, .L_GOT
 	add sl, sl, a4
 
-	ldr ip, .L_GOT+4	/* __libc_csu_fini */
-	ldr ip, [sl, ip]
+	mov a4, #0		/* Used to be init.  */
+	push { a4 }		/* Used to be fini.  */
 
-	push { ip }		/* Push __libc_csu_fini */
-
-	ldr a4, .L_GOT+8	/* __libc_csu_init */
-	ldr a4, [sl, a4]
-
-	ldr a1, .L_GOT+12	/* main */
+	ldr a1, .L_GOT+4	/* main */
 	ldr a1, [sl, a1]
 
 	/* __libc_start_main (main, argc, argv, init, fini, rtld_fini, stack_end) */
 	/* Let the libc call main and exit with its return code.  */
 	bl __libc_start_main(PLT)
 #else
-	/* Fetch address of __libc_csu_fini */
-	ldr ip, =__libc_csu_fini
 
-	/* Push __libc_csu_fini */
-	push { ip }
-
-	/* Set up the other arguments in registers */
+	mov a4, #0		/* Used to init.  */
+	push { a4 }		/* Used to fini.  */
 	ldr a1, =main
-	ldr a4, =__libc_csu_init
 
 	/* __libc_start_main (main, argc, argv, init, fini, rtld_fini, stack_end) */
 	/* Let the libc call main and exit with its return code.  */
@@ -131,8 +121,6 @@ _start:
 	.align 2
 .L_GOT:
 	.word _GLOBAL_OFFSET_TABLE_ - .L_GOT
-	.word __libc_csu_fini(GOT)
-	.word __libc_csu_init(GOT)
 	.word main(GOT)
 #endif
 

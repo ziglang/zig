@@ -3,11 +3,22 @@
 #ifndef _ISOMAC
 # include <stddef.h>
 #endif
+
+/* Workaround PR90731 with GCC 9 when using ldbl redirects in C++.  */
+#include <bits/floatn.h>
+#if defined __cplusplus && __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
+# if __GNUC_PREREQ (9, 0) && !__GNUC_PREREQ (9, 3)
+#   pragma GCC system_header
+# endif
+#endif
+
 #include <stdlib/stdlib.h>
 
 /* Now define the internal interfaces.  */
 #if !defined _ISOMAC
 # include <sys/stat.h>
+
+# include <rtld-malloc.h>
 
 extern __typeof (strtol_l) __strtol_l;
 extern __typeof (strtoul_l) __strtoul_l;
@@ -80,6 +91,7 @@ extern int __setenv (const char *__name, const char *__value, int __replace)
 extern int __unsetenv (const char *__name) attribute_hidden;
 extern int __clearenv (void) attribute_hidden;
 extern char *__mktemp (char *__template) __THROW __nonnull ((1));
+libc_hidden_proto (__mktemp)
 extern char *__canonicalize_file_name (const char *__name);
 extern char *__realpath (const char *__name, char *__resolved);
 libc_hidden_proto (__realpath)
@@ -125,6 +137,12 @@ libc_hidden_proto (__libc_reallocarray)
 
 extern int __libc_system (const char *line);
 
+extern __typeof (getpt) __getpt;
+extern __typeof (ptsname_r) __ptsname_r;
+libc_hidden_proto (__getpt)
+libc_hidden_proto (__ptsname_r)
+libc_hidden_proto (grantpt)
+libc_hidden_proto (unlockpt)
 
 extern double __strtod_internal (const char *__restrict __nptr,
 				 char **__restrict __endptr, int __group)
@@ -205,7 +223,7 @@ libc_hidden_proto (____strtoull_l_internal)
 #include <bits/floatn.h>
 libc_hidden_proto (strtof)
 libc_hidden_proto (strtod)
-#if __LONG_DOUBLE_USES_FLOAT128 == 0
+#if __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 0
 libc_hidden_proto (strtold)
 #endif
 libc_hidden_proto (strtol)
@@ -288,9 +306,6 @@ libc_hidden_proto (__qfcvt_r)
 #  define MB_CUR_MAX (_NL_CURRENT_WORD (LC_CTYPE, _NL_CTYPE_MB_CUR_MAX))
 # endif
 
-extern void *__default_morecore (ptrdiff_t) __THROW;
-libc_hidden_proto (__default_morecore)
-
 struct abort_msg_s
 {
   unsigned int size;
@@ -299,7 +314,7 @@ struct abort_msg_s
 extern struct abort_msg_s *__abort_msg;
 libc_hidden_proto (__abort_msg)
 
-# if IS_IN (rtld) && !defined NO_RTLD_HIDDEN
+# if IS_IN (rtld)
 extern __typeof (unsetenv) unsetenv attribute_hidden;
 extern __typeof (__strtoul_internal) __strtoul_internal attribute_hidden;
 # endif

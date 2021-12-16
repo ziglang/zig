@@ -191,7 +191,9 @@ __BEGIN_DECLS
 
 /* Convert an interface name to an index, and vice versa.  */
 extern unsigned int if_nametoindex (const char *__ifname) __THROW;
-extern char *if_indextoname (unsigned int __ifindex, char *__ifname) __THROW;
+extern char *if_indextoname (unsigned int __ifindex,
+			     char __ifname[IF_NAMESIZE]) __THROW
+    __attr_access ((__write_only__, 2));
 
 /* Return a list of all interfaces and their indices.  */
 extern struct if_nameindex *if_nameindex (void) __THROW;

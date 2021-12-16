@@ -1,5 +1,5 @@
 /* Startup code compliant to the ELF RISC-V ABI.
-   Copyright (C) 1995-2020 Free Software Foundation, Inc.
+   Copyright (C) 1995-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -54,8 +54,8 @@ ENTRY (ENTRY_POINT)
 	REG_L a1, 0(sp)      /* argc.  */
 	addi  a2, sp, SZREG  /* argv.  */
 	andi  sp, sp, ALMASK /* Align stack. */
-	lla   a3, __libc_csu_init
-	lla   a4, __libc_csu_fini
+	li    a3, 0	     /* Used to be init.  */
+	li    a4, 0	     /* Used to be fini.  */
 	mv    a6, sp  /* stack_end.  */
 
 	call  __libc_start_main@plt

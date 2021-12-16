@@ -151,7 +151,8 @@ extern size_t wcsxfrm_l (wchar_t *__s1, const wchar_t *__s2,
 			 size_t __n, locale_t __loc) __THROW;
 
 /* Duplicate S, returning an identical malloc'd string.  */
-extern wchar_t *wcsdup (const wchar_t *__s) __THROW __attribute_malloc__;
+extern wchar_t *wcsdup (const wchar_t *__s) __THROW
+  __attribute_malloc__ __attr_dealloc_free;
 #endif
 
 /* Find the first occurrence of WC in WCS.  */
@@ -562,9 +563,23 @@ extern wchar_t *wcpncpy (wchar_t *__restrict __dest,
 /* Wide character I/O functions.  */
 
 #if defined __USE_XOPEN2K8 || __GLIBC_USE (LIB_EXT2)
+# ifndef __attr_dealloc_fclose
+#   if defined __has_builtin
+#     if __has_builtin (__builtin_fclose)
+/* If the attribute macro hasn't been defined yet (by <stdio.h>) and
+   fclose is a built-in, use it.  */
+#      define __attr_dealloc_fclose __attr_dealloc (__builtin_fclose, 1)
+#     endif
+#   endif
+# endif
+# ifndef __attr_dealloc_fclose
+#  define __attr_dealloc_fclose /* empty */
+# endif
+
 /* Like OPEN_MEMSTREAM, but the stream is wide oriented and produces
    a wide character string.  */
-extern __FILE *open_wmemstream (wchar_t **__bufloc, size_t *__sizeloc) __THROW;
+extern __FILE *open_wmemstream (wchar_t **__bufloc, size_t *__sizeloc) __THROW
+  __attribute_malloc__ __attr_dealloc_fclose;
 #endif
 
 #if defined __USE_ISOC95 || defined __USE_UNIX98

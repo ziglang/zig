@@ -329,9 +329,9 @@ pub const Target = struct {
                         .linux = .{
                             .range = .{
                                 .min = .{ .major = 3, .minor = 16 },
-                                .max = .{ .major = 5, .minor = 5, .patch = 5 },
+                                .max = .{ .major = 5, .minor = 10, .patch = 81 },
                             },
-                            .glibc = .{ .major = 2, .minor = 17 },
+                            .glibc = .{ .major = 2, .minor = 19 },
                         },
                     },
 

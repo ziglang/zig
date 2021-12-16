@@ -48,18 +48,19 @@ typedef int __priority_which_t;
    Returns 0 if successful, -1 if not (and sets errno).  */
 #ifndef __USE_FILE_OFFSET64
 extern int getrlimit (__rlimit_resource_t __resource,
-		      struct rlimit *__rlimits) __THROW;
+		      struct rlimit *__rlimits) __THROW __nonnull ((2));
 #else
 # ifdef __REDIRECT_NTH
 extern int __REDIRECT_NTH (getrlimit, (__rlimit_resource_t __resource,
-				       struct rlimit *__rlimits), getrlimit64);
+				       struct rlimit *__rlimits), getrlimit64)
+				       __nonnull ((2));
 # else
 #  define getrlimit getrlimit64
 # endif
 #endif
 #ifdef __USE_LARGEFILE64
 extern int getrlimit64 (__rlimit_resource_t __resource,
-			struct rlimit64 *__rlimits) __THROW;
+			struct rlimit64 *__rlimits) __THROW __nonnull ((2));
 #endif
 
 /* Set the soft and hard limits for RESOURCE to *RLIMITS.
@@ -67,24 +68,35 @@ extern int getrlimit64 (__rlimit_resource_t __resource,
    Return 0 if successful, -1 if not (and sets errno).  */
 #ifndef __USE_FILE_OFFSET64
 extern int setrlimit (__rlimit_resource_t __resource,
-		      const struct rlimit *__rlimits) __THROW;
+		      const struct rlimit *__rlimits) __THROW __nonnull ((2));
 #else
 # ifdef __REDIRECT_NTH
 extern int __REDIRECT_NTH (setrlimit, (__rlimit_resource_t __resource,
 				       const struct rlimit *__rlimits),
-			   setrlimit64);
+			   setrlimit64) __nonnull ((2));
 # else
 #  define setrlimit setrlimit64
 # endif
 #endif
 #ifdef __USE_LARGEFILE64
 extern int setrlimit64 (__rlimit_resource_t __resource,
-			const struct rlimit64 *__rlimits) __THROW;
+			const struct rlimit64 *__rlimits) __THROW
+			__nonnull ((2));
 #endif
 
 /* Return resource usage information on process indicated by WHO
    and put it in *USAGE.  Returns 0 for success, -1 for failure.  */
 extern int getrusage (__rusage_who_t __who, struct rusage *__usage) __THROW;
+
+#ifdef __USE_TIME_BITS64
+# if defined(__REDIRECT_NTH)
+extern int __REDIRECT_NTH (getrusage, (__rusage_who_t __who,
+                                       struct rusage *__usage),
+                           __getrusage64);
+# else
+# define getrusage __getrusage64
+# endif
+#endif
 
 /* Return the highest priority of any process specified by WHICH and WHO
    (see above); if WHO is zero, the current process, process group, or user

@@ -1,5 +1,5 @@
 /* Special .init and .fini section support for AArch64.
-   Copyright (C) 1995-2020 Free Software Foundation, Inc.
+   Copyright (C) 1995-2021 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -75,6 +75,11 @@ call_weak_fn:
 	.hidden	_init
 	.type	_init, %function
 _init:
+#if HAVE_AARCH64_PAC_RET
+	PACIASP
+#else
+	BTI_C
+#endif
 	stp	x29, x30, [sp, -16]!
 	mov	x29, sp
 #if PREINIT_FUNCTION_WEAK
@@ -89,5 +94,10 @@ _init:
 	.hidden	_fini
 	.type	_fini, %function
 _fini:
+#if HAVE_AARCH64_PAC_RET
+	PACIASP
+#else
+	BTI_C
+#endif
 	stp	x29, x30, [sp, -16]!
 	mov	x29, sp

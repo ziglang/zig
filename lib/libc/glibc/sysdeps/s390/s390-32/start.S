@@ -1,5 +1,5 @@
 /* Startup code compliant to the ELF s390 ABI.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
    Contributed by Martin Schwidefsky (schwidefsky@de.ibm.com).
    This file is part of the GNU C Library.
 
@@ -175,18 +175,16 @@ _start:
 	 */
 	stm     %r14,%r15,96(%r15)      # store rtld_fini/stack_end to parameter area
 	la      %r7,96(%r15)
-	l       %r6,.L2-.Llit(%r13)     # load pointer to __libc_csu_fini
-	l       %r5,.L1-.Llit(%r13)     # load pointer to __libc_csu_init
 	l       %r2,.L3-.Llit(%r13)     # load pointer to main
 	l       %r1,.L4-.Llit(%r13)	# load pointer to __libc_start_main
 #ifdef PIC
 	l       %r12,.L5-.Llit(%r13)    # load .got pointer
-	la	%r6,0(%r13,%r6)
-	la	%r5,0(%r13,%r5)
 	la	%r12,0(%r13,%r12)
 	l	%r2,0(%r12,%r2)
 	la	%r1,0(%r13,%r1)
 #endif
+	lhi	%r6, 0			# Used to fini.
+	lhi	%r5, 0			# Used to init.
 
 	/* ok, now branch to the libc main routine */
 	basr    %r14,%r1
@@ -197,13 +195,9 @@ _start:
 	cfi_endproc
 .Llit:
 #ifndef PIC
-.L1:    .long  __libc_csu_init
-.L2:    .long  __libc_csu_fini
 .L3:    .long  main
 .L4:    .long  __libc_start_main
 #else
-.L1:    .long  __libc_csu_init-.Llit
-.L2:    .long  __libc_csu_fini-.Llit
 .L3:    .long  main@GOT
 .L4:    .long  __libc_start_main@plt-.Llit
 .L5:    .long  _GLOBAL_OFFSET_TABLE_-.Llit

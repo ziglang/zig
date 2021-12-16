@@ -1,5 +1,5 @@
 /* Startup code compliant to the ELF Mips ABI.
-   Copyright (C) 1995-2020 Free Software Foundation, Inc.
+   Copyright (C) 1995-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -96,13 +96,13 @@ ENTRY_POINT:
 # if _MIPS_SIM == _ABIO32
 	PTR_SUBIU $29, 32
 # endif
-	PTR_LA $7, __libc_csu_init		/* init */
-	PTR_LA $8, __libc_csu_fini
+	move  $7, $0			/* Used to be init.  */
 # if _MIPS_SIM == _ABIO32
-	PTR_S $8, 16($29)		/* fini */
+	PTR_S $0, 16($29)		/* Used to be fini.  */
 	PTR_S $2, 20($29)		/* rtld_fini */
 	PTR_S $29, 24($29)		/* stack_end */
 # else
+	move $8, $0		/* Used to be fini.  */
 	move $9, $2		/* rtld_fini */
 	move $10, $29		/* stack_end */
 # endif
@@ -143,19 +143,17 @@ ENTRY_POINT:
 	/* Lay out last arguments, and call __libc_start_main().  */
 # ifdef __PIC__
 	sw	$7, 24($sp)			/* stack_end */
-	lw	$4, %got(__libc_csu_fini)($3)
-	lw	$7, %got(__libc_csu_init)($3)	/* init */
-	sw	$4, 16($sp)			/* fini */
+	move	$4, $0				/* Used to be ini.  */
+	sw	$0, 16($sp)			/* Used to be fini.  */
 	lw	$4, %got(main)($3)		/* main */
 	lw	$3, %call16(__libc_start_main)($3)
 	sw	$2, 20($sp)			/* rtld_fini */
 	move	$25, $3
 	jalr	$3
 # else
-	lw	$4, 1f
 	sw	$7, 24($sp)			/* stack_end */
-	lw	$7, 2f				/* init */
-	sw	$4, 16($sp)			/* fini */
+	move	$7, $0				/* Used to be init.  */
+	sw	$0, 16($sp)			/* Used to be fini.  */
 	lw	$4, 3f				/* main */
 	sw	$2, 20($sp)			/* rtld_fini */
 	/* Load and call __libc_start_main().  */
@@ -165,8 +163,6 @@ ENTRY_POINT:
 hlt:	b	hlt		/* Crash if somehow it does return.  */
 # ifndef __PIC__
 	.align	2
-1:	.word	__libc_csu_fini
-2:	.word	__libc_csu_init
 3:	.word	main
 4:	.word	__libc_start_main
 # endif

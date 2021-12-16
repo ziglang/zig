@@ -25,6 +25,40 @@
 
 __BEGIN_DECLS
 
+/* Avoid collision if the linux ptrace header is already included.  */
+#undef PTRACE_TRACEME
+#undef PTRACE_PEEKTEXT
+#undef PTRACE_PEEKDATA
+#undef PTRACE_PEEKUSER
+#undef PTRACE_POKETEXT
+#undef PTRACE_POKEDATA
+#undef PTRACE_POKEUSER
+#undef PTRACE_CONT
+#undef PTRACE_KILL
+#undef PTRACE_SINGLESTEP
+#undef PTRACE_ATTACH
+#undef PTRACE_DETACH
+#undef PTRACE_SYSCALL
+#undef PTRACE_SYSEMU
+#undef PTRACE_SYSEMU_SINGLESTEP
+#undef PTRACE_PEEKMTETAGS
+#undef PTRACE_POKEMTETAGS
+#undef PTRACE_SETOPTIONS
+#undef PTRACE_GETEVENTMSG
+#undef PTRACE_GETSIGINFO
+#undef PTRACE_SETSIGINFO
+#undef PTRACE_GETREGSET
+#undef PTRACE_SETREGSET
+#undef PTRACE_SEIZE
+#undef PTRACE_INTERRUPT
+#undef PTRACE_LISTEN
+#undef PTRACE_PEEKSIGINFO
+#undef PTRACE_GETSIGMASK
+#undef PTRACE_SETSIGMASK
+#undef PTRACE_SECCOMP_GET_FILTER
+#undef PTRACE_SECCOMP_GET_METADATA
+#undef PTRACE_GET_SYSCALL_INFO
+
 /* Type of the REQUEST argument to `ptrace.'  */
 enum __ptrace_request
 {
@@ -81,6 +115,22 @@ enum __ptrace_request
   /* Continue and stop at the next entry to or return from syscall.  */
   PTRACE_SYSCALL = 24,
 #define PT_SYSCALL PTRACE_SYSCALL
+
+  /* Continue and stop at the next syscall, it will not be executed.  */
+  PTRACE_SYSEMU = 31,
+#define PT_SYSEMU PTRACE_SYSEMU
+
+  /* Single step the process, the next syscall will not be executed.  */
+  PTRACE_SYSEMU_SINGLESTEP = 32,
+#define PT_SYSEMU_SINGLESTEP PTRACE_SYSEMU_SINGLESTEP
+
+  /* Read MTE tags.  */
+  PTRACE_PEEKMTETAGS = 33,
+#define PT_PEEKMTETAGS PTRACE_PEEKMTETAGS
+
+  /* Write MTE tags.  */
+  PTRACE_POKEMTETAGS = 34,
+#define PT_POKEMTETAGS PTRACE_POKEMTETAGS
 
   /* Set ptrace filter options.  */
   PTRACE_SETOPTIONS = 0x4200,

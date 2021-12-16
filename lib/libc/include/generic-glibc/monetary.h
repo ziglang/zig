@@ -37,7 +37,8 @@ __BEGIN_DECLS
 /* Formatting a monetary value according to the current locale.  */
 extern ssize_t strfmon (char *__restrict __s, size_t __maxsize,
 			const char *__restrict __format, ...)
-     __THROW __attribute_format_strfmon__ (3, 4);
+     __THROW __attribute_format_strfmon__ (3, 4)
+     __attr_access ((__write_only__, 1, 2));
 
 #ifdef __USE_XOPEN2K8
 /* POSIX.1-2008 extended locale interface (see locale.h).  */
@@ -47,7 +48,8 @@ extern ssize_t strfmon (char *__restrict __s, size_t __maxsize,
 extern ssize_t strfmon_l (char *__restrict __s, size_t __maxsize,
 			  locale_t __loc,
 			  const char *__restrict __format, ...)
-     __THROW __attribute_format_strfmon__ (4, 5);
+     __THROW __attribute_format_strfmon__ (4, 5)
+     __attr_access ((__write_only__, 1, 2));
 #endif
 
 #include <bits/floatn.h>

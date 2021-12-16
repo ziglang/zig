@@ -2495,8 +2495,28 @@ fn buildOutputType(
         .debug_compile_errors = debug_compile_errors,
         .enable_link_snapshots = enable_link_snapshots,
         .native_darwin_sdk = native_darwin_sdk,
-    }) catch |err| {
-        fatal("unable to create compilation: {s}", .{@errorName(err)});
+    }) catch |err| switch (err) {
+        error.LibCUnavailable => {
+            const target = target_info.target;
+            const triple_name = try target.zigTriple(arena);
+            std.log.err("unable to find or provide libc for target '{s}'", .{triple_name});
+
+            for (target_util.available_libcs) |t| {
+                if (t.arch == target.cpu.arch and t.os == target.os.tag) {
+                    if (t.os_ver) |os_ver| {
+                        std.log.info("zig can provide libc for related target {s}-{s}.{d}-{s}", .{
+                            @tagName(t.arch), @tagName(t.os), os_ver.major, @tagName(t.abi),
+                        });
+                    } else {
+                        std.log.info("zig can provide libc for related target {s}-{s}-{s}", .{
+                            @tagName(t.arch), @tagName(t.os), @tagName(t.abi),
+                        });
+                    }
+                }
+            }
+            process.exit(1);
+        },
+        else => fatal("unable to create compilation: {s}", .{@errorName(err)}),
     };
     var comp_destroyed = false;
     defer if (!comp_destroyed) comp.destroy();

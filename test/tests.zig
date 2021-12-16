@@ -189,7 +189,7 @@ const test_targets = blk: {
         //    .target = .{
         //        .cpu_arch = .mips,
         //        .os_tag = .linux,
-        //        .abi = .gnu,
+        //        .abi = .gnueabihf,
         //    },
         //    .link_libc = true,
         //},
@@ -216,7 +216,7 @@ const test_targets = blk: {
         //    .target = .{
         //        .cpu_arch = .mipsel,
         //        .os_tag = .linux,
-        //        .abi = .gnu,
+        //        .abi = .gnueabihf,
         //    },
         //    .link_libc = true,
         //},
@@ -236,6 +236,15 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
+        // https://github.com/ziglang/zig/issues/2256
+        //TestTarget{
+        //    .target = .{
+        //        .cpu_arch = .powerpc,
+        //        .os_tag = .linux,
+        //        .abi = .gnueabihf,
+        //    },
+        //    .link_libc = true,
+        //},
 
         TestTarget{
             .target = .{
