@@ -51,7 +51,50 @@ pub fn main() !void {
     var glibc_src_dir = try fs.cwd().openDir(glibc_src_path, .{});
     defer glibc_src_dir.close();
 
-    var walker = try dest_dir.walk(arena);
+    // Copy updated files from upstream.
+    {
+        var walker = try dest_dir.walk(arena);
+        defer walker.deinit();
+
+        walk: while (try walker.next()) |entry| {
+            if (entry.kind != .File) continue;
+            if (mem.startsWith(u8, entry.basename, ".")) continue;
+            for (exempt_files) |p| {
+                if (mem.eql(u8, entry.path, p)) continue :walk;
+            }
+
+            glibc_src_dir.copyFile(entry.path, dest_dir, entry.path, .{}) catch |err| {
+                log.warn("unable to copy '{s}/{s}' to '{s}/{s}': {s}", .{
+                    glibc_src_path,  entry.path,
+                    dest_dir_path,   entry.path,
+                    @errorName(err),
+                });
+                if (err == error.FileNotFound) {
+                    try dest_dir.deleteFile(entry.path);
+                }
+            };
+        }
+    }
+
+    // Warn about duplicated files inside glibc/include/* that can be omitted
+    // because they are already in generic-glibc/*.
+
+    var include_dir = dest_dir.openDir("include", .{ .iterate = true }) catch |err| {
+        fatal("unable to open directory '{s}/include': {s}", .{
+            dest_dir_path, @errorName(err),
+        });
+    };
+    defer include_dir.close();
+
+    const generic_glibc_path = try std.fmt.allocPrint(
+        arena,
+        "{s}/lib/libc/include/generic-glibc",
+        .{zig_src_path},
+    );
+    var generic_glibc_dir = try fs.cwd().openDir(generic_glibc_path, .{});
+    defer generic_glibc_dir.close();
+
+    var walker = try include_dir.walk(arena);
     defer walker.deinit();
 
     walk: while (try walker.next()) |entry| {
@@ -61,16 +104,37 @@ pub fn main() !void {
             if (mem.eql(u8, entry.path, p)) continue :walk;
         }
 
-        glibc_src_dir.copyFile(entry.path, dest_dir, entry.path, .{}) catch |err| {
-            log.warn("unable to copy '{s}/{s}' to '{s}/{s}': {s}", .{
-                glibc_src_path,  entry.path,
-                dest_dir_path,   entry.path,
-                @errorName(err),
-            });
-            if (err == error.FileNotFound) {
-                try dest_dir.deleteFile(entry.path);
-            }
+        const max_file_size = 10 * 1024 * 1024;
+
+        const generic_glibc_contents = generic_glibc_dir.readFileAlloc(
+            arena,
+            entry.path,
+            max_file_size,
+        ) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => |e| fatal("unable to load '{s}/include/{s}': {s}", .{
+                generic_glibc_path, entry.path, @errorName(e),
+            }),
         };
+        const glibc_include_contents = include_dir.readFileAlloc(
+            arena,
+            entry.path,
+            max_file_size,
+        ) catch |err| {
+            fatal("unable to load '{s}/include/{s}': {s}", .{
+                dest_dir_path, entry.path, @errorName(err),
+            });
+        };
+
+        const whitespace = " \r\n\t";
+        const generic_glibc_trimmed = mem.trim(u8, generic_glibc_contents, whitespace);
+        const glibc_include_trimmed = mem.trim(u8, glibc_include_contents, whitespace);
+        if (mem.eql(u8, generic_glibc_trimmed, glibc_include_trimmed)) {
+            log.warn("same contents: '{s}/include/{s}' and '{s}/include/{s}'", .{
+                generic_glibc_path, entry.path,
+                dest_dir_path,      entry.path,
+            });
+        }
     }
 }
 
