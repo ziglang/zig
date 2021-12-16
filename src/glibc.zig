@@ -335,8 +335,11 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 }
 
                 const shared_def = switch (dep.flavor) {
-                    .shared => "-DSHARED",
                     .nonshared => "-DLIBC_NONSHARED=1",
+                    // glibc passes `-DSHARED` for these. However, empirically if
+                    // we do that here we will see undefined symbols such as `__GI_memcpy`.
+                    // So we pass the same thing as for nonshared.
+                    .shared => "-DLIBC_NONSHARED=1",
                 };
                 try args.appendSlice(&[_][]const u8{
                     "-D_LIBC_REENTRANT",
