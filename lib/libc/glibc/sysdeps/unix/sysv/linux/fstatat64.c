@@ -18,6 +18,7 @@
 
 #define __fstatat __redirect___fstatat
 #define fstatat   __redirect_fstatat
+#include <inttypes.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <string.h>
