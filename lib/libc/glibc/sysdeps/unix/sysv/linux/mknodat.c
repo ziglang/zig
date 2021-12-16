@@ -16,6 +16,7 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
+#include <inttypes.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <errno.h>
