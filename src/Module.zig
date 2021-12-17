@@ -1207,23 +1207,9 @@ pub const Fn = struct {
     is_cold: bool = false,
     is_noinline: bool = false,
 
-    /// These fields are used to keep track of any dependencies related to functions
-    /// that return inferred error sets. It's values are not used when the function
-    /// does not return an inferred error set.
-    inferred_error_set: struct {
-        /// All currently known errors that this function returns. This includes direct additions
-        /// via `return error.Foo;`, and possibly also errors that are returned from any dependent functions.
-        /// When the inferred error set is fully resolved, this map contains all the errors that the function might return.
-        errors: std.StringHashMapUnmanaged(void) = .{},
-
-        /// Other functions with inferred error sets which the inferred error set of this
-        /// function should include.
-        functions: std.AutoHashMapUnmanaged(*Fn, void) = .{},
-
-        /// Whether the function returned anyerror. This is true if either of the dependent functions
-        /// returns anyerror.
-        is_anyerror: bool = false,
-    } = .{},
+    /// Any inferred error sets that this function owns, both it's own inferred error set and
+    /// inferred error sets of any inline/comptime functions called.
+    inferred_error_sets: InferredErrorSetList = .{},
 
     pub const Analysis = enum {
         queued,
@@ -1239,37 +1225,69 @@ pub const Fn = struct {
         success,
     };
 
-    pub fn deinit(func: *Fn, gpa: Allocator) void {
-        func.inferred_error_set.errors.deinit(gpa);
-        func.inferred_error_set.functions.deinit(gpa);
-    }
+    /// This struct is used to keep track of any dependencies related to functions instances
+    /// that return inferred error sets. Note that a function may be associated to multiple different error sets,
+    /// for example an inferred error set which this function returns, but also any inferred error sets
+    /// of called inline or comptime functions.
+    pub const InferredErrorSet = struct {
+        /// The function from which this error set originates.
+        /// Note: may be the function itself.
+        func: *Fn,
 
-    pub fn addErrorSet(func: *Fn, gpa: Allocator, err_set_ty: Type) !void {
-        switch (err_set_ty.tag()) {
-            .error_set => {
-                const names = err_set_ty.castTag(.error_set).?.data.names.keys();
-                for (names) |name| {
-                    try func.inferred_error_set.errors.put(gpa, name, {});
-                }
-            },
-            .error_set_single => {
-                const name = err_set_ty.castTag(.error_set_single).?.data;
-                try func.inferred_error_set.errors.put(gpa, name, {});
-            },
-            .error_set_inferred => {
-                const dependent_func = err_set_ty.castTag(.error_set_inferred).?.data;
-                try func.inferred_error_set.functions.put(gpa, dependent_func, {});
-            },
-            .error_set_merged => {
-                const names = err_set_ty.castTag(.error_set_merged).?.data.keys();
-                for (names) |name| {
-                    try func.inferred_error_set.errors.put(gpa, name, {});
-                }
-            },
-            .anyerror => {
-                func.inferred_error_set.is_anyerror = true;
-            },
-            else => unreachable,
+        /// All currently known errors that this error set contains. This includes direct additions
+        /// via `return error.Foo;`, and possibly also errors that are returned from any dependent functions.
+        /// When the inferred error set is fully resolved, this map contains all the errors that the function might return.
+        errors: std.StringHashMapUnmanaged(void) = .{},
+
+        /// Other functions with inferred error sets which the inferred error set of this
+        /// function should include.
+        functions: std.AutoHashMapUnmanaged(*Fn, void) = .{},
+
+        /// Whether the function returned anyerror. This is true if either of the dependent functions
+        /// returns anyerror.
+        is_anyerror: bool = false,
+
+        pub fn addErrorSet(self: *InferredErrorSet, gpa: Allocator, err_set_ty: Type) !void {
+            switch (err_set_ty.tag()) {
+                .error_set => {
+                    const names = err_set_ty.castTag(.error_set).?.data.names.keys();
+                    for (names) |name| {
+                        try self.errors.put(gpa, name, {});
+                    }
+                },
+                .error_set_single => {
+                    const name = err_set_ty.castTag(.error_set_single).?.data;
+                    try self.errors.put(gpa, name, {});
+                },
+                .error_set_inferred => {
+                    const dependent_func = err_set_ty.castTag(.error_set_inferred).?.data.func;
+                    try self.functions.put(gpa, dependent_func, {});
+                },
+                .error_set_merged => {
+                    const names = err_set_ty.castTag(.error_set_merged).?.data.keys();
+                    for (names) |name| {
+                        try self.errors.put(gpa, name, {});
+                    }
+                },
+                .anyerror => {
+                    self.is_anyerror = true;
+                },
+                else => unreachable,
+            }
+        }
+    };
+
+    pub const InferredErrorSetList = std.SinglyLinkedList(InferredErrorSet);
+    pub const InferredErrorSetListNode = InferredErrorSetList.Node;
+
+    pub fn deinit(func: *Fn, gpa: Allocator) void {
+        var it = func.inferred_error_sets.first;
+        while (it) |node| {
+            const next = node.next;
+            node.data.errors.deinit(gpa);
+            node.data.functions.deinit(gpa);
+            gpa.destroy(node);
+            it = next;
         }
     }
 };

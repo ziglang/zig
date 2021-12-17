@@ -722,7 +722,7 @@ pub const DeclGen = struct {
         try bw.writeAll(" payload; uint16_t error; } ");
         const name_index = buffer.items.len;
         if (err_set_type.castTag(.error_set_inferred)) |inf_err_set_payload| {
-            const func = inf_err_set_payload.data;
+            const func = inf_err_set_payload.data.func;
             try bw.writeAll("zig_E_");
             try dg.renderDeclName(func.owner_decl, bw);
             try bw.writeAll(";\n");

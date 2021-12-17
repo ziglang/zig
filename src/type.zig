@@ -2869,7 +2869,7 @@ pub const Type = extern union {
     pub fn isAnyError(ty: Type) bool {
         return switch (ty.tag()) {
             .anyerror => true,
-            .error_set_inferred => ty.castTag(.error_set_inferred).?.data.inferred_error_set.is_anyerror,
+            .error_set_inferred => ty.castTag(.error_set_inferred).?.data.is_anyerror,
             else => false,
         };
     }
@@ -4156,7 +4156,7 @@ pub const Type = extern union {
             pub const base_tag = Tag.error_set_inferred;
 
             base: Payload = Payload{ .tag = base_tag },
-            data: *Module.Fn,
+            data: *Module.Fn.InferredErrorSet,
         };
 
         pub const Pointer = struct {
