@@ -2952,6 +2952,10 @@ pub const InstallArtifactStep = struct {
         if (self.artifact.isDynamicLibrary() and self.artifact.version != null and self.artifact.target.wantSharedLibSymLinks()) {
             try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
         }
+        if (self.artifact.isDynamicLibrary() and self.artifact.target.isWindows() and self.artifact.emit_implib != .no_emit) {
+            const full_implib_path = builder.getInstallPath(self.dest_dir, self.artifact.out_lib_filename);
+            try builder.updateFile(self.artifact.getOutputLibSource().getPath(builder), full_implib_path);
+        }
         if (self.pdb_dir) |pdb_dir| {
             const full_pdb_path = builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);
             try builder.updateFile(self.artifact.getOutputPdbSource().getPath(builder), full_pdb_path);
