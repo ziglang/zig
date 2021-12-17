@@ -5381,7 +5381,7 @@ fn zirPtrToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const ptr = sema.resolveInst(inst_data.operand);
     const ptr_ty = sema.typeOf(ptr);
-    if (ptr_ty.zigTypeTag() != .Pointer) {
+    if (!ptr_ty.isPtrAtRuntime()) {
         const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
         return sema.fail(block, ptr_src, "expected pointer, found '{}'", .{ptr_ty});
     }
