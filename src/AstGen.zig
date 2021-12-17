@@ -984,17 +984,17 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
 
         .fn_proto_simple => {
             var params: [1]Ast.Node.Index = undefined;
-            return fnProtoExpr(gz, scope, rl, tree.fnProtoSimple(&params, node));
+            return fnProtoExpr(gz, scope, rl, node, tree.fnProtoSimple(&params, node));
         },
         .fn_proto_multi => {
-            return fnProtoExpr(gz, scope, rl, tree.fnProtoMulti(node));
+            return fnProtoExpr(gz, scope, rl, node, tree.fnProtoMulti(node));
         },
         .fn_proto_one => {
             var params: [1]Ast.Node.Index = undefined;
-            return fnProtoExpr(gz, scope, rl, tree.fnProtoOne(&params, node));
+            return fnProtoExpr(gz, scope, rl, node, tree.fnProtoOne(&params, node));
         },
         .fn_proto => {
-            return fnProtoExpr(gz, scope, rl, tree.fnProto(node));
+            return fnProtoExpr(gz, scope, rl, node, tree.fnProto(node));
         },
     }
 }
@@ -1101,6 +1101,7 @@ fn fnProtoExpr(
     gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
+    node: Ast.Node.Index,
     fn_proto: Ast.full.FnProto,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
@@ -1112,6 +1113,11 @@ fn fnProtoExpr(
         break :blk token_tags[maybe_extern_token] == .keyword_extern;
     };
     assert(!is_extern);
+
+    var block_scope = gz.makeSubBlock(scope);
+    defer block_scope.unstack();
+
+    const block_inst = try gz.makeBlockInst(.block_inline, node);
 
     const is_var_args = is_var_args: {
         var param_type_i: usize = 0;
@@ -1144,11 +1150,11 @@ fn fnProtoExpr(
                     .param_anytype_comptime
                 else
                     .param_anytype;
-                _ = try gz.addStrTok(tag, param_name, name_token);
+                _ = try block_scope.addStrTok(tag, param_name, name_token);
             } else {
                 const param_type_node = param.type_expr;
                 assert(param_type_node != 0);
-                var param_gz = gz.makeSubBlock(scope);
+                var param_gz = block_scope.makeSubBlock(scope);
                 defer param_gz.unstack();
                 const param_type = try expr(&param_gz, scope, coerced_type_rl, param_type_node);
                 const param_inst_expected = @intCast(u32, astgen.instructions.len + 1);
@@ -1156,7 +1162,7 @@ fn fnProtoExpr(
                 const main_tokens = tree.nodes.items(.main_token);
                 const name_token = param.name_token orelse main_tokens[param_type_node];
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
-                const param_inst = try gz.addParam(&param_gz, tag, name_token, param_name);
+                const param_inst = try block_scope.addParam(&param_gz, tag, name_token, param_name);
                 assert(param_inst_expected == param_inst);
             }
         }
@@ -1164,7 +1170,7 @@ fn fnProtoExpr(
     };
 
     const align_inst: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
-        break :inst try expr(gz, scope, align_rl, fn_proto.ast.align_expr);
+        break :inst try expr(&block_scope, scope, align_rl, fn_proto.ast.align_expr);
     };
 
     if (fn_proto.ast.addrspace_expr != 0) {
@@ -1177,7 +1183,7 @@ fn fnProtoExpr(
 
     const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
         try expr(
-            gz,
+            &block_scope,
             scope,
             .{ .ty = .calling_convention_type },
             fn_proto.ast.callconv_expr,
@@ -1190,14 +1196,14 @@ fn fnProtoExpr(
     if (is_inferred_error) {
         return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
     }
-    var ret_gz = gz.makeSubBlock(scope);
+    var ret_gz = block_scope.makeSubBlock(scope);
     defer ret_gz.unstack();
     const ret_ty = try expr(&ret_gz, scope, coerced_type_rl, fn_proto.ast.return_type);
     const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
 
-    const result = try gz.addFunc(.{
+    const result = try block_scope.addFunc(.{
         .src_node = fn_proto.ast.proto_node,
-        .param_block = 0,
+        .param_block = block_inst,
         .ret_gz = &ret_gz,
         .ret_br = ret_br,
         .body_gz = null,
@@ -1209,7 +1215,12 @@ fn fnProtoExpr(
         .is_test = false,
         .is_extern = false,
     });
-    return rvalue(gz, rl, result, fn_proto.ast.proto_node);
+
+    _ = try block_scope.addBreak(.break_inline, block_inst, result);
+    try block_scope.setBlockBody(block_inst);
+    try gz.instructions.append(astgen.gpa, block_inst);
+
+    return rvalue(gz, rl, indexToRef(block_inst), fn_proto.ast.proto_node);
 }
 
 fn arrayInitExpr(
