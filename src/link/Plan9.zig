@@ -406,14 +406,14 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     defer linecountinfo.deinit();
     // text
     {
-        var linecount: u32 = 0;
+        var linecount: i64 = -1;
         var it_file = self.fn_decl_table.iterator();
         while (it_file.next()) |fentry| {
             var it = fentry.value_ptr.functions.iterator();
             while (it.next()) |entry| {
                 const decl = entry.key_ptr.*;
                 const out = entry.value_ptr.*;
-                log.debug("write text decl {*} ({s}), lines {d} to {d}", .{ decl, decl.name, out.start_line, out.end_line });
+                log.debug("write text decl {*} ({s}), lines {d} to {d}", .{ decl, decl.name, out.start_line + 1, out.end_line });
                 {
                     // connect the previous decl to the next
                     const delta_line = @intCast(i32, out.start_line) - @intCast(i32, linecount);
@@ -660,8 +660,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 }
 
 pub fn writeSym(self: *Plan9, w: anytype, sym: aout.Sym) !void {
-    log.debug("write sym.name: {s}", .{sym.name});
-    log.debug("write sym.value: {x}", .{sym.value});
+    log.debug("write sym{{name: {s}, value: {x}}}", .{ sym.name, sym.value });
     if (sym.type == .bad) return; // we don't want to write free'd symbols
     if (!self.sixtyfour_bit) {
         try w.writeIntBig(u32, @intCast(u32, sym.value));
