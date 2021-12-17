@@ -773,11 +773,6 @@ pub fn HashMapUnmanaged(
                 self.used = 0;
                 self.fingerprint = tombstone;
             }
-
-            pub fn reset(self: *Metadata) void {
-                self.used = 0;
-                self.fingerprint = free;
-            }
         };
 
         comptime {
@@ -1115,24 +1110,12 @@ pub fn HashMapUnmanaged(
             }
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
-            var start = @truncate(usize, hash & mask);
-            var idx = start;
+            // Don't loop indefinitely when there are no empty slots.
+            var limit = self.capacity();
+            var idx = @truncate(usize, hash & mask);
 
             var metadata = self.metadata.? + idx;
-            if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
-                const test_key = &self.keys()[idx];
-                const eql = ctx.eql(key, test_key.*);
-                if (eql) return idx;
-            }
-            // Temporarily mark the start position as "free" so that the probe loop
-            // doesn't infinitely loop when all other slots are filled or tombstones.
-            const saved = metadata[0];
-            metadata[0].reset();
-            defer self.metadata.?[start] = saved;
-            idx = (idx + 1) & mask; // initial idx was already checked
-            metadata = self.metadata.? + idx;
-
-            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+            while ((metadata[0].isUsed() or metadata[0].isTombstone()) and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const test_key = &self.keys()[idx];
                     // If you get a compile error on this line, it means that your generic eql
@@ -1148,6 +1131,7 @@ pub fn HashMapUnmanaged(
                     }
                 }
 
+                limit -= 1;
                 idx = (idx + 1) & mask;
                 metadata = self.metadata.? + idx;
             }
@@ -1305,39 +1289,12 @@ pub fn HashMapUnmanaged(
             }
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
-            var start = @truncate(usize, hash & mask);
-            var idx = start;
+            var limit = self.capacity();
+            var idx = @truncate(usize, hash & mask);
 
             var first_tombstone_idx: usize = self.capacity(); // invalid index
             var metadata = self.metadata.? + idx;
-            if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
-                const test_key = &self.keys()[idx];
-                const eql = ctx.eql(key, test_key.*);
-                if (eql) {
-                    return GetOrPutResult{
-                        .key_ptr = test_key,
-                        .value_ptr = &self.values()[idx],
-                        .found_existing = true,
-                    };
-                }
-            } else if (metadata[0].isTombstone()) {
-                first_tombstone_idx = idx;
-            }
-            // Temporarily mark the start position as "free" so that the probe loop
-            // doesn't infinitely loop when all other slots are filled or tombstones.
-            const saved = metadata[0];
-            metadata[0].reset();
-            defer {
-                // Don't restore when the 'home' slot was originally a tombstone
-                // and the probe missed, since it is now occupied by the new key.
-                const home = &self.metadata.?[start];
-                assert(!home.isUsed() or home.fingerprint == fingerprint);
-                if (!home.isUsed()) home.* = saved;
-            }
-            idx = (idx + 1) & mask; // initial idx was already checked
-            metadata = self.metadata.? + idx;
-
-            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+            while ((metadata[0].isUsed() or metadata[0].isTombstone()) and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const test_key = &self.keys()[idx];
                     // If you get a compile error on this line, it means that your generic eql
@@ -1359,6 +1316,7 @@ pub fn HashMapUnmanaged(
                     first_tombstone_idx = idx;
                 }
 
+                limit -= 1;
                 idx = (idx + 1) & mask;
                 metadata = self.metadata.? + idx;
             }
@@ -1944,7 +1902,6 @@ test "std.hash_map repeat putAssumeCapacity/remove" {
 
     try map.ensureTotalCapacity(20);
     const limit = map.unmanaged.available;
-    const cycles = 100;
 
     var i: u32 = 0;
     while (i < limit) : (i += 1) {
@@ -1954,7 +1911,7 @@ test "std.hash_map repeat putAssumeCapacity/remove" {
     // Repeatedly delete/insert an entry without resizing the map.
     // Put to different keys so entries don't land in the just-freed slot.
     i = 0;
-    while (i < cycles * limit) : (i += 1) {
+    while (i < 10 * limit) : (i += 1) {
         try testing.expect(map.remove(i));
         if (i % 2 == 0) {
             map.putAssumeCapacityNoClobber(limit + i, i);
@@ -1963,13 +1920,9 @@ test "std.hash_map repeat putAssumeCapacity/remove" {
         }
     }
 
-    i = (cycles - 1) * limit;
-    while (i < cycles * limit) : (i += 1) {
-        try expectEqual(map.get(i), null); // (removed) key miss
-        try expectEqual(map.get(limit + i), i); // key hit
-        const gop = map.getOrPutAssumeCapacity(limit + i);
-        try testing.expect(gop.found_existing);
-        try testing.expectEqual(gop.value_ptr.*, i);
+    i = 9 * limit;
+    while (i < 10 * limit) : (i += 1) {
+        try expectEqual(map.get(limit + i), i);
     }
     try expectEqual(map.unmanaged.available, 0);
     try expectEqual(map.unmanaged.count(), limit);
