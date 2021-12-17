@@ -3912,18 +3912,20 @@ fn analyzeCall(
         const ret_ty_inst = try sema.resolveBody(&child_block, fn_info.ret_ty_body);
         const ret_ty_src = func_src; // TODO better source location
         const bare_return_type = try sema.analyzeAsType(&child_block, ret_ty_src, ret_ty_inst);
-        // If the function has an inferred error set, `bare_return_type` is the payload type only.
+        // Create a fresh inferred error set type for inline/comptime calls.
         const fn_ret_ty = blk: {
-            if (func_ty_info.return_type.tag() == .error_union) {
-                const node = try sema.gpa.create(Module.Fn.InferredErrorSetListNode);
-                node.data = .{ .func = module_fn };
-                parent_func.?.inferred_error_sets.prepend(node);
+            if (func_ty_info.return_type.castTag(.error_union)) |payload| {
+                if (payload.data.error_set.tag() == .error_set_inferred) {
+                    const node = try sema.gpa.create(Module.Fn.InferredErrorSetListNode);
+                    node.data = .{ .func = module_fn };
+                    parent_func.?.inferred_error_sets.prepend(node);
 
-                const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, &node.data);
-                break :blk try Type.Tag.error_union.create(sema.arena, .{
-                    .error_set = error_set_ty,
-                    .payload = bare_return_type,
-                });
+                    const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, &node.data);
+                    break :blk try Type.Tag.error_union.create(sema.arena, .{
+                        .error_set = error_set_ty,
+                        .payload = bare_return_type,
+                    });
+                }
             }
             break :blk bare_return_type;
         };
@@ -12473,7 +12475,7 @@ fn coerceInMemoryAllowed(
     dest_ty: Type,
     src_ty: Type,
     dest_is_mut: bool,
-    target: std.Target
+    target: std.Target,
 ) CompileError!InMemoryCoercionResult {
     if (dest_ty.eql(src_ty))
         return .ok;
