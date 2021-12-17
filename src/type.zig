@@ -1203,7 +1203,7 @@ pub const Type = extern union {
                     return writer.writeAll(std.mem.sliceTo(error_set.owner_decl.name, 0));
                 },
                 .error_set_inferred => {
-                    const func = ty.castTag(.error_set_inferred).?.data;
+                    const func = ty.castTag(.error_set_inferred).?.data.func;
                     return writer.print("(inferred error set of {s})", .{func.owner_decl.name});
                 },
                 .error_set_merged => {
@@ -2872,6 +2872,35 @@ pub const Type = extern union {
             .error_set_inferred => ty.castTag(.error_set_inferred).?.data.is_anyerror,
             else => false,
         };
+    }
+
+    /// Returns whether ty, which must be an error set, includes an error `name`.
+    /// Might return a false negative if `ty` is an inferred error set and not fully
+    /// resolved yet.
+    pub fn errorSetHasField(ty: Type, name: []const u8) bool {
+        if (ty.isAnyError()) {
+            return true;
+        }
+
+        switch (ty.tag()) {
+            .error_set_single => {
+                const data = ty.castTag(.error_set_single).?.data;
+                return std.mem.eql(u8, data, name);
+            },
+            .error_set_inferred => {
+                const data = ty.castTag(.error_set_inferred).?.data;
+                return data.errors.contains(name);
+            },
+            .error_set_merged => {
+                const data = ty.castTag(.error_set_merged).?.data;
+                return data.contains(name);
+            },
+            .error_set => {
+                const data = ty.castTag(.error_set).?.data;
+                return data.names.contains(name);
+            },
+            else => unreachable,
+        }
     }
 
     /// Asserts the type is an array or vector.

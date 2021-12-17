@@ -1239,13 +1239,16 @@ pub const Fn = struct {
         /// When the inferred error set is fully resolved, this map contains all the errors that the function might return.
         errors: std.StringHashMapUnmanaged(void) = .{},
 
-        /// Other functions with inferred error sets which the inferred error set of this
-        /// function should include.
-        functions: std.AutoHashMapUnmanaged(*Fn, void) = .{},
+        /// Other inferred error sets which this inferred error set should include.
+        inferred_error_sets: std.AutoHashMapUnmanaged(*InferredErrorSet, void) = .{},
 
         /// Whether the function returned anyerror. This is true if either of the dependent functions
         /// returns anyerror.
         is_anyerror: bool = false,
+
+        /// Whether this error set is already fully resolved. If true, resolving can skip resolving any dependents
+        /// of this inferred error set.
+        is_resolved: bool = false,
 
         pub fn addErrorSet(self: *InferredErrorSet, gpa: Allocator, err_set_ty: Type) !void {
             switch (err_set_ty.tag()) {
@@ -1260,8 +1263,8 @@ pub const Fn = struct {
                     try self.errors.put(gpa, name, {});
                 },
                 .error_set_inferred => {
-                    const dependent_func = err_set_ty.castTag(.error_set_inferred).?.data.func;
-                    try self.functions.put(gpa, dependent_func, {});
+                    const set = err_set_ty.castTag(.error_set_inferred).?.data;
+                    try self.inferred_error_sets.put(gpa, set, {});
                 },
                 .error_set_merged => {
                     const names = err_set_ty.castTag(.error_set_merged).?.data.keys();
@@ -1285,7 +1288,7 @@ pub const Fn = struct {
         while (it) |node| {
             const next = node.next;
             node.data.errors.deinit(gpa);
-            node.data.functions.deinit(gpa);
+            node.data.inferred_error_sets.deinit(gpa);
             gpa.destroy(node);
             it = next;
         }
