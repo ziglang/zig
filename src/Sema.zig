@@ -940,6 +940,15 @@ pub fn analyzeBody(
                 const inst_data = datas[inst].pl_node;
                 const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
                 const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+                // If this block contains a function prototype, we need to reset the
+                // current list of parameters and restore it later.
+                // Note: this probably needs to be resolved in a more general manner.
+                const prev_params = block.params;
+                block.params = .{};
+                defer {
+                    block.params.deinit(sema.gpa);
+                    block.params = prev_params;
+                }
                 const break_inst = try sema.analyzeBody(block, inline_body);
                 const break_data = datas[break_inst].@"break";
                 if (inst == break_data.block_inst) {
@@ -953,6 +962,15 @@ pub fn analyzeBody(
                 const inst_data = datas[inst].pl_node;
                 const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
                 const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+                // If this block contains a function prototype, we need to reset the
+                // current list of parameters and restore it later.
+                // Note: this probably needs to be resolved in a more general manner.
+                const prev_params = block.params;
+                block.params = .{};
+                defer {
+                    block.params.deinit(sema.gpa);
+                    block.params = prev_params;
+                }
                 const break_inst = try sema.analyzeBody(block, inline_body);
                 const break_data = datas[break_inst].@"break";
                 if (inst == break_data.block_inst) {
