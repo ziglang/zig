@@ -13990,6 +13990,13 @@ fn wrapErrorUnion(
                 if (data.errors.contains(expected_name)) break :ok;
                 return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
             },
+            .error_set_merged => {
+                const expected_name = val.castTag(.@"error").?.data.name;
+                const error_set = dest_err_set_ty.castTag(.error_set_merged).?.data;
+                if (!error_set.contains(expected_name)) {
+                    return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
+                }
+            },
             else => unreachable,
         }
         return sema.addConstant(dest_ty, val);
