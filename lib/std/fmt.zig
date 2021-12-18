@@ -1368,10 +1368,23 @@ pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options
     return fbs.pos;
 }
 
-fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+const FormatDurationData = struct {
+    ns: u64,
+    negative: bool = false,
+};
+
+fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     _ = fmt;
-    _ = options;
-    var ns_remaining = ns;
+
+    // worst case: "-XXXyXXwXXdXXhXXmXX.XXXs".len = 24
+    var buf: [24]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    var buf_writer = fbs.writer();
+    if (data.negative) {
+        try buf_writer.writeByte('-');
+    }
+
+    var ns_remaining = data.ns;
     inline for (.{
         .{ .ns = 365 * std.time.ns_per_day, .sep = 'y' },
         .{ .ns = std.time.ns_per_week, .sep = 'w' },
@@ -1381,10 +1394,11 @@ fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.FormatOpti
     }) |unit| {
         if (ns_remaining >= unit.ns) {
             const units = ns_remaining / unit.ns;
-            try formatInt(units, 10, .lower, .{}, writer);
-            try writer.writeByte(unit.sep);
+            try formatInt(units, 10, .lower, .{}, buf_writer);
+            try buf_writer.writeByte(unit.sep);
             ns_remaining -= units * unit.ns;
-            if (ns_remaining == 0) return;
+            if (ns_remaining == 0)
+                return formatBuf(fbs.getWritten(), options, writer);
         }
     }
 
@@ -1395,32 +1409,33 @@ fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.FormatOpti
     }) |unit| {
         const kunits = ns_remaining * 1000 / unit.ns;
         if (kunits >= 1000) {
-            try formatInt(kunits / 1000, 10, .lower, .{}, writer);
+            try formatInt(kunits / 1000, 10, .lower, .{}, buf_writer);
             const frac = kunits % 1000;
             if (frac > 0) {
                 // Write up to 3 decimal places
-                var buf = [_]u8{ '.', 0, 0, 0 };
-                _ = formatIntBuf(buf[1..], frac, 10, .lower, .{ .fill = '0', .width = 3 });
+                var decimal_buf = [_]u8{ '.', 0, 0, 0 };
+                _ = formatIntBuf(decimal_buf[1..], frac, 10, .lower, .{ .fill = '0', .width = 3 });
                 var end: usize = 4;
                 while (end > 1) : (end -= 1) {
-                    if (buf[end - 1] != '0') break;
+                    if (decimal_buf[end - 1] != '0') break;
                 }
-                try writer.writeAll(buf[0..end]);
+                try buf_writer.writeAll(decimal_buf[0..end]);
             }
-            try writer.writeAll(unit.sep);
-            return;
+            try buf_writer.writeAll(unit.sep);
+            return formatBuf(fbs.getWritten(), options, writer);
         }
     }
 
-    try formatInt(ns_remaining, 10, .lower, .{}, writer);
-    try writer.writeAll("ns");
-    return;
+    try formatInt(ns_remaining, 10, .lower, .{}, buf_writer);
+    try buf_writer.writeAll("ns");
+    return formatBuf(fbs.getWritten(), options, writer);
 }
 
 /// Return a Formatter for number of nanoseconds according to its magnitude:
 /// [#y][#w][#d][#h][#m]#[.###][n|u|m]s
 pub fn fmtDuration(ns: u64) Formatter(formatDuration) {
-    return .{ .data = ns };
+    const data = FormatDurationData{ .ns = ns };
+    return .{ .data = data };
 }
 
 test "fmtDuration" {
@@ -1455,18 +1470,29 @@ test "fmtDuration" {
         .{ .s = "1y1h1ms", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms },
         .{ .s = "1y1h1ms", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1 },
         .{ .s = "1y1m999ns", .d = 365 * std.time.ns_per_day + std.time.ns_per_min + 999 },
+        .{ .s = "584y49w23h34m33.709s", .d = math.maxInt(u64) },
     }) |tc| {
         const slice = try bufPrint(&buf, "{}", .{fmtDuration(tc.d)});
+        try std.testing.expectEqualStrings(tc.s, slice);
+    }
+
+    inline for (.{
+        .{ .s = "=======0ns", .f = "{s:=>10}", .d = 0 },
+        .{ .s = "1ns=======", .f = "{s:=<10}", .d = 1 },
+        .{ .s = "  999ns   ", .f = "{s:^10}", .d = std.time.ns_per_us - 1 },
+    }) |tc| {
+        const slice = try bufPrint(&buf, tc.f, .{fmtDuration(tc.d)});
         try std.testing.expectEqualStrings(tc.s, slice);
     }
 }
 
 fn formatDurationSigned(ns: i64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     if (ns < 0) {
-        try writer.writeByte('-');
-        try formatDuration(@intCast(u64, -ns), fmt, options, writer);
+        const data = FormatDurationData{ .ns = @intCast(u64, -ns), .negative = true };
+        try formatDuration(data, fmt, options, writer);
     } else {
-        try formatDuration(@intCast(u64, ns), fmt, options, writer);
+        const data = FormatDurationData{ .ns = @intCast(u64, ns) };
+        try formatDuration(data, fmt, options, writer);
     }
 }
 
@@ -1536,8 +1562,20 @@ test "fmtDurationSigned" {
         .{ .s = "-1y1h1ms", .d = -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1) },
         .{ .s = "1y1m999ns", .d = 365 * std.time.ns_per_day + std.time.ns_per_min + 999 },
         .{ .s = "-1y1m999ns", .d = -(365 * std.time.ns_per_day + std.time.ns_per_min + 999) },
+        .{ .s = "292y24w3d23h47m16.854s", .d = math.maxInt(i64) },
+        .{ .s = "-292y24w3d23h47m16.854s", .d = math.minInt(i64) + 1 },
     }) |tc| {
         const slice = try bufPrint(&buf, "{}", .{fmtDurationSigned(tc.d)});
+        try std.testing.expectEqualStrings(tc.s, slice);
+    }
+
+    inline for (.{
+        .{ .s = "=======0ns", .f = "{s:=>10}", .d = 0 },
+        .{ .s = "1ns=======", .f = "{s:=<10}", .d = 1 },
+        .{ .s = "-1ns======", .f = "{s:=<10}", .d = -(1) },
+        .{ .s = "  -999ns  ", .f = "{s:^10}", .d = -(std.time.ns_per_us - 1) },
+    }) |tc| {
+        const slice = try bufPrint(&buf, tc.f, .{fmtDurationSigned(tc.d)});
         try std.testing.expectEqualStrings(tc.s, slice);
     }
 }
