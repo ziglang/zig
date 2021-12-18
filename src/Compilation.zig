@@ -3415,12 +3415,17 @@ pub fn addCCArgs(
         try argv.append(libunwind_include_path);
     }
 
-    if (comp.bin_file.options.link_libc and target.isGnuLibC()) {
-        const target_version = target.os.version_range.linux.glibc;
-        const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
-            target_version.minor,
-        });
-        try argv.append(glibc_minor_define);
+    if (comp.bin_file.options.link_libc) {
+        if (target.isGnuLibC()) {
+            const target_version = target.os.version_range.linux.glibc;
+            const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
+                target_version.minor,
+            });
+            try argv.append(glibc_minor_define);
+        }
+        if (target.isMinGW()) {
+            try argv.append("-DWIDL_EXPLICIT_AGGREGATE_RETURNS");
+        }
     }
 
     const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
