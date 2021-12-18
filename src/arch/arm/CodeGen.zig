@@ -545,6 +545,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                     .block           => try self.airBlock(inst),
                     .br              => try self.airBr(inst),
                     .breakpoint      => try self.airBreakpoint(),
+                    .ret_addr        => try self.airRetAddr(),
                     .fence           => try self.airFence(),
                     .call            => try self.airCall(inst),
                     .cond_br         => try self.airCondBr(inst),
@@ -1848,6 +1849,10 @@ fn airBreakpoint(self: *Self) !void {
         .data = .{ .imm16 = 0 },
     });
     return self.finishAirBookkeeping();
+}
+
+fn airRetAddr(self: *Self) !void {
+    return self.fail("TODO implement airRetAddr for {}", .{self.target.cpu.arch});
 }
 
 fn airFence(self: *Self) !void {

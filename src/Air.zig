@@ -195,6 +195,9 @@ pub const Inst = struct {
         /// Lowers to a hardware trap instruction, or the next best thing.
         /// Result type is always void.
         breakpoint,
+        /// Yields the return address of the current function.
+        /// Uses the `no_op` field.
+        ret_addr,
         /// Function call.
         /// Result type is the return type of the function being called.
         /// Uses the `pl_op` field with the `Call` payload. operand is the callee.
@@ -785,6 +788,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .ptrtoint,
         .slice_len,
+        .ret_addr,
         => return Type.initTag(.usize),
 
         .bool_to_int => return Type.initTag(.u1),

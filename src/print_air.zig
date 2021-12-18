@@ -159,6 +159,7 @@ const Writer = struct {
 
             .breakpoint,
             .unreach,
+            .ret_addr,
             => try w.writeNoOp(s, inst),
 
             .const_ty,

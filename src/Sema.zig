@@ -8739,8 +8739,12 @@ fn zirRetAddr(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
-    return sema.fail(block, src, "TODO: implement Sema.zirRetAddr", .{});
+    try sema.requireRuntimeBlock(block, src);
+    return try block.addNoOp(.ret_addr);
 }
 
 fn zirBuiltinSrc(

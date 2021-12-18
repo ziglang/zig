@@ -1747,6 +1747,7 @@ pub const FuncGen = struct {
                 .br             => try self.airBr(inst),
                 .switch_br      => try self.airSwitchBr(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
+                .ret_addr       => try self.airRetAddr(inst),
                 .call           => try self.airCall(inst),
                 .cond_br        => try self.airCondBr(inst),
                 .intcast        => try self.airIntCast(inst),
@@ -3548,6 +3549,15 @@ pub const FuncGen = struct {
         const llvm_fn = self.getIntrinsic("llvm.debugtrap", &.{});
         _ = self.builder.buildCall(llvm_fn, undefined, 0, .C, .Auto, "");
         return null;
+    }
+
+    fn airRetAddr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        _ = inst;
+        const i32_zero = self.context.intType(32).constNull();
+        const usize_llvm_ty = try self.dg.llvmType(Type.usize);
+        const llvm_fn = self.getIntrinsic("llvm.returnaddress", &.{});
+        const ptr_val = self.builder.buildCall(llvm_fn, &[_]*const llvm.Value{i32_zero}, 1, .Fast, .Auto, "");
+        return self.builder.buildPtrToInt(ptr_val, usize_llvm_ty, "");
     }
 
     fn airFence(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {

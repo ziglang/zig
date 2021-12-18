@@ -1125,6 +1125,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .arg      => airArg(f),
 
             .breakpoint => try airBreakpoint(f),
+            .ret_addr   => try airRetAddr(f),
             .unreach    => try airUnreach(f),
             .fence      => try airFence(f, inst),
 
@@ -2189,6 +2190,10 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airBreakpoint(f: *Function) !CValue {
     try f.object.writer().writeAll("zig_breakpoint();\n");
     return CValue.none;
+}
+
+fn airRetAddr(f: *Function) !CValue {
+    return f.fail("TODO implement codegen for airRetAddr", .{});
 }
 
 fn airFence(f: *Function, inst: Air.Inst.Index) !CValue {
