@@ -958,7 +958,7 @@ pub const Builder = struct {
         warn("\n", .{});
     }
 
-    fn spawnChildEnvMap(self: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) !void {
+    pub fn spawnChildEnvMap(self: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) !void {
         if (self.verbose) {
             printCmd(cwd, argv);
         }
