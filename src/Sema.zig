@@ -8881,7 +8881,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         },
         .Pointer => {
             const info = ty.ptrInfo().data;
-            const field_values = try sema.arena.alloc(Value, 7);
+            const field_values = try sema.arena.alloc(Value, 8);
             // size: Size,
             field_values[0] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.size));
             // is_const: bool,
@@ -8890,12 +8890,14 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             field_values[2] = if (info.@"volatile") Value.initTag(.bool_true) else Value.initTag(.bool_false);
             // alignment: comptime_int,
             field_values[3] = try Value.Tag.int_u64.create(sema.arena, info.@"align");
+            // address_space: AddressSpace
+            field_values[4] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.@"addrspace"));
             // child: type,
-            field_values[4] = try Value.Tag.ty.create(sema.arena, info.pointee_type);
+            field_values[5] = try Value.Tag.ty.create(sema.arena, info.pointee_type);
             // is_allowzero: bool,
-            field_values[5] = if (info.@"allowzero") Value.initTag(.bool_true) else Value.initTag(.bool_false);
+            field_values[6] = if (info.@"allowzero") Value.initTag(.bool_true) else Value.initTag(.bool_false);
             // sentinel: anytype,
-            field_values[6] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.@"null";
+            field_values[7] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.@"null";
 
             return sema.addConstant(
                 type_info_ty,
