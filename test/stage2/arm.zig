@@ -547,4 +547,25 @@ pub fn addCases(ctx: *TestContext) !void {
             ,
         );
     }
+
+    {
+        var case = ctx.exe("save compare flags", linux_arm);
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    foo(2, 1);
+            \\}
+            \\
+            \\fn foo(x: u32, y: u32) void {
+            \\    const b = x > y;
+            \\    assert(b);
+            \\    assert(b);
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+        ,
+            "",
+        );
+    }
 }
