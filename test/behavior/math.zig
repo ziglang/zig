@@ -444,3 +444,30 @@ test "128-bit multiplication" {
     var c = a * b;
     try expect(c == 6);
 }
+
+test "@addWithOverflow" {
+    var result: u8 = undefined;
+    try expect(@addWithOverflow(u8, 250, 100, &result));
+    try expect(result == 94);
+    try expect(!@addWithOverflow(u8, 100, 150, &result));
+    try expect(result == 250);
+}
+
+test "small int addition" {
+    var x: u2 = 0;
+    try expect(x == 0);
+
+    x += 1;
+    try expect(x == 1);
+
+    x += 1;
+    try expect(x == 2);
+
+    x += 1;
+    try expect(x == 3);
+
+    var result: @TypeOf(x) = 3;
+    try expect(@addWithOverflow(@TypeOf(x), x, 1, &result));
+
+    try expect(result == 0);
+}

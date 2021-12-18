@@ -1969,6 +1969,37 @@ pub const Value = extern union {
         return @divFloor(@floatToInt(std.math.big.Limb, std.math.log2(w_value)), @typeInfo(std.math.big.Limb).Int.bits) + 1;
     }
 
+    pub const OverflowArithmeticResult = struct {
+        overflowed: bool,
+        wrapped_result: Value,
+    };
+
+    pub fn intAddWithOverflow(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !OverflowArithmeticResult {
+        const info = ty.intInfo(target);
+
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcTwosCompLimbCount(info.bits),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        const overflowed = result_bigint.addWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
+        const result = try fromBigInt(arena, result_bigint.toConst());
+        return OverflowArithmeticResult{
+            .overflowed = overflowed,
+            .wrapped_result = result,
+        };
+    }
+
     /// Supports both floats and ints; handles undefined.
     pub fn numberAddWrap(
         lhs: Value,
@@ -1983,19 +2014,8 @@ pub const Value = extern union {
             return floatAdd(lhs, rhs, ty, arena);
         }
 
-        const info = ty.intInfo(target);
-
-        var lhs_space: Value.BigIntSpace = undefined;
-        var rhs_space: Value.BigIntSpace = undefined;
-        const lhs_bigint = lhs.toBigInt(&lhs_space);
-        const rhs_bigint = rhs.toBigInt(&rhs_space);
-        const limbs = try arena.alloc(
-            std.math.big.Limb,
-            std.math.big.int.calcTwosCompLimbCount(info.bits),
-        );
-        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-        result_bigint.addWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
-        return fromBigInt(arena, result_bigint.toConst());
+        const overflow_result = try intAddWithOverflow(lhs, rhs, ty, arena, target);
+        return overflow_result.wrapped_result;
     }
 
     fn fromBigInt(arena: Allocator, big_int: BigIntConst) !Value {
@@ -2040,6 +2060,32 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
+    pub fn intSubWithOverflow(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !OverflowArithmeticResult {
+        const info = ty.intInfo(target);
+
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcTwosCompLimbCount(info.bits),
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        const overflowed = result_bigint.subWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
+        const wrapped_result = try fromBigInt(arena, result_bigint.toConst());
+        return OverflowArithmeticResult{
+            .overflowed = overflowed,
+            .wrapped_result = wrapped_result,
+        };
+    }
+
     /// Supports both floats and ints; handles undefined.
     pub fn numberSubWrap(
         lhs: Value,
@@ -2054,19 +2100,8 @@ pub const Value = extern union {
             return floatSub(lhs, rhs, ty, arena);
         }
 
-        const info = ty.intInfo(target);
-
-        var lhs_space: Value.BigIntSpace = undefined;
-        var rhs_space: Value.BigIntSpace = undefined;
-        const lhs_bigint = lhs.toBigInt(&lhs_space);
-        const rhs_bigint = rhs.toBigInt(&rhs_space);
-        const limbs = try arena.alloc(
-            std.math.big.Limb,
-            std.math.big.int.calcTwosCompLimbCount(info.bits),
-        );
-        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-        result_bigint.subWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
-        return fromBigInt(arena, result_bigint.toConst());
+        const overflow_result = try intSubWithOverflow(lhs, rhs, ty, arena, target);
+        return overflow_result.wrapped_result;
     }
 
     /// Supports integers only; asserts neither operand is undefined.

@@ -443,12 +443,12 @@ pub const Mutable = struct {
         }
     }
 
-    /// r = a + b with 2s-complement wrapping semantics.
+    /// r = a + b with 2s-complement wrapping semantics. Returns whether overflow occurred.
     /// r, a and b may be aliases
     ///
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
     /// r is `calcTwosCompLimbCount(bit_count)`.
-    pub fn addWrap(r: *Mutable, a: Const, b: Const, signedness: Signedness, bit_count: usize) void {
+    pub fn addWrap(r: *Mutable, a: Const, b: Const, signedness: Signedness, bit_count: usize) bool {
         const req_limbs = calcTwosCompLimbCount(bit_count);
 
         // Slice of the upper bits if they exist, these will be ignored and allows us to use addCarry to determine
@@ -463,6 +463,7 @@ pub const Mutable = struct {
             .limbs = b.limbs[0..math.min(req_limbs, b.limbs.len)],
         };
 
+        var carry_truncated = false;
         if (r.addCarry(x, y)) {
             // There are two possibilities here:
             // - We overflowed req_limbs. In this case, the carry is ignored, as it would be removed by
@@ -473,10 +474,17 @@ pub const Mutable = struct {
             if (msl < req_limbs) {
                 r.limbs[msl] = 1;
                 r.len = req_limbs;
+            } else {
+                carry_truncated = true;
             }
         }
 
-        r.truncate(r.toConst(), signedness, bit_count);
+        if (!r.toConst().fitsInTwosComp(signedness, bit_count)) {
+            r.truncate(r.toConst(), signedness, bit_count);
+            return true;
+        }
+
+        return carry_truncated;
     }
 
     /// r = a + b with 2s-complement saturating semantics.
@@ -581,13 +589,13 @@ pub const Mutable = struct {
         r.add(a, b.negate());
     }
 
-    /// r = a - b with 2s-complement wrapping semantics.
+    /// r = a - b with 2s-complement wrapping semantics. Returns whether any overflow occured.
     ///
     /// r, a and b may be aliases
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
     /// r is `calcTwosCompLimbCount(bit_count)`.
-    pub fn subWrap(r: *Mutable, a: Const, b: Const, signedness: Signedness, bit_count: usize) void {
-        r.addWrap(a, b.negate(), signedness, bit_count);
+    pub fn subWrap(r: *Mutable, a: Const, b: Const, signedness: Signedness, bit_count: usize) bool {
+        return r.addWrap(a, b.negate(), signedness, bit_count);
     }
 
     /// r = a - b with 2s-complement saturating semantics.
@@ -1039,7 +1047,7 @@ pub const Mutable = struct {
     pub fn bitNotWrap(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
         r.copy(a.negate());
         const negative_one = Const{ .limbs = &.{1}, .positive = false };
-        r.addWrap(r.toConst(), negative_one, signedness, bit_count);
+        _ = r.addWrap(r.toConst(), negative_one, signedness, bit_count);
     }
 
     /// r = a | b under 2s complement semantics.
@@ -2443,17 +2451,18 @@ pub const Managed = struct {
         r.setMetadata(m.positive, m.len);
     }
 
-    /// r = a + b with 2s-complement wrapping semantics.
+    /// r = a + b with 2s-complement wrapping semantics. Returns whether any overflow occured.
     ///
     /// r, a and b may be aliases. If r aliases a or b, then caller must call
     /// `r.ensureTwosCompCapacity` prior to calling `add`.
     ///
     /// Returns an error if memory could not be allocated.
-    pub fn addWrap(r: *Managed, a: Const, b: Const, signedness: Signedness, bit_count: usize) Allocator.Error!void {
+    pub fn addWrap(r: *Managed, a: Const, b: Const, signedness: Signedness, bit_count: usize) Allocator.Error!bool {
         try r.ensureTwosCompCapacity(bit_count);
         var m = r.toMutable();
-        m.addWrap(a, b, signedness, bit_count);
+        const wrapped = m.addWrap(a, b, signedness, bit_count);
         r.setMetadata(m.positive, m.len);
+        return wrapped;
     }
 
     /// r = a + b with 2s-complement saturating semantics.
@@ -2481,17 +2490,18 @@ pub const Managed = struct {
         r.setMetadata(m.positive, m.len);
     }
 
-    /// r = a - b with 2s-complement wrapping semantics.
+    /// r = a - b with 2s-complement wrapping semantics. Returns whether any overflow occured.
     ///
     /// r, a and b may be aliases. If r aliases a or b, then caller must call
     /// `r.ensureTwosCompCapacity` prior to calling `add`.
     ///
     /// Returns an error if memory could not be allocated.
-    pub fn subWrap(r: *Managed, a: Const, b: Const, signedness: Signedness, bit_count: usize) Allocator.Error!void {
+    pub fn subWrap(r: *Managed, a: Const, b: Const, signedness: Signedness, bit_count: usize) Allocator.Error!bool {
         try r.ensureTwosCompCapacity(bit_count);
         var m = r.toMutable();
-        m.subWrap(a, b, signedness, bit_count);
+        const wrapped = m.subWrap(a, b, signedness, bit_count);
         r.setMetadata(m.positive, m.len);
+        return wrapped;
     }
 
     /// r = a - b with 2s-complement saturating semantics.

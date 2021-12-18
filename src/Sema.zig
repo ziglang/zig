@@ -1051,10 +1051,10 @@ fn zirExtended(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .@"asm"             => return sema.zirAsm(               block, extended, inst),
         .typeof_peer        => return sema.zirTypeofPeer(        block, extended),
         .compile_log        => return sema.zirCompileLog(        block, extended),
-        .add_with_overflow  => return sema.zirOverflowArithmetic(block, extended),
-        .sub_with_overflow  => return sema.zirOverflowArithmetic(block, extended),
-        .mul_with_overflow  => return sema.zirOverflowArithmetic(block, extended),
-        .shl_with_overflow  => return sema.zirOverflowArithmetic(block, extended),
+        .add_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
+        .sub_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
+        .mul_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
+        .shl_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
         .c_undef            => return sema.zirCUndef(            block, extended),
         .c_include          => return sema.zirCInclude(          block, extended),
         .c_define           => return sema.zirCDefine(           block, extended),
@@ -7310,6 +7310,7 @@ fn zirOverflowArithmetic(
     sema: *Sema,
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
+    zir_tag: Zir.Inst.Extended,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -7317,7 +7318,95 @@ fn zirOverflowArithmetic(
     const extra = sema.code.extraData(Zir.Inst.OverflowArithmetic, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset = extra.node };
 
-    return sema.fail(block, src, "TODO implement Sema.zirOverflowArithmetic", .{});
+    const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+    const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = extra.node };
+
+    const lhs = sema.resolveInst(extra.lhs);
+    const rhs = sema.resolveInst(extra.rhs);
+    const ptr = sema.resolveInst(extra.ptr);
+
+    const lhs_ty = sema.typeOf(lhs);
+
+    // Note, the types of lhs/rhs (also for shifting)/ptr are already correct as ensured by astgen.
+    const dest_ty = lhs_ty;
+    if (dest_ty.zigTypeTag() != .Int) {
+        return sema.fail(block, src, "expected integer type, found '{}'", .{dest_ty});
+    }
+
+    const target = sema.mod.getTarget();
+
+    const maybe_lhs_val = try sema.resolveMaybeUndefVal(block, lhs_src, lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefVal(block, rhs_src, rhs);
+
+    const result: struct {
+        overflowed: enum { yes, no, undef },
+        wrapped: Air.Inst.Ref,
+    } = result: {
+        const air_tag: Air.Inst.Tag = switch (zir_tag) {
+            .add_with_overflow => blk: {
+                // If either of the arguments is zero, `false` is returned and the other is stored
+                // to the result, even if it is undefined..
+                // Otherwise, if either of the argument is undefined, undefined is returned.
+                if (maybe_lhs_val) |lhs_val| {
+                    if (!lhs_val.isUndef() and lhs_val.compareWithZero(.eq)) {
+                        break :result .{ .overflowed = .no, .wrapped = rhs };
+                    }
+                }
+                if (maybe_rhs_val) |rhs_val| {
+                    if (!rhs_val.isUndef() and rhs_val.compareWithZero(.eq)) {
+                        break :result .{ .overflowed = .no, .wrapped = lhs };
+                    }
+                }
+                if (maybe_lhs_val) |lhs_val| {
+                    if (maybe_rhs_val) |rhs_val| {
+                        if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                            break :result .{ .overflowed = .undef, .wrapped = try sema.addConstUndef(dest_ty) };
+                        }
+
+                        const result = try lhs_val.intAddWithOverflow(rhs_val, dest_ty, sema.arena, target);
+                        const inst = try sema.addConstant(
+                            dest_ty,
+                            result.wrapped_result,
+                        );
+
+                        if (result.overflowed) {
+                            break :result .{ .overflowed = .yes, .wrapped = inst };
+                        } else {
+                            break :result .{ .overflowed = .no, .wrapped = inst };
+                        }
+                    }
+                }
+
+                break :blk .add_with_overflow;
+            },
+            .sub_with_overflow,
+            .mul_with_overflow,
+            .shl_with_overflow,
+            => return sema.fail(block, src, "TODO implement Sema.zirOverflowArithmetic for {}", .{zir_tag}),
+            else => unreachable,
+        };
+
+        try sema.requireRuntimeBlock(block, src);
+        return block.addInst(.{
+            .tag = air_tag,
+            .data = .{ .pl_op = .{
+                .operand = ptr,
+                .payload = try sema.addExtra(Air.Bin{
+                    .lhs = lhs,
+                    .rhs = rhs,
+                }),
+            } },
+        });
+    };
+
+    try sema.storePtr2(block, src, ptr, ptr_src, result.wrapped, src, .store);
+
+    return switch (result.overflowed) {
+        .yes => Air.Inst.Ref.bool_true,
+        .no => Air.Inst.Ref.bool_false,
+        .undef => try sema.addConstUndef(Type.initTag(.bool)),
+    };
 }
 
 fn analyzeArithmetic(

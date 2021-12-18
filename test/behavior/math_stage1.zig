@@ -6,14 +6,6 @@ const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const mem = std.mem;
 
-test "@addWithOverflow" {
-    var result: u8 = undefined;
-    try expect(@addWithOverflow(u8, 250, 100, &result));
-    try expect(result == 94);
-    try expect(!@addWithOverflow(u8, 100, 150, &result));
-    try expect(result == 250);
-}
-
 test "@mulWithOverflow" {
     var result: u8 = undefined;
     try expect(@mulWithOverflow(u8, 86, 3, &result));
@@ -88,25 +80,6 @@ fn testCtzVectors() !void {
     try expectEqual(@ctz(u8, @splat(64, @as(u8, 0b10001010))), @splat(64, @as(u4, 1)));
     try expectEqual(@ctz(u8, @splat(64, @as(u8, 0b00000000))), @splat(64, @as(u4, 8)));
     try expectEqual(@ctz(u16, @splat(64, @as(u16, 0b00000000))), @splat(64, @as(u5, 16)));
-}
-
-test "small int addition" {
-    var x: u2 = 0;
-    try expect(x == 0);
-
-    x += 1;
-    try expect(x == 1);
-
-    x += 1;
-    try expect(x == 2);
-
-    x += 1;
-    try expect(x == 3);
-
-    var result: @TypeOf(x) = 3;
-    try expect(@addWithOverflow(@TypeOf(x), x, 1, &result));
-
-    try expect(result == 0);
 }
 
 test "allow signed integer division/remainder when values are comptime known and positive or exact" {

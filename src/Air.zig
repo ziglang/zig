@@ -135,6 +135,12 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         min,
+        /// Integer addition with overflow. Both operands are guaranteed to be the same type,
+        /// and the result is bool. The wrapped value is written to the pointer given by the in
+        /// operand of the `pl_op` field. Payload is `Bin` with `lhs` and `rhs` the relevant types
+        /// of the operation.
+        /// Uses the `pl_op` field with payload `Bin`.
+        add_with_overflow,
         /// Allocates stack local memory.
         /// Uses the `ty` field.
         alloc,
@@ -804,6 +810,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
             const ptr_ty = air.typeOf(datas[inst].pl_op.operand);
             return ptr_ty.elemType();
         },
+
+        .add_with_overflow => return Type.initTag(.bool),
     }
 }
 

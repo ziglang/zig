@@ -1155,6 +1155,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .mul_sat => try airSatOp(f, inst, "muls_"),
             .shl_sat => try airSatOp(f, inst, "shls_"),
 
+            .add_with_overflow => try airAddWithOverflow(f, inst),
+
             .min => try airMinMax(f, inst, "<"),
             .max => try airMinMax(f, inst, ">"),
 
@@ -1862,6 +1864,12 @@ fn airSatOp(f: *Function, inst: Air.Inst.Index, fn_op: [*:0]const u8) !CValue {
     try f.object.indent_writer.insertNewline();
 
     return ret;
+}
+
+fn airAddWithOverflow(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = f;
+    _ = inst;
+    return f.fail("TODO add with overflow", .{});
 }
 
 fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {

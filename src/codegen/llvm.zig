@@ -1714,6 +1714,8 @@ pub const FuncGen = struct {
                 .max       => try self.airMax(inst),
                 .slice     => try self.airSlice(inst),
 
+                .add_with_overflow => try self.airAddWithOverflow(inst),
+
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
                 .xor                => try self.airXor(inst),
@@ -3133,6 +3135,38 @@ pub const FuncGen = struct {
         }
     }
 
+    fn airAddWithOverflow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+
+        const ptr = try self.resolveInst(pl_op.operand);
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+
+        const ptr_ty = self.air.typeOf(pl_op.operand);
+        const lhs_ty = self.air.typeOf(extra.lhs);
+
+        const intrinsic_name: []const u8 = if (lhs_ty.isSignedInt())
+            "llvm.sadd.with.overflow"
+        else
+            "llvm.uadd.with.overflow";
+
+        const llvm_lhs_ty = try self.dg.llvmType(lhs_ty);
+
+        const llvm_fn = self.getIntrinsic(intrinsic_name, &.{llvm_lhs_ty});
+        const result_struct = self.builder.buildCall(llvm_fn, &[_]*const llvm.Value{ lhs, rhs }, 2, .Fast, .Auto, "");
+
+        const result = self.builder.buildExtractValue(result_struct, 0, "");
+        const overflow_bit = self.builder.buildExtractValue(result_struct, 1, "");
+
+        self.store(ptr, ptr_ty, result, .NotAtomic);
+
+        return overflow_bit;
+    }
+
     fn airAnd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
@@ -3511,7 +3545,7 @@ pub const FuncGen = struct {
 
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         _ = inst;
-        const llvm_fn = self.getIntrinsic("llvm.debugtrap");
+        const llvm_fn = self.getIntrinsic("llvm.debugtrap", &.{});
         _ = self.builder.buildCall(llvm_fn, undefined, 0, .C, .Auto, "");
         return null;
     }
@@ -3946,13 +3980,10 @@ pub const FuncGen = struct {
         return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
     }
 
-    fn getIntrinsic(self: *FuncGen, name: []const u8) *const llvm.Value {
+    fn getIntrinsic(self: *FuncGen, name: []const u8, types: []*const llvm.Type) *const llvm.Value {
         const id = llvm.lookupIntrinsicID(name.ptr, name.len);
         assert(id != 0);
-        // TODO: add support for overload intrinsics by passing the prefix of the intrinsic
-        //       to `lookupIntrinsicID` and then passing the correct types to
-        //       `getIntrinsicDeclaration`
-        return self.llvmModule().getIntrinsicDeclaration(id, null, 0);
+        return self.llvmModule().getIntrinsicDeclaration(id, types.ptr, types.len);
     }
 
     fn load(self: *FuncGen, ptr: *const llvm.Value, ptr_ty: Type) ?*const llvm.Value {

@@ -228,6 +228,7 @@ const Writer = struct {
             .atomic_rmw => try w.writeAtomicRmw(s, inst),
             .memcpy => try w.writeMemcpy(s, inst),
             .memset => try w.writeMemset(s, inst),
+            .add_with_overflow => try w.writeAddWithOverflow(s, inst),
         }
     }
 
@@ -346,6 +347,17 @@ const Writer = struct {
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 1, extra.operand);
         try s.print(", {s}, {s}", .{ @tagName(extra.op()), @tagName(extra.ordering()) });
+    }
+
+    fn writeAddWithOverflow(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
+
+        try w.writeOperand(s, inst, 0, pl_op.operand);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, extra.lhs);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 2, extra.rhs);
     }
 
     fn writeMemset(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

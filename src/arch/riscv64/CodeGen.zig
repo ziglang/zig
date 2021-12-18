@@ -500,6 +500,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                     .max             => try self.airMax(inst),
                     .slice           => try self.airSlice(inst),
 
+                    .add_with_overflow => try self.airAddWithOverflow(inst),
+
                     .div_float, .div_trunc, .div_floor, .div_exact => try self.airDiv(inst),
 
                     .cmp_lt  => try self.airCmp(inst, .lt),
@@ -911,6 +913,11 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement mul_sat for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airAddResultWithOverflow for {}", .{self.target.cpu.arch});
 }
 
 fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
