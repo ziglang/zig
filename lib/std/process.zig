@@ -325,7 +325,7 @@ pub const ArgIteratorWindows = struct {
     }
 
     /// You must free the returned memory when done.
-    pub fn next(self: *ArgIteratorWindows, allocator: Allocator) ?(NextError![:0]u8) {
+    pub fn next(self: *ArgIteratorWindows, allocator: Allocator) NextError!?[:0]u8 {
         // march forward over whitespace
         while (true) : (self.index += 1) {
             const character = self.getPointAtIndex();
@@ -336,7 +336,7 @@ pub const ArgIteratorWindows = struct {
             }
         }
 
-        return self.internalNext(allocator);
+        return try self.internalNext(allocator);
     }
 
     pub fn skip(self: *ArgIteratorWindows) bool {
@@ -474,11 +474,11 @@ pub const ArgIterator = struct {
     pub const NextError = ArgIteratorWindows.NextError;
 
     /// You must free the returned memory when done.
-    pub fn next(self: *ArgIterator, allocator: Allocator) ?(NextError![:0]u8) {
+    pub fn next(self: *ArgIterator, allocator: Allocator) NextError!?[:0]u8 {
         if (builtin.os.tag == .windows) {
             return self.inner.next(allocator);
         } else {
-            return allocator.dupeZ(u8, self.inner.next() orelse return null);
+            return try allocator.dupeZ(u8, self.inner.next() orelse return null);
         }
     }
 
@@ -522,7 +522,7 @@ test "args iterator" {
     var it = if (builtin.os.tag == .wasi) try argsWithAllocator(ga) else args();
     defer it.deinit(); // no-op unless WASI
 
-    const prog_name = try it.next(ga) orelse unreachable;
+    const prog_name = (try it.next(ga)) orelse unreachable;
     defer ga.free(prog_name);
 
     const expected_suffix = switch (builtin.os.tag) {
@@ -534,7 +534,7 @@ test "args iterator" {
 
     try testing.expect(mem.eql(u8, expected_suffix, given_suffix));
     try testing.expect(it.skip()); // Skip over zig_exe_path, passed to the test runner
-    try testing.expect(it.next(ga) == null);
+    try testing.expect((try it.next(ga)) == null);
     try testing.expect(!it.skip());
 }
 
@@ -550,8 +550,7 @@ pub fn argsAlloc(allocator: mem.Allocator) ![][:0]u8 {
     var slice_list = std.ArrayList(usize).init(allocator);
     defer slice_list.deinit();
 
-    while (it.next(allocator)) |arg_or_err| {
-        const arg = try arg_or_err;
+    while (try it.next(allocator)) |arg| {
         defer allocator.free(arg);
         try contents.appendSlice(arg[0 .. arg.len + 1]);
         try slice_list.append(arg.len);
@@ -610,11 +609,11 @@ test "windows arg parsing" {
 fn testWindowsCmdLine(input_cmd_line: [*]const u16, expected_args: []const []const u8) !void {
     var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
     for (expected_args) |expected_arg| {
-        const arg = it.next(std.testing.allocator).? catch unreachable;
+        const arg = (it.next(std.testing.allocator) catch unreachable).?;
         defer std.testing.allocator.free(arg);
         try testing.expectEqualStrings(expected_arg, arg);
     }
-    try testing.expect(it.next(std.testing.allocator) == null);
+    try testing.expect((try it.next(std.testing.allocator)) == null);
 }
 
 pub const UserInfo = struct {
