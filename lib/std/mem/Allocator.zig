@@ -507,15 +507,126 @@ pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) ![:0]T {
     return new_buf[0..m.len :0];
 }
 
+/// This function allows a runtime `alignment` value. Callers should generally prefer
+/// to call the `alloc*` functions.
+pub fn allocBytes(
+    self: Allocator,
+    /// Must be >= 1.
+    /// Must be a power of 2.
+    /// Returned slice's pointer will have this alignment.
+    alignment: u29,
+    byte_count: usize,
+    /// 0 indicates the length of the slice returned MUST match `byte_count` exactly
+    /// non-zero means the length of the returned slice must be aligned by `len_align`
+    /// `byte_count` must be aligned by `len_align`
+    len_align: u29,
+    return_address: usize,
+) Error![]u8 {
+    const new_mem = try self.rawAlloc(byte_count, alignment, len_align, return_address);
+    // TODO: https://github.com/ziglang/zig/issues/4298
+    @memset(new_mem.ptr, undefined, new_mem.len);
+    return new_mem;
+}
+
+/// Realloc is used to modify the size or alignment of an existing allocation,
+/// as well as to provide the allocator with an opportunity to move an allocation
+/// to a better location.
+/// The returned slice will have its pointer aligned at least to `new_alignment` bytes.
+///
+/// This function allows a runtime `alignment` value. Callers should generally prefer
+/// to call the `realloc*` functions.
+///
+/// If the size/alignment is greater than the previous allocation, and the requested new
+/// allocation could not be granted this function returns `error.OutOfMemory`.
+/// When the size/alignment is less than or equal to the previous allocation,
+/// this function returns `error.OutOfMemory` when the allocator decides the client
+/// would be better off keeping the extra alignment/size. 
+/// Clients will call `resizeFn` when they require the allocator to track a new alignment/size,
+/// and so this function should only return success when the allocator considers
+/// the reallocation desirable from the allocator's perspective.
+///
+/// As an example, `std.ArrayList` tracks a "capacity", and therefore can handle
+/// reallocation failure, even when `new_n` <= `old_mem.len`. A `FixedBufferAllocator`
+/// would always return `error.OutOfMemory` for `reallocFn` when the size/alignment
+/// is less than or equal to the old allocation, because it cannot reclaim the memory,
+/// and thus the `std.ArrayList` would be better off retaining its capacity.
+pub fn reallocBytes(
+    self: Allocator,
+    /// Must be the same as what was returned from most recent call to `allocFn` or `resizeFn`.
+    /// If `old_mem.len == 0` then this is a new allocation and `new_byte_count` must be >= 1.
+    old_mem: []u8,
+    /// If `old_mem.len == 0` then this is `undefined`, otherwise:
+    /// Must be the same as what was passed to `allocFn`.
+    /// Must be >= 1.
+    /// Must be a power of 2.
+    old_alignment: u29,
+    /// If `new_byte_count` is 0 then this is a free and it is required that `old_mem.len != 0`.
+    new_byte_count: usize,
+    /// Must be >= 1.
+    /// Must be a power of 2.
+    /// Returned slice's pointer will have this alignment.
+    new_alignment: u29,
+    /// 0 indicates the length of the slice returned MUST match `new_byte_count` exactly
+    /// non-zero means the length of the returned slice must be aligned by `len_align`
+    /// `new_byte_count` must be aligned by `len_align`
+    len_align: u29,
+    return_address: usize,
+) Error![]u8 {
+    if (old_mem.len == 0) {
+        return self.allocBytes(new_alignment, new_byte_count, len_align, return_address);
+    }
+    if (new_byte_count == 0) {
+        // TODO https://github.com/ziglang/zig/issues/4298
+        @memset(old_mem.ptr, undefined, old_mem.len);
+        self.rawFree(old_mem, old_alignment, return_address);
+        return &[0]u8{};
+    }
+
+    if (mem.isAligned(@ptrToInt(old_mem.ptr), new_alignment)) {
+        if (new_byte_count <= old_mem.len) {
+            const shrunk_len = self.shrinkBytes(old_mem, old_alignment, new_byte_count, len_align, return_address);
+            return old_mem.ptr[0..shrunk_len];
+        }
+
+        if (self.rawResize(old_mem, old_alignment, new_byte_count, len_align, return_address)) |resized_len| {
+            assert(resized_len >= new_byte_count);
+            // TODO: https://github.com/ziglang/zig/issues/4298
+            @memset(old_mem.ptr + new_byte_count, undefined, resized_len - new_byte_count);
+            return old_mem.ptr[0..resized_len];
+        }
+    }
+
+    if (new_byte_count <= old_mem.len and new_alignment <= old_alignment) {
+        return error.OutOfMemory;
+    }
+
+    const new_mem = try self.rawAlloc(new_byte_count, new_alignment, len_align, return_address);
+    @memcpy(new_mem.ptr, old_mem.ptr, math.min(new_byte_count, old_mem.len));
+
+    // TODO https://github.com/ziglang/zig/issues/4298
+    @memset(old_mem.ptr, undefined, old_mem.len);
+    self.rawFree(old_mem, old_alignment, return_address);
+
+    return new_mem;
+}
+
 /// Call `vtable.resize`, but caller guarantees that `new_len` <= `buf.len` meaning
 /// than a `null` return value should be impossible.
 /// This function allows a runtime `buf_align` value. Callers should generally prefer
-/// to call `shrink` directly.
+/// to call `shrink`.
 pub fn shrinkBytes(
     self: Allocator,
+    /// Must be the same as what was returned from most recent call to `allocFn` or `resizeFn`.
     buf: []u8,
+    /// Must be the same as what was passed to `allocFn`.
+    /// Must be >= 1.
+    /// Must be a power of 2.
     buf_align: u29,
+    /// Must be >= 1.
     new_len: usize,
+    /// 0 indicates the length of the slice returned MUST match `new_len` exactly
+    /// non-zero means the length of the returned slice must be aligned by `len_align`
+    /// `new_len` must be aligned by `len_align`
     len_align: u29,
     return_address: usize,
 ) usize {
