@@ -362,8 +362,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    const stdout = io.getStdOut().writer();
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
-            \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
-            \\        const arg = try arg_or_err;
+            \\    while (try args_it.next(allocator)) |arg| : (index += 1) {
             \\        try stdout.print("{}: {s}\n", .{index, arg});
             \\    }
             \\}
@@ -401,8 +400,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    const stdout = io.getStdOut().writer();
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
-            \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
-            \\        const arg = try arg_or_err;
+            \\    while (try args_it.next(allocator)) |arg| : (index += 1) {
             \\        try stdout.print("{}: {s}\n", .{index, arg});
             \\    }
             \\}

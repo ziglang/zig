@@ -18,14 +18,14 @@ pub fn main() !void {
 
     a = arena.allocator();
 
-    const zig_exe_rel = try (arg_it.next(a) orelse {
+    const zig_exe_rel = (try arg_it.next(a)) orelse {
         std.debug.print("Expected first argument to be path to zig compiler\n", .{});
         return error.InvalidArgs;
-    });
-    const cache_root = try (arg_it.next(a) orelse {
+    };
+    const cache_root = (try arg_it.next(a)) orelse {
         std.debug.print("Expected second argument to be cache root directory path\n", .{});
         return error.InvalidArgs;
-    });
+    };
     const zig_exe = try fs.path.resolve(a, &[_][]const u8{zig_exe_rel});
 
     const dir_path = try fs.path.join(a, &[_][]const u8{ cache_root, "clitest" });
