@@ -118,6 +118,11 @@ const sys_can_stack_trace = switch (builtin.cpu.arch) {
     .wasm64,
     => builtin.os.tag == .emscripten,
 
+    // `@returnAddress()` is unsupported in LLVM 13.
+    .bpfel,
+    .bpfeb,
+    => false,
+
     else => true,
 };
 const default_test_stack_trace_frames: usize = if (builtin.is_test) 8 else 4;
