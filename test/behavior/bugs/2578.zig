@@ -5,7 +5,7 @@ const Foo = struct {
 var foo: Foo = undefined;
 const t = &foo;
 
-fn bar(pointer: ?*c_void) void {
+fn bar(pointer: ?*anyopaque) void {
     _ = pointer;
 }
 

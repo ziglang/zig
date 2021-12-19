@@ -5,7 +5,7 @@ const windows = std.os.windows;
 
 pub extern "c" fn _errno() *c_int;
 
-pub extern "c" fn _msize(memblock: ?*c_void) usize;
+pub extern "c" fn _msize(memblock: ?*anyopaque) usize;
 
 // TODO: copied the else case and removed the socket function (because its in ws2_32)
 //       need to verify which of these is actually supported on windows

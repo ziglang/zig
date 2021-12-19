@@ -110,15 +110,15 @@ test "cast" {
     try testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*const u8, 2)));
     try testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*volatile u8, 2)));
 
-    try testing.expectEqual(@intToPtr(?*c_void, 2), cast(?*c_void, @intToPtr(*u8, 2)));
+    try testing.expectEqual(@intToPtr(?*anyopaque, 2), cast(?*anyopaque, @intToPtr(*u8, 2)));
 
     var foo: c_int = -1;
-    try testing.expect(cast(*c_void, -1) == @intToPtr(*c_void, @bitCast(usize, @as(isize, -1))));
-    try testing.expect(cast(*c_void, foo) == @intToPtr(*c_void, @bitCast(usize, @as(isize, -1))));
-    try testing.expect(cast(?*c_void, -1) == @intToPtr(?*c_void, @bitCast(usize, @as(isize, -1))));
-    try testing.expect(cast(?*c_void, foo) == @intToPtr(?*c_void, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(*anyopaque, -1) == @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(*anyopaque, foo) == @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(?*anyopaque, -1) == @intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(?*anyopaque, foo) == @intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))));
 
-    const FnPtr = ?fn (*c_void) void;
+    const FnPtr = ?fn (*anyopaque) void;
     try testing.expect(cast(FnPtr, 0) == @intToPtr(FnPtr, @as(usize, 0)));
     try testing.expect(cast(FnPtr, foo) == @intToPtr(FnPtr, @bitCast(usize, @as(isize, -1))));
 }
@@ -133,13 +133,13 @@ pub fn sizeof(target: anytype) usize {
             // We cannot distinguish those types in Zig, so use pointer size.
             return @sizeOf(T);
         },
-        .Null => return @sizeOf(*c_void),
+        .Null => return @sizeOf(*anyopaque),
         .Void => {
             // Note: sizeof(void) is 1 on clang/gcc and 0 on MSVC.
             return 1;
         },
         .Opaque => {
-            if (T == c_void) {
+            if (T == anyopaque) {
                 // Note: sizeof(void) is 1 on clang/gcc and 0 on MSVC.
                 return 1;
             } else {
@@ -175,7 +175,7 @@ pub fn sizeof(target: anytype) usize {
             // When zero sized pointers are removed, this case will no
             // longer be reachable and can be deleted.
             if (@sizeOf(T) == 0) {
-                return @sizeOf(*c_void);
+                return @sizeOf(*anyopaque);
             }
             return @sizeOf(T);
         },
@@ -195,7 +195,7 @@ pub fn sizeof(target: anytype) usize {
 test "sizeof" {
     const S = extern struct { a: u32 };
 
-    const ptr_size = @sizeOf(*c_void);
+    const ptr_size = @sizeOf(*anyopaque);
 
     try testing.expect(sizeof(u32) == 4);
     try testing.expect(sizeof(@as(u32, 2)) == 4);
@@ -215,7 +215,7 @@ test "sizeof" {
     try testing.expect(sizeof([*c]u32) == ptr_size);
     try testing.expect(sizeof(?*u32) == ptr_size);
     try testing.expect(sizeof(?[*]u32) == ptr_size);
-    try testing.expect(sizeof(*c_void) == ptr_size);
+    try testing.expect(sizeof(*anyopaque) == ptr_size);
     try testing.expect(sizeof(*void) == ptr_size);
     try testing.expect(sizeof(null) == ptr_size);
 
@@ -230,7 +230,7 @@ test "sizeof" {
     try testing.expect(sizeof(sizeof) == @sizeOf(@TypeOf(sizeof)));
 
     try testing.expect(sizeof(void) == 1);
-    try testing.expect(sizeof(c_void) == 1);
+    try testing.expect(sizeof(anyopaque) == 1);
 }
 
 pub const CIntLiteralRadix = enum { decimal, octal, hexadecimal };

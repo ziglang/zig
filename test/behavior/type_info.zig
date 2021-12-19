@@ -227,13 +227,13 @@ fn testUnion() !void {
     try expect(notag_union_info.Union.fields[1].alignment == @alignOf(u32));
 
     const TestExternUnion = extern union {
-        foo: *c_void,
+        foo: *anyopaque,
     };
 
     const extern_union_info = @typeInfo(TestExternUnion);
     try expect(extern_union_info.Union.layout == .Extern);
     try expect(extern_union_info.Union.tag_type == null);
-    try expect(extern_union_info.Union.fields[0].field_type == *c_void);
+    try expect(extern_union_info.Union.fields[0].field_type == *anyopaque);
 }
 
 test "type info: struct info" {
@@ -407,7 +407,7 @@ test "data field is a compile-time value" {
 }
 
 test "sentinel of opaque pointer type" {
-    const c_void_info = @typeInfo(*c_void);
+    const c_void_info = @typeInfo(*anyopaque);
     try expect(c_void_info.Pointer.sentinel == null);
 }
 

@@ -923,7 +923,7 @@ fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u1
         null,
         windows.TRUE,
         windows.CREATE_UNICODE_ENVIRONMENT,
-        @ptrCast(?*c_void, envp_ptr),
+        @ptrCast(?*anyopaque, envp_ptr),
         cwd_ptr,
         lpStartupInfo,
         lpProcessInformation,

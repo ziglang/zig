@@ -46,8 +46,8 @@ pub const fstatat = if (native_arch == .aarch64) private.fstatat else private.@"
 pub extern "c" fn mach_absolute_time() u64;
 pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) void;
 
-pub extern "c" fn malloc_size(?*const c_void) usize;
-pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
+pub extern "c" fn malloc_size(?*const anyopaque) usize;
+pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 
 pub extern "c" fn kevent64(
     kq: c_int,
@@ -196,7 +196,7 @@ pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
 // Grand Central Dispatch is exposed by libSystem.
-pub extern "c" fn dispatch_release(object: *c_void) void;
+pub extern "c" fn dispatch_release(object: *anyopaque) void;
 
 pub const dispatch_semaphore_t = *opaque {};
 pub extern "c" fn dispatch_semaphore_create(value: isize) ?dispatch_semaphore_t;
@@ -209,10 +209,10 @@ pub const DISPATCH_TIME_FOREVER = ~@as(dispatch_time_t, 0);
 pub extern "c" fn dispatch_time(when: dispatch_time_t, delta: i64) dispatch_time_t;
 
 const dispatch_once_t = usize;
-const dispatch_function_t = fn (?*c_void) callconv(.C) void;
+const dispatch_function_t = fn (?*anyopaque) callconv(.C) void;
 pub extern fn dispatch_once_f(
     predicate: *dispatch_once_t,
-    context: ?*c_void,
+    context: ?*anyopaque,
     function: dispatch_function_t,
 ) void;
 
@@ -243,9 +243,9 @@ pub const UL_COMPARE_AND_WAIT64 = 5;
 pub const UL_COMPARE_AND_WAIT64_SHARED = 6;
 pub const ULF_WAIT_ADAPTIVE_SPIN = 0x40000;
 
-pub extern "c" fn __ulock_wait2(op: u32, addr: ?*const c_void, val: u64, timeout_ns: u64, val2: u64) c_int;
-pub extern "c" fn __ulock_wait(op: u32, addr: ?*const c_void, val: u64, timeout_us: u32) c_int;
-pub extern "c" fn __ulock_wake(op: u32, addr: ?*const c_void, val: u64) c_int;
+pub extern "c" fn __ulock_wait2(op: u32, addr: ?*const anyopaque, val: u64, timeout_ns: u64, val2: u64) c_int;
+pub extern "c" fn __ulock_wait(op: u32, addr: ?*const anyopaque, val: u64, timeout_us: u32) c_int;
+pub extern "c" fn __ulock_wake(op: u32, addr: ?*const anyopaque, val: u64) c_int;
 
 pub const OS_UNFAIR_LOCK_INIT = os_unfair_lock{};
 pub const os_unfair_lock_t = *os_unfair_lock;
@@ -483,10 +483,10 @@ pub const siginfo_t = extern struct {
     pid: pid_t,
     uid: uid_t,
     status: c_int,
-    addr: *c_void,
+    addr: *anyopaque,
     value: extern union {
         int: c_int,
-        ptr: *c_void,
+        ptr: *anyopaque,
     },
     si_band: c_long,
     _pad: [7]c_ulong,
@@ -495,7 +495,7 @@ pub const siginfo_t = extern struct {
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
     pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -611,7 +611,7 @@ pub const MAP = struct {
     pub const NOCACHE = 0x0400;
     /// don't reserve needed swap area
     pub const NORESERVE = 0x0040;
-    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
 };
 
 pub const SA = struct {
@@ -1537,10 +1537,10 @@ pub const RTLD = struct {
     pub const NODELETE = 0x80;
     pub const FIRST = 0x100;
 
-    pub const NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
-    pub const MAIN_ONLY = @intToPtr(*c_void, @bitCast(usize, @as(isize, -5)));
+    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
+    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
+    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
+    pub const MAIN_ONLY = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -5)));
 };
 
 pub const F = struct {

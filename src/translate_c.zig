@@ -448,13 +448,13 @@ fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
     }
 }
 
-fn declVisitorNamesOnlyC(context: ?*c_void, decl: *const clang.Decl) callconv(.C) bool {
+fn declVisitorNamesOnlyC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.C) bool {
     const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
     declVisitorNamesOnly(c, decl) catch return false;
     return true;
 }
 
-fn declVisitorC(context: ?*c_void, decl: *const clang.Decl) callconv(.C) bool {
+fn declVisitorC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.C) bool {
     const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
     declVisitor(c, decl) catch return false;
     return true;
@@ -698,7 +698,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     // add return statement if the function didn't have one
     blk: {
         const maybe_body = try block_scope.complete(c);
-        if (fn_ty.getNoReturnAttr() or isCVoid(return_qt) or maybe_body.isNoreturn(false)) {
+        if (fn_ty.getNoReturnAttr() or isAnyopaque(return_qt) or maybe_body.isNoreturn(false)) {
             proto_node.data.body = maybe_body;
             break :blk;
         }
@@ -4618,7 +4618,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
         .Builtin => {
             const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
             return Tag.type.create(c.arena, switch (builtin_ty.getKind()) {
-                .Void => "c_void",
+                .Void => "anyopaque",
                 .Bool => "bool",
                 .Char_U, .UChar, .Char_S, .Char8 => "u8",
                 .SChar => "i8",
@@ -4822,7 +4822,7 @@ fn qualTypeWasDemotedToOpaque(c: *Context, qt: clang.QualType) bool {
     }
 }
 
-fn isCVoid(qt: clang.QualType) bool {
+fn isAnyopaque(qt: clang.QualType) bool {
     const ty = qt.getTypePtr();
     if (ty.getTypeClass() == .Builtin) {
         const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
@@ -4955,8 +4955,8 @@ fn finishTransFnProto(
             break :blk Tag.noreturn_type.init();
         } else {
             const return_qt = fn_ty.getReturnType();
-            if (isCVoid(return_qt)) {
-                // convert primitive c_void to actual void (only for return type)
+            if (isAnyopaque(return_qt)) {
+                // convert primitive anyopaque to actual void (only for return type)
                 break :blk Tag.void_type.init();
             } else {
                 break :blk transQualType(c, scope, return_qt, source_loc) catch |err| switch (err) {
@@ -6096,7 +6096,7 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_
                 return try Tag.identifier.create(c.arena, mangled_name);
             }
         },
-        .Keyword_void => return try Tag.type.create(c.arena, "c_void"),
+        .Keyword_void => return try Tag.type.create(c.arena, "anyopaque"),
         .Keyword_bool => return try Tag.type.create(c.arena, "bool"),
         .Keyword_char,
         .Keyword_int,

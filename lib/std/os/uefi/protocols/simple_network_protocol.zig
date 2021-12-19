@@ -13,7 +13,7 @@ pub const SimpleNetworkProtocol = extern struct {
     _receive_filters: fn (*const SimpleNetworkProtocol, SimpleNetworkReceiveFilter, SimpleNetworkReceiveFilter, bool, usize, ?[*]const MacAddress) callconv(.C) Status,
     _station_address: fn (*const SimpleNetworkProtocol, bool, ?*const MacAddress) callconv(.C) Status,
     _statistics: fn (*const SimpleNetworkProtocol, bool, ?*usize, ?*NetworkStatistics) callconv(.C) Status,
-    _mcast_ip_to_mac: fn (*const SimpleNetworkProtocol, bool, *const c_void, *MacAddress) callconv(.C) Status,
+    _mcast_ip_to_mac: fn (*const SimpleNetworkProtocol, bool, *const anyopaque, *MacAddress) callconv(.C) Status,
     _nvdata: fn (*const SimpleNetworkProtocol, bool, usize, usize, [*]u8) callconv(.C) Status,
     _get_status: fn (*const SimpleNetworkProtocol, *SimpleNetworkInterruptStatus, ?*?[*]u8) callconv(.C) Status,
     _transmit: fn (*const SimpleNetworkProtocol, usize, usize, [*]const u8, ?*const MacAddress, ?*const MacAddress, ?*const u16) callconv(.C) Status,
@@ -62,7 +62,7 @@ pub const SimpleNetworkProtocol = extern struct {
     }
 
     /// Converts a multicast IP address to a multicast HW MAC address.
-    pub fn mcastIpToMac(self: *const SimpleNetworkProtocol, ipv6: bool, ip: *const c_void, mac: *MacAddress) Status {
+    pub fn mcastIpToMac(self: *const SimpleNetworkProtocol, ipv6: bool, ip: *const anyopaque, mac: *MacAddress) Status {
         return self._mcast_ip_to_mac(self, ipv6, ip, mac);
     }
 

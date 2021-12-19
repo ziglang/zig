@@ -9,7 +9,7 @@ pub const SourceLocation = extern struct {
 };
 
 pub const QualType = extern struct {
-    ptr: ?*c_void,
+    ptr: ?*anyopaque,
 
     pub const getCanonicalType = ZigClangQualType_getCanonicalType;
     extern fn ZigClangQualType_getCanonicalType(QualType) QualType;
@@ -37,7 +37,7 @@ pub const QualType = extern struct {
 };
 
 pub const APValueLValueBase = extern struct {
-    Ptr: ?*c_void,
+    Ptr: ?*anyopaque,
     CallIndex: c_uint,
     Version: c_uint,
 
@@ -85,7 +85,7 @@ pub const APValue = extern struct {
 pub const ExprEvalResult = extern struct {
     HasSideEffects: bool,
     HasUndefinedBehavior: bool,
-    SmallVectorImpl: ?*c_void,
+    SmallVectorImpl: ?*anyopaque,
     Val: APValue,
 };
 
@@ -161,7 +161,7 @@ pub const ASTUnit = opaque {
     extern fn ZigClangASTUnit_getSourceManager(*ASTUnit) *SourceManager;
 
     pub const visitLocalTopLevelDecls = ZigClangASTUnit_visitLocalTopLevelDecls;
-    extern fn ZigClangASTUnit_visitLocalTopLevelDecls(*ASTUnit, context: ?*c_void, Fn: ?fn (?*c_void, *const Decl) callconv(.C) bool) bool;
+    extern fn ZigClangASTUnit_visitLocalTopLevelDecls(*ASTUnit, context: ?*anyopaque, Fn: ?fn (?*anyopaque, *const Decl) callconv(.C) bool) bool;
 
     pub const getLocalPreprocessingEntities_begin = ZigClangASTUnit_getLocalPreprocessingEntities_begin;
     extern fn ZigClangASTUnit_getLocalPreprocessingEntities_begin(*ASTUnit) PreprocessingRecord.iterator;
@@ -418,7 +418,7 @@ pub const EnumDecl = opaque {
     extern fn ZigClangEnumDecl_enumerator_end(*const EnumDecl) enumerator_iterator;
 
     pub const enumerator_iterator = extern struct {
-        ptr: *c_void,
+        ptr: *anyopaque,
 
         pub const next = ZigClangEnumDecl_enumerator_iterator_next;
         extern fn ZigClangEnumDecl_enumerator_iterator_next(enumerator_iterator) enumerator_iterator;
@@ -778,7 +778,7 @@ pub const RecordDecl = opaque {
     extern fn ZigClangRecordDecl_field_end(*const RecordDecl) field_iterator;
 
     pub const field_iterator = extern struct {
-        ptr: *c_void,
+        ptr: *anyopaque,
 
         pub const next = ZigClangRecordDecl_field_iterator_next;
         extern fn ZigClangRecordDecl_field_iterator_next(field_iterator) field_iterator;

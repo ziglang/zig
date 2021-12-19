@@ -64,10 +64,10 @@ test "comptime ptrcast keeps larger alignment" {
     }
 }
 
-test "implicit optional pointer to optional c_void pointer" {
+test "implicit optional pointer to optional anyopaque pointer" {
     var buf: [4]u8 = "aoeu".*;
     var x: ?[*]u8 = &buf;
-    var y: ?*c_void = x;
+    var y: ?*anyopaque = x;
     var z = @ptrCast(*[4]u8, y);
     try expect(std.mem.eql(u8, z, "aoeu"));
 }

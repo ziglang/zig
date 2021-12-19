@@ -97,13 +97,13 @@ export fn zig_f64(x: f64) void {
     expect(x == 56.78) catch @panic("test failure");
 }
 
-extern fn c_ptr(*c_void) void;
+extern fn c_ptr(*anyopaque) void;
 
 test "C ABI pointer" {
-    c_ptr(@intToPtr(*c_void, 0xdeadbeef));
+    c_ptr(@intToPtr(*anyopaque, 0xdeadbeef));
 }
 
-export fn zig_ptr(x: *c_void) void {
+export fn zig_ptr(x: *anyopaque) void {
     expect(@ptrToInt(x) == 0xdeadbeef) catch @panic("test failure");
 }
 

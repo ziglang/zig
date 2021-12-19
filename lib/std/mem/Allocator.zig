@@ -10,7 +10,7 @@ const builtin = @import("builtin");
 pub const Error = error{OutOfMemory};
 
 // The type erased pointer to the allocator implementation
-ptr: *c_void,
+ptr: *anyopaque,
 vtable: *const VTable,
 
 pub const VTable = struct {
@@ -23,7 +23,7 @@ pub const VTable = struct {
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
     /// If the value is `0` it means no return address has been provided.
-    alloc: fn (ptr: *c_void, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8,
+    alloc: fn (ptr: *anyopaque, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8,
 
     /// Attempt to expand or shrink memory in place. `buf.len` must equal the most recent
     /// length returned by `alloc` or `resize`. `buf_align` must equal the same value
@@ -42,14 +42,14 @@ pub const VTable = struct {
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
     /// If the value is `0` it means no return address has been provided.
-    resize: fn (ptr: *c_void, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize,
+    resize: fn (ptr: *anyopaque, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize,
 
     /// Free and invalidate a buffer. `buf.len` must equal the most recent length returned by `alloc` or `resize`. 
     /// `buf_align` must equal the same value that was passed as the `ptr_align` parameter to the original `alloc` call.
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
     /// If the value is `0` it means no return address has been provided.
-    free: fn (ptr: *c_void, buf: []u8, buf_align: u29, ret_addr: usize) void,
+    free: fn (ptr: *anyopaque, buf: []u8, buf_align: u29, ret_addr: usize) void,
 };
 
 pub fn init(
@@ -67,16 +67,16 @@ pub fn init(
     const alignment = ptr_info.Pointer.alignment;
 
     const gen = struct {
-        fn allocImpl(ptr: *c_void, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
+        fn allocImpl(ptr: *anyopaque, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
             const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
             return @call(.{ .modifier = .always_inline }, allocFn, .{ self, len, ptr_align, len_align, ret_addr });
         }
-        fn resizeImpl(ptr: *c_void, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize {
+        fn resizeImpl(ptr: *anyopaque, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize {
             assert(new_len != 0);
             const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
             return @call(.{ .modifier = .always_inline }, resizeFn, .{ self, buf, buf_align, new_len, len_align, ret_addr });
         }
-        fn freeImpl(ptr: *c_void, buf: []u8, buf_align: u29, ret_addr: usize) void {
+        fn freeImpl(ptr: *anyopaque, buf: []u8, buf_align: u29, ret_addr: usize) void {
             const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
             @call(.{ .modifier = .always_inline }, freeFn, .{ self, buf, buf_align, ret_addr });
         }

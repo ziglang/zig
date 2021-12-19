@@ -7884,18 +7884,18 @@ static Stage1AirInst *ir_analyze_cast(IrAnalyze *ira, Scope *scope, AstNode *sou
         }
     }
 
-    // cast from *T and [*]T to *c_void and ?*c_void
+    // cast from *T and [*]T to *anyopaque and ?*anyopaque
     // but don't do it if the actual type is a double pointer
     if (is_pointery_and_elem_is_not_pointery(actual_type)) {
         ZigType *dest_ptr_type = nullptr;
         if (wanted_type->id == ZigTypeIdPointer &&
             actual_type->id != ZigTypeIdOptional &&
-            wanted_type->data.pointer.child_type == ira->codegen->builtin_types.entry_c_void)
+            wanted_type->data.pointer.child_type == ira->codegen->builtin_types.entry_anyopaque)
         {
             dest_ptr_type = wanted_type;
         } else if (wanted_type->id == ZigTypeIdOptional &&
             wanted_type->data.maybe.child_type->id == ZigTypeIdPointer &&
-            wanted_type->data.maybe.child_type->data.pointer.child_type == ira->codegen->builtin_types.entry_c_void)
+            wanted_type->data.maybe.child_type->data.pointer.child_type == ira->codegen->builtin_types.entry_anyopaque)
         {
             dest_ptr_type = wanted_type->data.maybe.child_type;
         }

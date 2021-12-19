@@ -9014,9 +9014,9 @@ static void define_builtin_types(CodeGen *g) {
     g->builtin_types.entry_i64 = get_int_type(g, true, 64);
 
     {
-        g->builtin_types.entry_c_void = get_opaque_type(g, nullptr, nullptr, "c_void",
-                buf_create_from_str("c_void"));
-        g->primitive_type_table.put(&g->builtin_types.entry_c_void->name, g->builtin_types.entry_c_void);
+        g->builtin_types.entry_anyopaque = get_opaque_type(g, nullptr, nullptr, "anyopaque",
+                buf_create_from_str("anyopaque"));
+        g->primitive_type_table.put(&g->builtin_types.entry_anyopaque->name, g->builtin_types.entry_anyopaque);
     }
 
     {

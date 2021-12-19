@@ -3,7 +3,7 @@ const Guid = uefi.Guid;
 
 pub const ConfigurationTable = extern struct {
     vendor_guid: Guid,
-    vendor_table: *c_void,
+    vendor_table: *anyopaque,
 
     pub const acpi_20_table_guid align(8) = Guid{
         .time_low = 0x8868e871,

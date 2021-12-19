@@ -7,8 +7,8 @@ const iovec_const = std.os.iovec_const;
 extern "c" fn __errno() *c_int;
 pub const _errno = __errno;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int;
-pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
+pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
@@ -19,25 +19,25 @@ pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
 pub const pthread_mutex_t = extern struct {
-    inner: ?*c_void = null,
+    inner: ?*anyopaque = null,
 };
 pub const pthread_cond_t = extern struct {
-    inner: ?*c_void = null,
+    inner: ?*anyopaque = null,
 };
 pub const pthread_rwlock_t = extern struct {
-    ptr: ?*c_void = null,
+    ptr: ?*anyopaque = null,
 };
 pub const pthread_spinlock_t = extern struct {
-    inner: ?*c_void = null,
+    inner: ?*anyopaque = null,
 };
 pub const pthread_attr_t = extern struct {
-    inner: ?*c_void = null,
+    inner: ?*anyopaque = null,
 };
 pub const pthread_key_t = c_int;
 
 pub const sem_t = ?*opaque {};
 
-pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
+pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 
 pub extern "c" fn pledge(promises: ?[*:0]const u8, execpromises: ?[*:0]const u8) c_int;
 pub extern "c" fn unveil(path: ?[*:0]const u8, permissions: ?[*:0]const u8) c_int;
@@ -174,7 +174,7 @@ pub const msghdr = extern struct {
     msg_iovlen: c_uint,
 
     /// ancillary data
-    msg_control: ?*c_void,
+    msg_control: ?*anyopaque,
 
     /// ancillary data buffer len
     msg_controllen: socklen_t,
@@ -197,7 +197,7 @@ pub const msghdr_const = extern struct {
     msg_iovlen: c_uint,
 
     /// ancillary data
-    msg_control: ?*c_void,
+    msg_control: ?*anyopaque,
 
     /// ancillary data buffer len
     msg_controllen: socklen_t,
@@ -346,7 +346,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const FIXED = 0x0010;
@@ -889,7 +889,7 @@ pub const SIG = struct {
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
     pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
@@ -904,7 +904,7 @@ pub const Sigaction = extern struct {
 
 pub const sigval = extern union {
     int: c_int,
-    ptr: ?*c_void,
+    ptr: ?*anyopaque,
 };
 
 pub const siginfo_t = extern struct {
@@ -927,7 +927,7 @@ pub const siginfo_t = extern struct {
             },
         },
         fault: extern struct {
-            addr: ?*c_void,
+            addr: ?*anyopaque,
             trapno: c_int,
         },
         __pad: [128 - 3 * @sizeOf(c_int)]u8,

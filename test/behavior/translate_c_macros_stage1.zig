@@ -22,5 +22,5 @@ test "reference to a struct type" {
 }
 
 test "cast negative integer to pointer" {
-    try expectEqual(@intToPtr(?*c_void, @bitCast(usize, @as(isize, -1))), h.MAP_FAILED);
+    try expectEqual(@intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))), h.MAP_FAILED);
 }

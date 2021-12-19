@@ -9,7 +9,7 @@ const MacAddress = uefi.protocols.MacAddress;
 pub const ManagedNetworkProtocol = extern struct {
     _get_mode_data: fn (*const ManagedNetworkProtocol, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) callconv(.C) Status,
     _configure: fn (*const ManagedNetworkProtocol, ?*const ManagedNetworkConfigData) callconv(.C) Status,
-    _mcast_ip_to_mac: fn (*const ManagedNetworkProtocol, bool, *const c_void, *MacAddress) callconv(.C) Status,
+    _mcast_ip_to_mac: fn (*const ManagedNetworkProtocol, bool, *const anyopaque, *MacAddress) callconv(.C) Status,
     _groups: fn (*const ManagedNetworkProtocol, bool, ?*const MacAddress) callconv(.C) Status,
     _transmit: fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(.C) Status,
     _receive: fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(.C) Status,
@@ -29,7 +29,7 @@ pub const ManagedNetworkProtocol = extern struct {
 
     /// Translates an IP multicast address to a hardware (MAC) multicast address.
     /// This function may be unsupported in some MNP implementations.
-    pub fn mcastIpToMac(self: *const ManagedNetworkProtocol, ipv6flag: bool, ipaddress: *const c_void, mac_address: *MacAddress) Status {
+    pub fn mcastIpToMac(self: *const ManagedNetworkProtocol, ipv6flag: bool, ipaddress: *const anyopaque, mac_address: *MacAddress) Status {
         _ = mac_address;
         return self._mcast_ip_to_mac(self, ipv6flag, ipaddress);
     }

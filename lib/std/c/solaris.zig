@@ -8,14 +8,14 @@ const timezone = std.c.timezone;
 extern "c" fn ___errno() *c_int;
 pub const _errno = ___errno;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int;
-pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
+pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
-pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
+pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 pub extern "c" fn sysconf(sc: c_int) i64;
 pub extern "c" fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) c_int;
 pub extern "c" fn madvise(address: [*]u8, len: usize, advise: u32) c_int;
@@ -44,7 +44,7 @@ pub const pthread_rwlock_t = extern struct {
     writercv: pthread_cond_t = .{},
 };
 pub const pthread_attr_t = extern struct {
-    mutexattr: ?*c_void = null,
+    mutexattr: ?*anyopaque = null,
 };
 pub const pthread_key_t = c_int;
 
@@ -56,7 +56,7 @@ pub const sem_t = extern struct {
     __pad2: [2]u64 = [_]u64{0} ** 2,
 };
 
-pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8, arg: ?*c_void) E;
+pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8, arg: ?*anyopaque) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
 
 pub const blkcnt_t = i64;
@@ -109,10 +109,10 @@ pub const RTLD = struct {
     pub const FIRST = 0x02000;
     pub const CONFGEN = 0x10000;
 
-    pub const NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
-    pub const PROBE = @intToPtr(*c_void, @bitCast(usize, @as(isize, -4)));
+    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
+    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
+    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
+    pub const PROBE = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -4)));
 };
 
 pub const Flock = extern struct {
@@ -189,7 +189,7 @@ pub const msghdr = extern struct {
     /// # elements in msg_iov
     msg_iovlen: i32,
     /// ancillary data
-    msg_control: ?*c_void,
+    msg_control: ?*anyopaque,
     /// ancillary data buffer len
     msg_controllen: socklen_t,
     /// flags on received message
@@ -206,7 +206,7 @@ pub const msghdr_const = extern struct {
     /// # elements in msg_iov
     msg_iovlen: i32,
     /// ancillary data
-    msg_control: ?*c_void,
+    msg_control: ?*anyopaque,
     /// ancillary data buffer len
     msg_controllen: socklen_t,
     /// flags on received message
@@ -514,7 +514,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const TYPE = 0x000f;
@@ -947,7 +947,7 @@ pub const SIG = struct {
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
     pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     /// signal options
     flags: c_uint,
@@ -962,7 +962,7 @@ pub const Sigaction = extern struct {
 
 pub const sigval_t = extern union {
     int: c_int,
-    ptr: ?*c_void,
+    ptr: ?*anyopaque,
 };
 
 pub const siginfo_t = extern struct {
@@ -989,9 +989,9 @@ pub const siginfo_t = extern struct {
             zone: zoneid_t,
         },
         fault: extern struct {
-            addr: ?*c_void,
+            addr: ?*anyopaque,
             trapno: c_int,
-            pc: ?*c_void,
+            pc: ?*anyopaque,
         },
         file: extern struct {
             // fd not currently available for SIGPOLL.
@@ -999,7 +999,7 @@ pub const siginfo_t = extern struct {
             band: c_long,
         },
         prof: extern struct {
-            addr: ?*c_void,
+            addr: ?*anyopaque,
             timestamp: timespec,
             syscall: c_short,
             sysarg: u8,
@@ -1065,7 +1065,7 @@ pub const ucontext_t = extern struct {
     sigmask: sigset_t,
     stack: stack_t,
     mcontext: mcontext_t,
-    brand_data: [3]?*c_void,
+    brand_data: [3]?*anyopaque,
     filler: [2]i64,
 };
 
@@ -1783,9 +1783,9 @@ pub const port_event = extern struct {
     source: u16,
     __pad: u16,
     /// Source-specific object.
-    object: ?*c_void,
+    object: ?*anyopaque,
     /// User cookie.
-    cookie: ?*c_void,
+    cookie: ?*anyopaque,
 };
 
 pub const port_notify = extern struct {

@@ -12,18 +12,18 @@ pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int;
-pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
+pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn lwp_gettid() c_int;
 
-pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
+pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 
 pub const pthread_mutex_t = extern struct {
-    inner: ?*c_void = null,
+    inner: ?*anyopaque = null,
 };
 pub const pthread_cond_t = extern struct {
-    inner: ?*c_void = null,
+    inner: ?*anyopaque = null,
 };
 
 pub const pthread_attr_t = extern struct { // copied from freebsd
@@ -165,7 +165,7 @@ pub const PROT = struct {
 
 pub const MAP = struct {
     pub const FILE = 0;
-    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
     pub const ANONYMOUS = ANON;
     pub const COPY = PRIVATE;
     pub const SHARED = 1;
@@ -648,7 +648,7 @@ pub const siginfo_t = extern struct {
     pid: c_int,
     uid: uid_t,
     status: c_int,
-    addr: ?*c_void,
+    addr: ?*anyopaque,
     value: sigval,
     band: c_long,
     __spare__: [7]c_int,
@@ -656,7 +656,7 @@ pub const siginfo_t = extern struct {
 
 pub const sigval = extern union {
     sival_int: c_int,
-    sival_ptr: ?*c_void,
+    sival_ptr: ?*anyopaque,
 };
 
 pub const _SIG_WORDS = 4;
@@ -671,7 +671,7 @@ pub const sig_atomic_t = c_int;
 
 pub const Sigaction = extern struct {
     pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
@@ -847,10 +847,10 @@ pub const RTLD = struct {
     pub const NODELETE = 0x01000;
     pub const NOLOAD = 0x02000;
 
-    pub const NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
-    pub const ALL = @intToPtr(*c_void, @bitCast(usize, @as(isize, -4)));
+    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
+    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
+    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
+    pub const ALL = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -4)));
 };
 
 pub const dl_phdr_info = extern struct {
@@ -865,11 +865,11 @@ pub const cmsghdr = extern struct {
     cmsg_type: c_int,
 };
 pub const msghdr = extern struct {
-    msg_name: ?*c_void,
+    msg_name: ?*anyopaque,
     msg_namelen: socklen_t,
     msg_iov: [*c]iovec,
     msg_iovlen: c_int,
-    msg_control: ?*c_void,
+    msg_control: ?*anyopaque,
     msg_controllen: socklen_t,
     msg_flags: c_int,
 };

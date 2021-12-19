@@ -1553,7 +1553,7 @@ pub fn CreateProcessW(
     lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
     bInheritHandles: BOOL,
     dwCreationFlags: DWORD,
-    lpEnvironment: ?*c_void,
+    lpEnvironment: ?*anyopaque,
     lpCurrentDirectory: ?LPWSTR,
     lpStartupInfo: *STARTUPINFOW,
     lpProcessInformation: *PROCESS_INFORMATION,
@@ -1619,11 +1619,11 @@ pub fn QueryPerformanceCounter() u64 {
     return @bitCast(u64, result);
 }
 
-pub fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*c_void, Context: ?*c_void) void {
+pub fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*anyopaque, Context: ?*anyopaque) void {
     assert(kernel32.InitOnceExecuteOnce(InitOnce, InitFn, Parameter, Context) != 0);
 }
 
-pub fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void) void {
+pub fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *anyopaque) void {
     assert(kernel32.HeapFree(hHeap, dwFlags, lpMem) != 0);
 }
 
@@ -1675,7 +1675,7 @@ pub fn LockFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
     ApcRoutine: ?*IO_APC_ROUTINE,
-    ApcContext: ?*c_void,
+    ApcContext: ?*anyopaque,
     IoStatusBlock: *IO_STATUS_BLOCK,
     ByteOffset: *const LARGE_INTEGER,
     Length: *const LARGE_INTEGER,
@@ -1954,7 +1954,7 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
     const rc = ws2_32.WSAIoctl(
         sock,
         ws2_32.SIO_GET_EXTENSION_FUNCTION_POINTER,
-        @ptrCast(*const c_void, &guid),
+        @ptrCast(*const anyopaque, &guid),
         @sizeOf(GUID),
         &function,
         @sizeOf(T),
@@ -2055,7 +2055,7 @@ pub const BYTE = u8;
 pub const CHAR = u8;
 pub const UCHAR = u8;
 pub const FLOAT = f32;
-pub const HANDLE = *c_void;
+pub const HANDLE = *anyopaque;
 pub const HCRYPTPROV = ULONG_PTR;
 pub const ATOM = u16;
 pub const HBRUSH = *opaque {};
@@ -2070,12 +2070,12 @@ pub const HGLRC = *opaque {};
 pub const FARPROC = *opaque {};
 pub const INT = c_int;
 pub const LPCSTR = [*:0]const CHAR;
-pub const LPCVOID = *const c_void;
+pub const LPCVOID = *const anyopaque;
 pub const LPSTR = [*:0]CHAR;
-pub const LPVOID = *c_void;
+pub const LPVOID = *anyopaque;
 pub const LPWSTR = [*:0]WCHAR;
 pub const LPCWSTR = [*:0]const WCHAR;
-pub const PVOID = *c_void;
+pub const PVOID = *anyopaque;
 pub const PWSTR = [*:0]WCHAR;
 pub const SIZE_T = usize;
 pub const UINT = c_uint;
@@ -2289,7 +2289,7 @@ pub const IO_STATUS_BLOCK = extern struct {
     // "DUMMYUNIONNAME" expands to "u"
     u: extern union {
         Status: NTSTATUS,
-        Pointer: ?*c_void,
+        Pointer: ?*anyopaque,
     },
     Information: ULONG_PTR,
 };
@@ -2457,7 +2457,7 @@ pub const VOLUME_NAME_NT = 0x2;
 
 pub const SECURITY_ATTRIBUTES = extern struct {
     nLength: DWORD,
-    lpSecurityDescriptor: ?*c_void,
+    lpSecurityDescriptor: ?*anyopaque,
     bInheritHandle: BOOL,
 };
 
@@ -2923,10 +2923,10 @@ pub const RTL_CRITICAL_SECTION = extern struct {
 pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
 pub const INIT_ONCE = RTL_RUN_ONCE;
 pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
-pub const INIT_ONCE_FN = fn (InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) callconv(.C) BOOL;
+pub const INIT_ONCE_FN = fn (InitOnce: *INIT_ONCE, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(.C) BOOL;
 
 pub const RTL_RUN_ONCE = extern struct {
-    Ptr: ?*c_void,
+    Ptr: ?*anyopaque,
 };
 
 pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE{ .Ptr = null };
@@ -2966,7 +2966,7 @@ pub const EXCEPTION_RECORD = extern struct {
     ExceptionCode: u32,
     ExceptionFlags: u32,
     ExceptionRecord: *EXCEPTION_RECORD,
-    ExceptionAddress: *c_void,
+    ExceptionAddress: *anyopaque,
     NumberParameters: u32,
     ExceptionInformation: [15]usize,
 };
@@ -3202,8 +3202,8 @@ pub const OBJECT_ATTRIBUTES = extern struct {
     RootDirectory: ?HANDLE,
     ObjectName: *UNICODE_STRING,
     Attributes: ULONG,
-    SecurityDescriptor: ?*c_void,
-    SecurityQualityOfService: ?*c_void,
+    SecurityDescriptor: ?*anyopaque,
+    SecurityQualityOfService: ?*anyopaque,
 };
 
 pub const OBJ_INHERIT = 0x00000002;

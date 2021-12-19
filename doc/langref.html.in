@@ -720,11 +720,6 @@ pub fn main() void {
           <td><code class="c">long double</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
-        <tr>
-            <th scope="row">{#syntax#}c_void{#endsyntax#}</th>
-          <td><code class="c">void</code></td>
-          <td>for ABI compatibility with C</td>
-        </tr>
 
         <tr>
             <th scope="row">{#syntax#}f16{#endsyntax#}</th>
@@ -750,6 +745,11 @@ pub fn main() void {
             <th scope="row">{#syntax#}bool{#endsyntax#}</th>
           <td><code class="c">bool</code></td>
           <td>{#syntax#}true{#endsyntax#} or {#syntax#}false{#endsyntax#}</td>
+        </tr>
+        <tr>
+            <th scope="row">{#syntax#}anyopaque{#endsyntax#}</th>
+          <td><code class="c">void</code></td>
+          <td>Used for type-erased pointers.</td>
         </tr>
         <tr>
             <th scope="row">{#syntax#}void{#endsyntax#}</th>

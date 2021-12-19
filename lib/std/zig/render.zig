@@ -183,7 +183,21 @@ fn renderExpression(gpa: Allocator, ais: *Ais, tree: Ast, node: Ast.Node.Index, 
     const node_tags = tree.nodes.items(.tag);
     const datas = tree.nodes.items(.data);
     switch (node_tags[node]) {
-        .identifier,
+        // TODO remove this c_void -> anyopaque rewrite after the 0.10.0 release.
+        // Also get rid of renderSpace() as it will no longer be necessary.
+        .identifier => {
+            const token_index = main_tokens[node];
+
+            const lexeme = tokenSliceForRender(tree, token_index);
+            if (mem.eql(u8, lexeme, "c_void")) {
+                try ais.writer().writeAll("anyopaque");
+            } else {
+                try ais.writer().writeAll(lexeme);
+            }
+
+            return renderSpace(ais, tree, token_index, lexeme.len, space);
+        },
+
         .integer_literal,
         .float_literal,
         .char_literal,
@@ -2284,13 +2298,16 @@ const Space = enum {
 };
 
 fn renderToken(ais: *Ais, tree: Ast, token_index: Ast.TokenIndex, space: Space) Error!void {
+    const lexeme = tokenSliceForRender(tree, token_index);
+    try ais.writer().writeAll(lexeme);
+    try renderSpace(ais, tree, token_index, lexeme.len, space);
+}
+
+fn renderSpace(ais: *Ais, tree: Ast, token_index: Ast.TokenIndex, lexeme_len: usize, space: Space) Error!void {
     const token_tags = tree.tokens.items(.tag);
     const token_starts = tree.tokens.items(.start);
 
     const token_start = token_starts[token_index];
-    const lexeme = tokenSliceForRender(tree, token_index);
-
-    try ais.writer().writeAll(lexeme);
 
     if (space == .skip) return;
 
@@ -2298,7 +2315,7 @@ fn renderToken(ais: *Ais, tree: Ast, token_index: Ast.TokenIndex, space: Space) 
         try ais.writer().writeByte(',');
     }
 
-    const comment = try renderComments(ais, tree, token_start + lexeme.len, token_starts[token_index + 1]);
+    const comment = try renderComments(ais, tree, token_start + lexeme_len, token_starts[token_index + 1]);
     switch (space) {
         .none => {},
         .space => if (!comment) try ais.writer().writeByte(' '),
