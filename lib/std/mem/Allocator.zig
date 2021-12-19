@@ -528,6 +528,56 @@ pub fn allocBytes(
     return new_mem;
 }
 
+test "allocBytes" {
+    const number_of_bytes: usize = 10;
+    var runtime_alignment: u29 = 2;
+
+    {
+        const new_mem = try std.testing.allocator.allocBytes(runtime_alignment, number_of_bytes, 0, @returnAddress());
+        defer std.testing.allocator.free(new_mem);
+
+        try std.testing.expectEqual(number_of_bytes, new_mem.len);
+        try std.testing.expect(mem.isAligned(@ptrToInt(new_mem.ptr), runtime_alignment));
+    }
+
+    runtime_alignment = 8;
+
+    {
+        const new_mem = try std.testing.allocator.allocBytes(runtime_alignment, number_of_bytes, 0, @returnAddress());
+        defer std.testing.allocator.free(new_mem);
+
+        try std.testing.expectEqual(number_of_bytes, new_mem.len);
+        try std.testing.expect(mem.isAligned(@ptrToInt(new_mem.ptr), runtime_alignment));
+    }
+}
+
+test "allocBytes non-zero len_align" {
+    const number_of_bytes: usize = 10;
+    var runtime_alignment: u29 = 1;
+    var len_align: u29 = 2;
+
+    {
+        const new_mem = try std.testing.allocator.allocBytes(runtime_alignment, number_of_bytes, len_align, @returnAddress());
+        defer std.testing.allocator.free(new_mem);
+
+        try std.testing.expect(new_mem.len >= number_of_bytes);
+        try std.testing.expect(new_mem.len % len_align == 0);
+        try std.testing.expect(mem.isAligned(@ptrToInt(new_mem.ptr), runtime_alignment));
+    }
+
+    runtime_alignment = 16;
+    len_align = 5;
+
+    {
+        const new_mem = try std.testing.allocator.allocBytes(runtime_alignment, number_of_bytes, len_align, @returnAddress());
+        defer std.testing.allocator.free(new_mem);
+
+        try std.testing.expect(new_mem.len >= number_of_bytes);
+        try std.testing.expect(new_mem.len % len_align == 0);
+        try std.testing.expect(mem.isAligned(@ptrToInt(new_mem.ptr), runtime_alignment));
+    }
+}
+
 /// Realloc is used to modify the size or alignment of an existing allocation,
 /// as well as to provide the allocator with an opportunity to move an allocation
 /// to a better location.
@@ -608,6 +658,53 @@ pub fn reallocBytes(
     self.rawFree(old_mem, old_alignment, return_address);
 
     return new_mem;
+}
+
+test "reallocBytes" {
+    var new_mem: []u8 = &.{};
+
+    var new_byte_count: usize = 16;
+    var runtime_alignment: u29 = 4;
+
+    // `new_mem.len == 0`, this is a new allocation
+    {
+        new_mem = try std.testing.allocator.reallocBytes(new_mem, undefined, new_byte_count, runtime_alignment, 0, @returnAddress());
+        try std.testing.expectEqual(new_byte_count, new_mem.len);
+        try std.testing.expect(mem.isAligned(@ptrToInt(new_mem.ptr), runtime_alignment));
+    }
+
+    // `new_byte_count < new_mem.len`, this is a shrink, alignment is unmodified
+    new_byte_count = 14;
+    {
+        new_mem = try std.testing.allocator.reallocBytes(new_mem, runtime_alignment, new_byte_count, runtime_alignment, 0, @returnAddress());
+        try std.testing.expectEqual(new_byte_count, new_mem.len);
+        try std.testing.expect(mem.isAligned(@ptrToInt(new_mem.ptr), runtime_alignment));
+    }
+
+    // `new_byte_count < new_mem.len`, this is a shrink, alignment is decreased from 4 to 2
+    runtime_alignment = 2;
+    new_byte_count = 12;
+    {
+        new_mem = try std.testing.allocator.reallocBytes(new_mem, 4, new_byte_count, runtime_alignment, 0, @returnAddress());
+        try std.testing.expectEqual(new_byte_count, new_mem.len);
+        try std.testing.expect(mem.isAligned(@ptrToInt(new_mem.ptr), runtime_alignment));
+    }
+
+    // `new_byte_count > new_mem.len`, this is a growth, alignment is increased from 2 to 8
+    runtime_alignment = 8;
+    new_byte_count = 32;
+    {
+        new_mem = try std.testing.allocator.reallocBytes(new_mem, 2, new_byte_count, runtime_alignment, 0, @returnAddress());
+        try std.testing.expectEqual(new_byte_count, new_mem.len);
+        try std.testing.expect(mem.isAligned(@ptrToInt(new_mem.ptr), runtime_alignment));
+    }
+
+    // `new_byte_count == 0`, this is a free
+    new_byte_count = 0;
+    {
+        new_mem = try std.testing.allocator.reallocBytes(new_mem, runtime_alignment, new_byte_count, runtime_alignment, 0, @returnAddress());
+        try std.testing.expectEqual(new_byte_count, new_mem.len);
+    }
 }
 
 /// Call `vtable.resize`, but caller guarantees that `new_len` <= `buf.len` meaning
