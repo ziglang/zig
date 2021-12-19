@@ -6208,7 +6208,7 @@ static LLVMValueRef ir_render_breakpoint(CodeGen *g, Stage1Air *executable, Stag
 static LLVMValueRef ir_render_return_address(CodeGen *g, Stage1Air *executable,
         Stage1AirInstReturnAddress *instruction)
 {
-    if (target_is_wasm(g->zig_target) && g->zig_target->os != OsEmscripten) {
+    if ((target_is_wasm(g->zig_target) && g->zig_target->os != OsEmscripten) || target_is_bpf(g->zig_target)) {
         // I got this error from LLVM 10:
         // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address"
         return LLVMConstNull(get_llvm_type(g, instruction->base.value->type));

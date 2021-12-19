@@ -940,6 +940,10 @@ bool target_is_wasm(const ZigTarget *target) {
     return target->arch == ZigLLVM_wasm32 || target->arch == ZigLLVM_wasm64;
 }
 
+bool target_is_bpf(const ZigTarget *target) {
+    return target->arch == ZigLLVM_bpfel || target->arch == ZigLLVM_bpfeb;
+}
+
 ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
     if (arch == ZigLLVM_wasm32 || arch == ZigLLVM_wasm64) {
         return ZigLLVM_Musl;
