@@ -2489,6 +2489,7 @@ test "null terminated array" {
       <p>
       Vectors support the same builtin operators as their underlying base types. These operations are performed 
       element-wise, and return a vector of the same length as the input vectors. This includes:
+      </p>
       <ul>
           <li>Arithmetic ({#syntax#}+{#endsyntax#}, {#syntax#}-{#endsyntax#}, {#syntax#}/{#endsyntax#}, {#syntax#}*{#endsyntax#}, 
                          {#syntax#}@divFloor{#endsyntax#}, {#syntax#}@sqrt{#endsyntax#}, {#syntax#}@ceil{#endsyntax#}, 
@@ -2497,7 +2498,6 @@ test "null terminated array" {
                                  {#syntax#}|{#endsyntax#}, {#syntax#}~{#endsyntax#}, etc.)</li>
           <li>Comparison operators ({#syntax#}<{#endsyntax#}, {#syntax#}>{#endsyntax#}, {#syntax#}=={#endsyntax#}, etc.)</li>
       </ul>
-      </p>
       <p>
       It is prohibited to use a math operator on a mixture of scalars (individual numbers) and vectors. 
       Zig provides the {#link|@splat#} builtin to easily convert from scalars to vectors, and it supports {#link|@reduce#} 
