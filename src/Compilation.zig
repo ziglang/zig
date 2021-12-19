@@ -4044,7 +4044,7 @@ fn detectLibCIncludeDirs(
 }
 
 fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const LibCInstallation) !LibCDirs {
-    var list = try std.ArrayList([]const u8).initCapacity(arena, 4);
+    var list = try std.ArrayList([]const u8).initCapacity(arena, 5);
 
     list.appendAssumeCapacity(lci.include_dir.?);
 
@@ -4064,6 +4064,9 @@ fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const 
         const include_dir_path = lci.include_dir orelse return error.LibCInstallationNotAvailable;
         const os_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, "os" });
         list.appendAssumeCapacity(os_dir);
+        // Errors.h
+        const os_support_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, "os/support" });
+        list.appendAssumeCapacity(os_support_dir);
 
         const config_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, "config" });
         list.appendAssumeCapacity(config_dir);
