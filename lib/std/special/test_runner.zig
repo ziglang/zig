@@ -31,11 +31,14 @@ pub fn main() void {
     var ok_count: usize = 0;
     var skip_count: usize = 0;
     var fail_count: usize = 0;
-    var progress = std.Progress{};
+    var progress = std.Progress{
+        .dont_print_on_dumb = true,
+    };
     const root_node = progress.start("Test", test_fn_list.len) catch |err| switch (err) {
         // TODO still run tests in this case
         error.TimerUnsupported => @panic("timer unsupported"),
     };
+    const have_tty = progress.terminal != null and progress.supports_ansi_escape_codes;
 
     var async_frame_buffer: []align(std.Target.stack_align) u8 = undefined;
     // TODO this is on the next line (using `undefined` above) because otherwise zig incorrectly
@@ -55,7 +58,7 @@ pub fn main() void {
         var test_node = root_node.start(test_fn.name, 0);
         test_node.activate();
         progress.refresh();
-        if (progress.terminal == null) {
+        if (!have_tty) {
             std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
         }
         const result = if (test_fn.async_frame_size) |size| switch (io_mode) {
@@ -71,26 +74,26 @@ pub fn main() void {
                 skip_count += 1;
                 test_node.end();
                 progress.log("{s}... SKIP (async test)\n", .{test_fn.name});
-                if (progress.terminal == null) std.debug.print("SKIP (async test)\n", .{});
+                if (!have_tty) std.debug.print("SKIP (async test)\n", .{});
                 continue;
             },
         } else test_fn.func();
         if (result) |_| {
             ok_count += 1;
             test_node.end();
-            if (progress.terminal == null) std.debug.print("OK\n", .{});
+            if (!have_tty) std.debug.print("OK\n", .{});
         } else |err| switch (err) {
             error.SkipZigTest => {
                 skip_count += 1;
                 test_node.end();
                 progress.log("{s}... SKIP\n", .{test_fn.name});
-                if (progress.terminal == null) std.debug.print("SKIP\n", .{});
+                if (!have_tty) std.debug.print("SKIP\n", .{});
             },
             else => {
                 fail_count += 1;
                 test_node.end();
                 progress.log("{s}... FAIL ({s})\n", .{ test_fn.name, @errorName(err) });
-                if (progress.terminal == null) std.debug.print("FAIL ({s})\n", .{@errorName(err)});
+                if (!have_tty) std.debug.print("FAIL ({s})\n", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
