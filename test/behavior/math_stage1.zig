@@ -6,14 +6,6 @@ const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const mem = std.mem;
 
-test "@subWithOverflow" {
-    var result: u8 = undefined;
-    try expect(@subWithOverflow(u8, 1, 2, &result));
-    try expect(result == 255);
-    try expect(!@subWithOverflow(u8, 1, 1, &result));
-    try expect(result == 0);
-}
-
 test "@shlWithOverflow" {
     var result: u16 = undefined;
     try expect(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));

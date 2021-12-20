@@ -495,3 +495,19 @@ test "@mulWithOverflow" {
     try expect(@mulWithOverflow(u8, a, b, &result));
     try expect(result == 236);
 }
+
+test "@subWithOverflow" {
+    var result: u8 = undefined;
+    try expect(@subWithOverflow(u8, 1, 2, &result));
+    try expect(result == 255);
+    try expect(!@subWithOverflow(u8, 1, 1, &result));
+    try expect(result == 0);
+
+    var a: u8 = 1;
+    var b: u8 = 2;
+    try expect(@subWithOverflow(u8, a, b, &result));
+    try expect(result == 255);
+    b = 1;
+    try expect(!@subWithOverflow(u8, a, b, &result));
+    try expect(result == 0);
+}

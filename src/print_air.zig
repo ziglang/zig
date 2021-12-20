@@ -231,6 +231,7 @@ const Writer = struct {
             .memset => try w.writeMemset(s, inst),
 
             .add_with_overflow,
+            .sub_with_overflow,
             .mul_with_overflow,
             => try w.writeOverflow(s, inst),
         }

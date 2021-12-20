@@ -7365,16 +7365,27 @@ fn zirOverflowArithmetic(
                         }
 
                         const result = try lhs_val.intAddWithOverflow(rhs_val, dest_ty, sema.arena, target);
-                        const inst = try sema.addConstant(
-                            dest_ty,
-                            result.wrapped_result,
-                        );
-
-                        if (result.overflowed) {
-                            break :result .{ .overflowed = .yes, .wrapped = inst };
-                        } else {
-                            break :result .{ .overflowed = .no, .wrapped = inst };
+                        const inst = try sema.addConstant(dest_ty, result.wrapped_result);
+                        break :result .{ .overflowed = if (result.overflowed) .yes else .no, .wrapped = inst };
+                    }
+                }
+            },
+            .sub_with_overflow => {
+                // If the rhs is zero, then the result is lhs and no overflow occured.
+                // Otherwise, if either result is undefined, both results are undefined.
+                if (maybe_rhs_val) |rhs_val| {
+                    if (rhs_val.isUndef()) {
+                        break :result .{ .overflowed = .undef, .wrapped = try sema.addConstUndef(dest_ty) };
+                    } else if (rhs_val.compareWithZero(.eq)) {
+                        break :result .{ .overflowed = .no, .wrapped = lhs };
+                    } else if (maybe_lhs_val) |lhs_val| {
+                        if (lhs_val.isUndef()) {
+                            break :result .{ .overflowed = .undef, .wrapped = try sema.addConstUndef(dest_ty) };
                         }
+
+                        const result = try lhs_val.intSubWithOverflow(rhs_val, dest_ty, sema.arena, target);
+                        const inst = try sema.addConstant(dest_ty, result.wrapped_result);
+                        break :result .{ .overflowed = if (result.overflowed) .yes else .no, .wrapped = inst };
                     }
                 }
             },
@@ -7382,7 +7393,6 @@ fn zirOverflowArithmetic(
                 // If either of the arguments is zero, the result is zero and no overflow occured.
                 // If either of the arguments is one, the result is the other and no overflow occured.
                 // Otherwise, if either of the arguments is undefined, both results are undefined.
-
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
                         if (lhs_val.compareWithZero(.eq)) {
@@ -7410,20 +7420,11 @@ fn zirOverflowArithmetic(
                         }
 
                         const result = try lhs_val.intMulWithOverflow(rhs_val, dest_ty, sema.arena, target);
-                        const inst = try sema.addConstant(
-                            dest_ty,
-                            result.wrapped_result,
-                        );
-
-                        if (result.overflowed) {
-                            break :result .{ .overflowed = .yes, .wrapped = inst };
-                        } else {
-                            break :result .{ .overflowed = .no, .wrapped = inst };
-                        }
+                        const inst = try sema.addConstant(dest_ty, result.wrapped_result);
+                        break :result .{ .overflowed = if (result.overflowed) .yes else .no, .wrapped = inst };
                     }
                 }
             },
-            .sub_with_overflow,
             .shl_with_overflow,
             => return sema.fail(block, src, "TODO implement Sema.zirOverflowArithmetic for {}", .{zir_tag}),
             else => unreachable,
@@ -7432,6 +7433,7 @@ fn zirOverflowArithmetic(
         const air_tag: Air.Inst.Tag = switch (zir_tag) {
             .add_with_overflow => .add_with_overflow,
             .mul_with_overflow => .mul_with_overflow,
+            .sub_with_overflow => .sub_with_overflow,
             else => return sema.fail(block, src, "TODO implement runtime Sema.zirOverflowArithmetic for {}", .{zir_tag}),
         };
 

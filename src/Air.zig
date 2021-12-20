@@ -141,6 +141,12 @@ pub const Inst = struct {
         /// of the operation.
         /// Uses the `pl_op` field with payload `Bin`.
         add_with_overflow,
+        /// Integer subtraction with overflow. Both operands are guaranteed to be the same type,
+        /// and the result is bool. The wrapped value is written to the pointer given by the in
+        /// operand of the `pl_op` field. Payload is `Bin` with `lhs` and `rhs` the relevant types
+        /// of the operation.
+        /// Uses the `pl_op` field with payload `Bin`.
+        sub_with_overflow,
         /// Integer multiplication with overflow. Both operands are guaranteed to be the same type,
         /// and the result is bool. The wrapped value is written to the pointer given by the in
         /// operand of the `pl_op` field. Payload is `Bin` with `lhs` and `rhs` the relevant types
@@ -822,6 +828,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         },
 
         .add_with_overflow,
+        .sub_with_overflow,
         .mul_with_overflow,
         => return Type.initTag(.bool),
     }

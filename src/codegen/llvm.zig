@@ -1719,6 +1719,7 @@ pub const FuncGen = struct {
                 .slice     => try self.airSlice(inst),
 
                 .add_with_overflow => try self.airOverflow(inst, "llvm.sadd.with.overflow", "llvm.uadd.with.overflow"),
+                .sub_with_overflow => try self.airOverflow(inst, "llvm.ssub.with.overflow", "llvm.usub.with.overflow"),
                 .mul_with_overflow => try self.airOverflow(inst, "llvm.smul.with.overflow", "llvm.umul.with.overflow"),
 
                 .bit_and, .bool_and => try self.airAnd(inst),
