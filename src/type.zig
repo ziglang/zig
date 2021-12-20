@@ -1575,6 +1575,7 @@ pub const Type = extern union {
             .extern_options,
             .@"anyframe",
             .anyframe_T,
+            .anyopaque,
             .@"opaque",
             .single_const_pointer,
             .single_mut_pointer,
@@ -1654,7 +1655,6 @@ pub const Type = extern union {
                 return payload.error_set.hasCodeGenBits() or payload.payload.hasCodeGenBits();
             },
 
-            .anyopaque,
             .void,
             .type,
             .comptime_int,

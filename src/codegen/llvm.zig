@@ -761,21 +761,25 @@ pub const DeclGen = struct {
                     dg.context.intType(8);
                 return llvm_elem_ty.pointerType(llvm_addrspace);
             },
-            .Opaque => {
-                const gop = try dg.object.type_map.getOrPut(gpa, t);
-                if (gop.found_existing) return gop.value_ptr.*;
+            .Opaque => switch (t.tag()) {
+                .@"opaque" => {
+                    const gop = try dg.object.type_map.getOrPut(gpa, t);
+                    if (gop.found_existing) return gop.value_ptr.*;
 
-                // The Type memory is ephemeral; since we want to store a longer-lived
-                // reference, we need to copy it here.
-                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
+                    // The Type memory is ephemeral; since we want to store a longer-lived
+                    // reference, we need to copy it here.
+                    gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
-                const opaque_obj = t.castTag(.@"opaque").?.data;
-                const name = try opaque_obj.getFullyQualifiedName(gpa);
-                defer gpa.free(name);
+                    const opaque_obj = t.castTag(.@"opaque").?.data;
+                    const name = try opaque_obj.getFullyQualifiedName(gpa);
+                    defer gpa.free(name);
 
-                const llvm_struct_ty = dg.context.structCreateNamed(name);
-                gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
-                return llvm_struct_ty;
+                    const llvm_struct_ty = dg.context.structCreateNamed(name);
+                    gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
+                    return llvm_struct_ty;
+                },
+                .anyopaque => return dg.context.intType(8),
+                else => unreachable,
             },
             .Array => {
                 const elem_type = try dg.llvmType(t.childType());
