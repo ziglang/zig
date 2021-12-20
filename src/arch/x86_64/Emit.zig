@@ -1119,17 +1119,7 @@ fn mirMovImpl(
                 encoder.imm32(imm_op);
                 break :blk;
             }
-            // mov reg1, reg2
-            // RM
-            const opc: u8 = if (ops.reg1.size() == 8) 0x8a else 0x8b;
-            const encoder = try Encoder.init(code, 3);
-            encoder.rex(.{
-                .w = ops.reg1.size() == 64 and ops.reg2.size() == 64,
-                .r = ops.reg1.isExtended(),
-                .b = ops.reg2.isExtended(),
-            });
-            encoder.opcode_1byte(opc);
-            encoder.modRm_direct(ops.reg1.lowId(), ops.reg2.lowId());
+            return EmitResult.err(allocator, src_loc, "TODO unused variant: mov reg1, reg2, 0b11", .{});
         },
     }
     return EmitResult.ok();

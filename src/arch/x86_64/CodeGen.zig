@@ -2968,9 +2968,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
-                    .reg1 = reg,
+                    .reg1 = registerAlias(reg, @divExact(src_reg.size(), 8)),
                     .reg2 = src_reg,
-                    .flags = 0b11,
                 }).encode(),
                 .data = undefined,
             });

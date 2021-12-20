@@ -145,7 +145,7 @@ pub const Inst = struct {
         ///       0b10  [reg1 + imm32], reg2
         ///       0b10  [reg1 + 0], imm32
         ///       0b11  [reg1 + imm32], imm32
-        ///       0b11  reg1, reg2 (RM)
+        ///       0b11  AVAILABLE
         /// Notes:
         ///  * If reg2 is `none` then it means Data field `imm` is used as the immediate.
         ///  * When two imm32 values are required, Data field `payload` points at `ImmPair`.
