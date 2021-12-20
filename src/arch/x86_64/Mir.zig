@@ -136,19 +136,6 @@ pub const Inst = struct {
         cmp_scale_src,
         cmp_scale_dst,
         cmp_scale_imm,
-
-        /// ops flags:  form:
-        ///       0b00  reg1, reg2 (MR)
-        ///       0b00  reg1, imm32
-        ///       0b01  reg1, [reg2 + imm32]
-        ///       0b01  reg1, [ds:imm32]
-        ///       0b10  [reg1 + imm32], reg2
-        ///       0b10  [reg1 + 0], imm32
-        ///       0b11  [reg1 + imm32], imm32
-        ///       0b11  AVAILABLE
-        /// Notes:
-        ///  * If reg2 is `none` then it means Data field `imm` is used as the immediate.
-        ///  * When two imm32 values are required, Data field `payload` points at `ImmPair`.
         mov,
         mov_scale_src,
         mov_scale_dst,

@@ -1608,18 +1608,18 @@ fn genBinMathOpMir(
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = src_reg,
-                            .reg2 = dst_reg,
-                            .flags = 0b11,
+                            .reg1 = registerAlias(dst_reg, @divExact(src_reg.size(), 8)),
+                            .reg2 = src_reg,
                         }).encode(),
                         .data = undefined,
                     });
                 },
                 .immediate => |imm| {
+                    // TODO I am not quite sure why we need to set the size of the register here...
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = dst_reg,
+                            .reg1 = registerAlias(dst_reg, 4),
                         }).encode(),
                         .data = .{ .imm = @intCast(i32, imm) },
                     });
@@ -1637,7 +1637,7 @@ fn genBinMathOpMir(
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
                             .reg1 = registerAlias(dst_reg, @intCast(u32, abi_size)),
-                            .reg2 = registerAlias(.rbp, @intCast(u32, abi_size)),
+                            .reg2 = .rbp,
                             .flags = 0b01,
                         }).encode(),
                         .data = .{ .imm = -@intCast(i32, adj_off) },
@@ -1667,8 +1667,8 @@ fn genBinMathOpMir(
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = registerAlias(src_reg, @intCast(u32, abi_size)),
-                            .reg2 = registerAlias(.rbp, @intCast(u32, abi_size)),
+                            .reg1 = .rbp,
+                            .reg2 = registerAlias(src_reg, @intCast(u32, abi_size)),
                             .flags = 0b10,
                         }).encode(),
                         .data = .{ .imm = -@intCast(i32, adj_off) },
@@ -2924,6 +2924,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             }
             if (x <= math.maxInt(i32)) {
                 // Next best case: if we set the lower four bytes, the upper four will be zeroed.
+                // TODO I am not quite sure why we need to set the size of the register here...
                 _ = try self.addInst(.{
                     .tag = .mov,
                     .ops = (Mir.Ops{
