@@ -48,9 +48,31 @@ const InnerError = error{
     EmitFail,
 };
 
-const EmitError = error{
-    OutOfMemory,
-    OperandSizeMismatch,
+const EmitResult = union(enum) {
+    ok: void,
+    err: *ErrorMsg,
+
+    fn ok() EmitResult {
+        return EmitResult{ .ok = .{} };
+    }
+
+    fn err(
+        allocator: Allocator,
+        src_loc: Module.SrcLoc,
+        comptime format: []const u8,
+        args: anytype,
+    ) error{OutOfMemory}!EmitResult {
+        return EmitResult{
+            .err = try ErrorMsg.create(allocator, src_loc, format, args),
+        };
+    }
+
+    fn deinit(res: EmitResult, allocator: Allocator) void {
+        switch (res) {
+            .ok => {},
+            .err => |err_msg| err_msg.destroy(allocator),
+        }
+    }
 };
 
 const Reloc = struct {
@@ -168,8 +190,14 @@ pub fn deinit(emit: *Emit) void {
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
+    const err_msg = try ErrorMsg.create(emit.bin_file.allocator, emit.src_loc, format, args);
+    return emit.failWithErrorMsg(err_msg);
+}
+
+fn failWithErrorMsg(emit: *Emit, err_msg: *ErrorMsg) InnerError {
+    @setCold(true);
     assert(emit.err_msg == null);
-    emit.err_msg = try ErrorMsg.create(emit.bin_file.allocator, emit.src_loc, format, args);
+    emit.err_msg = err_msg;
     return error.EmitFail;
 }
 
@@ -858,24 +886,28 @@ fn mirArithScaleImm(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
 }
 
 fn mirMov(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    return mirMovImpl(
+    const res = try mirMovImpl(
+        emit.bin_file.allocator,
         emit.mir.instructions,
         emit.mir.extra,
         inst,
+        emit.src_loc,
         emit.code,
-    ) catch |err| switch (err) {
-        // TODO better formating of operands in case of an error
-        error.OperandSizeMismatch => emit.fail("operand size mismatch", .{}),
-        else => emit.fail("emit failed with error: {}", .{err}),
-    };
+    );
+    switch (res) {
+        .ok => {},
+        .err => |err_msg| return emit.failWithErrorMsg(err_msg),
+    }
 }
 
 fn mirMovImpl(
+    allocator: Allocator,
     mir_instructions: std.MultiArrayList(Mir.Inst).Slice,
     mir_extra: []const u32,
     inst: Mir.Inst.Index,
+    src_loc: Module.SrcLoc,
     code: *std.ArrayList(u8),
-) EmitError!void {
+) error{OutOfMemory}!EmitResult {
     const ops = Mir.Ops.decode(mir_instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => blk: {
@@ -900,11 +932,31 @@ fn mirMovImpl(
                 encoder.modRm_direct(modrm_ext, ops.reg1.lowId());
                 switch (ops.reg1.size()) {
                     8 => {
-                        const imm8 = math.cast(i8, imm) catch return error.OperandSizeMismatch;
+                        const imm8 = math.cast(i8, imm) catch {
+                            return EmitResult.err(
+                                allocator,
+                                src_loc,
+                                "size mismatch: sizeof {} != sizeof 0x{x}",
+                                .{
+                                    ops.reg1,
+                                    imm,
+                                },
+                            );
+                        };
                         encoder.imm8(imm8);
                     },
                     16 => {
-                        const imm16 = math.cast(i16, imm) catch return error.OperandSizeMismatch;
+                        const imm16 = math.cast(i16, imm) catch {
+                            return EmitResult.err(
+                                allocator,
+                                src_loc,
+                                "size mismatch: sizeof {} != sizeof 0x{x}",
+                                .{
+                                    ops.reg1,
+                                    imm,
+                                },
+                            );
+                        };
                         encoder.imm16(imm16);
                     },
                     32, 64 => {
@@ -917,7 +969,10 @@ fn mirMovImpl(
             // mov reg1, reg2
             // MR
             if (ops.reg1.size() != ops.reg2.size()) {
-                return error.OperandSizeMismatch;
+                return EmitResult.err(allocator, src_loc, "size mismatch: sizeof {} != sizeof {}", .{
+                    ops.reg1,
+                    ops.reg2,
+                });
             }
             const opc: u8 = if (ops.reg1.size() == 8) 0x88 else 0x89;
             const encoder = try Encoder.init(code, 3);
@@ -954,7 +1009,7 @@ fn mirMovImpl(
             // TODO handle 32-bit base register - requires prefix 0x67
             // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
             if (ops.reg2.size() != 64) {
-                return error.OperandSizeMismatch;
+                return EmitResult.err(allocator, src_loc, "size mismatch: sizeof {} != 8", .{ops.reg2});
             }
             const encoder = try Encoder.init(code, 8);
             if (ops.reg1.size() == 16) {
@@ -978,7 +1033,7 @@ fn mirMovImpl(
             // TODO handle 32-bit base register - requires prefix 0x67
             // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
             if (ops.reg1.size() != 64) {
-                return error.OperandSizeMismatch;
+                return EmitResult.err(allocator, src_loc, "size mismatch: sizeof {} != 8", .{ops.reg1});
             }
             if (ops.reg2 == .none) {
                 // mov [reg1 + 0], imm32
@@ -1041,7 +1096,7 @@ fn mirMovImpl(
                 // a byte, word or dword ptr.
                 // TODO we currently don't have a way to flag imm32 64bit sign extended
                 if (ops.reg1.size() != 64) {
-                    return error.OperandSizeMismatch;
+                    return EmitResult.err(allocator, src_loc, "size mismatch: sizeof {} != 8", .{ops.reg1});
                 }
                 const payload = mir_instructions.items(.data)[inst].payload;
                 const imm_pair = Mir.extraData(mir_extra, Mir.ImmPair, payload).data;
@@ -1077,6 +1132,7 @@ fn mirMovImpl(
             encoder.modRm_direct(ops.reg1.lowId(), ops.reg2.lowId());
         },
     }
+    return EmitResult.ok();
 }
 
 fn immOpSize(imm: i32) u8 {
@@ -1488,23 +1544,36 @@ const Mock = struct {
         return result;
     }
 
+    fn dummySrcLoc() Module.SrcLoc {
+        return .{
+            .file_scope = undefined,
+            .parent_decl_node = 0,
+            .lazy = .unneeded,
+        };
+    }
+
     fn testEmitSingleSuccess(
         self: *Mock,
         mir_inst: Mir.Inst,
         expected_enc: []const u8,
         assembly: []const u8,
     ) !void {
+        const dummy_src_loc = Mock.dummySrcLoc();
         const code_index = self.code.items.len;
         const mir_index = try self.addInst(mir_inst);
-        switch (mir_inst.tag) {
+        const res = switch (mir_inst.tag) {
             .mov => try mirMovImpl(
+                testing.allocator,
                 self.mir_instructions.slice(),
                 self.mir_extra.items,
                 mir_index,
+                dummy_src_loc,
                 &self.code,
             ),
             else => unreachable,
-        }
+        };
+        defer res.deinit(testing.allocator);
+        try testing.expect(res == .ok);
         const code_len = if (self.code.items[code_index..].len >= expected_enc.len)
             expected_enc.len
         else
@@ -1512,18 +1581,23 @@ const Mock = struct {
         try expectEqualHexStrings(expected_enc, self.code.items[code_index..][0..code_len], assembly);
     }
 
-    fn testEmitSingleError(self: *Mock, mir_inst: Mir.Inst, err: EmitError) !void {
+    fn testEmitSingleFail(self: *Mock, mir_inst: Mir.Inst, msg: []const u8) !void {
+        const dummy_src_loc = Mock.dummySrcLoc();
         const index = try self.addInst(mir_inst);
         const res = switch (mir_inst.tag) {
-            .mov => mirMovImpl(
+            .mov => try mirMovImpl(
+                testing.allocator,
                 self.mir_instructions.slice(),
                 self.mir_extra.items,
                 index,
+                dummy_src_loc,
                 &self.code,
             ),
             else => unreachable,
         };
-        try testing.expectError(err, res);
+        defer res.deinit(testing.allocator);
+        try testing.expect(res == .err);
+        try testing.expectEqualStrings(msg, res.err.msg);
     }
 };
 
@@ -1560,16 +1634,16 @@ test "mov dst_reg, src_reg" {
         .ops = (Mir.Ops{ .reg1 = .r12, .reg2 = .rax }).encode(),
         .data = undefined,
     }, "\x49\x89\xc4", "mov r12, rax");
-    try mock.testEmitSingleError(.{
+    try mock.testEmitSingleFail(.{
         .tag = .mov,
         .ops = (Mir.Ops{ .reg1 = .r12, .reg2 = .eax }).encode(),
         .data = undefined,
-    }, error.OperandSizeMismatch);
-    try mock.testEmitSingleError(.{
+    }, "size mismatch: sizeof Register.r12 != sizeof Register.eax");
+    try mock.testEmitSingleFail(.{
         .tag = .mov,
         .ops = (Mir.Ops{ .reg1 = .r12d, .reg2 = .rax }).encode(),
         .data = undefined,
-    }, error.OperandSizeMismatch);
+    }, "size mismatch: sizeof Register.r12d != sizeof Register.rax");
     try mock.testEmitSingleSuccess(.{
         .tag = .mov,
         .ops = (Mir.Ops{ .reg1 = .r12d, .reg2 = .eax }).encode(),
@@ -1615,16 +1689,16 @@ test "mov dst_reg, imm" {
         .ops = (Mir.Ops{ .reg1 = .cl }).encode(),
         .data = .{ .imm = 0x10 },
     }, "\xc6\xc1\x10", "mov cl, 0x10");
-    try mock.testEmitSingleError(.{
+    try mock.testEmitSingleFail(.{
         .tag = .mov,
         .ops = (Mir.Ops{ .reg1 = .cx }).encode(),
         .data = .{ .imm = 0x10000000 },
-    }, error.OperandSizeMismatch);
-    try mock.testEmitSingleError(.{
+    }, "size mismatch: sizeof Register.cx != sizeof 0x10000000");
+    try mock.testEmitSingleFail(.{
         .tag = .mov,
         .ops = (Mir.Ops{ .reg1 = .cl }).encode(),
         .data = .{ .imm = 0x1000 },
-    }, error.OperandSizeMismatch);
+    }, "size mismatch: sizeof Register.cl != sizeof 0x1000");
 }
 
 test "mov dst_reg, [imm32]" {
@@ -1705,11 +1779,11 @@ test "mov [dst_reg + 0], imm" {
         .ops = (Mir.Ops{ .reg1 = .rax, .flags = 0b10 }).encode(),
         .data = .{ .imm = 0x10 },
     }, "\xC7\x00\x10\x00\x00\x00", "mov dword ptr [rax + 0], 0x10");
-    try mock.testEmitSingleError(.{
+    try mock.testEmitSingleFail(.{
         .tag = .mov,
         .ops = (Mir.Ops{ .reg1 = .eax, .flags = 0b10 }).encode(),
         .data = .{ .imm = 0x10 },
-    }, error.OperandSizeMismatch);
+    }, "size mismatch: sizeof Register.eax != 8");
 }
 
 test "mov [dst_reg + imm32], src_reg" {
@@ -1745,11 +1819,11 @@ test "mov [dst_reg + imm32], src_reg" {
         .ops = (Mir.Ops{ .reg1 = .r11, .reg2 = .eax, .flags = 0b10 }).encode(),
         .data = .{ .imm = 0x10 },
     }, "\x41\x89\x43\x10", "mov dword ptr [r11 + 0x10], eax");
-    try mock.testEmitSingleError(.{
+    try mock.testEmitSingleFail(.{
         .tag = .mov,
         .ops = (Mir.Ops{ .reg1 = .r11w, .reg2 = .ax, .flags = 0b10 }).encode(),
         .data = .{ .imm = 0x10 },
-    }, error.OperandSizeMismatch);
+    }, "size mismatch: sizeof Register.r11w != 8");
 }
 
 test "mov [dst_reg + imm32], imm32" {
@@ -1815,10 +1889,10 @@ test "mov [dst_reg + imm32], imm32" {
             .dest_off = 0x10,
             .operand = 0x20,
         });
-        try mock.testEmitSingleError(.{
+        try mock.testEmitSingleFail(.{
             .tag = .mov,
             .ops = (Mir.Ops{ .reg1 = .r11d, .flags = 0b11 }).encode(),
             .data = .{ .payload = payload },
-        }, error.OperandSizeMismatch);
+        }, "size mismatch: sizeof Register.r11d != 8");
     }
 }
