@@ -451,6 +451,14 @@ test "@addWithOverflow" {
     try expect(result == 94);
     try expect(!@addWithOverflow(u8, 100, 150, &result));
     try expect(result == 250);
+
+    var a: u8 = 200;
+    var b: u8 = 99;
+    try expect(@addWithOverflow(u8, a, b, &result));
+    try expect(result == 43);
+    b = 55;
+    try expect(!@addWithOverflow(u8, a, b, &result));
+    try expect(result == 255);
 }
 
 test "small int addition" {
@@ -470,4 +478,20 @@ test "small int addition" {
     try expect(@addWithOverflow(@TypeOf(x), x, 1, &result));
 
     try expect(result == 0);
+}
+
+test "@mulWithOverflow" {
+    var result: u8 = undefined;
+    try expect(@mulWithOverflow(u8, 86, 3, &result));
+    try expect(result == 2);
+    try expect(!@mulWithOverflow(u8, 85, 3, &result));
+    try expect(result == 255);
+
+    var a: u8 = 123;
+    var b: u8 = 2;
+    try expect(!@mulWithOverflow(u8, a, b, &result));
+    try expect(result == 246);
+    b = 4;
+    try expect(@mulWithOverflow(u8, a, b, &result));
+    try expect(result == 236);
 }

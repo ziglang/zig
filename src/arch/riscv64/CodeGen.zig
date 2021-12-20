@@ -501,6 +501,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                     .slice           => try self.airSlice(inst),
 
                     .add_with_overflow => try self.airAddWithOverflow(inst),
+                    .mul_with_overflow => try self.airMulWithOverflow(inst),
 
                     .div_float, .div_trunc, .div_floor, .div_exact => try self.airDiv(inst),
 
@@ -919,6 +920,11 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
 fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     _ = inst;
     return self.fail("TODO implement airAddResultWithOverflow for {}", .{self.target.cpu.arch});
+}
+
+fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airMulResultWithOverflow for {}", .{self.target.cpu.arch});
 }
 
 fn airDiv(self: *Self, inst: Air.Inst.Index) !void {

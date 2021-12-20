@@ -7343,8 +7343,8 @@ fn zirOverflowArithmetic(
         overflowed: enum { yes, no, undef },
         wrapped: Air.Inst.Ref,
     } = result: {
-        const air_tag: Air.Inst.Tag = switch (zir_tag) {
-            .add_with_overflow => blk: {
+        switch (zir_tag) {
+            .add_with_overflow => {
                 // If either of the arguments is zero, `false` is returned and the other is stored
                 // to the result, even if it is undefined..
                 // Otherwise, if either of the argument is undefined, undefined is returned.
@@ -7377,14 +7377,62 @@ fn zirOverflowArithmetic(
                         }
                     }
                 }
+            },
+            .mul_with_overflow => {
+                // If either of the arguments is zero, the result is zero and no overflow occured.
+                // If either of the arguments is one, the result is the other and no overflow occured.
+                // Otherwise, if either of the arguments is undefined, both results are undefined.
 
-                break :blk .add_with_overflow;
+                if (maybe_lhs_val) |lhs_val| {
+                    if (!lhs_val.isUndef()) {
+                        if (lhs_val.compareWithZero(.eq)) {
+                            break :result .{ .overflowed = .no, .wrapped = lhs };
+                        } else if (lhs_val.compare(.eq, Value.one, dest_ty)) {
+                            break :result .{ .overflowed = .no, .wrapped = rhs };
+                        }
+                    }
+                }
+
+                if (maybe_rhs_val) |rhs_val| {
+                    if (!rhs_val.isUndef()) {
+                        if (rhs_val.compareWithZero(.eq)) {
+                            break :result .{ .overflowed = .no, .wrapped = rhs };
+                        } else if (rhs_val.compare(.eq, Value.one, dest_ty)) {
+                            break :result .{ .overflowed = .no, .wrapped = lhs };
+                        }
+                    }
+                }
+
+                if (maybe_lhs_val) |lhs_val| {
+                    if (maybe_rhs_val) |rhs_val| {
+                        if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                            break :result .{ .overflowed = .undef, .wrapped = try sema.addConstUndef(dest_ty) };
+                        }
+
+                        const result = try lhs_val.intMulWithOverflow(rhs_val, dest_ty, sema.arena, target);
+                        const inst = try sema.addConstant(
+                            dest_ty,
+                            result.wrapped_result,
+                        );
+
+                        if (result.overflowed) {
+                            break :result .{ .overflowed = .yes, .wrapped = inst };
+                        } else {
+                            break :result .{ .overflowed = .no, .wrapped = inst };
+                        }
+                    }
+                }
             },
             .sub_with_overflow,
-            .mul_with_overflow,
             .shl_with_overflow,
             => return sema.fail(block, src, "TODO implement Sema.zirOverflowArithmetic for {}", .{zir_tag}),
             else => unreachable,
+        }
+
+        const air_tag: Air.Inst.Tag = switch (zir_tag) {
+            .add_with_overflow => .add_with_overflow,
+            .mul_with_overflow => .mul_with_overflow,
+            else => return sema.fail(block, src, "TODO implement runtime Sema.zirOverflowArithmetic for {}", .{zir_tag}),
         };
 
         try sema.requireRuntimeBlock(block, src);

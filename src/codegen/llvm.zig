@@ -1714,7 +1714,8 @@ pub const FuncGen = struct {
                 .max       => try self.airMax(inst),
                 .slice     => try self.airSlice(inst),
 
-                .add_with_overflow => try self.airAddWithOverflow(inst),
+                .add_with_overflow => try self.airOverflow(inst, "llvm.sadd.with.overflow", "llvm.uadd.with.overflow"),
+                .mul_with_overflow => try self.airOverflow(inst, "llvm.smul.with.overflow", "llvm.umul.with.overflow"),
 
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
@@ -3136,7 +3137,12 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airAddWithOverflow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+    fn airOverflow(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        signed_intrinsic: []const u8,
+        unsigned_intrinsic: []const u8,
+    ) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
 
@@ -3150,10 +3156,7 @@ pub const FuncGen = struct {
         const ptr_ty = self.air.typeOf(pl_op.operand);
         const lhs_ty = self.air.typeOf(extra.lhs);
 
-        const intrinsic_name: []const u8 = if (lhs_ty.isSignedInt())
-            "llvm.sadd.with.overflow"
-        else
-            "llvm.uadd.with.overflow";
+        const intrinsic_name = if (lhs_ty.isSignedInt()) signed_intrinsic else unsigned_intrinsic;
 
         const llvm_lhs_ty = try self.dg.llvmType(lhs_ty);
 

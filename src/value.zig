@@ -2130,6 +2130,41 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
+    pub fn intMulWithOverflow(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !OverflowArithmeticResult {
+        const info = ty.intInfo(target);
+
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const rhs_bigint = rhs.toBigInt(&rhs_space);
+        const limbs = try arena.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len + rhs_bigint.limbs.len,
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        var limbs_buffer = try arena.alloc(
+            std.math.big.Limb,
+            std.math.big.int.calcMulLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len, 1),
+        );
+        result_bigint.mul(lhs_bigint, rhs_bigint, limbs_buffer, arena);
+
+        const overflowed = !result_bigint.toConst().fitsInTwosComp(info.signedness, info.bits);
+        if (overflowed) {
+            result_bigint.truncate(result_bigint.toConst(), info.signedness, info.bits);
+        }
+
+        return OverflowArithmeticResult{
+            .overflowed = overflowed,
+            .wrapped_result = try fromBigInt(arena, result_bigint.toConst()),
+        };
+    }
+
     /// Supports both floats and ints; handles undefined.
     pub fn numberMulWrap(
         lhs: Value,
@@ -2144,24 +2179,8 @@ pub const Value = extern union {
             return floatMul(lhs, rhs, ty, arena);
         }
 
-        const info = ty.intInfo(target);
-
-        var lhs_space: Value.BigIntSpace = undefined;
-        var rhs_space: Value.BigIntSpace = undefined;
-        const lhs_bigint = lhs.toBigInt(&lhs_space);
-        const rhs_bigint = rhs.toBigInt(&rhs_space);
-        const limbs = try arena.alloc(
-            std.math.big.Limb,
-            std.math.big.int.calcTwosCompLimbCount(info.bits),
-        );
-        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-        var limbs_buffer = try arena.alloc(
-            std.math.big.Limb,
-            std.math.big.int.calcMulWrapLimbsBufferLen(info.bits, lhs_bigint.limbs.len, rhs_bigint.limbs.len, 1),
-        );
-        defer arena.free(limbs_buffer);
-        result_bigint.mulWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits, limbs_buffer, arena);
-        return fromBigInt(arena, result_bigint.toConst());
+        const overflow_result = try intMulWithOverflow(lhs, rhs, ty, arena, target);
+        return overflow_result.wrapped_result;
     }
 
     /// Supports integers only; asserts neither operand is undefined.
@@ -2194,7 +2213,6 @@ pub const Value = extern union {
             std.math.big.Limb,
             std.math.big.int.calcMulLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len, 1),
         );
-        defer arena.free(limbs_buffer);
         result_bigint.mul(lhs_bigint, rhs_bigint, limbs_buffer, arena);
         result_bigint.saturate(result_bigint.toConst(), info.signedness, info.bits);
         return fromBigInt(arena, result_bigint.toConst());
