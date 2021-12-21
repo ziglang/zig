@@ -1479,6 +1479,8 @@ pub const LibExeObjStep = struct {
     sanitize_thread: bool,
     rdynamic: bool,
     import_memory: bool = false,
+    import_table: bool = false,
+    export_table: bool = false,
     initial_memory: ?u64 = null,
     max_memory: ?u64 = null,
     global_base: ?u64 = null,
@@ -2508,6 +2510,12 @@ pub const LibExeObjStep = struct {
         }
         if (self.import_memory) {
             try zig_args.append("--import-memory");
+        }
+        if (self.import_table) {
+            try zig_args.append("--import-table");
+        }
+        if (self.export_table) {
+            try zig_args.append("--export-table");
         }
         if (self.initial_memory) |initial_memory| {
             try zig_args.append(builder.fmt("--initial-memory={d}", .{initial_memory}));

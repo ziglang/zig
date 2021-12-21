@@ -432,6 +432,8 @@ const usage_build_generic =
     \\  -F[dir]                        (Darwin) add search path for frameworks
     \\  -install_name=[value]          (Darwin) add dylib's install name
     \\  --import-memory                (WebAssembly) import memory from the environment
+    \\  --import-table                 (WebAssembly) import function table from the host environment
+    \\  --export-table                 (WebAssembly) export function table to the host environment
     \\  --initial-memory=[bytes]       (WebAssembly) initial size of the linear memory
     \\  --max-memory=[bytes]           (WebAssembly) maximum size of the linear memory
     \\  --global-base=[addr]           (WebAssembly) where to start to place global data
@@ -627,6 +629,8 @@ fn buildOutputType(
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
     var linker_import_memory: ?bool = null;
+    var linker_import_table: bool = false;
+    var linker_export_table: bool = false;
     var linker_initial_memory: ?u64 = null;
     var linker_max_memory: ?u64 = null;
     var linker_global_base: ?u64 = null;
@@ -1179,6 +1183,10 @@ fn buildOutputType(
                         }
                     } else if (mem.eql(u8, arg, "--import-memory")) {
                         linker_import_memory = true;
+                    } else if (mem.eql(u8, arg, "--import-table")) {
+                        linker_import_table = true;
+                    } else if (mem.eql(u8, arg, "--export-table")) {
+                        linker_export_table = true;
                     } else if (mem.startsWith(u8, arg, "--initial-memory=")) {
                         linker_initial_memory = parseIntSuffix(arg, "--initial-memory=".len);
                     } else if (mem.startsWith(u8, arg, "--max-memory=")) {
@@ -1560,6 +1568,10 @@ fn buildOutputType(
                     linker_bind_global_refs_locally = true;
                 } else if (mem.eql(u8, arg, "--import-memory")) {
                     linker_import_memory = true;
+                } else if (mem.eql(u8, arg, "--import-table")) {
+                    linker_import_table = true;
+                } else if (mem.eql(u8, arg, "--export-table")) {
+                    linker_export_table = true;
                 } else if (mem.startsWith(u8, arg, "--initial-memory=")) {
                     linker_initial_memory = parseIntSuffix(arg, "--initial-memory=".len);
                 } else if (mem.startsWith(u8, arg, "--max-memory=")) {
@@ -2455,6 +2467,8 @@ fn buildOutputType(
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
         .linker_import_memory = linker_import_memory,
+        .linker_import_table = linker_import_table,
+        .linker_export_table = linker_export_table,
         .linker_initial_memory = linker_initial_memory,
         .linker_max_memory = linker_max_memory,
         .linker_global_base = linker_global_base,
