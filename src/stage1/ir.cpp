@@ -10051,13 +10051,7 @@ static Stage1AirInst *ir_analyze_bit_shift(IrAnalyze *ira, Stage1ZirInstBinOp *b
         // comptime_int has no finite bit width
         casted_op2 = op2;
 
-        if (op_id == IrBinOpShlSat) {
-            ir_add_error_node(ira, bin_op_instruction->base.source_node,
-                buf_sprintf("saturating shift on a comptime_int which has unlimited bits"));
-            return ira->codegen->invalid_inst_gen;
-        }
-
-        if (op_id == IrBinOpBitShiftLeftLossy) {
+        if (op_id == IrBinOpBitShiftLeftLossy || op_id == IrBinOpShlSat) {
             op_id = IrBinOpBitShiftLeftExact;
         }
 
@@ -10217,6 +10211,25 @@ static bool ok_float_op(IrBinOp op) {
             return false;
     }
     zig_unreachable();
+}
+
+static IrBinOp map_comptime_arithmetic_op(IrBinOp op) {
+    switch (op) {
+        case IrBinOpAddWrap:
+        case IrBinOpAddSat:
+            return IrBinOpAdd;
+
+        case IrBinOpSubWrap:
+        case IrBinOpSubSat:
+            return IrBinOpSub;
+
+        case IrBinOpMultWrap:
+        case IrBinOpMultSat:
+            return IrBinOpMult;
+
+        default:
+            return op;
+    }
 }
 
 static bool is_pointer_arithmetic_allowed(ZigType *lhs_type, IrBinOp op) {
@@ -10441,15 +10454,10 @@ static Stage1AirInst *ir_analyze_bin_op_math(IrAnalyze *ira, Stage1ZirInstBinOp 
     if (type_is_invalid(casted_op2->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    // Comptime integers have no fixed size
+    // Comptime integers have no fixed size, so wrapping or saturating operations should be mapped
+    // to their non wrapping or saturating equivilents
     if (scalar_type->id == ZigTypeIdComptimeInt) {
-        if (op_id == IrBinOpAddWrap) {
-            op_id = IrBinOpAdd;
-        } else if (op_id == IrBinOpSubWrap) {
-            op_id = IrBinOpSub;
-        } else if (op_id == IrBinOpMultWrap) {
-            op_id = IrBinOpMult;
-        }
+        op_id = map_comptime_arithmetic_op(op_id);
     }
 
     if (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2)) {
