@@ -568,4 +568,24 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
+
+    {
+        var case = ctx.exe("optionals", linux_arm);
+        case.addCompareOutput(
+            \\var x: u32 = 42;
+            \\
+            \\pub fn main() void {
+            \\    var p: ?*u32 = null;
+            \\    assert(p == null);
+            \\    p = &x;
+            \\    assert(p != null);
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }

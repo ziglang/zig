@@ -2334,18 +2334,28 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .unreach, .{ .none, .none, .none });
 }
 
-fn isNull(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNonNull and invert the result.
-    return self.fail("TODO call isNonNull and invert the result", .{});
+fn isNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    if (ty.isPtrLikeOptional()) {
+        assert(ty.abiSize(self.target.*) == 4);
+
+        const reg_mcv: MCValue = switch (operand) {
+            .register => operand,
+            else => .{ .register = try self.copyToTmpRegister(ty, operand) },
+        };
+
+        try self.genArmBinOpCode(undefined, reg_mcv, .{ .immediate = 0 }, false, .cmp_eq, undefined);
+
+        return MCValue{ .compare_flags_unsigned = .eq };
+    } else {
+        return self.fail("TODO implement non-pointer optionals", .{});
+    }
 }
 
-fn isNonNull(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNull and invert the result.
-    return self.fail("TODO call isNull and invert the result", .{});
+fn isNonNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    const is_null_result = try self.isNull(ty, operand);
+    assert(is_null_result.compare_flags_unsigned == .eq);
+
+    return MCValue{ .compare_flags_unsigned = .neq };
 }
 
 fn isErr(self: *Self, operand: MCValue) !MCValue {
@@ -2364,9 +2374,14 @@ fn isNonErr(self: *Self, operand: MCValue) !MCValue {
 
 fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
+
+    try self.spillCompareFlagsIfOccupied();
+    self.compare_flags_inst = inst;
+
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNull(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNull(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2375,6 +2390,7 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
+        const ptr_ty = self.air.typeOf(un_op);
         const operand: MCValue = blk: {
             if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
@@ -2383,8 +2399,8 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isNull(operand);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isNull(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2393,7 +2409,8 @@ fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNonNull(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNonNull(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2402,6 +2419,7 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
+        const ptr_ty = self.air.typeOf(un_op);
         const operand: MCValue = blk: {
             if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
@@ -2410,8 +2428,8 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isNonNull(operand);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isNonNull(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
