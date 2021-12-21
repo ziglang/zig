@@ -1282,6 +1282,15 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         } },
                     });
                 },
+                .stack_offset => |off| {
+                    if (elem_ty.abiSize(self.target.*) <= 4) {
+                        const tmp_reg = try self.register_manager.allocReg(null, &.{});
+                        try self.load(.{ .register = tmp_reg }, ptr, elem_ty);
+                        return self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg });
+                    } else {
+                        return self.fail("TODO implement memcpy", .{});
+                    }
+                },
                 else => return self.fail("TODO load from register into {}", .{dst_mcv}),
             }
         },
@@ -1325,11 +1334,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airStore(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const ptr = try self.resolveInst(bin_op.lhs);
-    const value = try self.resolveInst(bin_op.rhs);
-    const elem_ty = self.air.typeOf(bin_op.rhs);
+fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
     switch (ptr) {
         .none => unreachable,
         .undef => unreachable,
@@ -1339,27 +1344,62 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
         .compare_flags_signed => unreachable,
         .stack_argument_offset => unreachable,
         .immediate => |imm| {
-            try self.setRegOrMem(elem_ty, .{ .memory = imm }, value);
+            try self.setRegOrMem(value_ty, .{ .memory = imm }, value);
         },
         .ptr_stack_offset => |off| {
-            try self.genSetStack(elem_ty, off, value);
+            try self.genSetStack(value_ty, off, value);
         },
         .ptr_embedded_in_code => |off| {
-            try self.setRegOrMem(elem_ty, .{ .embedded_in_code = off }, value);
+            try self.setRegOrMem(value_ty, .{ .embedded_in_code = off }, value);
         },
         .embedded_in_code => {
             return self.fail("TODO implement storing to MCValue.embedded_in_code", .{});
         },
-        .register => {
-            return self.fail("TODO implement storing to MCValue.register", .{});
+        .register => |addr_reg| {
+            switch (value) {
+                .register => |value_reg| {
+                    _ = try self.addInst(.{
+                        .tag = .str,
+                        .cond = .al,
+                        .data = .{ .rr_offset = .{
+                            .rt = value_reg,
+                            .rn = addr_reg,
+                            .offset = .{ .offset = Instruction.Offset.none },
+                        } },
+                    });
+                },
+                else => {
+                    if (value_ty.abiSize(self.target.*) <= 4) {
+                        const tmp_reg = try self.register_manager.allocReg(null, &.{addr_reg});
+                        try self.genSetReg(value_ty, tmp_reg, value);
+
+                        try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
+                    } else {
+                        return self.fail("TODO implement memcpy", .{});
+                    }
+                },
+            }
         },
         .memory => {
+            // const addr_reg = try self.copyToTmpRegister(ptr_ty, ptr);
+            // try self.store(.{ .register = addr_reg }, value, ptr_ty, value_ty);
             return self.fail("TODO implement storing to MCValue.memory", .{});
         },
         .stack_offset => {
             return self.fail("TODO implement storing to MCValue.stack_offset", .{});
         },
     }
+}
+
+fn airStore(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ptr = try self.resolveInst(bin_op.lhs);
+    const value = try self.resolveInst(bin_op.rhs);
+    const ptr_ty = self.air.typeOf(bin_op.lhs);
+    const value_ty = self.air.typeOf(bin_op.rhs);
+
+    try self.store(ptr, value, ptr_ty, value_ty);
+
     return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
