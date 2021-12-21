@@ -7425,8 +7425,32 @@ fn zirOverflowArithmetic(
                     }
                 }
             },
-            .shl_with_overflow,
-            => return sema.fail(block, src, "TODO implement Sema.zirOverflowArithmetic for {}", .{zir_tag}),
+            .shl_with_overflow => {
+                // If lhs is zero, the result is zero and no overflow occurred.
+                // If rhs is zero, the result is lhs (even if undefined) and no overflow occurred.
+                // Oterhwise if either of the arguments is undefined, both results are undefined.
+                if (maybe_lhs_val) |lhs_val| {
+                    if (!lhs_val.isUndef() and lhs_val.compareWithZero(.eq)) {
+                        break :result .{ .overflowed = .no, .wrapped = lhs };
+                    }
+                }
+                if (maybe_rhs_val) |rhs_val| {
+                    if (!rhs_val.isUndef() and rhs_val.compareWithZero(.eq)) {
+                        break :result .{ .overflowed = .no, .wrapped = lhs };
+                    }
+                }
+                if (maybe_lhs_val) |lhs_val| {
+                    if (maybe_rhs_val) |rhs_val| {
+                        if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                            break :result .{ .overflowed = .undef, .wrapped = try sema.addConstUndef(dest_ty) };
+                        }
+
+                        const result = try lhs_val.shlWithOverflow(rhs_val, dest_ty, sema.arena, target);
+                        const inst = try sema.addConstant(dest_ty, result.wrapped_result);
+                        break :result .{ .overflowed = if (result.overflowed) .yes else .no, .wrapped = inst };
+                    }
+                }
+            },
             else => unreachable,
         }
 
@@ -7434,7 +7458,8 @@ fn zirOverflowArithmetic(
             .add_with_overflow => .add_with_overflow,
             .mul_with_overflow => .mul_with_overflow,
             .sub_with_overflow => .sub_with_overflow,
-            else => return sema.fail(block, src, "TODO implement runtime Sema.zirOverflowArithmetic for {}", .{zir_tag}),
+            .shl_with_overflow => .shl_with_overflow,
+            else => unreachable,
         };
 
         try sema.requireRuntimeBlock(block, src);
@@ -9041,11 +9066,17 @@ fn log2IntType(sema: *Sema, block: *Block, operand: Type, src: LazySrcLoc) Compi
     switch (operand.zigTypeTag()) {
         .ComptimeInt => return Air.Inst.Ref.comptime_int_type,
         .Int => {
-            var count: u16 = 0;
-            var s = operand.bitSize(sema.mod.getTarget()) - 1;
-            while (s != 0) : (s >>= 1) {
-                count += 1;
-            }
+            const bits = operand.bitSize(sema.mod.getTarget());
+            const count = if (bits == 0)
+                0
+            else blk: {
+                var count: u16 = 0;
+                var s = bits - 1;
+                while (s != 0) : (s >>= 1) {
+                    count += 1;
+                }
+                break :blk count;
+            };
             const res = try Module.makeIntType(sema.arena, .unsigned, count);
             return sema.addType(res);
         },

@@ -2548,6 +2548,37 @@ pub const Value = extern union {
         return fromBigInt(allocator, result_bigint.toConst());
     }
 
+    pub fn shlWithOverflow(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        allocator: Allocator,
+        target: Target,
+    ) !OverflowArithmeticResult {
+        const info = ty.intInfo(target);
+        var lhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs.toBigInt(&lhs_space);
+        const shift = @intCast(usize, rhs.toUnsignedInt());
+        const limbs = try allocator.alloc(
+            std.math.big.Limb,
+            lhs_bigint.limbs.len + (shift / (@sizeOf(std.math.big.Limb) * 8)) + 1,
+        );
+        var result_bigint = BigIntMutable{
+            .limbs = limbs,
+            .positive = undefined,
+            .len = undefined,
+        };
+        result_bigint.shiftLeft(lhs_bigint, shift);
+        const overflowed = !result_bigint.toConst().fitsInTwosComp(info.signedness, info.bits);
+        if (overflowed) {
+            result_bigint.truncate(result_bigint.toConst(), info.signedness, info.bits);
+        }
+        return OverflowArithmeticResult{
+            .overflowed = overflowed,
+            .wrapped_result = try fromBigInt(allocator, result_bigint.toConst()),
+        };
+    }
+
     pub fn shlSat(
         lhs: Value,
         rhs: Value,

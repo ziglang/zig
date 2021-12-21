@@ -153,6 +153,12 @@ pub const Inst = struct {
         /// of the operation.
         /// Uses the `pl_op` field with payload `Bin`.
         mul_with_overflow,
+        /// Integer left-shift with overflow. Both operands are guaranteed to be the same type,
+        /// and the result is bool. The wrapped value is written to the pointer given by the in
+        /// operand of the `pl_op` field. Payload is `Bin` with `lhs` and `rhs` the relevant types
+        /// of the operation.
+        /// Uses the `pl_op` field with payload `Bin`.
+        shl_with_overflow,
         /// Allocates stack local memory.
         /// Uses the `ty` field.
         alloc,
@@ -830,6 +836,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .add_with_overflow,
         .sub_with_overflow,
         .mul_with_overflow,
+        .shl_with_overflow,
         => return Type.initTag(.bool),
     }
 }

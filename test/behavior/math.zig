@@ -511,3 +511,31 @@ test "@subWithOverflow" {
     try expect(!@subWithOverflow(u8, a, b, &result));
     try expect(result == 0);
 }
+
+test "@shlWithOverflow" {
+    var result: u16 = undefined;
+    try expect(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
+    try expect(result == 0b0111111111111000);
+    try expect(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
+    try expect(result == 0b1011111111111100);
+
+    var a: u16 = 0b0000_0000_0000_0011;
+    var b: u4 = 15;
+    try expect(@shlWithOverflow(u16, a, b, &result));
+    try expect(result == 0b1000_0000_0000_0000);
+    b = 14;
+    try expect(!@shlWithOverflow(u16, a, b, &result));
+    try expect(result == 0b1100_0000_0000_0000);
+}
+
+test "overflow arithmetic with u0 values" {
+    var result: u0 = undefined;
+    try expect(!@addWithOverflow(u0, 0, 0, &result));
+    try expect(result == 0);
+    try expect(!@subWithOverflow(u0, 0, 0, &result));
+    try expect(result == 0);
+    try expect(!@mulWithOverflow(u0, 0, 0, &result));
+    try expect(result == 0);
+    try expect(!@shlWithOverflow(u0, 0, 0, &result));
+    try expect(result == 0);
+}

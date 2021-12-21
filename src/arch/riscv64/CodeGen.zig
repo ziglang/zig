@@ -503,6 +503,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                     .add_with_overflow => try self.airAddWithOverflow(inst),
                     .sub_with_overflow => try self.airSubWithOverflow(inst),
                     .mul_with_overflow => try self.airMulWithOverflow(inst),
+                    .shl_with_overflow => try self.airShlWithOverflow(inst),
 
                     .div_float, .div_trunc, .div_floor, .div_exact => try self.airDiv(inst),
 
@@ -920,17 +921,22 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     _ = inst;
-    return self.fail("TODO implement airAddResultWithOverflow for {}", .{self.target.cpu.arch});
+    return self.fail("TODO implement airAddWithOverflow for {}", .{self.target.cpu.arch});
 }
 
 fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     _ = inst;
-    return self.fail("TODO implement airSubResultWithOverflow for {}", .{self.target.cpu.arch});
+    return self.fail("TODO implement airSubWithOverflow for {}", .{self.target.cpu.arch});
 }
 
 fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     _ = inst;
-    return self.fail("TODO implement airMulResultWithOverflow for {}", .{self.target.cpu.arch});
+    return self.fail("TODO implement airMulWithOverflow for {}", .{self.target.cpu.arch});
+}
+
+fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airShlWithOverflow for {}", .{self.target.cpu.arch});
 }
 
 fn airDiv(self: *Self, inst: Air.Inst.Index) !void {

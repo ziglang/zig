@@ -1159,6 +1159,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .add_with_overflow => try airAddWithOverflow(f, inst),
             .sub_with_overflow => try airSubWithOverflow(f, inst),
             .mul_with_overflow => try airMulWithOverflow(f, inst),
+            .shl_with_overflow => try airShlWithOverflow(f, inst),
 
             .min => try airMinMax(f, inst, "<"),
             .max => try airMinMax(f, inst, ">"),
@@ -1885,6 +1886,12 @@ fn airMulWithOverflow(f: *Function, inst: Air.Inst.Index) !CValue {
     _ = f;
     _ = inst;
     return f.fail("TODO mul with overflow", .{});
+}
+
+fn airShlWithOverflow(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = f;
+    _ = inst;
+    return f.fail("TODO shl with overflow", .{});
 }
 
 fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {

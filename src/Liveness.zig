@@ -387,7 +387,8 @@ fn analyzeInst(
         .add_with_overflow,
         .sub_with_overflow,
         .mul_with_overflow,
-         => {
+        .shl_with_overflow,
+        => {
             const pl_op = inst_datas[inst].pl_op;
             const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, extra.lhs, extra.rhs });

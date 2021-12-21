@@ -233,6 +233,7 @@ const Writer = struct {
             .add_with_overflow,
             .sub_with_overflow,
             .mul_with_overflow,
+            .shl_with_overflow,
             => try w.writeOverflow(s, inst),
         }
     }

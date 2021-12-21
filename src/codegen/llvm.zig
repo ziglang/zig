@@ -1721,6 +1721,7 @@ pub const FuncGen = struct {
                 .add_with_overflow => try self.airOverflow(inst, "llvm.sadd.with.overflow", "llvm.uadd.with.overflow"),
                 .sub_with_overflow => try self.airOverflow(inst, "llvm.ssub.with.overflow", "llvm.usub.with.overflow"),
                 .mul_with_overflow => try self.airOverflow(inst, "llvm.smul.with.overflow", "llvm.umul.with.overflow"),
+                .shl_with_overflow => try self.airShlWithOverflow(inst),
 
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
@@ -3170,6 +3171,41 @@ pub const FuncGen = struct {
 
         const result = self.builder.buildExtractValue(result_struct, 0, "");
         const overflow_bit = self.builder.buildExtractValue(result_struct, 1, "");
+
+        self.store(ptr, ptr_ty, result, .NotAtomic);
+
+        return overflow_bit;
+    }
+
+    fn airShlWithOverflow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+
+        const ptr = try self.resolveInst(pl_op.operand);
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+
+        const ptr_ty = self.air.typeOf(pl_op.operand);
+        const lhs_ty = self.air.typeOf(extra.lhs);
+        const rhs_ty = self.air.typeOf(extra.rhs);
+
+        const tg = self.dg.module.getTarget();
+
+        const casted_rhs = if (rhs_ty.bitSize(tg) < lhs_ty.bitSize(tg))
+            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_ty), "")
+        else
+            rhs;
+
+        const result = self.builder.buildShl(lhs, casted_rhs, "");
+        const reconstructed = if (lhs_ty.isSignedInt())
+            self.builder.buildAShr(result, casted_rhs, "")
+        else
+            self.builder.buildLShr(result, casted_rhs, "");
+
+        const overflow_bit = self.builder.buildICmp(.NE, lhs, reconstructed, "");
 
         self.store(ptr, ptr_ty, result, .NotAtomic);
 

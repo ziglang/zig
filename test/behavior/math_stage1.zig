@@ -6,26 +6,6 @@ const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const mem = std.mem;
 
-test "@shlWithOverflow" {
-    var result: u16 = undefined;
-    try expect(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
-    try expect(result == 0b0111111111111000);
-    try expect(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
-    try expect(result == 0b1011111111111100);
-}
-
-test "overflow arithmetic with u0 values" {
-    var result: u0 = undefined;
-    try expect(!@addWithOverflow(u0, 0, 0, &result));
-    try expect(result == 0);
-    try expect(!@subWithOverflow(u0, 0, 0, &result));
-    try expect(result == 0);
-    try expect(!@mulWithOverflow(u0, 0, 0, &result));
-    try expect(result == 0);
-    try expect(!@shlWithOverflow(u0, 0, 0, &result));
-    try expect(result == 0);
-}
-
 test "@clz vectors" {
     try testClzVectors();
     comptime try testClzVectors();
