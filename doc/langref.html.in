@@ -2582,7 +2582,7 @@ test "Conversion between vectors, arrays, and slices" {
               <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
               <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
               <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
-              {#syntax#}c_void{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
+              {#syntax#}anyopaque{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
             </ul>
           </li>
       </ul>
@@ -6269,8 +6269,8 @@ test "turn HashMap into a set with void" {
       value is deleted, as seen above.
       </p>
       <p>
-      {#syntax#}void{#endsyntax#} is distinct from {#syntax#}c_void{#endsyntax#}.
-      {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}c_void{#endsyntax#} has an unknown, but non-zero, size.
+      {#syntax#}void{#endsyntax#} is distinct from {#syntax#}anyopaque{#endsyntax#}.
+      {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}anyopaque{#endsyntax#} has an unknown, but non-zero, size.
       </p>
       <p>
       Expressions of type {#syntax#}void{#endsyntax#} are the only ones whose value can be ignored. For example:
@@ -10618,8 +10618,10 @@ lib.addCSourceFile("src/lib.c", &[_][]const u8{
           <li>{#syntax#}c_longlong{#endsyntax#}</li>
           <li>{#syntax#}c_ulonglong{#endsyntax#}</li>
           <li>{#syntax#}c_longdouble{#endsyntax#}</li>
-          <li>{#syntax#}c_void{#endsyntax#}</li>
       </ul>
+      <p>
+      To interop with the C {#syntax#}void{#endsyntax#} type, use {#syntax#}anyopaque{#endsyntax#}.
+      </p>
       {#see_also|Primitive Types#}
       {#header_close#}
       {#header_open|Import from C Header File#}
