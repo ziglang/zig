@@ -519,6 +519,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                     .max             => try self.airMax(inst),
                     .slice           => try self.airSlice(inst),
 
+                    .add_with_overflow => try self.airAddWithOverflow(inst),
+                    .sub_with_overflow => try self.airSubWithOverflow(inst),
+                    .mul_with_overflow => try self.airMulWithOverflow(inst),
+                    .shl_with_overflow => try self.airShlWithOverflow(inst),
+
                     .div_float, .div_trunc, .div_floor, .div_exact => try self.airDiv(inst),
 
                     .cmp_lt  => try self.airCmp(inst, .lt),
@@ -543,6 +548,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                     .block           => try self.airBlock(inst),
                     .br              => try self.airBr(inst),
                     .breakpoint      => try self.airBreakpoint(),
+                    .ret_addr        => try self.airRetAddr(),
                     .fence           => try self.airFence(),
                     .call            => try self.airCall(inst),
                     .cond_br         => try self.airCondBr(inst),
@@ -996,6 +1002,26 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement mul_sat for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airAddWithOverflow for {}", .{self.target.cpu.arch});
+}
+
+fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airSubWithOverflow for {}", .{self.target.cpu.arch});
+}
+
+fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airMulWithOverflow for {}", .{self.target.cpu.arch});
+}
+
+fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airShlWithOverflow for {}", .{self.target.cpu.arch});
 }
 
 fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
@@ -1841,6 +1867,10 @@ fn airBreakpoint(self: *Self) !void {
         .data = .{ .imm16 = 0 },
     });
     return self.finishAirBookkeeping();
+}
+
+fn airRetAddr(self: *Self) !void {
+    return self.fail("TODO implement airRetAddr for {}", .{self.target.cpu.arch});
 }
 
 fn airFence(self: *Self) !void {

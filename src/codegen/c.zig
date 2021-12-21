@@ -1125,6 +1125,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .arg      => airArg(f),
 
             .breakpoint => try airBreakpoint(f),
+            .ret_addr   => try airRetAddr(f),
             .unreach    => try airUnreach(f),
             .fence      => try airFence(f, inst),
 
@@ -1154,6 +1155,11 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .sub_sat => try airSatOp(f, inst, "subs_"),
             .mul_sat => try airSatOp(f, inst, "muls_"),
             .shl_sat => try airSatOp(f, inst, "shls_"),
+
+            .add_with_overflow => try airAddWithOverflow(f, inst),
+            .sub_with_overflow => try airSubWithOverflow(f, inst),
+            .mul_with_overflow => try airMulWithOverflow(f, inst),
+            .shl_with_overflow => try airShlWithOverflow(f, inst),
 
             .min => try airMinMax(f, inst, "<"),
             .max => try airMinMax(f, inst, ">"),
@@ -1864,6 +1870,30 @@ fn airSatOp(f: *Function, inst: Air.Inst.Index, fn_op: [*:0]const u8) !CValue {
     return ret;
 }
 
+fn airAddWithOverflow(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = f;
+    _ = inst;
+    return f.fail("TODO add with overflow", .{});
+}
+
+fn airSubWithOverflow(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = f;
+    _ = inst;
+    return f.fail("TODO sub with overflow", .{});
+}
+
+fn airMulWithOverflow(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = f;
+    _ = inst;
+    return f.fail("TODO mul with overflow", .{});
+}
+
+fn airShlWithOverflow(f: *Function, inst: Air.Inst.Index) !CValue {
+    _ = f;
+    _ = inst;
+    return f.fail("TODO shl with overflow", .{});
+}
+
 fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {
     if (f.liveness.isUnused(inst))
         return CValue.none;
@@ -2181,6 +2211,10 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airBreakpoint(f: *Function) !CValue {
     try f.object.writer().writeAll("zig_breakpoint();\n");
     return CValue.none;
+}
+
+fn airRetAddr(f: *Function) !CValue {
+    return f.fail("TODO implement codegen for airRetAddr", .{});
 }
 
 fn airFence(f: *Function, inst: Air.Inst.Index) !CValue {

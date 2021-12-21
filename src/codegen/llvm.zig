@@ -761,21 +761,25 @@ pub const DeclGen = struct {
                     dg.context.intType(8);
                 return llvm_elem_ty.pointerType(llvm_addrspace);
             },
-            .Opaque => {
-                const gop = try dg.object.type_map.getOrPut(gpa, t);
-                if (gop.found_existing) return gop.value_ptr.*;
+            .Opaque => switch (t.tag()) {
+                .@"opaque" => {
+                    const gop = try dg.object.type_map.getOrPut(gpa, t);
+                    if (gop.found_existing) return gop.value_ptr.*;
 
-                // The Type memory is ephemeral; since we want to store a longer-lived
-                // reference, we need to copy it here.
-                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
+                    // The Type memory is ephemeral; since we want to store a longer-lived
+                    // reference, we need to copy it here.
+                    gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
-                const opaque_obj = t.castTag(.@"opaque").?.data;
-                const name = try opaque_obj.getFullyQualifiedName(gpa);
-                defer gpa.free(name);
+                    const opaque_obj = t.castTag(.@"opaque").?.data;
+                    const name = try opaque_obj.getFullyQualifiedName(gpa);
+                    defer gpa.free(name);
 
-                const llvm_struct_ty = dg.context.structCreateNamed(name);
-                gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
-                return llvm_struct_ty;
+                    const llvm_struct_ty = dg.context.structCreateNamed(name);
+                    gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
+                    return llvm_struct_ty;
+                },
+                .anyopaque => return dg.context.intType(8),
+                else => unreachable,
             },
             .Array => {
                 const elem_type = try dg.llvmType(t.childType());
@@ -1714,6 +1718,11 @@ pub const FuncGen = struct {
                 .max       => try self.airMax(inst),
                 .slice     => try self.airSlice(inst),
 
+                .add_with_overflow => try self.airOverflow(inst, "llvm.sadd.with.overflow", "llvm.uadd.with.overflow"),
+                .sub_with_overflow => try self.airOverflow(inst, "llvm.ssub.with.overflow", "llvm.usub.with.overflow"),
+                .mul_with_overflow => try self.airOverflow(inst, "llvm.smul.with.overflow", "llvm.umul.with.overflow"),
+                .shl_with_overflow => try self.airShlWithOverflow(inst),
+
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
                 .xor                => try self.airXor(inst),
@@ -1745,6 +1754,7 @@ pub const FuncGen = struct {
                 .br             => try self.airBr(inst),
                 .switch_br      => try self.airSwitchBr(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
+                .ret_addr       => try self.airRetAddr(inst),
                 .call           => try self.airCall(inst),
                 .cond_br        => try self.airCondBr(inst),
                 .intcast        => try self.airIntCast(inst),
@@ -3133,6 +3143,75 @@ pub const FuncGen = struct {
         }
     }
 
+    fn airOverflow(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        signed_intrinsic: []const u8,
+        unsigned_intrinsic: []const u8,
+    ) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+
+        const ptr = try self.resolveInst(pl_op.operand);
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+
+        const ptr_ty = self.air.typeOf(pl_op.operand);
+        const lhs_ty = self.air.typeOf(extra.lhs);
+
+        const intrinsic_name = if (lhs_ty.isSignedInt()) signed_intrinsic else unsigned_intrinsic;
+
+        const llvm_lhs_ty = try self.dg.llvmType(lhs_ty);
+
+        const llvm_fn = self.getIntrinsic(intrinsic_name, &.{llvm_lhs_ty});
+        const result_struct = self.builder.buildCall(llvm_fn, &[_]*const llvm.Value{ lhs, rhs }, 2, .Fast, .Auto, "");
+
+        const result = self.builder.buildExtractValue(result_struct, 0, "");
+        const overflow_bit = self.builder.buildExtractValue(result_struct, 1, "");
+
+        self.store(ptr, ptr_ty, result, .NotAtomic);
+
+        return overflow_bit;
+    }
+
+    fn airShlWithOverflow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+
+        const ptr = try self.resolveInst(pl_op.operand);
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+
+        const ptr_ty = self.air.typeOf(pl_op.operand);
+        const lhs_ty = self.air.typeOf(extra.lhs);
+        const rhs_ty = self.air.typeOf(extra.rhs);
+
+        const tg = self.dg.module.getTarget();
+
+        const casted_rhs = if (rhs_ty.bitSize(tg) < lhs_ty.bitSize(tg))
+            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_ty), "")
+        else
+            rhs;
+
+        const result = self.builder.buildShl(lhs, casted_rhs, "");
+        const reconstructed = if (lhs_ty.isSignedInt())
+            self.builder.buildAShr(result, casted_rhs, "")
+        else
+            self.builder.buildLShr(result, casted_rhs, "");
+
+        const overflow_bit = self.builder.buildICmp(.NE, lhs, reconstructed, "");
+
+        self.store(ptr, ptr_ty, result, .NotAtomic);
+
+        return overflow_bit;
+    }
+
     fn airAnd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
@@ -3511,9 +3590,18 @@ pub const FuncGen = struct {
 
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         _ = inst;
-        const llvm_fn = self.getIntrinsic("llvm.debugtrap");
+        const llvm_fn = self.getIntrinsic("llvm.debugtrap", &.{});
         _ = self.builder.buildCall(llvm_fn, undefined, 0, .C, .Auto, "");
         return null;
+    }
+
+    fn airRetAddr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        _ = inst;
+        const i32_zero = self.context.intType(32).constNull();
+        const usize_llvm_ty = try self.dg.llvmType(Type.usize);
+        const llvm_fn = self.getIntrinsic("llvm.returnaddress", &.{});
+        const ptr_val = self.builder.buildCall(llvm_fn, &[_]*const llvm.Value{i32_zero}, 1, .Fast, .Auto, "");
+        return self.builder.buildPtrToInt(ptr_val, usize_llvm_ty, "");
     }
 
     fn airFence(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -3946,13 +4034,10 @@ pub const FuncGen = struct {
         return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
     }
 
-    fn getIntrinsic(self: *FuncGen, name: []const u8) *const llvm.Value {
+    fn getIntrinsic(self: *FuncGen, name: []const u8, types: []*const llvm.Type) *const llvm.Value {
         const id = llvm.lookupIntrinsicID(name.ptr, name.len);
         assert(id != 0);
-        // TODO: add support for overload intrinsics by passing the prefix of the intrinsic
-        //       to `lookupIntrinsicID` and then passing the correct types to
-        //       `getIntrinsicDeclaration`
-        return self.llvmModule().getIntrinsicDeclaration(id, null, 0);
+        return self.llvmModule().getIntrinsicDeclaration(id, types.ptr, types.len);
     }
 
     fn load(self: *FuncGen, ptr: *const llvm.Value, ptr_ty: Type) ?*const llvm.Value {

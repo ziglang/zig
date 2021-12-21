@@ -796,15 +796,11 @@ pub const ErrorSet = struct {
     owner_decl: *Decl,
     /// Offset from Decl node index, points to the error set AST node.
     node_offset: i32,
-    names_len: u32,
     /// The string bytes are stored in the owner Decl arena.
     /// They are in the same order they appear in the AST.
-    /// The length is given by `names_len`.
-    names_ptr: [*]const []const u8,
+    names: NameMap,
 
-    pub fn names(self: ErrorSet) []const []const u8 {
-        return self.names_ptr[0..self.names_len];
-    }
+    pub const NameMap = std.StringArrayHashMapUnmanaged(void);
 
     pub fn srcLoc(self: ErrorSet) SrcLoc {
         return .{
@@ -1211,6 +1207,10 @@ pub const Fn = struct {
     is_cold: bool = false,
     is_noinline: bool = false,
 
+    /// Any inferred error sets that this function owns, both it's own inferred error set and
+    /// inferred error sets of any inline/comptime functions called.
+    inferred_error_sets: InferredErrorSetList = .{},
+
     pub const Analysis = enum {
         queued,
         /// This function intentionally only has ZIR generated because it is marked
@@ -1225,24 +1225,73 @@ pub const Fn = struct {
         success,
     };
 
-    pub fn deinit(func: *Fn, gpa: Allocator) void {
-        if (func.getInferredErrorSet()) |error_set_data| {
-            error_set_data.map.deinit(gpa);
-            error_set_data.functions.deinit(gpa);
-        }
-    }
+    /// This struct is used to keep track of any dependencies related to functions instances
+    /// that return inferred error sets. Note that a function may be associated to multiple different error sets,
+    /// for example an inferred error set which this function returns, but also any inferred error sets
+    /// of called inline or comptime functions.
+    pub const InferredErrorSet = struct {
+        /// The function from which this error set originates.
+        /// Note: may be the function itself.
+        func: *Fn,
 
-    pub fn getInferredErrorSet(func: *Fn) ?*Type.Payload.ErrorSetInferred.Data {
-        const ret_ty = func.owner_decl.ty.fnReturnType();
-        if (ret_ty.tag() == .generic_poison) {
-            return null;
-        }
-        if (ret_ty.zigTypeTag() == .ErrorUnion) {
-            if (ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
-                return &payload.data;
+        /// All currently known errors that this error set contains. This includes direct additions
+        /// via `return error.Foo;`, and possibly also errors that are returned from any dependent functions.
+        /// When the inferred error set is fully resolved, this map contains all the errors that the function might return.
+        errors: std.StringHashMapUnmanaged(void) = .{},
+
+        /// Other inferred error sets which this inferred error set should include.
+        inferred_error_sets: std.AutoHashMapUnmanaged(*InferredErrorSet, void) = .{},
+
+        /// Whether the function returned anyerror. This is true if either of the dependent functions
+        /// returns anyerror.
+        is_anyerror: bool = false,
+
+        /// Whether this error set is already fully resolved. If true, resolving can skip resolving any dependents
+        /// of this inferred error set.
+        is_resolved: bool = false,
+
+        pub fn addErrorSet(self: *InferredErrorSet, gpa: Allocator, err_set_ty: Type) !void {
+            switch (err_set_ty.tag()) {
+                .error_set => {
+                    const names = err_set_ty.castTag(.error_set).?.data.names.keys();
+                    for (names) |name| {
+                        try self.errors.put(gpa, name, {});
+                    }
+                },
+                .error_set_single => {
+                    const name = err_set_ty.castTag(.error_set_single).?.data;
+                    try self.errors.put(gpa, name, {});
+                },
+                .error_set_inferred => {
+                    const set = err_set_ty.castTag(.error_set_inferred).?.data;
+                    try self.inferred_error_sets.put(gpa, set, {});
+                },
+                .error_set_merged => {
+                    const names = err_set_ty.castTag(.error_set_merged).?.data.keys();
+                    for (names) |name| {
+                        try self.errors.put(gpa, name, {});
+                    }
+                },
+                .anyerror => {
+                    self.is_anyerror = true;
+                },
+                else => unreachable,
             }
         }
-        return null;
+    };
+
+    pub const InferredErrorSetList = std.SinglyLinkedList(InferredErrorSet);
+    pub const InferredErrorSetListNode = InferredErrorSetList.Node;
+
+    pub fn deinit(func: *Fn, gpa: Allocator) void {
+        var it = func.inferred_error_sets.first;
+        while (it) |node| {
+            const next = node.next;
+            node.data.errors.deinit(gpa);
+            node.data.inferred_error_sets.deinit(gpa);
+            gpa.destroy(node);
+            it = next;
+        }
     }
 };
 

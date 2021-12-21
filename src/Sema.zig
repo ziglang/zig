@@ -940,6 +940,15 @@ pub fn analyzeBody(
                 const inst_data = datas[inst].pl_node;
                 const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
                 const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+                // If this block contains a function prototype, we need to reset the
+                // current list of parameters and restore it later.
+                // Note: this probably needs to be resolved in a more general manner.
+                const prev_params = block.params;
+                block.params = .{};
+                defer {
+                    block.params.deinit(sema.gpa);
+                    block.params = prev_params;
+                }
                 const break_inst = try sema.analyzeBody(block, inline_body);
                 const break_data = datas[break_inst].@"break";
                 if (inst == break_data.block_inst) {
@@ -953,6 +962,15 @@ pub fn analyzeBody(
                 const inst_data = datas[inst].pl_node;
                 const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
                 const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+                // If this block contains a function prototype, we need to reset the
+                // current list of parameters and restore it later.
+                // Note: this probably needs to be resolved in a more general manner.
+                const prev_params = block.params;
+                block.params = .{};
+                defer {
+                    block.params.deinit(sema.gpa);
+                    block.params = prev_params;
+                }
                 const break_inst = try sema.analyzeBody(block, inline_body);
                 const break_data = datas[break_inst].@"break";
                 if (inst == break_data.block_inst) {
@@ -1033,10 +1051,10 @@ fn zirExtended(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .@"asm"             => return sema.zirAsm(               block, extended, inst),
         .typeof_peer        => return sema.zirTypeofPeer(        block, extended),
         .compile_log        => return sema.zirCompileLog(        block, extended),
-        .add_with_overflow  => return sema.zirOverflowArithmetic(block, extended),
-        .sub_with_overflow  => return sema.zirOverflowArithmetic(block, extended),
-        .mul_with_overflow  => return sema.zirOverflowArithmetic(block, extended),
-        .shl_with_overflow  => return sema.zirOverflowArithmetic(block, extended),
+        .add_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
+        .sub_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
+        .mul_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
+        .shl_with_overflow  => return sema.zirOverflowArithmetic(block, extended, extended.opcode),
         .c_undef            => return sema.zirCUndef(            block, extended),
         .c_include          => return sema.zirCInclude(          block, extended),
         .c_define           => return sema.zirCDefine(           block, extended),
@@ -2025,15 +2043,22 @@ fn zirErrorSetDecl(
     }, type_name);
     new_decl.owns_tv = true;
     errdefer sema.mod.abortAnonDecl(new_decl);
-    const names = try new_decl_arena_allocator.alloc([]const u8, fields.len);
-    for (fields) |str_index, i| {
-        names[i] = try new_decl_arena_allocator.dupe(u8, sema.code.nullTerminatedString(str_index));
+
+    var names = Module.ErrorSet.NameMap{};
+    try names.ensureUnusedCapacity(new_decl_arena_allocator, fields.len);
+    for (fields) |str_index| {
+        const name = try new_decl_arena_allocator.dupe(u8, sema.code.nullTerminatedString(str_index));
+
+        // TODO: This check should be performed in AstGen instead.
+        const result = names.getOrPutAssumeCapacity(name);
+        if (result.found_existing) {
+            return sema.fail(block, src, "duplicate error set field {s}", .{name});
+        }
     }
     error_set.* = .{
         .owner_decl = new_decl,
         .node_offset = inst_data.src_node,
-        .names_ptr = names.ptr,
-        .names_len = @intCast(u32, names.len),
+        .names = names,
     };
     try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclVal(block, src, new_decl);
@@ -3887,17 +3912,20 @@ fn analyzeCall(
         const ret_ty_inst = try sema.resolveBody(&child_block, fn_info.ret_ty_body);
         const ret_ty_src = func_src; // TODO better source location
         const bare_return_type = try sema.analyzeAsType(&child_block, ret_ty_src, ret_ty_inst);
-        // If the function has an inferred error set, `bare_return_type` is the payload type only.
+        // Create a fresh inferred error set type for inline/comptime calls.
         const fn_ret_ty = blk: {
-            // TODO instead of reusing the function's inferred error set, this code should
-            // create a temporary error set which is used for the comptime/inline function
-            // call alone, independent from the runtime instantiation.
             if (func_ty_info.return_type.castTag(.error_union)) |payload| {
-                const error_set_ty = payload.data.error_set;
-                break :blk try Type.Tag.error_union.create(sema.arena, .{
-                    .error_set = error_set_ty,
-                    .payload = bare_return_type,
-                });
+                if (payload.data.error_set.tag() == .error_set_inferred) {
+                    const node = try sema.gpa.create(Module.Fn.InferredErrorSetListNode);
+                    node.data = .{ .func = module_fn };
+                    parent_func.?.inferred_error_sets.prepend(node);
+
+                    const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, &node.data);
+                    break :blk try Type.Tag.error_union.create(sema.arena, .{
+                        .error_set = error_set_ty,
+                        .payload = bare_return_type,
+                    });
+                }
             }
             break :blk bare_return_type;
         };
@@ -4556,63 +4584,43 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         return Air.Inst.Ref.anyerror_type;
     }
     // Resolve both error sets now.
-    var set: std.StringHashMapUnmanaged(void) = .{};
-    defer set.deinit(sema.gpa);
+    const lhs_names = switch (lhs_ty.tag()) {
+        .error_set_single => blk: {
+            // Work around coercion problems
+            const tmp: *const [1][]const u8 = &lhs_ty.castTag(.error_set_single).?.data;
+            break :blk tmp;
+        },
+        .error_set_merged => lhs_ty.castTag(.error_set_merged).?.data.keys(),
+        .error_set => lhs_ty.castTag(.error_set).?.data.names.keys(),
+        else => unreachable,
+    };
 
-    switch (lhs_ty.tag()) {
-        .error_set_single => {
-            const name = lhs_ty.castTag(.error_set_single).?.data;
-            try set.put(sema.gpa, name, {});
+    const rhs_names = switch (rhs_ty.tag()) {
+        .error_set_single => blk: {
+            const tmp: *const [1][]const u8 = &rhs_ty.castTag(.error_set_single).?.data;
+            break :blk tmp;
         },
-        .error_set_merged => {
-            const names = lhs_ty.castTag(.error_set_merged).?.data;
-            for (names) |name| {
-                try set.put(sema.gpa, name, {});
-            }
-        },
-        .error_set => {
-            const lhs_set = lhs_ty.castTag(.error_set).?.data;
-            try set.ensureUnusedCapacity(sema.gpa, lhs_set.names_len);
-            for (lhs_set.names_ptr[0..lhs_set.names_len]) |name| {
-                set.putAssumeCapacityNoClobber(name, {});
-            }
-        },
+        .error_set_merged => rhs_ty.castTag(.error_set_merged).?.data.keys(),
+        .error_set => rhs_ty.castTag(.error_set).?.data.names.keys(),
         else => unreachable,
-    }
-    switch (rhs_ty.tag()) {
-        .error_set_single => {
-            const name = rhs_ty.castTag(.error_set_single).?.data;
-            try set.put(sema.gpa, name, {});
-        },
-        .error_set_merged => {
-            const names = rhs_ty.castTag(.error_set_merged).?.data;
-            for (names) |name| {
-                try set.put(sema.gpa, name, {});
-            }
-        },
-        .error_set => {
-            const rhs_set = rhs_ty.castTag(.error_set).?.data;
-            try set.ensureUnusedCapacity(sema.gpa, rhs_set.names_len);
-            for (rhs_set.names_ptr[0..rhs_set.names_len]) |name| {
-                set.putAssumeCapacity(name, {});
-            }
-        },
-        else => unreachable,
-    }
+    };
 
     // TODO do we really want to create a Decl for this?
     // The reason we do it right now is for memory management.
     var anon_decl = try block.startAnonDecl();
     defer anon_decl.deinit();
 
-    const new_names = try anon_decl.arena().alloc([]const u8, set.count());
-    var it = set.keyIterator();
-    var i: usize = 0;
-    while (it.next()) |key| : (i += 1) {
-        new_names[i] = key.*;
+    var names = Module.ErrorSet.NameMap{};
+    // TODO: Guess is an upper bound, but maybe this needs to be reduced by computing the exact size first.
+    try names.ensureUnusedCapacity(anon_decl.arena(), @intCast(u32, lhs_names.len + rhs_names.len));
+    for (lhs_names) |name| {
+        names.putAssumeCapacityNoClobber(name, {});
+    }
+    for (rhs_names) |name| {
+        names.putAssumeCapacity(name, {});
     }
 
-    const err_set_ty = try Type.Tag.error_set_merged.create(anon_decl.arena(), new_names);
+    const err_set_ty = try Type.Tag.error_set_merged.create(anon_decl.arena(), names);
     const err_set_decl = try anon_decl.finish(
         Type.type,
         try Value.Tag.ty.create(anon_decl.arena(), err_set_ty),
@@ -5079,6 +5087,10 @@ fn funcCommon(
     };
     errdefer if (body_inst != 0) sema.gpa.destroy(new_func);
 
+    var maybe_inferred_error_set_node: ?*Module.Fn.InferredErrorSetListNode = null;
+    errdefer if (maybe_inferred_error_set_node) |node| sema.gpa.destroy(node);
+    // Note: no need to errdefer since this will still be in its default state at the end of the function.
+
     const fn_ty: Type = fn_ty: {
         // Hot path for some common function types.
         // TODO can we eliminate some of these Type tag values? seems unnecessarily complicated.
@@ -5120,12 +5132,11 @@ fn funcCommon(
         const return_type = if (!inferred_error_set or bare_return_type.tag() == .generic_poison)
             bare_return_type
         else blk: {
-            const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, .{
-                .func = new_func,
-                .map = .{},
-                .functions = .{},
-                .is_anyerror = false,
-            });
+            const node = try sema.gpa.create(Module.Fn.InferredErrorSetListNode);
+            node.data = .{ .func = new_func };
+            maybe_inferred_error_set_node = node;
+
+            const error_set_ty = try Type.Tag.error_set_inferred.create(sema.arena, &node.data);
             break :blk try Type.Tag.error_union.create(sema.arena, .{
                 .error_set = error_set_ty,
                 .payload = bare_return_type,
@@ -5217,6 +5228,10 @@ fn funcCommon(
         .lbrace_column = @truncate(u16, src_locs.columns),
         .rbrace_column = @truncate(u16, src_locs.columns >> 16),
     };
+    if (maybe_inferred_error_set_node) |node| {
+        new_func.inferred_error_sets.prepend(node);
+    }
+    maybe_inferred_error_set_node = null;
     fn_payload.* = .{
         .base = .{ .tag = .function },
         .data = new_func,
@@ -5368,7 +5383,7 @@ fn zirPtrToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const ptr = sema.resolveInst(inst_data.operand);
     const ptr_ty = sema.typeOf(ptr);
-    if (ptr_ty.zigTypeTag() != .Pointer) {
+    if (!ptr_ty.isPtrAtRuntime()) {
         const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
         return sema.fail(block, ptr_src, "expected pointer, found '{}'", .{ptr_ty});
     }
@@ -7295,6 +7310,7 @@ fn zirOverflowArithmetic(
     sema: *Sema,
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
+    zir_tag: Zir.Inst.Extended,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -7302,7 +7318,170 @@ fn zirOverflowArithmetic(
     const extra = sema.code.extraData(Zir.Inst.OverflowArithmetic, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset = extra.node };
 
-    return sema.fail(block, src, "TODO implement Sema.zirOverflowArithmetic", .{});
+    const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+    const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = extra.node };
+
+    const lhs = sema.resolveInst(extra.lhs);
+    const rhs = sema.resolveInst(extra.rhs);
+    const ptr = sema.resolveInst(extra.ptr);
+
+    const lhs_ty = sema.typeOf(lhs);
+
+    // Note, the types of lhs/rhs (also for shifting)/ptr are already correct as ensured by astgen.
+    const dest_ty = lhs_ty;
+    if (dest_ty.zigTypeTag() != .Int) {
+        return sema.fail(block, src, "expected integer type, found '{}'", .{dest_ty});
+    }
+
+    const target = sema.mod.getTarget();
+
+    const maybe_lhs_val = try sema.resolveMaybeUndefVal(block, lhs_src, lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefVal(block, rhs_src, rhs);
+
+    const result: struct {
+        overflowed: enum { yes, no, undef },
+        wrapped: Air.Inst.Ref,
+    } = result: {
+        switch (zir_tag) {
+            .add_with_overflow => {
+                // If either of the arguments is zero, `false` is returned and the other is stored
+                // to the result, even if it is undefined..
+                // Otherwise, if either of the argument is undefined, undefined is returned.
+                if (maybe_lhs_val) |lhs_val| {
+                    if (!lhs_val.isUndef() and lhs_val.compareWithZero(.eq)) {
+                        break :result .{ .overflowed = .no, .wrapped = rhs };
+                    }
+                }
+                if (maybe_rhs_val) |rhs_val| {
+                    if (!rhs_val.isUndef() and rhs_val.compareWithZero(.eq)) {
+                        break :result .{ .overflowed = .no, .wrapped = lhs };
+                    }
+                }
+                if (maybe_lhs_val) |lhs_val| {
+                    if (maybe_rhs_val) |rhs_val| {
+                        if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                            break :result .{ .overflowed = .undef, .wrapped = try sema.addConstUndef(dest_ty) };
+                        }
+
+                        const result = try lhs_val.intAddWithOverflow(rhs_val, dest_ty, sema.arena, target);
+                        const inst = try sema.addConstant(dest_ty, result.wrapped_result);
+                        break :result .{ .overflowed = if (result.overflowed) .yes else .no, .wrapped = inst };
+                    }
+                }
+            },
+            .sub_with_overflow => {
+                // If the rhs is zero, then the result is lhs and no overflow occured.
+                // Otherwise, if either result is undefined, both results are undefined.
+                if (maybe_rhs_val) |rhs_val| {
+                    if (rhs_val.isUndef()) {
+                        break :result .{ .overflowed = .undef, .wrapped = try sema.addConstUndef(dest_ty) };
+                    } else if (rhs_val.compareWithZero(.eq)) {
+                        break :result .{ .overflowed = .no, .wrapped = lhs };
+                    } else if (maybe_lhs_val) |lhs_val| {
+                        if (lhs_val.isUndef()) {
+                            break :result .{ .overflowed = .undef, .wrapped = try sema.addConstUndef(dest_ty) };
+                        }
+
+                        const result = try lhs_val.intSubWithOverflow(rhs_val, dest_ty, sema.arena, target);
+                        const inst = try sema.addConstant(dest_ty, result.wrapped_result);
+                        break :result .{ .overflowed = if (result.overflowed) .yes else .no, .wrapped = inst };
+                    }
+                }
+            },
+            .mul_with_overflow => {
+                // If either of the arguments is zero, the result is zero and no overflow occured.
+                // If either of the arguments is one, the result is the other and no overflow occured.
+                // Otherwise, if either of the arguments is undefined, both results are undefined.
+                if (maybe_lhs_val) |lhs_val| {
+                    if (!lhs_val.isUndef()) {
+                        if (lhs_val.compareWithZero(.eq)) {
+                            break :result .{ .overflowed = .no, .wrapped = lhs };
+                        } else if (lhs_val.compare(.eq, Value.one, dest_ty)) {
+                            break :result .{ .overflowed = .no, .wrapped = rhs };
+                        }
+                    }
+                }
+
+                if (maybe_rhs_val) |rhs_val| {
+                    if (!rhs_val.isUndef()) {
+                        if (rhs_val.compareWithZero(.eq)) {
+                            break :result .{ .overflowed = .no, .wrapped = rhs };
+                        } else if (rhs_val.compare(.eq, Value.one, dest_ty)) {
+                            break :result .{ .overflowed = .no, .wrapped = lhs };
+                        }
+                    }
+                }
+
+                if (maybe_lhs_val) |lhs_val| {
+                    if (maybe_rhs_val) |rhs_val| {
+                        if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                            break :result .{ .overflowed = .undef, .wrapped = try sema.addConstUndef(dest_ty) };
+                        }
+
+                        const result = try lhs_val.intMulWithOverflow(rhs_val, dest_ty, sema.arena, target);
+                        const inst = try sema.addConstant(dest_ty, result.wrapped_result);
+                        break :result .{ .overflowed = if (result.overflowed) .yes else .no, .wrapped = inst };
+                    }
+                }
+            },
+            .shl_with_overflow => {
+                // If lhs is zero, the result is zero and no overflow occurred.
+                // If rhs is zero, the result is lhs (even if undefined) and no overflow occurred.
+                // Oterhwise if either of the arguments is undefined, both results are undefined.
+                if (maybe_lhs_val) |lhs_val| {
+                    if (!lhs_val.isUndef() and lhs_val.compareWithZero(.eq)) {
+                        break :result .{ .overflowed = .no, .wrapped = lhs };
+                    }
+                }
+                if (maybe_rhs_val) |rhs_val| {
+                    if (!rhs_val.isUndef() and rhs_val.compareWithZero(.eq)) {
+                        break :result .{ .overflowed = .no, .wrapped = lhs };
+                    }
+                }
+                if (maybe_lhs_val) |lhs_val| {
+                    if (maybe_rhs_val) |rhs_val| {
+                        if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                            break :result .{ .overflowed = .undef, .wrapped = try sema.addConstUndef(dest_ty) };
+                        }
+
+                        const result = try lhs_val.shlWithOverflow(rhs_val, dest_ty, sema.arena, target);
+                        const inst = try sema.addConstant(dest_ty, result.wrapped_result);
+                        break :result .{ .overflowed = if (result.overflowed) .yes else .no, .wrapped = inst };
+                    }
+                }
+            },
+            else => unreachable,
+        }
+
+        const air_tag: Air.Inst.Tag = switch (zir_tag) {
+            .add_with_overflow => .add_with_overflow,
+            .mul_with_overflow => .mul_with_overflow,
+            .sub_with_overflow => .sub_with_overflow,
+            .shl_with_overflow => .shl_with_overflow,
+            else => unreachable,
+        };
+
+        try sema.requireRuntimeBlock(block, src);
+        return block.addInst(.{
+            .tag = air_tag,
+            .data = .{ .pl_op = .{
+                .operand = ptr,
+                .payload = try sema.addExtra(Air.Bin{
+                    .lhs = lhs,
+                    .rhs = rhs,
+                }),
+            } },
+        });
+    };
+
+    try sema.storePtr2(block, src, ptr, ptr_src, result.wrapped, src, .store);
+
+    return switch (result.overflowed) {
+        .yes => Air.Inst.Ref.bool_true,
+        .no => Air.Inst.Ref.bool_false,
+        .undef => try sema.addConstUndef(Type.initTag(.bool)),
+    };
 }
 
 fn analyzeArithmetic(
@@ -8635,8 +8814,12 @@ fn zirRetAddr(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
-    return sema.fail(block, src, "TODO: implement Sema.zirRetAddr", .{});
+    try sema.requireRuntimeBlock(block, src);
+    return try block.addNoOp(.ret_addr);
 }
 
 fn zirBuiltinSrc(
@@ -8777,7 +8960,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         },
         .Pointer => {
             const info = ty.ptrInfo().data;
-            const field_values = try sema.arena.alloc(Value, 7);
+            const field_values = try sema.arena.alloc(Value, 8);
             // size: Size,
             field_values[0] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.size));
             // is_const: bool,
@@ -8786,12 +8969,14 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             field_values[2] = if (info.@"volatile") Value.initTag(.bool_true) else Value.initTag(.bool_false);
             // alignment: comptime_int,
             field_values[3] = try Value.Tag.int_u64.create(sema.arena, info.@"align");
+            // address_space: AddressSpace
+            field_values[4] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.@"addrspace"));
             // child: type,
-            field_values[4] = try Value.Tag.ty.create(sema.arena, info.pointee_type);
+            field_values[5] = try Value.Tag.ty.create(sema.arena, info.pointee_type);
             // is_allowzero: bool,
-            field_values[5] = if (info.@"allowzero") Value.initTag(.bool_true) else Value.initTag(.bool_false);
+            field_values[6] = if (info.@"allowzero") Value.initTag(.bool_true) else Value.initTag(.bool_false);
             // sentinel: anytype,
-            field_values[6] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.@"null";
+            field_values[7] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.@"null";
 
             return sema.addConstant(
                 type_info_ty,
@@ -8881,11 +9066,17 @@ fn log2IntType(sema: *Sema, block: *Block, operand: Type, src: LazySrcLoc) Compi
     switch (operand.zigTypeTag()) {
         .ComptimeInt => return Air.Inst.Ref.comptime_int_type,
         .Int => {
-            var count: u16 = 0;
-            var s = operand.bitSize(sema.mod.getTarget()) - 1;
-            while (s != 0) : (s >>= 1) {
-                count += 1;
-            }
+            const bits = operand.bitSize(sema.mod.getTarget());
+            const count = if (bits == 0)
+                0
+            else blk: {
+                var count: u16 = 0;
+                var s = bits - 1;
+                while (s != 0) : (s >>= 1) {
+                    count += 1;
+                }
+                break :blk count;
+            };
             const res = try Module.makeIntType(sema.arena, .unsigned, count);
             return sema.addType(res);
         },
@@ -11425,14 +11616,8 @@ fn fieldVal(
             switch (child_type.zigTypeTag()) {
                 .ErrorSet => {
                     const name: []const u8 = if (child_type.castTag(.error_set)) |payload| blk: {
-                        const error_set = payload.data;
-                        // TODO this is O(N). I'm putting off solving this until we solve inferred
-                        // error sets at the same time.
-                        const names = error_set.names_ptr[0..error_set.names_len];
-                        for (names) |name| {
-                            if (mem.eql(u8, field_name, name)) {
-                                break :blk name;
-                            }
+                        if (payload.data.names.getEntry(field_name)) |entry| {
+                            break :blk entry.key_ptr.*;
                         }
                         return sema.fail(block, src, "no error named '{s}' in '{}'", .{
                             field_name, child_type,
@@ -11630,14 +11815,8 @@ fn fieldPtr(
                 .ErrorSet => {
                     // TODO resolve inferred error sets
                     const name: []const u8 = if (child_type.castTag(.error_set)) |payload| blk: {
-                        const error_set = payload.data;
-                        // TODO this is O(N). I'm putting off solving this until we solve inferred
-                        // error sets at the same time.
-                        const names = error_set.names_ptr[0..error_set.names_len];
-                        for (names) |name| {
-                            if (mem.eql(u8, field_name, name)) {
-                                break :blk name;
-                            }
+                        if (payload.data.names.getEntry(field_name)) |entry| {
+                            break :blk entry.key_ptr.*;
                         }
                         return sema.fail(block, src, "no error named '{s}' in '{}'", .{
                             field_name, child_type,
@@ -12207,7 +12386,7 @@ fn coerce(
     const arena = sema.arena;
     const target = sema.mod.getTarget();
 
-    const in_memory_result = coerceInMemoryAllowed(dest_ty, inst_ty, false, target);
+    const in_memory_result = try sema.coerceInMemoryAllowed(dest_ty, inst_ty, false, target);
     if (in_memory_result == .ok) {
         if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
             // Keep the comptime Value representation; take the new type.
@@ -12266,7 +12445,7 @@ fn coerce(
                 if (inst_ty.isConstPtr() and dest_is_mut) break :single_item;
                 if (inst_ty.isVolatilePtr() and !dest_info.@"volatile") break :single_item;
                 if (inst_ty.ptrAddressSpace() != dest_info.@"addrspace") break :single_item;
-                switch (coerceInMemoryAllowed(array_elem_ty, ptr_elem_ty, dest_is_mut, target)) {
+                switch (try sema.coerceInMemoryAllowed(array_elem_ty, ptr_elem_ty, dest_is_mut, target)) {
                     .ok => {},
                     .no_match => break :single_item,
                 }
@@ -12285,7 +12464,7 @@ fn coerce(
                 if (inst_ty.ptrAddressSpace() != dest_info.@"addrspace") break :src_array_ptr;
 
                 const dst_elem_type = dest_info.pointee_type;
-                switch (coerceInMemoryAllowed(dst_elem_type, array_elem_type, dest_is_mut, target)) {
+                switch (try sema.coerceInMemoryAllowed(dst_elem_type, array_elem_type, dest_is_mut, target)) {
                     .ok => {},
                     .no_match => break :src_array_ptr,
                 }
@@ -12324,7 +12503,7 @@ fn coerce(
                 const src_elem_ty = inst_ty.childType();
                 const dest_is_mut = dest_info.mutable;
                 const dst_elem_type = dest_info.pointee_type;
-                switch (coerceInMemoryAllowed(dst_elem_type, src_elem_ty, dest_is_mut, target)) {
+                switch (try sema.coerceInMemoryAllowed(dst_elem_type, src_elem_ty, dest_is_mut, target)) {
                     .ok => {},
                     .no_match => break :src_c_ptr,
                 }
@@ -12467,7 +12646,13 @@ const InMemoryCoercionResult = enum {
 /// * sentinel-terminated pointers can coerce into `[*]`
 /// TODO improve this function to report recursive compile errors like it does in stage1.
 /// look at the function types_match_const_cast_only
-fn coerceInMemoryAllowed(dest_ty: Type, src_ty: Type, dest_is_mut: bool, target: std.Target) InMemoryCoercionResult {
+fn coerceInMemoryAllowed(
+    sema: *Sema,
+    dest_ty: Type,
+    src_ty: Type,
+    dest_is_mut: bool,
+    target: std.Target,
+) CompileError!InMemoryCoercionResult {
     if (dest_ty.eql(src_ty))
         return .ok;
 
@@ -12476,32 +12661,35 @@ fn coerceInMemoryAllowed(dest_ty: Type, src_ty: Type, dest_is_mut: bool, target:
     var src_buf: Type.Payload.ElemType = undefined;
     if (dest_ty.ptrOrOptionalPtrTy(&dest_buf)) |dest_ptr_ty| {
         if (src_ty.ptrOrOptionalPtrTy(&src_buf)) |src_ptr_ty| {
-            return coerceInMemoryAllowedPtrs(dest_ty, src_ty, dest_ptr_ty, src_ptr_ty, dest_is_mut, target);
+            return try sema.coerceInMemoryAllowedPtrs(dest_ty, src_ty, dest_ptr_ty, src_ptr_ty, dest_is_mut, target);
         }
     }
 
     // Slices
     if (dest_ty.isSlice() and src_ty.isSlice()) {
-        return coerceInMemoryAllowedPtrs(dest_ty, src_ty, dest_ty, src_ty, dest_is_mut, target);
+        return try sema.coerceInMemoryAllowedPtrs(dest_ty, src_ty, dest_ty, src_ty, dest_is_mut, target);
     }
 
+    const dest_tag = dest_ty.zigTypeTag();
+    const src_tag = src_ty.zigTypeTag();
+
     // Functions
-    if (dest_ty.zigTypeTag() == .Fn and src_ty.zigTypeTag() == .Fn) {
-        return coerceInMemoryAllowedFns(dest_ty, src_ty, target);
+    if (dest_tag == .Fn and src_tag == .Fn) {
+        return try sema.coerceInMemoryAllowedFns(dest_ty, src_ty, target);
     }
 
     // Error Unions
-    if (dest_ty.zigTypeTag() == .ErrorUnion and src_ty.zigTypeTag() == .ErrorUnion) {
-        const child = coerceInMemoryAllowed(dest_ty.errorUnionPayload(), src_ty.errorUnionPayload(), dest_is_mut, target);
+    if (dest_tag == .ErrorUnion and src_tag == .ErrorUnion) {
+        const child = try sema.coerceInMemoryAllowed(dest_ty.errorUnionPayload(), src_ty.errorUnionPayload(), dest_is_mut, target);
         if (child == .no_match) {
             return child;
         }
-        return coerceInMemoryAllowed(dest_ty.errorUnionSet(), src_ty.errorUnionSet(), dest_is_mut, target);
+        return try sema.coerceInMemoryAllowed(dest_ty.errorUnionSet(), src_ty.errorUnionSet(), dest_is_mut, target);
     }
 
     // Error Sets
-    if (dest_ty.zigTypeTag() == .ErrorSet and src_ty.zigTypeTag() == .ErrorSet) {
-        return coerceInMemoryAllowedErrorSets(dest_ty, src_ty);
+    if (dest_tag == .ErrorSet and src_tag == .ErrorSet) {
+        return try sema.coerceInMemoryAllowedErrorSets(dest_ty, src_ty);
     }
 
     // TODO: arrays
@@ -12512,14 +12700,16 @@ fn coerceInMemoryAllowed(dest_ty: Type, src_ty: Type, dest_is_mut: bool, target:
 }
 
 fn coerceInMemoryAllowedErrorSets(
+    sema: *Sema,
     dest_ty: Type,
     src_ty: Type,
-) InMemoryCoercionResult {
-    // Coercion to `anyerror`. Note that this check can return false positives
+) !InMemoryCoercionResult {
+    // Coercion to `anyerror`. Note that this check can return false negatives
     // in case the error sets did not get resolved.
     if (dest_ty.isAnyError()) {
         return .ok;
     }
+
     // If both are inferred error sets of functions, and
     // the dest includes the source function, the coercion is OK.
     // This check is important because it works without forcing a full resolution
@@ -12529,21 +12719,85 @@ fn coerceInMemoryAllowedErrorSets(
             const src_func = src_payload.data.func;
             const dst_func = dst_payload.data.func;
 
-            if (src_func == dst_func or dst_payload.data.functions.contains(src_func)) {
+            if (src_func == dst_func or dst_payload.data.inferred_error_sets.contains(src_payload.data)) {
                 return .ok;
             }
+            return .no_match;
         }
     }
 
-    // TODO full error set resolution and compare sets by names.
+    if (dest_ty.castTag(.error_set_inferred)) |payload| {
+        try sema.resolveInferredErrorSet(payload.data);
+        // isAnyError might have changed from a false negative to a true positive after resolution.
+        if (dest_ty.isAnyError()) {
+            return .ok;
+        }
+    }
+
+    switch (src_ty.tag()) {
+        .error_set_inferred => {
+            const src_data = src_ty.castTag(.error_set_inferred).?.data;
+
+            try sema.resolveInferredErrorSet(src_data);
+            // src anyerror status might have changed after the resolution.
+            if (src_ty.isAnyError()) {
+                // dest_ty.isAnyError() == true is already checked for at this point.
+                return .no_match;
+            }
+
+            var it = src_data.errors.keyIterator();
+            while (it.next()) |name_ptr| {
+                if (!dest_ty.errorSetHasField(name_ptr.*)) {
+                    return .no_match;
+                }
+            }
+
+            return .ok;
+        },
+        .error_set_single => {
+            const name = src_ty.castTag(.error_set_single).?.data;
+            if (dest_ty.errorSetHasField(name)) {
+                return .ok;
+            }
+        },
+        .error_set_merged => {
+            const names = src_ty.castTag(.error_set_merged).?.data.keys();
+            for (names) |name| {
+                if (!dest_ty.errorSetHasField(name)) {
+                    return .no_match;
+                }
+            }
+
+            return .ok;
+        },
+        .error_set => {
+            const names = src_ty.castTag(.error_set).?.data.names.keys();
+            for (names) |name| {
+                if (!dest_ty.errorSetHasField(name)) {
+                    return .no_match;
+                }
+            }
+
+            return .ok;
+        },
+        .anyerror => switch (dest_ty.tag()) {
+            .error_set_inferred => return .no_match, // Caught by dest.isAnyError() above.
+            .error_set_single, .error_set_merged, .error_set => {},
+            .anyerror => unreachable, // Filtered out above.
+            else => unreachable,
+        },
+        else => unreachable,
+    }
+
     return .no_match;
 }
 
 fn coerceInMemoryAllowedFns(
+    sema: *Sema,
     dest_ty: Type,
     src_ty: Type,
     target: std.Target,
-) InMemoryCoercionResult {
+) !InMemoryCoercionResult {
     const dest_info = dest_ty.fnInfo();
     const src_info = src_ty.fnInfo();
 
@@ -12556,7 +12810,7 @@ fn coerceInMemoryAllowedFns(
     }
 
     if (!src_info.return_type.isNoReturn()) {
-        const rt = coerceInMemoryAllowed(dest_info.return_type, src_info.return_type, false, target);
+        const rt = try sema.coerceInMemoryAllowed(dest_info.return_type, src_info.return_type, false, target);
         if (rt == .no_match) {
             return rt;
         }
@@ -12576,7 +12830,7 @@ fn coerceInMemoryAllowedFns(
         // TODO: nolias
 
         // Note: Cast direction is reversed here.
-        const param = coerceInMemoryAllowed(src_param_ty, dest_param_ty, false, target);
+        const param = try sema.coerceInMemoryAllowed(src_param_ty, dest_param_ty, false, target);
         if (param == .no_match) {
             return param;
         }
@@ -12590,17 +12844,18 @@ fn coerceInMemoryAllowedFns(
 }
 
 fn coerceInMemoryAllowedPtrs(
+    sema: *Sema,
     dest_ty: Type,
     src_ty: Type,
     dest_ptr_ty: Type,
     src_ptr_ty: Type,
     dest_is_mut: bool,
     target: std.Target,
-) InMemoryCoercionResult {
+) !InMemoryCoercionResult {
     const dest_info = dest_ptr_ty.ptrInfo().data;
     const src_info = src_ptr_ty.ptrInfo().data;
 
-    const child = coerceInMemoryAllowed(dest_info.pointee_type, src_info.pointee_type, dest_info.mutable, target);
+    const child = try sema.coerceInMemoryAllowed(dest_info.pointee_type, src_info.pointee_type, dest_info.mutable, target);
     if (child == .no_match) {
         return child;
     }
@@ -13321,7 +13576,7 @@ fn coerceVectorInMemory(
     const target = sema.mod.getTarget();
     const dest_elem_ty = dest_ty.childType();
     const inst_elem_ty = inst_ty.childType();
-    const in_memory_result = coerceInMemoryAllowed(dest_elem_ty, inst_elem_ty, false, target);
+    const in_memory_result = try sema.coerceInMemoryAllowed(dest_elem_ty, inst_elem_ty, false, target);
     if (in_memory_result != .ok) {
         // TODO recursive error notes for coerceInMemoryAllowed failure
         return sema.fail(block, inst_src, "expected {}, found {}", .{ dest_ty, inst_ty });
@@ -13916,24 +14171,27 @@ fn wrapErrorUnion(
                 if (mem.eql(u8, expected_name, n)) break :ok;
                 return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
             },
-            .error_set => ok: {
+            .error_set => {
                 const expected_name = val.castTag(.@"error").?.data.name;
                 const error_set = dest_err_set_ty.castTag(.error_set).?.data;
-                const names = error_set.names_ptr[0..error_set.names_len];
-                // TODO this is O(N). I'm putting off solving this until we solve inferred
-                // error sets at the same time.
-                for (names) |name| {
-                    if (mem.eql(u8, expected_name, name)) break :ok;
+                if (!error_set.names.contains(expected_name)) {
+                    return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
                 }
-                return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
             },
             .error_set_inferred => ok: {
-                const err_set_payload = dest_err_set_ty.castTag(.error_set_inferred).?.data;
-                if (err_set_payload.is_anyerror) break :ok;
                 const expected_name = val.castTag(.@"error").?.data.name;
-                if (err_set_payload.map.contains(expected_name)) break :ok;
-                // TODO error set resolution here before emitting a compile error
+                const data = dest_err_set_ty.castTag(.error_set_inferred).?.data;
+                try sema.resolveInferredErrorSet(data);
+                if (data.is_anyerror) break :ok;
+                if (data.errors.contains(expected_name)) break :ok;
                 return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
+            },
+            .error_set_merged => {
+                const expected_name = val.castTag(.@"error").?.data.name;
+                const error_set = dest_err_set_ty.castTag(.error_set_merged).?.data;
+                if (!error_set.contains(expected_name)) {
+                    return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
+                }
             },
             else => unreachable,
         }
@@ -14077,12 +14335,12 @@ fn resolvePeerTypes(
             .Optional => {
                 var opt_child_buf: Type.Payload.ElemType = undefined;
                 const opt_child_ty = candidate_ty.optionalChild(&opt_child_buf);
-                if (coerceInMemoryAllowed(opt_child_ty, chosen_ty, false, target) == .ok) {
+                if ((try sema.coerceInMemoryAllowed(opt_child_ty, chosen_ty, false, target)) == .ok) {
                     chosen = candidate;
                     chosen_i = candidate_i + 1;
                     continue;
                 }
-                if (coerceInMemoryAllowed(chosen_ty, opt_child_ty, false, target) == .ok) {
+                if ((try sema.coerceInMemoryAllowed(chosen_ty, opt_child_ty, false, target)) == .ok) {
                     any_are_null = true;
                     continue;
                 }
@@ -14105,10 +14363,10 @@ fn resolvePeerTypes(
             .Optional => {
                 var opt_child_buf: Type.Payload.ElemType = undefined;
                 const opt_child_ty = chosen_ty.optionalChild(&opt_child_buf);
-                if (coerceInMemoryAllowed(opt_child_ty, candidate_ty, false, target) == .ok) {
+                if ((try sema.coerceInMemoryAllowed(opt_child_ty, candidate_ty, false, target)) == .ok) {
                     continue;
                 }
-                if (coerceInMemoryAllowed(candidate_ty, opt_child_ty, false, target) == .ok) {
+                if ((try sema.coerceInMemoryAllowed(candidate_ty, opt_child_ty, false, target)) == .ok) {
                     any_are_null = true;
                     chosen = candidate;
                     chosen_i = candidate_i + 1;
@@ -14272,6 +14530,42 @@ fn resolveBuiltinTypeFields(
 ) CompileError!Type {
     const resolved_ty = try sema.getBuiltinType(block, src, name);
     return sema.resolveTypeFields(block, src, resolved_ty);
+}
+
+fn resolveInferredErrorSet(sema: *Sema, inferred_error_set: *Module.Fn.InferredErrorSet) CompileError!void {
+    // Ensuring that a particular decl is analyzed does not neccesarily mean that
+    // it's error set is inferred, so traverse all of them to get the complete
+    // picture.
+    // Note: We want to skip re-resolving the current function, as recursion
+    // doesn't change the error set. We can just check for state == .in_progress for this.
+    // TODO: Is that correct?
+
+    if (inferred_error_set.is_resolved) {
+        return;
+    }
+
+    var it = inferred_error_set.inferred_error_sets.keyIterator();
+    while (it.next()) |other_error_set_ptr| {
+        const func = other_error_set_ptr.*.func;
+        const decl = func.*.owner_decl;
+
+        if (func.*.state == .in_progress) {
+            // Recursion, doesn't alter current error set, keep going.
+            continue;
+        }
+
+        try sema.ensureDeclAnalyzed(decl); // To ensure that all dependencies are properly added to the set.
+        try sema.resolveInferredErrorSet(other_error_set_ptr.*);
+
+        var error_it = other_error_set_ptr.*.errors.keyIterator();
+        while (error_it.next()) |entry| {
+            try inferred_error_set.errors.put(sema.gpa, entry.*, {});
+        }
+        if (other_error_set_ptr.*.is_anyerror)
+            inferred_error_set.is_anyerror = true;
+    }
+
+    inferred_error_set.is_resolved = true;
 }
 
 fn semaStructFields(
@@ -15236,8 +15530,8 @@ fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr
     // We have a Value that lines up in virtual memory exactly with what we want to load.
     // If the Type is in-memory coercable to `load_ty`, it may be returned without modifications.
     const coerce_in_mem_ok =
-        coerceInMemoryAllowed(load_ty, parent.ty, false, target) == .ok or
-        coerceInMemoryAllowed(parent.ty, load_ty, false, target) == .ok;
+        (try sema.coerceInMemoryAllowed(load_ty, parent.ty, false, target)) == .ok or
+        (try sema.coerceInMemoryAllowed(parent.ty, load_ty, false, target)) == .ok;
     if (coerce_in_mem_ok) {
         if (parent.is_mutable) {
             // The decl whose value we are obtaining here may be overwritten with

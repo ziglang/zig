@@ -627,7 +627,7 @@ pub const Type = extern union {
                 }
 
                 if (a.tag() == .error_set_inferred and b.tag() == .error_set_inferred) {
-                    return a.castTag(.error_set_inferred).?.data.func == b.castTag(.error_set_inferred).?.data.func;
+                    return a.castTag(.error_set_inferred).?.data == b.castTag(.error_set_inferred).?.data;
                 }
 
                 if (a.tag() == .error_set_single and b.tag() == .error_set_single) {
@@ -904,10 +904,11 @@ pub const Type = extern union {
                 });
             },
             .error_set_merged => {
-                const names = self.castTag(.error_set_merged).?.data;
-                const duped_names = try allocator.alloc([]const u8, names.len);
-                for (duped_names) |*name, i| {
-                    name.* = try allocator.dupe(u8, names[i]);
+                const names = self.castTag(.error_set_merged).?.data.keys();
+                var duped_names = Module.ErrorSet.NameMap{};
+                try duped_names.ensureTotalCapacity(allocator, names.len);
+                for (names) |name| {
+                    duped_names.putAssumeCapacityNoClobber(name, .{});
                 }
                 return Tag.error_set_merged.create(allocator, duped_names);
             },
@@ -1206,7 +1207,7 @@ pub const Type = extern union {
                     return writer.print("(inferred error set of {s})", .{func.owner_decl.name});
                 },
                 .error_set_merged => {
-                    const names = ty.castTag(.error_set_merged).?.data;
+                    const names = ty.castTag(.error_set_merged).?.data.keys();
                     try writer.writeAll("error{");
                     for (names) |name, i| {
                         if (i != 0) try writer.writeByte(',');
@@ -1574,6 +1575,7 @@ pub const Type = extern union {
             .extern_options,
             .@"anyframe",
             .anyframe_T,
+            .anyopaque,
             .@"opaque",
             .single_const_pointer,
             .single_mut_pointer,
@@ -1653,7 +1655,6 @@ pub const Type = extern union {
                 return payload.error_set.hasCodeGenBits() or payload.payload.hasCodeGenBits();
             },
 
-            .anyopaque,
             .void,
             .type,
             .comptime_int,
@@ -2871,6 +2872,35 @@ pub const Type = extern union {
             .error_set_inferred => ty.castTag(.error_set_inferred).?.data.is_anyerror,
             else => false,
         };
+    }
+
+    /// Returns whether ty, which must be an error set, includes an error `name`.
+    /// Might return a false negative if `ty` is an inferred error set and not fully
+    /// resolved yet.
+    pub fn errorSetHasField(ty: Type, name: []const u8) bool {
+        if (ty.isAnyError()) {
+            return true;
+        }
+
+        switch (ty.tag()) {
+            .error_set_single => {
+                const data = ty.castTag(.error_set_single).?.data;
+                return std.mem.eql(u8, data, name);
+            },
+            .error_set_inferred => {
+                const data = ty.castTag(.error_set_inferred).?.data;
+                return data.errors.contains(name);
+            },
+            .error_set_merged => {
+                const data = ty.castTag(.error_set_merged).?.data;
+                return data.contains(name);
+            },
+            .error_set => {
+                const data = ty.castTag(.error_set).?.data;
+                return data.names.contains(name);
+            },
+            else => unreachable,
+        }
     }
 
     /// Asserts the type is an array or vector.
@@ -4148,57 +4178,14 @@ pub const Type = extern union {
             pub const base_tag = Tag.error_set_merged;
 
             base: Payload = Payload{ .tag = base_tag },
-            data: []const []const u8,
+            data: Module.ErrorSet.NameMap,
         };
 
         pub const ErrorSetInferred = struct {
             pub const base_tag = Tag.error_set_inferred;
 
             base: Payload = Payload{ .tag = base_tag },
-            data: Data,
-
-            pub const Data = struct {
-                func: *Module.Fn,
-                /// Direct additions to the inferred error set via `return error.Foo;`.
-                map: std.StringHashMapUnmanaged(void),
-                /// Other functions with inferred error sets which this error set includes.
-                functions: std.AutoHashMapUnmanaged(*Module.Fn, void),
-                is_anyerror: bool,
-
-                pub fn addErrorSet(self: *Data, gpa: Allocator, err_set_ty: Type) !void {
-                    switch (err_set_ty.tag()) {
-                        .error_set => {
-                            const names = err_set_ty.castTag(.error_set).?.data.names();
-                            for (names) |name| {
-                                try self.map.put(gpa, name, {});
-                            }
-                        },
-                        .error_set_single => {
-                            const name = err_set_ty.castTag(.error_set_single).?.data;
-                            try self.map.put(gpa, name, {});
-                        },
-                        .error_set_inferred => {
-                            const func = err_set_ty.castTag(.error_set_inferred).?.data.func;
-                            try self.functions.put(gpa, func, {});
-                            var it = func.owner_decl.ty.fnReturnType().errorUnionSet()
-                                .castTag(.error_set_inferred).?.data.map.iterator();
-                            while (it.next()) |entry| {
-                                try self.map.put(gpa, entry.key_ptr.*, {});
-                            }
-                        },
-                        .error_set_merged => {
-                            const names = err_set_ty.castTag(.error_set_merged).?.data;
-                            for (names) |name| {
-                                try self.map.put(gpa, name, {});
-                            }
-                        },
-                        .anyerror => {
-                            self.is_anyerror = true;
-                        },
-                        else => unreachable,
-                    }
-                }
-            };
+            data: *Module.Fn.InferredErrorSet,
         };
 
         pub const Pointer = struct {
