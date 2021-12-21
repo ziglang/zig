@@ -2214,7 +2214,9 @@ fn airBreakpoint(f: *Function) !CValue {
 }
 
 fn airRetAddr(f: *Function) !CValue {
-    return f.fail("TODO implement codegen for airRetAddr", .{});
+    const local = try f.allocLocal(Type.usize, .Const);
+    try f.object.writer().writeAll(" = zig_return_address();\n");
+    return local;
 }
 
 fn airFence(f: *Function, inst: Air.Inst.Index) !CValue {

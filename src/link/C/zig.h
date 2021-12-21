@@ -60,6 +60,20 @@
 #define zig_breakpoint() raise(SIGTRAP)
 #endif
 
+#if defined(_MSC_VER)
+#define zig_return_address() _ReturnAddress()
+#elif defined(__GNUC__)
+#define zig_return_address() __builtin_extract_return_addr(__builtin_return_address(0))
+#else
+#define zig_return_address() 0
+#endif
+
+#if defined(__GNUC__)
+#define zig_frame_address() __builtin_frame_address(0)
+#else
+#define zig_frame_address() 0
+#endif
+
 #if __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)
 #include <stdatomic.h>
 #define zig_cmpxchg_strong(obj, expected, desired, succ, fail) atomic_compare_exchange_strong_explicit(obj, &(expected), desired, succ, fail)
