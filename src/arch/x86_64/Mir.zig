@@ -380,14 +380,14 @@ pub const Ops = struct {
     }
 };
 
-pub fn extraData(mir_extra: []const u32, comptime T: type, index: usize) struct { data: T, end: usize } {
+pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
     const fields = std.meta.fields(T);
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.field_type) {
-            u32 => mir_extra[i],
-            i32 => @bitCast(i32, mir_extra[i]),
+            u32 => mir.extra[i],
+            i32 => @bitCast(i32, mir.extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;

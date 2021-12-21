@@ -48,33 +48,6 @@ const InnerError = error{
     EmitFail,
 };
 
-const EmitResult = union(enum) {
-    ok: void,
-    err: *ErrorMsg,
-
-    fn ok() EmitResult {
-        return EmitResult{ .ok = .{} };
-    }
-
-    fn err(
-        allocator: Allocator,
-        src_loc: Module.SrcLoc,
-        comptime format: []const u8,
-        args: anytype,
-    ) error{OutOfMemory}!EmitResult {
-        return EmitResult{
-            .err = try ErrorMsg.create(allocator, src_loc, format, args),
-        };
-    }
-
-    fn deinit(res: EmitResult, allocator: Allocator) void {
-        switch (res) {
-            .ok => {},
-            .err => |err_msg| err_msg.destroy(allocator),
-        }
-    }
-};
-
 const Reloc = struct {
     /// Offset of the instruction.
     source: u64,
@@ -185,14 +158,8 @@ pub fn deinit(emit: *Emit) void {
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
-    const err_msg = try ErrorMsg.create(emit.bin_file.allocator, emit.src_loc, format, args);
-    return emit.failWithErrorMsg(err_msg);
-}
-
-fn failWithErrorMsg(emit: *Emit, err_msg: *ErrorMsg) InnerError {
-    @setCold(true);
     assert(emit.err_msg == null);
-    emit.err_msg = err_msg;
+    emit.err_msg = try ErrorMsg.create(emit.bin_file.allocator, emit.src_loc, format, args);
     return error.EmitFail;
 }
 
@@ -565,7 +532,7 @@ fn mirRet(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
-const EncType = enum {
+const Encoding = enum {
     /// OP r/m64, imm32
     mi,
 
@@ -578,11 +545,11 @@ const EncType = enum {
 
 const OpCode = struct {
     opc: u8,
-    /// Only used if `EncType == .mi`.
+    /// Only used if `Encoding == .mi`.
     modrm_ext: u3,
 };
 
-inline fn getArithOpCode(tag: Mir.Inst.Tag, enc: EncType) OpCode {
+inline fn getOpCode(tag: Mir.Inst.Tag, enc: Encoding) OpCode {
     switch (enc) {
         .mi => return switch (tag) {
             .adc => .{ .opc = 0x81, .modrm_ext = 0x2 },
@@ -629,247 +596,298 @@ inline fn getArithOpCode(tag: Mir.Inst.Tag, enc: EncType) OpCode {
     }
 }
 
-fn mirArith(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
-    const res = try mirArithImpl(
-        emit.bin_file.allocator,
-        tag,
-        emit.mir.instructions,
-        emit.mir.extra,
-        inst,
-        emit.src_loc,
-        emit.code,
-    );
-    switch (res) {
-        .ok => {},
-        .err => |err_msg| return emit.failWithErrorMsg(err_msg),
+const ScaleIndexBase = struct {
+    scale: u2,
+    index_reg: ?Register,
+    base_reg: ?Register,
+};
+
+const Memory = struct {
+    reg: ?Register,
+    disp: i32,
+    sib: ?ScaleIndexBase = null,
+};
+
+const RegisterOrMemory = union(enum) {
+    register: Register,
+    memory: Memory,
+
+    fn reg(register: Register) RegisterOrMemory {
+        return .{ .register = register };
+    }
+
+    fn mem(register: ?Register, disp: i32) RegisterOrMemory {
+        return .{
+            .memory = .{
+                .reg = register,
+                .disp = disp,
+            },
+        };
+    }
+};
+
+fn lowerToMiEnc(
+    tag: Mir.Inst.Tag,
+    reg_or_mem: RegisterOrMemory,
+    imm: i32,
+    code: *std.ArrayList(u8),
+) InnerError!void {
+    const opcode = getOpCode(tag, .mi);
+    switch (reg_or_mem) {
+        .register => |dst_reg| {
+            const opc: u8 = if (dst_reg.size() == 8) opcode.opc - 1 else opcode.opc;
+            const encoder = try Encoder.init(code, 7);
+            if (dst_reg.size() == 16) {
+                // 0x66 prefix switches to the non-default size; here we assume a switch from
+                // the default 32bits to 16bits operand-size.
+                // More info: https://www.cs.uni-potsdam.de/desn/lehre/ss15/64-ia-32-architectures-software-developer-instruction-set-reference-manual-325383.pdf#page=32&zoom=auto,-159,773
+                encoder.opcode_1byte(0x66);
+            }
+            encoder.rex(.{
+                .w = dst_reg.size() == 64,
+                .b = dst_reg.isExtended(),
+            });
+            encoder.opcode_1byte(opc);
+            encoder.modRm_direct(opcode.modrm_ext, dst_reg.lowId());
+            switch (dst_reg.size()) {
+                8 => {
+                    const imm8 = try math.cast(i8, imm);
+                    encoder.imm8(imm8);
+                },
+                16 => {
+                    const imm16 = try math.cast(i16, imm);
+                    encoder.imm16(imm16);
+                },
+                32, 64 => encoder.imm32(imm),
+                else => unreachable,
+            }
+        },
+        .memory => |dst_mem| {
+            const encoder = try Encoder.init(code, 12);
+            if (dst_mem.reg) |dst_reg| {
+                // Register dst_reg can either be 64bit or 32bit in size.
+                // TODO for memory operand, immediate operand pair, we currently
+                // have no way of flagging whether the immediate can be 8-, 16- or
+                // 32-bit and whether the corresponding memory operand is respectively
+                // a byte, word or dword ptr.
+                // TODO we currently don't have a way to flag imm32 64bit sign extended
+                if (dst_reg.size() != 64) return error.EmitFail;
+                encoder.rex(.{
+                    .w = false,
+                    .b = dst_reg.isExtended(),
+                });
+                encoder.opcode_1byte(opcode.opc);
+                if (dst_mem.disp == 0) {
+                    encoder.modRm_indirectDisp0(opcode.modrm_ext, dst_reg.lowId());
+                } else if (immOpSize(dst_mem.disp) == 8) {
+                    encoder.modRm_indirectDisp8(opcode.modrm_ext, dst_reg.lowId());
+                    encoder.disp8(@intCast(i8, dst_mem.disp));
+                } else {
+                    if (dst_reg.lowId() == 4) {
+                        encoder.modRm_SIBDisp32(opcode.modrm_ext);
+                        encoder.sib_baseDisp32(dst_reg.lowId());
+                        encoder.disp32(dst_mem.disp);
+                    } else {
+                        encoder.modRm_indirectDisp32(opcode.modrm_ext, dst_reg.lowId());
+                        encoder.disp32(dst_mem.disp);
+                    }
+                }
+            } else {
+                encoder.opcode_1byte(opcode.opc);
+                encoder.modRm_SIBDisp0(opcode.modrm_ext);
+                encoder.sib_disp32();
+                encoder.disp32(dst_mem.disp);
+            }
+            encoder.imm32(imm);
+        },
     }
 }
 
-fn mirArithImpl(
-    allocator: Allocator,
+fn lowerToRmEnc(
     tag: Mir.Inst.Tag,
-    mir_instructions: std.MultiArrayList(Mir.Inst).Slice,
-    mir_extra: []const u32,
-    inst: Mir.Inst.Index,
-    src_loc: Module.SrcLoc,
+    reg: Register,
+    reg_or_mem: RegisterOrMemory,
     code: *std.ArrayList(u8),
-) error{OutOfMemory}!EmitResult {
-    const ops = Mir.Ops.decode(mir_instructions.items(.ops)[inst]);
+) InnerError!void {
+    const opcode = getOpCode(tag, .rm);
+    const opc: u8 = if (reg.size() == 8) opcode.opc - 1 else opcode.opc;
+    switch (reg_or_mem) {
+        .register => |src_reg| {
+            if (reg.size() != src_reg.size()) return error.EmitFail;
+            const encoder = try Encoder.init(code, 3);
+            encoder.rex(.{
+                .w = reg.size() == 64,
+                .r = reg.isExtended(),
+                .b = src_reg.isExtended(),
+            });
+            encoder.opcode_1byte(opc);
+            encoder.modRm_direct(reg.lowId(), src_reg.lowId());
+        },
+        .memory => |src_mem| {
+            const encoder = try Encoder.init(code, 9);
+            if (reg.size() == 16) {
+                encoder.opcode_1byte(0x66);
+            }
+            if (src_mem.reg) |src_reg| {
+                // TODO handle 32-bit base register - requires prefix 0x67
+                // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
+                if (src_reg.size() != 64) return error.EmitFail;
+                encoder.rex(.{
+                    .w = reg.size() == 64,
+                    .r = reg.isExtended(),
+                    .b = src_reg.isExtended(),
+                });
+                encoder.opcode_1byte(opc);
+                if (src_mem.disp == 0) {
+                    encoder.modRm_indirectDisp0(reg.lowId(), src_reg.lowId());
+                } else if (immOpSize(src_mem.disp) == 8) {
+                    encoder.modRm_indirectDisp8(reg.lowId(), src_reg.lowId());
+                    encoder.disp8(@intCast(i8, src_mem.disp));
+                } else {
+                    if (src_reg.lowId() == 4) {
+                        encoder.modRm_SIBDisp32(reg.lowId());
+                        encoder.sib_baseDisp32(src_reg.lowId());
+                        encoder.disp32(src_mem.disp);
+                    } else {
+                        encoder.modRm_indirectDisp32(reg.lowId(), src_reg.lowId());
+                        encoder.disp32(src_mem.disp);
+                    }
+                }
+            } else {
+                encoder.rex(.{
+                    .w = reg.size() == 64,
+                    .r = reg.isExtended(),
+                });
+                encoder.opcode_1byte(opc);
+                encoder.modRm_SIBDisp0(reg.lowId());
+                encoder.sib_disp32();
+                encoder.disp32(src_mem.disp);
+            }
+        },
+    }
+}
+
+fn lowerToMrEnc(
+    tag: Mir.Inst.Tag,
+    reg_or_mem: RegisterOrMemory,
+    reg: Register,
+    code: *std.ArrayList(u8),
+) InnerError!void {
+    // We use size of source register reg to work out which
+    // variant of memory ptr to pick:
+    // * reg is 64bit - qword ptr
+    // * reg is 32bit - dword ptr
+    // * reg is 16bit - word ptr
+    // * reg is 8bit - byte ptr
+    const opcode = getOpCode(tag, .mr);
+    const opc: u8 = if (reg.size() == 8) opcode.opc - 1 else opcode.opc;
+    switch (reg_or_mem) {
+        .register => |dst_reg| {
+            if (dst_reg.size() != reg.size()) return error.EmitFail;
+            const encoder = try Encoder.init(code, 3);
+            encoder.rex(.{
+                .w = dst_reg.size() == 64,
+                .r = reg.isExtended(),
+                .b = dst_reg.isExtended(),
+            });
+            encoder.opcode_1byte(opc);
+            encoder.modRm_direct(reg.lowId(), dst_reg.lowId());
+        },
+        .memory => |dst_mem| {
+            const encoder = try Encoder.init(code, 9);
+            if (reg.size() == 16) {
+                encoder.opcode_1byte(0x66);
+            }
+            if (dst_mem.reg) |dst_reg| {
+                if (dst_reg.size() != 64) return error.EmitFail;
+                encoder.rex(.{
+                    .w = reg.size() == 64,
+                    .r = reg.isExtended(),
+                    .b = dst_reg.isExtended(),
+                });
+                encoder.opcode_1byte(opc);
+                if (dst_mem.disp == 0) {
+                    encoder.modRm_indirectDisp0(reg.lowId(), dst_reg.lowId());
+                } else if (immOpSize(dst_mem.disp) == 8) {
+                    encoder.modRm_indirectDisp8(reg.lowId(), dst_reg.lowId());
+                    encoder.disp8(@intCast(i8, dst_mem.disp));
+                } else {
+                    if (dst_reg.lowId() == 4) {
+                        encoder.modRm_SIBDisp32(reg.lowId());
+                        encoder.sib_baseDisp32(dst_reg.lowId());
+                        encoder.disp32(dst_mem.disp);
+                    } else {
+                        encoder.modRm_indirectDisp32(reg.lowId(), dst_reg.lowId());
+                        encoder.disp32(dst_mem.disp);
+                    }
+                }
+            } else {
+                encoder.rex(.{
+                    .w = reg.size() == 64,
+                    .r = reg.isExtended(),
+                });
+                encoder.opcode_1byte(opc);
+                encoder.modRm_SIBDisp0(reg.lowId());
+                encoder.sib_disp32();
+                encoder.disp32(dst_mem.disp);
+            }
+        },
+    }
+}
+
+fn mirArith(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
-        0b00 => blk: {
+        0b00 => {
             if (ops.reg2 == .none) {
                 // mov reg1, imm32
                 // MI
-                const imm = mir_instructions.items(.data)[inst].imm;
-                const opcode = getArithOpCode(tag, .mi);
-                const opc: u8 = if (ops.reg1.size() == 8) opcode.opc - 1 else opcode.opc;
-                const encoder = try Encoder.init(code, 7);
-                if (ops.reg1.size() == 16) {
-                    // 0x66 prefix switches to the non-default size; here we assume a switch from
-                    // the default 32bits to 16bits operand-size.
-                    // More info: https://www.cs.uni-potsdam.de/desn/lehre/ss15/64-ia-32-architectures-software-developer-instruction-set-reference-manual-325383.pdf#page=32&zoom=auto,-159,773
-                    encoder.opcode_1byte(0x66);
-                }
-                encoder.rex(.{
-                    .w = ops.reg1.size() == 64,
-                    .b = ops.reg1.isExtended(),
-                });
-                encoder.opcode_1byte(opc);
-                encoder.modRm_direct(opcode.modrm_ext, ops.reg1.lowId());
-                switch (ops.reg1.size()) {
-                    8 => {
-                        const imm8 = math.cast(i8, imm) catch {
-                            return EmitResult.err(
-                                allocator,
-                                src_loc,
-                                "size mismatch: sizeof {} != sizeof 0x{x}",
-                                .{
-                                    ops.reg1,
-                                    imm,
-                                },
-                            );
-                        };
-                        encoder.imm8(imm8);
-                    },
-                    16 => {
-                        const imm16 = math.cast(i16, imm) catch {
-                            return EmitResult.err(
-                                allocator,
-                                src_loc,
-                                "size mismatch: sizeof {} != sizeof 0x{x}",
-                                .{
-                                    ops.reg1,
-                                    imm,
-                                },
-                            );
-                        };
-                        encoder.imm16(imm16);
-                    },
-                    32, 64 => {
-                        encoder.imm32(imm);
-                    },
-                    else => unreachable,
-                }
-                break :blk;
+                const imm = emit.mir.instructions.items(.data)[inst].imm;
+                return lowerToMiEnc(tag, RegisterOrMemory.reg(ops.reg1), imm, emit.code);
             }
             // mov reg1, reg2
-            // MR
-            if (ops.reg1.size() != ops.reg2.size()) {
-                return EmitResult.err(allocator, src_loc, "size mismatch: sizeof {} != sizeof {}", .{
-                    ops.reg1,
-                    ops.reg2,
-                });
-            }
-            const opcode = getArithOpCode(tag, .mr);
-            const opc: u8 = if (ops.reg1.size() == 8) opcode.opc - 1 else opcode.opc;
-            const encoder = try Encoder.init(code, 3);
-            encoder.rex(.{
-                .w = ops.reg1.size() == 64 and ops.reg2.size() == 64,
-                .r = ops.reg2.isExtended(),
-                .b = ops.reg1.isExtended(),
-            });
-            encoder.opcode_1byte(opc);
-            encoder.modRm_direct(ops.reg2.lowId(), ops.reg1.lowId());
+            // RM
+            return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
         },
-        0b01 => blk: {
-            const imm = mir_instructions.items(.data)[inst].imm;
-            const opcode = getArithOpCode(tag, .rm);
-            const opc: u8 = if (ops.reg1.size() == 8) opcode.opc - 1 else opcode.opc;
+        0b01 => {
+            const imm = emit.mir.instructions.items(.data)[inst].imm;
             if (ops.reg2 == .none) {
                 // mov reg1, [imm32]
                 // RM
-                const encoder = try Encoder.init(code, 9);
-                if (ops.reg1.size() == 16) {
-                    encoder.opcode_1byte(0x66);
-                }
-                encoder.rex(.{
-                    .w = ops.reg1.size() == 64,
-                    .r = ops.reg1.isExtended(),
-                });
-                encoder.opcode_1byte(opc);
-                encoder.modRm_SIBDisp0(ops.reg1.lowId());
-                encoder.sib_disp32();
-                encoder.disp32(imm);
-                break :blk;
+                return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.mem(null, imm), emit.code);
             }
             // mov reg1, [reg2 + imm32]
             // RM
-            // TODO handle 32-bit base register - requires prefix 0x67
-            // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
-            if (ops.reg2.size() != 64) {
-                return EmitResult.err(allocator, src_loc, "size mismatch: sizeof {} != 8", .{ops.reg2});
-            }
-            const encoder = try Encoder.init(code, 8);
-            if (ops.reg1.size() == 16) {
-                encoder.opcode_1byte(0x66);
-            }
-            encoder.rex(.{
-                .w = ops.reg1.size() == 64,
-                .r = ops.reg1.isExtended(),
-                .b = ops.reg2.isExtended(),
-            });
-            encoder.opcode_1byte(opc);
-            if (immOpSize(imm) == 8) {
-                encoder.modRm_indirectDisp8(ops.reg1.lowId(), ops.reg2.lowId());
-                encoder.disp8(@intCast(i8, imm));
-            } else {
-                encoder.modRm_indirectDisp32(ops.reg1.lowId(), ops.reg2.lowId());
-                encoder.disp32(imm);
-            }
+            return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.mem(ops.reg2, imm), emit.code);
         },
-        0b10 => blk: {
-            // TODO handle 32-bit base register - requires prefix 0x67
-            // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
-            if (ops.reg1.size() != 64) {
-                return EmitResult.err(allocator, src_loc, "size mismatch: sizeof {} != 8", .{ops.reg1});
-            }
+        0b10 => {
             if (ops.reg2 == .none) {
-                // mov [reg1 + 0], imm32
+                // mov dword ptr [reg1 + 0], imm32
                 // MI
-                // Base register reg1 can either be 64bit or 32bit in size.
-                // TODO for memory operand, immediate operand pair, we currently
-                // have no way of flagging whether the immediate can be 8-, 16- or
-                // 32-bit and whether the corresponding memory operand is respectively
-                // a byte, word or dword ptr.
-                // TODO we currently don't have a way to flag imm32 64bit sign extended
-                const imm = mir_instructions.items(.data)[inst].imm;
-                const opcode = getArithOpCode(tag, .mi);
-                const encoder = try Encoder.init(code, 7);
-                encoder.rex(.{
-                    .w = false,
-                    .b = ops.reg1.isExtended(),
-                });
-                encoder.opcode_1byte(opcode.opc);
-                encoder.modRm_indirectDisp0(opcode.modrm_ext, ops.reg1.lowId());
-                encoder.imm32(imm);
-                break :blk;
+                const imm = emit.mir.instructions.items(.data)[inst].imm;
+                return lowerToMiEnc(tag, RegisterOrMemory.mem(ops.reg1, 0), imm, emit.code);
             }
             // mov [reg1 + imm32], reg2
             // MR
-            // We use size of source register reg2 to work out which
-            // variant of memory ptr to pick:
-            // * reg2 is 64bit - qword ptr
-            // * reg2 is 32bit - dword ptr
-            // * reg2 is 16bit - word ptr
-            // * reg2 is 8bit - byte ptr
-            const imm = mir_instructions.items(.data)[inst].imm;
-            const opcode = getArithOpCode(tag, .mr);
-            const opc: u8 = if (ops.reg2.size() == 8) opcode.opc - 1 else opcode.opc;
-            const encoder = try Encoder.init(code, 5);
-            if (ops.reg2.size() == 16) {
-                encoder.opcode_1byte(0x66);
-            }
-            encoder.rex(.{
-                .w = ops.reg2.size() == 64,
-                .r = ops.reg2.isExtended(),
-                .b = ops.reg1.isExtended(),
-            });
-            encoder.opcode_1byte(opc);
-            if (immOpSize(imm) == 8) {
-                encoder.modRm_indirectDisp8(ops.reg2.lowId(), ops.reg1.lowId());
-                encoder.disp8(@intCast(i8, imm));
-            } else {
-                encoder.modRm_indirectDisp32(ops.reg2.lowId(), ops.reg1.lowId());
-                encoder.disp32(imm);
-            }
+            const imm = emit.mir.instructions.items(.data)[inst].imm;
+            return lowerToMrEnc(tag, RegisterOrMemory.mem(ops.reg1, imm), ops.reg2, emit.code);
         },
-        0b11 => blk: {
+        0b11 => {
             if (ops.reg2 == .none) {
-                // mov [reg1 + imm32], imm32
+                // mov dword ptr [reg1 + imm32], imm32
                 // MI
-                // Base register reg1 can either be 64bit or 32bit in size.
-                // TODO for memory operand, immediate operand pair, we currently
-                // have no way of flagging whether the immediate can be 8-, 16- or
-                // 32-bit and whether the corresponding memory operand is respectively
-                // a byte, word or dword ptr.
-                // TODO we currently don't have a way to flag imm32 64bit sign extended
-                if (ops.reg1.size() != 64) {
-                    return EmitResult.err(allocator, src_loc, "size mismatch: sizeof {} != 8", .{ops.reg1});
-                }
-                const payload = mir_instructions.items(.data)[inst].payload;
-                const imm_pair = Mir.extraData(mir_extra, Mir.ImmPair, payload).data;
-                const imm_op = imm_pair.operand;
-                const opcode = getArithOpCode(tag, .mi);
-                const encoder = try Encoder.init(code, 10);
-                encoder.rex(.{
-                    .w = false,
-                    .b = ops.reg1.isExtended(),
-                });
-                encoder.opcode_1byte(opcode.opc);
-                if (immOpSize(imm_pair.dest_off) == 8) {
-                    encoder.modRm_indirectDisp8(opcode.modrm_ext, ops.reg1.lowId());
-                    encoder.disp8(@intCast(i8, imm_pair.dest_off));
-                } else {
-                    encoder.modRm_indirectDisp32(opcode.modrm_ext, ops.reg1.lowId());
-                    encoder.disp32(imm_pair.dest_off);
-                }
-                encoder.imm32(imm_op);
-                break :blk;
+                const payload = emit.mir.instructions.items(.data)[inst].payload;
+                const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
+                return lowerToMiEnc(
+                    tag,
+                    RegisterOrMemory.mem(ops.reg1, imm_pair.dest_off),
+                    imm_pair.operand,
+                    emit.code,
+                );
             }
-            return EmitResult.err(allocator, src_loc, "TODO unused variant: mov reg1, reg2, 0b11", .{});
+            return emit.fail("TODO unused variant: mov reg1, reg2, 0b11", .{});
         },
     }
-    return EmitResult.ok();
 }
 
 fn immOpSize(imm: i32) u8 {
@@ -888,7 +906,7 @@ fn mirArithScaleSrc(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     // OP reg1, [reg2 + scale*rcx + imm32]
-    const opcode = getArithOpCode(tag, .rm);
+    const opcode = getOpCode(tag, .rm);
     const opc = if (ops.reg1.size() == 8) opcode.opc - 1 else opcode.opc;
     const imm = emit.mir.instructions.items(.data)[inst].imm;
     const encoder = try Encoder.init(emit.code, 8);
@@ -916,7 +934,7 @@ fn mirArithScaleDst(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
 
     if (ops.reg2 == .none) {
         // OP [reg1 + scale*rax + 0], imm32
-        const opcode = getArithOpCode(tag, .mi);
+        const opcode = getOpCode(tag, .mi);
         const opc = if (ops.reg1.size() == 8) opcode.opc - 1 else opcode.opc;
         const encoder = try Encoder.init(emit.code, 8);
         encoder.rex(.{
@@ -937,7 +955,7 @@ fn mirArithScaleDst(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
     }
 
     // OP [reg1 + scale*rax + imm32], reg2
-    const opcode = getArithOpCode(tag, .mr);
+    const opcode = getOpCode(tag, .mr);
     const opc = if (ops.reg1.size() == 8) opcode.opc - 1 else opcode.opc;
     const encoder = try Encoder.init(emit.code, 8);
     encoder.rex(.{
@@ -961,8 +979,8 @@ fn mirArithScaleImm(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const imm_pair = Mir.extraData(emit.mir.extra, Mir.ImmPair, payload).data;
-    const opcode = getArithOpCode(tag, .mi);
+    const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
+    const opcode = getOpCode(tag, .mi);
     const opc = if (ops.reg1.size() == 8) opcode.opc - 1 else opcode.opc;
     const encoder = try Encoder.init(emit.code, 2);
     encoder.rex(.{
@@ -1023,7 +1041,7 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 
     if (is_64) {
         const payload = emit.mir.instructions.items(.data)[inst].payload;
-        const imm64 = Mir.extraData(emit.mir.extra, Mir.Imm64, payload).data;
+        const imm64 = emit.mir.extraData(Mir.Imm64, payload).data;
         encoder.imm64(imm64.decode());
     } else {
         const imm = emit.mir.instructions.items(.data)[inst].imm;
@@ -1129,7 +1147,7 @@ fn mirLeaRip(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const end_offset = emit.code.items.len;
     if (@truncate(u1, ops.flags) == 0b0) {
         const payload = emit.mir.instructions.items(.data)[inst].payload;
-        const imm = Mir.extraData(emit.mir.extra, Mir.Imm64, payload).data.decode();
+        const imm = emit.mir.extraData(Mir.Imm64, payload).data.decode();
         encoder.disp32(@intCast(i32, @intCast(i64, imm) - @intCast(i64, end_offset - start_offset + 4)));
     } else {
         const got_entry = emit.mir.instructions.items(.data)[inst].got_entry;
@@ -1184,7 +1202,7 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .dbg_line);
     const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const dbg_line_column = Mir.extraData(emit.mir.extra, Mir.DbgLineColumn, payload).data;
+    const dbg_line_column = emit.mir.extraData(Mir.DbgLineColumn, payload).data;
     try emit.dbgAdvancePCAndLine(dbg_line_column.line, dbg_line_column.column);
 }
 
@@ -1269,7 +1287,7 @@ fn mirArgDbgInfo(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .arg_dbg_info);
     const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const arg_dbg_info = Mir.extraData(emit.mir.extra, Mir.ArgDbgInfo, payload).data;
+    const arg_dbg_info = emit.mir.extraData(Mir.ArgDbgInfo, payload).data;
     const mcv = emit.mir.function.args[arg_dbg_info.arg_index];
     try emit.genArgDbgInfo(arg_dbg_info.air_inst, mcv);
 }
@@ -1333,111 +1351,6 @@ fn addDbgInfoTypeReloc(emit: *Emit, ty: Type) !void {
     }
 }
 
-const Mock = struct {
-    const gpa = testing.allocator;
-
-    mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
-    mir_extra: std.ArrayList(u32),
-    code: std.ArrayList(u8),
-
-    fn init() Mock {
-        return .{
-            .mir_extra = std.ArrayList(u32).init(gpa),
-            .code = std.ArrayList(u8).init(gpa),
-        };
-    }
-
-    fn deinit(self: *Mock) void {
-        self.mir_instructions.deinit(gpa);
-        self.mir_extra.deinit();
-        self.code.deinit();
-    }
-
-    fn addInst(self: *Mock, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
-        try self.mir_instructions.ensureUnusedCapacity(gpa, 1);
-        const result_index = @intCast(Air.Inst.Index, self.mir_instructions.len);
-        self.mir_instructions.appendAssumeCapacity(inst);
-        return result_index;
-    }
-
-    fn addExtra(self: *Mock, extra: anytype) Allocator.Error!u32 {
-        const fields = std.meta.fields(@TypeOf(extra));
-        try self.mir_extra.ensureUnusedCapacity(fields.len);
-        return self.addExtraAssumeCapacity(extra);
-    }
-
-    fn addExtraAssumeCapacity(self: *Mock, extra: anytype) u32 {
-        const fields = std.meta.fields(@TypeOf(extra));
-        const result = @intCast(u32, self.mir_extra.items.len);
-        inline for (fields) |field| {
-            self.mir_extra.appendAssumeCapacity(switch (field.field_type) {
-                u32 => @field(extra, field.name),
-                i32 => @bitCast(u32, @field(extra, field.name)),
-                else => @compileError("bad field type"),
-            });
-        }
-        return result;
-    }
-
-    fn dummySrcLoc() Module.SrcLoc {
-        return .{
-            .file_scope = undefined,
-            .parent_decl_node = 0,
-            .lazy = .unneeded,
-        };
-    }
-
-    fn testEmitSingleSuccess(
-        self: *Mock,
-        mir_inst: Mir.Inst,
-        expected_enc: []const u8,
-        assembly: []const u8,
-    ) !void {
-        const dummy_src_loc = Mock.dummySrcLoc();
-        const code_index = self.code.items.len;
-        const mir_index = try self.addInst(mir_inst);
-        const res = switch (mir_inst.tag) {
-            .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp, .mov => try mirArithImpl(
-                testing.allocator,
-                mir_inst.tag,
-                self.mir_instructions.slice(),
-                self.mir_extra.items,
-                mir_index,
-                dummy_src_loc,
-                &self.code,
-            ),
-            else => unreachable,
-        };
-        defer res.deinit(testing.allocator);
-        try testing.expect(res == .ok);
-        const code_len = if (self.code.items[code_index..].len >= expected_enc.len)
-            expected_enc.len
-        else
-            self.code.items.len - code_index;
-        try expectEqualHexStrings(expected_enc, self.code.items[code_index..][0..code_len], assembly);
-    }
-
-    fn testEmitSingleFail(self: *Mock, mir_inst: Mir.Inst, msg: []const u8) !void {
-        const dummy_src_loc = Mock.dummySrcLoc();
-        const index = try self.addInst(mir_inst);
-        const res = switch (mir_inst.tag) {
-            .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp, .mov => try mirArithImpl(
-                testing.allocator,
-                mir_inst.tag,
-                self.mir_instructions.slice(),
-                self.mir_extra.items,
-                index,
-                dummy_src_loc,
-                &self.code,
-            ),
-            else => unreachable,
-        };
-        defer res.deinit(testing.allocator);
-        try testing.expect(res == .err);
-        try testing.expectEqualStrings(msg, res.err.msg);
-    }
-};
-
 fn expectEqualHexStrings(expected: []const u8, given: []const u8, assembly: []const u8) !void {
     assert(expected.len > 0);
     if (mem.eql(u8, expected, given)) return;
@@ -1458,334 +1371,118 @@ fn expectEqualHexStrings(expected: []const u8, given: []const u8, assembly: []co
     return error.TestFailed;
 }
 
-test "ARITH_OP/MOV dst_reg, src_reg" {
-    var mock = Mock.init();
-    defer mock.deinit();
-    inline for (&[_]Mir.Inst.Tag{ .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp, .mov }) |tag| {
-        const opcode = comptime getArithOpCode(tag, .mr);
-        const opc = [1]u8{opcode.opc};
-        const opc_1 = [1]u8{opcode.opc - 1};
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .rbp, .reg2 = .rsp }).encode(),
-            .data = undefined,
-        }, "\x48" ++ opc ++ "\xe5", @tagName(tag) ++ " rbp, rsp");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r12, .reg2 = .rax }).encode(),
-            .data = undefined,
-        }, "\x49" ++ opc ++ "\xc4", @tagName(tag) ++ " r12, rax");
-        try mock.testEmitSingleFail(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r12, .reg2 = .eax }).encode(),
-            .data = undefined,
-        }, "size mismatch: sizeof Register.r12 != sizeof Register.eax");
-        try mock.testEmitSingleFail(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r12d, .reg2 = .rax }).encode(),
-            .data = undefined,
-        }, "size mismatch: sizeof Register.r12d != sizeof Register.rax");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r12d, .reg2 = .eax }).encode(),
-            .data = undefined,
-        }, "\x41" ++ opc ++ "\xc4", @tagName(tag) ++ " r12d, eax");
-        // TODO mov r12b, ah requires a codepath without REX prefix
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r12b, .reg2 = .al }).encode(),
-            .data = undefined,
-        }, "\x41" ++ opc_1 ++ "\xc4", @tagName(tag) ++ " r12b, al");
+const TestEmitCode = struct {
+    buf: std.ArrayList(u8),
+    next: usize = 0,
+
+    fn init() TestEmitCode {
+        return .{
+            .buf = std.ArrayList(u8).init(testing.allocator),
+        };
     }
+
+    fn deinit(emit: *TestEmitCode) void {
+        emit.buf.deinit();
+        emit.next = undefined;
+    }
+
+    fn buffer(emit: *TestEmitCode) *std.ArrayList(u8) {
+        emit.next = emit.buf.items.len;
+        return &emit.buf;
+    }
+
+    fn emitted(emit: TestEmitCode) []const u8 {
+        return emit.buf.items[emit.next..];
+    }
+};
+
+test "lower MI encoding" {
+    var code = TestEmitCode.init();
+    defer code.deinit();
+    try lowerToMiEnc(.mov, RegisterOrMemory.reg(.rax), 0x10, code.buffer());
+    try expectEqualHexStrings("\x48\xc7\xc0\x10\x00\x00\x00", code.emitted(), "mov rax, 0x10");
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.r11, 0), 0x10, code.buffer());
+    try expectEqualHexStrings("\x41\xc7\x03\x10\x00\x00\x00", code.emitted(), "mov dword ptr [r11 + 0], 0x10");
+    try lowerToMiEnc(.add, RegisterOrMemory.mem(.rdx, -8), 0x10, code.buffer());
+    try expectEqualHexStrings("\x81\x42\xF8\x10\x00\x00\x00", code.emitted(), "add dword ptr [rdx - 8], 0x10");
+    try lowerToMiEnc(.sub, RegisterOrMemory.mem(.r11, 0x10000000), 0x10, code.buffer());
+    try expectEqualHexStrings(
+        "\x41\x81\xab\x00\x00\x00\x10\x10\x00\x00\x00",
+        code.emitted(),
+        "sub dword ptr [r11 + 0x10000000], 0x10",
+    );
+    try lowerToMiEnc(.@"and", RegisterOrMemory.mem(null, 0x10000000), 0x10, code.buffer());
+    try expectEqualHexStrings(
+        "\x81\x24\x25\x00\x00\x00\x10\x10\x00\x00\x00",
+        code.emitted(),
+        "and dword ptr [ds:0x10000000], 0x10",
+    );
+    try lowerToMiEnc(.@"and", RegisterOrMemory.mem(.r12, 0x10000000), 0x10, code.buffer());
+    try expectEqualHexStrings(
+        "\x41\x81\xA4\x24\x00\x00\x00\x10\x10\x00\x00\x00",
+        code.emitted(),
+        "and dword ptr [r12 + 0x10000000], 0x10",
+    );
 }
 
-test "ARITH_OP/MOV dst_reg, imm" {
-    var mock = Mock.init();
-    defer mock.deinit();
-
-    const ModRmByte = struct {
-        inline fn get(tag: Mir.Inst.Tag, reg: u8) [1]u8 {
-            const modrm: u8 = getArithOpCode(tag, .mi).modrm_ext;
-            return .{0xc0 + (modrm << 3) + reg};
-        }
-    };
-
-    inline for (&[_]Mir.Inst.Tag{ .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp, .mov }) |tag| {
-        const opcode = comptime getArithOpCode(tag, .mi);
-        const opc = [1]u8{opcode.opc};
-        const opc_1 = [1]u8{opcode.opc - 1};
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .rcx }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x48" ++ opc ++ ModRmByte.get(tag, 1) ++ "\x10\x00\x00\x00", @tagName(tag) ++ " rcx, 0x10");
-        // TODO we are wasting one byte here: this could be encoded as OI with the encoding
-        // opc + rd, imm8/16/32
-        // b9 10 00 00 00
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .ecx }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, opc ++ ModRmByte.get(tag, 1) ++ "\x10\x00\x00\x00", @tagName(tag) ++ " ecx, 0x10");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .cx }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x66" ++ opc ++ ModRmByte.get(tag, 1) ++ "\x10\x00", @tagName(tag) ++ " cx, 0x10");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r11w }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x66\x41" ++ opc ++ ModRmByte.get(tag, 3) ++ "\x10\x00", @tagName(tag) ++ " r11w, 0x10");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .cl }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, opc_1 ++ ModRmByte.get(tag, 1) ++ "\x10", @tagName(tag) ++ " cl, 0x10");
-        try mock.testEmitSingleFail(.{
-            .tag = .mov,
-            .ops = (Mir.Ops{ .reg1 = .cx }).encode(),
-            .data = .{ .imm = 0x10000000 },
-        }, "size mismatch: sizeof Register.cx != sizeof 0x10000000");
-        try mock.testEmitSingleFail(.{
-            .tag = .mov,
-            .ops = (Mir.Ops{ .reg1 = .cl }).encode(),
-            .data = .{ .imm = 0x1000 },
-        }, "size mismatch: sizeof Register.cl != sizeof 0x1000");
-    }
+test "lower RM encoding" {
+    var code = TestEmitCode.init();
+    defer code.deinit();
+    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.reg(.rbx), code.buffer());
+    try expectEqualHexStrings("\x48\x8b\xc3", code.emitted(), "mov rax, rbx");
+    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.r11, 0), code.buffer());
+    try expectEqualHexStrings("\x49\x8b\x03", code.emitted(), "mov rax, qword ptr [r11 + 0]");
+    try lowerToRmEnc(.add, .r11, RegisterOrMemory.mem(null, 0x10000000), code.buffer());
+    try expectEqualHexStrings(
+        "\x4C\x03\x1C\x25\x00\x00\x00\x10",
+        code.emitted(),
+        "add r11, qword ptr [ds:0x10000000]",
+    );
+    try lowerToRmEnc(.add, .r12b, RegisterOrMemory.mem(null, 0x10000000), code.buffer());
+    try expectEqualHexStrings(
+        "\x44\x02\x24\x25\x00\x00\x00\x10",
+        code.emitted(),
+        "add r11b, byte ptr [ds:0x10000000]",
+    );
+    try lowerToRmEnc(.sub, .r11, RegisterOrMemory.mem(.r13, 0x10000000), code.buffer());
+    try expectEqualHexStrings(
+        "\x4D\x2B\x9D\x00\x00\x00\x10",
+        code.emitted(),
+        "sub r11, qword ptr [r13 + 0x10000000]",
+    );
+    try lowerToRmEnc(.sub, .r11, RegisterOrMemory.mem(.r12, 0x10000000), code.buffer());
+    try expectEqualHexStrings(
+        "\x4D\x2B\x9C\x24\x00\x00\x00\x10",
+        code.emitted(),
+        "sub r11, qword ptr [r12 + 0x10000000]",
+    );
+    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.rbp, -4), code.buffer());
+    try expectEqualHexStrings("\x48\x8B\x45\xFC", code.emitted(), "mov rax, qword ptr [rbp - 4]");
 }
 
-test "ARITH_OP/MOV dst_reg, [imm32]" {
-    var mock = Mock.init();
-    defer mock.deinit();
-    inline for (&[_]Mir.Inst.Tag{ .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp, .mov }) |tag| {
-        const opcode = comptime getArithOpCode(tag, .rm);
-        const opc = [1]u8{opcode.opc};
-        const opc_1 = [1]u8{opcode.opc - 1};
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .rcx, .flags = 0b01 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x48" ++ opc ++ "\x0C\x25\x10\x00\x00\x00", @tagName(tag) ++ " rcx, [0x10]");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r11, .flags = 0b01 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x4C" ++ opc ++ "\x1C\x25\x10\x00\x00\x00", @tagName(tag) ++ " r11, [0x10]");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r11d, .flags = 0b01 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x44" ++ opc ++ "\x1C\x25\x10\x00\x00\x00", @tagName(tag) ++ " r11d, [0x10]");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r11w, .flags = 0b01 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x66\x44" ++ opc ++ "\x1C\x25\x10\x00\x00\x00", @tagName(tag) ++ " r11w, [0x10]");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r11b, .flags = 0b01 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x44" ++ opc_1 ++ "\x1C\x25\x10\x00\x00\x00", @tagName(tag) ++ " r11b, [0x10]");
-    }
-}
-
-test "ARITH_OP/MOV dst_reg, [src_reg + imm]" {
-    var mock = Mock.init();
-    defer mock.deinit();
-    inline for (&[_]Mir.Inst.Tag{ .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp, .mov }) |tag| {
-        const opcode = comptime getArithOpCode(tag, .rm);
-        const opc = [1]u8{opcode.opc};
-        const opc_1 = [1]u8{opcode.opc - 1};
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .rcx, .reg2 = .rbp, .flags = 0b01 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x48" ++ opc ++ "\x4D\x10", @tagName(tag) ++ " rcx, [rbp + 0x10]");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .rcx, .reg2 = .rbp, .flags = 0b01 }).encode(),
-            .data = .{ .imm = 0x10000000 },
-        }, "\x48" ++ opc ++ "\x8D\x00\x00\x00\x10", @tagName(tag) ++ " rcx, [rbp + 0x10000000]");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r11b, .reg2 = .rbp, .flags = 0b01 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x44" ++ opc_1 ++ "\x5D\x10", @tagName(tag) ++ " r11b, [rbp + 0x10]");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r11w, .reg2 = .rbp, .flags = 0b01 }).encode(),
-            .data = .{ .imm = 0x10000000 },
-        }, "\x66\x44" ++ opc ++ "\x9D\x00\x00\x00\x10", @tagName(tag) ++ " r11w, [rbp + 0x10000000]");
-    }
-}
-
-test "ARITH_OP/MOV [dst_reg + 0], imm" {
-    var mock = Mock.init();
-    defer mock.deinit();
-
-    const ModRmByte = struct {
-        inline fn get(tag: Mir.Inst.Tag, reg: u8) [1]u8 {
-            const modrm: u8 = getArithOpCode(tag, .mi).modrm_ext;
-            return .{(modrm << 3) + reg};
-        }
-    };
-
-    inline for (&[_]Mir.Inst.Tag{ .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp, .mov }) |tag| {
-        const opcode = comptime getArithOpCode(tag, .mi);
-        const opc = [1]u8{opcode.opc};
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r11, .flags = 0b10 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x41" ++ opc ++ ModRmByte.get(tag, 3) ++ "\x10\x00\x00\x00", @tagName(tag) ++ " dword ptr [r11 + 0], 0x10");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .rax, .flags = 0b10 }).encode(),
-            .data = .{ .imm = 0x10000000 },
-        }, opc ++ ModRmByte.get(tag, 0) ++ "\x00\x00\x00\x10", @tagName(tag) ++ " dword ptr [rax + 0], 0x10000000");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .rax, .flags = 0b10 }).encode(),
-            .data = .{ .imm = 0x1000 },
-        }, opc ++ ModRmByte.get(tag, 0) ++ "\x00\x10\x00\x00", @tagName(tag) ++ " dword ptr [rax + 0], 0x1000");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .rax, .flags = 0b10 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, opc ++ ModRmByte.get(tag, 0) ++ "\x10\x00\x00\x00", @tagName(tag) ++ " dword ptr [rax + 0], 0x10");
-        try mock.testEmitSingleFail(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .eax, .flags = 0b10 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "size mismatch: sizeof Register.eax != 8");
-    }
-}
-
-test "ARITH_OP/MOV [dst_reg + imm32], src_reg" {
-    var mock = Mock.init();
-    defer mock.deinit();
-    inline for (&[_]Mir.Inst.Tag{ .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp, .mov }) |tag| {
-        const opcode = comptime getArithOpCode(tag, .mr);
-        const opc = [1]u8{opcode.opc};
-        const opc_1 = [1]u8{opcode.opc - 1};
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .rbp, .reg2 = .r11, .flags = 0b10 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x4c" ++ opc ++ "\x5d\x10", @tagName(tag) ++ " qword ptr [rbp + 0x10], r11");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .rbp, .reg2 = .r11d, .flags = 0b10 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x44" ++ opc ++ "\x5d\x10", @tagName(tag) ++ " dword ptr [rbp + 0x10], r11d");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .rbp, .reg2 = .r11w, .flags = 0b10 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x66\x44" ++ opc ++ "\x5d\x10", @tagName(tag) ++ " word ptr [rbp + 0x10], r11w");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .rbp, .reg2 = .r11b, .flags = 0b10 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x44" ++ opc_1 ++ "\x5d\x10", @tagName(tag) ++ " byte ptr [rbp + 0x10], r11b");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r11, .reg2 = .rax, .flags = 0b10 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x49" ++ opc ++ "\x43\x10", @tagName(tag) ++ " qword ptr [r11 + 0x10], rax");
-        try mock.testEmitSingleSuccess(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r11, .reg2 = .eax, .flags = 0b10 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "\x41" ++ opc ++ "\x43\x10", @tagName(tag) ++ " dword ptr [r11 + 0x10], eax");
-        try mock.testEmitSingleFail(.{
-            .tag = tag,
-            .ops = (Mir.Ops{ .reg1 = .r11w, .reg2 = .ax, .flags = 0b10 }).encode(),
-            .data = .{ .imm = 0x10 },
-        }, "size mismatch: sizeof Register.r11w != 8");
-    }
-}
-
-test "ARITH_OP/MOV [dst_reg + imm32], imm32" {
-    var mock = Mock.init();
-    defer mock.deinit();
-
-    const ModRmByte = struct {
-        inline fn get(tag: Mir.Inst.Tag, disp: u2, reg: u8) [1]u8 {
-            const modrm: u8 = getArithOpCode(tag, .mi).modrm_ext;
-            return .{(@as(u8, disp) << 6) + (modrm << 3) + reg};
-        }
-    };
-
-    inline for (&[_]Mir.Inst.Tag{ .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp, .mov }) |tag| {
-        const opcode = comptime getArithOpCode(tag, .mi);
-        const opc = [1]u8{opcode.opc};
-        {
-            const payload = try mock.addExtra(Mir.ImmPair{
-                .dest_off = 0x10,
-                .operand = 0x20000000,
-            });
-            try mock.testEmitSingleSuccess(.{
-                .tag = tag,
-                .ops = (Mir.Ops{ .reg1 = .rbp, .flags = 0b11 }).encode(),
-                .data = .{ .payload = payload },
-            }, opc ++ ModRmByte.get(tag, 1, 5) ++ "\x10\x00\x00\x00\x20", @tagName(tag) ++ " dword ptr [rbp + 0x10], 0x20000000");
-        }
-        {
-            const payload = try mock.addExtra(Mir.ImmPair{
-                .dest_off = 0x10,
-                .operand = 0x2000,
-            });
-            try mock.testEmitSingleSuccess(.{
-                .tag = tag,
-                .ops = (Mir.Ops{ .reg1 = .rbp, .flags = 0b11 }).encode(),
-                .data = .{ .payload = payload },
-            }, opc ++ ModRmByte.get(tag, 1, 5) ++ "\x10\x00\x20\x00\x00", @tagName(tag) ++ " dword ptr [rbp + 0x10], 0x2000");
-        }
-        {
-            const payload = try mock.addExtra(Mir.ImmPair{
-                .dest_off = 0x10,
-                .operand = 0x20,
-            });
-            try mock.testEmitSingleSuccess(.{
-                .tag = tag,
-                .ops = (Mir.Ops{ .reg1 = .rbp, .flags = 0b11 }).encode(),
-                .data = .{ .payload = payload },
-            }, opc ++ ModRmByte.get(tag, 1, 5) ++ "\x10\x20\x00\x00\x00", @tagName(tag) ++ " dword ptr [rbp + 0x10], 0x20");
-        }
-        {
-            const payload = try mock.addExtra(Mir.ImmPair{
-                .dest_off = 0x10,
-                .operand = 0x20000000,
-            });
-            try mock.testEmitSingleSuccess(.{
-                .tag = tag,
-                .ops = (Mir.Ops{ .reg1 = .r11, .flags = 0b11 }).encode(),
-                .data = .{ .payload = payload },
-            }, "\x41" ++ opc ++ ModRmByte.get(tag, 1, 3) ++ "\x10\x00\x00\x00\x20", @tagName(tag) ++ " dword ptr [r11 + 0x10], 0x20000000");
-        }
-        {
-            const payload = try mock.addExtra(Mir.ImmPair{
-                .dest_off = 0x10000000,
-                .operand = 0x20000000,
-            });
-            try mock.testEmitSingleSuccess(.{
-                .tag = tag,
-                .ops = (Mir.Ops{ .reg1 = .r11, .flags = 0b11 }).encode(),
-                .data = .{ .payload = payload },
-            }, "\x41" ++ opc ++ ModRmByte.get(tag, 2, 3) ++ "\x00\x00\x00\x10\x00\x00\x00\x20", @tagName(tag) ++ " dword ptr [r11 + 0x10], 0x20000000");
-        }
-        {
-            const payload = try mock.addExtra(Mir.ImmPair{
-                .dest_off = 0x10,
-                .operand = 0x20,
-            });
-            try mock.testEmitSingleFail(.{
-                .tag = tag,
-                .ops = (Mir.Ops{ .reg1 = .r11d, .flags = 0b11 }).encode(),
-                .data = .{ .payload = payload },
-            }, "size mismatch: sizeof Register.r11d != 8");
-        }
-    }
+test "lower MR encoding" {
+    var code = TestEmitCode.init();
+    defer code.deinit();
+    try lowerToMrEnc(.mov, RegisterOrMemory.reg(.rax), .rbx, code.buffer());
+    try expectEqualHexStrings("\x48\x89\xd8", code.emitted(), "mov rax, rbx");
+    try lowerToMrEnc(.mov, RegisterOrMemory.mem(.rbp, -4), .r11, code.buffer());
+    try expectEqualHexStrings("\x4c\x89\x5d\xfc", code.emitted(), "mov qword ptr [rbp - 4], r11");
+    try lowerToMrEnc(.add, RegisterOrMemory.mem(null, 0x10000000), .r12b, code.buffer());
+    try expectEqualHexStrings(
+        "\x44\x00\x24\x25\x00\x00\x00\x10",
+        code.emitted(),
+        "add byte ptr [ds:0x10000000], r12b",
+    );
+    try lowerToMrEnc(.add, RegisterOrMemory.mem(null, 0x10000000), .r12d, code.buffer());
+    try expectEqualHexStrings(
+        "\x44\x01\x24\x25\x00\x00\x00\x10",
+        code.emitted(),
+        "add dword ptr [ds:0x10000000], r12d",
+    );
+    try lowerToMrEnc(.sub, RegisterOrMemory.mem(.r11, 0x10000000), .r12, code.buffer());
+    try expectEqualHexStrings(
+        "\x4D\x29\xA3\x00\x00\x00\x10",
+        code.emitted(),
+        "sub qword ptr [r11 + 0x10000000], r12",
+    );
 }
