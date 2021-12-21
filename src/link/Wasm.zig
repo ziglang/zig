@@ -635,10 +635,29 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     }
 
     // Import section
-    const import_mem = self.base.options.import_memory;
-    if (self.imports.count() != 0 or import_mem) {
+    const import_memory = self.base.options.import_memory;
+    const import_table = self.base.options.import_table;
+    if (self.imports.count() != 0 or import_memory or import_table) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
+
+        // import table is always first table so emit that first
+        if (import_table) {
+            const table_imp: wasm.Import = .{
+                .module_name = self.host_name,
+                .name = "__indirect_function_table",
+                .kind = .{
+                    .table = .{
+                        .limits = .{
+                            .min = @intCast(u32, self.imports.count()),
+                            .max = null,
+                        },
+                        .reftype = .funcref,
+                    },
+                },
+            };
+            try emitImport(writer, table_imp);
+        }
 
         var it = self.imports.iterator();
         while (it.next()) |entry| {
@@ -648,7 +667,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             try emitImport(writer, import);
         }
 
-        if (import_mem) {
+        if (import_memory) {
             const mem_imp: wasm.Import = .{
                 .module_name = self.host_name,
                 .name = "memory",
@@ -662,7 +681,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             header_offset,
             .import,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @intCast(u32, self.imports.count() + @boolToInt(import_mem)),
+            @intCast(u32, self.imports.count() + @boolToInt(import_memory)),
         );
     }
 
@@ -684,7 +703,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     }
 
     // Table section
-    if (self.function_table.count() > 0) {
+    const export_table = self.base.options.export_table;
+    if (!import_table and (self.function_table.count() > 0 or export_table)) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
 
@@ -767,11 +787,19 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         }
 
         // export memory if size is not 0
-        if (!self.base.options.import_memory) {
+        if (!import_memory) {
             try leb.writeULEB128(writer, @intCast(u32, "memory".len));
             try writer.writeAll("memory");
             try writer.writeByte(wasm.externalKind(.memory));
             try leb.writeULEB128(writer, @as(u32, 0)); // only 1 memory 'object' can exist
+            count += 1;
+        }
+
+        if (export_table) {
+            try leb.writeULEB128(writer, @intCast(u32, "__indirect_function_table".len));
+            try writer.writeAll("__indirect_function_table");
+            try writer.writeByte(wasm.externalKind(.table));
+            try leb.writeULEB128(writer, @as(u32, 0)); // function table is always the first table
             count += 1;
         }
 
@@ -1008,6 +1036,8 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         try man.addOptionalFile(compiler_rt_path);
         man.hash.addOptional(self.base.options.stack_size_override);
         man.hash.add(self.base.options.import_memory);
+        man.hash.add(self.base.options.import_table);
+        man.hash.add(self.base.options.export_table);
         man.hash.addOptional(self.base.options.initial_memory);
         man.hash.addOptional(self.base.options.max_memory);
         man.hash.addOptional(self.base.options.global_base);
@@ -1090,6 +1120,18 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 
         if (self.base.options.import_memory) {
             try argv.append("--import-memory");
+        }
+
+        if (self.base.options.import_table) {
+            if (self.base.options.export_table) {
+                log.err("--import-table and --export-table may not be used together", .{});
+                return error.InvalidArgs;
+            }
+            try argv.append("--import-table");
+        }
+
+        if (self.base.options.export_table) {
+            try argv.append("--export-table");
         }
 
         if (self.base.options.initial_memory) |initial_memory| {

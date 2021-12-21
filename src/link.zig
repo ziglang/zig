@@ -102,6 +102,8 @@ pub const Options = struct {
     linker_optimization: u8,
     bind_global_refs_locally: bool,
     import_memory: bool,
+    import_table: bool,
+    export_table: bool,
     initial_memory: ?u64,
     max_memory: ?u64,
     export_symbol_names: []const []const u8,
