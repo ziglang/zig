@@ -868,7 +868,8 @@ const Msf = struct {
             return error.InvalidDebugInfo;
         if (superblock.FreeBlockMapBlock != 1 and superblock.FreeBlockMapBlock != 2)
             return error.InvalidDebugInfo;
-        if (superblock.NumBlocks * superblock.BlockSize != try file.getEndPos())
+        const file_len = try file.getEndPos();
+        if (superblock.NumBlocks * superblock.BlockSize != file_len)
             return error.InvalidDebugInfo;
         switch (superblock.BlockSize) {
             // llvm only supports 4096 but we can handle any of these values
@@ -919,7 +920,7 @@ const Msf = struct {
                     const block_id = try directory.reader().readIntLittle(u32);
                     const n = (block_id % superblock.BlockSize);
                     // 0 is for SuperBlock, 1 and 2 for FPMs.
-                    if (block_id == 0 or n == 1 or n == 2 or block_id * superblock.BlockSize > try file.getEndPos())
+                    if (block_id == 0 or n == 1 or n == 2 or block_id * superblock.BlockSize > file_len)
                         return error.InvalidBlockIndex;
                     blocks[j] = block_id;
                 }
