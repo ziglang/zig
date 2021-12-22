@@ -318,6 +318,13 @@ pub const DeclGen = struct {
                     64 => return writer.writeAll("(void *)0xaaaaaaaaaaaaaaaa"),
                     else => unreachable,
                 },
+                .Struct => {
+                    // TODO: 0xaa bit pattern
+                    try writer.writeByte('(');
+                    try dg.renderType(writer, ty);
+                    try writer.writeByte(')');
+                    return writer.writeAll("{ }");
+                },
                 else => {
                     // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
                     // lower to leaving variables uninitialized (that might need to be implemented
