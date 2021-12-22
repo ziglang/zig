@@ -70,14 +70,7 @@ pub fn typeToCIdentifier(t: Type) std.fmt.Formatter(formatTypeAsCIdentifier) {
     return .{ .data = t };
 }
 
-const reservedWords = &[_][]const u8 {
-    "auto", "break", "case", "char", "const", "continue", "default", "do", "double",
-    "else", "enum", "extern", "float", "for", "goto", "if", "inline", "int", "long",
-    "register", "restrict", "return", "short", "signed", "sizeof", "static", "struct",
-    "switch", "typedef", "union", "unsigned", "void", "volatile", "while", "_Alignas",
-    "_Alignof", "_Atomic", "_Bool", "_Complex", "_Decimal128", "_Decimal64", "_Decimal32",
-    "_Generic", "_Imaginary", "_Noreturn", "_Static_assert", "_Thread_local"
-};
+const reservedWords = &[_][]const u8{ "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else", "enum", "extern", "float", "for", "goto", "if", "inline", "int", "long", "register", "restrict", "return", "short", "signed", "sizeof", "static", "struct", "switch", "typedef", "union", "unsigned", "void", "volatile", "while", "_Alignas", "_Alignof", "_Atomic", "_Bool", "_Complex", "_Decimal128", "_Decimal64", "_Decimal32", "_Generic", "_Imaginary", "_Noreturn", "_Static_assert", "_Thread_local" };
 
 fn formatIdent(
     ident: []const u8,
@@ -92,7 +85,7 @@ fn formatIdent(
     // but this is better than nothing
     for (reservedWords) |reserved| {
         if (std.mem.eql(u8, ident, reserved)) {
-            return writer.print("{s}_", .{ ident });
+            return writer.print("{s}_", .{ident});
         }
     }
     for (ident) |c, i| {
@@ -558,7 +551,7 @@ pub const DeclGen = struct {
                 if (ty.unionTagType() != null) {
                     return dg.fail("TODO: C backend: implement tagged unions", .{});
                 } else {
-                    return dg.fail("TODO: C backend: implement value of type Union");
+                    return dg.fail("TODO: C backend: implement value of type Union", .{});
                 }
 
                 // try writer.writeAll("(");
@@ -776,7 +769,7 @@ pub const DeclGen = struct {
             while (it.next()) |entry| {
                 const field_ty = entry.value_ptr.ty;
                 if (field_ty.tag() != .void) {
-                    const escapedName = try std.fmt.allocPrint(dg.typedefs.allocator, "{}", .{ fmtIdent(entry.key_ptr.*) });
+                    const escapedName = try std.fmt.allocPrint(dg.typedefs.allocator, "{}", .{fmtIdent(entry.key_ptr.*)});
                     defer dg.typedefs.allocator.free(escapedName);
 
                     const name: CValue = .{ .bytes = escapedName };
@@ -2709,7 +2702,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
             try writer.print(".{};\n", .{fmtIdent(field_name)});
             return local;
         },
-        else => unreachable
+        else => unreachable,
     }
 }
 
