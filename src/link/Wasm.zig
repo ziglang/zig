@@ -1123,7 +1123,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         }
 
         if (self.base.options.import_table) {
-            assert(self.base.options.export_table);
+            assert(!self.base.options.export_table);
             try argv.append("--import-table");
         }
 
