@@ -581,6 +581,7 @@ inline fn getOpCode(tag: Mir.Inst.Tag, enc: Encoding) u8 {
             .sbb => 0x1b,
             .cmp => 0x3b,
             .mov => 0x8b,
+            .lea => 0x8d,
             else => unreachable,
         },
         .oi => return switch (tag) {
@@ -621,6 +622,7 @@ const ScaleIndexBase = struct {
 
 const Memory = struct {
     reg: ?Register,
+    rip: bool = false,
     disp: i32,
     sib: ?ScaleIndexBase = null,
 };
@@ -637,6 +639,16 @@ const RegisterOrMemory = union(enum) {
         return .{
             .memory = .{
                 .reg = register,
+                .disp = disp,
+            },
+        };
+    }
+
+    fn rip(disp: i32) RegisterOrMemory {
+        return .{
+            .memory = .{
+                .reg = null,
+                .rip = true,
                 .disp = disp,
             },
         };
@@ -813,8 +825,12 @@ fn lowerToMiEnc(
                 }
             } else {
                 encoder.opcode_1byte(opc);
-                encoder.modRm_SIBDisp0(modrm_ext);
-                encoder.sib_disp32();
+                if (dst_mem.rip) {
+                    encoder.modRm_RIPDisp32(modrm_ext);
+                } else {
+                    encoder.modRm_SIBDisp0(modrm_ext);
+                    encoder.sib_disp32();
+                }
                 encoder.disp32(dst_mem.disp);
             }
             encoder.imm32(imm);
@@ -880,8 +896,12 @@ fn lowerToRmEnc(
                     .r = reg.isExtended(),
                 });
                 encoder.opcode_1byte(opc);
-                encoder.modRm_SIBDisp0(reg.lowId());
-                encoder.sib_disp32();
+                if (src_mem.rip) {
+                    encoder.modRm_RIPDisp32(reg.lowId());
+                } else {
+                    encoder.modRm_SIBDisp0(reg.lowId());
+                    encoder.sib_disp32();
+                }
                 encoder.disp32(src_mem.disp);
             }
         },
@@ -950,8 +970,12 @@ fn lowerToMrEnc(
                     .r = reg.isExtended(),
                 });
                 encoder.opcode_1byte(opc);
-                encoder.modRm_SIBDisp0(reg.lowId());
-                encoder.sib_disp32();
+                if (dst_mem.rip) {
+                    encoder.modRm_RIPDisp32(reg.lowId());
+                } else {
+                    encoder.modRm_SIBDisp0(reg.lowId());
+                    encoder.sib_disp32();
+                }
                 encoder.disp32(dst_mem.disp);
             }
         },
@@ -1206,37 +1230,7 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     assert(ops.flags == 0b01);
     const imm = emit.mir.instructions.items(.data)[inst].imm;
-
-    if (imm == 0) {
-        const encoder = try Encoder.init(emit.code, 3);
-        encoder.rex(.{
-            .w = ops.reg1.size() == 64,
-            .r = ops.reg1.isExtended(),
-            .b = ops.reg2.isExtended(),
-        });
-        encoder.opcode_1byte(0x8d);
-        encoder.modRm_indirectDisp0(ops.reg1.lowId(), ops.reg2.lowId());
-    } else if (imm <= math.maxInt(i8)) {
-        const encoder = try Encoder.init(emit.code, 4);
-        encoder.rex(.{
-            .w = ops.reg1.size() == 64,
-            .r = ops.reg1.isExtended(),
-            .b = ops.reg2.isExtended(),
-        });
-        encoder.opcode_1byte(0x8d);
-        encoder.modRm_indirectDisp8(ops.reg1.lowId(), ops.reg2.lowId());
-        encoder.disp8(@intCast(i8, imm));
-    } else {
-        const encoder = try Encoder.init(emit.code, 7);
-        encoder.rex(.{
-            .w = ops.reg1.size() == 64,
-            .r = ops.reg1.isExtended(),
-            .b = ops.reg2.isExtended(),
-        });
-        encoder.opcode_1byte(0x8d);
-        encoder.modRm_indirectDisp32(ops.reg1.lowId(), ops.reg2.lowId());
-        encoder.disp32(imm);
-    }
+    return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.mem(ops.reg2, imm), emit.code);
 }
 
 fn mirLeaRip(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
@@ -1244,26 +1238,22 @@ fn mirLeaRip(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     assert(tag == .lea_rip);
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     const start_offset = emit.code.items.len;
-    const encoder = try Encoder.init(emit.code, 7);
-    encoder.rex(.{
-        .w = ops.reg1.size() == 64,
-        .r = ops.reg1.isExtended(),
-    });
-    encoder.opcode_1byte(0x8d);
-    encoder.modRm_RIPDisp32(ops.reg1.lowId());
+    try lowerToRmEnc(.lea, ops.reg1, RegisterOrMemory.rip(0), emit.code);
     const end_offset = emit.code.items.len;
     if (@truncate(u1, ops.flags) == 0b0) {
+        // Backpatch the displacement
+        // TODO figure out if this can be simplified
         const payload = emit.mir.instructions.items(.data)[inst].payload;
         const imm = emit.mir.extraData(Mir.Imm64, payload).data.decode();
-        encoder.disp32(@intCast(i32, @intCast(i64, imm) - @intCast(i64, end_offset - start_offset + 4)));
+        const disp = @intCast(i32, @intCast(i64, imm) - @intCast(i64, end_offset - start_offset));
+        mem.writeIntLittle(i32, emit.code.items[end_offset - 4 ..][0..4], disp);
     } else {
         const got_entry = emit.mir.instructions.items(.data)[inst].got_entry;
-        encoder.disp32(0);
         if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
             // TODO I think the reloc might be in the wrong place.
             const decl = macho_file.active_decl.?;
             try decl.link.macho.relocs.append(emit.bin_file.allocator, .{
-                .offset = @intCast(u32, end_offset),
+                .offset = @intCast(u32, end_offset - 4),
                 .target = .{ .local = got_entry },
                 .addend = 0,
                 .subtractor = null,
@@ -1530,6 +1520,12 @@ test "lower MI encoding" {
         code.emitted(),
         "and dword ptr [r12 + 0x10000000], 0x10",
     );
+    try lowerToMiEnc(.mov, RegisterOrMemory.rip(0x10), 0x10, code.buffer());
+    try expectEqualHexStrings(
+        "\xC7\x05\x10\x00\x00\x00\x10\x00\x00\x00",
+        code.emitted(),
+        "mov [rip + 0x10], 0x10",
+    );
 }
 
 test "lower RM encoding" {
@@ -1565,6 +1561,8 @@ test "lower RM encoding" {
     );
     try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.rbp, -4), code.buffer());
     try expectEqualHexStrings("\x48\x8B\x45\xFC", code.emitted(), "mov rax, qword ptr [rbp - 4]");
+    try lowerToRmEnc(.lea, .rax, RegisterOrMemory.rip(0x10), code.buffer());
+    try expectEqualHexStrings("\x48\x8D\x05\x10\x00\x00\x00", code.emitted(), "lea rax, [rip + 0x10]");
 }
 
 test "lower MR encoding" {
@@ -1592,6 +1590,8 @@ test "lower MR encoding" {
         code.emitted(),
         "sub qword ptr [r11 + 0x10000000], r12",
     );
+    try lowerToMrEnc(.mov, RegisterOrMemory.rip(0x10), .r12, code.buffer());
+    try expectEqualHexStrings("\x4C\x89\x25\x10\x00\x00\x00", code.emitted(), "mov qword ptr [rip + 0x10], r12");
 }
 
 test "lower OI encoding" {
