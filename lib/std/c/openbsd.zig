@@ -708,7 +708,7 @@ pub const auth_item_t = c_int;
 
 pub const AUTHV = struct {
     pub const ALL: auth_item_t = 0;
-    pub const CHALLENGEL: auth_item_t = 1;
+    pub const CHALLENGE: auth_item_t = 1;
     pub const CLASS: auth_item_t = 2;
     pub const NAME: auth_item_t = 3;
     pub const SERVICE: auth_item_t = 4;
