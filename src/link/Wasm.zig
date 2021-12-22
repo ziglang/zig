@@ -328,6 +328,7 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     self.symbols_free_list.append(self.base.allocator, atom.sym_index) catch {};
     atom.deinit(self.base.allocator);
     _ = self.decls.remove(decl);
+    self.symbols.items[atom.sym_index].tag = .dead; // to ensure it does not end in the names section
 
     if (decl.isExtern()) {
         const import = self.imports.fetchRemove(decl.link.wasm.sym_index).?.value;
@@ -335,11 +336,6 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
             .function => self.imported_functions_count -= 1,
             else => unreachable,
         }
-    }
-
-    // maybe remove from function table if needed
-    if (decl.ty.zigTypeTag() == .Fn) {
-        _ = self.function_table.remove(atom.sym_index);
     }
 }
 
@@ -915,6 +911,75 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             @intCast(u32, segment_count),
         );
     }
+
+    // Custom section "name" which contains symbol names
+    {
+        const Name = struct {
+            index: u32,
+            name: []const u8,
+
+            fn lessThan(context: void, lhs: @This(), rhs: @This()) bool {
+                _ = context;
+                return lhs.index < rhs.index;
+            }
+        };
+
+        var funcs = try std.ArrayList(Name).initCapacity(self.base.allocator, self.functions.items.len + self.imported_functions_count);
+        defer funcs.deinit();
+        var globals = try std.ArrayList(Name).initCapacity(self.base.allocator, self.globals.items.len);
+        defer globals.deinit();
+        var segments = try std.ArrayList(Name).initCapacity(self.base.allocator, self.data_segments.count());
+        defer segments.deinit();
+
+        for (self.symbols.items) |symbol| {
+            switch (symbol.tag) {
+                .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = std.mem.sliceTo(symbol.name, 0) }),
+                .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = std.mem.sliceTo(symbol.name, 0) }),
+                else => {},
+            }
+        }
+        // data segments are already 'ordered'
+        for (self.data_segments.keys()) |key, index| {
+            segments.appendAssumeCapacity(.{ .index = @intCast(u32, index), .name = key });
+        }
+
+        std.sort.sort(Name, funcs.items, {}, Name.lessThan);
+        std.sort.sort(Name, globals.items, {}, Name.lessThan);
+
+        const header_offset = try reserveCustomSectionHeader(file);
+        const writer = file.writer();
+        try leb.writeULEB128(writer, @intCast(u32, "name".len));
+        try writer.writeAll("name");
+
+        try self.emitNameSubsection(.function, funcs.items, writer);
+        try self.emitNameSubsection(.global, globals.items, writer);
+        try self.emitNameSubsection(.data_segment, segments.items, writer);
+
+        try writeCustomSectionHeader(
+            file,
+            header_offset,
+            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+        );
+    }
+}
+
+fn emitNameSubsection(self: *Wasm, section_id: std.wasm.NameSubsection, names: anytype, writer: anytype) !void {
+    // We must emit subsection size, so first write to a temporary list
+    var section_list = std.ArrayList(u8).init(self.base.allocator);
+    defer section_list.deinit();
+    const sub_writer = section_list.writer();
+
+    try leb.writeULEB128(sub_writer, @intCast(u32, names.len));
+    for (names) |name| {
+        try leb.writeULEB128(sub_writer, name.index);
+        try leb.writeULEB128(sub_writer, @intCast(u32, name.name.len));
+        try sub_writer.writeAll(name.name);
+    }
+
+    // From now, write to the actual writer
+    try leb.writeULEB128(writer, @enumToInt(section_id));
+    try leb.writeULEB128(writer, @intCast(u32, section_list.items.len));
+    try writer.writeAll(section_list.items);
 }
 
 fn emitLimits(writer: anytype, limits: wasm.Limits) !void {
@@ -1335,11 +1400,27 @@ fn reserveVecSectionHeader(file: fs.File) !u64 {
     return (try file.getPos()) - header_size;
 }
 
+fn reserveCustomSectionHeader(file: fs.File) !u64 {
+    // unlike regular section, we don't emit the count
+    const header_size = 1 + 5;
+    // TODO: this should be a single lseek(2) call, but fs.File does not
+    // currently provide a way to do this.
+    try file.seekBy(header_size);
+    return (try file.getPos()) - header_size;
+}
+
 fn writeVecSectionHeader(file: fs.File, offset: u64, section: wasm.Section, size: u32, items: u32) !void {
     var buf: [1 + 5 + 5]u8 = undefined;
     buf[0] = @enumToInt(section);
     leb.writeUnsignedFixed(5, buf[1..6], size);
     leb.writeUnsignedFixed(5, buf[6..], items);
+    try file.pwriteAll(&buf, offset);
+}
+
+fn writeCustomSectionHeader(file: fs.File, offset: u64, size: u32) !void {
+    var buf: [1 + 5]u8 = undefined;
+    buf[0] = 0; // 0 = 'custom' section
+    leb.writeUnsignedFixed(5, buf[1..6], size);
     try file.pwriteAll(&buf, offset);
 }
 

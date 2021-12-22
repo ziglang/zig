@@ -406,6 +406,22 @@ pub fn externalKind(val: ExternalKind) u8 {
     return @enumToInt(val);
 }
 
+/// Defines the enum values for each subsection id for the "Names" custom section
+/// as described by:
+/// https://webassembly.github.io/spec/core/appendix/custom.html?highlight=name#name-section
+pub const NameSubsection = enum(u8) {
+    module,
+    function,
+    local,
+    label,
+    type,
+    table,
+    memory,
+    global,
+    elem_segment,
+    data_segment,
+};
+
 // type constants
 pub const element_type: u8 = 0x70;
 pub const function_type: u8 = 0x60;
