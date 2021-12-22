@@ -568,4 +568,73 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
+
+    {
+        var case = ctx.exe("optionals", linux_arm);
+        case.addCompareOutput(
+            \\var x: u32 = 42;
+            \\
+            \\pub fn main() void {
+            \\    var p: ?*u32 = null;
+            \\    assert(p == null);
+            \\    p = &x;
+            \\    assert(p != null);
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+
+    {
+        var case = ctx.exe("errors", linux_arm);
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    foo() catch print();
+            \\}
+            \\
+            \\fn foo() anyerror!void {}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{r2}" ("Hello, World!\n".len),
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+        ,
+            "",
+        );
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    foo() catch print();
+            \\}
+            \\
+            \\fn foo() anyerror!void {
+            \\    return error.Test;
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{r2}" ("Hello, World!\n".len),
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+        ,
+            "Hello, World!\n",
+        );
+    }
 }

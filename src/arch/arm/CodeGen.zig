@@ -1104,7 +1104,13 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement unwrap error union payload for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const err_ty = self.air.typeOf(ty_op.operand);
+        const payload_ty = err_ty.errorUnionPayload();
+        if (!payload_ty.hasCodeGenBits()) break :result MCValue.none;
+
+        return self.fail("TODO implement unwrap error union payload for non-empty payloads", .{});
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -2334,39 +2340,81 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .unreach, .{ .none, .none, .none });
 }
 
-fn isNull(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNonNull and invert the result.
-    return self.fail("TODO call isNonNull and invert the result", .{});
+fn isNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    if (ty.isPtrLikeOptional()) {
+        assert(ty.abiSize(self.target.*) == 4);
+
+        const reg_mcv: MCValue = switch (operand) {
+            .register => operand,
+            else => .{ .register = try self.copyToTmpRegister(ty, operand) },
+        };
+
+        try self.genArmBinOpCode(undefined, reg_mcv, .{ .immediate = 0 }, false, .cmp_eq, undefined);
+
+        return MCValue{ .compare_flags_unsigned = .eq };
+    } else {
+        return self.fail("TODO implement non-pointer optionals", .{});
+    }
 }
 
-fn isNonNull(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNull and invert the result.
-    return self.fail("TODO call isNull and invert the result", .{});
+fn isNonNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    const is_null_result = try self.isNull(ty, operand);
+    assert(is_null_result.compare_flags_unsigned == .eq);
+
+    return MCValue{ .compare_flags_unsigned = .neq };
 }
 
-fn isErr(self: *Self, operand: MCValue) !MCValue {
+fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNonNull and invert the result.
-    return self.fail("TODO call isNonErr and invert the result", .{});
+
+    const error_type = ty.errorUnionSet();
+    const payload_type = ty.errorUnionPayload();
+
+    if (!error_type.hasCodeGenBits()) {
+        return MCValue{ .immediate = 0 }; // always false
+    } else if (!payload_type.hasCodeGenBits()) {
+        if (error_type.abiSize(self.target.*) <= 4) {
+            const reg_mcv: MCValue = switch (operand) {
+                .register => operand,
+                else => .{ .register = try self.copyToTmpRegister(error_type, operand) },
+            };
+
+            try self.genArmBinOpCode(undefined, reg_mcv, .{ .immediate = 0 }, false, .cmp_eq, undefined);
+
+            return MCValue{ .compare_flags_unsigned = .gt };
+        } else {
+            return self.fail("TODO isErr for errors with size > 4", .{});
+        }
+    } else {
+        return self.fail("TODO isErr for non-empty payloads", .{});
+    }
 }
 
-fn isNonErr(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNull and invert the result.
-    return self.fail("TODO call isErr and invert the result", .{});
+fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    const is_err_result = try self.isErr(ty, operand);
+    switch (is_err_result) {
+        .compare_flags_unsigned => |op| {
+            assert(op == .gt);
+            return MCValue{ .compare_flags_unsigned = .lte };
+        },
+        .immediate => |imm| {
+            assert(imm == 0);
+            return MCValue{ .immediate = 1 };
+        },
+        else => unreachable,
+    }
 }
 
 fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
+
+    try self.spillCompareFlagsIfOccupied();
+    self.compare_flags_inst = inst;
+
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNull(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNull(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2375,6 +2423,7 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
+        const ptr_ty = self.air.typeOf(un_op);
         const operand: MCValue = blk: {
             if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
@@ -2383,8 +2432,8 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isNull(operand);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isNull(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2393,7 +2442,8 @@ fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNonNull(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNonNull(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2402,6 +2452,7 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
+        const ptr_ty = self.air.typeOf(un_op);
         const operand: MCValue = blk: {
             if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
@@ -2410,8 +2461,8 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isNonNull(operand);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isNonNull(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2420,7 +2471,8 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isErr(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isErr(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2429,6 +2481,7 @@ fn airIsErrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
+        const ptr_ty = self.air.typeOf(un_op);
         const operand: MCValue = blk: {
             if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
@@ -2437,8 +2490,8 @@ fn airIsErrPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isErr(operand);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isErr(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2447,7 +2500,8 @@ fn airIsNonErr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNonErr(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNonErr(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2456,6 +2510,7 @@ fn airIsNonErrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
+        const ptr_ty = self.air.typeOf(un_op);
         const operand: MCValue = blk: {
             if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
@@ -2464,8 +2519,8 @@ fn airIsNonErrPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isNonErr(operand);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isNonErr(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -3365,31 +3420,32 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             }
         },
         .ErrorSet => {
-            switch (typed_value.val.tag()) {
-                .@"error" => {
-                    const err_name = typed_value.val.castTag(.@"error").?.data.name;
-                    const module = self.bin_file.options.module.?;
-                    const global_error_set = module.global_error_set;
-                    const error_index = global_error_set.get(err_name).?;
-                    return MCValue{ .immediate = error_index };
-                },
-                else => {
-                    // In this case we are rendering an error union which has a 0 bits payload.
-                    return MCValue{ .immediate = 0 };
-                },
-            }
+            const err_name = typed_value.val.castTag(.@"error").?.data.name;
+            const module = self.bin_file.options.module.?;
+            const global_error_set = module.global_error_set;
+            const error_index = global_error_set.get(err_name).?;
+            return MCValue{ .immediate = error_index };
         },
         .ErrorUnion => {
             const error_type = typed_value.ty.errorUnionSet();
             const payload_type = typed_value.ty.errorUnionPayload();
-            const sub_val = typed_value.val.castTag(.eu_payload).?.data;
 
-            if (!payload_type.hasCodeGenBits()) {
-                // We use the error type directly as the type.
-                return self.genTypedValue(.{ .ty = error_type, .val = sub_val });
+            if (typed_value.val.castTag(.eu_payload)) |pl| {
+                if (!payload_type.hasCodeGenBits()) {
+                    // We use the error type directly as the type.
+                    return MCValue{ .immediate = 0 };
+                }
+
+                _ = pl;
+                return self.fail("TODO implement error union const of type '{}' (non-error)", .{typed_value.ty});
+            } else {
+                if (!payload_type.hasCodeGenBits()) {
+                    // We use the error type directly as the type.
+                    return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
+                }
+
+                return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty});
             }
-
-            return self.fail("TODO implement error union const of type '{}'", .{typed_value.ty});
         },
         else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty}),
     }
