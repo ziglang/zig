@@ -564,7 +564,7 @@ pub const DeclGen = struct {
                 try writer.writeAll("(");
                 try dg.renderType(writer, ty);
                 try writer.writeAll("){");
-                try writer.print(" .{} = ", .{ fmtIdent(field_name) });
+                try writer.print(" .{} = ", .{fmtIdent(field_name)});
 
                 const val_ty = ty.unionFieldType(field_val.tag);
                 try dg.renderValue(writer, val_ty, field_val.val);
@@ -1715,33 +1715,47 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
     if (src_val_is_undefined)
         return try airStoreUndefined(f, dest_ptr, lhs_type);
 
-    // Don't check this for airStoreUndefined as that will work for arrays already
-    // if (lhs_type.childType().zigTypeTag() == .Array)
-    //     return f.fail("TODO: C backend: implement airStore for arrays", .{});
+    const local: ?CValue = if (lhs_type.childType().zigTypeTag() == .Array)
+        try f.allocLocal(f.air.typeOf(bin_op.rhs), .Const)
+    else
+        null;
 
     const writer = f.object.writer();
     switch (dest_ptr) {
         .local_ref => |i| {
             const dest: CValue = .{ .local = i };
-            try f.writeCValue(writer, dest);
+            if (local == null) try f.writeCValue(writer, dest);
             try writer.writeAll(" = ");
             try f.writeCValue(writer, src_val);
             try writer.writeAll(";\n");
         },
         .decl_ref => |decl| {
             const dest: CValue = .{ .decl = decl };
-            try f.writeCValue(writer, dest);
+            if (local == null) try f.writeCValue(writer, dest);
             try writer.writeAll(" = ");
             try f.writeCValue(writer, src_val);
             try writer.writeAll(";\n");
         },
         else => {
-            try writer.writeAll("*");
-            try f.writeCValue(writer, dest_ptr);
+            if (local == null) {
+                try writer.writeAll("*");
+                try f.writeCValue(writer, dest_ptr);
+            }
             try writer.writeAll(" = ");
             try f.writeCValue(writer, src_val);
             try writer.writeAll(";\n");
         },
+    }
+
+    if (local) |c_local| {
+        try writer.writeAll("memcpy(");
+        try f.writeCValue(writer, dest_ptr);
+        try writer.writeAll(", ");
+        try f.writeCValue(writer, c_local);
+        try writer.writeAll(", ");
+        const len = lhs_type.childType().arrayLenIncludingSentinel();
+        try writer.print("{d}u", .{len});
+        try writer.writeAll(");\n");
     }
     return CValue.none;
 }
@@ -2221,7 +2235,7 @@ fn airCall(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
     const dbg_stmt = f.air.instructions.items(.data)[inst].dbg_stmt;
     const writer = f.object.writer();
-    // try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
+    try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
     return CValue.none;
 }
 
@@ -3043,6 +3057,8 @@ fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
         // no-op
     } else {
         _ = writer;
+        _ = new_tag;
+        _ = union_ptr;
         return f.fail("TODO air set_union_tag", .{});
     }
 
