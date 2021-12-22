@@ -313,7 +313,13 @@ pub const DeclGen = struct {
                         else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
                     }
                 },
-
+                .Struct => {
+                    // TODO: 0xaa bit pattern
+                    try writer.writeByte('(');
+                    try dg.renderType(writer, ty);
+                    try writer.writeByte(')');
+                    return writer.writeAll("{ }");
+                },
                 else => {
                     // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
                     // lower to leaving variables uninitialized (that might need to be implemented
