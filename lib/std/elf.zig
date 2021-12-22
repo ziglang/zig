@@ -943,7 +943,7 @@ pub const Half = switch (@sizeOf(usize)) {
 
 /// Machine architectures
 /// See current registered ELF machine architectures at:
-///    http://www.uxsglobal.com/developers/gabi/latest/ch4.eheader.html
+///    http://www.sco.com/developers/gabi/latest/ch4.eheader.html
 /// The underscore prefix is because many of these start with numbers.
 pub const EM = enum(u16) {
     /// No machine
