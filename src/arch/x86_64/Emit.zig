@@ -66,40 +66,45 @@ pub fn emitMir(emit: *Emit) InnerError!void {
         const inst = @intCast(u32, index);
         try emit.code_offset_mapping.putNoClobber(emit.bin_file.allocator, inst, emit.code.items.len);
         switch (tag) {
-            .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp, .mov => try emit.mirArith(tag, inst),
+            .adc => try emit.mirArith(.adc, inst),
+            .add => try emit.mirArith(.add, inst),
+            .sub => try emit.mirArith(.sub, inst),
+            .xor => try emit.mirArith(.xor, inst),
+            .@"and" => try emit.mirArith(.@"and", inst),
+            .@"or" => try emit.mirArith(.@"or", inst),
+            .sbb => try emit.mirArith(.sbb, inst),
+            .cmp => try emit.mirArith(.cmp, inst),
+            .mov => try emit.mirArith(.mov, inst),
 
-            .adc_scale_src,
-            .add_scale_src,
-            .sub_scale_src,
-            .xor_scale_src,
-            .and_scale_src,
-            .or_scale_src,
-            .sbb_scale_src,
-            .cmp_scale_src,
-            .mov_scale_src,
-            => try emit.mirArithScaleSrc(tag, inst),
+            .adc_scale_src => try emit.mirArithScaleSrc(.adc, inst),
+            .add_scale_src => try emit.mirArithScaleSrc(.add, inst),
+            .sub_scale_src => try emit.mirArithScaleSrc(.sub, inst),
+            .xor_scale_src => try emit.mirArithScaleSrc(.xor, inst),
+            .and_scale_src => try emit.mirArithScaleSrc(.@"and", inst),
+            .or_scale_src => try emit.mirArithScaleSrc(.@"or", inst),
+            .sbb_scale_src => try emit.mirArithScaleSrc(.sbb, inst),
+            .cmp_scale_src => try emit.mirArithScaleSrc(.cmp, inst),
+            .mov_scale_src => try emit.mirArithScaleSrc(.mov, inst),
 
-            .adc_scale_dst,
-            .add_scale_dst,
-            .sub_scale_dst,
-            .xor_scale_dst,
-            .and_scale_dst,
-            .or_scale_dst,
-            .sbb_scale_dst,
-            .cmp_scale_dst,
-            .mov_scale_dst,
-            => try emit.mirArithScaleDst(tag, inst),
+            .adc_scale_dst => try emit.mirArithScaleDst(.adc, inst),
+            .add_scale_dst => try emit.mirArithScaleDst(.add, inst),
+            .sub_scale_dst => try emit.mirArithScaleDst(.sub, inst),
+            .xor_scale_dst => try emit.mirArithScaleDst(.xor, inst),
+            .and_scale_dst => try emit.mirArithScaleDst(.@"and", inst),
+            .or_scale_dst => try emit.mirArithScaleDst(.@"or", inst),
+            .sbb_scale_dst => try emit.mirArithScaleDst(.sbb, inst),
+            .cmp_scale_dst => try emit.mirArithScaleDst(.cmp, inst),
+            .mov_scale_dst => try emit.mirArithScaleDst(.mov, inst),
 
-            .adc_scale_imm,
-            .add_scale_imm,
-            .sub_scale_imm,
-            .xor_scale_imm,
-            .and_scale_imm,
-            .or_scale_imm,
-            .sbb_scale_imm,
-            .cmp_scale_imm,
-            .mov_scale_imm,
-            => try emit.mirArithScaleImm(tag, inst),
+            .adc_scale_imm => try emit.mirArithScaleImm(.adc, inst),
+            .add_scale_imm => try emit.mirArithScaleImm(.add, inst),
+            .sub_scale_imm => try emit.mirArithScaleImm(.sub, inst),
+            .xor_scale_imm => try emit.mirArithScaleImm(.xor, inst),
+            .and_scale_imm => try emit.mirArithScaleImm(.@"and", inst),
+            .or_scale_imm => try emit.mirArithScaleImm(.@"or", inst),
+            .sbb_scale_imm => try emit.mirArithScaleImm(.sbb, inst),
+            .cmp_scale_imm => try emit.mirArithScaleImm(.cmp, inst),
+            .mov_scale_imm => try emit.mirArithScaleImm(.mov, inst),
 
             .movabs => try emit.mirMovabs(inst),
 
@@ -110,7 +115,8 @@ pub fn emitMir(emit: *Emit) InnerError!void {
 
             .push, .pop => try emit.mirPushPop(tag, inst),
 
-            .jmp, .call => try emit.mirJmpCall(tag, inst),
+            .jmp => try emit.mirJmpCall(.jmp_near, inst),
+            .call => try emit.mirJmpCall(.call_near, inst),
 
             .cond_jmp_greater_less,
             .cond_jmp_above_below,
@@ -283,31 +289,24 @@ fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Mir.Inst.Tag, inst: M
     }
 }
 
-fn mirJmpCall(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+fn mirJmpCall(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     const flag = @truncate(u1, ops.flags);
     if (flag == 0) {
         const target = emit.mir.instructions.items(.data)[inst].inst;
-        const opc: u8 = switch (tag) {
-            .jmp => 0xe9,
-            .call => 0xe8,
-            else => unreachable,
-        };
         const source = emit.code.items.len;
-        const encoder = try Encoder.init(emit.code, 5);
-        encoder.opcode_1byte(opc);
+        try lowerToDEnc(tag, 0, emit.code);
         try emit.relocs.append(emit.bin_file.allocator, .{
             .source = source,
             .target = target,
-            .offset = emit.code.items.len,
+            .offset = emit.code.items.len - 4,
             .length = 5,
         });
-        encoder.imm32(0x0);
         return;
     }
     const modrm_ext: u3 = switch (tag) {
-        .jmp => 0x4,
-        .call => 0x2,
+        .jmp_near => 0x4,
+        .call_near => 0x2,
         else => unreachable,
     };
     if (ops.reg1 == .none) {
@@ -532,7 +531,28 @@ fn mirRet(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
+const Tag = enum {
+    adc,
+    add,
+    sub,
+    xor,
+    @"and",
+    @"or",
+    sbb,
+    cmp,
+    mov,
+    lea,
+    jmp_near,
+    call_near,
+};
+
 const Encoding = enum {
+    /// OP rel32
+    d,
+
+    /// OP r/m64
+    m,
+
     /// OP r/m64, imm32
     mi,
 
@@ -552,12 +572,21 @@ const Encoding = enum {
     td,
 };
 
-inline fn getOpCode(tag: Mir.Inst.Tag, enc: Encoding) u8 {
+inline fn getOpCode(tag: Tag, enc: Encoding) ?u8 {
     switch (enc) {
+        .d => return switch (tag) {
+            .jmp_near => 0xe9,
+            .call_near => 0xe8,
+            else => null,
+        },
+        .m => return switch (tag) {
+            .jmp_near, .call_near => 0xff,
+            else => null,
+        },
         .mi => return switch (tag) {
             .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp => 0x81,
             .mov => 0xc7,
-            else => unreachable,
+            else => null,
         },
         .mr => return switch (tag) {
             .adc => 0x11,
@@ -569,7 +598,7 @@ inline fn getOpCode(tag: Mir.Inst.Tag, enc: Encoding) u8 {
             .sbb => 0x19,
             .cmp => 0x39,
             .mov => 0x89,
-            else => unreachable,
+            else => null,
         },
         .rm => return switch (tag) {
             .adc => 0x13,
@@ -582,24 +611,24 @@ inline fn getOpCode(tag: Mir.Inst.Tag, enc: Encoding) u8 {
             .cmp => 0x3b,
             .mov => 0x8b,
             .lea => 0x8d,
-            else => unreachable,
+            else => null,
         },
         .oi => return switch (tag) {
             .mov => 0xb8,
-            else => unreachable,
+            else => null,
         },
         .fd => return switch (tag) {
             .mov => 0xa1,
-            else => unreachable,
+            else => null,
         },
         .td => return switch (tag) {
             .mov => 0xa3,
-            else => unreachable,
+            else => null,
         },
     }
 }
 
-inline fn getMiModRmExt(tag: Mir.Inst.Tag) u3 {
+inline fn getModRmExt(tag: Tag) u3 {
     return switch (tag) {
         .adc => 0x2,
         .add => 0x0,
@@ -610,6 +639,7 @@ inline fn getMiModRmExt(tag: Mir.Inst.Tag) u3 {
         .sbb => 0x3,
         .cmp => 0x7,
         .mov => 0x0,
+        .call_near => 0x2,
         else => unreachable,
     };
 }
@@ -655,34 +685,25 @@ const RegisterOrMemory = union(enum) {
     }
 };
 
-fn lowerToTdEnc(
-    tag: Mir.Inst.Tag,
-    moffs: i64,
-    reg: Register,
-    code: *std.ArrayList(u8),
-) InnerError!void {
+fn lowerToDEnc(tag: Tag, imm: i32, code: *std.ArrayList(u8)) InnerError!void {
+    const opc = getOpCode(tag, .d).?;
+    const encoder = try Encoder.init(code, 5);
+    encoder.opcode_1byte(opc);
+    encoder.imm32(imm);
+}
+
+fn lowerToTdEnc(tag: Tag, moffs: i64, reg: Register, code: *std.ArrayList(u8)) InnerError!void {
     return lowerToTdFdEnc(tag, reg, moffs, code, true);
 }
 
-fn lowerToFdEnc(
-    tag: Mir.Inst.Tag,
-    reg: Register,
-    moffs: i64,
-    code: *std.ArrayList(u8),
-) InnerError!void {
+fn lowerToFdEnc(tag: Tag, reg: Register, moffs: i64, code: *std.ArrayList(u8)) InnerError!void {
     return lowerToTdFdEnc(tag, reg, moffs, code, false);
 }
 
-fn lowerToTdFdEnc(
-    tag: Mir.Inst.Tag,
-    reg: Register,
-    moffs: i64,
-    code: *std.ArrayList(u8),
-    td: bool,
-) InnerError!void {
+fn lowerToTdFdEnc(tag: Tag, reg: Register, moffs: i64, code: *std.ArrayList(u8), td: bool) InnerError!void {
     if (reg.lowId() != Register.rax.lowId()) return error.EmitFail;
     if (reg.size() != immOpSize(moffs)) return error.EmitFail;
-    var opc = if (td) getOpCode(tag, .td) else getOpCode(tag, .fd);
+    var opc = if (td) getOpCode(tag, .td).? else getOpCode(tag, .fd).?;
     if (reg.size() == 8) {
         opc -= 1;
     }
@@ -714,13 +735,8 @@ fn lowerToTdFdEnc(
     }
 }
 
-fn lowerToOiEnc(
-    tag: Mir.Inst.Tag,
-    reg: Register,
-    imm: i64,
-    code: *std.ArrayList(u8),
-) InnerError!void {
-    var opc = getOpCode(tag, .oi);
+fn lowerToOiEnc(tag: Tag, reg: Register, imm: i64, code: *std.ArrayList(u8)) InnerError!void {
+    var opc = getOpCode(tag, .oi).?;
     if (reg.size() != immOpSize(imm)) return error.EmitFail;
     if (reg.size() == 8) {
         opc -= 8;
@@ -754,14 +770,9 @@ fn lowerToOiEnc(
     }
 }
 
-fn lowerToMiEnc(
-    tag: Mir.Inst.Tag,
-    reg_or_mem: RegisterOrMemory,
-    imm: i32,
-    code: *std.ArrayList(u8),
-) InnerError!void {
-    var opc = getOpCode(tag, .mi);
-    const modrm_ext = getMiModRmExt(tag);
+fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: i32, code: *std.ArrayList(u8)) InnerError!void {
+    var opc = getOpCode(tag, .mi).?;
+    const modrm_ext = getModRmExt(tag);
     switch (reg_or_mem) {
         .register => |dst_reg| {
             if (dst_reg.size() == 8) {
@@ -839,12 +850,12 @@ fn lowerToMiEnc(
 }
 
 fn lowerToRmEnc(
-    tag: Mir.Inst.Tag,
+    tag: Tag,
     reg: Register,
     reg_or_mem: RegisterOrMemory,
     code: *std.ArrayList(u8),
 ) InnerError!void {
-    var opc = getOpCode(tag, .rm);
+    var opc = getOpCode(tag, .rm).?;
     if (reg.size() == 8) {
         opc -= 1;
     }
@@ -909,7 +920,7 @@ fn lowerToRmEnc(
 }
 
 fn lowerToMrEnc(
-    tag: Mir.Inst.Tag,
+    tag: Tag,
     reg_or_mem: RegisterOrMemory,
     reg: Register,
     code: *std.ArrayList(u8),
@@ -920,7 +931,7 @@ fn lowerToMrEnc(
     // * reg is 32bit - dword ptr
     // * reg is 16bit - word ptr
     // * reg is 8bit - byte ptr
-    var opc = getOpCode(tag, .mr);
+    var opc = getOpCode(tag, .mr).?;
     if (reg.size() == 8) {
         opc -= 1;
     }
@@ -982,7 +993,7 @@ fn lowerToMrEnc(
     }
 }
 
-fn mirArith(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+fn mirArith(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
@@ -1053,11 +1064,11 @@ fn immOpSize(imm: i64) u8 {
     return 64;
 }
 
-fn mirArithScaleSrc(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+fn mirArithScaleSrc(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     // OP reg1, [reg2 + scale*rcx + imm32]
-    var opc = getOpCode(tag, .rm);
+    var opc = getOpCode(tag, .rm).?;
     if (ops.reg1.size() == 8) {
         opc -= 1;
     }
@@ -1080,15 +1091,15 @@ fn mirArithScaleSrc(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
     }
 }
 
-fn mirArithScaleDst(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+fn mirArithScaleDst(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     const imm = emit.mir.instructions.items(.data)[inst].imm;
 
     if (ops.reg2 == .none) {
         // OP [reg1 + scale*rax + 0], imm32
-        var opc = getOpCode(tag, .mi);
-        const modrm_ext = getMiModRmExt(tag);
+        var opc = getOpCode(tag, .mi).?;
+        const modrm_ext = getModRmExt(tag);
         if (ops.reg1.size() == 8) {
             opc -= 1;
         }
@@ -1111,7 +1122,7 @@ fn mirArithScaleDst(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
     }
 
     // OP [reg1 + scale*rax + imm32], reg2
-    var opc = getOpCode(tag, .mr);
+    var opc = getOpCode(tag, .mr).?;
     if (ops.reg1.size() == 8) {
         opc -= 1;
     }
@@ -1133,16 +1144,16 @@ fn mirArithScaleDst(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
     }
 }
 
-fn mirArithScaleImm(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+fn mirArithScaleImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
-    var opc = getOpCode(tag, .mi);
+    var opc = getOpCode(tag, .mi).?;
     if (ops.reg1.size() == 8) {
         opc -= 1;
     }
-    const modrm_ext = getMiModRmExt(tag);
+    const modrm_ext = getModRmExt(tag);
     const encoder = try Encoder.init(emit.code, 2);
     encoder.rex(.{
         .w = ops.reg1.size() == 64,
@@ -1230,7 +1241,7 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     assert(ops.flags == 0b01);
     const imm = emit.mir.instructions.items(.data)[inst].imm;
-    return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.mem(ops.reg2, imm), emit.code);
+    return lowerToRmEnc(.lea, ops.reg1, RegisterOrMemory.mem(ops.reg2, imm), emit.code);
 }
 
 fn mirLeaRip(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
@@ -1272,12 +1283,9 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     assert(tag == .call_extern);
     const n_strx = emit.mir.instructions.items(.data)[inst].extern_fn;
     const offset = blk: {
-        const offset = @intCast(u32, emit.code.items.len + 1);
         // callq
-        const encoder = try Encoder.init(emit.code, 5);
-        encoder.opcode_1byte(0xe8);
-        encoder.imm32(0x0);
-        break :blk offset;
+        try lowerToDEnc(.call_near, 0, emit.code);
+        break :blk @intCast(u32, emit.code.items.len) - 4;
     };
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         // Add relocation to the decl.
