@@ -12447,12 +12447,6 @@ fn coerce(
     }
     assert(inst_ty.zigTypeTag() != .Undefined);
 
-    // comptime known number to other number
-    // TODO why is this a separate function? should just be flattened into the
-    // switch expression below.
-    if (try sema.coerceNum(block, dest_ty, inst, inst_src)) |some|
-        return some;
-
     switch (dest_ty.zigTypeTag()) {
         .Optional => {
             // null to ?T
@@ -12584,11 +12578,31 @@ fn coerce(
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
         },
-        .Int => {
-            // integer widening
-            if (inst_ty.zigTypeTag() == .Int) {
-                assert(!(try sema.isComptimeKnown(block, inst_src, inst))); // handled above
+        .Int, .ComptimeInt => switch (inst_ty.zigTypeTag()) {
+            .Float, .ComptimeFloat => float: {
+                const val = (try sema.resolveDefinedValue(block, inst_src, inst)) orelse break :float;
 
+                if (val.floatHasFraction()) {
+                    return sema.fail(block, inst_src, "fractional component prevents float value {} from coercion to type '{}'", .{ val, dest_ty });
+                }
+                const result_val = val.floatToInt(sema.arena, dest_ty, target) catch |err| switch (err) {
+                    error.FloatCannotFit => {
+                        return sema.fail(block, inst_src, "integer value {d} cannot be stored in type '{}'", .{ std.math.floor(val.toFloat(f64)), dest_ty });
+                    },
+                    else => |e| return e,
+                };
+                return try sema.addConstant(dest_ty, result_val);
+            },
+            .Int, .ComptimeInt => {
+                if (try sema.resolveDefinedValue(block, inst_src, inst)) |val| {
+                    // comptime known integer to other number
+                    if (!val.intFitsInType(dest_ty, target)) {
+                        return sema.fail(block, inst_src, "type {} cannot represent integer value {}", .{ dest_ty, val });
+                    }
+                    return try sema.addConstant(dest_ty, val);
+                }
+
+                // integer widening
                 const dst_info = dest_ty.intInfo(target);
                 const src_info = inst_ty.intInfo(target);
                 if ((src_info.signedness == dst_info.signedness and dst_info.bits >= src_info.bits) or
@@ -12598,20 +12612,53 @@ fn coerce(
                     try sema.requireRuntimeBlock(block, inst_src);
                     return block.addTyOp(.intcast, dest_ty, inst);
                 }
-            }
+            },
+            else => {},
         },
-        .Float => {
-            // float widening
-            if (inst_ty.zigTypeTag() == .Float) {
-                assert(!(try sema.isComptimeKnown(block, inst_src, inst))); // handled above
+        .Float, .ComptimeFloat => switch (inst_ty.zigTypeTag()) {
+            .ComptimeFloat => {
+                const val = try sema.resolveConstValue(block, inst_src, inst);
+                const result_val = try val.floatCast(sema.arena, dest_ty);
+                return try sema.addConstant(dest_ty, result_val);
+            },
+            .Float => {
+                if (try sema.resolveDefinedValue(block, inst_src, inst)) |val| {
+                    const result_val = try val.floatCast(sema.arena, dest_ty);
+                    if (!val.eql(result_val, dest_ty)) {
+                        return sema.fail(
+                            block,
+                            inst_src,
+                            "type {} cannot represent float value {}",
+                            .{ dest_ty, val },
+                        );
+                    }
+                    return try sema.addConstant(dest_ty, result_val);
+                }
 
+                // float widening
                 const src_bits = inst_ty.floatBits(target);
                 const dst_bits = dest_ty.floatBits(target);
                 if (dst_bits >= src_bits) {
                     try sema.requireRuntimeBlock(block, inst_src);
                     return block.addTyOp(.fpext, dest_ty, inst);
                 }
-            }
+            },
+            .Int, .ComptimeInt => int: {
+                const val = (try sema.resolveDefinedValue(block, inst_src, inst)) orelse break :int;
+                const result_val = try val.intToFloat(sema.arena, dest_ty, target);
+                // TODO implement this compile error
+                //const int_again_val = try result_val.floatToInt(sema.arena, inst_ty);
+                //if (!int_again_val.eql(val, inst_ty)) {
+                //    return sema.fail(
+                //        block,
+                //        inst_src,
+                //        "type {} cannot represent integer value {}",
+                //        .{ dest_ty, val },
+                //    );
+                //}
+                return try sema.addConstant(dest_ty, result_val);
+            },
+            else => {},
         },
         .Enum => switch (inst_ty.zigTypeTag()) {
             .EnumLiteral => {
@@ -12960,80 +13007,6 @@ fn coerceInMemoryAllowedPtrs(
     }
 
     return .ok;
-}
-
-fn coerceNum(
-    sema: *Sema,
-    block: *Block,
-    dest_ty: Type,
-    inst: Air.Inst.Ref,
-    inst_src: LazySrcLoc,
-) CompileError!?Air.Inst.Ref {
-    const val = (try sema.resolveDefinedValue(block, inst_src, inst)) orelse return null;
-    const inst_ty = sema.typeOf(inst);
-    const src_zig_tag = inst_ty.zigTypeTag();
-    const dst_zig_tag = dest_ty.zigTypeTag();
-
-    const target = sema.mod.getTarget();
-
-    switch (dst_zig_tag) {
-        .ComptimeInt, .Int => switch (src_zig_tag) {
-            .Float, .ComptimeFloat => {
-                if (val.floatHasFraction()) {
-                    return sema.fail(block, inst_src, "fractional component prevents float value {} from coercion to type '{}'", .{ val, dest_ty });
-                }
-                const result_val = val.floatToInt(sema.arena, dest_ty, target) catch |err| switch (err) {
-                    error.FloatCannotFit => {
-                        return sema.fail(block, inst_src, "integer value {d} cannot be stored in type '{}'", .{ std.math.floor(val.toFloat(f64)), dest_ty });
-                    },
-                    else => |e| return e,
-                };
-                return try sema.addConstant(dest_ty, result_val);
-            },
-            .Int, .ComptimeInt => {
-                if (!val.intFitsInType(dest_ty, target)) {
-                    return sema.fail(block, inst_src, "type {} cannot represent integer value {}", .{ dest_ty, val });
-                }
-                return try sema.addConstant(dest_ty, val);
-            },
-            else => {},
-        },
-        .ComptimeFloat, .Float => switch (src_zig_tag) {
-            .ComptimeFloat => {
-                const result_val = try val.floatCast(sema.arena, dest_ty);
-                return try sema.addConstant(dest_ty, result_val);
-            },
-            .Float => {
-                const result_val = try val.floatCast(sema.arena, dest_ty);
-                if (!val.eql(result_val, dest_ty)) {
-                    return sema.fail(
-                        block,
-                        inst_src,
-                        "type {} cannot represent float value {}",
-                        .{ dest_ty, val },
-                    );
-                }
-                return try sema.addConstant(dest_ty, result_val);
-            },
-            .Int, .ComptimeInt => {
-                const result_val = try val.intToFloat(sema.arena, dest_ty, target);
-                // TODO implement this compile error
-                //const int_again_val = try result_val.floatToInt(sema.arena, inst_ty);
-                //if (!int_again_val.eql(val, inst_ty)) {
-                //    return sema.fail(
-                //        block,
-                //        inst_src,
-                //        "type {} cannot represent integer value {}",
-                //        .{ dest_ty, val },
-                //    );
-                //}
-                return try sema.addConstant(dest_ty, result_val);
-            },
-            else => {},
-        },
-        else => {},
-    }
-    return null;
 }
 
 fn coerceVarArgParam(
