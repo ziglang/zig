@@ -10455,7 +10455,7 @@ static Stage1AirInst *ir_analyze_bin_op_math(IrAnalyze *ira, Stage1ZirInstBinOp 
         return ira->codegen->invalid_inst_gen;
 
     // Comptime integers have no fixed size, so wrapping or saturating operations should be mapped
-    // to their non wrapping or saturating equivilents
+    // to their non wrapping or saturating equivalents
     if (scalar_type->id == ZigTypeIdComptimeInt) {
         op_id = map_comptime_arithmetic_op(op_id);
     }
