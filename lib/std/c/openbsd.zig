@@ -703,8 +703,48 @@ pub const T = struct {
     pub const IOCXMTFRAME = 0x80087444;
 };
 
+// BSD Authentication
+pub const auth_item_t = c_int;
+
+pub const AUTHV = struct {
+    pub const ALL: auth_item_t = 0;
+    pub const CHALLENGE: auth_item_t = 1;
+    pub const CLASS: auth_item_t = 2;
+    pub const NAME: auth_item_t = 3;
+    pub const SERVICE: auth_item_t = 4;
+    pub const STYLE: auth_item_t = 5;
+    pub const INTERACTIVE: auth_item_t = 6;
+};
+
+pub const BI = struct {
+    pub const AUTH = "authorize"; // Accepted authentication
+    pub const REJECT = "reject"; // Rejected authentication
+    pub const CHALLENGE = "reject challenge"; // Reject with a challenge
+    pub const SILENT = "reject silent"; // Reject silently
+    pub const REMOVE = "remove"; // remove file on error
+    pub const ROOTOKAY = "authorize root"; // root authenticated
+    pub const SECURE = "authorize secure"; // okay on non-secure line
+    pub const SETENV = "setenv"; // set environment variable
+    pub const UNSETENV = "unsetenv"; // unset environment variable
+    pub const VALUE = "value"; // set local variable
+    pub const EXPIRED = "reject expired"; // account expired
+    pub const PWEXPIRED = "reject pwexpired"; // password expired
+    pub const FDPASS = "fd"; // child is passing an fd
+};
+
+pub const AUTH = struct {
+    pub const OKAY: c_int = 0x01; // user authenticated
+    pub const ROOTOKAY: c_int = 0x02; // authenticated as root
+    pub const SECURE: c_int = 0x04; // secure login
+    pub const SILENT: c_int = 0x08; // silent rejection
+    pub const CHALLENGE: c_int = 0x10; // a challenge was given
+    pub const EXPIRED: c_int = 0x20; // account expired
+    pub const PWEXPIRED: c_int = 0x40; // password expired
+    pub const ALLOW: c_int = (OKAY | ROOTOKAY | SECURE);
+};
+
 // Term
-const V = struct {
+pub const V = struct {
     pub const EOF = 0; // ICANON
     pub const EOL = 1; // ICANON
     pub const EOL2 = 2; // ICANON
