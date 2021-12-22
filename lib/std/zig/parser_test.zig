@@ -72,21 +72,6 @@ test "zig fmt: rewrite callconv(.Inline) to the inline keyword" {
     );
 }
 
-// TODO Remove this after zig 0.9.0 is released.
-test "zig fmt: rewrite @byteOffsetOf to @offsetOf" {
-    try testTransform(
-        \\fn foo() void {
-        \\    @byteOffsetOf(Foo, "bar");
-        \\}
-        \\
-    ,
-        \\fn foo() void {
-        \\    @offsetOf(Foo, "bar");
-        \\}
-        \\
-    );
-}
-
 // TODO Remove this after zig 0.10.0 is released.
 test "zig fmt: rewrite c_void to anyopaque" {
     try testTransform(
@@ -5270,9 +5255,6 @@ test "recovery: invalid comptime" {
 }
 
 test "recovery: missing block after suspend" {
-    // TODO Enable this after zig 0.9.0 is released.
-    if (true) return error.SkipZigTest;
-
     try testError(
         \\fn foo() void {
         \\    suspend;
