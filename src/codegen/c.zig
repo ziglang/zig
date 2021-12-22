@@ -70,7 +70,8 @@ pub fn typeToCIdentifier(t: Type) std.fmt.Formatter(formatTypeAsCIdentifier) {
     return .{ .data = t };
 }
 
-const reservedWords = &[_][]const u8{ "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else", "enum", "extern", "float", "for", "goto", "if", "inline", "int", "long", "register", "restrict", "return", "short", "signed", "sizeof", "static", "struct", "switch", "typedef", "union", "unsigned", "void", "volatile", "while", "_Alignas", "_Alignof", "_Atomic", "_Bool", "_Complex", "_Decimal128", "_Decimal64", "_Decimal32", "_Generic", "_Imaginary", "_Noreturn", "_Static_assert", "_Thread_local" };
+// 'linux' seems to be reserved (at least on GCC and Clang), probably as standard library name
+const reservedWords = &[_][]const u8{ "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else", "enum", "extern", "float", "for", "goto", "if", "inline", "int", "long", "register", "restrict", "return", "short", "signed", "sizeof", "static", "struct", "switch", "typedef", "union", "unsigned", "void", "volatile", "while", "_Alignas", "_Alignof", "_Atomic", "_Bool", "_Complex", "_Decimal128", "_Decimal64", "_Decimal32", "_Generic", "_Imaginary", "_Noreturn", "_Static_assert", "_Thread_local", "linux" };
 
 fn formatIdent(
     ident: []const u8,
@@ -543,21 +544,32 @@ pub const DeclGen = struct {
                 try writer.writeAll("}");
             },
             .Union => {
-                const field_val = val.castTag(.@"union").?.data;
                 if (ty.unionTagType() != null) {
                     return dg.fail("TODO: C backend: implement tagged unions", .{});
-                } else {
-                    return dg.fail("TODO: C backend: implement value of type Union", .{});
                 }
 
-                // try writer.writeAll("(");
-                // try dg.renderType(writer, ty);
-                // try writer.writeAll("){");
+                const field_val = val.castTag(.@"union").?.data;
+                const union_obj = ty.castTag(.@"union").?.data;
 
-                // const val_ty = ty.unionFieldType(field_val.tag);
-                // try dg.renderValue(writer, val_ty, field_val.val);
+                const field_tag = field_val.tag;
+                const field_index = switch (field_tag.tag()) {
+                    .enum_field_index => field_tag.castTag(.enum_field_index).?.data,
+                    .the_only_possible_value => blk: {
+                        break :blk 0;
+                    },
+                    else => unreachable,
+                };
+                const field_name = union_obj.fields.keys()[field_index];
 
-                // try writer.writeAll("}");
+                try writer.writeAll("(");
+                try dg.renderType(writer, ty);
+                try writer.writeAll("){");
+                try writer.print(" .{} = ", .{ fmtIdent(field_name) });
+
+                const val_ty = ty.unionFieldType(field_val.tag);
+                try dg.renderValue(writer, val_ty, field_val.val);
+
+                try writer.writeAll("}");
             },
 
             .ComptimeInt => unreachable,
@@ -1704,8 +1716,8 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
         return try airStoreUndefined(f, dest_ptr, lhs_type);
 
     // Don't check this for airStoreUndefined as that will work for arrays already
-    if (lhs_type.childType().zigTypeTag() == .Array)
-        return f.fail("TODO: C backend: implement airStore for arrays", .{});
+    // if (lhs_type.childType().zigTypeTag() == .Array)
+    //     return f.fail("TODO: C backend: implement airStore for arrays", .{});
 
     const writer = f.object.writer();
     switch (dest_ptr) {
@@ -2209,7 +2221,7 @@ fn airCall(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
     const dbg_stmt = f.air.instructions.items(.data)[inst].dbg_stmt;
     const writer = f.object.writer();
-    try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
+    // try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
     return CValue.none;
 }
 
@@ -3030,6 +3042,7 @@ fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
     if (union_ty.unionTagType() == null) {
         // no-op
     } else {
+        _ = writer;
         return f.fail("TODO air set_union_tag", .{});
     }
 
