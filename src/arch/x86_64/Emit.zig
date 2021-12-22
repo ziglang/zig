@@ -544,6 +544,12 @@ const Encoding = enum {
 
     /// OP r64, imm64
     oi,
+
+    /// OP al/ax/eax/rax, moffs
+    fd,
+
+    /// OP moffs, al/ax/eax/rax
+    td,
 };
 
 inline fn getOpCode(tag: Mir.Inst.Tag, enc: Encoding) u8 {
@@ -579,6 +585,14 @@ inline fn getOpCode(tag: Mir.Inst.Tag, enc: Encoding) u8 {
         },
         .oi => return switch (tag) {
             .mov => 0xb8,
+            else => unreachable,
+        },
+        .fd => return switch (tag) {
+            .mov => 0xa1,
+            else => unreachable,
+        },
+        .td => return switch (tag) {
+            .mov => 0xa3,
             else => unreachable,
         },
     }
@@ -629,6 +643,65 @@ const RegisterOrMemory = union(enum) {
     }
 };
 
+fn lowerToTdEnc(
+    tag: Mir.Inst.Tag,
+    moffs: i64,
+    reg: Register,
+    code: *std.ArrayList(u8),
+) InnerError!void {
+    return lowerToTdFdEnc(tag, reg, moffs, code, true);
+}
+
+fn lowerToFdEnc(
+    tag: Mir.Inst.Tag,
+    reg: Register,
+    moffs: i64,
+    code: *std.ArrayList(u8),
+) InnerError!void {
+    return lowerToTdFdEnc(tag, reg, moffs, code, false);
+}
+
+fn lowerToTdFdEnc(
+    tag: Mir.Inst.Tag,
+    reg: Register,
+    moffs: i64,
+    code: *std.ArrayList(u8),
+    td: bool,
+) InnerError!void {
+    if (reg.lowId() != Register.rax.lowId()) return error.EmitFail;
+    if (reg.size() != immOpSize(moffs)) return error.EmitFail;
+    var opc = if (td) getOpCode(tag, .td) else getOpCode(tag, .fd);
+    if (reg.size() == 8) {
+        opc -= 1;
+    }
+    const encoder = try Encoder.init(code, 10);
+    if (reg.size() == 16) {
+        encoder.opcode_1byte(0x66);
+    }
+    encoder.rex(.{
+        .w = reg.size() == 64,
+    });
+    encoder.opcode_1byte(opc);
+    switch (reg.size()) {
+        8 => {
+            const moffs8 = try math.cast(i8, moffs);
+            encoder.imm8(moffs8);
+        },
+        16 => {
+            const moffs16 = try math.cast(i16, moffs);
+            encoder.imm16(moffs16);
+        },
+        32 => {
+            const moffs32 = try math.cast(i32, moffs);
+            encoder.imm32(moffs32);
+        },
+        64 => {
+            encoder.imm64(@bitCast(u64, moffs));
+        },
+        else => unreachable,
+    }
+}
+
 fn lowerToOiEnc(
     tag: Mir.Inst.Tag,
     reg: Register,
@@ -641,6 +714,9 @@ fn lowerToOiEnc(
         opc -= 8;
     }
     const encoder = try Encoder.init(code, 10);
+    if (reg.size() == 16) {
+        encoder.opcode_1byte(0x66);
+    }
     encoder.rex(.{
         .w = reg.size() == 64,
         .b = reg.isExtended(),
@@ -1065,52 +1141,24 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .movabs);
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
-
+    const imm: i64 = if (ops.reg1.size() == 64) blk: {
+        const payload = emit.mir.instructions.items(.data)[inst].payload;
+        const imm = emit.mir.extraData(Mir.Imm64, payload).data;
+        break :blk @bitCast(i64, imm.decode());
+    } else emit.mir.instructions.items(.data)[inst].imm;
     if (ops.flags == 0b00) {
         // movabs reg, imm64
         // OI
-        const imm: i64 = if (ops.reg1.size() == 64) blk: {
-            const payload = emit.mir.instructions.items(.data)[inst].payload;
-            const imm = emit.mir.extraData(Mir.Imm64, payload).data;
-            break :blk @bitCast(i64, imm.decode());
-        } else emit.mir.instructions.items(.data)[inst].imm;
         return lowerToOiEnc(.mov, ops.reg1, imm, emit.code);
     }
-
-    const encoder = try Encoder.init(emit.code, 10);
-    const is_64 = blk: {
-        if (ops.reg1 == .none) {
-            // movabs moffs64, rax
-            const opc: u8 = if (ops.reg2.size() == 8) 0xa2 else 0xa3;
-            encoder.rex(.{
-                .w = ops.reg2.size() == 64,
-            });
-            encoder.opcode_1byte(opc);
-            break :blk ops.reg2.size() == 64;
-        } else {
-            // movabs rax, moffs64
-            const opc: u8 = if (ops.reg2.size() == 8) 0xa0 else 0xa1;
-            encoder.rex(.{
-                .w = ops.reg1.size() == 64,
-            });
-            encoder.opcode_1byte(opc);
-            break :blk ops.reg1.size() == 64;
-        }
-    };
-
-    if (is_64) {
-        const payload = emit.mir.instructions.items(.data)[inst].payload;
-        const imm64 = emit.mir.extraData(Mir.Imm64, payload).data;
-        encoder.imm64(imm64.decode());
+    if (ops.reg1 == .none) {
+        // movabs moffs64, rax
+        // TD
+        return lowerToTdEnc(.mov, imm, ops.reg2, emit.code);
     } else {
-        const imm = emit.mir.instructions.items(.data)[inst].imm;
-        if (imm <= math.maxInt(i8)) {
-            encoder.imm8(@intCast(i8, imm));
-        } else if (imm <= math.maxInt(i16)) {
-            encoder.imm16(@intCast(i16, imm));
-        } else {
-            encoder.imm32(imm);
-        }
+        // movabs rax, moffs64
+        // FD
+        return lowerToFdEnc(.mov, ops.reg1, imm, emit.code);
     }
 }
 
@@ -1563,6 +1611,25 @@ test "lower OI encoding" {
     );
     try lowerToOiEnc(.mov, .r11d, 0x10000000, code.buffer());
     try expectEqualHexStrings("\x41\xBB\x00\x00\x00\x10", code.emitted(), "mov r11d, 0x10000000");
+    try lowerToOiEnc(.mov, .r11w, 0x1000, code.buffer());
+    try expectEqualHexStrings("\x66\x41\xBB\x00\x10", code.emitted(), "mov r11w, 0x1000");
     try lowerToOiEnc(.mov, .r11b, 0x10, code.buffer());
     try expectEqualHexStrings("\x41\xB3\x10", code.emitted(), "mov r11b, 0x10");
+}
+
+test "lower FD/TD encoding" {
+    var code = TestEmitCode.init();
+    defer code.deinit();
+    try lowerToFdEnc(.mov, .rax, 0x1000000000000000, code.buffer());
+    try expectEqualHexStrings(
+        "\x48\xa1\x00\x00\x00\x00\x00\x00\x00\x10",
+        code.emitted(),
+        "mov rax, ds:0x1000000000000000",
+    );
+    try lowerToFdEnc(.mov, .eax, 0x10000000, code.buffer());
+    try expectEqualHexStrings("\xa1\x00\x00\x00\x10", code.emitted(), "mov eax, ds:0x10000000");
+    try lowerToFdEnc(.mov, .ax, 0x1000, code.buffer());
+    try expectEqualHexStrings("\x66\xa1\x00\x10", code.emitted(), "mov ax, ds:0x1000");
+    try lowerToFdEnc(.mov, .al, 0x10, code.buffer());
+    try expectEqualHexStrings("\xa0\x10", code.emitted(), "mov al, ds:0x10");
 }
