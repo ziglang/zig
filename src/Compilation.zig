@@ -852,6 +852,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
     // WASI-only. Resolve the optional exec-model option, defaults to command.
     const wasi_exec_model = if (options.target.os.tag != .wasi) undefined else options.wasi_exec_model orelse .command;
 
+    if (options.linker_export_table and options.linker_import_table) {
+        return error.ExportTableAndImportTableConflict;
+    }
+
     const comp: *Compilation = comp: {
         // For allocations that have the same lifetime as Compilation. This arena is used only during this
         // initialization and then is freed in deinit().

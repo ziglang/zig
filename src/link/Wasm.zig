@@ -1123,14 +1123,12 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         }
 
         if (self.base.options.import_table) {
-            if (self.base.options.export_table) {
-                log.err("--import-table and --export-table may not be used together", .{});
-                return error.InvalidArgs;
-            }
+            assert(self.base.options.export_table);
             try argv.append("--import-table");
         }
 
         if (self.base.options.export_table) {
+            assert(!self.base.options.import_table);
             try argv.append("--export-table");
         }
 

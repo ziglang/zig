@@ -2543,6 +2543,9 @@ fn buildOutputType(
             }
             process.exit(1);
         },
+        error.ExportTableAndImportTableConflict => {
+            fatal("--import-table and --export-table may not be used together", .{});
+        },
         else => fatal("unable to create compilation: {s}", .{@errorName(err)}),
     };
     var comp_destroyed = false;
