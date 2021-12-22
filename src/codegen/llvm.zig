@@ -1487,7 +1487,6 @@ pub const DeclGen = struct {
             return self.context.constStruct(&fields, fields.len, .False);
         }
 
-        const llvm_type = try self.llvmType(tv.ty);
         if (!tv.ty.childType().hasCodeGenBits() or !decl.ty.hasCodeGenBits()) {
             return self.lowerPtrToVoid(tv.ty);
         }
@@ -1498,6 +1497,8 @@ pub const DeclGen = struct {
             try self.resolveLlvmFunction(decl)
         else
             try self.resolveGlobalDecl(decl);
+
+        const llvm_type = try self.llvmType(tv.ty);
         return llvm_val.constBitCast(llvm_type);
     }
 

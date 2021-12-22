@@ -66,3 +66,14 @@ test "self-referencing struct via array member" {
     x = T{ .children = .{&x} };
     try expect(x.children[0] == &x);
 }
+
+test "empty struct method call" {
+    const es = EmptyStruct{};
+    try expect(es.method() == 1234);
+}
+const EmptyStruct = struct {
+    fn method(es: *const EmptyStruct) i32 {
+        _ = es;
+        return 1234;
+    }
+};

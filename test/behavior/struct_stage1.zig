@@ -6,32 +6,6 @@ const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
 
-const StructFoo = struct {
-    a: i32,
-    b: bool,
-    c: f32,
-};
-
-const Node = struct {
-    val: Val,
-    next: *Node,
-};
-
-const Val = struct {
-    x: i32,
-};
-
-test "empty struct method call" {
-    const es = EmptyStruct{};
-    try expect(es.method() == 1234);
-}
-const EmptyStruct = struct {
-    fn method(es: *const EmptyStruct) i32 {
-        _ = es;
-        return 1234;
-    }
-};
-
 const EmptyStruct2 = struct {};
 fn testReturnEmptyStructFromFn() EmptyStruct2 {
     return EmptyStruct2{};

@@ -9536,9 +9536,36 @@ fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const obj_ty = try sema.resolveType(block, src, inst_data.operand);
+    const gpa = sema.gpa;
 
     switch (obj_ty.zigTypeTag()) {
-        .Struct => return sema.addConstant(obj_ty, Value.initTag(.empty_struct_value)),
+        .Struct => {
+            // This logic must be synchronized with that in `zirStructInit`.
+            const struct_ty = try sema.resolveTypeFields(block, src, obj_ty);
+            const struct_obj = struct_ty.castTag(.@"struct").?.data;
+
+            // The init values to use for the struct instance.
+            const field_inits = try gpa.alloc(Air.Inst.Ref, struct_obj.fields.count());
+            defer gpa.free(field_inits);
+
+            var root_msg: ?*Module.ErrorMsg = null;
+
+            for (struct_obj.fields.values()) |field, i| {
+                if (field.default_val.tag() == .unreachable_value) {
+                    const field_name = struct_obj.fields.keys()[i];
+                    const template = "missing struct field: {s}";
+                    const args = .{field_name};
+                    if (root_msg) |msg| {
+                        try sema.errNote(block, src, msg, template, args);
+                    } else {
+                        root_msg = try sema.errMsg(block, src, template, args);
+                    }
+                } else {
+                    field_inits[i] = try sema.addConstant(field.ty, field.default_val);
+                }
+            }
+            return sema.finishStructInit(block, src, field_inits, root_msg, struct_obj, struct_ty, false);
+        },
         .Array => {
             if (obj_ty.sentinel()) |sentinel| {
                 const val = try Value.Tag.empty_array_sentinel.create(sema.arena, sentinel);
@@ -9572,6 +9599,7 @@ fn zirStructInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: bool)
     const resolved_ty = try sema.resolveTypeFields(block, src, unresolved_struct_type);
 
     if (resolved_ty.castTag(.@"struct")) |struct_payload| {
+        // This logic must be synchronized with that in `zirStructInitEmpty`.
         const struct_obj = struct_payload.data;
 
         // Maps field index to field_type index of where it was already initialized.
@@ -9633,37 +9661,7 @@ fn zirStructInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: bool)
                 field_inits[i] = try sema.addConstant(field.ty, field.default_val);
             }
         }
-        if (root_msg) |msg| {
-            const fqn = try struct_obj.getFullyQualifiedName(gpa);
-            defer gpa.free(fqn);
-            try sema.mod.errNoteNonLazy(
-                struct_obj.srcLoc(),
-                msg,
-                "struct '{s}' declared here",
-                .{fqn},
-            );
-            return sema.failWithOwnedErrorMsg(msg);
-        }
-
-        if (is_ref) {
-            return sema.fail(block, src, "TODO: Sema.zirStructInit is_ref=true", .{});
-        }
-
-        const is_comptime = for (field_inits) |field_init| {
-            if (!(try sema.isComptimeKnown(block, src, field_init))) {
-                break false;
-            }
-        } else true;
-
-        if (is_comptime) {
-            const values = try sema.arena.alloc(Value, field_inits.len);
-            for (field_inits) |field_init, i| {
-                values[i] = (sema.resolveMaybeUndefVal(block, src, field_init) catch unreachable).?;
-            }
-            return sema.addConstant(resolved_ty, try Value.Tag.@"struct".create(sema.arena, values));
-        }
-
-        return sema.fail(block, src, "TODO: Sema.zirStructInit for runtime-known struct values", .{});
+        return sema.finishStructInit(block, src, field_inits, root_msg, struct_obj, resolved_ty, is_ref);
     } else if (resolved_ty.cast(Type.Payload.Union)) |union_payload| {
         const union_obj = union_payload.data;
 
@@ -9696,6 +9694,51 @@ fn zirStructInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: bool)
         return sema.fail(block, src, "TODO: Sema.zirStructInit for runtime-known union values", .{});
     }
     unreachable;
+}
+
+fn finishStructInit(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    field_inits: []const Air.Inst.Ref,
+    root_msg: ?*Module.ErrorMsg,
+    struct_obj: *Module.Struct,
+    struct_ty: Type,
+    is_ref: bool,
+) !Air.Inst.Ref {
+    const gpa = sema.gpa;
+
+    if (root_msg) |msg| {
+        const fqn = try struct_obj.getFullyQualifiedName(gpa);
+        defer gpa.free(fqn);
+        try sema.mod.errNoteNonLazy(
+            struct_obj.srcLoc(),
+            msg,
+            "struct '{s}' declared here",
+            .{fqn},
+        );
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    if (is_ref) {
+        return sema.fail(block, src, "TODO: Sema.zirStructInit is_ref=true", .{});
+    }
+
+    const is_comptime = for (field_inits) |field_init| {
+        if (!(try sema.isComptimeKnown(block, src, field_init))) {
+            break false;
+        }
+    } else true;
+
+    if (is_comptime) {
+        const values = try sema.arena.alloc(Value, field_inits.len);
+        for (field_inits) |field_init, i| {
+            values[i] = (sema.resolveMaybeUndefVal(block, src, field_init) catch unreachable).?;
+        }
+        return sema.addConstant(struct_ty, try Value.Tag.@"struct".create(sema.arena, values));
+    }
+
+    return sema.fail(block, src, "TODO: Sema.zirStructInit for runtime-known struct values", .{});
 }
 
 fn zirStructInitAnon(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: bool) CompileError!Air.Inst.Ref {
@@ -14486,7 +14529,12 @@ fn resolveTypeFields(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) Comp
 
             struct_obj.status = .field_types_wip;
             try semaStructFields(sema.mod, struct_obj);
-            struct_obj.status = .have_field_types;
+
+            if (struct_obj.fields.count() == 0) {
+                struct_obj.status = .have_layout;
+            } else {
+                struct_obj.status = .have_field_types;
+            }
 
             return ty;
         },
