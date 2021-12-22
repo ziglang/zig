@@ -1318,9 +1318,6 @@ pub const Target = struct {
         }
     };
 
-    /// TODO delete this deprecated declaration after 0.9.0 is released
-    pub const current = @compileError("instead of std.Target.current, use @import(\"builtin\").target");
-
     pub const stack_align = 16;
 
     pub fn zigTriple(self: Target, allocator: mem.Allocator) ![]u8 {

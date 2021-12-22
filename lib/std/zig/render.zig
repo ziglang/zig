@@ -1238,12 +1238,7 @@ fn renderBuiltinCall(
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
 
-    const builtin_name = tokenSliceForRender(tree, builtin_token);
-    if (mem.eql(u8, builtin_name, "@byteOffsetOf")) {
-        try ais.writer().writeAll("@offsetOf");
-    } else {
-        try renderToken(ais, tree, builtin_token, .none); // @name
-    }
+    try renderToken(ais, tree, builtin_token, .none); // @name
 
     if (params.len == 0) {
         try renderToken(ais, tree, builtin_token + 1, .none); // (
