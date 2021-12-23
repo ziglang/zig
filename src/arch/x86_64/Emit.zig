@@ -113,7 +113,8 @@ pub fn emitMir(emit: *Emit) InnerError!void {
 
             .imul_complex => try emit.mirIMulComplex(inst),
 
-            .push, .pop => try emit.mirPushPop(tag, inst),
+            .push => try emit.mirPushPop(.push, inst),
+            .pop => try emit.mirPushPop(.pop, inst),
 
             .jmp => try emit.mirJmpCall(.jmp_near, inst),
             .call => try emit.mirJmpCall(.call_near, inst),
@@ -198,7 +199,7 @@ fn mirSyscall(emit: *Emit) InnerError!void {
     encoder.opcode_2byte(0x0f, 0x05);
 }
 
-fn mirPushPop(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
@@ -217,25 +218,7 @@ fn mirPushPop(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!v
         0b01 => {
             // PUSH/POP r/m64
             const imm = emit.mir.instructions.items(.data)[inst].imm;
-            const opc: u8 = switch (tag) {
-                .push => 0xff,
-                .pop => 0x8f,
-                else => unreachable,
-            };
-            const modrm_ext: u3 = switch (tag) {
-                .push => 0x6,
-                .pop => 0x0,
-                else => unreachable,
-            };
-            const encoder = try Encoder.init(emit.code, 6);
-            encoder.opcode_1byte(opc);
-            if (math.cast(i8, imm)) |imm_i8| {
-                encoder.modRm_indirectDisp8(modrm_ext, ops.reg1.lowId());
-                encoder.imm8(@intCast(i8, imm_i8));
-            } else |_| {
-                encoder.modRm_indirectDisp32(modrm_ext, ops.reg1.lowId());
-                encoder.imm32(imm);
-            }
+            return lowerToMEnc(tag, RegisterOrMemory.mem(ops.reg1, imm), emit.code);
         },
         0b10 => {
             // PUSH imm32
@@ -255,7 +238,7 @@ fn mirPushPop(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!v
         0b11 => unreachable,
     }
 }
-fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const callee_preserved_regs = bits.callee_preserved_regs;
     // PUSH/POP reg
     const opc: u8 = switch (tag) {
@@ -532,6 +515,8 @@ const Tag = enum {
     lea,
     jmp_near,
     call_near,
+    push,
+    pop,
 };
 
 const Encoding = enum {
@@ -568,7 +553,8 @@ inline fn getOpCode(tag: Tag, enc: Encoding) ?u8 {
             else => null,
         },
         .m => return switch (tag) {
-            .jmp_near, .call_near => 0xff,
+            .jmp_near, .call_near, .push => 0xff,
+            .pop => 0x8f,
             else => null,
         },
         .mi => return switch (tag) {
@@ -629,6 +615,8 @@ inline fn getModRmExt(tag: Tag) ?u3 {
         .mov => 0x0,
         .jmp_near => 0x4,
         .call_near => 0x2,
+        .push => 0x6,
+        .pop => 0x0,
         else => null,
     };
 }
