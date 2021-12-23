@@ -55,6 +55,7 @@ test {
         _ = @import("behavior/translate_c_macros.zig");
         _ = @import("behavior/underscore.zig");
         _ = @import("behavior/while.zig");
+        _ = @import("behavior/void.zig");
 
         if (builtin.object_format != .c) {
             // Tests that pass for stage1 and stage2 but not the C backend and wasm backend.
@@ -93,7 +94,6 @@ test {
             _ = @import("behavior/switch.zig");
             _ = @import("behavior/undefined.zig");
             _ = @import("behavior/union.zig");
-            _ = @import("behavior/void.zig");
             _ = @import("behavior/widening.zig");
 
             if (builtin.zig_is_stage2) {
