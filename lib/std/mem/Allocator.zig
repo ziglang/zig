@@ -9,15 +9,15 @@ const builtin = @import("builtin");
 
 pub const Error = error{OutOfMemory};
 
-pub fn AllocFnType(PointerType: anytype) type {
+pub fn AllocFnType(comptime PointerType: type) type {
     return fn (ptr: PointerType, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8;
 }
 
-pub fn ResizeFnType(PointerType: anytype) type {
+pub fn ResizeFnType(comptime PointerType: type) type {
     return fn (ptr: PointerType, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize;
 }
 
-pub fn FreeFnType(PointerType: anytype) type {
+pub fn FreeFnType(comptime PointerType: type) type {
     return fn (ptr: PointerType, buf: []u8, buf_align: u29, ret_addr: usize) void;
 }
 
