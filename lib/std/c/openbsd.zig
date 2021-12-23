@@ -72,7 +72,7 @@ pub extern "c" fn auth_checknologin(lc: *login_cap_t) void;
 
 pub extern "c" fn auth_setdata(as: *auth_session_t, ptr: [*]c_void, len: usize) c_int;
 pub extern "c" fn auth_setitem(as: *auth_session_t, item: auth_item_t, value: [*:0]const u8) c_int;
-pub extern "c" fn auth_getitem(as: *auth_session_t, item: auth_item_t) [*:0]const u8;
+pub extern "c" fn auth_getitem(as: *auth_session_t, item: auth_item_t) ?[*:0]const u8;
 pub extern "c" fn auth_setoption(as: *auth_session_t, n: [*:0]const u8, v: [*:0]const u8) c_int;
 pub extern "c" fn auth_setstate(as: *auth_session_t, s: c_int) void;
 pub extern "c" fn auth_getstate(as: *auth_session_t) c_int;
