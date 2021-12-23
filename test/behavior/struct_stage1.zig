@@ -649,3 +649,38 @@ test "packed struct with undefined initializers" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "for loop over pointers to struct, getting field from struct pointer" {
+    const S = struct {
+        const Foo = struct {
+            name: []const u8,
+        };
+
+        var ok = true;
+
+        fn eql(a: []const u8) bool {
+            _ = a;
+            return true;
+        }
+
+        const ArrayList = struct {
+            fn toSlice(self: *ArrayList) []*Foo {
+                _ = self;
+                return @as([*]*Foo, undefined)[0..0];
+            }
+        };
+
+        fn doTheTest() !void {
+            var objects: ArrayList = undefined;
+
+            for (objects.toSlice()) |obj| {
+                if (eql(obj.name)) {
+                    ok = false;
+                }
+            }
+
+            try expect(ok);
+        }
+    };
+    try S.doTheTest();
+}
