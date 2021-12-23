@@ -77,3 +77,17 @@ const EmptyStruct = struct {
         return 1234;
     }
 };
+
+test "align 1 field before self referential align 8 field as slice return type" {
+    const result = alloc(Expr);
+    try expect(result.len == 0);
+}
+
+const Expr = union(enum) {
+    Literal: u8,
+    Question: *Expr,
+};
+
+fn alloc(comptime T: type) []T {
+    return &[_]T{};
+}

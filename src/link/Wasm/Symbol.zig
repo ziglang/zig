@@ -25,6 +25,9 @@ pub const Tag = enum {
     section,
     event,
     table,
+    /// synthetic kind used by the wasm linker during incremental compilation
+    /// to notate a symbol has been freed, but still lives in the symbol list.
+    dead,
 
     /// From a given symbol tag, returns the `ExternalType`
     /// Asserts the given tag can be represented as an external type.

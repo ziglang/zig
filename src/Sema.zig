@@ -1432,8 +1432,10 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
     const pointee_ty = try sema.resolveType(block, src, bin_inst.lhs);
     const ptr = sema.resolveInst(bin_inst.rhs);
-
     const addr_space = target_util.defaultAddressSpace(sema.mod.getTarget(), .local);
+
+    // Needed for the call to `anon_decl.finish()` below which checks `ty.hasCodeGenBits()`.
+    _ = try sema.typeHasOnePossibleValue(block, src, pointee_ty);
 
     if (Air.refToIndex(ptr)) |ptr_inst| {
         if (sema.air_instructions.items(.tag)[ptr_inst] == .constant) {
@@ -2076,7 +2078,8 @@ fn zirRetPtr(
     try sema.requireFunctionBlock(block, src);
 
     if (block.is_comptime) {
-        return sema.analyzeComptimeAlloc(block, sema.fn_ret_ty, 0);
+        const fn_ret_ty = try sema.resolveTypeFields(block, src, sema.fn_ret_ty);
+        return sema.analyzeComptimeAlloc(block, fn_ret_ty, 0, src);
     }
 
     const ptr_type = try Type.ptr(sema.arena, .{
@@ -2227,7 +2230,7 @@ fn zirAllocExtended(
 
     if (small.is_comptime) {
         if (small.has_type) {
-            return sema.analyzeComptimeAlloc(block, var_ty, alignment);
+            return sema.analyzeComptimeAlloc(block, var_ty, alignment, ty_src);
         } else {
             return sema.addConstant(
                 inferred_alloc_ty,
@@ -2273,7 +2276,7 @@ fn zirAllocComptime(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const var_ty = try sema.resolveType(block, ty_src, inst_data.operand);
-    return sema.analyzeComptimeAlloc(block, var_ty, 0);
+    return sema.analyzeComptimeAlloc(block, var_ty, 0, ty_src);
 }
 
 fn zirAllocInferredComptime(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -2295,7 +2298,7 @@ fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     const var_decl_src = inst_data.src();
     const var_ty = try sema.resolveType(block, ty_src, inst_data.operand);
     if (block.is_comptime) {
-        return sema.analyzeComptimeAlloc(block, var_ty, 0);
+        return sema.analyzeComptimeAlloc(block, var_ty, 0, ty_src);
     }
     const ptr_type = try Type.ptr(sema.arena, .{
         .pointee_type = var_ty,
@@ -2315,7 +2318,7 @@ fn zirAllocMut(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const var_ty = try sema.resolveType(block, ty_src, inst_data.operand);
     if (block.is_comptime) {
-        return sema.analyzeComptimeAlloc(block, var_ty, 0);
+        return sema.analyzeComptimeAlloc(block, var_ty, 0, ty_src);
     }
     try sema.validateVarType(block, ty_src, var_ty, false);
     const ptr_type = try Type.ptr(sema.arena, .{
@@ -4261,14 +4264,14 @@ fn analyzeCall(
             const arg_src = call_src; // TODO: better source location
             if (i < fn_params_len) {
                 const param_ty = func_ty.fnParamType(i);
-                try sema.resolveTypeLayout(block, arg_src, param_ty);
+                try sema.resolveTypeForCodegen(block, arg_src, param_ty);
                 args[i] = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
             } else {
                 args[i] = uncasted_arg;
             }
         }
 
-        try sema.resolveTypeLayout(block, call_src, func_ty_info.return_type);
+        try sema.resolveTypeForCodegen(block, call_src, func_ty_info.return_type);
 
         try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
             args.len);
@@ -4338,7 +4341,7 @@ fn finishGenericCall(
                 const param_ty = new_fn_ty.fnParamType(runtime_i);
                 const arg_src = call_src; // TODO: better source location
                 const uncasted_arg = uncasted_args[total_i];
-                try sema.resolveTypeLayout(block, arg_src, param_ty);
+                try sema.resolveTypeForCodegen(block, arg_src, param_ty);
                 const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
                 runtime_args[runtime_i] = casted_arg;
                 runtime_i += 1;
@@ -4346,7 +4349,7 @@ fn finishGenericCall(
             total_i += 1;
         }
 
-        try sema.resolveTypeLayout(block, call_src, new_fn_ty.fnReturnType());
+        try sema.resolveTypeForCodegen(block, call_src, new_fn_ty.fnReturnType());
     }
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len +
         runtime_args_len);
@@ -8751,7 +8754,7 @@ fn zirSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         .AnyFrame,
         => operand_ty.abiSize(target),
     };
-    return sema.addIntUnsigned(Type.initTag(.comptime_int), abi_size);
+    return sema.addIntUnsigned(Type.comptime_int, abi_size);
 }
 
 fn zirBitSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -12429,7 +12432,7 @@ fn coerce(
     const arena = sema.arena;
     const target = sema.mod.getTarget();
 
-    const in_memory_result = try sema.coerceInMemoryAllowed(dest_ty, inst_ty, false, target);
+    const in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, false, target, dest_ty_src, inst_src);
     if (in_memory_result == .ok) {
         if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |val| {
             // Keep the comptime Value representation; take the new type.
@@ -12482,7 +12485,7 @@ fn coerce(
                 if (inst_ty.isConstPtr() and dest_is_mut) break :single_item;
                 if (inst_ty.isVolatilePtr() and !dest_info.@"volatile") break :single_item;
                 if (inst_ty.ptrAddressSpace() != dest_info.@"addrspace") break :single_item;
-                switch (try sema.coerceInMemoryAllowed(array_elem_ty, ptr_elem_ty, dest_is_mut, target)) {
+                switch (try sema.coerceInMemoryAllowed(block, array_elem_ty, ptr_elem_ty, dest_is_mut, target, dest_ty_src, inst_src)) {
                     .ok => {},
                     .no_match => break :single_item,
                 }
@@ -12494,14 +12497,16 @@ fn coerce(
                 if (!inst_ty.isSinglePointer()) break :src_array_ptr;
                 const array_ty = inst_ty.childType();
                 if (array_ty.zigTypeTag() != .Array) break :src_array_ptr;
-                const array_elem_type = array_ty.childType();
+                const len0 = array_ty.arrayLen() == 0;
+                // We resolve here so that the backend has the layout of the elem type.
+                const array_elem_type = try sema.resolveTypeFields(block, inst_src, array_ty.childType());
                 const dest_is_mut = dest_info.mutable;
-                if (inst_ty.isConstPtr() and dest_is_mut) break :src_array_ptr;
+                if (inst_ty.isConstPtr() and dest_is_mut and !len0) break :src_array_ptr;
                 if (inst_ty.isVolatilePtr() and !dest_info.@"volatile") break :src_array_ptr;
                 if (inst_ty.ptrAddressSpace() != dest_info.@"addrspace") break :src_array_ptr;
 
                 const dst_elem_type = dest_info.pointee_type;
-                switch (try sema.coerceInMemoryAllowed(dst_elem_type, array_elem_type, dest_is_mut, target)) {
+                switch (try sema.coerceInMemoryAllowed(block, dst_elem_type, array_elem_type, dest_is_mut, target, dest_ty_src, inst_src)) {
                     .ok => {},
                     .no_match => break :src_array_ptr,
                 }
@@ -12540,7 +12545,7 @@ fn coerce(
                 const src_elem_ty = inst_ty.childType();
                 const dest_is_mut = dest_info.mutable;
                 const dst_elem_type = dest_info.pointee_type;
-                switch (try sema.coerceInMemoryAllowed(dst_elem_type, src_elem_ty, dest_is_mut, target)) {
+                switch (try sema.coerceInMemoryAllowed(block, dst_elem_type, src_elem_ty, dest_is_mut, target, dest_ty_src, inst_src)) {
                     .ok => {},
                     .no_match => break :src_c_ptr,
                 }
@@ -12738,10 +12743,13 @@ const InMemoryCoercionResult = enum {
 /// look at the function types_match_const_cast_only
 fn coerceInMemoryAllowed(
     sema: *Sema,
+    block: *Block,
     dest_ty: Type,
     src_ty: Type,
     dest_is_mut: bool,
     target: std.Target,
+    dest_src: LazySrcLoc,
+    src_src: LazySrcLoc,
 ) CompileError!InMemoryCoercionResult {
     if (dest_ty.eql(src_ty))
         return .ok;
@@ -12749,15 +12757,15 @@ fn coerceInMemoryAllowed(
     // Pointers / Pointer-like Optionals
     var dest_buf: Type.Payload.ElemType = undefined;
     var src_buf: Type.Payload.ElemType = undefined;
-    if (dest_ty.ptrOrOptionalPtrTy(&dest_buf)) |dest_ptr_ty| {
-        if (src_ty.ptrOrOptionalPtrTy(&src_buf)) |src_ptr_ty| {
-            return try sema.coerceInMemoryAllowedPtrs(dest_ty, src_ty, dest_ptr_ty, src_ptr_ty, dest_is_mut, target);
+    if (try sema.typePtrOrOptionalPtrTy(block, dest_ty, &dest_buf, dest_src)) |dest_ptr_ty| {
+        if (try sema.typePtrOrOptionalPtrTy(block, src_ty, &src_buf, src_src)) |src_ptr_ty| {
+            return try sema.coerceInMemoryAllowedPtrs(block, dest_ty, src_ty, dest_ptr_ty, src_ptr_ty, dest_is_mut, target, dest_src, src_src);
         }
     }
 
     // Slices
     if (dest_ty.isSlice() and src_ty.isSlice()) {
-        return try sema.coerceInMemoryAllowedPtrs(dest_ty, src_ty, dest_ty, src_ty, dest_is_mut, target);
+        return try sema.coerceInMemoryAllowedPtrs(block, dest_ty, src_ty, dest_ty, src_ty, dest_is_mut, target, dest_src, src_src);
     }
 
     const dest_tag = dest_ty.zigTypeTag();
@@ -12765,16 +12773,16 @@ fn coerceInMemoryAllowed(
 
     // Functions
     if (dest_tag == .Fn and src_tag == .Fn) {
-        return try sema.coerceInMemoryAllowedFns(dest_ty, src_ty, target);
+        return try sema.coerceInMemoryAllowedFns(block, dest_ty, src_ty, target, dest_src, src_src);
     }
 
     // Error Unions
     if (dest_tag == .ErrorUnion and src_tag == .ErrorUnion) {
-        const child = try sema.coerceInMemoryAllowed(dest_ty.errorUnionPayload(), src_ty.errorUnionPayload(), dest_is_mut, target);
+        const child = try sema.coerceInMemoryAllowed(block, dest_ty.errorUnionPayload(), src_ty.errorUnionPayload(), dest_is_mut, target, dest_src, src_src);
         if (child == .no_match) {
             return child;
         }
-        return try sema.coerceInMemoryAllowed(dest_ty.errorUnionSet(), src_ty.errorUnionSet(), dest_is_mut, target);
+        return try sema.coerceInMemoryAllowed(block, dest_ty.errorUnionSet(), src_ty.errorUnionSet(), dest_is_mut, target, dest_src, src_src);
     }
 
     // Error Sets
@@ -12884,9 +12892,12 @@ fn coerceInMemoryAllowedErrorSets(
 
 fn coerceInMemoryAllowedFns(
     sema: *Sema,
+    block: *Block,
     dest_ty: Type,
     src_ty: Type,
     target: std.Target,
+    dest_src: LazySrcLoc,
+    src_src: LazySrcLoc,
 ) !InMemoryCoercionResult {
     const dest_info = dest_ty.fnInfo();
     const src_info = src_ty.fnInfo();
@@ -12900,7 +12911,7 @@ fn coerceInMemoryAllowedFns(
     }
 
     if (!src_info.return_type.isNoReturn()) {
-        const rt = try sema.coerceInMemoryAllowed(dest_info.return_type, src_info.return_type, false, target);
+        const rt = try sema.coerceInMemoryAllowed(block, dest_info.return_type, src_info.return_type, false, target, dest_src, src_src);
         if (rt == .no_match) {
             return rt;
         }
@@ -12920,7 +12931,7 @@ fn coerceInMemoryAllowedFns(
         // TODO: nolias
 
         // Note: Cast direction is reversed here.
-        const param = try sema.coerceInMemoryAllowed(src_param_ty, dest_param_ty, false, target);
+        const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, false, target, dest_src, src_src);
         if (param == .no_match) {
             return param;
         }
@@ -12935,17 +12946,20 @@ fn coerceInMemoryAllowedFns(
 
 fn coerceInMemoryAllowedPtrs(
     sema: *Sema,
+    block: *Block,
     dest_ty: Type,
     src_ty: Type,
     dest_ptr_ty: Type,
     src_ptr_ty: Type,
     dest_is_mut: bool,
     target: std.Target,
+    dest_src: LazySrcLoc,
+    src_src: LazySrcLoc,
 ) !InMemoryCoercionResult {
     const dest_info = dest_ptr_ty.ptrInfo().data;
     const src_info = src_ptr_ty.ptrInfo().data;
 
-    const child = try sema.coerceInMemoryAllowed(dest_info.pointee_type, src_info.pointee_type, dest_info.mutable, target);
+    const child = try sema.coerceInMemoryAllowed(block, dest_info.pointee_type, src_info.pointee_type, dest_info.mutable, target, dest_src, src_src);
     if (child == .no_match) {
         return child;
     }
@@ -13592,7 +13606,7 @@ fn coerceVectorInMemory(
     const target = sema.mod.getTarget();
     const dest_elem_ty = dest_ty.childType();
     const inst_elem_ty = inst_ty.childType();
-    const in_memory_result = try sema.coerceInMemoryAllowed(dest_elem_ty, inst_elem_ty, false, target);
+    const in_memory_result = try sema.coerceInMemoryAllowed(block, dest_elem_ty, inst_elem_ty, false, target, dest_ty_src, inst_src);
     if (in_memory_result != .ok) {
         // TODO recursive error notes for coerceInMemoryAllowed failure
         return sema.fail(block, inst_src, "expected {}, found {}", .{ dest_ty, inst_ty });
@@ -14351,12 +14365,12 @@ fn resolvePeerTypes(
             .Optional => {
                 var opt_child_buf: Type.Payload.ElemType = undefined;
                 const opt_child_ty = candidate_ty.optionalChild(&opt_child_buf);
-                if ((try sema.coerceInMemoryAllowed(opt_child_ty, chosen_ty, false, target)) == .ok) {
+                if ((try sema.coerceInMemoryAllowed(block, opt_child_ty, chosen_ty, false, target, src, src)) == .ok) {
                     chosen = candidate;
                     chosen_i = candidate_i + 1;
                     continue;
                 }
-                if ((try sema.coerceInMemoryAllowed(chosen_ty, opt_child_ty, false, target)) == .ok) {
+                if ((try sema.coerceInMemoryAllowed(block, chosen_ty, opt_child_ty, false, target, src, src)) == .ok) {
                     any_are_null = true;
                     continue;
                 }
@@ -14379,10 +14393,10 @@ fn resolvePeerTypes(
             .Optional => {
                 var opt_child_buf: Type.Payload.ElemType = undefined;
                 const opt_child_ty = chosen_ty.optionalChild(&opt_child_buf);
-                if ((try sema.coerceInMemoryAllowed(opt_child_ty, candidate_ty, false, target)) == .ok) {
+                if ((try sema.coerceInMemoryAllowed(block, opt_child_ty, candidate_ty, false, target, src, src)) == .ok) {
                     continue;
                 }
-                if ((try sema.coerceInMemoryAllowed(candidate_ty, opt_child_ty, false, target)) == .ok) {
+                if ((try sema.coerceInMemoryAllowed(block, candidate_ty, opt_child_ty, false, target, src, src)) == .ok) {
                     any_are_null = true;
                     chosen = candidate;
                     chosen_i = candidate_i + 1;
@@ -14439,38 +14453,8 @@ pub fn resolveTypeLayout(
     ty: Type,
 ) CompileError!void {
     switch (ty.zigTypeTag()) {
-        .Struct => {
-            const resolved_ty = try sema.resolveTypeFields(block, src, ty);
-            const struct_obj = resolved_ty.castTag(.@"struct").?.data;
-            switch (struct_obj.status) {
-                .none, .have_field_types => {},
-                .field_types_wip, .layout_wip => {
-                    return sema.fail(block, src, "struct {} depends on itself", .{ty});
-                },
-                .have_layout => return,
-            }
-            struct_obj.status = .layout_wip;
-            for (struct_obj.fields.values()) |field| {
-                try sema.resolveTypeLayout(block, src, field.ty);
-            }
-            struct_obj.status = .have_layout;
-        },
-        .Union => {
-            const resolved_ty = try sema.resolveTypeFields(block, src, ty);
-            const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
-            switch (union_obj.status) {
-                .none, .have_field_types => {},
-                .field_types_wip, .layout_wip => {
-                    return sema.fail(block, src, "union {} depends on itself", .{ty});
-                },
-                .have_layout => return,
-            }
-            union_obj.status = .layout_wip;
-            for (union_obj.fields.values()) |field| {
-                try sema.resolveTypeLayout(block, src, field.ty);
-            }
-            union_obj.status = .have_layout;
-        },
+        .Struct => return sema.resolveStructLayout(block, src, ty),
+        .Union => return sema.resolveUnionLayout(block, src, ty),
         .Array => {
             const elem_ty = ty.childType();
             return sema.resolveTypeLayout(block, src, elem_ty);
@@ -14484,6 +14468,73 @@ pub fn resolveTypeLayout(
             const payload_ty = ty.errorUnionPayload();
             return sema.resolveTypeLayout(block, src, payload_ty);
         },
+        else => {},
+    }
+}
+
+fn resolveStructLayout(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ty: Type,
+) CompileError!void {
+    const resolved_ty = try sema.resolveTypeFields(block, src, ty);
+    const struct_obj = resolved_ty.castTag(.@"struct").?.data;
+    switch (struct_obj.status) {
+        .none, .have_field_types => {},
+        .field_types_wip, .layout_wip => {
+            return sema.fail(block, src, "struct {} depends on itself", .{ty});
+        },
+        .have_layout => return,
+    }
+    struct_obj.status = .layout_wip;
+    for (struct_obj.fields.values()) |field| {
+        try sema.resolveTypeLayout(block, src, field.ty);
+    }
+    struct_obj.status = .have_layout;
+}
+
+fn resolveUnionLayout(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ty: Type,
+) CompileError!void {
+    const resolved_ty = try sema.resolveTypeFields(block, src, ty);
+    const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
+    switch (union_obj.status) {
+        .none, .have_field_types => {},
+        .field_types_wip, .layout_wip => {
+            return sema.fail(block, src, "union {} depends on itself", .{ty});
+        },
+        .have_layout => return,
+    }
+    union_obj.status = .layout_wip;
+    for (union_obj.fields.values()) |field| {
+        try sema.resolveTypeLayout(block, src, field.ty);
+    }
+    union_obj.status = .have_layout;
+}
+
+fn resolveTypeForCodegen(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ty: Type,
+) CompileError!void {
+    switch (ty.zigTypeTag()) {
+        .Pointer => {
+            const child_ty = try sema.resolveTypeFields(block, src, ty.childType());
+            return resolveTypeForCodegen(sema, block, src, child_ty);
+        },
+        .Struct => return resolveStructLayout(sema, block, src, ty),
+        .Union => return resolveUnionLayout(sema, block, src, ty),
+        .Array => return resolveTypeForCodegen(sema, block, src, ty.childType()),
+        .Optional => {
+            var buf: Type.Payload.ElemType = undefined;
+            return resolveTypeForCodegen(sema, block, src, ty.optionalChild(&buf));
+        },
+        .ErrorUnion => return resolveTypeForCodegen(sema, block, src, ty.errorUnionPayload()),
         else => {},
     }
 }
@@ -15215,11 +15266,20 @@ fn typeHasOnePossibleValue(
                 return null;
             }
         },
-        .@"union" => {
-            return null; // TODO
-        },
-        .union_tagged => {
-            return null; // TODO
+        .@"union", .union_tagged => {
+            const resolved_ty = try sema.resolveTypeFields(block, src, ty);
+            const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
+            const tag_val = (try sema.typeHasOnePossibleValue(block, src, union_obj.tag_ty)) orelse
+                return null;
+            const only_field = union_obj.fields.values()[0];
+            const val_val = (try sema.typeHasOnePossibleValue(block, src, only_field.ty)) orelse
+                return null;
+            // TODO make this not allocate. The function in `Type.onePossibleValue`
+            // currently returns `empty_struct_value` and we should do that here too.
+            return try Value.Tag.@"union".create(sema.arena, .{
+                .tag = tag_val,
+                .val = val_val,
+            });
         },
 
         .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
@@ -15453,7 +15513,11 @@ fn analyzeComptimeAlloc(
     block: *Block,
     var_type: Type,
     alignment: u32,
+    src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
+    // Needed to make an anon decl with type `var_type` (the `finish()` call below).
+    _ = try sema.typeHasOnePossibleValue(block, src, var_type);
+
     const ptr_type = try Type.ptr(sema.arena, .{
         .pointee_type = var_type,
         .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .global_constant),
@@ -15551,8 +15615,8 @@ fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr
     // We have a Value that lines up in virtual memory exactly with what we want to load.
     // If the Type is in-memory coercable to `load_ty`, it may be returned without modifications.
     const coerce_in_mem_ok =
-        (try sema.coerceInMemoryAllowed(load_ty, parent.ty, false, target)) == .ok or
-        (try sema.coerceInMemoryAllowed(parent.ty, load_ty, false, target)) == .ok;
+        (try sema.coerceInMemoryAllowed(block, load_ty, parent.ty, false, target, src, src)) == .ok or
+        (try sema.coerceInMemoryAllowed(block, parent.ty, load_ty, false, target, src, src)) == .ok;
     if (coerce_in_mem_ok) {
         if (parent.is_mutable) {
             // The decl whose value we are obtaining here may be overwritten with
@@ -15587,4 +15651,65 @@ fn usizeCast(sema: *Sema, block: *Block, src: LazySrcLoc, int: u64) CompileError
     return std.math.cast(usize, int) catch |err| switch (err) {
         error.Overflow => return sema.fail(block, src, "expression produces integer value {d} which is too big for this compiler implementation to handle", .{int}),
     };
+}
+
+/// For pointer-like optionals, it returns the pointer type. For pointers,
+/// the type is returned unmodified.
+/// This can return `error.AnalysisFail` because it sometimes requires resolving whether
+/// a type has zero bits, which can cause a "foo depends on itself" compile error.
+/// This logic must be kept in sync with `Type.isPtrLikeOptional`.
+fn typePtrOrOptionalPtrTy(
+    sema: *Sema,
+    block: *Block,
+    ty: Type,
+    buf: *Type.Payload.ElemType,
+    src: LazySrcLoc,
+) !?Type {
+    switch (ty.tag()) {
+        .optional_single_const_pointer,
+        .optional_single_mut_pointer,
+        .c_const_pointer,
+        .c_mut_pointer,
+        => return ty.optionalChild(buf),
+
+        .single_const_pointer_to_comptime_int,
+        .single_const_pointer,
+        .single_mut_pointer,
+        .many_const_pointer,
+        .many_mut_pointer,
+        .manyptr_u8,
+        .manyptr_const_u8,
+        => return ty,
+
+        .pointer => switch (ty.ptrSize()) {
+            .Slice => return null,
+            .C => return ty.optionalChild(buf),
+            else => return ty,
+        },
+
+        .inferred_alloc_const => unreachable,
+        .inferred_alloc_mut => unreachable,
+
+        .optional => {
+            const child_type = ty.optionalChild(buf);
+            if (child_type.zigTypeTag() != .Pointer) return null;
+
+            const info = child_type.ptrInfo().data;
+            switch (info.size) {
+                .Slice, .C => return null,
+                .Many, .One => {
+                    if (info.@"allowzero") return null;
+
+                    // optionals of zero sized types behave like bools, not pointers
+                    if ((try sema.typeHasOnePossibleValue(block, src, child_type)) != null) {
+                        return null;
+                    }
+
+                    return child_type;
+                },
+            }
+        },
+
+        else => return null,
+    }
 }
