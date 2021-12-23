@@ -1810,7 +1810,8 @@ fn zirEnumDecl(
         const tag_ty = blk: {
             if (tag_type_ref != .none) {
                 // TODO better source location
-                break :blk try sema.resolveType(block, src, tag_type_ref);
+                const resolved = try sema.resolveType(block, src, tag_type_ref);
+                break :blk try resolved.copy(new_decl_arena_allocator);
             }
             const bits = std.math.log2_int_ceil(usize, fields_len);
             break :blk try Type.Tag.int_unsigned.create(new_decl_arena_allocator, bits);

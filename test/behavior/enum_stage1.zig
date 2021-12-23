@@ -189,15 +189,6 @@ fn getC(data: *const BitFieldOfEnums) C {
     return data.c;
 }
 
-test "casting enum to its tag type" {
-    try testCastEnumTag(Small2.Two);
-    comptime try testCastEnumTag(Small2.Two);
-}
-
-fn testCastEnumTag(value: Small2) !void {
-    try expect(@enumToInt(value) == 1);
-}
-
 const MultipleChoice2 = enum(u32) {
     Unspecified1,
     A = 20,

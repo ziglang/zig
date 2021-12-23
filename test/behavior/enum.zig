@@ -4,6 +4,7 @@ const mem = std.mem;
 const Tag = std.meta.Tag;
 
 const Number = enum { Zero, One, Two, Three, Four };
+const Small2 = enum(u2) { One, Two };
 
 fn shouldEqual(n: Number, expected: u3) !void {
     try expect(@enumToInt(n) == expected);
@@ -15,6 +16,15 @@ test "enum to int" {
     try shouldEqual(Number.Two, 2);
     try shouldEqual(Number.Three, 3);
     try shouldEqual(Number.Four, 4);
+}
+
+test "casting enum to its tag type" {
+    try testCastEnumTag(Small2.Two);
+    comptime try testCastEnumTag(Small2.Two);
+}
+
+fn testCastEnumTag(value: Small2) !void {
+    try expect(@enumToInt(value) == 1);
 }
 
 fn testIntToEnumEval(x: i32) !void {
