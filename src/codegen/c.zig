@@ -302,7 +302,11 @@ pub const DeclGen = struct {
                         else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
                     }
                 },
-
+                .Pointer => switch (dg.module.getTarget().cpu.arch.ptrBitWidth()) {
+                    32 => return writer.writeAll("(void *)0xaaaaaaaa"),
+                    64 => return writer.writeAll("(void *)0xaaaaaaaaaaaaaaaa"),
+                    else => unreachable,
+                },
                 else => {
                     // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
                     // lower to leaving variables uninitialized (that might need to be implemented
@@ -685,6 +689,7 @@ pub const DeclGen = struct {
             var it = struct_obj.fields.iterator();
             while (it.next()) |entry| {
                 const field_ty = entry.value_ptr.ty;
+                if (!field_ty.hasCodeGenBits()) continue;
                 const name: CValue = .{ .bytes = entry.key_ptr.* };
                 try buffer.append(' ');
                 try dg.renderTypeAndName(buffer.writer(), field_ty, name, .Mut);
@@ -1400,9 +1405,19 @@ fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
     const inst_ty = f.air.typeOfIndex(inst);
 
-    // First line: the variable used as data storage.
     const elem_type = inst_ty.elemType();
     const mutability: Mutability = if (inst_ty.isConstPtr()) .Const else .Mut;
+    if (!elem_type.hasCodeGenBits()) {
+        const target = f.object.dg.module.getTarget();
+        const literal = switch (target.cpu.arch.ptrBitWidth()) {
+            32 => "(void *)0xaaaaaaaa",
+            64 => "(void *)0xaaaaaaaaaaaaaaaa",
+            else => unreachable,
+        };
+        return CValue{ .bytes = literal };
+    }
+
+    // First line: the variable used as data storage.
     const local = try f.allocLocal(elem_type, mutability);
     try writer.writeAll(";\n");
 
