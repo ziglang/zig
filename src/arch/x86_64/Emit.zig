@@ -516,6 +516,9 @@ const Encoding = enum {
 
     /// OP moffs, al/ax/eax/rax
     td,
+
+    /// OP r64, r/m64, imm32
+    rmi,
 };
 
 const OpCode = union(enum) {
@@ -649,6 +652,10 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
         },
         .td => return switch (tag) {
             .mov => OpCode.oneByte(if (is_one_byte) 0xa2 else 0xa3),
+            else => null,
+        },
+        .rmi => return switch (tag) {
+            .imul => OpCode.oneByte(if (is_one_byte) 0x6b else 0x69),
             else => null,
         },
     }
@@ -1180,6 +1187,96 @@ fn lowerToMrEnc(
     }
 }
 
+fn lowerToRmiEnc(
+    tag: Tag,
+    reg: Register,
+    reg_or_mem: RegisterOrMemory,
+    imm: i32,
+    code: *std.ArrayList(u8),
+) InnerError!void {
+    const opc = getOpCode(tag, .rmi, reg.size() == 8).?;
+    switch (reg_or_mem) {
+        .register => |src_reg| {
+            if (reg.size() != src_reg.size()) return error.EmitFail;
+            const encoder = try Encoder.init(code, 7);
+            encoder.rex(.{
+                .w = reg.size() == 64,
+                .r = reg.isExtended(),
+                .b = src_reg.isExtended(),
+            });
+            opc.encode(encoder);
+            encoder.modRm_direct(reg.lowId(), src_reg.lowId());
+            switch (reg.size()) {
+                8 => {
+                    const imm8 = try math.cast(i8, imm);
+                    encoder.imm8(imm8);
+                },
+                16 => {
+                    const imm16 = try math.cast(i16, imm);
+                    encoder.imm16(imm16);
+                },
+                32, 64 => encoder.imm32(imm),
+                else => unreachable,
+            }
+        },
+        .memory => |src_mem| {
+            const encoder = try Encoder.init(code, 13);
+            if (reg.size() == 16) {
+                encoder.opcode_1byte(0x66);
+            }
+            if (src_mem.reg) |src_reg| {
+                // TODO handle 32-bit base register - requires prefix 0x67
+                // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
+                if (src_reg.size() != 64) return error.EmitFail;
+                encoder.rex(.{
+                    .w = reg.size() == 64,
+                    .r = reg.isExtended(),
+                    .b = src_reg.isExtended(),
+                });
+                opc.encode(encoder);
+                if (src_reg.lowId() == 4) {
+                    if (src_mem.disp == 0) {
+                        encoder.modRm_SIBDisp0(reg.lowId());
+                        encoder.sib_base(src_reg.lowId());
+                    } else if (immOpSize(src_mem.disp) == 8) {
+                        encoder.modRm_SIBDisp8(reg.lowId());
+                        encoder.sib_baseDisp8(src_reg.lowId());
+                        encoder.disp8(@intCast(i8, src_mem.disp));
+                    } else {
+                        encoder.modRm_SIBDisp32(reg.lowId());
+                        encoder.sib_baseDisp32(src_reg.lowId());
+                        encoder.disp32(src_mem.disp);
+                    }
+                } else {
+                    if (src_mem.disp == 0) {
+                        encoder.modRm_indirectDisp0(reg.lowId(), src_reg.lowId());
+                    } else if (immOpSize(src_mem.disp) == 8) {
+                        encoder.modRm_indirectDisp8(reg.lowId(), src_reg.lowId());
+                        encoder.disp8(@intCast(i8, src_mem.disp));
+                    } else {
+                        encoder.modRm_indirectDisp32(reg.lowId(), src_reg.lowId());
+                        encoder.disp32(src_mem.disp);
+                    }
+                }
+            } else {
+                encoder.rex(.{
+                    .w = reg.size() == 64,
+                    .r = reg.isExtended(),
+                });
+                opc.encode(encoder);
+                if (src_mem.rip) {
+                    encoder.modRm_RIPDisp32(reg.lowId());
+                } else {
+                    encoder.modRm_SIBDisp0(reg.lowId());
+                    encoder.sib_disp32();
+                }
+                encoder.disp32(src_mem.disp);
+            }
+            encoder.imm32(imm);
+        },
+    }
+}
+
 fn mirArith(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
@@ -1383,22 +1480,7 @@ fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         0b00 => return lowerToRmEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code),
         0b10 => {
             const imm = emit.mir.instructions.items(.data)[inst].imm;
-            const opc: u8 = if (imm <= math.maxInt(i8)) 0x6b else 0x69;
-            const encoder = try Encoder.init(emit.code, 7);
-            encoder.rex(.{
-                .w = ops.reg1.size() == 64,
-                .r = ops.reg1.isExtended(),
-                .b = ops.reg1.isExtended(),
-            });
-            encoder.opcode_1byte(opc);
-            encoder.modRm_direct(ops.reg1.lowId(), ops.reg2.lowId());
-            if (imm <= math.maxInt(i8)) {
-                encoder.imm8(@intCast(i8, imm));
-            } else if (imm <= math.maxInt(i16)) {
-                encoder.imm16(@intCast(i16, imm));
-            } else {
-                encoder.imm32(imm);
-            }
+            return lowerToRmiEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), imm, emit.code);
         },
         else => return emit.fail("TODO implement imul", .{}),
     }
@@ -1841,4 +1923,13 @@ test "lower O encoding" {
     try expectEqualHexStrings("\x41\x5c", code.emitted(), "pop r12");
     try lowerToOEnc(.push, .r12w, code.buffer());
     try expectEqualHexStrings("\x66\x41\x54", code.emitted(), "push r12w");
+}
+
+test "lower RMI encoding" {
+    var code = TestEmitCode.init();
+    defer code.deinit();
+    try lowerToRmiEnc(.imul, .rax, RegisterOrMemory.mem(.rbp, -8), 0x10, code.buffer());
+    try expectEqualHexStrings("\x48\x69\x45\xF8\x10\x00\x00\x00", code.emitted(), "imul rax, [rbp - 8], 0x10");
+    try lowerToRmiEnc(.imul, .r12, RegisterOrMemory.reg(.r12), 0x10, code.buffer());
+    try expectEqualHexStrings("\x4D\x69\xE4\x10\x00\x00\x00", code.emitted(), "imul r12, r12, 0x10");
 }
