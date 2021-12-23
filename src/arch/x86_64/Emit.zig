@@ -204,16 +204,7 @@ fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     switch (ops.flags) {
         0b00 => {
             // PUSH/POP reg
-            const opc: u8 = switch (tag) {
-                .push => 0x50,
-                .pop => 0x58,
-                else => unreachable,
-            };
-            const encoder = try Encoder.init(emit.code, 2);
-            encoder.rex(.{
-                .b = ops.reg1.isExtended(),
-            });
-            encoder.opcode_withReg(opc, ops.reg1.lowId());
+            return lowerToOEnc(tag, ops.reg1, emit.code);
         },
         0b01 => {
             // PUSH/POP r/m64
@@ -240,22 +231,11 @@ fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
 }
 fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const callee_preserved_regs = bits.callee_preserved_regs;
-    // PUSH/POP reg
-    const opc: u8 = switch (tag) {
-        .push => 0x50,
-        .pop => 0x58,
-        else => unreachable,
-    };
-
     const regs = emit.mir.instructions.items(.data)[inst].regs_to_push_or_pop;
     if (tag == .push) {
         for (callee_preserved_regs) |reg, i| {
             if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
-            const encoder = try Encoder.init(emit.code, 2);
-            encoder.rex(.{
-                .b = reg.isExtended(),
-            });
-            encoder.opcode_withReg(opc, reg.lowId());
+            try lowerToOEnc(.push, reg, emit.code);
         }
     } else {
         // pop in the reverse direction
@@ -263,11 +243,7 @@ fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.I
         while (i > 0) : (i -= 1) {
             const reg = callee_preserved_regs[i - 1];
             if ((regs >> @intCast(u5, i - 1)) & 1 == 0) continue;
-            const encoder = try Encoder.init(emit.code, 2);
-            encoder.rex(.{
-                .b = reg.isExtended(),
-            });
-            encoder.opcode_withReg(opc, reg.lowId());
+            try lowerToOEnc(.pop, reg, emit.code);
         }
     }
 }
@@ -526,6 +502,9 @@ const Encoding = enum {
     /// OP r/m64
     m,
 
+    /// OP r64
+    o,
+
     /// OP r/m64, imm32
     mi,
 
@@ -555,6 +534,11 @@ inline fn getOpCode(tag: Tag, enc: Encoding) ?u8 {
         .m => return switch (tag) {
             .jmp_near, .call_near, .push => 0xff,
             .pop => 0x8f,
+            else => null,
+        },
+        .o => return switch (tag) {
+            .push => 0x50,
+            .pop => 0x58,
             else => null,
         },
         .mi => return switch (tag) {
@@ -661,6 +645,20 @@ const RegisterOrMemory = union(enum) {
         };
     }
 };
+
+fn lowerToOEnc(tag: Tag, reg: Register, code: *std.ArrayList(u8)) InnerError!void {
+    if (reg.size() != 16 and reg.size() != 64) return error.EmitFail; // TODO correct for push/pop, but is it universal?
+    const opc = getOpCode(tag, .o).?;
+    const encoder = try Encoder.init(code, 3);
+    if (reg.size() == 16) {
+        encoder.opcode_1byte(0x66);
+    }
+    encoder.rex(.{
+        .w = false,
+        .b = reg.isExtended(),
+    });
+    encoder.opcode_withReg(opc, reg.lowId());
+}
 
 fn lowerToDEnc(tag: Tag, imm: i32, code: *std.ArrayList(u8)) InnerError!void {
     const opc = getOpCode(tag, .d).?;
@@ -1726,4 +1724,13 @@ test "lower M encoding" {
     try expectEqualHexStrings("\xFF\x25\x10\x00\x00\x00", code.emitted(), "jmp qword ptr [rip + 0x10]");
     try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(null, 0x10), code.buffer());
     try expectEqualHexStrings("\xFF\x24\x25\x10\x00\x00\x00", code.emitted(), "jmp qword ptr [ds:0x10]");
+}
+
+test "lower O encoding" {
+    var code = TestEmitCode.init();
+    defer code.deinit();
+    try lowerToOEnc(.pop, .r12, code.buffer());
+    try expectEqualHexStrings("\x41\x5c", code.emitted(), "pop r12");
+    try lowerToOEnc(.push, .r12w, code.buffer());
+    try expectEqualHexStrings("\x66\x41\x54", code.emitted(), "push r12w");
 }
