@@ -215,16 +215,7 @@ fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
             // PUSH imm32
             assert(tag == .push);
             const imm = emit.mir.instructions.items(.data)[inst].imm;
-            const opc: u8 = if (imm <= math.maxInt(i8)) 0x6a else 0x6b;
-            const encoder = try Encoder.init(emit.code, 2);
-            encoder.opcode_1byte(opc);
-            if (imm <= math.maxInt(i8)) {
-                encoder.imm8(@intCast(i8, imm));
-            } else if (imm <= math.maxInt(i16)) {
-                encoder.imm16(@intCast(i16, imm));
-            } else {
-                encoder.imm32(imm);
-            }
+            return lowerToIEnc(.push, imm, emit.code);
         },
         0b11 => unreachable,
     }
@@ -422,31 +413,17 @@ fn mirTest(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     assert(tag == .@"test");
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
-        0b00 => blk: {
+        0b00 => {
             if (ops.reg2 == .none) {
                 // TEST r/m64, imm32
+                // MI
                 const imm = emit.mir.instructions.items(.data)[inst].imm;
                 if (ops.reg1.to64() == .rax) {
-                    // TODO reduce the size of the instruction if the immediate
-                    // is smaller than 32 bits
-                    const encoder = try Encoder.init(emit.code, 6);
-                    encoder.rex(.{
-                        .w = true,
-                    });
-                    encoder.opcode_1byte(0xa9);
-                    encoder.imm32(imm);
-                    break :blk;
+                    // TEST rax, imm32
+                    // I
+                    return lowerToIEnc(.@"test", imm, emit.code);
                 }
-                const opc: u8 = if (ops.reg1.size() == 8) 0xf6 else 0xf7;
-                const encoder = try Encoder.init(emit.code, 7);
-                encoder.rex(.{
-                    .w = true,
-                    .b = ops.reg1.isExtended(),
-                });
-                encoder.opcode_1byte(opc);
-                encoder.modRm_direct(0, ops.reg1.lowId());
-                encoder.imm8(@intCast(i8, imm));
-                break :blk;
+                return lowerToMiEnc(.@"test", RegisterOrMemory.reg(ops.reg1), imm, emit.code);
             }
             // TEST r/m64, r64
             return emit.fail("TODO TEST r/m64, r64", .{});
@@ -463,16 +440,16 @@ fn mirRet(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     switch (ops.flags) {
         0b00 => {
             // RETF imm16
+            // I
             const imm = emit.mir.instructions.items(.data)[inst].imm;
-            encoder.opcode_1byte(0xca);
-            encoder.imm16(@intCast(i16, imm));
+            return lowerToIEnc(.ret_far, imm, emit.code);
         },
         0b01 => encoder.opcode_1byte(0xcb), // RETF
         0b10 => {
             // RET imm16
+            // I
             const imm = emit.mir.instructions.items(.data)[inst].imm;
-            encoder.opcode_1byte(0xc2);
-            encoder.imm16(@intCast(i16, imm));
+            return lowerToIEnc(.ret_near, imm, emit.code);
         },
         0b11 => encoder.opcode_1byte(0xc3), // RET
     }
@@ -493,6 +470,9 @@ const Tag = enum {
     call_near,
     push,
     pop,
+    @"test",
+    ret_near,
+    ret_far,
 };
 
 const Encoding = enum {
@@ -504,6 +484,9 @@ const Encoding = enum {
 
     /// OP r64
     o,
+
+    /// OP imm32
+    i,
 
     /// OP r/m64, imm32
     mi,
@@ -541,9 +524,17 @@ inline fn getOpCode(tag: Tag, enc: Encoding) ?u8 {
             .pop => 0x58,
             else => null,
         },
+        .i => return switch (tag) {
+            .push => 0x68,
+            .@"test" => 0xa9,
+            .ret_near => 0xc2,
+            .ret_far => 0xca,
+            else => null,
+        },
         .mi => return switch (tag) {
             .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp => 0x81,
             .mov => 0xc7,
+            .@"test" => 0xf7,
             else => null,
         },
         .mr => return switch (tag) {
@@ -601,6 +592,7 @@ inline fn getModRmExt(tag: Tag) ?u3 {
         .call_near => 0x2,
         .push => 0x6,
         .pop => 0x0,
+        .@"test" => 0x0,
         else => null,
     };
 }
@@ -645,6 +637,36 @@ const RegisterOrMemory = union(enum) {
         };
     }
 };
+
+fn lowerToIEnc(tag: Tag, imm: i32, code: *std.ArrayList(u8)) InnerError!void {
+    var opc = getOpCode(tag, .i).?;
+    if (tag == .ret_far or tag == .ret_near) {
+        const encoder = try Encoder.init(code, 3);
+        encoder.opcode_1byte(opc);
+        encoder.imm16(@intCast(i16, imm));
+        return;
+    }
+    if (immOpSize(imm) == 8) {
+        // TODO I think getOpCode should track this
+        switch (tag) {
+            .push => opc += 2,
+            .@"test" => opc -= 1,
+            else => return error.EmitFail,
+        }
+    }
+    const encoder = try Encoder.init(code, 5);
+    if (immOpSize(imm) == 16) {
+        encoder.opcode_1byte(0x66);
+    }
+    encoder.opcode_1byte(opc);
+    if (immOpSize(imm) == 8) {
+        encoder.imm8(@intCast(i8, imm));
+    } else if (immOpSize(imm) == 16) {
+        encoder.imm16(@intCast(i16, imm));
+    } else {
+        encoder.imm32(imm);
+    }
+}
 
 fn lowerToOEnc(tag: Tag, reg: Register, code: *std.ArrayList(u8)) InnerError!void {
     if (reg.size() != 16 and reg.size() != 64) return error.EmitFail; // TODO correct for push/pop, but is it universal?
