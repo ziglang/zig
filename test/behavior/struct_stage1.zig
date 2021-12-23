@@ -6,11 +6,6 @@ const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
 
-const EmptyStruct2 = struct {};
-fn testReturnEmptyStructFromFn() EmptyStruct2 {
-    return EmptyStruct2{};
-}
-
 const APackedStruct = packed struct {
     x: u8,
     y: u8,
@@ -243,20 +238,6 @@ test "native bit field understands endianness" {
     try expect(bitfields.f5 == 0x5);
     try expect(bitfields.f6 == 0x6);
     try expect(bitfields.f7 == 0x77);
-}
-
-test "align 1 field before self referential align 8 field as slice return type" {
-    const result = alloc(Expr);
-    try expect(result.len == 0);
-}
-
-const Expr = union(enum) {
-    Literal: u8,
-    Question: *Expr,
-};
-
-fn alloc(comptime T: type) []T {
-    return &[_]T{};
 }
 
 test "implicit cast packed struct field to const ptr" {
@@ -667,39 +648,4 @@ test "packed struct with undefined initializers" {
 
     try S.doTheTest();
     comptime try S.doTheTest();
-}
-
-test "for loop over pointers to struct, getting field from struct pointer" {
-    const S = struct {
-        const Foo = struct {
-            name: []const u8,
-        };
-
-        var ok = true;
-
-        fn eql(a: []const u8) bool {
-            _ = a;
-            return true;
-        }
-
-        const ArrayList = struct {
-            fn toSlice(self: *ArrayList) []*Foo {
-                _ = self;
-                return @as([*]*Foo, undefined)[0..0];
-            }
-        };
-
-        fn doTheTest() !void {
-            var objects: ArrayList = undefined;
-
-            for (objects.toSlice()) |obj| {
-                if (eql(obj.name)) {
-                    ok = false;
-                }
-            }
-
-            try expect(ok);
-        }
-    };
-    try S.doTheTest();
 }

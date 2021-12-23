@@ -1518,8 +1518,6 @@ pub const Type = extern union {
         }
     }
 
-    /// For structs and unions, if the type does not have their fields resolved
-    /// this will return `false`.
     pub fn hasCodeGenBits(self: Type) bool {
         return switch (self.tag()) {
             .u1,
@@ -1601,6 +1599,7 @@ pub const Type = extern union {
                 if (struct_obj.known_has_bits) {
                     return true;
                 }
+                assert(struct_obj.haveFieldTypes());
                 for (struct_obj.fields.values()) |value| {
                     if (value.ty.hasCodeGenBits())
                         return true;
@@ -1623,6 +1622,7 @@ pub const Type = extern union {
             },
             .@"union" => {
                 const union_obj = self.castTag(.@"union").?.data;
+                assert(union_obj.haveFieldTypes());
                 for (union_obj.fields.values()) |value| {
                     if (value.ty.hasCodeGenBits())
                         return true;
@@ -1635,6 +1635,7 @@ pub const Type = extern union {
                 if (union_obj.tag_ty.hasCodeGenBits()) {
                     return true;
                 }
+                assert(union_obj.haveFieldTypes());
                 for (union_obj.fields.values()) |value| {
                     if (value.ty.hasCodeGenBits())
                         return true;
@@ -2032,11 +2033,6 @@ pub const Type = extern union {
             .c_const_pointer,
             .c_mut_pointer,
             .pointer,
-            => {
-                if (!self.elemType().hasCodeGenBits()) return 0;
-                return @divExact(target.cpu.arch.ptrBitWidth(), 8);
-            },
-
             .manyptr_u8,
             .manyptr_const_u8,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
@@ -2522,37 +2518,6 @@ pub const Type = extern union {
             return true;
         }
         return ty.ptrInfo().data.@"allowzero";
-    }
-
-    /// For pointer-like optionals, it returns the pointer type. For pointers,
-    /// the type is returned unmodified.
-    pub fn ptrOrOptionalPtrTy(ty: Type, buf: *Payload.ElemType) ?Type {
-        if (isPtrLikeOptional(ty)) return ty.optionalChild(buf);
-        switch (ty.tag()) {
-            .c_const_pointer,
-            .c_mut_pointer,
-            .single_const_pointer_to_comptime_int,
-            .single_const_pointer,
-            .single_mut_pointer,
-            .many_const_pointer,
-            .many_mut_pointer,
-            .manyptr_u8,
-            .manyptr_const_u8,
-            => return ty,
-
-            .pointer => {
-                if (ty.ptrSize() == .Slice) {
-                    return null;
-                } else {
-                    return ty;
-                }
-            },
-
-            .inferred_alloc_const => unreachable,
-            .inferred_alloc_mut => unreachable,
-
-            else => return null,
-        }
     }
 
     /// Returns true if the type is optional and would be lowered to a single pointer
@@ -3393,11 +3358,14 @@ pub const Type = extern union {
                     return null;
                 }
             },
-            .@"union" => {
-                return null; // TODO
-            },
-            .union_tagged => {
-                return null; // TODO
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
+                const tag_val = union_obj.tag_ty.onePossibleValue() orelse return null;
+                const only_field = union_obj.fields.values()[0];
+                const val_val = only_field.ty.onePossibleValue() orelse return null;
+                _ = tag_val;
+                _ = val_val;
+                return Value.initTag(.empty_struct_value);
             },
 
             .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
