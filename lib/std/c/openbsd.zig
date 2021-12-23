@@ -45,7 +45,6 @@ pub extern "c" fn unveil(path: ?[*:0]const u8, permissions: ?[*:0]const u8) c_in
 pub extern "c" fn pthread_set_name_np(thread: std.c.pthread_t, name: [*:0]const u8) void;
 pub extern "c" fn pthread_get_name_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) void;
 
-
 pub const login_cap_t = extern struct {
     lc_class: [*:0]const u8,
     lc_cap: [*:0]const u8,
@@ -57,18 +56,29 @@ pub extern "c" fn login_getstyle(lc: *login_cap_t, style: ?[*:0]const u8, atype:
 
 pub const auth_session_t = opaque {};
 
-pub extern "c" fn auth_userokay(name: [*:0]const u8, style: ?[*:0]const u8, type: ?[*:0]const u8, password: ?[*:0]const u8) c_int;
+pub extern "c" fn auth_userokay(name: [*:0]const u8, style: ?[*:0]const u8, arg_type: ?[*:0]const u8, password: ?[*:0]const u8) c_int;
 pub extern "c" fn auth_approval(as: ?*auth_session_t, ?*login_cap_t, name: ?[*:0]const u8, type: ?[*:0]const u8) c_int;
 
-pub extern "c" fn auth_userchallenge(name: [*:0]const u8, style: ?[*:0]const u8, type: ?[*:0]const u8, chappengep: *?[*:0]const u8) ?*auth_session_t;
+pub extern "c" fn auth_userchallenge(name: [*:0]const u8, style: ?[*:0]const u8, arg_type: ?[*:0]const u8, chappengep: *?[*:0]const u8) ?*auth_session_t;
 pub extern "c" fn auth_userresponse(as: *auth_session_t, response: [*:0]const u8, more: c_int) c_int;
 
 pub extern "c" fn auth_open() ?*auth_session_t;
-pub extern "c" fn auth_usercheck(name: [*:0]const u8, style: ?[*:0]const u8, type: ?[*:0]const u8, password: ?[*:0]const u8) ?*auth_session_t;
+pub extern "c" fn auth_usercheck(name: [*:0]const u8, style: ?[*:0]const u8, arg_type: ?[*:0]const u8, password: ?[*:0]const u8) ?*auth_session_t;
 pub extern "c" fn auth_close(as: *auth_session_t) c_int;
 
 pub extern "c" fn auth_mkvalue(value: [*:0]const u8) ?[*:0]const u8;
 pub extern "c" fn auth_cat(file: [*:0]const u8) c_int;
+pub extern "c" fn auth_checknologin(lc: *login_cap_t) void;
+
+pub extern "c" fn auth_setdata(as: *auth_session_t, ptr: [*]c_void, len: usize) c_int;
+pub extern "c" fn auth_setitem(as: *auth_session_t, item: auth_item_t, value: [*:0]const u8) c_int;
+pub extern "c" fn auth_getitem(as: *auth_session_t, item: auth_item_t) [*:0]const u8;
+pub extern "c" fn auth_setoption(as: *auth_session_t, n: [*:0]const u8, v: [*:0]const u8) c_int;
+pub extern "c" fn auth_setstate(as: *auth_session_t, s: c_int) void;
+pub extern "c" fn auth_getstate(as: *auth_session_t) c_int;
+// auth_getpwd
+// auth_setpwd
+pub extern "c" fn auth_getvalue(as: *auth_session_t, what: [*:0]const u8) ?[*:0]const u8;
 
 pub const blkcnt_t = i64;
 pub const blksize_t = i32;
