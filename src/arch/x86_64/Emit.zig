@@ -185,13 +185,11 @@ fn fixupRelocs(emit: *Emit) InnerError!void {
 }
 
 fn mirBrk(emit: *Emit) InnerError!void {
-    const encoder = try Encoder.init(emit.code, 1);
-    encoder.opcode_1byte(0xcc);
+    return lowerToZoEnc(.brk, emit.code);
 }
 
 fn mirNop(emit: *Emit) InnerError!void {
-    const encoder = try Encoder.init(emit.code, 1);
-    encoder.opcode_1byte(0x90);
+    return lowerToZoEnc(.nop, emit.code);
 }
 
 fn mirSyscall(emit: *Emit) InnerError!void {
@@ -436,7 +434,6 @@ fn mirRet(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .ret);
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
-    const encoder = try Encoder.init(emit.code, 3);
     switch (ops.flags) {
         0b00 => {
             // RETF imm16
@@ -444,14 +441,14 @@ fn mirRet(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             const imm = emit.mir.instructions.items(.data)[inst].imm;
             return lowerToIEnc(.ret_far, imm, emit.code);
         },
-        0b01 => encoder.opcode_1byte(0xcb), // RETF
+        0b01 => return lowerToZoEnc(.ret_far, emit.code),
         0b10 => {
             // RET imm16
             // I
             const imm = emit.mir.instructions.items(.data)[inst].imm;
             return lowerToIEnc(.ret_near, imm, emit.code);
         },
-        0b11 => encoder.opcode_1byte(0xc3), // RET
+        0b11 => return lowerToZoEnc(.ret_near, emit.code),
     }
 }
 
@@ -471,11 +468,16 @@ const Tag = enum {
     push,
     pop,
     @"test",
+    brk,
+    nop,
     ret_near,
     ret_far,
 };
 
 const Encoding = enum {
+    /// OP
+    zo,
+
     /// OP rel32
     d,
 
@@ -509,6 +511,13 @@ const Encoding = enum {
 
 inline fn getOpCode(tag: Tag, enc: Encoding) ?u8 {
     switch (enc) {
+        .zo => return switch (tag) {
+            .ret_near => 0xc3,
+            .ret_far => 0xcb,
+            .brk => 0xcc,
+            .nop => 0x90,
+            else => null,
+        },
         .d => return switch (tag) {
             .jmp_near => 0xe9,
             .call_near => 0xe8,
@@ -637,6 +646,12 @@ const RegisterOrMemory = union(enum) {
         };
     }
 };
+
+fn lowerToZoEnc(tag: Tag, code: *std.ArrayList(u8)) InnerError!void {
+    const opc = getOpCode(tag, .zo).?;
+    const encoder = try Encoder.init(code, 1);
+    encoder.opcode_1byte(opc);
+}
 
 fn lowerToIEnc(tag: Tag, imm: i32, code: *std.ArrayList(u8)) InnerError!void {
     var opc = getOpCode(tag, .i).?;
