@@ -1717,7 +1717,7 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                     _ = try self.addInst(.{
                         .tag = .imul_complex,
                         .ops = (Mir.Ops{
-                            .reg1 = dst_reg,
+                            .reg1 = registerAlias(dst_reg, @divExact(src_reg.size(), 8)),
                             .reg2 = src_reg,
                         }).encode(),
                         .data = undefined,
@@ -1766,7 +1766,7 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                     _ = try self.addInst(.{
                         .tag = .imul_complex,
                         .ops = (Mir.Ops{
-                            .reg1 = dst_reg,
+                            .reg1 = registerAlias(dst_reg, @divExact(src_reg.size(), 8)),
                             .reg2 = src_reg,
                         }).encode(),
                         .data = undefined,

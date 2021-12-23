@@ -380,6 +380,7 @@ const Tag = enum {
     @"test",
     brk,
     nop,
+    imul,
     syscall,
     ret_near,
     ret_far,
@@ -635,6 +636,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .cmp => OpCode.oneByte(if (is_one_byte) 0x3a else 0x3b),
             .mov => OpCode.oneByte(if (is_one_byte) 0x8a else 0x8b),
             .lea => OpCode.oneByte(if (is_one_byte) 0x8c else 0x8d),
+            .imul => OpCode.twoByte(0x0f, 0xaf),
             else => null,
         },
         .oi => return switch (tag) {
@@ -1378,16 +1380,7 @@ fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     assert(tag == .imul_complex);
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
-        0b00 => {
-            const encoder = try Encoder.init(emit.code, 4);
-            encoder.rex(.{
-                .w = ops.reg1.size() == 64,
-                .r = ops.reg1.isExtended(),
-                .b = ops.reg2.isExtended(),
-            });
-            encoder.opcode_2byte(0x0f, 0xaf);
-            encoder.modRm_direct(ops.reg1.lowId(), ops.reg2.lowId());
-        },
+        0b00 => return lowerToRmEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code),
         0b10 => {
             const imm = emit.mir.instructions.items(.data)[inst].imm;
             const opc: u8 = if (imm <= math.maxInt(i8)) 0x6b else 0x69;
