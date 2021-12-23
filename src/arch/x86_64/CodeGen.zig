@@ -2898,7 +2898,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             _ = try self.addInst(.{
                 .tag = tag,
                 .ops = (Mir.Ops{
-                    .reg1 = reg,
+                    .reg1 = reg.to8(),
                     .flags = flags,
                 }).encode(),
                 .data = undefined,
