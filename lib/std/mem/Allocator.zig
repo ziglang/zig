@@ -9,6 +9,18 @@ const builtin = @import("builtin");
 
 pub const Error = error{OutOfMemory};
 
+pub fn AllocFnType(PointerType: anytype) type {
+    return fn (ptr: PointerType, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8;
+}
+
+pub fn ResizeFnType(PointerType: anytype) type {
+    return fn (ptr: PointerType, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize;
+}
+
+pub fn FreeFnType(PointerType: anytype) type {
+    return fn (ptr: PointerType, buf: []u8, buf_align: u29, ret_addr: usize) void;
+}
+
 // The type erased pointer to the allocator implementation
 ptr: *anyopaque,
 vtable: *const VTable,
@@ -23,7 +35,7 @@ pub const VTable = struct {
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
     /// If the value is `0` it means no return address has been provided.
-    alloc: fn (ptr: *anyopaque, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8,
+    alloc: AllocFnType(*anyopaque),
 
     /// Attempt to expand or shrink memory in place. `buf.len` must equal the most recent
     /// length returned by `alloc` or `resize`. `buf_align` must equal the same value
@@ -42,21 +54,21 @@ pub const VTable = struct {
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
     /// If the value is `0` it means no return address has been provided.
-    resize: fn (ptr: *anyopaque, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize,
+    resize: ResizeFnType(*anyopaque),
 
     /// Free and invalidate a buffer. `buf.len` must equal the most recent length returned by `alloc` or `resize`. 
     /// `buf_align` must equal the same value that was passed as the `ptr_align` parameter to the original `alloc` call.
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
     /// If the value is `0` it means no return address has been provided.
-    free: fn (ptr: *anyopaque, buf: []u8, buf_align: u29, ret_addr: usize) void,
+    free: FreeFnType(*anyopaque),
 };
 
 pub fn init(
     pointer: anytype,
-    comptime allocFn: fn (ptr: @TypeOf(pointer), len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8,
-    comptime resizeFn: fn (ptr: @TypeOf(pointer), buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) ?usize,
-    comptime freeFn: fn (ptr: @TypeOf(pointer), buf: []u8, buf_align: u29, ret_addr: usize) void,
+    comptime allocFn: AllocFnType(@TypeOf(pointer)),
+    comptime resizeFn: ResizeFnType(@TypeOf(pointer)),
+    comptime freeFn: FreeFnType(@TypeOf(pointer)),
 ) Allocator {
     const Ptr = @TypeOf(pointer);
     const ptr_info = @typeInfo(Ptr);
@@ -94,10 +106,10 @@ pub fn init(
     };
 }
 
-/// Set resizeFn to `NoResize(AllocatorType).noResize` if in-place resize is not supported.
-pub fn NoResize(comptime AllocatorType: type) type {
-    return struct {
-        pub fn noResize(
+/// Set resizeFn to `NoResize(AllocatorType)` if in-place resize is not supported.
+pub fn NoResize(comptime AllocatorType: type) ResizeFnType(*AllocatorType) {
+    const erased = struct {
+        pub fn f(
             self: *AllocatorType,
             buf: []u8,
             buf_align: u29,
@@ -112,12 +124,13 @@ pub fn NoResize(comptime AllocatorType: type) type {
             return if (new_len > buf.len) null else new_len;
         }
     };
+    return erased.f;
 }
 
-/// Set freeFn to `NoOpFree(AllocatorType).noOpFree` if free is a no-op.
-pub fn NoOpFree(comptime AllocatorType: type) type {
-    return struct {
-        pub fn noOpFree(
+/// Set freeFn to `NoOpFree(AllocatorType)` if free is a no-op.
+pub fn NoOpFree(comptime AllocatorType: type) FreeFnType(*AllocatorType) {
+    const erased = struct {
+        fn f(
             self: *AllocatorType,
             buf: []u8,
             buf_align: u29,
@@ -129,12 +142,13 @@ pub fn NoOpFree(comptime AllocatorType: type) type {
             _ = ret_addr;
         }
     };
+    return erased.f;
 }
 
-/// Set freeFn to `PanicFree(AllocatorType).noOpFree` if free is not a supported operation.
-pub fn PanicFree(comptime AllocatorType: type) type {
-    return struct {
-        pub fn noOpFree(
+/// Set freeFn to `PanicFree(AllocatorType)` if free is not a supported operation.
+pub fn PanicFree(comptime AllocatorType: type) FreeFnType(*AllocatorType) {
+    const erased = struct {
+        pub fn f(
             self: *AllocatorType,
             buf: []u8,
             buf_align: u29,
@@ -147,6 +161,14 @@ pub fn PanicFree(comptime AllocatorType: type) type {
             @panic("free is not a supported operation for the allocator: " ++ @typeName(AllocatorType));
         }
     };
+    return erased.f;
+}
+
+test {
+    const Foo = struct {};
+    _ = NoResize(Foo);
+    _ = NoOpFree(Foo);
+    _ = PanicFree(Foo);
 }
 
 /// This function is not intended to be called except from within the implementation of an Allocator
