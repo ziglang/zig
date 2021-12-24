@@ -27,9 +27,6 @@ pub fn expm1(x: anytype) @TypeOf(x) {
 }
 
 fn expm1_32(x_: f32) f32 {
-    if (math.isNan(x_))
-        return math.nan(f32);
-
     const o_threshold: f32 = 8.8721679688e+01;
     const ln2_hi: f32 = 6.9313812256e-01;
     const ln2_lo: f32 = 9.0580006145e-06;
@@ -45,6 +42,11 @@ fn expm1_32(x_: f32) f32 {
     // TODO: Shouldn't need this check explicitly.
     if (math.isNegativeInf(x)) {
         return -1.0;
+    }
+
+    // TODO: This should be handled beneath.
+    if (math.isNan(x_)) {
+        return x_;
     }
 
     // |x| >= 27 * ln2
@@ -155,9 +157,6 @@ fn expm1_32(x_: f32) f32 {
 }
 
 fn expm1_64(x_: f64) f64 {
-    if (math.isNan(x_))
-        return math.nan(f64);
-
     const o_threshold: f64 = 7.09782712893383973096e+02;
     const ln2_hi: f64 = 6.93147180369123816490e-01;
     const ln2_lo: f64 = 1.90821492927058770002e-10;
@@ -175,6 +174,11 @@ fn expm1_64(x_: f64) f64 {
 
     if (math.isNegativeInf(x)) {
         return -1.0;
+    }
+
+    // TODO: This should be handled beneath.
+    if (math.isNan(x_)) {
+        return x_;
     }
 
     // |x| >= 56 * ln2

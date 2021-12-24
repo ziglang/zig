@@ -44,14 +44,15 @@ test "math.exp32() sanity" {
 test "math.exp32() special" {
     const cases = [_]Tc32{
         // zig fmt: off
-        tc32( 0,      1     ),
-        tc32(-0,      1     ),
-        tc32( 1,      math.e),
-        tc32( inf32,  inf32 ),
-        tc32(-inf32,  0     ),
+        tc32( 0,         1     ),
+        tc32(-0,         1     ),
+        tc32( 1,         math.e),
+        tc32( math.ln2,  2     ),
+        tc32( inf32,     inf32 ),
+        tc32(-inf32,     0     ),
         // NaNs: should be unchanged when passed through.
-        tc32( nan32,  nan32 ),
-        tc32(-nan32, -nan32 ),
+        tc32( nan32,     nan32 ),
+        tc32(-nan32,    -nan32 ),
         tc32(floatFromBits(f32, 0x7ff01234), floatFromBits(f32, 0x7ff01234)),
         tc32(floatFromBits(f32, 0xfff01234), floatFromBits(f32, 0xfff01234)),
         // zig fmt: on
@@ -109,15 +110,16 @@ test "math.exp64() sanity" {
 test "math.exp64() special" {
     const cases = [_]Tc64{
         // zig fmt: off
-        tc64( 0,      1     ),
-        tc64(-0,      1     ),
+        tc64( 0,         1     ),
+        tc64(-0,         1     ),
         // TODO: Accuracy error
-        // tc64( 1,      math.e),
-        tc64( inf64,  inf64 ),
-        tc64(-inf64,  0     ),
+        // tc64( 1,         math.e),
+        tc64( math.ln2,  2     ),
+        tc64( inf64,     inf64 ),
+        tc64(-inf64,     0     ),
         // NaNs: should be unchanged when passed through.
-        tc64( nan64,  nan64 ),
-        tc64(-nan64, -nan64 ),
+        tc64( nan64,     nan64 ),
+        tc64(-nan64,    -nan64 ),
         tc64(floatFromBits(f64, 0x7ff0123400000000), floatFromBits(f64, 0x7ff0123400000000)),
         tc64(floatFromBits(f64, 0xfff0123400000000), floatFromBits(f64, 0xfff0123400000000)),
         // zig fmt: on
