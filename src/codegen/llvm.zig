@@ -845,9 +845,11 @@ pub const DeclGen = struct {
                 defer llvm_field_types.deinit(gpa);
 
                 if (struct_obj.layout == .Packed) {
+                    try llvm_field_types.ensureUnusedCapacity(gpa, struct_obj.fields.count() * 2);
                     const target = dg.module.getTarget();
                     comptime assert(Type.packed_struct_layout_version == 1);
                     var offset: u64 = 0;
+                    var big_align: u32 = 0;
                     var running_bits: u16 = 0;
                     for (struct_obj.fields.values()) |field| {
                         if (!field.ty.hasCodeGenBits()) continue;
@@ -863,6 +865,7 @@ pub const DeclGen = struct {
                                 };
                                 const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
                                 const int_align = int_ty.abiAlignment(target);
+                                big_align = @maximum(big_align, int_align);
                                 const llvm_int_ty = try dg.llvmType(int_ty);
                                 const prev_offset = offset;
                                 offset = std.mem.alignForwardGeneric(u64, offset, int_align);
@@ -875,6 +878,7 @@ pub const DeclGen = struct {
                                 offset += int_ty.abiSize(target);
                                 running_bits = 0;
                             }
+                            big_align = @maximum(big_align, field_align);
                             const prev_offset = offset;
                             offset = std.mem.alignForwardGeneric(u64, offset, field_align);
                             const padding_bytes = @intCast(c_uint, offset - prev_offset);
@@ -894,6 +898,7 @@ pub const DeclGen = struct {
                         };
                         const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
                         const int_align = int_ty.abiAlignment(target);
+                        big_align = @maximum(big_align, int_align);
                         const prev_offset = offset;
                         offset = std.mem.alignForwardGeneric(u64, offset, int_align);
                         const padding_bytes = @intCast(c_uint, offset - prev_offset);
@@ -903,6 +908,14 @@ pub const DeclGen = struct {
                         }
                         const llvm_int_ty = try dg.llvmType(int_ty);
                         llvm_field_types.appendAssumeCapacity(llvm_int_ty);
+                    }
+
+                    const prev_offset = offset;
+                    offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+                    const padding_bytes = @intCast(c_uint, offset - prev_offset);
+                    if (padding_bytes != 0) {
+                        const padding = dg.context.intType(8).arrayType(padding_bytes);
+                        llvm_field_types.appendAssumeCapacity(padding);
                     }
                 } else {
                     for (struct_obj.fields.values()) |field| {
@@ -1319,8 +1332,9 @@ pub const DeclGen = struct {
                 const llvm_struct_ty = try dg.llvmType(tv.ty);
                 const field_vals = tv.val.castTag(.@"struct").?.data;
                 const gpa = dg.gpa;
+                const llvm_field_count = llvm_struct_ty.countStructElementTypes();
 
-                var llvm_fields = try std.ArrayListUnmanaged(*const llvm.Value).initCapacity(gpa, field_vals.len);
+                var llvm_fields = try std.ArrayListUnmanaged(*const llvm.Value).initCapacity(gpa, llvm_field_count);
                 defer llvm_fields.deinit(gpa);
 
                 const struct_obj = tv.ty.castTag(.@"struct").?.data;
@@ -1329,6 +1343,7 @@ pub const DeclGen = struct {
                     const fields = struct_obj.fields.values();
                     comptime assert(Type.packed_struct_layout_version == 1);
                     var offset: u64 = 0;
+                    var big_align: u32 = 0;
                     var running_bits: u16 = 0;
                     var running_int: *const llvm.Value = llvm_struct_ty.structGetTypeAtIndex(0).constNull();
                     for (field_vals) |field_val, i| {
@@ -1349,6 +1364,7 @@ pub const DeclGen = struct {
                             running_int = running_int.constOr(shifted);
                             running_bits += ty_bit_size;
                         } else {
+                            big_align = @maximum(big_align, field_align);
                             if (running_bits != 0) {
                                 var int_payload: Type.Payload.Bits = .{
                                     .base = .{ .tag = .int_unsigned },
@@ -1356,6 +1372,7 @@ pub const DeclGen = struct {
                                 };
                                 const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
                                 const int_align = int_ty.abiAlignment(target);
+                                big_align = @maximum(big_align, int_align);
                                 const prev_offset = offset;
                                 offset = std.mem.alignForwardGeneric(u64, offset, int_align);
                                 const padding_bytes = @intCast(c_uint, offset - prev_offset);
@@ -1381,6 +1398,32 @@ pub const DeclGen = struct {
                             }));
                             offset += field.ty.abiSize(target);
                         }
+                    }
+                    if (running_bits != 0) {
+                        var int_payload: Type.Payload.Bits = .{
+                            .base = .{ .tag = .int_unsigned },
+                            .data = running_bits,
+                        };
+                        const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                        const int_align = int_ty.abiAlignment(target);
+                        big_align = @maximum(big_align, int_align);
+                        const prev_offset = offset;
+                        offset = std.mem.alignForwardGeneric(u64, offset, int_align);
+                        const padding_bytes = @intCast(c_uint, offset - prev_offset);
+                        if (padding_bytes != 0) {
+                            const padding = dg.context.intType(8).arrayType(padding_bytes);
+                            llvm_fields.appendAssumeCapacity(padding.getUndef());
+                        }
+                        llvm_fields.appendAssumeCapacity(running_int);
+                        offset += int_ty.abiSize(target);
+                    }
+
+                    const prev_offset = offset;
+                    offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+                    const padding_bytes = @intCast(c_uint, offset - prev_offset);
+                    if (padding_bytes != 0) {
+                        const padding = dg.context.intType(8).arrayType(padding_bytes);
+                        llvm_fields.appendAssumeCapacity(padding.getUndef());
                     }
                 } else {
                     for (field_vals) |field_val, i| {

@@ -257,6 +257,9 @@ pub const Type = opaque {
 
     pub const getElementType = LLVMGetElementType;
     extern fn LLVMGetElementType(Ty: *const Type) *const Type;
+
+    pub const countStructElementTypes = LLVMCountStructElementTypes;
+    extern fn LLVMCountStructElementTypes(StructTy: *const Type) c_uint;
 };
 
 pub const Module = opaque {
