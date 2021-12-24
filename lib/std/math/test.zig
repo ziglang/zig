@@ -3,12 +3,14 @@ const print = std.debug.print;
 const meta = std.meta;
 const bitCount = meta.bitCount;
 
+// Switch to 'true' to enable debug output.
 var verbose = false;
 
 // Include all tests.
 comptime {
     _ = @import("test/exp.zig");
     _ = @import("test/exp2.zig");
+    _ = @import("test/log2.zig");
 }
 
 // Used for the type signature.
