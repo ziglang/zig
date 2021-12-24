@@ -275,7 +275,9 @@ pub fn zeroes(comptime T: type) T {
             } else {
                 var structure: T = undefined;
                 inline for (struct_info.fields) |field| {
-                    @field(structure, field.name) = zeroes(@TypeOf(@field(structure, field.name)));
+                    if (!field.is_comptime) {
+                        @field(structure, field.name) = zeroes(@TypeOf(@field(structure, field.name)));
+                    }
                 }
                 return structure;
             }
