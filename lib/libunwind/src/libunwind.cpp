@@ -30,6 +30,8 @@
 #include "AddressSpace.hpp"
 #include "UnwindCursor.hpp"
 
+#pragma clang diagnostic ignored "-Wdll-attribute-on-redeclaration"
+
 using namespace libunwind;
 
 /// internal object to represent this processes address space

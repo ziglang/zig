@@ -26,6 +26,7 @@ pub fn build(b: *std.build.Builder) void {
     run_step.dependOn(&run_cmd.step);
 
     const exe_tests = b.addTest("src/main.zig");
+    exe_tests.setTarget(target);
     exe_tests.setBuildMode(mode);
 
     const test_step = b.step("test", "Run unit tests");

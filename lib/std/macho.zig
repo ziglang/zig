@@ -1,3 +1,13 @@
+const std = @import("std");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const io = std.io;
+const mem = std.mem;
+const meta = std.meta;
+const testing = std.testing;
+
+const Allocator = mem.Allocator;
+
 pub const mach_header = extern struct {
     magic: u32,
     cputype: cpu_type_t,
@@ -9,14 +19,14 @@ pub const mach_header = extern struct {
 };
 
 pub const mach_header_64 = extern struct {
-    magic: u32,
-    cputype: cpu_type_t,
-    cpusubtype: cpu_subtype_t,
-    filetype: u32,
-    ncmds: u32,
-    sizeofcmds: u32,
-    flags: u32,
-    reserved: u32,
+    magic: u32 = MH_MAGIC_64,
+    cputype: cpu_type_t = 0,
+    cpusubtype: cpu_subtype_t = 0,
+    filetype: u32 = 0,
+    ncmds: u32 = 0,
+    sizeofcmds: u32 = 0,
+    flags: u32 = 0,
+    reserved: u32 = 0,
 };
 
 pub const fat_header = extern struct {
@@ -33,7 +43,7 @@ pub const fat_arch = extern struct {
 };
 
 pub const load_command = extern struct {
-    cmd: u32,
+    cmd: LC,
     cmdsize: u32,
 };
 
@@ -41,7 +51,7 @@ pub const load_command = extern struct {
 /// identifies an object produced by the static link editor.
 pub const uuid_command = extern struct {
     /// LC_UUID
-    cmd: u32,
+    cmd: LC = .UUID,
 
     /// sizeof(struct uuid_command)
     cmdsize: u32,
@@ -54,7 +64,7 @@ pub const uuid_command = extern struct {
 /// binary was built to run.
 pub const version_min_command = extern struct {
     /// LC_VERSION_MIN_MACOSX or LC_VERSION_MIN_IPHONEOS or LC_VERSION_MIN_WATCHOS or LC_VERSION_MIN_TVOS
-    cmd: u32,
+    cmd: LC,
 
     /// sizeof(struct version_min_command)
     cmdsize: u32,
@@ -70,7 +80,7 @@ pub const version_min_command = extern struct {
 /// the version of the sources used to build the binary.
 pub const source_version_command = extern struct {
     /// LC_SOURCE_VERSION
-    cmd: u32,
+    cmd: LC = .SOURCE_VERSION,
 
     /// sizeof(source_version_command)
     cmdsize: u32,
@@ -84,14 +94,14 @@ pub const source_version_command = extern struct {
 /// tool values following it.
 pub const build_version_command = extern struct {
     /// LC_BUILD_VERSION
-    cmd: u32,
+    cmd: LC = .BUILD_VERSION,
 
     /// sizeof(struct build_version_command) plus
     /// ntools * sizeof(struct build_version_command)
     cmdsize: u32,
 
     /// platform
-    platform: u32,
+    platform: PLATFORM,
 
     /// X.Y.Z is encoded in nibbles xxxx.yy.zz
     minos: u32,
@@ -105,26 +115,32 @@ pub const build_version_command = extern struct {
 
 pub const build_tool_version = extern struct {
     /// enum for the tool
-    tool: u32,
+    tool: TOOL,
 
     /// version number of the tool
     version: u32,
 };
 
-pub const PLATFORM_MACOS: u32 = 0x1;
-pub const PLATFORM_IOS: u32 = 0x2;
-pub const PLATFORM_TVOS: u32 = 0x3;
-pub const PLATFORM_WATCHOS: u32 = 0x4;
-pub const PLATFORM_BRIDGEOS: u32 = 0x5;
-pub const PLATFORM_MACCATALYST: u32 = 0x6;
-pub const PLATFORM_IOSSIMULATOR: u32 = 0x7;
-pub const PLATFORM_TVOSSIMULATOR: u32 = 0x8;
-pub const PLATFORM_WATCHOSSIMULATOR: u32 = 0x9;
-pub const PLATFORM_DRIVERKIT: u32 = 0x10;
+pub const PLATFORM = enum(u32) {
+    MACOS = 0x1,
+    IOS = 0x2,
+    TVOS = 0x3,
+    WATCHOS = 0x4,
+    BRIDGEOS = 0x5,
+    MACCATALYST = 0x6,
+    IOSSIMULATOR = 0x7,
+    TVOSSIMULATOR = 0x8,
+    WATCHOSSIMULATOR = 0x9,
+    DRIVERKIT = 0x10,
+    _,
+};
 
-pub const TOOL_CLANG: u32 = 0x1;
-pub const TOOL_SWIFT: u32 = 0x2;
-pub const TOOL_LD: u32 = 0x3;
+pub const TOOL = enum(u32) {
+    CLANG = 0x1,
+    SWIFT = 0x2,
+    LD = 0x3,
+    _,
+};
 
 /// The entry_point_command is a replacement for thread_command.
 /// It is used for main executables to specify the location (file offset)
@@ -132,7 +148,7 @@ pub const TOOL_LD: u32 = 0x3;
 /// field will contain the stack size needed for the main thread.
 pub const entry_point_command = extern struct {
     /// LC_MAIN only used in MH_EXECUTE filetypes
-    cmd: u32,
+    cmd: LC = .MAIN,
 
     /// sizeof(struct entry_point_command)
     cmdsize: u32,
@@ -149,7 +165,7 @@ pub const entry_point_command = extern struct {
 /// <nlist.h> and <stab.h>.
 pub const symtab_command = extern struct {
     /// LC_SYMTAB
-    cmd: u32,
+    cmd: LC = .SYMTAB,
 
     /// sizeof(struct symtab_command)
     cmdsize: u32,
@@ -207,7 +223,7 @@ pub const symtab_command = extern struct {
 /// off the section structures.
 pub const dysymtab_command = extern struct {
     /// LC_DYSYMTAB
-    cmd: u32,
+    cmd: LC = .DYSYMTAB,
 
     /// sizeof(struct dysymtab_command)
     cmdsize: u32,
@@ -347,7 +363,7 @@ pub const dysymtab_command = extern struct {
 /// of data in the __LINKEDIT segment.
 pub const linkedit_data_command = extern struct {
     /// LC_CODE_SIGNATURE, LC_SEGMENT_SPLIT_INFO, LC_FUNCTION_STARTS, LC_DATA_IN_CODE, LC_DYLIB_CODE_SIGN_DRS or LC_LINKER_OPTIMIZATION_HINT.
-    cmd: u32,
+    cmd: LC,
 
     /// sizeof(struct linkedit_data_command)
     cmdsize: u32,
@@ -367,7 +383,7 @@ pub const linkedit_data_command = extern struct {
 /// to interpret it.
 pub const dyld_info_command = extern struct {
     /// LC_DYLD_INFO or LC_DYLD_INFO_ONLY
-    cmd: u32,
+    cmd: LC,
 
     /// sizeof(struct dyld_info_command)
     cmdsize: u32,
@@ -488,7 +504,7 @@ pub const dyld_info_command = extern struct {
 /// string for dyld to treat like an environment variable.
 pub const dylinker_command = extern struct {
     /// LC_ID_DYLINKER, LC_LOAD_DYLINKER, or LC_DYLD_ENVIRONMENT
-    cmd: u32,
+    cmd: LC,
 
     /// includes pathname string
     cmdsize: u32,
@@ -509,7 +525,7 @@ pub const dylinker_command = extern struct {
 /// LC_REEXPORT_DYLIB) for each library it uses.
 pub const dylib_command = extern struct {
     /// LC_ID_DYLIB, LC_LOAD_WEAK_DYLIB, LC_LOAD_DYLIB, LC_REEXPORT_DYLIB
-    cmd: u32,
+    cmd: LC,
 
     /// includes pathname string
     cmdsize: u32,
@@ -543,7 +559,7 @@ pub const dylib = extern struct {
 /// run path used to find @rpath prefixed dylibs.
 pub const rpath_command = extern struct {
     /// LC_RPATH
-    cmd: u32,
+    cmd: LC = .RPATH,
 
     /// includes string
     cmdsize: u32,
@@ -564,7 +580,7 @@ pub const rpath_command = extern struct {
 /// reflected in cmdsize.
 pub const segment_command = extern struct {
     /// LC_SEGMENT
-    cmd: u32,
+    cmd: LC = .SEGMENT,
 
     /// includes sizeof section structs
     cmdsize: u32,
@@ -601,7 +617,7 @@ pub const segment_command = extern struct {
 /// command and their size is reflected in cmdsize.
 pub const segment_command_64 = extern struct {
     /// LC_SEGMENT_64
-    cmd: u32 = LC_SEGMENT_64,
+    cmd: LC = .SEGMENT_64,
 
     /// includes sizeof section_64 structs
     cmdsize: u32 = @sizeOf(segment_command_64),
@@ -630,6 +646,10 @@ pub const segment_command_64 = extern struct {
     /// number of sections in segment
     nsects: u32 = 0,
     flags: u32 = 0,
+
+    pub fn segName(seg: segment_command_64) []const u8 {
+        return parseName(&seg.segname);
+    }
 };
 
 /// A segment is made up of zero or more sections.  Non-MH_OBJECT files have
@@ -728,7 +748,45 @@ pub const section_64 = extern struct {
 
     /// reserved
     reserved3: u32 = 0,
+
+    pub fn sectName(sect: section_64) []const u8 {
+        return parseName(&sect.sectname);
+    }
+
+    pub fn segName(sect: section_64) []const u8 {
+        return parseName(&sect.segname);
+    }
+
+    pub fn type_(sect: section_64) u8 {
+        return @truncate(u8, sect.flags & 0xff);
+    }
+
+    pub fn attrs(sect: section_64) u32 {
+        return sect.flags & 0xffffff00;
+    }
+
+    pub fn isCode(sect: section_64) bool {
+        const attr = sect.attrs();
+        return attr & S_ATTR_PURE_INSTRUCTIONS != 0 or attr & S_ATTR_SOME_INSTRUCTIONS != 0;
+    }
+
+    pub fn isDebug(sect: section_64) bool {
+        return sect.attrs() & S_ATTR_DEBUG != 0;
+    }
+
+    pub fn isDontDeadStrip(sect: section_64) bool {
+        return sect.attrs() & S_ATTR_NO_DEAD_STRIP != 0;
+    }
+
+    pub fn isDontDeadStripIfReferencesLive(sect: section_64) bool {
+        return sect.attrs() & S_ATTR_LIVE_SUPPORT != 0;
+    }
 };
+
+fn parseName(name: *const [16]u8) []const u8 {
+    const len = mem.indexOfScalar(u8, name, @as(u8, 0)) orelse name.len;
+    return name[0..len];
+}
 
 pub const nlist = extern struct {
     n_strx: u32,
@@ -830,159 +888,163 @@ pub const relocation_info = packed struct {
 /// simply be ignored.
 pub const LC_REQ_DYLD = 0x80000000;
 
-/// segment of this file to be mapped
-pub const LC_SEGMENT = 0x1;
+pub const LC = enum(u32) {
+    /// segment of this file to be mapped
+    SEGMENT = 0x1,
 
-/// link-edit stab symbol table info
-pub const LC_SYMTAB = 0x2;
+    /// link-edit stab symbol table info
+    SYMTAB = 0x2,
 
-/// link-edit gdb symbol table info (obsolete)
-pub const LC_SYMSEG = 0x3;
+    /// link-edit gdb symbol table info (obsolete)
+    SYMSEG = 0x3,
 
-/// thread
-pub const LC_THREAD = 0x4;
+    /// thread
+    THREAD = 0x4,
 
-/// unix thread (includes a stack)
-pub const LC_UNIXTHREAD = 0x5;
+    /// unix thread (includes a stack)
+    UNIXTHREAD = 0x5,
 
-/// load a specified fixed VM shared library
-pub const LC_LOADFVMLIB = 0x6;
+    /// load a specified fixed VM shared library
+    LOADFVMLIB = 0x6,
 
-/// fixed VM shared library identification
-pub const LC_IDFVMLIB = 0x7;
+    /// fixed VM shared library identification
+    IDFVMLIB = 0x7,
 
-/// object identification info (obsolete)
-pub const LC_IDENT = 0x8;
+    /// object identification info (obsolete)
+    IDENT = 0x8,
 
-/// fixed VM file inclusion (internal use)
-pub const LC_FVMFILE = 0x9;
+    /// fixed VM file inclusion (internal use)
+    FVMFILE = 0x9,
 
-/// prepage command (internal use)
-pub const LC_PREPAGE = 0xa;
+    /// prepage command (internal use)
+    PREPAGE = 0xa,
 
-/// dynamic link-edit symbol table info
-pub const LC_DYSYMTAB = 0xb;
+    /// dynamic link-edit symbol table info
+    DYSYMTAB = 0xb,
 
-/// load a dynamically linked shared library
-pub const LC_LOAD_DYLIB = 0xc;
+    /// load a dynamically linked shared library
+    LOAD_DYLIB = 0xc,
 
-/// dynamically linked shared lib ident
-pub const LC_ID_DYLIB = 0xd;
+    /// dynamically linked shared lib ident
+    ID_DYLIB = 0xd,
 
-/// load a dynamic linker
-pub const LC_LOAD_DYLINKER = 0xe;
+    /// load a dynamic linker
+    LOAD_DYLINKER = 0xe,
 
-/// dynamic linker identification
-pub const LC_ID_DYLINKER = 0xf;
+    /// dynamic linker identification
+    ID_DYLINKER = 0xf,
 
-/// modules prebound for a dynamically
-pub const LC_PREBOUND_DYLIB = 0x10;
+    /// modules prebound for a dynamically
+    PREBOUND_DYLIB = 0x10,
 
-/// image routines
-pub const LC_ROUTINES = 0x11;
+    /// image routines
+    ROUTINES = 0x11,
 
-/// sub framework
-pub const LC_SUB_FRAMEWORK = 0x12;
+    /// sub framework
+    SUB_FRAMEWORK = 0x12,
 
-/// sub umbrella
-pub const LC_SUB_UMBRELLA = 0x13;
+    /// sub umbrella
+    SUB_UMBRELLA = 0x13,
 
-/// sub client
-pub const LC_SUB_CLIENT = 0x14;
+    /// sub client
+    SUB_CLIENT = 0x14,
 
-/// sub library
-pub const LC_SUB_LIBRARY = 0x15;
+    /// sub library
+    SUB_LIBRARY = 0x15,
 
-/// two-level namespace lookup hints
-pub const LC_TWOLEVEL_HINTS = 0x16;
+    /// two-level namespace lookup hints
+    TWOLEVEL_HINTS = 0x16,
 
-/// prebind checksum
-pub const LC_PREBIND_CKSUM = 0x17;
+    /// prebind checksum
+    PREBIND_CKSUM = 0x17,
 
-/// load a dynamically linked shared library that is allowed to be missing
-/// (all symbols are weak imported).
-pub const LC_LOAD_WEAK_DYLIB = (0x18 | LC_REQ_DYLD);
+    /// load a dynamically linked shared library that is allowed to be missing
+    /// (all symbols are weak imported).
+    LOAD_WEAK_DYLIB = (0x18 | LC_REQ_DYLD),
 
-/// 64-bit segment of this file to be mapped
-pub const LC_SEGMENT_64 = 0x19;
+    /// 64-bit segment of this file to be mapped
+    SEGMENT_64 = 0x19,
 
-/// 64-bit image routines
-pub const LC_ROUTINES_64 = 0x1a;
+    /// 64-bit image routines
+    ROUTINES_64 = 0x1a,
 
-/// the uuid
-pub const LC_UUID = 0x1b;
+    /// the uuid
+    UUID = 0x1b,
 
-/// runpath additions
-pub const LC_RPATH = (0x1c | LC_REQ_DYLD);
+    /// runpath additions
+    RPATH = (0x1c | LC_REQ_DYLD),
 
-/// local of code signature
-pub const LC_CODE_SIGNATURE = 0x1d;
+    /// local of code signature
+    CODE_SIGNATURE = 0x1d,
 
-/// local of info to split segments
-pub const LC_SEGMENT_SPLIT_INFO = 0x1e;
+    /// local of info to split segments
+    SEGMENT_SPLIT_INFO = 0x1e,
 
-/// load and re-export dylib
-pub const LC_REEXPORT_DYLIB = (0x1f | LC_REQ_DYLD);
+    /// load and re-export dylib
+    REEXPORT_DYLIB = (0x1f | LC_REQ_DYLD),
 
-/// delay load of dylib until first use
-pub const LC_LAZY_LOAD_DYLIB = 0x20;
+    /// delay load of dylib until first use
+    LAZY_LOAD_DYLIB = 0x20,
 
-/// encrypted segment information
-pub const LC_ENCRYPTION_INFO = 0x21;
+    /// encrypted segment information
+    ENCRYPTION_INFO = 0x21,
 
-/// compressed dyld information
-pub const LC_DYLD_INFO = 0x22;
+    /// compressed dyld information
+    DYLD_INFO = 0x22,
 
-/// compressed dyld information only
-pub const LC_DYLD_INFO_ONLY = (0x22 | LC_REQ_DYLD);
+    /// compressed dyld information only
+    DYLD_INFO_ONLY = (0x22 | LC_REQ_DYLD),
 
-/// load upward dylib
-pub const LC_LOAD_UPWARD_DYLIB = (0x23 | LC_REQ_DYLD);
+    /// load upward dylib
+    LOAD_UPWARD_DYLIB = (0x23 | LC_REQ_DYLD),
 
-/// build for MacOSX min OS version
-pub const LC_VERSION_MIN_MACOSX = 0x24;
+    /// build for MacOSX min OS version
+    VERSION_MIN_MACOSX = 0x24,
 
-/// build for iPhoneOS min OS version
-pub const LC_VERSION_MIN_IPHONEOS = 0x25;
+    /// build for iPhoneOS min OS version
+    VERSION_MIN_IPHONEOS = 0x25,
 
-/// compressed table of function start addresses
-pub const LC_FUNCTION_STARTS = 0x26;
+    /// compressed table of function start addresses
+    FUNCTION_STARTS = 0x26,
 
-/// string for dyld to treat like environment variable
-pub const LC_DYLD_ENVIRONMENT = 0x27;
+    /// string for dyld to treat like environment variable
+    DYLD_ENVIRONMENT = 0x27,
 
-/// replacement for LC_UNIXTHREAD
-pub const LC_MAIN = (0x28 | LC_REQ_DYLD);
+    /// replacement for LC_UNIXTHREAD
+    MAIN = (0x28 | LC_REQ_DYLD),
 
-/// table of non-instructions in __text
-pub const LC_DATA_IN_CODE = 0x29;
+    /// table of non-instructions in __text
+    DATA_IN_CODE = 0x29,
 
-/// source version used to build binary
-pub const LC_SOURCE_VERSION = 0x2A;
+    /// source version used to build binary
+    SOURCE_VERSION = 0x2A,
 
-/// Code signing DRs copied from linked dylibs
-pub const LC_DYLIB_CODE_SIGN_DRS = 0x2B;
+    /// Code signing DRs copied from linked dylibs
+    DYLIB_CODE_SIGN_DRS = 0x2B,
 
-/// 64-bit encrypted segment information
-pub const LC_ENCRYPTION_INFO_64 = 0x2C;
+    /// 64-bit encrypted segment information
+    ENCRYPTION_INFO_64 = 0x2C,
 
-/// linker options in MH_OBJECT files
-pub const LC_LINKER_OPTION = 0x2D;
+    /// linker options in MH_OBJECT files
+    LINKER_OPTION = 0x2D,
 
-/// optimization hints in MH_OBJECT files
-pub const LC_LINKER_OPTIMIZATION_HINT = 0x2E;
+    /// optimization hints in MH_OBJECT files
+    LINKER_OPTIMIZATION_HINT = 0x2E,
 
-/// build for AppleTV min OS version
-pub const LC_VERSION_MIN_TVOS = 0x2F;
+    /// build for AppleTV min OS version
+    VERSION_MIN_TVOS = 0x2F,
 
-/// build for Watch min OS version
-pub const LC_VERSION_MIN_WATCHOS = 0x30;
+    /// build for Watch min OS version
+    VERSION_MIN_WATCHOS = 0x30,
 
-/// arbitrary data included within a Mach-O file
-pub const LC_NOTE = 0x31;
+    /// arbitrary data included within a Mach-O file
+    NOTE = 0x31,
 
-/// build for platform min OS version
-pub const LC_BUILD_VERSION = 0x32;
+    /// build for platform min OS version
+    BUILD_VERSION = 0x32,
+
+    _,
+};
 
 /// the mach magic number
 pub const MH_MAGIC = 0xfeedface;
@@ -1485,7 +1547,7 @@ pub const reloc_type_x86_64 = enum(u4) {
 
 pub const reloc_type_arm64 = enum(u4) {
     /// For pointers.
-    ARM64_RELOC_UNSIGNED,
+    ARM64_RELOC_UNSIGNED = 0,
 
     /// Must be followed by a ARM64_RELOC_UNSIGNED.
     ARM64_RELOC_SUBTRACTOR,
@@ -1760,3 +1822,428 @@ pub const data_in_code_entry = extern struct {
     /// A DICE_KIND value.
     kind: u16,
 };
+
+/// A Zig wrapper for all known MachO load commands.
+/// Provides interface to read and write the load command data to a buffer.
+pub const LoadCommand = union(enum) {
+    segment: SegmentCommand,
+    dyld_info_only: dyld_info_command,
+    symtab: symtab_command,
+    dysymtab: dysymtab_command,
+    dylinker: GenericCommandWithData(dylinker_command),
+    dylib: GenericCommandWithData(dylib_command),
+    main: entry_point_command,
+    version_min: version_min_command,
+    source_version: source_version_command,
+    build_version: GenericCommandWithData(build_version_command),
+    uuid: uuid_command,
+    linkedit_data: linkedit_data_command,
+    rpath: GenericCommandWithData(rpath_command),
+    unknown: GenericCommandWithData(load_command),
+
+    pub fn read(allocator: Allocator, reader: anytype) !LoadCommand {
+        const header = try reader.readStruct(load_command);
+        var buffer = try allocator.alloc(u8, header.cmdsize);
+        defer allocator.free(buffer);
+        mem.copy(u8, buffer, mem.asBytes(&header));
+        try reader.readNoEof(buffer[@sizeOf(load_command)..]);
+        var stream = io.fixedBufferStream(buffer);
+
+        return switch (header.cmd) {
+            .SEGMENT_64 => LoadCommand{
+                .segment = try SegmentCommand.read(allocator, stream.reader()),
+            },
+            .DYLD_INFO, .DYLD_INFO_ONLY => LoadCommand{
+                .dyld_info_only = try stream.reader().readStruct(dyld_info_command),
+            },
+            .SYMTAB => LoadCommand{
+                .symtab = try stream.reader().readStruct(symtab_command),
+            },
+            .DYSYMTAB => LoadCommand{
+                .dysymtab = try stream.reader().readStruct(dysymtab_command),
+            },
+            .ID_DYLINKER, .LOAD_DYLINKER, .DYLD_ENVIRONMENT => LoadCommand{
+                .dylinker = try GenericCommandWithData(dylinker_command).read(allocator, stream.reader()),
+            },
+            .ID_DYLIB, .LOAD_WEAK_DYLIB, .LOAD_DYLIB, .REEXPORT_DYLIB => LoadCommand{
+                .dylib = try GenericCommandWithData(dylib_command).read(allocator, stream.reader()),
+            },
+            .MAIN => LoadCommand{
+                .main = try stream.reader().readStruct(entry_point_command),
+            },
+            .VERSION_MIN_MACOSX, .VERSION_MIN_IPHONEOS, .VERSION_MIN_WATCHOS, .VERSION_MIN_TVOS => LoadCommand{
+                .version_min = try stream.reader().readStruct(version_min_command),
+            },
+            .SOURCE_VERSION => LoadCommand{
+                .source_version = try stream.reader().readStruct(source_version_command),
+            },
+            .BUILD_VERSION => LoadCommand{
+                .build_version = try GenericCommandWithData(build_version_command).read(allocator, stream.reader()),
+            },
+            .UUID => LoadCommand{
+                .uuid = try stream.reader().readStruct(uuid_command),
+            },
+            .FUNCTION_STARTS, .DATA_IN_CODE, .CODE_SIGNATURE => LoadCommand{
+                .linkedit_data = try stream.reader().readStruct(linkedit_data_command),
+            },
+            .RPATH => LoadCommand{
+                .rpath = try GenericCommandWithData(rpath_command).read(allocator, stream.reader()),
+            },
+            else => LoadCommand{
+                .unknown = try GenericCommandWithData(load_command).read(allocator, stream.reader()),
+            },
+        };
+    }
+
+    pub fn write(self: LoadCommand, writer: anytype) !void {
+        return switch (self) {
+            .dyld_info_only => |x| writeStruct(x, writer),
+            .symtab => |x| writeStruct(x, writer),
+            .dysymtab => |x| writeStruct(x, writer),
+            .main => |x| writeStruct(x, writer),
+            .version_min => |x| writeStruct(x, writer),
+            .source_version => |x| writeStruct(x, writer),
+            .uuid => |x| writeStruct(x, writer),
+            .linkedit_data => |x| writeStruct(x, writer),
+            .segment => |x| x.write(writer),
+            .dylinker => |x| x.write(writer),
+            .dylib => |x| x.write(writer),
+            .rpath => |x| x.write(writer),
+            .build_version => |x| x.write(writer),
+            .unknown => |x| x.write(writer),
+        };
+    }
+
+    pub fn cmd(self: LoadCommand) LC {
+        return switch (self) {
+            .dyld_info_only => |x| x.cmd,
+            .symtab => |x| x.cmd,
+            .dysymtab => |x| x.cmd,
+            .main => |x| x.cmd,
+            .version_min => |x| x.cmd,
+            .source_version => |x| x.cmd,
+            .uuid => |x| x.cmd,
+            .linkedit_data => |x| x.cmd,
+            .segment => |x| x.inner.cmd,
+            .dylinker => |x| x.inner.cmd,
+            .dylib => |x| x.inner.cmd,
+            .rpath => |x| x.inner.cmd,
+            .build_version => |x| x.inner.cmd,
+            .unknown => |x| x.inner.cmd,
+        };
+    }
+
+    pub fn cmdsize(self: LoadCommand) u32 {
+        return switch (self) {
+            .dyld_info_only => |x| x.cmdsize,
+            .symtab => |x| x.cmdsize,
+            .dysymtab => |x| x.cmdsize,
+            .main => |x| x.cmdsize,
+            .version_min => |x| x.cmdsize,
+            .source_version => |x| x.cmdsize,
+            .linkedit_data => |x| x.cmdsize,
+            .uuid => |x| x.cmdsize,
+            .segment => |x| x.inner.cmdsize,
+            .dylinker => |x| x.inner.cmdsize,
+            .dylib => |x| x.inner.cmdsize,
+            .rpath => |x| x.inner.cmdsize,
+            .build_version => |x| x.inner.cmdsize,
+            .unknown => |x| x.inner.cmdsize,
+        };
+    }
+
+    pub fn deinit(self: *LoadCommand, allocator: Allocator) void {
+        return switch (self.*) {
+            .segment => |*x| x.deinit(allocator),
+            .dylinker => |*x| x.deinit(allocator),
+            .dylib => |*x| x.deinit(allocator),
+            .rpath => |*x| x.deinit(allocator),
+            .build_version => |*x| x.deinit(allocator),
+            .unknown => |*x| x.deinit(allocator),
+            else => {},
+        };
+    }
+
+    fn writeStruct(command: anytype, writer: anytype) !void {
+        return writer.writeAll(mem.asBytes(&command));
+    }
+
+    pub fn eql(self: LoadCommand, other: LoadCommand) bool {
+        if (@as(meta.Tag(LoadCommand), self) != @as(meta.Tag(LoadCommand), other)) return false;
+        return switch (self) {
+            .dyld_info_only => |x| meta.eql(x, other.dyld_info_only),
+            .symtab => |x| meta.eql(x, other.symtab),
+            .dysymtab => |x| meta.eql(x, other.dysymtab),
+            .main => |x| meta.eql(x, other.main),
+            .version_min => |x| meta.eql(x, other.version_min),
+            .source_version => |x| meta.eql(x, other.source_version),
+            .build_version => |x| x.eql(other.build_version),
+            .uuid => |x| meta.eql(x, other.uuid),
+            .linkedit_data => |x| meta.eql(x, other.linkedit_data),
+            .segment => |x| x.eql(other.segment),
+            .dylinker => |x| x.eql(other.dylinker),
+            .dylib => |x| x.eql(other.dylib),
+            .rpath => |x| x.eql(other.rpath),
+            .unknown => |x| x.eql(other.unknown),
+        };
+    }
+};
+
+/// A Zig wrapper for segment_command_64.
+/// Encloses the extern struct together with a list of sections for this segment.
+pub const SegmentCommand = struct {
+    inner: segment_command_64,
+    sections: std.ArrayListUnmanaged(section_64) = .{},
+
+    pub fn read(allocator: Allocator, reader: anytype) !SegmentCommand {
+        const inner = try reader.readStruct(segment_command_64);
+        var segment = SegmentCommand{
+            .inner = inner,
+        };
+        try segment.sections.ensureTotalCapacityPrecise(allocator, inner.nsects);
+
+        var i: usize = 0;
+        while (i < inner.nsects) : (i += 1) {
+            const sect = try reader.readStruct(section_64);
+            segment.sections.appendAssumeCapacity(sect);
+        }
+
+        return segment;
+    }
+
+    pub fn write(self: SegmentCommand, writer: anytype) !void {
+        try writer.writeAll(mem.asBytes(&self.inner));
+        for (self.sections.items) |sect| {
+            try writer.writeAll(mem.asBytes(&sect));
+        }
+    }
+
+    pub fn deinit(self: *SegmentCommand, allocator: Allocator) void {
+        self.sections.deinit(allocator);
+    }
+
+    pub fn eql(self: SegmentCommand, other: SegmentCommand) bool {
+        if (!meta.eql(self.inner, other.inner)) return false;
+        const lhs = self.sections.items;
+        const rhs = other.sections.items;
+        var i: usize = 0;
+        while (i < self.inner.nsects) : (i += 1) {
+            if (!meta.eql(lhs[i], rhs[i])) return false;
+        }
+        return true;
+    }
+};
+
+pub fn emptyGenericCommandWithData(cmd: anytype) GenericCommandWithData(@TypeOf(cmd)) {
+    return .{ .inner = cmd };
+}
+
+/// A Zig wrapper for a generic load command with variable-length data.
+pub fn GenericCommandWithData(comptime Cmd: type) type {
+    return struct {
+        inner: Cmd,
+        /// This field remains undefined until `read` is called.
+        data: []u8 = undefined,
+
+        const Self = @This();
+
+        pub fn read(allocator: Allocator, reader: anytype) !Self {
+            const inner = try reader.readStruct(Cmd);
+            var data = try allocator.alloc(u8, inner.cmdsize - @sizeOf(Cmd));
+            errdefer allocator.free(data);
+            try reader.readNoEof(data);
+            return Self{
+                .inner = inner,
+                .data = data,
+            };
+        }
+
+        pub fn write(self: Self, writer: anytype) !void {
+            try writer.writeAll(mem.asBytes(&self.inner));
+            try writer.writeAll(self.data);
+        }
+
+        pub fn deinit(self: *Self, allocator: Allocator) void {
+            allocator.free(self.data);
+        }
+
+        pub fn eql(self: Self, other: Self) bool {
+            if (!meta.eql(self.inner, other.inner)) return false;
+            return mem.eql(u8, self.data, other.data);
+        }
+    };
+}
+
+pub fn createLoadDylibCommand(
+    allocator: Allocator,
+    name: []const u8,
+    timestamp: u32,
+    current_version: u32,
+    compatibility_version: u32,
+) !GenericCommandWithData(dylib_command) {
+    const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+        u64,
+        @sizeOf(dylib_command) + name.len + 1, // +1 for nul
+        @sizeOf(u64),
+    ));
+
+    var dylib_cmd = emptyGenericCommandWithData(dylib_command{
+        .cmd = .LOAD_DYLIB,
+        .cmdsize = cmdsize,
+        .dylib = .{
+            .name = @sizeOf(dylib_command),
+            .timestamp = timestamp,
+            .current_version = current_version,
+            .compatibility_version = compatibility_version,
+        },
+    });
+    dylib_cmd.data = try allocator.alloc(u8, cmdsize - dylib_cmd.inner.dylib.name);
+
+    mem.set(u8, dylib_cmd.data, 0);
+    mem.copy(u8, dylib_cmd.data, name);
+
+    return dylib_cmd;
+}
+
+fn testRead(allocator: Allocator, buffer: []const u8, expected: anytype) !void {
+    var stream = io.fixedBufferStream(buffer);
+    var given = try LoadCommand.read(allocator, stream.reader());
+    defer given.deinit(allocator);
+    try testing.expect(expected.eql(given));
+}
+
+fn testWrite(buffer: []u8, cmd: LoadCommand, expected: []const u8) !void {
+    var stream = io.fixedBufferStream(buffer);
+    try cmd.write(stream.writer());
+    try testing.expect(mem.eql(u8, expected, buffer[0..expected.len]));
+}
+
+fn makeStaticString(bytes: []const u8) [16]u8 {
+    var buf = [_]u8{0} ** 16;
+    assert(bytes.len <= buf.len);
+    mem.copy(u8, &buf, bytes);
+    return buf;
+}
+
+test "read-write segment command" {
+    // TODO compiling for macOS from big-endian arch
+    if (builtin.target.cpu.arch.endian() != .Little) return error.SkipZigTest;
+
+    var gpa = testing.allocator;
+    const in_buffer = &[_]u8{
+        0x19, 0x00, 0x00, 0x00, // cmd
+        0x98, 0x00, 0x00, 0x00, // cmdsize
+        0x5f, 0x5f, 0x54, 0x45, 0x58, 0x54, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // segname
+        0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // vmaddr
+        0x00, 0x80, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, // vmsize
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // fileoff
+        0x00, 0x80, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, // filesize
+        0x07, 0x00, 0x00, 0x00, // maxprot
+        0x05, 0x00, 0x00, 0x00, // initprot
+        0x01, 0x00, 0x00, 0x00, // nsects
+        0x00, 0x00, 0x00, 0x00, // flags
+        0x5f, 0x5f, 0x74, 0x65, 0x78, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sectname
+        0x5f, 0x5f, 0x54, 0x45, 0x58, 0x54, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // segname
+        0x00, 0x40, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // address
+        0xc0, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // size
+        0x00, 0x40, 0x00, 0x00, // offset
+        0x02, 0x00, 0x00, 0x00, // alignment
+        0x00, 0x00, 0x00, 0x00, // reloff
+        0x00, 0x00, 0x00, 0x00, // nreloc
+        0x00, 0x04, 0x00, 0x80, // flags
+        0x00, 0x00, 0x00, 0x00, // reserved1
+        0x00, 0x00, 0x00, 0x00, // reserved2
+        0x00, 0x00, 0x00, 0x00, // reserved3
+    };
+    var cmd = SegmentCommand{
+        .inner = .{
+            .cmdsize = 152,
+            .segname = makeStaticString("__TEXT"),
+            .vmaddr = 4294967296,
+            .vmsize = 294912,
+            .filesize = 294912,
+            .maxprot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE,
+            .initprot = VM_PROT_EXECUTE | VM_PROT_READ,
+            .nsects = 1,
+        },
+    };
+    try cmd.sections.append(gpa, .{
+        .sectname = makeStaticString("__text"),
+        .segname = makeStaticString("__TEXT"),
+        .addr = 4294983680,
+        .size = 448,
+        .offset = 16384,
+        .@"align" = 2,
+        .flags = S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS,
+    });
+    defer cmd.deinit(gpa);
+    try testRead(gpa, in_buffer, LoadCommand{ .segment = cmd });
+
+    var out_buffer: [in_buffer.len]u8 = undefined;
+    try testWrite(&out_buffer, LoadCommand{ .segment = cmd }, in_buffer);
+}
+
+test "read-write generic command with data" {
+    // TODO compiling for macOS from big-endian arch
+    if (builtin.target.cpu.arch.endian() != .Little) return error.SkipZigTest;
+
+    var gpa = testing.allocator;
+    const in_buffer = &[_]u8{
+        0x0c, 0x00, 0x00, 0x00, // cmd
+        0x20, 0x00, 0x00, 0x00, // cmdsize
+        0x18, 0x00, 0x00, 0x00, // name
+        0x02, 0x00, 0x00, 0x00, // timestamp
+        0x00, 0x00, 0x00, 0x00, // current_version
+        0x00, 0x00, 0x00, 0x00, // compatibility_version
+        0x2f, 0x75, 0x73, 0x72, 0x00, 0x00, 0x00, 0x00, // data
+    };
+    var cmd = GenericCommandWithData(dylib_command){
+        .inner = .{
+            .cmd = .LOAD_DYLIB,
+            .cmdsize = 32,
+            .dylib = .{
+                .name = 24,
+                .timestamp = 2,
+                .current_version = 0,
+                .compatibility_version = 0,
+            },
+        },
+    };
+    cmd.data = try gpa.alloc(u8, 8);
+    defer gpa.free(cmd.data);
+    cmd.data[0] = 0x2f;
+    cmd.data[1] = 0x75;
+    cmd.data[2] = 0x73;
+    cmd.data[3] = 0x72;
+    cmd.data[4] = 0x0;
+    cmd.data[5] = 0x0;
+    cmd.data[6] = 0x0;
+    cmd.data[7] = 0x0;
+    try testRead(gpa, in_buffer, LoadCommand{ .dylib = cmd });
+
+    var out_buffer: [in_buffer.len]u8 = undefined;
+    try testWrite(&out_buffer, LoadCommand{ .dylib = cmd }, in_buffer);
+}
+
+test "read-write C struct command" {
+    // TODO compiling for macOS from big-endian arch
+    if (builtin.target.cpu.arch.endian() != .Little) return error.SkipZigTest;
+
+    var gpa = testing.allocator;
+    const in_buffer = &[_]u8{
+        0x28, 0x00, 0x00, 0x80, // cmd
+        0x18, 0x00, 0x00, 0x00, // cmdsize
+        0x04, 0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // entryoff
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // stacksize
+    };
+    const cmd = .{
+        .cmd = .MAIN,
+        .cmdsize = 24,
+        .entryoff = 16644,
+        .stacksize = 0,
+    };
+    try testRead(gpa, in_buffer, LoadCommand{ .main = cmd });
+
+    var out_buffer: [in_buffer.len]u8 = undefined;
+    try testWrite(&out_buffer, LoadCommand{ .main = cmd }, in_buffer);
+}

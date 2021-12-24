@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Richard Henderson <richard@gnu.ai.mit.edu>, 1997.
 
@@ -109,9 +109,8 @@ ENTRY(name);					\
 #define __SYSCALL_STRING						\
 	"ta	0x6d;"							\
 	"bcc,pt	%%xcc, 1f;"						\
-	" mov	0, %%g1;"						\
+	" nop;"								\
 	"sub	%%g0, %%o0, %%o0;"					\
-	"mov	1, %%g1;"						\
 	"1:"
 
 #define __SYSCALL_CLOBBERS						\

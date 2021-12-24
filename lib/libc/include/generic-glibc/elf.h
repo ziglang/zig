@@ -336,7 +336,8 @@ typedef struct
 #define EM_BA2		202	/* Beyond BA2 */
 #define EM_XCORE	203	/* XMOS xCORE */
 #define EM_MCHP_PIC	204	/* Microchip 8-bit PIC(r) */
-				/* reserved 205-209 */
+#define EM_INTELGT	205	/* Intel Graphics Technology */
+				/* reserved 206-209 */
 #define EM_KM32		210	/* KM211 KM32 */
 #define EM_KMX32	211	/* KM211 KMX32 */
 #define EM_EMX16	212	/* KM211 KMX16 */
@@ -813,6 +814,10 @@ typedef struct
 					   address keys.  */
 #define NT_ARM_PACG_KEYS	0x408	/* ARM pointer authentication
 					   generic key.  */
+#define NT_ARM_TAGGED_ADDR_CTRL	0x409	/* AArch64 tagged address
+					   control.  */
+#define NT_ARM_PAC_ENABLED_KEYS	0x40a	/* AArch64 pointer authentication
+					   enabled keys.  */
 #define NT_VMCOREDD	0x700		/* Vmcore Device Dump Note.  */
 #define NT_MIPS_DSP	0x800		/* MIPS DSP ASE registers.  */
 #define NT_MIPS_FP_MODE	0x801		/* MIPS floating-point mode.  */

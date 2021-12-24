@@ -104,7 +104,7 @@ __BEGIN_DECLS
 # endif
 #endif /* __USE_ISOC99 */
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT)
 /* Signaling NaN macros, if supported.  */
 # if __GNUC_PREREQ (3, 3)
 #  define SNANF (__builtin_nansf (""))
@@ -112,25 +112,39 @@ __BEGIN_DECLS
 #  define SNANL (__builtin_nansl (""))
 # endif
 #endif
-#if __HAVE_FLOAT16 && __GLIBC_USE (IEC_60559_TYPES_EXT)
+#if (__HAVE_FLOAT16					\
+     && __GLIBC_USE (IEC_60559_TYPES_EXT)		\
+     && (defined __USE_GNU || !__GLIBC_USE (ISOC2X)))
 # define SNANF16 (__builtin_nansf16 (""))
 #endif
-#if __HAVE_FLOAT32 && __GLIBC_USE (IEC_60559_TYPES_EXT)
+#if (__HAVE_FLOAT32					\
+     && __GLIBC_USE (IEC_60559_TYPES_EXT)		\
+     && (defined __USE_GNU || !__GLIBC_USE (ISOC2X)))
 # define SNANF32 (__builtin_nansf32 (""))
 #endif
-#if __HAVE_FLOAT64 && __GLIBC_USE (IEC_60559_TYPES_EXT)
+#if (__HAVE_FLOAT64					\
+     && __GLIBC_USE (IEC_60559_TYPES_EXT)		\
+     && (defined __USE_GNU || !__GLIBC_USE (ISOC2X)))
 # define SNANF64 (__builtin_nansf64 (""))
 #endif
-#if __HAVE_FLOAT128 && __GLIBC_USE (IEC_60559_TYPES_EXT)
+#if (__HAVE_FLOAT128					\
+     && __GLIBC_USE (IEC_60559_TYPES_EXT)		\
+     && (defined __USE_GNU || !__GLIBC_USE (ISOC2X)))
 # define SNANF128 (__builtin_nansf128 (""))
 #endif
-#if __HAVE_FLOAT32X && __GLIBC_USE (IEC_60559_TYPES_EXT)
+#if (__HAVE_FLOAT32X					\
+     && __GLIBC_USE (IEC_60559_TYPES_EXT)		\
+     && (defined __USE_GNU || !__GLIBC_USE (ISOC2X)))
 # define SNANF32X (__builtin_nansf32x (""))
 #endif
-#if __HAVE_FLOAT64X && __GLIBC_USE (IEC_60559_TYPES_EXT)
+#if (__HAVE_FLOAT64X					\
+     && __GLIBC_USE (IEC_60559_TYPES_EXT)		\
+     && (defined __USE_GNU || !__GLIBC_USE (ISOC2X)))
 # define SNANF64X (__builtin_nansf64x (""))
 #endif
-#if __HAVE_FLOAT128X && __GLIBC_USE (IEC_60559_TYPES_EXT)
+#if (__HAVE_FLOAT128X					\
+     && __GLIBC_USE (IEC_60559_TYPES_EXT)		\
+     && (defined __USE_GNU || !__GLIBC_USE (ISOC2X)))
 # define SNANF128X (__builtin_nansf128x (""))
 #endif
 

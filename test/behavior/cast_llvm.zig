@@ -31,14 +31,14 @@ fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) !void {
     try expect(@floatToInt(I, f) == i);
 }
 
-test "implicit cast from [*]T to ?*c_void" {
+test "implicit cast from [*]T to ?*anyopaque" {
     var a = [_]u8{ 3, 2, 1 };
     var runtime_zero: usize = 0;
     incrementVoidPtrArray(a[runtime_zero..].ptr, 3);
     try expect(std.mem.eql(u8, &a, &[_]u8{ 4, 3, 2 }));
 }
 
-fn incrementVoidPtrArray(array: ?*c_void, len: usize) void {
+fn incrementVoidPtrArray(array: ?*anyopaque, len: usize) void {
     var n: usize = 0;
     while (n < len) : (n += 1) {
         @ptrCast([*]u8, array.?)[n] += 1;
@@ -50,18 +50,18 @@ test "compile time int to ptr of function" {
 }
 
 pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, maxInt(usize));
-pub const PFN_void = fn (*c_void) callconv(.C) void;
+pub const PFN_void = fn (*anyopaque) callconv(.C) void;
 
 fn foobar(func: PFN_void) !void {
     try std.testing.expect(@ptrToInt(func) == maxInt(usize));
 }
 
-test "implicit ptr to *c_void" {
+test "implicit ptr to *anyopaque" {
     var a: u32 = 1;
-    var ptr: *align(@alignOf(u32)) c_void = &a;
+    var ptr: *align(@alignOf(u32)) anyopaque = &a;
     var b: *u32 = @ptrCast(*u32, ptr);
     try expect(b.* == 1);
-    var ptr2: ?*align(@alignOf(u32)) c_void = &a;
+    var ptr2: ?*align(@alignOf(u32)) anyopaque = &a;
     var c: *u32 = @ptrCast(*u32, ptr2.?);
     try expect(c.* == 1);
 }
@@ -135,13 +135,13 @@ test "implicit cast from *[N]T to ?[*]T" {
     try expect(std.mem.eql(u16, x.?[0..4], y[0..4]));
 }
 
-test "implicit cast from *T to ?*c_void" {
+test "implicit cast from *T to ?*anyopaque" {
     var a: u8 = 1;
     incrementVoidPtrValue(&a);
     try std.testing.expect(a == 2);
 }
 
-fn incrementVoidPtrValue(value: ?*c_void) void {
+fn incrementVoidPtrValue(value: ?*anyopaque) void {
     @ptrCast(*u8, value.?).* += 1;
 }
 
@@ -188,8 +188,8 @@ test "cast between [*c]T and ?[*:0]T on fn parameter" {
 
 var global_struct: struct { f0: usize } = undefined;
 test "assignment to optional pointer result loc" {
-    var foo: struct { ptr: ?*c_void } = .{ .ptr = &global_struct };
-    try expect(foo.ptr.? == @ptrCast(*c_void, &global_struct));
+    var foo: struct { ptr: ?*anyopaque } = .{ .ptr = &global_struct };
+    try expect(foo.ptr.? == @ptrCast(*anyopaque, &global_struct));
 }
 
 test "cast between *[N]void and []void" {

@@ -57,7 +57,7 @@ const UCHAR = windows.UCHAR;
 const FARPROC = windows.FARPROC;
 const INIT_ONCE_FN = windows.INIT_ONCE_FN;
 
-pub extern "kernel32" fn AddVectoredExceptionHandler(First: c_ulong, Handler: ?VECTORED_EXCEPTION_HANDLER) callconv(WINAPI) ?*c_void;
+pub extern "kernel32" fn AddVectoredExceptionHandler(First: c_ulong, Handler: ?VECTORED_EXCEPTION_HANDLER) callconv(WINAPI) ?*anyopaque;
 pub extern "kernel32" fn RemoveVectoredExceptionHandler(Handle: HANDLE) callconv(WINAPI) c_ulong;
 
 pub extern "kernel32" fn CancelIo(hFile: HANDLE) callconv(WINAPI) BOOL;
@@ -110,7 +110,7 @@ pub extern "kernel32" fn CreateProcessW(
     lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
     bInheritHandles: BOOL,
     dwCreationFlags: DWORD,
-    lpEnvironment: ?*c_void,
+    lpEnvironment: ?*anyopaque,
     lpCurrentDirectory: ?LPWSTR,
     lpStartupInfo: *STARTUPINFOW,
     lpProcessInformation: *PROCESS_INFORMATION,
@@ -125,7 +125,7 @@ pub extern "kernel32" fn CreateThread(lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
 pub extern "kernel32" fn DeviceIoControl(
     h: HANDLE,
     dwIoControlCode: DWORD,
-    lpInBuffer: ?*const c_void,
+    lpInBuffer: ?*const anyopaque,
     nInBufferSize: DWORD,
     lpOutBuffer: ?LPVOID,
     nOutBufferSize: DWORD,
@@ -194,7 +194,7 @@ pub extern "kernel32" fn GetFileInformationByHandle(
 pub extern "kernel32" fn GetFileInformationByHandleEx(
     in_hFile: HANDLE,
     in_FileInformationClass: FILE_INFO_BY_HANDLE_CLASS,
-    out_lpFileInformation: *c_void,
+    out_lpFileInformation: *anyopaque,
     in_dwBufferSize: DWORD,
 ) callconv(WINAPI) BOOL;
 
@@ -230,18 +230,18 @@ pub extern "kernel32" fn GetSystemTimeAsFileTime(*FILETIME) callconv(WINAPI) voi
 
 pub extern "kernel32" fn HeapCreate(flOptions: DWORD, dwInitialSize: SIZE_T, dwMaximumSize: SIZE_T) callconv(WINAPI) ?HANDLE;
 pub extern "kernel32" fn HeapDestroy(hHeap: HANDLE) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void, dwBytes: SIZE_T) callconv(WINAPI) ?*c_void;
-pub extern "kernel32" fn HeapSize(hHeap: HANDLE, dwFlags: DWORD, lpMem: *const c_void) callconv(WINAPI) SIZE_T;
+pub extern "kernel32" fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: *anyopaque, dwBytes: SIZE_T) callconv(WINAPI) ?*anyopaque;
+pub extern "kernel32" fn HeapSize(hHeap: HANDLE, dwFlags: DWORD, lpMem: *const anyopaque) callconv(WINAPI) SIZE_T;
 pub extern "kernel32" fn HeapCompact(hHeap: HANDLE, dwFlags: DWORD) callconv(WINAPI) SIZE_T;
 pub extern "kernel32" fn HeapSummary(hHeap: HANDLE, dwFlags: DWORD, lpSummary: LPHEAP_SUMMARY) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn GetStdHandle(in_nStdHandle: DWORD) callconv(WINAPI) ?HANDLE;
 
-pub extern "kernel32" fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) callconv(WINAPI) ?*c_void;
+pub extern "kernel32" fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) callconv(WINAPI) ?*anyopaque;
 
-pub extern "kernel32" fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *anyopaque) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: ?*const c_void) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: ?*const anyopaque) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn VirtualAlloc(lpAddress: ?LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtect: DWORD) callconv(WINAPI) ?LPVOID;
 pub extern "kernel32" fn VirtualFree(lpAddress: ?LPVOID, dwSize: SIZE_T, dwFreeType: DWORD) callconv(WINAPI) BOOL;
@@ -356,7 +356,7 @@ pub extern "kernel32" fn EnterCriticalSection(lpCriticalSection: *CRITICAL_SECTI
 pub extern "kernel32" fn LeaveCriticalSection(lpCriticalSection: *CRITICAL_SECTION) callconv(WINAPI) void;
 pub extern "kernel32" fn DeleteCriticalSection(lpCriticalSection: *CRITICAL_SECTION) callconv(WINAPI) void;
 
-pub extern "kernel32" fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*c_void, Context: ?*c_void) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn K32EmptyWorkingSet(hProcess: HANDLE) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn K32EnumDeviceDrivers(lpImageBase: [*]LPVOID, cb: DWORD, lpcbNeeded: *DWORD) callconv(WINAPI) BOOL;

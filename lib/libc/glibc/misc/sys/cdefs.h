@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -25,7 +25,7 @@
 
 /* The GNU libc does not support any K&R compilers or the traditional mode
    of ISO C compilers anymore.  Check for some of the combinations not
-   anymore supported.  */
+   supported anymore.  */
 #if defined __GNUC__ && !defined __STDC__
 # error "You need a ISO C conforming compiler to use the glibc headers"
 #endif
@@ -34,7 +34,29 @@
 #undef	__P
 #undef	__PMT
 
-#ifdef __GNUC__
+/* Compilers that lack __has_attribute may object to
+       #if defined __has_attribute && __has_attribute (...)
+   even though they do not need to evaluate the right-hand side of the &&.
+   Similarly for __has_builtin, etc.  */
+#if (defined __has_attribute \
+     && (!defined __clang_minor__ \
+         || 3 < __clang_major__ + (5 <= __clang_minor__)))
+# define __glibc_has_attribute(attr) __has_attribute (attr)
+#else
+# define __glibc_has_attribute(attr) 0
+#endif
+#ifdef __has_builtin
+# define __glibc_has_builtin(name) __has_builtin (name)
+#else
+# define __glibc_has_builtin(name) 0
+#endif
+#ifdef __has_extension
+# define __glibc_has_extension(ext) __has_extension (ext)
+#else
+# define __glibc_has_extension(ext) 0
+#endif
+
+#if defined __GNUC__ || defined __clang__
 
 /* All functions, except those with callbacks or those that
    synchronize memory, are leaf functions.  */
@@ -47,21 +69,26 @@
 # endif
 
 /* GCC can always grok prototypes.  For C++ programs we add throw()
-   to help it optimize the function calls.  But this works only with
-   gcc 2.8.x and egcs.  For gcc 3.2 and up we even mark C functions
+   to help it optimize the function calls.  But this only works with
+   gcc 2.8.x and egcs.  For gcc 3.4 and up we even mark C functions
    as non-throwing using a function attribute since programs can use
    the -fexceptions options for C code as well.  */
-# if !defined __cplusplus && __GNUC_PREREQ (3, 3)
+# if !defined __cplusplus \
+     && (__GNUC_PREREQ (3, 4) || __glibc_has_attribute (__nothrow__))
 #  define __THROW	__attribute__ ((__nothrow__ __LEAF))
 #  define __THROWNL	__attribute__ ((__nothrow__))
 #  define __NTH(fct)	__attribute__ ((__nothrow__ __LEAF)) fct
 #  define __NTHNL(fct)  __attribute__ ((__nothrow__)) fct
 # else
-#  if defined __cplusplus && __GNUC_PREREQ (2,8)
-#   define __THROW	throw ()
-#   define __THROWNL	throw ()
-#   define __NTH(fct)	__LEAF_ATTR fct throw ()
-#   define __NTHNL(fct) fct throw ()
+#  if defined __cplusplus && (__GNUC_PREREQ (2,8) || __clang_major >= 4)
+#   if __cplusplus >= 201103L
+#    define __THROW	noexcept (true)
+#   else
+#    define __THROW	throw ()
+#   endif
+#   define __THROWNL	__THROW
+#   define __NTH(fct)	__LEAF_ATTR fct __THROW
+#   define __NTHNL(fct) fct __THROW
 #  else
 #   define __THROW
 #   define __THROWNL
@@ -70,7 +97,7 @@
 #  endif
 # endif
 
-#else	/* Not GCC.  */
+#else	/* Not GCC or clang.  */
 
 # if (defined __cplusplus						\
       || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 199901L))
@@ -83,16 +110,7 @@
 # define __THROWNL
 # define __NTH(fct)	fct
 
-#endif	/* GCC.  */
-
-/* Compilers that are not clang may object to
-       #if defined __clang__ && __has_extension(...)
-   even though they do not need to evaluate the right-hand side of the &&.  */
-#if defined __clang__ && defined __has_extension
-# define __glibc_clang_has_extension(ext) __has_extension (ext)
-#else
-# define __glibc_clang_has_extension(ext) 0
-#endif
+#endif	/* GCC || clang.  */
 
 /* These two macros are not used in glibc anymore.  They are kept here
    only because some other projects expect the macros to be defined.  */
@@ -123,14 +141,20 @@
 #define __bos(ptr) __builtin_object_size (ptr, __USE_FORTIFY_LEVEL > 1)
 #define __bos0(ptr) __builtin_object_size (ptr, 0)
 
+/* Use __builtin_dynamic_object_size at _FORTIFY_SOURCE=3 when available.  */
+#if __USE_FORTIFY_LEVEL == 3 && __glibc_clang_prereq (9, 0)
+# define __glibc_objsize0(__o) __builtin_dynamic_object_size (__o, 0)
+# define __glibc_objsize(__o) __builtin_dynamic_object_size (__o, 1)
+#else
+# define __glibc_objsize0(__o) __bos0 (__o)
+# define __glibc_objsize(__o) __bos (__o)
+#endif
+
 #if __GNUC_PREREQ (4,3)
-# define __warndecl(name, msg) \
-  extern void name (void) __attribute__((__warning__ (msg)))
 # define __warnattr(msg) __attribute__((__warning__ (msg)))
 # define __errordecl(name, msg) \
   extern void name (void) __attribute__((__error__ (msg)))
 #else
-# define __warndecl(name, msg) extern void name (void)
 # define __warnattr(msg)
 # define __errordecl(name, msg) extern void name (void)
 #endif
@@ -139,11 +163,11 @@
    Headers that should use flexible arrays only if they're "real"
    (e.g. only if they won't affect sizeof()) should test
    #if __glibc_c99_flexarr_available.  */
-#if defined __STDC_VERSION__ && __STDC_VERSION__ >= 199901L
+#if defined __STDC_VERSION__ && __STDC_VERSION__ >= 199901L && !defined __HP_cc
 # define __flexarr	[]
 # define __glibc_c99_flexarr_available 1
-#elif __GNUC_PREREQ (2,97)
-/* GCC 2.97 supports C99 flexible array members as an extension,
+#elif __GNUC_PREREQ (2,97) || defined __clang__
+/* GCC 2.97 and clang support C99 flexible array members as an extension,
    even when in C89 mode or compiling C++ (any version).  */
 # define __flexarr	[]
 # define __glibc_c99_flexarr_available 1
@@ -169,7 +193,7 @@
    Example:
    int __REDIRECT(setpgrp, (__pid_t pid, __pid_t pgrp), setpgid); */
 
-#if defined __GNUC__ && __GNUC__ >= 2
+#if (defined __GNUC__ && __GNUC__ >= 2) || (__clang_major__ >= 4)
 
 # define __REDIRECT(name, proto, alias) name proto __asm__ (__ASMNAME (#alias))
 # ifdef __cplusplus
@@ -194,17 +218,17 @@
 */
 #endif
 
-/* GCC has various useful declarations that can be made with the
-   `__attribute__' syntax.  All of the ways we use this do fine if
-   they are omitted for compilers that don't understand it. */
-#if !defined __GNUC__ || __GNUC__ < 2
+/* GCC and clang have various useful declarations that can be made with
+   the '__attribute__' syntax.  All of the ways we use this do fine if
+   they are omitted for compilers that don't understand it.  */
+#if !(defined __GNUC__ || defined __clang__)
 # define __attribute__(xyz)	/* Ignore */
 #endif
 
 /* At some point during the gcc 2.96 development the `malloc' attribute
    for functions was introduced.  We don't want to use it unconditionally
    (although this would be possible) since it generates warnings.  */
-#if __GNUC_PREREQ (2,96)
+#if __GNUC_PREREQ (2,96) || __glibc_has_attribute (__malloc__)
 # define __attribute_malloc__ __attribute__ ((__malloc__))
 #else
 # define __attribute_malloc__ /* Ignore */
@@ -222,23 +246,29 @@
 /* At some point during the gcc 2.96 development the `pure' attribute
    for functions was introduced.  We don't want to use it unconditionally
    (although this would be possible) since it generates warnings.  */
-#if __GNUC_PREREQ (2,96)
+#if __GNUC_PREREQ (2,96) || __glibc_has_attribute (__pure__)
 # define __attribute_pure__ __attribute__ ((__pure__))
 #else
 # define __attribute_pure__ /* Ignore */
 #endif
 
 /* This declaration tells the compiler that the value is constant.  */
-#if __GNUC_PREREQ (2,5)
+#if __GNUC_PREREQ (2,5) || __glibc_has_attribute (__const__)
 # define __attribute_const__ __attribute__ ((__const__))
 #else
 # define __attribute_const__ /* Ignore */
 #endif
 
+#if __GNUC_PREREQ (2,7) || __glibc_has_attribute (__unused__)
+# define __attribute_maybe_unused__ __attribute__ ((__unused__))
+#else
+# define __attribute_maybe_unused__ /* Ignore */
+#endif
+
 /* At some point during the gcc 3.1 development the `used' attribute
    for functions was introduced.  We don't want to use it unconditionally
    (although this would be possible) since it generates warnings.  */
-#if __GNUC_PREREQ (3,1)
+#if __GNUC_PREREQ (3,1) || __glibc_has_attribute (__used__)
 # define __attribute_used__ __attribute__ ((__used__))
 # define __attribute_noinline__ __attribute__ ((__noinline__))
 #else
@@ -247,7 +277,7 @@
 #endif
 
 /* Since version 3.2, gcc allows marking deprecated functions.  */
-#if __GNUC_PREREQ (3,2)
+#if __GNUC_PREREQ (3,2) || __glibc_has_attribute (__deprecated__)
 # define __attribute_deprecated__ __attribute__ ((__deprecated__))
 #else
 # define __attribute_deprecated__ /* Ignore */
@@ -257,7 +287,7 @@
    when a deprecated function is used.  clang claims to be gcc 4.2, but
    may also support this feature.  */
 #if __GNUC_PREREQ (4,5) \
-    || __glibc_clang_has_extension (__attribute_deprecated_with_message__)
+    || __glibc_has_extension (__attribute_deprecated_with_message__)
 # define __attribute_deprecated_msg__(msg) \
 	 __attribute__ ((__deprecated__ (msg)))
 #else
@@ -270,7 +300,7 @@
    If several `format_arg' attributes are given for the same function, in
    gcc-3.0 and older, all but the last one are ignored.  In newer gccs,
    all designated arguments are considered.  */
-#if __GNUC_PREREQ (2,8)
+#if __GNUC_PREREQ (2,8) || __glibc_has_attribute (__format_arg__)
 # define __attribute_format_arg__(x) __attribute__ ((__format_arg__ (x)))
 #else
 # define __attribute_format_arg__(x) /* Ignore */
@@ -280,27 +310,42 @@
    attribute for functions was introduced.  We don't want to use it
    unconditionally (although this would be possible) since it
    generates warnings.  */
-#if __GNUC_PREREQ (2,97)
+#if __GNUC_PREREQ (2,97) || __glibc_has_attribute (__format__)
 # define __attribute_format_strfmon__(a,b) \
   __attribute__ ((__format__ (__strfmon__, a, b)))
 #else
 # define __attribute_format_strfmon__(a,b) /* Ignore */
 #endif
 
-/* The nonull function attribute allows to mark pointer parameters which
+/* The nonnull function attribute marks pointer parameters that
    must not be NULL.  */
-#if __GNUC_PREREQ (3,3)
-# define __nonnull(params) __attribute__ ((__nonnull__ params))
-#else
-# define __nonnull(params)
+#ifndef __nonnull
+# if __GNUC_PREREQ (3,3) || __glibc_has_attribute (__nonnull__)
+#  define __nonnull(params) __attribute__ ((__nonnull__ params))
+# else
+#  define __nonnull(params)
+# endif
+#elif !defined __GLIBC__
+# undef __nonnull
+# define __nonnull(params) _GL_ATTRIBUTE_NONNULL (params)
+#endif
+
+/* The returns_nonnull function attribute marks the return type of the function
+   as always being non-null.  */
+#ifndef __returns_nonnull
+# if __GNUC_PREREQ (4, 9) || __glibc_has_attribute (__returns_nonnull__)
+# define __returns_nonnull __attribute__ ((__returns_nonnull__))
+# else
+# define __returns_nonnull
+# endif
 #endif
 
 /* If fortification mode, we warn about unused results of certain
    function calls which can lead to problems.  */
-#if __GNUC_PREREQ (3,4)
+#if __GNUC_PREREQ (3,4) || __glibc_has_attribute (__warn_unused_result__)
 # define __attribute_warn_unused_result__ \
    __attribute__ ((__warn_unused_result__))
-# if __USE_FORTIFY_LEVEL > 0
+# if defined __USE_FORTIFY_LEVEL && __USE_FORTIFY_LEVEL > 0
 #  define __wur __attribute_warn_unused_result__
 # endif
 #else
@@ -311,7 +356,7 @@
 #endif
 
 /* Forces a function to be always inlined.  */
-#if __GNUC_PREREQ (3,2)
+#if __GNUC_PREREQ (3,2) || __glibc_has_attribute (__always_inline__)
 /* The Linux kernel defines __always_inline in stddef.h (283d7573), and
    it conflicts with this definition.  Therefore undefine it first to
    allow either header to be included first.  */
@@ -324,7 +369,7 @@
 
 /* Associate error messages with the source location of the call site rather
    than with the source location inside the function.  */
-#if __GNUC_PREREQ (4,3)
+#if __GNUC_PREREQ (4,3) || __glibc_has_attribute (__artificial__)
 # define __attribute_artificial__ __attribute__ ((__artificial__))
 #else
 # define __attribute_artificial__ /* Ignore */
@@ -367,12 +412,14 @@
    run in pedantic mode if the uses are carefully marked using the
    `__extension__' keyword.  But this is not generally available before
    version 2.8.  */
-#if !__GNUC_PREREQ (2,8)
+#if !(__GNUC_PREREQ (2,8) || defined __clang__)
 # define __extension__		/* Ignore */
 #endif
 
-/* __restrict is known in EGCS 1.2 and above. */
-#if !__GNUC_PREREQ (2,92)
+/* __restrict is known in EGCS 1.2 and above, and in clang.
+   It works also in C++ mode (outside of arrays), but only when spelled
+   as '__restrict', not 'restrict'.  */
+#if !(__GNUC_PREREQ (2,92) || __clang_major__ >= 3)
 # if defined __STDC_VERSION__ && __STDC_VERSION__ >= 199901L
 #  define __restrict	restrict
 # else
@@ -382,8 +429,9 @@
 
 /* ISO C99 also allows to declare arrays as non-overlapping.  The syntax is
      array_name[restrict]
-   GCC 3.1 supports this.  */
-#if __GNUC_PREREQ (3,1) && !defined __GNUG__
+   GCC 3.1 and clang support this.
+   This syntax is not usable in C++ mode.  */
+#if (__GNUC_PREREQ (3,1) || __clang_major__ >= 3) && !defined __cplusplus
 # define __restrict_arr	__restrict
 #else
 # ifdef __GNUC__
@@ -398,7 +446,7 @@
 # endif
 #endif
 
-#if __GNUC__ >= 3
+#if (__GNUC__ >= 3) || __glibc_has_builtin (__builtin_expect)
 # define __glibc_unlikely(cond)	__builtin_expect ((cond), 0)
 # define __glibc_likely(cond)	__builtin_expect ((cond), 1)
 #else
@@ -406,15 +454,10 @@
 # define __glibc_likely(cond)	(cond)
 #endif
 
-#ifdef __has_attribute
-# define __glibc_has_attribute(attr)	__has_attribute (attr)
-#else
-# define __glibc_has_attribute(attr)	0
-#endif
-
 #if (!defined _Noreturn \
      && (defined __STDC_VERSION__ ? __STDC_VERSION__ : 0) < 201112 \
-     &&  !__GNUC_PREREQ (4,7))
+     &&  !(__GNUC_PREREQ (4,7) \
+           || (3 < __clang_major__ + (5 <= __clang_minor__))))
 # if __GNUC_PREREQ (2,8)
 #  define _Noreturn __attribute__ ((__noreturn__))
 # else
@@ -443,16 +486,51 @@
 
 #if (!defined _Static_assert && !defined __cplusplus \
      && (defined __STDC_VERSION__ ? __STDC_VERSION__ : 0) < 201112 \
-     && (!__GNUC_PREREQ (4, 6) || defined __STRICT_ANSI__))
+     && (!(__GNUC_PREREQ (4, 6) || __clang_major__ >= 4) \
+         || defined __STRICT_ANSI__))
 # define _Static_assert(expr, diagnostic) \
     extern int (*__Static_assert_function (void)) \
       [!!sizeof (struct { int __error_if_negative: (expr) ? 2 : -1; })]
 #endif
 
-#include <bits/wordsize.h>
-#include <bits/long-double.h>
+/* The #ifndef lets Gnulib avoid including these on non-glibc
+   platforms, where the includes typically do not exist.  */
+#ifdef __GLIBC__
+# include <bits/wordsize.h>
+# include <bits/long-double.h>
+#endif
 
-#if defined __LONG_DOUBLE_MATH_OPTIONAL && defined __NO_LONG_DOUBLE_MATH
+#if __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
+# ifdef __REDIRECT
+
+/* Alias name defined automatically.  */
+#  define __LDBL_REDIR(name, proto) ... unused__ldbl_redir
+#  define __LDBL_REDIR_DECL(name) \
+  extern __typeof (name) name __asm (__ASMNAME ("__" #name "ieee128"));
+
+/* Alias name defined automatically, with leading underscores.  */
+#  define __LDBL_REDIR2_DECL(name) \
+  extern __typeof (__##name) __##name \
+    __asm (__ASMNAME ("__" #name "ieee128"));
+
+/* Alias name defined manually.  */
+#  define __LDBL_REDIR1(name, proto, alias) ... unused__ldbl_redir1
+#  define __LDBL_REDIR1_DECL(name, alias) \
+  extern __typeof (name) name __asm (__ASMNAME (#alias));
+
+#  define __LDBL_REDIR1_NTH(name, proto, alias) \
+  __REDIRECT_NTH (name, proto, alias)
+#  define __REDIRECT_NTH_LDBL(name, proto, alias) \
+  __LDBL_REDIR1_NTH (name, proto, __##alias##ieee128)
+
+/* Unused.  */
+#  define __REDIRECT_LDBL(name, proto, alias) ... unused__redirect_ldbl
+#  define __LDBL_REDIR_NTH(name, proto) ... unused__ldbl_redir_nth
+
+# else
+_Static_assert (0, "IEEE 128-bits long double requires redirection on this platform");
+# endif
+#elif defined __LONG_DOUBLE_MATH_OPTIONAL && defined __NO_LONG_DOUBLE_MATH
 # define __LDBL_COMPAT 1
 # ifdef __REDIRECT
 #  define __LDBL_REDIR1(name, proto, alias) __REDIRECT (name, proto, alias)
@@ -461,6 +539,8 @@
 #  define __LDBL_REDIR1_NTH(name, proto, alias) __REDIRECT_NTH (name, proto, alias)
 #  define __LDBL_REDIR_NTH(name, proto) \
   __LDBL_REDIR1_NTH (name, proto, __nldbl_##name)
+#  define __LDBL_REDIR2_DECL(name) \
+  extern __typeof (__##name) __##name __asm (__ASMNAME ("__nldbl___" #name));
 #  define __LDBL_REDIR1_DECL(name, alias) \
   extern __typeof (name) name __asm (__ASMNAME (#alias));
 #  define __LDBL_REDIR_DECL(name) \
@@ -471,11 +551,13 @@
   __LDBL_REDIR1_NTH (name, proto, __nldbl_##alias)
 # endif
 #endif
-#if !defined __LDBL_COMPAT || !defined __REDIRECT
+#if (!defined __LDBL_COMPAT && __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 0) \
+    || !defined __REDIRECT
 # define __LDBL_REDIR1(name, proto, alias) name proto
 # define __LDBL_REDIR(name, proto) name proto
 # define __LDBL_REDIR1_NTH(name, proto, alias) name proto __THROW
 # define __LDBL_REDIR_NTH(name, proto) name proto __THROW
+# define __LDBL_REDIR2_DECL(name)
 # define __LDBL_REDIR_DECL(name)
 # ifdef __REDIRECT
 #  define __REDIRECT_LDBL(name, proto, alias) __REDIRECT (name, proto, alias)
@@ -506,12 +588,48 @@
    check is required to enable the use of generic selection.  */
 #if !defined __cplusplus \
     && (__GNUC_PREREQ (4, 9) \
-	|| __glibc_clang_has_extension (c_generic_selections) \
+	|| __glibc_has_extension (c_generic_selections) \
 	|| (!defined __GNUC__ && defined __STDC_VERSION__ \
 	    && __STDC_VERSION__ >= 201112L))
 # define __HAVE_GENERIC_SELECTION 1
 #else
 # define __HAVE_GENERIC_SELECTION 0
+#endif
+
+#if __GNUC_PREREQ (10, 0)
+/* Designates a 1-based positional argument ref-index of pointer type
+   that can be used to access size-index elements of the pointed-to
+   array according to access mode, or at least one element when
+   size-index is not provided:
+     access (access-mode, <ref-index> [, <size-index>])  */
+#  define __attr_access(x) __attribute__ ((__access__ x))
+#  if __GNUC_PREREQ (11, 0)
+#    define __attr_access_none(argno) __attribute__ ((__access__ (__none__, argno)))
+#  else
+#    define __attr_access_none(argno)
+#  endif
+#else
+#  define __attr_access(x)
+#  define __attr_access_none(argno)
+#endif
+
+#if __GNUC_PREREQ (11, 0)
+/* Designates dealloc as a function to call to deallocate objects
+   allocated by the declared function.  */
+# define __attr_dealloc(dealloc, argno) \
+    __attribute__ ((__malloc__ (dealloc, argno)))
+# define __attr_dealloc_free __attr_dealloc (__builtin_free, 1)
+#else
+# define __attr_dealloc(dealloc, argno)
+# define __attr_dealloc_free
+#endif
+
+/* Specify that a function such as setjmp or vfork may return
+   twice.  */
+#if __GNUC_PREREQ (4, 1)
+# define __attribute_returns_twice__ __attribute__ ((__returns_twice__))
+#else
+# define __attribute_returns_twice__ /* Ignore.  */
 #endif
 
 #endif	 /* sys/cdefs.h */

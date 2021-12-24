@@ -1,5 +1,5 @@
 /* Single thread optimization, Linux version.
-   Copyright (C) 2019-2020 Free Software Foundation, Inc.
+   Copyright (C) 2019-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -27,36 +27,18 @@
    The ABI might define SINGLE_THREAD_BY_GLOBAL to enable the single thread
    check to use global variables instead of the pthread_t field.  */
 
-#ifdef SINGLE_THREAD_BY_GLOBAL
-# if IS_IN (libc)
+#ifndef __ASSEMBLER__
 extern int __libc_multiple_threads;
-#  define SINGLE_THREAD_P \
-  __glibc_likely (__libc_multiple_threads == 0)
-# elif IS_IN (libpthread)
-extern int __pthread_multiple_threads;
-#  define SINGLE_THREAD_P \
-  __glibc_likely (__pthread_multiple_threads == 0)
-# elif IS_IN (librt)
-#   define SINGLE_THREAD_P					\
-  __glibc_likely (THREAD_GETMEM (THREAD_SELF,			\
-				 header.multiple_threads) == 0)
-# else
-/* For rtld, et cetera.  */
-#  define SINGLE_THREAD_P (1)
-# endif
-#else /* SINGLE_THREAD_BY_GLOBAL  */
-# if IS_IN (libc) || IS_IN (libpthread) || IS_IN (librt)
-#   define SINGLE_THREAD_P					\
-  __glibc_likely (THREAD_GETMEM (THREAD_SELF,			\
-				 header.multiple_threads) == 0)
-# else
-/* For rtld, et cetera.  */
-#  define SINGLE_THREAD_P (1)
-# endif
-#endif /* SINGLE_THREAD_BY_GLOBAL  */
+libc_hidden_proto (__libc_multiple_threads)
+#endif
 
-#define RTLD_SINGLE_THREAD_P \
-  __glibc_likely (THREAD_GETMEM (THREAD_SELF, \
-				 header.multiple_threads) == 0)
+#if !defined SINGLE_THREAD_BY_GLOBAL || IS_IN (rtld)
+# define SINGLE_THREAD_P \
+  (THREAD_GETMEM (THREAD_SELF, header.multiple_threads) == 0)
+#else
+# define SINGLE_THREAD_P (__libc_multiple_threads == 0)
+#endif
+
+#define RTLD_SINGLE_THREAD_P SINGLE_THREAD_P
 
 #endif /* _SINGLE_THREAD_H  */

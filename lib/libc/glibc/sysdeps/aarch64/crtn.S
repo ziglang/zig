@@ -1,5 +1,5 @@
 /* Special .init and .fini section support for AArch64.
-   Copyright (C) 1995-2020 Free Software Foundation, Inc.
+   Copyright (C) 1995-2021 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -37,10 +37,18 @@
 /* crtn.S puts function epilogues in the .init and .fini sections
    corresponding to the prologues in crti.S. */
 
+#include <sysdep.h>
+
 	.section .init,"ax",%progbits
 	ldp	x29, x30, [sp], 16
+#if HAVE_AARCH64_PAC_RET
+	AUTIASP
+#endif
 	RET
 
 	.section .fini,"ax",%progbits
 	ldp	x29, x30, [sp], 16
+#if HAVE_AARCH64_PAC_RET
+	AUTIASP
+#endif
 	RET

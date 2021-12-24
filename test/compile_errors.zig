@@ -3058,10 +3058,10 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:1:15: error: parameter of type 'anytype' not allowed in function with calling convention 'C'",
     });
 
-    ctx.objErrStage1("C pointer to c_void",
+    ctx.objErrStage1("C pointer to anyopaque",
         \\export fn a() void {
-        \\    var x: *c_void = undefined;
-        \\    var y: [*c]c_void = x;
+        \\    var x: *anyopaque = undefined;
+        \\    var y: [*c]anyopaque = x;
         \\    _ = y;
         \\}
     , &[_][]const u8{
@@ -3305,7 +3305,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
     ctx.objErrStage1("compile log a pointer to an opaque value",
         \\export fn entry() void {
-        \\    @compileLog(@ptrCast(*const c_void, &entry));
+        \\    @compileLog(@ptrCast(*const anyopaque, &entry));
         \\}
     , &[_][]const u8{
         "tmp.zig:2:5: error: found compile log statement",
@@ -3465,16 +3465,16 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:11: error: use of undeclared identifier 'SymbolThatDoesNotExist'",
     });
 
-    ctx.objErrStage1("don't implicit cast double pointer to *c_void",
+    ctx.objErrStage1("don't implicit cast double pointer to *anyopaque",
         \\export fn entry() void {
         \\    var a: u32 = 1;
-        \\    var ptr: *align(@alignOf(u32)) c_void = &a;
+        \\    var ptr: *align(@alignOf(u32)) anyopaque = &a;
         \\    var b: *u32 = @ptrCast(*u32, ptr);
-        \\    var ptr2: *c_void = &b;
+        \\    var ptr2: *anyopaque = &b;
         \\    _ = ptr2;
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:26: error: expected type '*c_void', found '**u32'",
+        "tmp.zig:5:29: error: expected type '*anyopaque', found '**u32'",
     });
 
     ctx.objErrStage1("runtime index into comptime type slice",
@@ -4045,9 +4045,9 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:8:9: error: integer value '256' cannot be stored in type 'u8'",
     });
 
-    ctx.objErrStage1("use c_void as return type of fn ptr",
+    ctx.objErrStage1("use anyopaque as return type of fn ptr",
         \\export fn entry() void {
-        \\    const a: fn () c_void = undefined;
+        \\    const a: fn () anyopaque = undefined;
         \\    _ = a;
         \\}
     , &[_][]const u8{
@@ -7469,10 +7469,10 @@ pub fn addCases(ctx: *TestContext) !void {
         \\extern fn bar(d: *Derp) void;
         \\export fn foo() void {
         \\    var x = @as(u8, 1);
-        \\    bar(@ptrCast(*c_void, &x));
+        \\    bar(@ptrCast(*anyopaque, &x));
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:9: error: expected type '*Derp', found '*c_void'",
+        "tmp.zig:5:9: error: expected type '*Derp', found '*anyopaque'",
     });
 
     ctx.objErrStage1("non-const variables of things that require const variables",
@@ -8765,10 +8765,10 @@ pub fn addCases(ctx: *TestContext) !void {
 
     ctx.objErrStage1("integer underflow error",
         \\export fn entry() void {
-        \\    _ = @intToPtr(*c_void, ~@as(usize, @import("std").math.maxInt(usize)) - 1);
+        \\    _ = @intToPtr(*anyopaque, ~@as(usize, @import("std").math.maxInt(usize)) - 1);
         \\}
     , &[_][]const u8{
-        ":2:75: error: operation caused overflow",
+        ":2:78: error: operation caused overflow",
     });
 
     {
@@ -8864,14 +8864,14 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:8:12: error: negation of type 'u32'",
     });
 
-    ctx.objErrStage1("Issue #5618: coercion of ?*c_void to *c_void must fail.",
+    ctx.objErrStage1("Issue #5618: coercion of ?*anyopaque to *anyopaque must fail.",
         \\export fn foo() void {
-        \\    var u: ?*c_void = null;
-        \\    var v: *c_void = undefined;
+        \\    var u: ?*anyopaque = null;
+        \\    var v: *anyopaque = undefined;
         \\    v = u;
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:9: error: expected type '*c_void', found '?*c_void'",
+        "tmp.zig:4:9: error: expected type '*anyopaque', found '?*anyopaque'",
     });
 
     ctx.objErrStage1("Issue #6823: don't allow .* to be followed by **",
@@ -8913,7 +8913,7 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.objErrStage1("saturating arithmetic does not allow floats",
-        \\pub fn main() !void {
+        \\export fn a() void {
         \\    _ = @as(f32, 1.0) +| @as(f32, 1.0);
         \\}
     , &[_][]const u8{
@@ -8921,7 +8921,7 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.objErrStage1("saturating shl does not allow negative rhs at comptime",
-        \\pub fn main() !void {
+        \\export fn a() void {
         \\    _ = @as(i32, 1) <<| @as(i32, -2);
         \\}
     , &[_][]const u8{
@@ -8929,7 +8929,7 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.objErrStage1("saturating shl assign does not allow negative rhs at comptime",
-        \\pub fn main() !void {
+        \\export fn a() void {
         \\    comptime {
         \\      var x = @as(i32, 1);
         \\      x <<|= @as(i32, -2);

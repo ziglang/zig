@@ -162,9 +162,8 @@ pub fn deinit(self: *Wasm) void {
         decl.link.wasm.deinit(self.base.allocator);
     }
 
-    for (self.func_types.items) |func_type| {
-        self.base.allocator.free(func_type.params);
-        self.base.allocator.free(func_type.returns);
+    for (self.func_types.items) |*func_type| {
+        func_type.deinit(self.base.allocator);
     }
     for (self.segment_info.items) |segment_info| {
         self.base.allocator.free(segment_info.name);
@@ -278,7 +277,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     defer codegen.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = codegen.genDecl(decl.ty, decl.val) catch |err| switch (err) {
+    const result = codegen.genDecl() catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
@@ -298,6 +297,7 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, cod
 
     if (decl.isExtern()) {
         try self.addOrUpdateImport(decl);
+        return;
     }
 
     if (code.len == 0) return;
@@ -328,6 +328,7 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     self.symbols_free_list.append(self.base.allocator, atom.sym_index) catch {};
     atom.deinit(self.base.allocator);
     _ = self.decls.remove(decl);
+    self.symbols.items[atom.sym_index].tag = .dead; // to ensure it does not end in the names section
 
     if (decl.isExtern()) {
         const import = self.imports.fetchRemove(decl.link.wasm.sym_index).?.value;
@@ -335,11 +336,6 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
             .function => self.imported_functions_count -= 1,
             else => unreachable,
         }
-    }
-
-    // maybe remove from function table if needed
-    if (decl.ty.zigTypeTag() == .Fn) {
-        _ = self.function_table.remove(atom.sym_index);
     }
 }
 
@@ -574,7 +570,6 @@ fn resetState(self: *Wasm) void {
     self.segments.clearRetainingCapacity();
     self.segment_info.clearRetainingCapacity();
     self.data_segments.clearRetainingCapacity();
-    self.function_table.clearRetainingCapacity();
     self.atoms.clearRetainingCapacity();
     self.code_section_index = null;
 }
@@ -636,10 +631,29 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     }
 
     // Import section
-    const import_mem = self.base.options.import_memory;
-    if (self.imports.count() != 0 or import_mem) {
+    const import_memory = self.base.options.import_memory;
+    const import_table = self.base.options.import_table;
+    if (self.imports.count() != 0 or import_memory or import_table) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
+
+        // import table is always first table so emit that first
+        if (import_table) {
+            const table_imp: wasm.Import = .{
+                .module_name = self.host_name,
+                .name = "__indirect_function_table",
+                .kind = .{
+                    .table = .{
+                        .limits = .{
+                            .min = @intCast(u32, self.imports.count()),
+                            .max = null,
+                        },
+                        .reftype = .funcref,
+                    },
+                },
+            };
+            try emitImport(writer, table_imp);
+        }
 
         var it = self.imports.iterator();
         while (it.next()) |entry| {
@@ -649,7 +663,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             try emitImport(writer, import);
         }
 
-        if (import_mem) {
+        if (import_memory) {
             const mem_imp: wasm.Import = .{
                 .module_name = self.host_name,
                 .name = "memory",
@@ -663,7 +677,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             header_offset,
             .import,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @intCast(u32, self.imports.count() + @boolToInt(import_mem)),
+            @intCast(u32, self.imports.count() + @boolToInt(import_memory)),
         );
     }
 
@@ -684,12 +698,17 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         );
     }
 
-    if (self.function_table.count() > 0) {
+    // Table section
+    const export_table = self.base.options.export_table;
+    if (!import_table and (self.function_table.count() > 0 or export_table)) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
 
         try leb.writeULEB128(writer, wasm.reftype(.funcref));
-        try emitLimits(writer, .{ .min = 1, .max = null });
+        try emitLimits(writer, .{
+            .min = @intCast(u32, self.function_table.count()),
+            .max = null,
+        });
 
         try writeVecSectionHeader(
             file,
@@ -764,11 +783,19 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         }
 
         // export memory if size is not 0
-        if (!self.base.options.import_memory) {
+        if (!import_memory) {
             try leb.writeULEB128(writer, @intCast(u32, "memory".len));
             try writer.writeAll("memory");
             try writer.writeByte(wasm.externalKind(.memory));
             try leb.writeULEB128(writer, @as(u32, 0)); // only 1 memory 'object' can exist
+            count += 1;
+        }
+
+        if (export_table) {
+            try leb.writeULEB128(writer, @intCast(u32, "__indirect_function_table".len));
+            try writer.writeAll("__indirect_function_table");
+            try writer.writeByte(wasm.externalKind(.table));
+            try leb.writeULEB128(writer, @as(u32, 0)); // function table is always the first table
             count += 1;
         }
 
@@ -884,6 +911,75 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             @intCast(u32, segment_count),
         );
     }
+
+    // Custom section "name" which contains symbol names
+    {
+        const Name = struct {
+            index: u32,
+            name: []const u8,
+
+            fn lessThan(context: void, lhs: @This(), rhs: @This()) bool {
+                _ = context;
+                return lhs.index < rhs.index;
+            }
+        };
+
+        var funcs = try std.ArrayList(Name).initCapacity(self.base.allocator, self.functions.items.len + self.imported_functions_count);
+        defer funcs.deinit();
+        var globals = try std.ArrayList(Name).initCapacity(self.base.allocator, self.globals.items.len);
+        defer globals.deinit();
+        var segments = try std.ArrayList(Name).initCapacity(self.base.allocator, self.data_segments.count());
+        defer segments.deinit();
+
+        for (self.symbols.items) |symbol| {
+            switch (symbol.tag) {
+                .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = std.mem.sliceTo(symbol.name, 0) }),
+                .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = std.mem.sliceTo(symbol.name, 0) }),
+                else => {},
+            }
+        }
+        // data segments are already 'ordered'
+        for (self.data_segments.keys()) |key, index| {
+            segments.appendAssumeCapacity(.{ .index = @intCast(u32, index), .name = key });
+        }
+
+        std.sort.sort(Name, funcs.items, {}, Name.lessThan);
+        std.sort.sort(Name, globals.items, {}, Name.lessThan);
+
+        const header_offset = try reserveCustomSectionHeader(file);
+        const writer = file.writer();
+        try leb.writeULEB128(writer, @intCast(u32, "name".len));
+        try writer.writeAll("name");
+
+        try self.emitNameSubsection(.function, funcs.items, writer);
+        try self.emitNameSubsection(.global, globals.items, writer);
+        try self.emitNameSubsection(.data_segment, segments.items, writer);
+
+        try writeCustomSectionHeader(
+            file,
+            header_offset,
+            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+        );
+    }
+}
+
+fn emitNameSubsection(self: *Wasm, section_id: std.wasm.NameSubsection, names: anytype, writer: anytype) !void {
+    // We must emit subsection size, so first write to a temporary list
+    var section_list = std.ArrayList(u8).init(self.base.allocator);
+    defer section_list.deinit();
+    const sub_writer = section_list.writer();
+
+    try leb.writeULEB128(sub_writer, @intCast(u32, names.len));
+    for (names) |name| {
+        try leb.writeULEB128(sub_writer, name.index);
+        try leb.writeULEB128(sub_writer, @intCast(u32, name.name.len));
+        try sub_writer.writeAll(name.name);
+    }
+
+    // From now, write to the actual writer
+    try leb.writeULEB128(writer, @enumToInt(section_id));
+    try leb.writeULEB128(writer, @intCast(u32, section_list.items.len));
+    try writer.writeAll(section_list.items);
 }
 
 fn emitLimits(writer: anytype, limits: wasm.Limits) !void {
@@ -1005,9 +1101,15 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         try man.addOptionalFile(compiler_rt_path);
         man.hash.addOptional(self.base.options.stack_size_override);
         man.hash.add(self.base.options.import_memory);
+        man.hash.add(self.base.options.import_table);
+        man.hash.add(self.base.options.export_table);
         man.hash.addOptional(self.base.options.initial_memory);
         man.hash.addOptional(self.base.options.max_memory);
         man.hash.addOptional(self.base.options.global_base);
+        man.hash.add(self.base.options.export_symbol_names.len);
+        for (self.base.options.export_symbol_names) |symbol_name| {
+            man.hash.addBytes(symbol_name);
+        }
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -1085,6 +1187,16 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             try argv.append("--import-memory");
         }
 
+        if (self.base.options.import_table) {
+            assert(!self.base.options.export_table);
+            try argv.append("--import-table");
+        }
+
+        if (self.base.options.export_table) {
+            assert(!self.base.options.import_table);
+            try argv.append("--export-table");
+        }
+
         if (self.base.options.initial_memory) |initial_memory| {
             const arg = try std.fmt.allocPrint(arena, "--initial-memory={d}", .{initial_memory});
             try argv.append(arg);
@@ -1098,6 +1210,16 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         if (self.base.options.global_base) |global_base| {
             const arg = try std.fmt.allocPrint(arena, "--global-base={d}", .{global_base});
             try argv.append(arg);
+        }
+
+        // Users are allowed to specify which symbols they want to export to the wasm host.
+        for (self.base.options.export_symbol_names) |symbol_name| {
+            const arg = try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name});
+            try argv.append(arg);
+        }
+
+        if (self.base.options.rdynamic) {
+            try argv.append("--export-dynamic");
         }
 
         if (self.base.options.output_mode == .Exe) {
@@ -1116,7 +1238,11 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 // Reactor execution model does not have _start so lld doesn't look for it.
                 try argv.append("--no-entry");
                 // Make sure "_initialize" and other used-defined functions are exported if this is WASI reactor.
-                try argv.append("--export-dynamic");
+                // If rdynamic is true, it will already be appended, so only verify if the user did not specify
+                // the flag in which case, we ensure `--export-dynamic` is called.
+                if (!self.base.options.rdynamic) {
+                    try argv.append("--export-dynamic");
+                }
             }
         } else {
             if (self.base.options.stack_size_override) |stack_size| {
@@ -1124,8 +1250,13 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
                 try argv.append(arg);
             }
+
+            // Only when the user has not specified how they want to export the symbols, do we want
+            // to export all symbols.
+            if (self.base.options.export_symbol_names.len == 0 and !self.base.options.rdynamic) {
+                try argv.append("--export-all");
+            }
             try argv.append("--no-entry"); // So lld doesn't look for _start.
-            try argv.append("--export-all");
         }
         try argv.appendSlice(&[_][]const u8{
             "--allow-undefined",
@@ -1269,11 +1400,27 @@ fn reserveVecSectionHeader(file: fs.File) !u64 {
     return (try file.getPos()) - header_size;
 }
 
+fn reserveCustomSectionHeader(file: fs.File) !u64 {
+    // unlike regular section, we don't emit the count
+    const header_size = 1 + 5;
+    // TODO: this should be a single lseek(2) call, but fs.File does not
+    // currently provide a way to do this.
+    try file.seekBy(header_size);
+    return (try file.getPos()) - header_size;
+}
+
 fn writeVecSectionHeader(file: fs.File, offset: u64, section: wasm.Section, size: u32, items: u32) !void {
     var buf: [1 + 5 + 5]u8 = undefined;
     buf[0] = @enumToInt(section);
     leb.writeUnsignedFixed(5, buf[1..6], size);
     leb.writeUnsignedFixed(5, buf[6..], items);
+    try file.pwriteAll(&buf, offset);
+}
+
+fn writeCustomSectionHeader(file: fs.File, offset: u64, size: u32) !void {
+    var buf: [1 + 5]u8 = undefined;
+    buf[0] = 0; // 0 = 'custom' section
+    leb.writeUnsignedFixed(5, buf[1..6], size);
     try file.pwriteAll(&buf, offset);
 }
 

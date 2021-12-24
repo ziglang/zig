@@ -144,14 +144,34 @@ struct rusage;
    nil, store information about the child's resource usage there.  If the
    WUNTRACED bit is set in OPTIONS, return status for stopped children;
    otherwise don't.  */
+# ifndef __USE_TIME_BITS64
 extern __pid_t wait3 (int *__stat_loc, int __options,
 		      struct rusage * __usage) __THROWNL;
+# else
+#  ifdef __REDIRECT_NTHNL
+extern __pid_t __REDIRECT_NTHNL (wait3, (int *__stat_loc, int __options,
+                                         struct rusage * __usage),
+                                 __wait3_time64);
+#  else
+#   define wait3 __wait3_time64
+#  endif
+# endif
 #endif
 
 #ifdef __USE_MISC
+# ifndef __USE_TIME_BITS64
 /* PID is like waitpid.  Other args are like wait3.  */
 extern __pid_t wait4 (__pid_t __pid, int *__stat_loc, int __options,
 		      struct rusage *__usage) __THROWNL;
+# else
+#  ifdef __REDIRECT_NTHNL
+extern __pid_t __REDIRECT_NTHNL (wait4, (__pid_t __pid, int *__stat_loc,
+                                         int __options, struct rusage *__usage),
+                                 __wait4_time64);
+#  else
+#   define wait4 __wait4_time64
+#  endif
+# endif
 #endif /* Use misc.  */
 
 

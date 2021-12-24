@@ -1,5 +1,5 @@
 /* Startup code for SH & ELF.
-   Copyright (C) 1999-2020 Free Software Foundation, Inc.
+   Copyright (C) 1999-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -70,12 +70,11 @@ _start:
 
 	/* Push the last arguments to main() onto the stack */
 	mov.l r4,@-r15
-	mov.l L_fini,r0
-	mov.l r0,@-r15
+	mov.l r14,@-r15		/* Used to be fini.  */
 
 	/* Set up the other arguments for main() that go in registers */
 	mov.l L_main,r4
-	mov.l L_init,r7
+	mov #0,r7		/* Used to be init.  */
 
 	/* __libc_start_main (main, argc, argv, init, fini, rtld_fini) */
 
@@ -90,10 +89,6 @@ _start:
 	.align	2
 L_main:
 	.long	main
-L_init:
-	.long	__libc_csu_init
-L_fini:
-	.long	__libc_csu_fini
 L_libc_start_main:
 	.long	__libc_start_main
 L_abort:

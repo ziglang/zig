@@ -145,25 +145,47 @@ typedef struct
 #if !defined __USE_FILE_OFFSET64
 extern int glob (const char *__restrict __pattern, int __flags,
 		 int (*__errfunc) (const char *, int),
-		 glob_t *__restrict __pglob) __THROW;
+		 glob_t *__restrict __pglob) __THROWNL;
 
 /* Free storage allocated in PGLOB by a previous `glob' call.  */
 extern void globfree (glob_t *__pglob) __THROW;
 #else
-extern int __REDIRECT_NTH (glob, (const char *__restrict __pattern,
-				  int __flags,
-				  int (*__errfunc) (const char *, int),
-				  glob_t *__restrict __pglob), glob64);
+# ifdef __USE_TIME_BITS64
+extern int __REDIRECT_NTHNL (glob, (const char *__restrict __pattern,
+				    int __flags,
+				    int (*__errfunc) (const char *, int),
+				    glob_t *__restrict __pglob),
+			     __glob64_time64);
+
+extern void __REDIRECT_NTH (globfree, (glob_t *__pglob),
+			    __globfree64_time64);
+# else
+extern int __REDIRECT_NTHNL (glob, (const char *__restrict __pattern,
+				    int __flags,
+				    int (*__errfunc) (const char *, int),
+				    glob_t *__restrict __pglob), glob64);
 
 extern void __REDIRECT_NTH (globfree, (glob_t *__pglob), globfree64);
+# endif
 #endif
 
 #ifdef __USE_LARGEFILE64
+# ifdef __USE_TIME_BITS64
+extern int __REDIRECT_NTHNL (glob64, (const char *__restrict __pattern,
+				      int __flags,
+				      int (*__errfunc) (const char *, int),
+				      glob64_t *__restrict __pglob),
+			     __glob64_time64);
+
+extern void __REDIRECT_NTH (globfree64, (glob64_t *__pglob),
+			    __globfree64_time64);
+# else
 extern int glob64 (const char *__restrict __pattern, int __flags,
 		   int (*__errfunc) (const char *, int),
-		   glob64_t *__restrict __pglob) __THROW;
+		   glob64_t *__restrict __pglob) __THROWNL;
 
 extern void globfree64 (glob64_t *__pglob) __THROW;
+# endif
 #endif
 
 

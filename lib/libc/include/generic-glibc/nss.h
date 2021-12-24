@@ -196,7 +196,7 @@ typedef enum nss_status nss_setspent (int);
   extern nss_endgrent _nss_##module##_endgrent;                          \
   extern nss_endhostent _nss_##module##_endhostent;                      \
   extern nss_endnetent _nss_##module##_endnetent;                        \
-  extern nss_endnetgrent _nss_##module##__endnetgrent;                   \
+  extern nss_endnetgrent _nss_##module##_endnetgrent;                    \
   extern nss_endprotoent _nss_##module##_endprotoent;                    \
   extern nss_endpwent _nss_##module##_endpwent;                          \
   extern nss_endrpcent _nss_##module##_endrpcent;                        \

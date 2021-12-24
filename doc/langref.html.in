@@ -316,6 +316,7 @@
           <a href="https://ziglang.org/documentation/0.6.0/">0.6.0</a> |
           <a href="https://ziglang.org/documentation/0.7.1/">0.7.1</a> |
           <a href="https://ziglang.org/documentation/0.8.1/">0.8.1</a> |
+          <a href="https://ziglang.org/documentation/0.9.0/">0.9.0</a> |
           master
         </nav>
         <nav aria-labelledby="table-of-contents">
@@ -720,11 +721,6 @@ pub fn main() void {
           <td><code class="c">long double</code></td>
           <td>for ABI compatibility with C</td>
         </tr>
-        <tr>
-            <th scope="row">{#syntax#}c_void{#endsyntax#}</th>
-          <td><code class="c">void</code></td>
-          <td>for ABI compatibility with C</td>
-        </tr>
 
         <tr>
             <th scope="row">{#syntax#}f16{#endsyntax#}</th>
@@ -750,6 +746,11 @@ pub fn main() void {
             <th scope="row">{#syntax#}bool{#endsyntax#}</th>
           <td><code class="c">bool</code></td>
           <td>{#syntax#}true{#endsyntax#} or {#syntax#}false{#endsyntax#}</td>
+        </tr>
+        <tr>
+            <th scope="row">{#syntax#}anyopaque{#endsyntax#}</th>
+          <td><code class="c">void</code></td>
+          <td>Used for type-erased pointers.</td>
         </tr>
         <tr>
             <th scope="row">{#syntax#}void{#endsyntax#}</th>
@@ -2483,23 +2484,86 @@ test "null terminated array" {
       {#header_open|Vectors#}
       <p>
       A vector is a group of booleans, {#link|Integers#}, {#link|Floats#}, or {#link|Pointers#} which are operated on
-      in parallel using a single instruction ({#link|SIMD#}). Vector types are created with the builtin function {#link|@Type#},
-      or using the shorthand as {#syntax#}std.meta.Vector{#endsyntax#}.
+      in parallel using SIMD instructions. Vector types are created with the builtin function {#link|@Type#},
+      or using the shorthand function {#syntax#}std.meta.Vector{#endsyntax#}.
       </p>
       <p>
-      TODO talk about C ABI interop
+      Vectors support the same builtin operators as their underlying base types. These operations are performed 
+      element-wise, and return a vector of the same length as the input vectors. This includes:
       </p>
-      {#header_open|SIMD#}
+      <ul>
+          <li>Arithmetic ({#syntax#}+{#endsyntax#}, {#syntax#}-{#endsyntax#}, {#syntax#}/{#endsyntax#}, {#syntax#}*{#endsyntax#}, 
+                         {#syntax#}@divFloor{#endsyntax#}, {#syntax#}@sqrt{#endsyntax#}, {#syntax#}@ceil{#endsyntax#}, 
+                         {#syntax#}@log{#endsyntax#}, etc.)</li>
+          <li>Bitwise operators ({#syntax#}>>{#endsyntax#}, {#syntax#}<<{#endsyntax#}, {#syntax#}&{#endsyntax#}, 
+                                 {#syntax#}|{#endsyntax#}, {#syntax#}~{#endsyntax#}, etc.)</li>
+          <li>Comparison operators ({#syntax#}<{#endsyntax#}, {#syntax#}>{#endsyntax#}, {#syntax#}=={#endsyntax#}, etc.)</li>
+      </ul>
       <p>
-      TODO Zig's SIMD abilities are just beginning to be fleshed out. Here are some talking points to update the
-      docs with:
-      * What kind of operations can you do? All the operations on integers and floats? What about mixing scalar and vector?
-      * How to convert to/from vectors/arrays
-      * How to access individual elements from vectors, how to loop over the elements
-      * "shuffle"
-      * Advice on writing high perf software, how to abstract the best way
+      It is prohibited to use a math operator on a mixture of scalars (individual numbers) and vectors. 
+      Zig provides the {#link|@splat#} builtin to easily convert from scalars to vectors, and it supports {#link|@reduce#} 
+      and array indexing syntax to convert from vectors to scalars. Vectors also support assignment to and from 
+      fixed-length arrays with comptime known length.
       </p>
-      {#header_close#}
+      <p>
+      For rearranging elements within and between vectors, Zig provides the {#link|@shuffle#} and {#link|@select#} functions.
+      </p>
+      <p>
+      Operations on vectors shorter than the target machine's native SIMD size will typically compile to single SIMD 
+      instructions, while vectors longer than the target machine's native SIMD size will compile to multiple SIMD 
+      instructions. If a given operation doesn't have SIMD support on the target architecture, the compiler will default 
+      to operating on each vector element one at a time. Zig supports any comptime-known vector length up to 2^32-1, 
+      although small powers of two (2-64) are most typical. Note that excessively long vector lengths (e.g. 2^20) may 
+      result in compiler crashes on current versions of Zig.
+      </p>
+      {#code_begin|test|vector_example#}
+const std = @import("std");
+const Vector = std.meta.Vector;
+const expectEqual = std.testing.expectEqual;
+
+test "Basic vector usage" {
+    // Vectors have a compile-time known length and base type,
+    // and can be assigned to using array literal syntax
+    const a: Vector(4, i32) = [_]i32{ 1, 2, 3, 4 };
+    const b: Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
+
+    // Math operations take place element-wise
+    const c = a + b;
+
+    // Individual vector elements can be accessed using array indexing syntax.
+    try expectEqual(6, c[0]);
+    try expectEqual(8, c[1]);
+    try expectEqual(10, c[2]);
+    try expectEqual(12, c[3]);
+}
+
+test "Conversion between vectors, arrays, and slices" {
+    // Vectors and fixed-length arrays can be automatically assigned back and forth
+    var arr1: [4]f32 = [_]f32{ 1.1, 3.2, 4.5, 5.6 };
+    var vec: Vector(4, f32) = arr1;
+    var arr2: [4]f32 = vec;
+    try expectEqual(arr1, arr2);
+
+    // You can also assign from a slice with comptime-known length to a vector using .*
+    const vec2: Vector(2, f32) = arr1[1..3].*;
+
+    var slice: []const f32 = &arr1;
+    var offset: u32 = 1;
+    // To extract a comptime-known length from a runtime-known offset,
+    // first extract a new slice from the starting offset, then an array of
+    // comptime known length
+    const vec3: Vector(2, f32) = slice[offset..][0..2].*;
+    try expectEqual(slice[offset], vec2[0]);
+    try expectEqual(slice[offset + 1], vec2[1]);
+    try expectEqual(vec2, vec3);
+}
+      {#code_end#}
+      <p>
+      TODO talk about C ABI interop<br>
+      TODO consider suggesting std.MultiArrayList
+      </p>
+      {#see_also|@splat|@shuffle|@select|@reduce#}
+      
       {#header_close#}
 
       {#header_open|Pointers#}
@@ -2518,7 +2582,7 @@ test "null terminated array" {
               <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
               <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
               <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
-              {#syntax#}c_void{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
+              {#syntax#}anyopaque{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
             </ul>
           </li>
       </ul>
@@ -6205,8 +6269,8 @@ test "turn HashMap into a set with void" {
       value is deleted, as seen above.
       </p>
       <p>
-      {#syntax#}void{#endsyntax#} is distinct from {#syntax#}c_void{#endsyntax#}.
-      {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}c_void{#endsyntax#} has an unknown, but non-zero, size.
+      {#syntax#}void{#endsyntax#} is distinct from {#syntax#}anyopaque{#endsyntax#}.
+      {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}anyopaque{#endsyntax#} has an unknown, but non-zero, size.
       </p>
       <p>
       Expressions of type {#syntax#}void{#endsyntax#} are the only ones whose value can be ignored. For example:
@@ -8525,7 +8589,7 @@ test "@hasDecl" {
       <p>
       NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
       </p>
-      {#see_also|@minimum|SIMD|Vectors#}
+      {#see_also|@minimum|Vectors#}
       {#header_close#}
 
       {#header_open|@memcpy#}
@@ -8573,7 +8637,7 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       <p>
       NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
       </p>
-      {#see_also|@maximum|SIMD|Vectors#}
+      {#see_also|@maximum|Vectors#}
       {#header_close#}
 
       {#header_open|@wasmMemorySize#}
@@ -8674,6 +8738,50 @@ test "@wasmMemoryGrow" {
       {#see_also|@ctz|@clz#}
       {#header_close#}
 
+      {#header_open|@prefetch#}
+      <pre>{#syntax#}@prefetch(ptr: anytype, comptime options: std.builtin.PrefetchOptions){#endsyntax#}</pre>
+      <p>
+      This builtin tells the compiler to emit a prefetch instruction if supported by the
+      target CPU. If the target CPU does not support the requested prefetch instruction,
+      this builtin is a noop. This function has no effect on the behavior of the program,
+      only on the performance characteristics.
+      </p>
+      <p>
+      The {#syntax#}ptr{#endsyntax#} argument may be any pointer type and determines the memory
+      address to prefetch. This function does not dereference the pointer, it is perfectly legal
+      to pass a pointer to invalid memory to this function and no illegal behavior will result.
+      </p>
+      <p>
+      The {#syntax#}options{#endsyntax#} argument is the following struct:
+      </p>
+      {#code_begin|syntax|builtin#}
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const PrefetchOptions = struct {
+    /// Whether the prefetch should prepare for a read or a write.
+    rw: Rw = .read,
+    /// 0 means no temporal locality. That is, the data can be immediately
+    /// dropped from the cache after it is accessed.
+    ///
+    /// 3 means high temporal locality. That is, the data should be kept in
+    /// the cache as it is likely to be accessed again soon.
+    locality: u2 = 3,
+    /// The cache that the prefetch should be preformed on.
+    cache: Cache = .data,
+
+    pub const Rw = enum {
+        read,
+        write,
+    };
+
+    pub const Cache = enum {
+        instruction,
+        data,
+    };
+};
+      {#code_end#}
+      {#header_close#}
+
       {#header_open|@ptrCast#}
       <pre>{#syntax#}@ptrCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
       <p>
@@ -8735,7 +8843,7 @@ test "@wasmMemoryGrow" {
       <p>
       Selects values element-wise from {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} based on {#syntax#}pred{#endsyntax#}. If {#syntax#}pred[i]{#endsyntax#} is {#syntax#}true{#endsyntax#}, the corresponding element in the result will be {#syntax#}a[i]{#endsyntax#} and otherwise {#syntax#}b[i]{#endsyntax#}.
       </p>
-      {#see_also|SIMD|Vectors#}
+      {#see_also|Vectors#}
       {#header_close#}
 
       {#header_open|@setAlignStack#}
@@ -8932,7 +9040,28 @@ test "@setRuntimeSafety" {
       {#link|pointer|Pointers#}, or {#syntax#}bool{#endsyntax#}. The mask may be any vector length, and its
       length determines the result length.
       </p>
-      {#see_also|SIMD#}
+      {#code_begin|test|vector_shuffle#}
+const std = @import("std");
+const Vector = std.meta.Vector;
+const expect = std.testing.expect;
+
+test "vector @shuffle" {
+    const a: Vector(7, u8) = [_]u8{ 'o', 'l', 'h', 'e', 'r', 'z', 'w' };
+    const b: Vector(4, u8) = [_]u8{ 'w', 'd', '!', 'x' };
+
+    // To shuffle within a single vector, pass undefined as the second argument.
+    // Notice that we can re-order, duplicate, or omit elements of the input vector
+    const mask1: Vector(5, i32) = [_]i32{ 2, 3, 1, 1, 0 };
+    const res1: Vector(5, u8) = @shuffle(u8, a, undefined, mask1);
+    try expect(std.mem.eql(u8, &@as([5]u8, res1), "hello"));
+
+    // Combining two vectors
+    const mask2: Vector(6, i32) = [_]i32{ -1, 0, 4, 1, -2, -3 };
+    const res2: Vector(6, u8) = @shuffle(u8, a, b, mask2);
+    try expect(std.mem.eql(u8, &@as([6]u8, res2), "world!"));
+}
+      {#code_end#}
+      {#see_also|Vectors#}
       {#header_close#}
 
       {#header_open|@sizeOf#}
@@ -10489,8 +10618,10 @@ lib.addCSourceFile("src/lib.c", &[_][]const u8{
           <li>{#syntax#}c_longlong{#endsyntax#}</li>
           <li>{#syntax#}c_ulonglong{#endsyntax#}</li>
           <li>{#syntax#}c_longdouble{#endsyntax#}</li>
-          <li>{#syntax#}c_void{#endsyntax#}</li>
       </ul>
+      <p>
+      To interop with the C {#syntax#}void{#endsyntax#} type, use {#syntax#}anyopaque{#endsyntax#}.
+      </p>
       {#see_also|Primitive Types#}
       {#header_close#}
       {#header_open|Import from C Header File#}

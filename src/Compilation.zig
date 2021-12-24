@@ -724,9 +724,12 @@ pub const InitOptions = struct {
     linker_allow_shlib_undefined: ?bool = null,
     linker_bind_global_refs_locally: ?bool = null,
     linker_import_memory: ?bool = null,
+    linker_import_table: bool = false,
+    linker_export_table: bool = false,
     linker_initial_memory: ?u64 = null,
     linker_max_memory: ?u64 = null,
     linker_global_base: ?u64 = null,
+    linker_export_symbol_names: []const []const u8 = &.{},
     each_lib_rpath: ?bool = null,
     disable_c_depfile: bool = false,
     linker_z_nodelete: bool = false,
@@ -779,6 +782,8 @@ pub const InitOptions = struct {
     enable_link_snapshots: bool = false,
     /// (Darwin) Path and version of the native SDK if detected.
     native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
+    /// (Darwin) Install name of the dylib
+    install_name: ?[]const u8 = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -846,6 +851,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
     // WASI-only. Resolve the optional exec-model option, defaults to command.
     const wasi_exec_model = if (options.target.os.tag != .wasi) undefined else options.wasi_exec_model orelse .command;
+
+    if (options.linker_export_table and options.linker_import_table) {
+        return error.ExportTableAndImportTableConflict;
+    }
 
     const comp: *Compilation = comp: {
         // For allocations that have the same lifetime as Compilation. This arena is used only during this
@@ -1454,9 +1463,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
             .import_memory = options.linker_import_memory orelse false,
+            .import_table = options.linker_import_table,
+            .export_table = options.linker_export_table,
             .initial_memory = options.linker_initial_memory,
             .max_memory = options.linker_max_memory,
             .global_base = options.linker_global_base,
+            .export_symbol_names = options.linker_export_symbol_names,
             .z_nodelete = options.linker_z_nodelete,
             .z_notext = options.linker_z_notext,
             .z_defs = options.linker_z_defs,
@@ -1507,6 +1519,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .use_stage1 = use_stage1,
             .enable_link_snapshots = options.enable_link_snapshots,
             .native_darwin_sdk = options.native_darwin_sdk,
+            .install_name = options.install_name,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -1584,9 +1597,23 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
         if (comp.wantBuildGLibCFromSource()) {
-            try comp.addBuildingGLibCJobs();
+            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+
+            if (glibc.needsCrtiCrtn(comp.getTarget())) {
+                try comp.work_queue.write(&[_]Job{
+                    .{ .glibc_crt_file = .crti_o },
+                    .{ .glibc_crt_file = .crtn_o },
+                });
+            }
+            try comp.work_queue.write(&[_]Job{
+                .{ .glibc_crt_file = .scrt1_o },
+                .{ .glibc_crt_file = .libc_nonshared_a },
+                .{ .glibc_shared_objects = {} },
+            });
         }
         if (comp.wantBuildMuslFromSource()) {
+            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+
             try comp.work_queue.ensureUnusedCapacity(6);
             if (musl.needsCrtiCrtn(comp.getTarget())) {
                 comp.work_queue.writeAssumeCapacity(&[_]Job{
@@ -1605,6 +1632,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             });
         }
         if (comp.wantBuildWasiLibcFromSource()) {
+            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+
             const wasi_emulated_libs = comp.bin_file.options.wasi_emulated_libs;
             try comp.work_queue.ensureUnusedCapacity(wasi_emulated_libs.len + 2); // worst-case we need all components
             for (wasi_emulated_libs) |crt_file| {
@@ -1618,6 +1647,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             });
         }
         if (comp.wantBuildMinGWFromSource()) {
+            if (!target_util.canBuildLibC(comp.getTarget())) return error.LibCUnavailable;
+
             const static_lib_jobs = [_]Job{
                 .{ .mingw_crt_file = .mingw32_lib },
                 .{ .mingw_crt_file = .msvcrt_os_lib },
@@ -2152,15 +2183,6 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     defer main_progress_node.end();
     if (self.color == .off) progress.terminal = null;
 
-    // If we need to write out builtin.zig, it needs to be done before starting
-    // the AstGen tasks.
-    if (self.bin_file.options.module) |mod| {
-        if (mod.job_queued_update_builtin_zig) {
-            mod.job_queued_update_builtin_zig = false;
-            try self.updateBuiltinZigFile(mod);
-        }
-    }
-
     // Here we queue up all the AstGen tasks first, followed by C object compilation.
     // We wait until the AstGen tasks are all completed before proceeding to the
     // (at least for now) single-threaded main work queue. However, C object compilation
@@ -2184,6 +2206,21 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
 
         self.astgen_wait_group.reset();
         defer self.astgen_wait_group.wait();
+
+        // builtin.zig is handled specially for two reasons:
+        // 1. to avoid race condition of zig processes truncating each other's builtin.zig files
+        // 2. optimization; in the hot path it only incurs a stat() syscall, which happens
+        //    in the `astgen_wait_group`.
+        if (self.bin_file.options.module) |mod| {
+            if (mod.job_queued_update_builtin_zig) {
+                mod.job_queued_update_builtin_zig = false;
+
+                self.astgen_wait_group.start();
+                try self.thread_pool.spawn(workerUpdateBuiltinZigFile, .{
+                    self, mod, &self.astgen_wait_group,
+                });
+            }
+        }
 
         while (self.astgen_work_queue.readItem()) |file| {
             self.astgen_wait_group.start();
@@ -2748,6 +2785,8 @@ fn workerAstGenFile(
             extra_index = item.end;
 
             const import_path = file.zir.nullTerminatedString(item.data.name);
+            // `@import("builtin")` is handled specially.
+            if (mem.eql(u8, import_path, "builtin")) continue;
 
             const import_result = blk: {
                 comp.mutex.lock();
@@ -2773,6 +2812,29 @@ fn workerAstGenFile(
             }
         }
     }
+}
+
+fn workerUpdateBuiltinZigFile(
+    comp: *Compilation,
+    mod: *Module,
+    wg: *WaitGroup,
+) void {
+    defer wg.finish();
+
+    mod.populateBuiltinFile() catch |err| {
+        const dir_path: []const u8 = mod.zig_cache_artifact_directory.path orelse ".";
+
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+
+        comp.setMiscFailure(.write_builtin_zig, "unable to write builtin.zig to {s}: {s}", .{
+            dir_path, @errorName(err),
+        }) catch |oom| switch (oom) {
+            error.OutOfMemory => log.err("unable to write builtin.zig to {s}: {s}", .{
+                dir_path, @errorName(err),
+            }),
+        };
+    };
 }
 
 fn workerCheckEmbedFile(
@@ -2936,12 +2998,16 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
 
         try out_zig_file.writeAll(formatted);
 
-        man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
-        };
-
         break :digest digest;
     } else man.final();
+
+    // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
+    // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
+    // the contents were the same, we hit the cache but the manifest is dirty and we need to update
+    // it to prevent doing a full file content comparison the next time around.
+    man.writeManifest() catch |err| {
+        log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
+    };
 
     const out_zig_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
         "o", &digest, cimport_zig_basename,
@@ -3257,11 +3323,15 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         defer o_dir.close();
         const tmp_basename = std.fs.path.basename(out_obj_path);
         try std.fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, o_basename);
-
-        man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ c_object.src.src_path, @errorName(err) });
-        };
         break :blk digest;
+    };
+
+    // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
+    // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
+    // the contents were the same, we hit the cache but the manifest is dirty and we need to update
+    // it to prevent doing a full file content comparison the next time around.
+    man.writeManifest() catch |err| {
+        log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ c_object.src.src_path, @errorName(err) });
     };
 
     const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, o_ext });
@@ -3354,6 +3424,14 @@ pub fn addCCArgs(
 
         try argv.append("-isystem");
         try argv.append(libunwind_include_path);
+    }
+
+    if (comp.bin_file.options.link_libc and target.isGnuLibC()) {
+        const target_version = target.os.version_range.linux.glibc;
+        const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
+            target_version.minor,
+        });
+        try argv.append(glibc_minor_define);
     }
 
     const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
@@ -3997,16 +4075,6 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const
     return full_path;
 }
 
-fn addBuildingGLibCJobs(comp: *Compilation) !void {
-    try comp.work_queue.write(&[_]Job{
-        .{ .glibc_crt_file = .crti_o },
-        .{ .glibc_crt_file = .crtn_o },
-        .{ .glibc_crt_file = .scrt1_o },
-        .{ .glibc_crt_file = .libc_nonshared_a },
-        .{ .glibc_shared_objects = {} },
-    });
-}
-
 fn wantBuildLibCFromSource(comp: Compilation) bool {
     const is_exe_or_dyn_lib = switch (comp.bin_file.options.output_mode) {
         .Obj => false,
@@ -4046,22 +4114,6 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
         comp.bin_file.options.object_format != .c;
 }
 
-fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) Allocator.Error!void {
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
-
-    const source = try comp.generateBuiltinZigSource(comp.gpa);
-    defer comp.gpa.free(source);
-
-    mod.zig_cache_artifact_directory.handle.writeFile("builtin.zig", source) catch |err| {
-        const dir_path: []const u8 = mod.zig_cache_artifact_directory.path orelse ".";
-        try comp.setMiscFailure(.write_builtin_zig, "unable to write builtin.zig to {s}: {s}", .{
-            dir_path,
-            @errorName(err),
-        });
-    };
-}
-
 fn setMiscFailure(
     comp: *Compilation,
     tag: MiscTask,
@@ -4084,7 +4136,7 @@ pub fn dump_argv(argv: []const []const u8) void {
     std.debug.print("{s}\n", .{argv[argv.len - 1]});
 }
 
-pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Allocator.Error![]u8 {
+pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Allocator.Error![:0]u8 {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
@@ -4290,7 +4342,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         }
     }
 
-    return buffer.toOwnedSlice();
+    return buffer.toOwnedSliceSentinel(0);
 }
 
 pub fn updateSubCompilation(sub_compilation: *Compilation) !void {

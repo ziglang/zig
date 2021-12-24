@@ -32,19 +32,50 @@
 #define SO_OOBINLINE 10
 #define SO_RCVBUF 8
 #define SO_RCVLOWAT 18
-#if (__TIMESIZE == 64 && __WORDSIZE == 32 \
-     && (!defined __SYSCALL_WORDSIZE || __SYSCALL_WORDSIZE == 32))
-# define SO_RCVTIMEO 66
-#else
-# define SO_RCVTIMEO 20
-#endif
 #define SO_REUSEADDR 2
 #define SO_SNDBUF 7
 #define SO_SNDLOWAT 19
+#define SO_TYPE 3
+
 #if (__TIMESIZE == 64 && __WORDSIZE == 32 \
      && (!defined __SYSCALL_WORDSIZE || __SYSCALL_WORDSIZE == 32))
+# define SO_RCVTIMEO 66
 # define SO_SNDTIMEO 67
+# define SO_TIMESTAMP 63
+# define SO_TIMESTAMPNS 64
+# define SO_TIMESTAMPING 65
 #else
-# define SO_SNDTIMEO 21
+# if __TIMESIZE == 64
+#  define SO_RCVTIMEO 20
+#  define SO_SNDTIMEO 21
+#  define SO_TIMESTAMP 29
+#  define SO_TIMESTAMPNS 35
+#  define SO_TIMESTAMPING 37
+# else
+#  define SO_RCVTIMEO_OLD 20
+#  define SO_SNDTIMEO_OLD 21
+#  define SO_RCVTIMEO_NEW 66
+#  define SO_SNDTIMEO_NEW 67
+
+#  define SO_TIMESTAMP_OLD 29
+#  define SO_TIMESTAMPNS_OLD 35
+#  define SO_TIMESTAMPING_OLD 37
+#  define SO_TIMESTAMP_NEW 63
+#  define SO_TIMESTAMPNS_NEW 64
+#  define SO_TIMESTAMPING_NEW 65
+
+#  ifdef __USE_TIME_BITS64
+#   define SO_RCVTIMEO SO_RCVTIMEO_NEW
+#   define SO_SNDTIMEO SO_SNDTIMEO_NEW
+#   define SO_TIMESTAMP SO_TIMESTAMP_NEW
+#   define SO_TIMESTAMPNS SO_TIMESTAMPNS_NEW
+#   define SO_TIMESTAMPING SO_TIMESTAMPING_NEW
+#  else
+#   define SO_RCVTIMEO SO_RCVTIMEO_OLD
+#   define SO_SNDTIMEO SO_SNDTIMEO_OLD
+#   define SO_TIMESTAMP SO_TIMESTAMP_OLD
+#   define SO_TIMESTAMPNS SO_TIMESTAMPNS_OLD
+#   define SO_TIMESTAMPING SO_TIMESTAMPING_OLD
+#  endif
+# endif
 #endif
-#define SO_TYPE 3

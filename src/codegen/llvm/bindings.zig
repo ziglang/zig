@@ -148,6 +148,18 @@ pub const Value = opaque {
     pub const constPtrToInt = LLVMConstPtrToInt;
     extern fn LLVMConstPtrToInt(ConstantVal: *const Value, ToType: *const Type) *const Value;
 
+    pub const constShl = LLVMConstShl;
+    extern fn LLVMConstShl(LHSConstant: *const Value, RHSConstant: *const Value) *const Value;
+
+    pub const constOr = LLVMConstOr;
+    extern fn LLVMConstOr(LHSConstant: *const Value, RHSConstant: *const Value) *const Value;
+
+    pub const constZExt = LLVMConstZExt;
+    extern fn LLVMConstZExt(ConstantVal: *const Value, ToType: *const Type) *const Value;
+
+    pub const constNot = LLVMConstNot;
+    extern fn LLVMConstNot(ConstantVal: *const Value) *const Value;
+
     pub const setWeak = LLVMSetWeak;
     extern fn LLVMSetWeak(CmpXchgInst: *const Value, IsWeak: Bool) void;
 
@@ -245,6 +257,9 @@ pub const Type = opaque {
 
     pub const getElementType = LLVMGetElementType;
     extern fn LLVMGetElementType(Ty: *const Type) *const Type;
+
+    pub const countStructElementTypes = LLVMCountStructElementTypes;
+    extern fn LLVMCountStructElementTypes(StructTy: *const Type) c_uint;
 };
 
 pub const Module = opaque {

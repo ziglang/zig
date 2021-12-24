@@ -31,10 +31,10 @@ comptime {
 //};
 // This is the workaround because we can't do @ptrToInt at comptime like that.
 pub const IMAGE_TLS_DIRECTORY = extern struct {
-    StartAddressOfRawData: *c_void,
-    EndAddressOfRawData: *c_void,
-    AddressOfIndex: *c_void,
-    AddressOfCallBacks: *c_void,
+    StartAddressOfRawData: *anyopaque,
+    EndAddressOfRawData: *anyopaque,
+    AddressOfIndex: *anyopaque,
+    AddressOfCallBacks: *anyopaque,
     SizeOfZeroFill: u32,
     Characteristics: u32,
 };

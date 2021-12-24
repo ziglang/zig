@@ -70,6 +70,8 @@ __BEGIN_DECLS
 # undef PTRACE_SYSCALL_INFO_ENTRY
 # undef PTRACE_SYSCALL_INFO_EXIT
 # undef PTRACE_SYSCALL_INFO_SECCOMP
+# undef PTRACE_SYSEMU
+# undef PTRACE_SYSEMU_SINGLESTEP
 # undef PTRACE_TRACEME
 #endif
 
@@ -187,6 +189,14 @@ enum __ptrace_request
   /* Set the first 32 VSX registers of a process.  */
   PTRACE_SETVSRREGS = 28,
 #define PT_SETVSRREGS PTRACE_SETVSRREGS
+
+  /* Continue and stop at the next syscall, it will not be executed.  */
+  PTRACE_SYSEMU = 29,
+#define PT_SYSEMU PTRACE_SYSEMU
+
+  /* Single step the process, the next syscall will not be executed.  */
+  PTRACE_SYSEMU_SINGLESTEP = 30,
+#define PT_SYSEMU_SINGLESTEP PTRACE_SYSEMU_SINGLESTEP
 
   /* Execute process until next taken branch.  */
   PTRACE_SINGLEBLOCK = 256,

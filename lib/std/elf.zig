@@ -943,7 +943,7 @@ pub const Half = switch (@sizeOf(usize)) {
 
 /// Machine architectures
 /// See current registered ELF machine architectures at:
-///    http://www.uxsglobal.com/developers/gabi/latest/ch4.eheader.html
+///    http://www.sco.com/developers/gabi/latest/ch4.eheader.html
 /// The underscore prefix is because many of these start with numbers.
 pub const EM = enum(u16) {
     /// No machine
@@ -1688,3 +1688,10 @@ pub const R_X86_64_GOTPCRELX = 41;
 /// Load from 32 bit signed PC relative offset to GOT entry with REX prefix, relaxable
 pub const R_X86_64_REX_GOTPCRELX = 42;
 pub const R_X86_64_NUM = 43;
+
+pub const STV = enum(u2) {
+    DEFAULT = 0,
+    INTERNAL = 1,
+    HIDDEN = 2,
+    PROTECTED = 3,
+};

@@ -10,7 +10,7 @@ pub const _errno = _errnop;
 
 pub extern "c" fn find_directory(which: c_int, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) u64;
 
-pub extern "c" fn find_thread(thread_name: ?*c_void) i32;
+pub extern "c" fn find_thread(thread_name: ?*anyopaque) i32;
 
 pub extern "c" fn get_system_info(system_info: *system_info) usize;
 
@@ -41,7 +41,7 @@ pub const pthread_attr_t = extern struct {
     __sched_priority: i32,
     __stack_size: i32,
     __guard_size: i32,
-    __stack_address: ?*c_void,
+    __stack_address: ?*anyopaque,
 };
 
 pub const pthread_mutex_t = extern struct {
@@ -55,7 +55,7 @@ pub const pthread_mutex_t = extern struct {
 pub const pthread_cond_t = extern struct {
     flags: u32 = 0,
     unused: i32 = -42,
-    mutex: ?*c_void = null,
+    mutex: ?*anyopaque = null,
     waiter_count: i32 = 0,
     lock: i32 = 0,
 };
@@ -180,7 +180,7 @@ pub const msghdr = extern struct {
     msg_iovlen: i32,
 
     /// ancillary data
-    msg_control: ?*c_void,
+    msg_control: ?*anyopaque,
 
     /// ancillary data buffer len
     msg_controllen: socklen_t,
@@ -262,7 +262,7 @@ pub const area_info = extern struct {
     copy_count: u32,
     in_count: u32,
     out_count: u32,
-    address: *c_void,
+    address: *anyopaque,
 };
 
 pub const MAXPATHLEN = PATH_MAX;
@@ -272,13 +272,13 @@ pub const image_info = extern struct {
     image_type: u32,
     sequence: i32,
     init_order: i32,
-    init_routine: *c_void,
-    term_routine: *c_void,
+    init_routine: *anyopaque,
+    term_routine: *anyopaque,
     device: i32,
     node: i64,
     name: [MAXPATHLEN]u8,
-    text: *c_void,
-    data: *c_void,
+    text: *anyopaque,
+    data: *anyopaque,
     text_size: i32,
     data_size: i32,
     api_version: i32,
@@ -396,7 +396,7 @@ pub const CLOCK = struct {
 
 pub const MAP = struct {
     /// mmap() error return code
-    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
     /// changes are seen by others
     pub const SHARED = 0x01;
     /// changes are only seen by caller

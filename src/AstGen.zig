@@ -984,17 +984,17 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
 
         .fn_proto_simple => {
             var params: [1]Ast.Node.Index = undefined;
-            return fnProtoExpr(gz, scope, rl, tree.fnProtoSimple(&params, node));
+            return fnProtoExpr(gz, scope, rl, node, tree.fnProtoSimple(&params, node));
         },
         .fn_proto_multi => {
-            return fnProtoExpr(gz, scope, rl, tree.fnProtoMulti(node));
+            return fnProtoExpr(gz, scope, rl, node, tree.fnProtoMulti(node));
         },
         .fn_proto_one => {
             var params: [1]Ast.Node.Index = undefined;
-            return fnProtoExpr(gz, scope, rl, tree.fnProtoOne(&params, node));
+            return fnProtoExpr(gz, scope, rl, node, tree.fnProtoOne(&params, node));
         },
         .fn_proto => {
-            return fnProtoExpr(gz, scope, rl, tree.fnProto(node));
+            return fnProtoExpr(gz, scope, rl, node, tree.fnProto(node));
         },
     }
 }
@@ -1101,6 +1101,7 @@ fn fnProtoExpr(
     gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
+    node: Ast.Node.Index,
     fn_proto: Ast.full.FnProto,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
@@ -1112,6 +1113,11 @@ fn fnProtoExpr(
         break :blk token_tags[maybe_extern_token] == .keyword_extern;
     };
     assert(!is_extern);
+
+    var block_scope = gz.makeSubBlock(scope);
+    defer block_scope.unstack();
+
+    const block_inst = try gz.makeBlockInst(.block_inline, node);
 
     const is_var_args = is_var_args: {
         var param_type_i: usize = 0;
@@ -1144,11 +1150,11 @@ fn fnProtoExpr(
                     .param_anytype_comptime
                 else
                     .param_anytype;
-                _ = try gz.addStrTok(tag, param_name, name_token);
+                _ = try block_scope.addStrTok(tag, param_name, name_token);
             } else {
                 const param_type_node = param.type_expr;
                 assert(param_type_node != 0);
-                var param_gz = gz.makeSubBlock(scope);
+                var param_gz = block_scope.makeSubBlock(scope);
                 defer param_gz.unstack();
                 const param_type = try expr(&param_gz, scope, coerced_type_rl, param_type_node);
                 const param_inst_expected = @intCast(u32, astgen.instructions.len + 1);
@@ -1156,7 +1162,7 @@ fn fnProtoExpr(
                 const main_tokens = tree.nodes.items(.main_token);
                 const name_token = param.name_token orelse main_tokens[param_type_node];
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
-                const param_inst = try gz.addParam(&param_gz, tag, name_token, param_name);
+                const param_inst = try block_scope.addParam(&param_gz, tag, name_token, param_name);
                 assert(param_inst_expected == param_inst);
             }
         }
@@ -1164,7 +1170,7 @@ fn fnProtoExpr(
     };
 
     const align_inst: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
-        break :inst try expr(gz, scope, align_rl, fn_proto.ast.align_expr);
+        break :inst try expr(&block_scope, scope, align_rl, fn_proto.ast.align_expr);
     };
 
     if (fn_proto.ast.addrspace_expr != 0) {
@@ -1177,7 +1183,7 @@ fn fnProtoExpr(
 
     const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
         try expr(
-            gz,
+            &block_scope,
             scope,
             .{ .ty = .calling_convention_type },
             fn_proto.ast.callconv_expr,
@@ -1190,14 +1196,14 @@ fn fnProtoExpr(
     if (is_inferred_error) {
         return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
     }
-    var ret_gz = gz.makeSubBlock(scope);
+    var ret_gz = block_scope.makeSubBlock(scope);
     defer ret_gz.unstack();
     const ret_ty = try expr(&ret_gz, scope, coerced_type_rl, fn_proto.ast.return_type);
     const ret_br = try ret_gz.addBreak(.break_inline, 0, ret_ty);
 
-    const result = try gz.addFunc(.{
+    const result = try block_scope.addFunc(.{
         .src_node = fn_proto.ast.proto_node,
-        .param_block = 0,
+        .param_block = block_inst,
         .ret_gz = &ret_gz,
         .ret_br = ret_br,
         .body_gz = null,
@@ -1209,7 +1215,12 @@ fn fnProtoExpr(
         .is_test = false,
         .is_extern = false,
     });
-    return rvalue(gz, rl, result, fn_proto.ast.proto_node);
+
+    _ = try block_scope.addBreak(.break_inline, block_inst, result);
+    try block_scope.setBlockBody(block_inst);
+    try gz.instructions.append(astgen.gpa, block_inst);
+
+    return rvalue(gz, rl, indexToRef(block_inst), fn_proto.ast.proto_node);
 }
 
 fn arrayInitExpr(
@@ -6739,7 +6750,6 @@ fn builtinCall(
         }
     }
 
-    // zig fmt: off
     switch (info.tag) {
         .import => {
             const node_tags = tree.nodes.items(.tag);
@@ -6768,7 +6778,7 @@ fn builtinCall(
                 astgen.extra.items[extra_index] = @enumToInt(param_ref);
                 extra_index += 1;
             }
-            const result = try gz.addExtendedMultiOpPayloadIndex(.compile_log,payload_index, params.len);
+            const result = try gz.addExtendedMultiOpPayloadIndex(.compile_log, payload_index, params.len);
             return rvalue(gz, rl, result, node);
         },
         .field => {
@@ -6784,11 +6794,14 @@ fn builtinCall(
             });
             return rvalue(gz, rl, result, node);
         },
+
+        // zig fmt: off
         .as         => return as(       gz, scope, rl, node, params[0], params[1]),
         .bit_cast   => return bitCast(  gz, scope, rl, node, params[0], params[1]),
         .TypeOf     => return typeOf(   gz, scope, rl, node, params),
         .union_init => return unionInit(gz, scope, rl, node, params),
         .c_import   => return cImport(  gz, scope,     node, params[0]),
+        // zig fmt: on
 
         .@"export" => {
             const node_tags = tree.nodes.items(.tag);
@@ -6858,9 +6871,7 @@ fn builtinCall(
                     const field_ident = dot_token + 1;
                     decl_name = try astgen.identAsString(field_ident);
                 },
-                else => return astgen.failNode(
-                    params[0], "symbol to export must identify a declaration", .{},
-                ),
+                else => return astgen.failNode(params[0], "symbol to export must identify a declaration", .{}),
             }
             const options = try comptimeExpr(gz, scope, .{ .ty = .export_options_type }, params[1]);
             _ = try gz.addPlNode(.@"export", node, Zir.Inst.Export{
@@ -6888,6 +6899,7 @@ fn builtinCall(
 
         .breakpoint => return simpleNoOpVoid(gz, rl, node, .breakpoint),
 
+        // zig fmt: off
         .This               => return rvalue(gz, rl, try gz.addNodeExtended(.this,               node), node),
         .return_address     => return rvalue(gz, rl, try gz.addNodeExtended(.ret_addr,           node), node),
         .src                => return rvalue(gz, rl, try gz.addNodeExtended(.builtin_src,        node), node),
@@ -6942,6 +6954,8 @@ fn builtinCall(
         .err_set_cast => return typeCast(gz, scope, rl, node, params[0], params[1], .err_set_cast),
         .ptr_cast     => return typeCast(gz, scope, rl, node, params[0], params[1], .ptr_cast),
         .truncate     => return typeCast(gz, scope, rl, node, params[0], params[1], .truncate),
+        // zig fmt: on
+
         .align_cast => {
             const dest_align = try comptimeExpr(gz, scope, align_rl, params[0]);
             const rhs = try expr(gz, scope, .none, params[1]);
@@ -6952,6 +6966,7 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
 
+        // zig fmt: off
         .has_decl  => return hasDeclOrField(gz, scope, rl, node, params[0], params[1], .has_decl),
         .has_field => return hasDeclOrField(gz, scope, rl, node, params[0], params[1], .has_field),
 
@@ -6978,6 +6993,7 @@ fn builtinCall(
 
         .cmpxchg_strong => return cmpxchg(gz, scope, rl, node, params, .cmpxchg_strong),
         .cmpxchg_weak   => return cmpxchg(gz, scope, rl, node, params, .cmpxchg_weak),
+        // zig fmt: on
 
         .wasm_memory_size => {
             const operand = try expr(gz, scope, .{ .ty = .u32_type }, params[0]);
@@ -7221,8 +7237,17 @@ fn builtinCall(
             });
             return rvalue(gz, rl, result, node);
         },
+        .prefetch => {
+            const ptr = try expr(gz, scope, .none, params[0]);
+            const options = try comptimeExpr(gz, scope, .{ .ty = .prefetch_options_type }, params[1]);
+            const result = try gz.addExtendedPayload(.prefetch, Zir.Inst.BinNode{
+                .node = gz.nodeIndexToRelative(node),
+                .lhs = ptr,
+                .rhs = options,
+            });
+            return rvalue(gz, rl, result, node);
+        },
     }
-    // zig fmt: on
 }
 
 fn simpleNoOpVoid(
@@ -7583,6 +7608,7 @@ fn calleeExpr(
 const primitives = std.ComptimeStringMap(Zir.Inst.Ref, .{
     .{ "anyerror", .anyerror_type },
     .{ "anyframe", .anyframe_type },
+    .{ "anyopaque", .anyopaque_type },
     .{ "bool", .bool_type },
     .{ "c_int", .c_int_type },
     .{ "c_long", .c_long_type },
@@ -7593,7 +7619,6 @@ const primitives = std.ComptimeStringMap(Zir.Inst.Ref, .{
     .{ "c_ulong", .c_ulong_type },
     .{ "c_ulonglong", .c_ulonglong_type },
     .{ "c_ushort", .c_ushort_type },
-    .{ "c_void", .c_void_type },
     .{ "comptime_float", .comptime_float_type },
     .{ "comptime_int", .comptime_int_type },
     .{ "f128", .f128_type },
@@ -8310,7 +8335,7 @@ fn rvalue(
                 as_ty | @enumToInt(Zir.Inst.Ref.f32_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.f64_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.f128_type),
-                as_ty | @enumToInt(Zir.Inst.Ref.c_void_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.anyopaque_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.bool_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.void_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.type_type),

@@ -1631,9 +1631,9 @@ test "nosuspend resume async function calls" {
     try expectEqual(@as(i32, 42), (try await frame_d).b);
 }
 
-test "avoid forcing frame alignment resolution implicit cast to *c_void" {
+test "avoid forcing frame alignment resolution implicit cast to *anyopaque" {
     const S = struct {
-        var x: ?*c_void = null;
+        var x: ?*anyopaque = null;
 
         fn foo() bool {
             suspend {

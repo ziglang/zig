@@ -42,7 +42,7 @@ pub const BootServices = extern struct {
     freePool: fn ([*]align(8) u8) callconv(.C) Status,
 
     /// Creates an event.
-    createEvent: fn (u32, usize, ?fn (Event, ?*c_void) callconv(.C) void, ?*const c_void, *Event) callconv(.C) Status,
+    createEvent: fn (u32, usize, ?fn (Event, ?*anyopaque) callconv(.C) void, ?*const anyopaque, *Event) callconv(.C) Status,
 
     /// Sets the type of timer and the trigger time for a timer event.
     setTimer: fn (Event, TimerDelay, u64) callconv(.C) Status,
@@ -64,14 +64,14 @@ pub const BootServices = extern struct {
     uninstallProtocolInterface: Status, // TODO
 
     /// Queries a handle to determine if it supports a specified protocol.
-    handleProtocol: fn (Handle, *align(8) const Guid, *?*c_void) callconv(.C) Status,
+    handleProtocol: fn (Handle, *align(8) const Guid, *?*anyopaque) callconv(.C) Status,
 
-    reserved: *c_void,
+    reserved: *anyopaque,
 
     registerProtocolNotify: Status, // TODO
 
     /// Returns an array of handles that support a specified protocol.
-    locateHandle: fn (LocateSearchType, ?*align(8) const Guid, ?*const c_void, *usize, [*]Handle) callconv(.C) Status,
+    locateHandle: fn (LocateSearchType, ?*align(8) const Guid, ?*const anyopaque, *usize, [*]Handle) callconv(.C) Status,
 
     /// Locates the handle to a device on the device path that supports the specified protocol
     locateDevicePath: fn (*align(8) const Guid, **const DevicePathProtocol, *?Handle) callconv(.C) Status,
@@ -84,7 +84,7 @@ pub const BootServices = extern struct {
     startImage: fn (Handle, ?*usize, ?*[*]u16) callconv(.C) Status,
 
     /// Terminates a loaded EFI image and returns control to boot services.
-    exit: fn (Handle, Status, usize, ?*const c_void) callconv(.C) Status,
+    exit: fn (Handle, Status, usize, ?*const anyopaque) callconv(.C) Status,
 
     /// Unloads an image.
     unloadImage: fn (Handle) callconv(.C) Status,
@@ -105,7 +105,7 @@ pub const BootServices = extern struct {
     disconnectController: Status, // TODO
 
     /// Queries a handle to determine if it supports a specified protocol.
-    openProtocol: fn (Handle, *align(8) const Guid, *?*c_void, ?Handle, ?Handle, OpenProtocolAttributes) callconv(.C) Status,
+    openProtocol: fn (Handle, *align(8) const Guid, *?*anyopaque, ?Handle, ?Handle, OpenProtocolAttributes) callconv(.C) Status,
 
     /// Closes a protocol on a handle that was opened using openProtocol().
     closeProtocol: fn (Handle, *align(8) const Guid, Handle, ?Handle) callconv(.C) Status,
@@ -117,10 +117,10 @@ pub const BootServices = extern struct {
     protocolsPerHandle: fn (Handle, *[*]*align(8) const Guid, *usize) callconv(.C) Status,
 
     /// Returns an array of handles that support the requested protocol in a buffer allocated from pool.
-    locateHandleBuffer: fn (LocateSearchType, ?*align(8) const Guid, ?*const c_void, *usize, *[*]Handle) callconv(.C) Status,
+    locateHandleBuffer: fn (LocateSearchType, ?*align(8) const Guid, ?*const anyopaque, *usize, *[*]Handle) callconv(.C) Status,
 
     /// Returns the first protocol instance that matches the given protocol.
-    locateProtocol: fn (*align(8) const Guid, ?*const c_void, *?*c_void) callconv(.C) Status,
+    locateProtocol: fn (*align(8) const Guid, ?*const anyopaque, *?*anyopaque) callconv(.C) Status,
 
     installMultipleProtocolInterfaces: Status, // TODO
     uninstallMultipleProtocolInterfaces: Status, // TODO

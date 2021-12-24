@@ -20,7 +20,7 @@ comptime {
 }
 
 /// public entrypoint for generated code using EmulatedTLS
-pub fn __emutls_get_address(control: *emutls_control) callconv(.C) *c_void {
+pub fn __emutls_get_address(control: *emutls_control) callconv(.C) *anyopaque {
     return control.getPointer();
 }
 
@@ -47,7 +47,7 @@ const simple_allocator = struct {
     pub fn advancedAlloc(alignment: u29, size: usize) [*]u8 {
         const minimal_alignment = std.math.max(@alignOf(usize), alignment);
 
-        var aligned_ptr: ?*c_void = undefined;
+        var aligned_ptr: ?*anyopaque = undefined;
         if (std.c.posix_memalign(&aligned_ptr, minimal_alignment, size) != 0) {
             abort();
         }
@@ -57,7 +57,7 @@ const simple_allocator = struct {
 
     /// Resize a slice.
     pub fn reallocSlice(comptime T: type, slice: []T, len: usize) []T {
-        var c_ptr: *c_void = @ptrCast(*c_void, slice.ptr);
+        var c_ptr: *anyopaque = @ptrCast(*anyopaque, slice.ptr);
         var new_array: [*]T = @ptrCast([*]T, @alignCast(
             @alignOf(T),
             std.c.realloc(c_ptr, @sizeOf(T) * len) orelse abort(),
@@ -67,14 +67,14 @@ const simple_allocator = struct {
 
     /// Free a memory chunk allocated with simple_allocator.
     pub fn free(ptr: anytype) void {
-        std.c.free(@ptrCast(*c_void, ptr));
+        std.c.free(@ptrCast(*anyopaque, ptr));
     }
 };
 
 /// Simple array of ?ObjectPointer with automatic resizing and
 /// automatic storage allocation.
 const ObjectArray = struct {
-    const ObjectPointer = *c_void;
+    const ObjectPointer = *anyopaque;
 
     // content of the array
     slots: []?ObjectPointer,
@@ -143,7 +143,7 @@ const ObjectArray = struct {
                 @memset(data, 0, size);
             }
 
-            self.slots[index] = @ptrCast(*c_void, data);
+            self.slots[index] = @ptrCast(*anyopaque, data);
         }
 
         return self.slots[index].?;
@@ -189,7 +189,7 @@ const current_thread_storage = struct {
 
     /// Set casted thread specific value.
     fn setspecific(new: ?*ObjectArray) void {
-        if (std.c.pthread_setspecific(current_thread_storage.key, @ptrCast(*c_void, new)) != 0) {
+        if (std.c.pthread_setspecific(current_thread_storage.key, @ptrCast(*anyopaque, new)) != 0) {
             abort();
         }
     }
@@ -202,7 +202,7 @@ const current_thread_storage = struct {
     }
 
     /// Invoked by pthread specific destructor. the passed argument is the ObjectArray pointer.
-    fn deinit(arrayPtr: *c_void) callconv(.C) void {
+    fn deinit(arrayPtr: *anyopaque) callconv(.C) void {
         var array = @ptrCast(
             *ObjectArray,
             @alignCast(@alignOf(ObjectArray), arrayPtr),
@@ -228,11 +228,11 @@ const emutls_control = extern struct {
         index: usize,
 
         // object address, when in single thread env (not used)
-        address: *c_void,
+        address: *anyopaque,
     },
 
     // null or non-zero initial value for the object
-    default_value: ?*c_void,
+    default_value: ?*anyopaque,
 
     // global Mutex used to serialize control.index initialization.
     var mutex: std.c.pthread_mutex_t = std.c.PTHREAD_MUTEX_INITIALIZER;
@@ -292,12 +292,12 @@ const emutls_control = extern struct {
             .size = @sizeOf(T),
             .alignment = @alignOf(T),
             .object = .{ .index = 0 },
-            .default_value = @ptrCast(?*c_void, default_value),
+            .default_value = @ptrCast(?*anyopaque, default_value),
         };
     }
 
     /// Get the pointer on allocated storage for emutls variable.
-    pub fn getPointer(self: *emutls_control) *c_void {
+    pub fn getPointer(self: *emutls_control) *anyopaque {
         // ensure current_thread_storage initialization is done
         current_thread_storage.init_once.call();
 

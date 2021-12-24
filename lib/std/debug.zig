@@ -156,14 +156,14 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
             stack_trace.index = windows.ntdll.RtlCaptureStackBackTrace(
                 0,
                 u32_addrs_len,
-                @ptrCast(**c_void, addrs.ptr),
+                @ptrCast(**anyopaque, addrs.ptr),
                 null,
             );
             return;
         };
         var addr_buf_stack: [32]usize = undefined;
         const addr_buf = if (addr_buf_stack.len > addrs.len) addr_buf_stack[0..] else addrs;
-        const n = windows.ntdll.RtlCaptureStackBackTrace(0, u32_addrs_len, @ptrCast(**c_void, addr_buf.ptr), null);
+        const n = windows.ntdll.RtlCaptureStackBackTrace(0, u32_addrs_len, @ptrCast(**anyopaque, addr_buf.ptr), null);
         const first_index = for (addr_buf[0..n]) |addr, i| {
             if (addr == first_addr) {
                 break i;
@@ -472,7 +472,7 @@ pub fn writeCurrentStackTraceWindows(
     start_addr: ?usize,
 ) !void {
     var addr_buf: [1024]usize = undefined;
-    const n = windows.ntdll.RtlCaptureStackBackTrace(0, addr_buf.len, @ptrCast(**c_void, &addr_buf), null);
+    const n = windows.ntdll.RtlCaptureStackBackTrace(0, addr_buf.len, @ptrCast(**anyopaque, &addr_buf), null);
     const addrs = addr_buf[0..n];
     var start_i: usize = if (start_addr) |saddr| blk: {
         for (addrs) |addr, i| {
@@ -843,7 +843,7 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
     const symtab = while (ncmd != 0) : (ncmd -= 1) {
         const lc = @ptrCast(*const std.macho.load_command, ptr);
         switch (lc.cmd) {
-            std.macho.LC_SYMTAB => break @ptrCast(*const std.macho.symtab_command, ptr),
+            .SYMTAB => break @ptrCast(*const std.macho.symtab_command, ptr),
             else => {},
         }
         ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
@@ -1072,7 +1072,7 @@ pub const DebugInfo = struct {
                     @alignCast(@alignOf(macho.load_command), cmd_ptr),
                 );
                 cmd_ptr += lc.cmdsize;
-                if (lc.cmd != macho.LC_SEGMENT_64) continue;
+                if (lc.cmd != .SEGMENT_64) continue;
 
                 const segment_cmd = @ptrCast(
                     *const std.macho.segment_command_64,
@@ -1303,14 +1303,14 @@ pub const ModuleDebugInfo = switch (native_os) {
             while (ncmd != 0) : (ncmd -= 1) {
                 const lc = @ptrCast(*const std.macho.load_command, ptr);
                 switch (lc.cmd) {
-                    std.macho.LC_SEGMENT_64 => {
+                    .SEGMENT_64 => {
                         segcmd = @ptrCast(
                             *const std.macho.segment_command_64,
                             @alignCast(@alignOf(std.macho.segment_command_64), ptr),
                         );
                         segptr = ptr;
                     },
-                    std.macho.LC_SYMTAB => {
+                    .SYMTAB => {
                         symtabcmd = @ptrCast(
                             *const std.macho.symtab_command,
                             @alignCast(@alignOf(std.macho.symtab_command), ptr),
@@ -1629,7 +1629,7 @@ fn resetSegfaultHandler() void {
     os.sigaction(os.SIG.BUS, &act, null);
 }
 
-fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_void) callconv(.C) noreturn {
+fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) noreturn {
     // Reset to the default handler so that if a segfault happens in this handler it will crash
     // the process. Also when this handler returns, the original instruction will be repeated
     // and the resulting segfault will crash the process rather than continually dump stack traces.

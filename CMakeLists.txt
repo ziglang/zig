@@ -25,7 +25,7 @@ project(zig C CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 9)
+set(ZIG_VERSION_MINOR 10)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
@@ -446,7 +446,9 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/addXf3.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/atomics.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/bswap.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/clear_cache.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/cmp.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/compareXf2.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/count0bits.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/divdf3.zig"
@@ -493,10 +495,10 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/modti3.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/mulXf3.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/muldi3.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/mulodi4.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/muloti4.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/mulo.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/multi3.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/negXf2.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/negXi2.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/os_version_check.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/parity.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/popcount.zig"
@@ -558,11 +560,25 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/TypedValue.zig"
     "${CMAKE_SOURCE_DIR}/src/WaitGroup.zig"
     "${CMAKE_SOURCE_DIR}/src/Zir.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/aarch64/CodeGen.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/aarch64/Emit.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/aarch64/Mir.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/aarch64/bits.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/arm/CodeGen.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/arm/Emit.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/arm/Mir.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/arm/bits.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/riscv64/CodeGen.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/riscv64/Emit.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/riscv64/Mir.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/riscv64/bits.zig"
-    "${CMAKE_SOURCE_DIR}/src/arch/x86_64/bits.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/wasm/CodeGen.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/wasm/Emit.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/wasm/Mir.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/x86_64/CodeGen.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Emit.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Mir.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/x86_64/bits.zig"
     "${CMAKE_SOURCE_DIR}/src/clang.zig"
     "${CMAKE_SOURCE_DIR}/src/clang_options.zig"
     "${CMAKE_SOURCE_DIR}/src/clang_options_data.zig"
@@ -590,7 +606,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Object.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Trie.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/bind.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/MachO/commands.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Plan9.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Plan9/aout.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Wasm.zig"

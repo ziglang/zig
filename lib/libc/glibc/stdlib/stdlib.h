@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -397,7 +397,7 @@ extern long int a64l (const char *__s)
    `initstate' and `setstate' functions are those from BSD Unices.
    The `rand' and `srand' functions are required by the ANSI standard.
    We provide both interfaces to the same random number generator.  */
-/* Return a random long integer between 0 and RAND_MAX inclusive.  */
+/* Return a random long integer between 0 and 2^31-1 inclusive.  */
 extern long int random (void) __THROW;
 
 /* Seed the random number generator with the given number.  */
@@ -550,6 +550,9 @@ extern void *calloc (size_t __nmemb, size_t __size)
 extern void *realloc (void *__ptr, size_t __size)
      __THROW __attribute_warn_unused_result__ __attribute_alloc_size__ ((2));
 
+/* Free a block allocated by `malloc', `realloc' or `calloc'.  */
+extern void free (void *__ptr) __THROW;
+
 #ifdef __USE_MISC
 /* Re-allocate the previously allocated block in PTR, making the new
    block large enough for NMEMB elements of SIZE bytes each.  */
@@ -558,11 +561,13 @@ extern void *realloc (void *__ptr, size_t __size)
    between objects pointed by the old and new pointers.  */
 extern void *reallocarray (void *__ptr, size_t __nmemb, size_t __size)
      __THROW __attribute_warn_unused_result__
-     __attribute_alloc_size__ ((2, 3));
-#endif
+     __attribute_alloc_size__ ((2, 3))
+    __attr_dealloc_free;
 
-/* Free a block allocated by `malloc', `realloc' or `calloc'.  */
-extern void free (void *__ptr) __THROW;
+/* Add reallocarray as its own deallocator.  */
+extern void *reallocarray (void *__ptr, size_t __nmemb, size_t __size)
+     __THROW __attr_dealloc (reallocarray, 1);
+#endif
 
 #ifdef __USE_MISC
 # include <alloca.h>
@@ -788,7 +793,8 @@ extern int system (const char *__command) __wur;
 /* Return a malloc'd string containing the canonical absolute name of the
    existing named file.  */
 extern char *canonicalize_file_name (const char *__name)
-     __THROW __nonnull ((1)) __wur;
+     __THROW __nonnull ((1)) __attribute_malloc__
+     __attr_dealloc_free __wur;
 #endif
 
 #if defined __USE_MISC || defined __USE_XOPEN_EXTENDED
@@ -931,12 +937,13 @@ extern int wctomb (char *__s, wchar_t __wchar) __THROW;
 
 /* Convert a multibyte string to a wide char string.  */
 extern size_t mbstowcs (wchar_t *__restrict  __pwcs,
-			const char *__restrict __s, size_t __n) __THROW;
+			const char *__restrict __s, size_t __n) __THROW
+    __attr_access ((__read_only__, 2));
 /* Convert a wide char string to multibyte string.  */
 extern size_t wcstombs (char *__restrict __s,
 			const wchar_t *__restrict __pwcs, size_t __n)
-     __THROW;
-
+     __THROW
+  __attr_access ((__write_only__, 1, 3)) __attr_access ((__read_only__, 2));
 
 #ifdef __USE_MISC
 /* Determine whether the string value of RESPONSE matches the affirmation
@@ -990,7 +997,7 @@ extern char *ptsname (int __fd) __THROW __wur;
    terminal associated with the master FD is open on in BUF.
    Return 0 on success, otherwise an error number.  */
 extern int ptsname_r (int __fd, char *__buf, size_t __buflen)
-     __THROW __nonnull ((2));
+     __THROW __nonnull ((2)) __attr_access ((__write_only__, 2, 3));
 
 /* Open a master pseudo terminal and return its file descriptor.  */
 extern int getpt (void);
@@ -1016,7 +1023,9 @@ extern int ttyslot (void) __THROW;
 #if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
 # include <bits/stdlib.h>
 #endif
-#ifdef __LDBL_COMPAT
+
+#include <bits/floatn.h>
+#if defined __LDBL_COMPAT || __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
 # include <bits/stdlib-ldbl.h>
 #endif
 

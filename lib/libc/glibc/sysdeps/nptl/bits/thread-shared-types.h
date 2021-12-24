@@ -1,5 +1,5 @@
 /* Common threading primitives definitions for both POSIX and C11.
-   Copyright (C) 2017-2020 Free Software Foundation, Inc.
+   Copyright (C) 2017-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -115,5 +115,15 @@ struct __pthread_cond_s
   unsigned int __wrefs;
   unsigned int __g_signals[2];
 };
+
+typedef unsigned int __tss_t;
+typedef unsigned long int __thrd_t;
+
+typedef struct
+{
+  int __data __ONCE_ALIGNMENT;
+} __once_flag;
+
+#define __ONCE_FLAG_INIT { 0 }
 
 #endif /* _THREAD_SHARED_TYPES_H  */

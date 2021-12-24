@@ -34,6 +34,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/link_frameworks/build.zig", .{
         .requires_macos_sdk = true,
     });
+    cases.addBuildFile("test/standalone/link_common_symbols_alignment/build.zig", .{});
+    if (builtin.os.tag == .macos) {
+        cases.addBuildFile("test/standalone/link_import_tls_dylib/build.zig", .{});
+    }
     cases.addBuildFile("test/standalone/issue_339/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_8550/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_794/build.zig", .{});

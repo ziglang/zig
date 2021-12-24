@@ -43,6 +43,7 @@ __BEGIN_DECLS
 typedef __syscall_ulong_t shmatt_t;
 
 #include <bits/types/struct_shmid_ds.h>
+#include <bits/types/struct_shmid64_ds.h>
 
 #ifdef __USE_MISC
 

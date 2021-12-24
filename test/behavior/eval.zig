@@ -451,3 +451,19 @@ test "comptime bitwise operators" {
         try expect(~@as(u128, 0) == 0xffffffffffffffffffffffffffffffff);
     }
 }
+
+test "comptime shlWithOverflow" {
+    const ct_shifted: u64 = comptime amt: {
+        var amt = @as(u64, 0);
+        _ = @shlWithOverflow(u64, ~@as(u64, 0), 16, &amt);
+        break :amt amt;
+    };
+
+    const rt_shifted: u64 = amt: {
+        var amt = @as(u64, 0);
+        _ = @shlWithOverflow(u64, ~@as(u64, 0), 16, &amt);
+        break :amt amt;
+    };
+
+    try expect(ct_shifted == rt_shifted);
+}

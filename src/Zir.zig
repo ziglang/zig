@@ -1572,6 +1572,9 @@ pub const Inst = struct {
         wasm_memory_size,
         /// `operand` is payload index to `BinNode`.
         wasm_memory_grow,
+        /// The `@prefetch` builtin.
+        /// `operand` is payload index to `BinNode`.
+        prefetch,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -1629,7 +1632,7 @@ pub const Inst = struct {
         f32_type,
         f64_type,
         f128_type,
-        c_void_type,
+        anyopaque_type,
         bool_type,
         void_type,
         type_type,
@@ -1648,6 +1651,7 @@ pub const Inst = struct {
         float_mode_type,
         reduce_op_type,
         call_options_type,
+        prefetch_options_type,
         export_options_type,
         extern_options_type,
         type_info_type,
@@ -1801,9 +1805,9 @@ pub const Inst = struct {
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.f128_type),
             },
-            .c_void_type = .{
+            .anyopaque_type = .{
                 .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_void_type),
+                .val = Value.initTag(.anyopaque_type),
             },
             .bool_type = .{
                 .ty = Type.initTag(.type),
@@ -1916,6 +1920,10 @@ pub const Inst = struct {
             .call_options_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.call_options_type),
+            },
+            .prefetch_options_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.prefetch_options_type),
             },
             .export_options_type = .{
                 .ty = Type.initTag(.type),

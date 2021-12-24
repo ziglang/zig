@@ -1,5 +1,5 @@
 /* Startup code for elf64-sparc
-   Copyright (C) 1997-2020 Free Software Foundation, Inc.
+   Copyright (C) 1997-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Richard Henderson <richard@gnu.ai.mit.edu>, 1997.
 
@@ -60,22 +60,14 @@ _start:
   /* Load the addresses of the user entry points.  */
 #ifndef PIC
 	sethi	%hi(main), %o0
-	sethi	%hi(__libc_csu_init), %o3
-	sethi	%hi(__libc_csu_fini), %o4
 	or	%o0, %lo(main), %o0
-	or	%o3, %lo(__libc_csu_init), %o3
-	or	%o4, %lo(__libc_csu_fini), %o4
 #else
 	sethi	%gdop_hix22(main), %o0
-	sethi	%gdop_hix22(__libc_csu_init), %o3
-	sethi	%gdop_hix22(__libc_csu_fini), %o4
 	xor	%o0, %gdop_lox10(main), %o0
-	xor	%o3, %gdop_lox10(__libc_csu_init), %o3
-	xor	%o4, %gdop_lox10(__libc_csu_fini), %o4
 	ldx	[%l7 + %o0], %o0, %gdop(main)
-	ldx	[%l7 + %o3], %o3, %gdop(__libc_csu_init)
-	ldx	[%l7 + %o4], %o4, %gdop(__libc_csu_fini)
 #endif
+	mov	0, %o3		/* Used to be init.  */
+	mov	0, %o4		/* Used to be fini.  */
 
   /* When starting a binary via the dynamic linker, %g1 contains the
      address of the shared library termination function, which will be

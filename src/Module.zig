@@ -796,15 +796,11 @@ pub const ErrorSet = struct {
     owner_decl: *Decl,
     /// Offset from Decl node index, points to the error set AST node.
     node_offset: i32,
-    names_len: u32,
     /// The string bytes are stored in the owner Decl arena.
     /// They are in the same order they appear in the AST.
-    /// The length is given by `names_len`.
-    names_ptr: [*]const []const u8,
+    names: NameMap,
 
-    pub fn names(self: ErrorSet) []const []const u8 {
-        return self.names_ptr[0..self.names_len];
-    }
+    pub const NameMap = std.StringArrayHashMapUnmanaged(void);
 
     pub fn srcLoc(self: ErrorSet) SrcLoc {
         return .{
@@ -853,6 +849,24 @@ pub const Struct = struct {
         /// undefined until `status` is `have_layout`.
         offset: u32,
         is_comptime: bool,
+
+        /// Returns the field alignment, assuming the struct is packed.
+        pub fn packedAlignment(field: Field) u32 {
+            if (field.abi_align.tag() == .abi_align_default) {
+                return 0;
+            } else {
+                return @intCast(u32, field.abi_align.toUnsignedInt());
+            }
+        }
+
+        /// Returns the field alignment, assuming the struct is not packed.
+        pub fn normalAlignment(field: Field, target: Target) u32 {
+            if (field.abi_align.tag() == .abi_align_default) {
+                return field.ty.abiAlignment(target);
+            } else {
+                return @intCast(u32, field.abi_align.toUnsignedInt());
+            }
+        }
     };
 
     pub fn getFullyQualifiedName(s: *Struct, gpa: Allocator) ![:0]u8 {
@@ -1211,6 +1225,10 @@ pub const Fn = struct {
     is_cold: bool = false,
     is_noinline: bool = false,
 
+    /// Any inferred error sets that this function owns, both it's own inferred error set and
+    /// inferred error sets of any inline/comptime functions called.
+    inferred_error_sets: InferredErrorSetList = .{},
+
     pub const Analysis = enum {
         queued,
         /// This function intentionally only has ZIR generated because it is marked
@@ -1225,23 +1243,73 @@ pub const Fn = struct {
         success,
     };
 
-    pub fn deinit(func: *Fn, gpa: Allocator) void {
-        if (func.getInferredErrorSet()) |map| {
-            map.deinit(gpa);
-        }
-    }
+    /// This struct is used to keep track of any dependencies related to functions instances
+    /// that return inferred error sets. Note that a function may be associated to multiple different error sets,
+    /// for example an inferred error set which this function returns, but also any inferred error sets
+    /// of called inline or comptime functions.
+    pub const InferredErrorSet = struct {
+        /// The function from which this error set originates.
+        /// Note: may be the function itself.
+        func: *Fn,
 
-    pub fn getInferredErrorSet(func: *Fn) ?*std.StringHashMapUnmanaged(void) {
-        const ret_ty = func.owner_decl.ty.fnReturnType();
-        if (ret_ty.tag() == .generic_poison) {
-            return null;
-        }
-        if (ret_ty.zigTypeTag() == .ErrorUnion) {
-            if (ret_ty.errorUnionSet().castTag(.error_set_inferred)) |payload| {
-                return &payload.data.map;
+        /// All currently known errors that this error set contains. This includes direct additions
+        /// via `return error.Foo;`, and possibly also errors that are returned from any dependent functions.
+        /// When the inferred error set is fully resolved, this map contains all the errors that the function might return.
+        errors: std.StringHashMapUnmanaged(void) = .{},
+
+        /// Other inferred error sets which this inferred error set should include.
+        inferred_error_sets: std.AutoHashMapUnmanaged(*InferredErrorSet, void) = .{},
+
+        /// Whether the function returned anyerror. This is true if either of the dependent functions
+        /// returns anyerror.
+        is_anyerror: bool = false,
+
+        /// Whether this error set is already fully resolved. If true, resolving can skip resolving any dependents
+        /// of this inferred error set.
+        is_resolved: bool = false,
+
+        pub fn addErrorSet(self: *InferredErrorSet, gpa: Allocator, err_set_ty: Type) !void {
+            switch (err_set_ty.tag()) {
+                .error_set => {
+                    const names = err_set_ty.castTag(.error_set).?.data.names.keys();
+                    for (names) |name| {
+                        try self.errors.put(gpa, name, {});
+                    }
+                },
+                .error_set_single => {
+                    const name = err_set_ty.castTag(.error_set_single).?.data;
+                    try self.errors.put(gpa, name, {});
+                },
+                .error_set_inferred => {
+                    const set = err_set_ty.castTag(.error_set_inferred).?.data;
+                    try self.inferred_error_sets.put(gpa, set, {});
+                },
+                .error_set_merged => {
+                    const names = err_set_ty.castTag(.error_set_merged).?.data.keys();
+                    for (names) |name| {
+                        try self.errors.put(gpa, name, {});
+                    }
+                },
+                .anyerror => {
+                    self.is_anyerror = true;
+                },
+                else => unreachable,
             }
         }
-        return null;
+    };
+
+    pub const InferredErrorSetList = std.SinglyLinkedList(InferredErrorSet);
+    pub const InferredErrorSetListNode = InferredErrorSetList.Node;
+
+    pub fn deinit(func: *Fn, gpa: Allocator) void {
+        var it = func.inferred_error_sets.first;
+        while (it) |node| {
+            const next = node.next;
+            node.data.errors.deinit(gpa);
+            node.data.inferred_error_sets.deinit(gpa);
+            gpa.destroy(node);
+            it = next;
+        }
     }
 };
 
@@ -1301,6 +1369,7 @@ pub const Namespace = struct {
             key.destroy(mod);
         }
         anon_decls.deinit(gpa);
+        ns.usingnamespace_set.deinit(gpa);
     }
 
     pub fn deleteAllDecls(
@@ -1332,6 +1401,8 @@ pub const Namespace = struct {
             child_decl.destroy(mod);
         }
         anon_decls.deinit(gpa);
+
+        ns.usingnamespace_set.deinit(gpa);
     }
 
     // This renders e.g. "std.fs.Dir.OpenOptions"
@@ -2618,7 +2689,6 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                 zir.extra.len * 4;
             if (amt_read != amt_expected) {
                 log.warn("unexpected EOF reading cached ZIR for {s}", .{file.sub_file_path});
-                zir.deinit(gpa);
                 break :cached;
             }
             if (data_has_safety_tag) {
@@ -2962,6 +3032,78 @@ fn updateZirRefs(gpa: Allocator, file: *File, old_zir: Zir) !void {
             }
         }
     }
+}
+
+pub fn populateBuiltinFile(mod: *Module) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const comp = mod.comp;
+    const pkg_and_file = blk: {
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+
+        const builtin_pkg = mod.main_pkg.table.get("builtin").?;
+        const result = try mod.importPkg(builtin_pkg);
+        break :blk .{
+            .file = result.file,
+            .pkg = builtin_pkg,
+        };
+    };
+    const file = pkg_and_file.file;
+    const builtin_pkg = pkg_and_file.pkg;
+    const gpa = mod.gpa;
+    file.source = try comp.generateBuiltinZigSource(gpa);
+    file.source_loaded = true;
+
+    if (builtin_pkg.root_src_directory.handle.statFile(builtin_pkg.root_src_path)) |stat| {
+        if (stat.size != file.source.len) {
+            const full_path = try builtin_pkg.root_src_directory.join(gpa, &.{
+                builtin_pkg.root_src_path,
+            });
+            defer gpa.free(full_path);
+
+            log.warn(
+                "the cached file '{s}' had the wrong size. Expected {d}, found {d}. " ++
+                    "Overwriting with correct file contents now",
+                .{ full_path, file.source.len, stat.size },
+            );
+
+            try writeBuiltinFile(file, builtin_pkg);
+        } else {
+            file.stat_size = stat.size;
+            file.stat_inode = stat.inode;
+            file.stat_mtime = stat.mtime;
+        }
+    } else |err| switch (err) {
+        error.BadPathName => unreachable, // it's always "builtin.zig"
+        error.NameTooLong => unreachable, // it's always "builtin.zig"
+        error.PipeBusy => unreachable, // it's not a pipe
+        error.WouldBlock => unreachable, // not asking for non-blocking I/O
+
+        error.FileNotFound => try writeBuiltinFile(file, builtin_pkg),
+
+        else => |e| return e,
+    }
+
+    file.tree = try std.zig.parse(gpa, file.source);
+    file.tree_loaded = true;
+    assert(file.tree.errors.len == 0); // builtin.zig must parse
+
+    file.zir = try AstGen.generate(gpa, file.tree);
+    file.zir_loaded = true;
+    file.status = .success_zir;
+}
+
+pub fn writeBuiltinFile(file: *File, builtin_pkg: *Package) !void {
+    var af = try builtin_pkg.root_src_directory.handle.atomicFile(builtin_pkg.root_src_path, .{});
+    defer af.deinit();
+    try af.file.writeAll(file.source);
+    try af.finish();
+
+    file.stat_size = file.source.len;
+    file.stat_inode = 0; // dummy value
+    file.stat_mtime = 0; // dummy value
 }
 
 pub fn mapOldZirToNew(

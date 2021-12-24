@@ -590,8 +590,9 @@ test "big.int addWrap single-single, unsigned" {
     var b = try Managed.initSet(testing.allocator, 10);
     defer b.deinit();
 
-    try a.addWrap(a.toConst(), b.toConst(), .unsigned, 17);
+    const wrapped = try a.addWrap(a.toConst(), b.toConst(), .unsigned, 17);
 
+    try testing.expect(wrapped);
     try testing.expect((try a.to(u17)) == 9);
 }
 
@@ -602,8 +603,9 @@ test "big.int subWrap single-single, unsigned" {
     var b = try Managed.initSet(testing.allocator, maxInt(u17));
     defer b.deinit();
 
-    try a.subWrap(a.toConst(), b.toConst(), .unsigned, 17);
+    const wrapped = try a.subWrap(a.toConst(), b.toConst(), .unsigned, 17);
 
+    try testing.expect(wrapped);
     try testing.expect((try a.to(u17)) == 1);
 }
 
@@ -614,8 +616,9 @@ test "big.int addWrap multi-multi, unsigned, limb aligned" {
     var b = try Managed.initSet(testing.allocator, maxInt(DoubleLimb));
     defer b.deinit();
 
-    try a.addWrap(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+    const wrapped = try a.addWrap(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
 
+    try testing.expect(wrapped);
     try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb) - 1);
 }
 
@@ -626,8 +629,9 @@ test "big.int subWrap single-multi, unsigned, limb aligned" {
     var b = try Managed.initSet(testing.allocator, maxInt(DoubleLimb) + 100);
     defer b.deinit();
 
-    try a.subWrap(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+    const wrapped = try a.subWrap(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
 
+    try testing.expect(wrapped);
     try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb) - 88);
 }
 
@@ -638,8 +642,9 @@ test "big.int addWrap single-single, signed" {
     var b = try Managed.initSet(testing.allocator, 1 + 1 + maxInt(u21));
     defer b.deinit();
 
-    try a.addWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(i21));
+    const wrapped = try a.addWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(i21));
 
+    try testing.expect(wrapped);
     try testing.expect((try a.to(i21)) == minInt(i21));
 }
 
@@ -650,8 +655,9 @@ test "big.int subWrap single-single, signed" {
     var b = try Managed.initSet(testing.allocator, 1);
     defer b.deinit();
 
-    try a.subWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(i21));
+    const wrapped = try a.subWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(i21));
 
+    try testing.expect(wrapped);
     try testing.expect((try a.to(i21)) == maxInt(i21));
 }
 
@@ -662,8 +668,9 @@ test "big.int addWrap multi-multi, signed, limb aligned" {
     var b = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
     defer b.deinit();
 
-    try a.addWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+    const wrapped = try a.addWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
 
+    try testing.expect(wrapped);
     try testing.expect((try a.to(SignedDoubleLimb)) == -2);
 }
 
@@ -674,8 +681,9 @@ test "big.int subWrap single-multi, signed, limb aligned" {
     var b = try Managed.initSet(testing.allocator, 1);
     defer b.deinit();
 
-    try a.subWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+    const wrapped = try a.subWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
 
+    try testing.expect(wrapped);
     try testing.expect((try a.to(SignedDoubleLimb)) == maxInt(SignedDoubleLimb));
 }
 

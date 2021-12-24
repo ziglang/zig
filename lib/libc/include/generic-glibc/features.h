@@ -33,6 +33,8 @@
 			Extensions to ISO C11 from TS 18661-4:2015.
    __STDC_WANT_IEC_60559_TYPES_EXT__
 			Extensions to ISO C11 from TS 18661-3:2015.
+   __STDC_WANT_IEC_60559_EXT__
+			ISO C2X interfaces defined only in Annex F.
 
    _POSIX_SOURCE	IEEE Std 1003.1.
    _POSIX_C_SOURCE	If ==1, like _POSIX_SOURCE; if >=2 add IEEE Std 1003.2;
@@ -48,6 +50,8 @@
    _LARGEFILE64_SOURCE	Additional functionality from LFS for large files.
    _FILE_OFFSET_BITS=N	Select default filesystem interface.
    _ATFILE_SOURCE	Additional *at interfaces.
+   _DYNAMIC_STACK_SIZE_SOURCE Select correct (but non compile-time constant)
+			MINSIGSTKSZ, SIGSTKSZ and PTHREAD_STACK_MIN.
    _GNU_SOURCE		All of the above, plus GNU extensions.
    _DEFAULT_SOURCE	The default set of features (taking precedence over
 			__STRICT_ANSI__).
@@ -94,6 +98,8 @@
    __USE_FILE_OFFSET64	Define 64bit interface as default.
    __USE_MISC		Define things from 4.3BSD or System V Unix.
    __USE_ATFILE		Define *at interfaces and AT_* constants for them.
+   __USE_DYNAMIC_STACK_SIZE Define correct (but non compile-time constant)
+			MINSIGSTKSZ, SIGSTKSZ and PTHREAD_STACK_MIN.
    __USE_GNU		Define GNU extensions.
    __USE_FORTIFY_LEVEL	Additional security measures used, according to level.
 
@@ -137,6 +143,7 @@
 #undef	__USE_FILE_OFFSET64
 #undef	__USE_MISC
 #undef	__USE_ATFILE
+#undef	__USE_DYNAMIC_STACK_SIZE
 #undef	__USE_GNU
 #undef	__USE_FORTIFY_LEVEL
 #undef	__KERNEL_STRICT_NAMES
@@ -213,6 +220,8 @@
 # define _DEFAULT_SOURCE	1
 # undef  _ATFILE_SOURCE
 # define _ATFILE_SOURCE	1
+# undef  _DYNAMIC_STACK_SIZE_SOURCE
+# define _DYNAMIC_STACK_SIZE_SOURCE 1
 #endif
 
 /* If nothing (other than _GNU_SOURCE and _DEFAULT_SOURCE) is defined,
@@ -380,12 +389,18 @@
 # define __USE_FILE_OFFSET64	1
 #endif
 
+#include <features-time64.h>
+
 #if defined _DEFAULT_SOURCE
 # define __USE_MISC	1
 #endif
 
 #ifdef	_ATFILE_SOURCE
 # define __USE_ATFILE	1
+#endif
+
+#ifdef	_DYNAMIC_STACK_SIZE_SOURCE
+# define __USE_DYNAMIC_STACK_SIZE	1
 #endif
 
 #ifdef	_GNU_SOURCE
@@ -462,7 +477,7 @@
 /* Major and minor version number of the GNU C library package.  Use
    these macros to test for features in specific releases.  */
 #define	__GLIBC__	2
-#define	__GLIBC_MINOR__	33
+#define	__GLIBC_MINOR__	34
 
 #define __GLIBC_PREREQ(maj, min) \
 	((__GLIBC__ << 16) + __GLIBC_MINOR__ >= ((maj) << 16) + (min))

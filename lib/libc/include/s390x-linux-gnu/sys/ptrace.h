@@ -39,6 +39,8 @@ __BEGIN_DECLS
 # undef PTRACE_ATTACH
 # undef PTRACE_DETACH
 # undef PTRACE_SYSCALL
+# undef PTRACE_SYSEMU
+# undef PTRACE_SYSEMU_SINGLESTEP
 # undef PTRACE_SETOPTIONS
 # undef PTRACE_GETEVENTMSG
 # undef PTRACE_GETSIGINFO
@@ -145,6 +147,14 @@ enum __ptrace_request
   /* Continue and stop at the next entry to or return from syscall.  */
   PTRACE_SYSCALL = 24,
 #define PT_SYSCALL PTRACE_SYSCALL
+
+  /* Continue and stop at the next syscall, it will not be executed.  */
+  PTRACE_SYSEMU = 31,
+#define PT_SYSEMU PTRACE_SYSEMU
+
+  /* Single step the process, the next syscall will not be executed.  */
+  PTRACE_SYSEMU_SINGLESTEP = 32,
+#define PT_SYSEMU_SINGLESTEP PTRACE_SYSEMU_SINGLESTEP
 
   /* Set ptrace filter options.  */
   PTRACE_SETOPTIONS = 0x4200,

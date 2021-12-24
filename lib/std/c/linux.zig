@@ -28,7 +28,7 @@ pub const MADV = linux.MADV;
 pub const MAP = struct {
     pub usingnamespace linux.MAP;
     /// Only used by libc to communicate failure.
-    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
 };
 pub const MMAP2_UNIT = linux.MMAP2_UNIT;
 pub const MSG = linux.MSG;
@@ -228,7 +228,7 @@ pub extern "c" fn fstatat64(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, f
 pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
 pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
 pub extern "c" fn lseek64(fd: fd_t, offset: i64, whence: c_int) i64;
-pub extern "c" fn mmap64(addr: ?*align(std.mem.page_size) c_void, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *c_void;
+pub extern "c" fn mmap64(addr: ?*align(std.mem.page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *anyopaque;
 pub extern "c" fn open64(path: [*:0]const u8, oflag: c_uint, ...) c_int;
 pub extern "c" fn openat64(fd: c_int, path: [*:0]const u8, oflag: c_uint, ...) c_int;
 pub extern "c" fn pread64(fd: fd_t, buf: [*]u8, nbyte: usize, offset: i64) isize;
@@ -258,8 +258,8 @@ pub extern "c" fn inotify_rm_watch(fd: fd_t, wd: c_int) c_int;
 /// See std.elf for constants for this
 pub extern "c" fn getauxval(__type: c_ulong) c_ulong;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int;
-pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
+pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
@@ -280,11 +280,11 @@ pub extern "c" fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_
 pub extern "c" fn signalfd(fd: fd_t, mask: *const sigset_t, flags: c_uint) c_int;
 
 pub extern "c" fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: *const rlimit, old_limit: *rlimit) c_int;
-pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
-pub extern "c" fn malloc_usable_size(?*const c_void) usize;
+pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
+pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
 
 pub extern "c" fn madvise(
-    addr: *align(std.mem.page_size) c_void,
+    addr: *align(std.mem.page_size) anyopaque,
     length: usize,
     advice: c_uint,
 ) c_int;

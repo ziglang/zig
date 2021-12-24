@@ -45,43 +45,44 @@ comptime {
     const __getf2 = @import("compiler_rt/compareXf2.zig").__getf2;
     @export(__getf2, .{ .name = "__getf2", .linkage = linkage });
 
+    const __eqsf2 = @import("compiler_rt/compareXf2.zig").__eqsf2;
+    @export(__eqsf2, .{ .name = "__eqsf2", .linkage = linkage });
+    const __eqdf2 = @import("compiler_rt/compareXf2.zig").__eqdf2;
+    @export(__eqdf2, .{ .name = "__eqdf2", .linkage = linkage });
+
+    const __ltsf2 = @import("compiler_rt/compareXf2.zig").__ltsf2;
+    @export(__ltsf2, .{ .name = "__ltsf2", .linkage = linkage });
+    const __ltdf2 = @import("compiler_rt/compareXf2.zig").__ltdf2;
+    @export(__ltdf2, .{ .name = "__ltdf2", .linkage = linkage });
+
+    const __nesf2 = @import("compiler_rt/compareXf2.zig").__nesf2;
+    @export(__nesf2, .{ .name = "__nesf2", .linkage = linkage });
+    const __nedf2 = @import("compiler_rt/compareXf2.zig").__nedf2;
+    @export(__nedf2, .{ .name = "__nedf2", .linkage = linkage });
+
+    const __gtsf2 = @import("compiler_rt/compareXf2.zig").__gtsf2;
+    @export(__gtsf2, .{ .name = "__gtsf2", .linkage = linkage });
+    const __gtdf2 = @import("compiler_rt/compareXf2.zig").__gtdf2;
+    @export(__gtdf2, .{ .name = "__gtdf2", .linkage = linkage });
+
     if (!is_test) {
         @export(__lesf2, .{ .name = "__cmpsf2", .linkage = linkage });
         @export(__ledf2, .{ .name = "__cmpdf2", .linkage = linkage });
         @export(__letf2, .{ .name = "__cmptf2", .linkage = linkage });
-
-        const __eqsf2 = @import("compiler_rt/compareXf2.zig").__eqsf2;
-        @export(__eqsf2, .{ .name = "__eqsf2", .linkage = linkage });
-        const __eqdf2 = @import("compiler_rt/compareXf2.zig").__eqdf2;
-        @export(__eqdf2, .{ .name = "__eqdf2", .linkage = linkage });
         @export(__letf2, .{ .name = "__eqtf2", .linkage = linkage });
-
-        const __ltsf2 = @import("compiler_rt/compareXf2.zig").__ltsf2;
-        @export(__ltsf2, .{ .name = "__ltsf2", .linkage = linkage });
-        const __ltdf2 = @import("compiler_rt/compareXf2.zig").__ltdf2;
-        @export(__ltdf2, .{ .name = "__ltdf2", .linkage = linkage });
         @export(__letf2, .{ .name = "__lttf2", .linkage = linkage });
-
-        const __nesf2 = @import("compiler_rt/compareXf2.zig").__nesf2;
-        @export(__nesf2, .{ .name = "__nesf2", .linkage = linkage });
-        const __nedf2 = @import("compiler_rt/compareXf2.zig").__nedf2;
-        @export(__nedf2, .{ .name = "__nedf2", .linkage = linkage });
-        @export(__letf2, .{ .name = "__netf2", .linkage = linkage });
-
-        const __gtsf2 = @import("compiler_rt/compareXf2.zig").__gtsf2;
-        @export(__gtsf2, .{ .name = "__gtsf2", .linkage = linkage });
-        const __gtdf2 = @import("compiler_rt/compareXf2.zig").__gtdf2;
-        @export(__gtdf2, .{ .name = "__gtdf2", .linkage = linkage });
         @export(__getf2, .{ .name = "__gttf2", .linkage = linkage });
-
+        @export(__letf2, .{ .name = "__netf2", .linkage = linkage });
         @export(__extendhfsf2, .{ .name = "__gnu_h2f_ieee", .linkage = linkage });
-
-        // Integral arithmetic which returns if overflow
-        const __mulodi4 = @import("compiler_rt/mulodi4.zig").__mulodi4;
-        @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
-        const __muloti4 = @import("compiler_rt/muloti4.zig").__muloti4;
-        @export(__muloti4, .{ .name = "__muloti4", .linkage = linkage });
     }
+
+    // Integral arithmetic which returns if overflow
+    const __mulosi4 = @import("compiler_rt/mulo.zig").__mulosi4;
+    @export(__mulosi4, .{ .name = "__mulosi4", .linkage = linkage });
+    const __mulodi4 = @import("compiler_rt/mulo.zig").__mulodi4;
+    @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
+    const __muloti4 = @import("compiler_rt/mulo.zig").__muloti4;
+    @export(__muloti4, .{ .name = "__muloti4", .linkage = linkage });
 
     if (builtin.os.tag == .windows) {
         // Default stack-probe functions emitted by LLVM
@@ -263,6 +264,12 @@ comptime {
         @export(__popcountdi2, .{ .name = "__popcountdi2", .linkage = linkage });
         const __popcountti2 = @import("compiler_rt/popcount.zig").__popcountti2;
         @export(__popcountti2, .{ .name = "__popcountti2", .linkage = linkage });
+        const __bswapsi2 = @import("compiler_rt/bswap.zig").__bswapsi2;
+        @export(__bswapsi2, .{ .name = "__bswapsi2", .linkage = linkage });
+        const __bswapdi2 = @import("compiler_rt/bswap.zig").__bswapdi2;
+        @export(__bswapdi2, .{ .name = "__bswapdi2", .linkage = linkage });
+        const __bswapti2 = @import("compiler_rt/bswap.zig").__bswapti2;
+        @export(__bswapti2, .{ .name = "__bswapti2", .linkage = linkage });
 
         // Integral / floating point conversion (part 1/2)
         const __floatsidf = @import("compiler_rt/floatsiXf.zig").__floatsidf;
@@ -376,6 +383,12 @@ comptime {
         }
 
         // Integral arithmetic
+        const __negsi2 = @import("compiler_rt/negXi2.zig").__negsi2;
+        @export(__negsi2, .{ .name = "__negsi2", .linkage = linkage });
+        const __negdi2 = @import("compiler_rt/negXi2.zig").__negdi2;
+        @export(__negdi2, .{ .name = "__negdi2", .linkage = linkage });
+        const __negti2 = @import("compiler_rt/negXi2.zig").__negti2;
+        @export(__negti2, .{ .name = "__negti2", .linkage = linkage });
         const __mulsi3 = @import("compiler_rt/int.zig").__mulsi3;
         @export(__mulsi3, .{ .name = "__mulsi3", .linkage = linkage });
         const __muldi3 = @import("compiler_rt/muldi3.zig").__muldi3;
@@ -407,10 +420,22 @@ comptime {
 
         // missing: Integral arithmetic which returns if overflow
 
-        // missing: Integral comparison
+        // Integral comparison
         // (a <  b) => 0
         // (a == b) => 1
         // (a >  b) => 2
+        const __cmpsi2 = @import("compiler_rt/cmp.zig").__cmpsi2;
+        @export(__cmpsi2, .{ .name = "__cmpsi2", .linkage = linkage });
+        const __cmpdi2 = @import("compiler_rt/cmp.zig").__cmpdi2;
+        @export(__cmpdi2, .{ .name = "__cmpdi2", .linkage = linkage });
+        const __cmpti2 = @import("compiler_rt/cmp.zig").__cmpti2;
+        @export(__cmpti2, .{ .name = "__cmpti2", .linkage = linkage });
+        const __ucmpsi2 = @import("compiler_rt/cmp.zig").__ucmpsi2;
+        @export(__ucmpsi2, .{ .name = "__ucmpsi2", .linkage = linkage });
+        const __ucmpdi2 = @import("compiler_rt/cmp.zig").__ucmpdi2;
+        @export(__ucmpdi2, .{ .name = "__ucmpdi2", .linkage = linkage });
+        const __ucmpti2 = @import("compiler_rt/cmp.zig").__ucmpti2;
+        @export(__ucmpti2, .{ .name = "__ucmpti2", .linkage = linkage });
 
         // missing: Floating point raised to integer power
 

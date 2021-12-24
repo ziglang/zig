@@ -1275,6 +1275,16 @@ pub const OpenError = error{
     BadPathName,
     InvalidUtf8,
 
+    /// One of these three things:
+    /// * pathname  refers to an executable image which is currently being
+    ///   executed and write access was requested.
+    /// * pathname refers to a file that is currently in  use  as  a  swap
+    ///   file, and the O_TRUNC flag was specified.
+    /// * pathname  refers  to  a file that is currently being read by the
+    ///   kernel (e.g., for module/firmware loading), and write access was
+    ///   requested.
+    FileBusy,
+
     WouldBlock,
 } || UnexpectedError;
 
@@ -1468,6 +1478,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
             .BUSY => return error.DeviceBusy,
             .OPNOTSUPP => return error.FileLocksNotSupported,
             .AGAIN => return error.WouldBlock,
+            .TXTBSY => return error.FileBusy,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1533,32 +1544,6 @@ pub fn execveZ(
     child_argv: [*:null]const ?[*:0]const u8,
     envp: [*:null]const ?[*:0]const u8,
 ) ExecveError {
-    if (comptime builtin.target.isDarwin()) {
-        // Darwin gets its own branch because it has BADEXEC and BADARCH
-        // which are beyond posix.
-        switch (errno(system.execve(path, child_argv, envp))) {
-            .SUCCESS => unreachable,
-            .FAULT => unreachable,
-            .@"2BIG" => return error.SystemResources,
-            .MFILE => return error.ProcessFdQuotaExceeded,
-            .NAMETOOLONG => return error.NameTooLong,
-            .NFILE => return error.SystemFdQuotaExceeded,
-            .NOMEM => return error.SystemResources,
-            .ACCES => return error.AccessDenied,
-            .PERM => return error.AccessDenied,
-            .INVAL => return error.InvalidExe,
-            .NOEXEC => return error.InvalidExe,
-            .BADEXEC => return error.InvalidExe,
-            .BADARCH => return error.InvalidExe,
-            .IO => return error.FileSystem,
-            .LOOP => return error.FileSystem,
-            .ISDIR => return error.IsDir,
-            .NOENT => return error.FileNotFound,
-            .NOTDIR => return error.NotDir,
-            .TXTBSY => return error.FileBusy,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
     switch (errno(system.execve(path, child_argv, envp))) {
         .SUCCESS => unreachable,
         .FAULT => unreachable,
@@ -1577,7 +1562,18 @@ pub fn execveZ(
         .NOENT => return error.FileNotFound,
         .NOTDIR => return error.NotDir,
         .TXTBSY => return error.FileBusy,
-        else => |err| return unexpectedErrno(err),
+        else => |err| switch (builtin.os.tag) {
+            .macos, .ios, .tvos, .watchos => switch (err) {
+                .BADEXEC => return error.InvalidExe,
+                .BADARCH => return error.InvalidExe,
+                else => return unexpectedErrno(err),
+            },
+            .linux, .solaris => switch (err) {
+                .LIBBAD => return error.InvalidExe,
+                else => return unexpectedErrno(err),
+            },
+            else => return unexpectedErrno(err),
+        },
     }
 }
 
@@ -2908,7 +2904,7 @@ pub fn isCygwinPty(handle: fd_t) bool {
     if (windows.kernel32.GetFileInformationByHandleEx(
         handle,
         windows.FileNameInfo,
-        @ptrCast(*c_void, &name_info_bytes),
+        @ptrCast(*anyopaque, &name_info_bytes),
         name_info_bytes.len,
     ) == 0) {
         return false;
@@ -4240,9 +4236,9 @@ pub const SysCtlError = error{
 
 pub fn sysctl(
     name: []const c_int,
-    oldp: ?*c_void,
+    oldp: ?*anyopaque,
     oldlenp: ?*usize,
-    newp: ?*c_void,
+    newp: ?*anyopaque,
     newlen: usize,
 ) SysCtlError!void {
     if (builtin.os.tag == .wasi) {
@@ -4265,9 +4261,9 @@ pub fn sysctl(
 
 pub fn sysctlbynameZ(
     name: [*:0]const u8,
-    oldp: ?*c_void,
+    oldp: ?*anyopaque,
     oldlenp: ?*usize,
-    newp: ?*c_void,
+    newp: ?*anyopaque,
     newlen: usize,
 ) SysCtlError!void {
     if (builtin.os.tag == .wasi) {
@@ -4577,7 +4573,8 @@ pub const FlockError = error{
     FileLocksNotSupported,
 } || UnexpectedError;
 
-/// Depending on the operating system `flock` may or may not interact with `fcntl` locks made by other processes.
+/// Depending on the operating system `flock` may or may not interact with
+/// `fcntl` locks made by other processes.
 pub fn flock(fd: fd_t, operation: i32) FlockError!void {
     while (true) {
         const rc = system.flock(fd, operation);
@@ -4650,6 +4647,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         const fd = openZ(pathname, flags, 0) catch |err| switch (err) {
             error.FileLocksNotSupported => unreachable,
             error.WouldBlock => unreachable,
+            error.FileBusy => unreachable, // not asking for write permissions
             else => |e| return e,
         };
         defer close(fd);
@@ -4803,12 +4801,12 @@ pub fn dl_iterate_phdr(
 
     if (builtin.link_libc) {
         switch (system.dl_iterate_phdr(struct {
-            fn callbackC(info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int {
+            fn callbackC(info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int {
                 const context_ptr = @ptrCast(*const Context, @alignCast(@alignOf(*const Context), data));
                 callback(info, size, context_ptr.*) catch |err| return @errorToInt(err);
                 return 0;
             }
-        }.callbackC, @intToPtr(?*c_void, @ptrToInt(&context)))) {
+        }.callbackC, @intToPtr(?*anyopaque, @ptrToInt(&context)))) {
             0 => return,
             else => |err| return @errSetCast(Error, @intToError(@intCast(u16, err))), // TODO don't hardcode u16
         }
@@ -4970,7 +4968,11 @@ pub fn toPosixPath(file_path: []const u8) ![MAX_PATH_BYTES - 1:0]u8 {
 /// if this happens the fix is to add the error code to the corresponding
 /// switch expression, possibly introduce a new error in the error set, and
 /// send a patch to Zig.
-pub const unexpected_error_tracing = builtin.mode == .Debug;
+/// The self-hosted compiler is not fully capable of handle the related code.
+/// Until then, unexpected error tracing is disabled for the self-hosted compiler.
+/// TODO remove this once self-hosted is capable enough to handle printing and
+/// stack trace dumping.
+pub const unexpected_error_tracing = !builtin.zig_is_stage2 and builtin.mode == .Debug;
 
 pub const UnexpectedError = error{
     /// The Operating System returned an undocumented error code.

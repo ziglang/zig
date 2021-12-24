@@ -477,7 +477,7 @@ const Writer = struct {
                 try self.writeSrc(stream, src);
             },
 
-            .builtin_extern, .c_define, .wasm_memory_grow => {
+            .builtin_extern, .c_define, .wasm_memory_grow, .prefetch => {
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
                 const src: LazySrcLoc = .{ .node_offset = inst_data.node };
                 try self.writeInstRef(stream, inst_data.lhs);

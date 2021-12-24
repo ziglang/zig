@@ -75,6 +75,7 @@ bool target_allows_addr_zero(const ZigTarget *target);
 bool target_has_valgrind_support(const ZigTarget *target);
 bool target_os_is_darwin(Os os);
 bool target_is_wasm(const ZigTarget *target);
+bool target_is_bpf(const ZigTarget *target);
 bool target_is_riscv(const ZigTarget *target);
 bool target_is_sparc(const ZigTarget *target);
 bool target_is_android(const ZigTarget *target);

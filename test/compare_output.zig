@@ -179,7 +179,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addC("expose function pointer to C land",
         \\const c = @cImport(@cInclude("stdlib.h"));
         \\
-        \\export fn compare_fn(a: ?*const c_void, b: ?*const c_void) c_int {
+        \\export fn compare_fn(a: ?*const anyopaque, b: ?*const anyopaque) c_int {
         \\    const a_int = @ptrCast(*const i32, @alignCast(@alignOf(i32), a));
         \\    const b_int = @ptrCast(*const i32, @alignCast(@alignOf(i32), b));
         \\    if (a_int.* < b_int.*) {
@@ -194,7 +194,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub export fn main() c_int {
         \\    var array = [_]u32{ 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
         \\
-        \\    c.qsort(@ptrCast(?*c_void, &array), @intCast(c_ulong, array.len), @sizeOf(i32), compare_fn);
+        \\    c.qsort(@ptrCast(?*anyopaque, &array), @intCast(c_ulong, array.len), @sizeOf(i32), compare_fn);
         \\
         \\    for (array) |item, i| {
         \\        if (item != i) {
@@ -362,8 +362,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    const stdout = io.getStdOut().writer();
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
-            \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
-            \\        const arg = try arg_or_err;
+            \\    while (try args_it.next(allocator)) |arg| : (index += 1) {
             \\        try stdout.print("{}: {s}\n", .{index, arg});
             \\    }
             \\}
@@ -401,8 +400,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    const stdout = io.getStdOut().writer();
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
-            \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
-            \\        const arg = try arg_or_err;
+            \\    while (try args_it.next(allocator)) |arg| : (index += 1) {
             \\        try stdout.print("{}: {s}\n", .{index, arg});
             \\    }
             \\}

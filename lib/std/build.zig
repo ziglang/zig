@@ -320,6 +320,14 @@ pub const Builder = struct {
         return LibExeObjStep.createTest(self, "test", root_src.dupe(self));
     }
 
+    pub fn addTestExe(self: *Builder, name: []const u8, root_src: []const u8) *LibExeObjStep {
+        return LibExeObjStep.createTestExe(self, name, .{ .path = root_src });
+    }
+
+    pub fn addTestExeSource(self: *Builder, name: []const u8, root_src: FileSource) *LibExeObjStep {
+        return LibExeObjStep.createTestExe(self, name, root_src.dupe(self));
+    }
+
     pub fn addAssemble(self: *Builder, name: []const u8, src: []const u8) *LibExeObjStep {
         return addAssembleSource(self, name, .{ .path = src });
     }
@@ -950,7 +958,7 @@ pub const Builder = struct {
         warn("\n", .{});
     }
 
-    fn spawnChildEnvMap(self: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) !void {
+    pub fn spawnChildEnvMap(self: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) !void {
         if (self.verbose) {
             printCmd(cwd, argv);
         }
@@ -1454,10 +1462,15 @@ pub const LibExeObjStep = struct {
     frameworks: BufSet,
     verbose_link: bool,
     verbose_cc: bool,
-    emit_llvm_ir: bool = false,
-    emit_asm: bool = false,
-    emit_bin: bool = true,
-    emit_docs: bool = false,
+    emit_analysis: EmitOption = .default,
+    emit_asm: EmitOption = .default,
+    emit_bin: EmitOption = .default,
+    emit_docs: EmitOption = .default,
+    emit_implib: EmitOption = .default,
+    emit_llvm_bc: EmitOption = .default,
+    emit_llvm_ir: EmitOption = .default,
+    // Lots of things depend on emit_h having a consistent path,
+    // so it is not an EmitOption for now.
     emit_h: bool = false,
     bundle_compiler_rt: ?bool = null,
     single_threaded: ?bool = null,
@@ -1466,6 +1479,8 @@ pub const LibExeObjStep = struct {
     sanitize_thread: bool,
     rdynamic: bool,
     import_memory: bool = false,
+    import_table: bool = false,
+    export_table: bool = false,
     initial_memory: ?u64 = null,
     max_memory: ?u64 = null,
     global_base: ?u64 = null,
@@ -1478,6 +1493,8 @@ pub const LibExeObjStep = struct {
     test_evented_io: bool = false,
     code_model: std.builtin.CodeModel = .default,
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
+    /// Symbols to be exported when compiling to wasm
+    export_symbol_names: []const []const u8 = &.{},
 
     root_src: ?FileSource,
     out_h_filename: []const u8,
@@ -1522,6 +1539,9 @@ pub const LibExeObjStep = struct {
     /// Permit read-only relocations in read-only segments. Disallowed by default.
     link_z_notext: bool = false,
 
+    /// (Darwin) Install name for the dylib
+    install_name: ?[]const u8 = null,
+
     /// Position Independent Code
     force_pic: ?bool = null,
 
@@ -1544,7 +1564,7 @@ pub const LibExeObjStep = struct {
     output_h_path_source: GeneratedFile,
     output_pdb_path_source: GeneratedFile,
 
-    const LinkObject = union(enum) {
+    pub const LinkObject = union(enum) {
         static_path: FileSource,
         other_step: *LibExeObjStep,
         system_lib: []const u8,
@@ -1553,25 +1573,42 @@ pub const LibExeObjStep = struct {
         c_source_files: *CSourceFiles,
     };
 
-    const IncludeDir = union(enum) {
+    pub const IncludeDir = union(enum) {
         raw_path: []const u8,
         raw_path_system: []const u8,
         other_step: *LibExeObjStep,
     };
 
-    const Kind = enum {
+    pub const Kind = enum {
         exe,
         lib,
         obj,
         @"test",
+        test_exe,
     };
 
-    const SharedLibKind = union(enum) {
+    pub const SharedLibKind = union(enum) {
         versioned: std.builtin.Version,
         unversioned: void,
     };
 
     pub const Linkage = enum { dynamic, static };
+
+    pub const EmitOption = union(enum) {
+        default: void,
+        no_emit: void,
+        emit: void,
+        emit_to: []const u8,
+
+        fn getArg(self: @This(), b: *Builder, arg_name: []const u8) ?[]const u8 {
+            return switch (self) {
+                .no_emit => b.fmt("-fno-{s}", .{arg_name}),
+                .default => null,
+                .emit => b.fmt("-f{s}", .{arg_name}),
+                .emit_to => |path| b.fmt("-f{s}={s}", .{ arg_name, path }),
+            };
+        }
+    };
 
     pub fn createSharedLibrary(builder: *Builder, name: []const u8, root_src: ?FileSource, kind: SharedLibKind) *LibExeObjStep {
         return initExtraArgs(builder, name, root_src, .lib, .dynamic, switch (kind) {
@@ -1594,6 +1631,10 @@ pub const LibExeObjStep = struct {
 
     pub fn createTest(builder: *Builder, name: []const u8, root_src: FileSource) *LibExeObjStep {
         return initExtraArgs(builder, name, root_src, .@"test", null, null);
+    }
+
+    pub fn createTestExe(builder: *Builder, name: []const u8, root_src: FileSource) *LibExeObjStep {
+        return initExtraArgs(builder, name, root_src, .test_exe, null, null);
     }
 
     fn initExtraArgs(
@@ -1677,7 +1718,7 @@ pub const LibExeObjStep = struct {
             .output_mode = switch (self.kind) {
                 .lib => .Lib,
                 .obj => .Obj,
-                .exe, .@"test" => .Exe,
+                .exe, .@"test", .test_exe => .Exe,
             },
             .link_mode = if (self.linkage) |some| @as(std.builtin.LinkMode, switch (some) {
                 .dynamic => .Dynamic,
@@ -1741,13 +1782,17 @@ pub const LibExeObjStep = struct {
     /// Creates a `RunStep` with an executable built with `addExecutable`.
     /// Add command line arguments with `addArg`.
     pub fn run(exe: *LibExeObjStep) *RunStep {
-        assert(exe.kind == .exe);
+        assert(exe.kind == .exe or exe.kind == .test_exe);
 
         // It doesn't have to be native. We catch that if you actually try to run it.
         // Consider that this is declarative; the run step may not be run unless a user
         // option is supplied.
         const run_step = RunStep.create(exe.builder, exe.builder.fmt("run {s}", .{exe.step.name}));
         run_step.addArtifactArg(exe);
+
+        if (exe.kind == .test_exe) {
+            run_step.addArg(exe.builder.zig_exe);
+        }
 
         if (exe.vcpkg_bin_path) |path| {
             run_step.addPathDir(path);
@@ -1795,7 +1840,7 @@ pub const LibExeObjStep = struct {
     pub fn producesPdbFile(self: *LibExeObjStep) bool {
         if (!self.target.isWindows() and !self.target.isUefi()) return false;
         if (self.strip) return false;
-        return self.isDynamicLibrary() or self.kind == .exe;
+        return self.isDynamicLibrary() or self.kind == .exe or self.kind == .test_exe;
     }
 
     pub fn linkLibC(self: *LibExeObjStep) void {
@@ -1955,12 +2000,12 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn setNamePrefix(self: *LibExeObjStep, text: []const u8) void {
-        assert(self.kind == .@"test");
+        assert(self.kind == .@"test" or self.kind == .test_exe);
         self.name_prefix = self.builder.dupe(text);
     }
 
     pub fn setFilter(self: *LibExeObjStep, text: ?[]const u8) void {
-        assert(self.kind == .@"test");
+        assert(self.kind == .@"test" or self.kind == .test_exe);
         self.filter = if (text) |t| self.builder.dupe(t) else null;
     }
 
@@ -2031,7 +2076,7 @@ pub const LibExeObjStep = struct {
     /// Returns the generated header file.
     /// This function can only be called for libraries or object files which have `emit_h` set.
     pub fn getOutputHSource(self: *LibExeObjStep) FileSource {
-        assert(self.kind != .exe);
+        assert(self.kind != .exe and self.kind != .test_exe and self.kind != .@"test");
         assert(self.emit_h);
         return FileSource{ .generated = &self.output_h_path_source };
     }
@@ -2201,6 +2246,7 @@ pub const LibExeObjStep = struct {
             .exe => "build-exe",
             .obj => "build-obj",
             .@"test" => "test",
+            .test_exe => "test",
         };
         zig_args.append(cmd) catch unreachable;
 
@@ -2247,8 +2293,9 @@ pub const LibExeObjStep = struct {
                 .static_path => |static_path| try zig_args.append(static_path.getPath(builder)),
 
                 .other_step => |other| switch (other.kind) {
-                    .exe => unreachable,
-                    .@"test" => unreachable,
+                    .exe => @panic("Cannot link with an executable build artifact"),
+                    .test_exe => @panic("Cannot link with an executable build artifact"),
+                    .@"test" => @panic("Cannot link with a test"),
                     .obj => {
                         try zig_args.append(other.getOutputSource().getPath(builder));
                     },
@@ -2348,10 +2395,14 @@ pub const LibExeObjStep = struct {
         if (builder.verbose_cc or self.verbose_cc) zig_args.append("--verbose-cc") catch unreachable;
         if (builder.verbose_llvm_cpu_features) zig_args.append("--verbose-llvm-cpu-features") catch unreachable;
 
-        if (self.emit_llvm_ir) try zig_args.append("-femit-llvm-ir");
-        if (self.emit_asm) try zig_args.append("-femit-asm");
-        if (!self.emit_bin) try zig_args.append("-fno-emit-bin");
-        if (self.emit_docs) try zig_args.append("-femit-docs");
+        if (self.emit_analysis.getArg(builder, "emit-analysis")) |arg| try zig_args.append(arg);
+        if (self.emit_asm.getArg(builder, "emit-asm")) |arg| try zig_args.append(arg);
+        if (self.emit_bin.getArg(builder, "emit-bin")) |arg| try zig_args.append(arg);
+        if (self.emit_docs.getArg(builder, "emit-docs")) |arg| try zig_args.append(arg);
+        if (self.emit_implib.getArg(builder, "emit-implib")) |arg| try zig_args.append(arg);
+        if (self.emit_llvm_bc.getArg(builder, "emit-llvm-bc")) |arg| try zig_args.append(arg);
+        if (self.emit_llvm_ir.getArg(builder, "emit-llvm-ir")) |arg| try zig_args.append(arg);
+
         if (self.emit_h) try zig_args.append("-femit-h");
 
         if (self.strip) {
@@ -2405,6 +2456,16 @@ pub const LibExeObjStep = struct {
                 zig_args.append("--version") catch unreachable;
                 zig_args.append(builder.fmt("{}", .{version})) catch unreachable;
             }
+
+            if (self.target.isDarwin()) {
+                const install_name = self.install_name orelse builder.fmt("@rpath/{s}{s}{s}", .{
+                    self.target.libPrefix(),
+                    self.name,
+                    self.target.dynamicLibSuffix(),
+                });
+                try zig_args.append("-install_name");
+                try zig_args.append(install_name);
+            }
         }
 
         if (self.bundle_compiler_rt) |x| {
@@ -2450,6 +2511,12 @@ pub const LibExeObjStep = struct {
         if (self.import_memory) {
             try zig_args.append("--import-memory");
         }
+        if (self.import_table) {
+            try zig_args.append("--import-table");
+        }
+        if (self.export_table) {
+            try zig_args.append("--export-table");
+        }
         if (self.initial_memory) |initial_memory| {
             try zig_args.append(builder.fmt("--initial-memory={d}", .{initial_memory}));
         }
@@ -2466,6 +2533,9 @@ pub const LibExeObjStep = struct {
         }
         if (self.wasi_exec_model) |model| {
             try zig_args.append(builder.fmt("-mexec-model={s}", .{@tagName(model)}));
+        }
+        for (self.export_symbol_names) |symbol_name| {
+            try zig_args.append(builder.fmt("--export={s}", .{symbol_name}));
         }
 
         if (!self.target.isNative()) {
@@ -2517,89 +2587,93 @@ pub const LibExeObjStep = struct {
             try zig_args.append(builder.pathFromRoot(version_script));
         }
 
-        if (self.exec_cmd_args) |exec_cmd_args| {
-            for (exec_cmd_args) |cmd_arg| {
-                if (cmd_arg) |arg| {
-                    try zig_args.append("--test-cmd");
-                    try zig_args.append(arg);
-                } else {
-                    try zig_args.append("--test-cmd-bin");
+        if (self.kind == .@"test") {
+            if (self.exec_cmd_args) |exec_cmd_args| {
+                for (exec_cmd_args) |cmd_arg| {
+                    if (cmd_arg) |arg| {
+                        try zig_args.append("--test-cmd");
+                        try zig_args.append(arg);
+                    } else {
+                        try zig_args.append("--test-cmd-bin");
+                    }
                 }
-            }
-        } else {
-            const need_cross_glibc = self.target.isGnuLibC() and self.is_linking_libc;
+            } else {
+                const need_cross_glibc = self.target.isGnuLibC() and self.is_linking_libc;
 
-            switch (self.builder.host.getExternalExecutor(self.target_info, .{
-                .qemu_fixes_dl = need_cross_glibc and builder.glibc_runtimes_dir != null,
-                .link_libc = self.is_linking_libc,
-            })) {
-                .native => {},
-                .bad_dl, .bad_os_or_cpu => {
-                    try zig_args.append("--test-no-exec");
-                },
-                .rosetta => if (builder.enable_rosetta) {
-                    try zig_args.append("--test-cmd-bin");
-                } else {
-                    try zig_args.append("--test-no-exec");
-                },
-                .qemu => |bin_name| ok: {
-                    if (builder.enable_qemu) qemu: {
-                        const glibc_dir_arg = if (need_cross_glibc)
-                            builder.glibc_runtimes_dir orelse break :qemu
-                        else
-                            null;
+                switch (self.builder.host.getExternalExecutor(self.target_info, .{
+                    .qemu_fixes_dl = need_cross_glibc and builder.glibc_runtimes_dir != null,
+                    .link_libc = self.is_linking_libc,
+                })) {
+                    .native => {},
+                    .bad_dl, .bad_os_or_cpu => {
+                        try zig_args.append("--test-no-exec");
+                    },
+                    .rosetta => if (builder.enable_rosetta) {
+                        try zig_args.append("--test-cmd-bin");
+                    } else {
+                        try zig_args.append("--test-no-exec");
+                    },
+                    .qemu => |bin_name| ok: {
+                        if (builder.enable_qemu) qemu: {
+                            const glibc_dir_arg = if (need_cross_glibc)
+                                builder.glibc_runtimes_dir orelse break :qemu
+                            else
+                                null;
+                            try zig_args.append("--test-cmd");
+                            try zig_args.append(bin_name);
+                            if (glibc_dir_arg) |dir| {
+                                // TODO look into making this a call to `linuxTriple`. This
+                                // needs the directory to be called "i686" rather than
+                                // "i386" which is why we do it manually here.
+                                const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
+                                const cpu_arch = self.target.getCpuArch();
+                                const os_tag = self.target.getOsTag();
+                                const abi = self.target.getAbi();
+                                const cpu_arch_name: []const u8 = if (cpu_arch == .i386)
+                                    "i686"
+                                else
+                                    @tagName(cpu_arch);
+                                const full_dir = try std.fmt.allocPrint(builder.allocator, fmt_str, .{
+                                    dir, cpu_arch_name, @tagName(os_tag), @tagName(abi),
+                                });
+
+                                try zig_args.append("--test-cmd");
+                                try zig_args.append("-L");
+                                try zig_args.append("--test-cmd");
+                                try zig_args.append(full_dir);
+                            }
+                            try zig_args.append("--test-cmd-bin");
+                            break :ok;
+                        }
+                        try zig_args.append("--test-no-exec");
+                    },
+                    .wine => |bin_name| if (builder.enable_wine) {
                         try zig_args.append("--test-cmd");
                         try zig_args.append(bin_name);
-                        if (glibc_dir_arg) |dir| {
-                            // TODO look into making this a call to `linuxTriple`. This
-                            // needs the directory to be called "i686" rather than
-                            // "i386" which is why we do it manually here.
-                            const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
-                            const cpu_arch = self.target.getCpuArch();
-                            const os_tag = self.target.getOsTag();
-                            const abi = self.target.getAbi();
-                            const cpu_arch_name: []const u8 = if (cpu_arch == .i386)
-                                "i686"
-                            else
-                                @tagName(cpu_arch);
-                            const full_dir = try std.fmt.allocPrint(builder.allocator, fmt_str, .{
-                                dir, cpu_arch_name, @tagName(os_tag), @tagName(abi),
-                            });
-
-                            try zig_args.append("--test-cmd");
-                            try zig_args.append("-L");
-                            try zig_args.append("--test-cmd");
-                            try zig_args.append(full_dir);
-                        }
                         try zig_args.append("--test-cmd-bin");
-                        break :ok;
-                    }
-                    try zig_args.append("--test-no-exec");
-                },
-                .wine => |bin_name| if (builder.enable_wine) {
-                    try zig_args.append("--test-cmd");
-                    try zig_args.append(bin_name);
-                    try zig_args.append("--test-cmd-bin");
-                } else {
-                    try zig_args.append("--test-no-exec");
-                },
-                .wasmtime => |bin_name| if (builder.enable_wasmtime) {
-                    try zig_args.append("--test-cmd");
-                    try zig_args.append(bin_name);
-                    try zig_args.append("--test-cmd");
-                    try zig_args.append("--dir=.");
-                    try zig_args.append("--test-cmd-bin");
-                } else {
-                    try zig_args.append("--test-no-exec");
-                },
-                .darling => |bin_name| if (builder.enable_darling) {
-                    try zig_args.append("--test-cmd");
-                    try zig_args.append(bin_name);
-                    try zig_args.append("--test-cmd-bin");
-                } else {
-                    try zig_args.append("--test-no-exec");
-                },
+                    } else {
+                        try zig_args.append("--test-no-exec");
+                    },
+                    .wasmtime => |bin_name| if (builder.enable_wasmtime) {
+                        try zig_args.append("--test-cmd");
+                        try zig_args.append(bin_name);
+                        try zig_args.append("--test-cmd");
+                        try zig_args.append("--dir=.");
+                        try zig_args.append("--test-cmd-bin");
+                    } else {
+                        try zig_args.append("--test-no-exec");
+                    },
+                    .darling => |bin_name| if (builder.enable_darling) {
+                        try zig_args.append("--test-cmd");
+                        try zig_args.append(bin_name);
+                        try zig_args.append("--test-cmd-bin");
+                    } else {
+                        try zig_args.append("--test-no-exec");
+                    },
+                }
             }
+        } else if (self.kind == .test_exe) {
+            try zig_args.append("--test-no-exec");
         }
 
         for (self.packages.items) |pkg| {
@@ -2852,13 +2926,13 @@ pub const InstallArtifactStep = struct {
             .step = Step.init(.install_artifact, builder.fmt("install {s}", .{artifact.step.name}), builder.allocator, make),
             .artifact = artifact,
             .dest_dir = artifact.override_dest_dir orelse switch (artifact.kind) {
-                .obj => unreachable,
-                .@"test" => unreachable,
-                .exe => InstallDir{ .bin = {} },
+                .obj => @panic("Cannot install a .obj build artifact."),
+                .@"test" => @panic("Cannot install a test build artifact, use addTestExe instead."),
+                .exe, .test_exe => InstallDir{ .bin = {} },
                 .lib => InstallDir{ .lib = {} },
             },
             .pdb_dir = if (artifact.producesPdbFile()) blk: {
-                if (artifact.kind == .exe) {
+                if (artifact.kind == .exe or artifact.kind == .test_exe) {
                     break :blk InstallDir{ .bin = {} };
                 } else {
                     break :blk InstallDir{ .lib = {} };
@@ -2898,6 +2972,10 @@ pub const InstallArtifactStep = struct {
         try builder.updateFile(self.artifact.getOutputSource().getPath(builder), full_dest_path);
         if (self.artifact.isDynamicLibrary() and self.artifact.version != null and self.artifact.target.wantSharedLibSymLinks()) {
             try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
+        }
+        if (self.artifact.isDynamicLibrary() and self.artifact.target.isWindows() and self.artifact.emit_implib != .no_emit) {
+            const full_implib_path = builder.getInstallPath(self.dest_dir, self.artifact.out_lib_filename);
+            try builder.updateFile(self.artifact.getOutputLibSource().getPath(builder), full_implib_path);
         }
         if (self.pdb_dir) |pdb_dir| {
             const full_pdb_path = builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);

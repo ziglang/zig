@@ -1,6 +1,5 @@
 /* Copyright (C) 2011-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
-   Contributed by Chris Metcalf <cmetcalf@tilera.com>, 2011.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -24,18 +23,8 @@
 #include <bits/types.h>
 #include <bits/wordsize.h>
 
-/* 64-bit libc uses the kernel's 'struct statfs', accessed via the
-   statfs() syscall; 32-bit libc uses the kernel's 'struct statfs64'
-   and accesses it via the statfs64() syscall.  All the various
-   APIs offered by libc use the kernel shape for their struct statfs
-   structure; the only difference is that 32-bit programs not
-   using __USE_FILE_OFFSET64 only see the low 32 bits of some
-   of the fields (the __fsblkcnt_t and __fsfilcnt_t fields).  */
-
 #if defined __USE_FILE_OFFSET64
 # define __field64(type, type64, name) type64 name
-#elif __WORDSIZE == 64 || __STATFS_MATCHES_STATFS64
-# define __field64(type, type64, name) type name
 #elif __BYTE_ORDER == __LITTLE_ENDIAN
 # define __field64(type, type64, name) \
   type name __attribute__((__aligned__ (__alignof__ (type64)))); int __##name##_pad

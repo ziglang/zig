@@ -48,6 +48,8 @@ enum
 #define MS_MANDLOCK	MS_MANDLOCK
   MS_DIRSYNC = 128,		/* Directory modifications are synchronous.  */
 #define MS_DIRSYNC	MS_DIRSYNC
+  MS_NOSYMFOLLOW = 256,		/* Do not follow symlinks.  */
+#define MS_NOSYMFOLLOW	MS_NOSYMFOLLOW
   MS_NOATIME = 1024,		/* Do not update access times.  */
 #define MS_NOATIME	MS_NOATIME
   MS_NODIRATIME = 2048,		/* Do not update directory access times.  */

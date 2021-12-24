@@ -845,14 +845,14 @@ pub fn flock(fd: fd_t, operation: i32) usize {
     return syscall2(.flock, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, operation)));
 }
 
-var vdso_clock_gettime = @ptrCast(?*const c_void, init_vdso_clock_gettime);
+var vdso_clock_gettime = @ptrCast(?*const anyopaque, init_vdso_clock_gettime);
 
 // We must follow the C calling convention when we call into the VDSO
 const vdso_clock_gettime_ty = fn (i32, *timespec) callconv(.C) usize;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     if (@hasDecl(VDSO, "CGT_SYM")) {
-        const ptr = @atomicLoad(?*const c_void, &vdso_clock_gettime, .Unordered);
+        const ptr = @atomicLoad(?*const anyopaque, &vdso_clock_gettime, .Unordered);
         if (ptr) |fn_ptr| {
             const f = @ptrCast(vdso_clock_gettime_ty, fn_ptr);
             const rc = f(clk_id, tp);
@@ -866,10 +866,10 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
 }
 
 fn init_vdso_clock_gettime(clk: i32, ts: *timespec) callconv(.C) usize {
-    const ptr = @intToPtr(?*const c_void, vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM));
+    const ptr = @intToPtr(?*const anyopaque, vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
-    @atomicStore(?*const c_void, &vdso_clock_gettime, ptr, .Monotonic);
+    @atomicStore(?*const anyopaque, &vdso_clock_gettime, ptr, .Monotonic);
     // Call into the VDSO if available
     if (ptr) |fn_ptr| {
         const f = @ptrCast(vdso_clock_gettime_ty, fn_ptr);
@@ -1180,7 +1180,7 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
     return syscall4(.sendmmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msgvec), vlen, flags);
 }
 
-pub fn connect(fd: i32, addr: *const c_void, len: socklen_t) usize {
+pub fn connect(fd: i32, addr: *const anyopaque, len: socklen_t) usize {
     if (native_arch == .i386) {
         return socketcall(SC.connect, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), len });
     }
@@ -1452,7 +1452,7 @@ pub fn io_uring_enter(fd: i32, to_submit: u32, min_complete: u32, flags: u32, si
     return syscall6(.io_uring_enter, @bitCast(usize, @as(isize, fd)), to_submit, min_complete, flags, @ptrToInt(sig), NSIG / 8);
 }
 
-pub fn io_uring_register(fd: i32, opcode: IORING_REGISTER, arg: ?*const c_void, nr_args: u32) usize {
+pub fn io_uring_register(fd: i32, opcode: IORING_REGISTER, arg: ?*const anyopaque, nr_args: u32) usize {
     return syscall4(.io_uring_register, @bitCast(usize, @as(isize, fd)), @enumToInt(opcode), @ptrToInt(arg), nr_args);
 }
 
@@ -3045,7 +3045,7 @@ pub const k_sigaction = switch (native_arch) {
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
     pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -3342,7 +3342,7 @@ else
 
 pub const sigval = extern union {
     int: i32,
-    ptr: *c_void,
+    ptr: *anyopaque,
 };
 
 const siginfo_fields_union = extern union {
@@ -3368,12 +3368,12 @@ const siginfo_fields_union = extern union {
         },
     },
     sigfault: extern struct {
-        addr: *c_void,
+        addr: *anyopaque,
         addr_lsb: i16,
         first: extern union {
             addr_bnd: extern struct {
-                lower: *c_void,
-                upper: *c_void,
+                lower: *anyopaque,
+                upper: *anyopaque,
             },
             pkey: u32,
         },
@@ -3383,7 +3383,7 @@ const siginfo_fields_union = extern union {
         fd: i32,
     },
     sigsys: extern struct {
-        call_addr: *c_void,
+        call_addr: *anyopaque,
         syscall: i32,
         native_arch: u32,
     },
@@ -3576,6 +3576,12 @@ pub const IORING_OP = enum(u8) {
     PROVIDE_BUFFERS,
     REMOVE_BUFFERS,
     TEE,
+    SHUTDOWN,
+    RENAMEAT,
+    UNLINKAT,
+    MKDIRAT,
+    SYMLINKAT,
+    LINKAT,
 
     _,
 };

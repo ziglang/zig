@@ -9,8 +9,8 @@ const rusage = std.c.rusage;
 extern "c" fn __errno() *c_int;
 pub const _errno = __errno;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int;
-pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
+pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn _lwp_self() lwpid_t;
 
@@ -56,7 +56,7 @@ pub const getrusage = __getrusage50;
 pub extern "c" fn __libc_thr_yield() c_int;
 pub const sched_yield = __libc_thr_yield;
 
-pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
+pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 
 pub const pthread_mutex_t = extern struct {
     magic: u32 = 0x33330003,
@@ -65,7 +65,7 @@ pub const pthread_mutex_t = extern struct {
     owner: usize = 0,
     waiters: ?*u8 = null,
     recursed: u32 = 0,
-    spare2: ?*c_void = null,
+    spare2: ?*anyopaque = null,
 };
 
 pub const pthread_cond_t = extern struct {
@@ -74,7 +74,7 @@ pub const pthread_cond_t = extern struct {
     waiters_first: ?*u8 = null,
     waiters_last: ?*u8 = null,
     mutex: ?*pthread_mutex_t = null,
-    private: ?*c_void = null,
+    private: ?*anyopaque = null,
 };
 
 pub const pthread_rwlock_t = extern struct {
@@ -90,7 +90,7 @@ pub const pthread_rwlock_t = extern struct {
     wblocked_last: ?*u8 = null,
     nreaders: c_uint = 0,
     owner: std.c.pthread_t = null,
-    private: ?*c_void = null,
+    private: ?*anyopaque = null,
 };
 
 const pthread_spin_t = switch (builtin.cpu.arch) {
@@ -113,12 +113,12 @@ const padded_pthread_spin_t = switch (builtin.cpu.arch) {
 pub const pthread_attr_t = extern struct {
     pta_magic: u32,
     pta_flags: i32,
-    pta_private: ?*c_void,
+    pta_private: ?*anyopaque,
 };
 
 pub const sem_t = ?*opaque {};
 
-pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8, arg: ?*c_void) E;
+pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8, arg: ?*anyopaque) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
 
 pub const blkcnt_t = i64;
@@ -156,9 +156,9 @@ pub const RTLD = struct {
     pub const NODELETE = 0x01000;
     pub const NOLOAD = 0x02000;
 
-    pub const NEXT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*c_void, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*c_void, @bitCast(usize, @as(isize, -3)));
+    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
+    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
+    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
 };
 
 pub const dl_phdr_info = extern struct {
@@ -249,7 +249,7 @@ pub const msghdr = extern struct {
     msg_iovlen: i32,
 
     /// ancillary data
-    msg_control: ?*c_void,
+    msg_control: ?*anyopaque,
 
     /// ancillary data buffer len
     msg_controllen: socklen_t,
@@ -272,7 +272,7 @@ pub const msghdr_const = extern struct {
     msg_iovlen: i32,
 
     /// ancillary data
-    msg_control: ?*c_void,
+    msg_control: ?*anyopaque,
 
     /// ancillary data buffer len
     msg_controllen: socklen_t,
@@ -556,7 +556,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const REMAPDUP = 0x0004;
@@ -962,7 +962,7 @@ pub const SIG = struct {
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
     pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
@@ -977,7 +977,7 @@ pub const Sigaction = extern struct {
 
 pub const sigval_t = extern union {
     int: i32,
-    ptr: ?*c_void,
+    ptr: ?*anyopaque,
 };
 
 pub const siginfo_t = extern union {
@@ -1005,7 +1005,7 @@ pub const _ksiginfo = extern struct {
             stime: clock_t,
         },
         fault: extern struct {
-            addr: ?*c_void,
+            addr: ?*anyopaque,
             trap: i32,
             trap2: i32,
             trap3: i32,

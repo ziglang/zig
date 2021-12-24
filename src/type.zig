@@ -68,7 +68,7 @@ pub const Type = extern union {
             .error_set_merged,
             => return .ErrorSet,
 
-            .c_void, .@"opaque" => return .Opaque,
+            .anyopaque, .@"opaque" => return .Opaque,
             .bool => return .Bool,
             .void => return .Void,
             .type => return .Type,
@@ -123,6 +123,7 @@ pub const Type = extern union {
             .empty_struct_literal,
             .@"struct",
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             => return .Struct,
@@ -626,7 +627,7 @@ pub const Type = extern union {
                 }
 
                 if (a.tag() == .error_set_inferred and b.tag() == .error_set_inferred) {
-                    return a.castTag(.error_set_inferred).?.data.func == b.castTag(.error_set_inferred).?.data.func;
+                    return a.castTag(.error_set_inferred).?.data == b.castTag(.error_set_inferred).?.data;
                 }
 
                 if (a.tag() == .error_set_single and b.tag() == .error_set_single) {
@@ -763,7 +764,7 @@ pub const Type = extern union {
             .c_longlong,
             .c_ulonglong,
             .c_longdouble,
-            .c_void,
+            .anyopaque,
             .f16,
             .f32,
             .f64,
@@ -798,6 +799,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             .type_info,
@@ -902,10 +904,11 @@ pub const Type = extern union {
                 });
             },
             .error_set_merged => {
-                const names = self.castTag(.error_set_merged).?.data;
-                const duped_names = try allocator.alloc([]const u8, names.len);
-                for (duped_names) |*name, i| {
-                    name.* = try allocator.dupe(u8, names[i]);
+                const names = self.castTag(.error_set_merged).?.data.keys();
+                var duped_names = Module.ErrorSet.NameMap{};
+                try duped_names.ensureTotalCapacity(allocator, names.len);
+                for (names) |name| {
+                    duped_names.putAssumeCapacityNoClobber(name, .{});
                 }
                 return Tag.error_set_merged.create(allocator, duped_names);
             },
@@ -963,7 +966,7 @@ pub const Type = extern union {
                 .c_longlong,
                 .c_ulonglong,
                 .c_longdouble,
-                .c_void,
+                .anyopaque,
                 .f16,
                 .f32,
                 .f64,
@@ -1027,6 +1030,7 @@ pub const Type = extern union {
                 .float_mode => return writer.writeAll("std.builtin.FloatMode"),
                 .reduce_op => return writer.writeAll("std.builtin.ReduceOp"),
                 .call_options => return writer.writeAll("std.builtin.CallOptions"),
+                .prefetch_options => return writer.writeAll("std.builtin.PrefetchOptions"),
                 .export_options => return writer.writeAll("std.builtin.ExportOptions"),
                 .extern_options => return writer.writeAll("std.builtin.ExternOptions"),
                 .type_info => return writer.writeAll("std.builtin.TypeInfo"),
@@ -1169,7 +1173,7 @@ pub const Type = extern union {
                         .C => try writer.writeAll("[*c]"),
                         .Slice => try writer.writeAll("[]"),
                     }
-                    if (payload.@"align" != 0) {
+                    if (payload.@"align" != 0 or payload.host_size != 0) {
                         try writer.print("align({d}", .{payload.@"align"});
 
                         if (payload.bit_offset != 0) {
@@ -1203,7 +1207,7 @@ pub const Type = extern union {
                     return writer.print("(inferred error set of {s})", .{func.owner_decl.name});
                 },
                 .error_set_merged => {
-                    const names = ty.castTag(.error_set_merged).?.data;
+                    const names = ty.castTag(.error_set_merged).?.data.keys();
                     try writer.writeAll("error{");
                     for (names) |name, i| {
                         if (i != 0) try writer.writeByte(',');
@@ -1254,7 +1258,7 @@ pub const Type = extern union {
             .c_longlong,
             .c_ulonglong,
             .c_longdouble,
-            .c_void,
+            .anyopaque,
             .f16,
             .f32,
             .f64,
@@ -1318,6 +1322,7 @@ pub const Type = extern union {
             .float_mode => return "FloatMode",
             .reduce_op => return "ReduceOp",
             .call_options => return "CallOptions",
+            .prefetch_options => return "PrefetchOptions",
             .export_options => return "ExportOptions",
             .extern_options => return "ExternOptions",
             .type_info => return "TypeInfo",
@@ -1361,7 +1366,7 @@ pub const Type = extern union {
             .f32,
             .f64,
             .f128,
-            .c_void,
+            .anyopaque,
             .bool,
             .void,
             .anyerror,
@@ -1376,6 +1381,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             .manyptr_u8,
@@ -1471,7 +1477,7 @@ pub const Type = extern union {
             .c_longlong => return Value.initTag(.c_longlong_type),
             .c_ulonglong => return Value.initTag(.c_ulonglong_type),
             .c_longdouble => return Value.initTag(.c_longdouble_type),
-            .c_void => return Value.initTag(.c_void_type),
+            .anyopaque => return Value.initTag(.anyopaque_type),
             .f16 => return Value.initTag(.f16_type),
             .f32 => return Value.initTag(.f32_type),
             .f64 => return Value.initTag(.f64_type),
@@ -1502,6 +1508,7 @@ pub const Type = extern union {
             .float_mode => return Value.initTag(.float_mode_type),
             .reduce_op => return Value.initTag(.reduce_op_type),
             .call_options => return Value.initTag(.call_options_type),
+            .prefetch_options => return Value.initTag(.prefetch_options_type),
             .export_options => return Value.initTag(.export_options_type),
             .extern_options => return Value.initTag(.extern_options_type),
             .type_info => return Value.initTag(.type_info_type),
@@ -1511,8 +1518,6 @@ pub const Type = extern union {
         }
     }
 
-    /// For structs and unions, if the type does not have their fields resolved
-    /// this will return `false`.
     pub fn hasCodeGenBits(self: Type) bool {
         return switch (self.tag()) {
             .u1,
@@ -1563,10 +1568,12 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             .@"anyframe",
             .anyframe_T,
+            .anyopaque,
             .@"opaque",
             .single_const_pointer,
             .single_mut_pointer,
@@ -1592,6 +1599,7 @@ pub const Type = extern union {
                 if (struct_obj.known_has_bits) {
                     return true;
                 }
+                assert(struct_obj.haveFieldTypes());
                 for (struct_obj.fields.values()) |value| {
                     if (value.ty.hasCodeGenBits())
                         return true;
@@ -1614,6 +1622,7 @@ pub const Type = extern union {
             },
             .@"union" => {
                 const union_obj = self.castTag(.@"union").?.data;
+                assert(union_obj.haveFieldTypes());
                 for (union_obj.fields.values()) |value| {
                     if (value.ty.hasCodeGenBits())
                         return true;
@@ -1626,6 +1635,7 @@ pub const Type = extern union {
                 if (union_obj.tag_ty.hasCodeGenBits()) {
                     return true;
                 }
+                assert(union_obj.haveFieldTypes());
                 for (union_obj.fields.values()) |value| {
                     if (value.ty.hasCodeGenBits())
                         return true;
@@ -1646,7 +1656,6 @@ pub const Type = extern union {
                 return payload.error_set.hasCodeGenBits() or payload.payload.hasCodeGenBits();
             },
 
-            .c_void,
             .void,
             .type,
             .comptime_int,
@@ -1750,6 +1759,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             => return 1,
@@ -1857,24 +1867,57 @@ pub const Type = extern union {
 
             .@"struct" => {
                 const fields = self.structFields();
-                if (self.castTag(.@"struct")) |payload| {
+                const is_packed = if (self.castTag(.@"struct")) |payload| p: {
                     const struct_obj = payload.data;
                     assert(struct_obj.status == .have_layout);
-                    const is_packed = struct_obj.layout == .Packed;
-                    if (is_packed) @panic("TODO packed structs");
+                    break :p struct_obj.layout == .Packed;
+                } else false;
+
+                if (!is_packed) {
+                    var big_align: u32 = 0;
+                    for (fields.values()) |field| {
+                        if (!field.ty.hasCodeGenBits()) continue;
+
+                        const field_align = field.normalAlignment(target);
+                        big_align = @maximum(big_align, field_align);
+                    }
+                    return big_align;
                 }
+
+                // For packed structs, we take the maximum alignment of the backing integers.
+                comptime assert(Type.packed_struct_layout_version == 1);
                 var big_align: u32 = 0;
+                var running_bits: u16 = 0;
+
                 for (fields.values()) |field| {
                     if (!field.ty.hasCodeGenBits()) continue;
 
-                    const field_align = a: {
-                        if (field.abi_align.tag() == .abi_align_default) {
-                            break :a field.ty.abiAlignment(target);
-                        } else {
-                            break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                    const field_align = field.packedAlignment();
+                    if (field_align == 0) {
+                        running_bits += @intCast(u16, field.ty.bitSize(target));
+                    } else {
+                        if (running_bits != 0) {
+                            var int_payload: Payload.Bits = .{
+                                .base = .{ .tag = .int_unsigned },
+                                .data = running_bits,
+                            };
+                            const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                            const int_align = int_ty.abiAlignment(target);
+                            big_align = @maximum(big_align, int_align);
+                            running_bits = 0;
                         }
+                        big_align = @maximum(big_align, field_align);
+                    }
+                }
+
+                if (running_bits != 0) {
+                    var int_payload: Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = running_bits,
                     };
-                    big_align = @maximum(big_align, field_align);
+                    const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                    const int_align = int_ty.abiAlignment(target);
+                    big_align = @maximum(big_align, int_align);
                 }
                 return big_align;
             },
@@ -1889,7 +1932,7 @@ pub const Type = extern union {
 
             .empty_struct,
             .void,
-            .c_void,
+            .anyopaque,
             => return 0,
 
             .empty_struct_literal,
@@ -1929,11 +1972,12 @@ pub const Type = extern union {
             .var_args_param => unreachable,
             .generic_poison => unreachable,
             .call_options => unreachable, // missing call to resolveTypeFields
+            .prefetch_options => unreachable, // missing call to resolveTypeFields
             .export_options => unreachable, // missing call to resolveTypeFields
             .extern_options => unreachable, // missing call to resolveTypeFields
             .type_info => unreachable, // missing call to resolveTypeFields
 
-            .c_void,
+            .anyopaque,
             .type,
             .comptime_int,
             .comptime_float,
@@ -2022,11 +2066,6 @@ pub const Type = extern union {
             .c_const_pointer,
             .c_mut_pointer,
             .pointer,
-            => {
-                if (!self.elemType().hasCodeGenBits()) return 0;
-                return @divExact(target.cpu.arch.ptrBitWidth(), 8);
-            },
-
             .manyptr_u8,
             .manyptr_const_u8,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
@@ -2107,7 +2146,7 @@ pub const Type = extern union {
             .fn_naked_noreturn_no_args => unreachable, // represents machine code; not a pointer
             .fn_ccc_void_no_args => unreachable, // represents machine code; not a pointer
             .function => unreachable, // represents machine code; not a pointer
-            .c_void => unreachable,
+            .anyopaque => unreachable,
             .void => unreachable,
             .type => unreachable,
             .comptime_int => unreachable,
@@ -2269,6 +2308,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             .type_info,
@@ -2511,37 +2551,6 @@ pub const Type = extern union {
             return true;
         }
         return ty.ptrInfo().data.@"allowzero";
-    }
-
-    /// For pointer-like optionals, it returns the pointer type. For pointers,
-    /// the type is returned unmodified.
-    pub fn ptrOrOptionalPtrTy(ty: Type, buf: *Payload.ElemType) ?Type {
-        if (isPtrLikeOptional(ty)) return ty.optionalChild(buf);
-        switch (ty.tag()) {
-            .c_const_pointer,
-            .c_mut_pointer,
-            .single_const_pointer_to_comptime_int,
-            .single_const_pointer,
-            .single_mut_pointer,
-            .many_const_pointer,
-            .many_mut_pointer,
-            .manyptr_u8,
-            .manyptr_const_u8,
-            => return ty,
-
-            .pointer => {
-                if (ty.ptrSize() == .Slice) {
-                    return null;
-                } else {
-                    return ty;
-                }
-            },
-
-            .inferred_alloc_const => unreachable,
-            .inferred_alloc_mut => unreachable,
-
-            else => return null,
-        }
     }
 
     /// Returns true if the type is optional and would be lowered to a single pointer
@@ -2794,6 +2803,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             .type_info,
@@ -2860,6 +2870,35 @@ pub const Type = extern union {
             .error_set_inferred => ty.castTag(.error_set_inferred).?.data.is_anyerror,
             else => false,
         };
+    }
+
+    /// Returns whether ty, which must be an error set, includes an error `name`.
+    /// Might return a false negative if `ty` is an inferred error set and not fully
+    /// resolved yet.
+    pub fn errorSetHasField(ty: Type, name: []const u8) bool {
+        if (ty.isAnyError()) {
+            return true;
+        }
+
+        switch (ty.tag()) {
+            .error_set_single => {
+                const data = ty.castTag(.error_set_single).?.data;
+                return std.mem.eql(u8, data, name);
+            },
+            .error_set_inferred => {
+                const data = ty.castTag(.error_set_inferred).?.data;
+                return data.errors.contains(name);
+            },
+            .error_set_merged => {
+                const data = ty.castTag(.error_set_merged).?.data;
+                return data.contains(name);
+            },
+            .error_set => {
+                const data = ty.castTag(.error_set).?.data;
+                return data.names.contains(name);
+            },
+            else => unreachable,
+        }
     }
 
     /// Asserts the type is an array or vector.
@@ -3272,7 +3311,7 @@ pub const Type = extern union {
             .const_slice_u8,
             .const_slice,
             .mut_slice,
-            .c_void,
+            .anyopaque,
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
@@ -3294,6 +3333,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             .type_info,
@@ -3351,11 +3391,14 @@ pub const Type = extern union {
                     return null;
                 }
             },
-            .@"union" => {
-                return null; // TODO
-            },
-            .union_tagged => {
-                return null; // TODO
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
+                const tag_val = union_obj.tag_ty.onePossibleValue() orelse return null;
+                const only_field = union_obj.fields.values()[0];
+                const val_val = only_field.ty.onePossibleValue() orelse return null;
+                _ = tag_val;
+                _ = val_val;
+                return Value.initTag(.empty_struct_value);
             },
 
             .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
@@ -3502,6 +3545,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             => @panic("TODO resolve std.builtin types"),
@@ -3577,6 +3621,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             => @panic("TODO resolve std.builtin types"),
@@ -3623,30 +3668,70 @@ pub const Type = extern union {
     }
 
     /// Supports structs and unions.
+    /// For packed structs, it returns the byte offset of the containing integer.
     pub fn structFieldOffset(ty: Type, index: usize, target: Target) u64 {
         switch (ty.tag()) {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 assert(struct_obj.status == .have_layout);
                 const is_packed = struct_obj.layout == .Packed;
-                if (is_packed) @panic("TODO packed structs");
+                if (!is_packed) {
+                    var offset: u64 = 0;
+                    var big_align: u32 = 0;
+                    for (struct_obj.fields.values()) |field, i| {
+                        if (!field.ty.hasCodeGenBits()) continue;
 
+                        const field_align = field.normalAlignment(target);
+                        big_align = @maximum(big_align, field_align);
+                        offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+                        if (i == index) return offset;
+                        offset += field.ty.abiSize(target);
+                    }
+                    offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+                    return offset;
+                }
+
+                comptime assert(Type.packed_struct_layout_version == 1);
                 var offset: u64 = 0;
                 var big_align: u32 = 0;
+                var running_bits: u16 = 0;
                 for (struct_obj.fields.values()) |field, i| {
                     if (!field.ty.hasCodeGenBits()) continue;
 
-                    const field_align = a: {
-                        if (field.abi_align.tag() == .abi_align_default) {
-                            break :a field.ty.abiAlignment(target);
-                        } else {
-                            break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                    const field_align = field.packedAlignment();
+                    if (field_align == 0) {
+                        if (i == index) return offset;
+                        running_bits += @intCast(u16, field.ty.bitSize(target));
+                    } else {
+                        big_align = @maximum(big_align, field_align);
+
+                        if (running_bits != 0) {
+                            var int_payload: Payload.Bits = .{
+                                .base = .{ .tag = .int_unsigned },
+                                .data = running_bits,
+                            };
+                            const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                            const int_align = int_ty.abiAlignment(target);
+                            big_align = @maximum(big_align, int_align);
+                            offset = std.mem.alignForwardGeneric(u64, offset, int_align);
+                            offset += int_ty.abiSize(target);
+                            running_bits = 0;
                         }
+                        offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+                        if (i == index) return offset;
+                        offset += field.ty.abiSize(target);
+                    }
+                }
+                if (running_bits != 0) {
+                    var int_payload: Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = running_bits,
                     };
-                    big_align = @maximum(big_align, field_align);
-                    offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-                    if (i == index) return offset;
-                    offset += field.ty.abiSize(target);
+                    const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                    const int_align = int_ty.abiAlignment(target);
+                    big_align = @maximum(big_align, int_align);
+                    offset = std.mem.alignForwardGeneric(u64, offset, int_align);
+                    offset += int_ty.abiSize(target);
                 }
                 offset = std.mem.alignForwardGeneric(u64, offset, big_align);
                 return offset;
@@ -3701,6 +3786,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             .type_info,
@@ -3741,6 +3827,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             .type_info,
@@ -3801,6 +3888,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .prefetch_options,
             .export_options,
             .extern_options,
             => @panic("TODO resolve std.builtin types"),
@@ -3843,7 +3931,7 @@ pub const Type = extern union {
         f32,
         f64,
         f128,
-        c_void,
+        anyopaque,
         bool,
         void,
         type,
@@ -3862,6 +3950,7 @@ pub const Type = extern union {
         float_mode,
         reduce_op,
         call_options,
+        prefetch_options,
         export_options,
         extern_options,
         type_info,
@@ -3957,7 +4046,7 @@ pub const Type = extern union {
                 .f32,
                 .f64,
                 .f128,
-                .c_void,
+                .anyopaque,
                 .bool,
                 .void,
                 .type,
@@ -3989,6 +4078,7 @@ pub const Type = extern union {
                 .float_mode,
                 .reduce_op,
                 .call_options,
+                .prefetch_options,
                 .export_options,
                 .extern_options,
                 .type_info,
@@ -4129,57 +4219,14 @@ pub const Type = extern union {
             pub const base_tag = Tag.error_set_merged;
 
             base: Payload = Payload{ .tag = base_tag },
-            data: []const []const u8,
+            data: Module.ErrorSet.NameMap,
         };
 
         pub const ErrorSetInferred = struct {
             pub const base_tag = Tag.error_set_inferred;
 
             base: Payload = Payload{ .tag = base_tag },
-            data: Data,
-
-            pub const Data = struct {
-                func: *Module.Fn,
-                /// Direct additions to the inferred error set via `return error.Foo;`.
-                map: std.StringHashMapUnmanaged(void),
-                /// Other functions with inferred error sets which this error set includes.
-                functions: std.AutoHashMapUnmanaged(*Module.Fn, void),
-                is_anyerror: bool,
-
-                pub fn addErrorSet(self: *Data, gpa: Allocator, err_set_ty: Type) !void {
-                    switch (err_set_ty.tag()) {
-                        .error_set => {
-                            const names = err_set_ty.castTag(.error_set).?.data.names();
-                            for (names) |name| {
-                                try self.map.put(gpa, name, {});
-                            }
-                        },
-                        .error_set_single => {
-                            const name = err_set_ty.castTag(.error_set_single).?.data;
-                            try self.map.put(gpa, name, {});
-                        },
-                        .error_set_inferred => {
-                            const func = err_set_ty.castTag(.error_set_inferred).?.data.func;
-                            try self.functions.put(gpa, func, {});
-                            var it = func.owner_decl.ty.fnReturnType().errorUnionSet()
-                                .castTag(.error_set_inferred).?.data.map.iterator();
-                            while (it.next()) |entry| {
-                                try self.map.put(gpa, entry.key_ptr.*, {});
-                            }
-                        },
-                        .error_set_merged => {
-                            const names = err_set_ty.castTag(.error_set_merged).?.data;
-                            for (names) |name| {
-                                try self.map.put(gpa, name, {});
-                            }
-                        },
-                        .anyerror => {
-                            self.is_anyerror = true;
-                        },
-                        else => unreachable,
-                    }
-                }
-            };
+            data: *Module.Fn.InferredErrorSet,
         };
 
         pub const Pointer = struct {
@@ -4376,6 +4423,10 @@ pub const Type = extern union {
             else => return Tag.int_unsigned.create(arena, bits),
         };
     }
+
+    /// This is only used for comptime asserts. Bump this number when you make a change
+    /// to packed struct layout to find out all the places in the codebase you need to edit!
+    pub const packed_struct_layout_version = 1;
 };
 
 pub const CType = enum {

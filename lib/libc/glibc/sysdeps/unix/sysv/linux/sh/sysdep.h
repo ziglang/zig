@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Ulrich Drepper, <drepper@gnu.ai.mit.edu>, August 1995.
    Changed by Kaz Kojima, <kkojima@rr.iij4u.or.jp>.
@@ -287,19 +287,8 @@
 	register long int r1 asm ("%r1") = (long int) (_arg6);		      \
 	register long int r2 asm ("%r2") = (long int) (_arg7)
 
-#undef INLINE_SYSCALL
-#define INLINE_SYSCALL(name, nr, args...) \
-  ({                                                                          \
-    unsigned int resultvar = INTERNAL_SYSCALL (name, , nr, args);             \
-    if (__builtin_expect (INTERNAL_SYSCALL_ERROR_P (resultvar, ), 0))         \
-      {                                                                       \
-	__set_errno (INTERNAL_SYSCALL_ERRNO (resultvar, ));                   \
-	resultvar = 0xffffffff;                                               \
-      }                                                                       \
-    (int) resultvar; })
-
 #undef INTERNAL_SYSCALL
-#define INTERNAL_SYSCALL(name, err, nr, args...) \
+#define INTERNAL_SYSCALL(name, nr, args...) \
   ({									      \
     unsigned long int resultvar;					      \
     register long int r3 asm ("%r3") = SYS_ify (name);			      \
@@ -313,7 +302,7 @@
     (int) resultvar; })
 
 /* The _NCS variant allows non-constant syscall numbers.  */
-#define INTERNAL_SYSCALL_NCS(name, err, nr, args...) \
+#define INTERNAL_SYSCALL_NCS(name, nr, args...) \
   ({									      \
     unsigned long int resultvar;					      \
     register long int r3 asm ("%r3") = (name);				      \
@@ -325,16 +314,6 @@
 		  : "memory", "t");					      \
 									      \
     (int) resultvar; })
-
-#undef INTERNAL_SYSCALL_DECL
-#define INTERNAL_SYSCALL_DECL(err) do { } while (0)
-
-#undef INTERNAL_SYSCALL_ERROR_P
-#define INTERNAL_SYSCALL_ERROR_P(val, err) \
-  ((unsigned int) (val) >= 0xfffff001u)
-
-#undef INTERNAL_SYSCALL_ERRNO
-#define INTERNAL_SYSCALL_ERRNO(val, err)        (-(val))
 
 #endif	/* __ASSEMBLER__ */
 

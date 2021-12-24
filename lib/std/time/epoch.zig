@@ -154,7 +154,7 @@ pub const EpochDay = struct {
 pub const DaySeconds = struct {
     secs: u17, // max is 24*60*60 = 86400
 
-    /// the number of hours past the start of the day (0 to 11)
+    /// the number of hours past the start of the day (0 to 23)
     pub fn getHoursIntoDay(self: DaySeconds) u5 {
         return @intCast(u5, @divTrunc(self.secs, 3600));
     }

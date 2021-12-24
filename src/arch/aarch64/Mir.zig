@@ -81,6 +81,10 @@ pub const Inst = struct {
         movz,
         /// No Operation
         nop,
+        /// Pseudo-instruction: Pop multiple registers
+        pop_regs,
+        /// Psuedo-instruction: Push multiple registers
+        push_regs,
         /// Return from subroutine
         ret,
         /// Store Pair of Registers
@@ -137,6 +141,10 @@ pub const Inst = struct {
         ///
         /// Used by e.g. blr
         reg: Register,
+        /// Multiple registers
+        ///
+        /// Used by e.g. pop_regs
+        reg_list: u32,
         /// Another instruction and a condition
         ///
         /// Used by e.g. b_cond

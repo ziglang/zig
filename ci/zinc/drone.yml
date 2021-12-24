@@ -40,31 +40,7 @@ steps:
       from_secret: AWS_ACCESS_KEY_ID
     AWS_SECRET_ACCESS_KEY:
       from_secret: AWS_SECRET_ACCESS_KEY
-  commands:
-  - ./ci/zinc/linux_package.sh
-
----
-kind: pipeline
-type: docker
-name: on-master-success
-platform:
-  os: linux
-  arch: amd64
-workspace:
-  path: /workspace
-depends_on:
-- x86_64-linux
-trigger:
-  branch:
-  - master
-  event:
-  - push
-
-steps:
-- name: on-master-sucess
-  image: ci/debian-amd64:11.1-2
-  environment:
     SRHT_OAUTH_TOKEN:
       from_secret: SRHT_OAUTH_TOKEN
   commands:
-  - ./ci/zinc/linux_on_master_sucess.sh
+  - ./ci/zinc/linux_package.sh

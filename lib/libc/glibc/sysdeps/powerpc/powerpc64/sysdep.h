@@ -1,5 +1,5 @@
 /* Assembly macros for 64-bit PowerPC.
-   Copyright (C) 2002-2020 Free Software Foundation, Inc.
+   Copyright (C) 2002-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -17,6 +17,7 @@
    <https://www.gnu.org/licenses/>.  */
 
 #include <sysdeps/powerpc/sysdep.h>
+#include <tls.h>
 
 #ifdef __ASSEMBLER__
 
@@ -263,9 +264,82 @@ LT_LABELSUFFIX(name,_name_end): ; \
   TRACEBACK_MASK(name,mask);	\
   END_2(name)
 
-#define DO_CALL(syscall) \
-    li 0,syscall; \
+/* We will allocate a new frame to save LR and the non-volatile register used to
+   read the TCB when checking for scv support on syscall code.  We actually just
+   need the minimum frame size plus room for 1 reg (8 bytes).  But the ABI
+   mandates stack frames should be aligned at 16 Bytes, so we end up allocating
+   a bit more space then what will actually be used.  */
+#define SCV_FRAME_SIZE (FRAME_MIN_SIZE+16)
+#define SCV_FRAME_NVOLREG_SAVE FRAME_MIN_SIZE
+
+/* Allocate frame and save register */
+#define NVOLREG_SAVE \
+    stdu r1,-SCV_FRAME_SIZE(r1); \
+    std r31,SCV_FRAME_NVOLREG_SAVE(r1); \
+    cfi_adjust_cfa_offset(SCV_FRAME_SIZE);
+
+/* Restore register and destroy frame */
+#define NVOLREG_RESTORE	\
+    ld r31,SCV_FRAME_NVOLREG_SAVE(r1); \
+    addi r1,r1,SCV_FRAME_SIZE; \
+    cfi_adjust_cfa_offset(-SCV_FRAME_SIZE);
+
+/* Check PPC_FEATURE2_SCV bit from hwcap2 in the TCB.  If it is not set, scv is
+   not available, then go to JUMPFALSE (label given by the macro's caller).  We
+   save the value we read from the TCB in a non-volatile register so we can
+   reuse it later when exiting from the syscall in PSEUDO_RET.  Note that for
+   the static case we need an extra check to guarantee the thread pointer has
+   already been initialized, otherwise we may try to access an invalid address
+   if a syscall is called before the TLS has been setup.  */
+    .macro CHECK_SCV_SUPPORT REG JUMPFALSE
+
+#ifndef SHARED
+    /* Check if thread pointer has already been setup.  */
+    cmpdi r13,0
+    beq \JUMPFALSE
+#endif
+
+    /* Read PPC_FEATURE2_SCV from TCB and store it in REG */
+    ld \REG,TCB_HWCAP(PT_THREAD_POINTER)
+    andis. \REG,\REG,PPC_FEATURE2_SCV>>16
+
+    beq \JUMPFALSE
+    .endm
+
+#if !defined(USE_PPC_SCV) || IS_IN(rtld)
+# define DO_CALL(syscall) \
+    li r0,syscall; \
+    DO_CALL_SC
+#else
+/* Before doing the syscall, check if we can use scv.  scv is supported by P9
+   and later with Linux v5.9 and later.  If so, use it.  Otherwise, fallback to
+   sc.  We use a non-volatile register to save hwcap2 from the TCB, so we need
+   to save its content beforehand.  */
+# define DO_CALL(syscall) \
+    li r0,syscall; \
+    NVOLREG_SAVE; \
+    CHECK_SCV_SUPPORT r31 0f; \
+    DO_CALL_SCV; \
+    b 1f; \
+0:  DO_CALL_SC; \
+1:
+#endif /* !defined(USE_PPC_SCV) || IS_IN(rtld) */
+
+/* DO_CALL_SC and DO_CALL_SCV expect the syscall number to be in r0.  */
+#define DO_CALL_SC \
     sc
+
+#define DO_CALL_SCV \
+    mflr r9; \
+    std r9,FRAME_LR_SAVE(r1); \
+    cfi_offset(lr,FRAME_LR_SAVE); \
+    .machine "push"; \
+    .machine "power9"; \
+    scv 0; \
+    .machine "pop"; \
+    ld r9,FRAME_LR_SAVE(r1); \
+    mtlr r9; \
+    cfi_restore(lr);
 
 /* ppc64 is always PIC */
 #undef JUMPTARGET
@@ -278,7 +352,7 @@ LT_LABELSUFFIX(name,_name_end): ; \
 
 #ifdef SHARED
 #define TAIL_CALL_SYSCALL_ERROR \
-    b JUMPTARGET(__syscall_error)
+    b JUMPTARGET (NOTOC (__syscall_error))
 #else
 /* Static version might be linked into a large app with a toc exceeding
    64k.  We can't put a toc adjusting stub on a plain branch, so can't
@@ -304,9 +378,33 @@ LT_LABELSUFFIX(name,_name_end): ; \
     .endif
 #endif
 
-#define PSEUDO_RET \
-    bnslr+; \
+#if !defined(USE_PPC_SCV) || IS_IN(rtld)
+# define PSEUDO_RET \
+    RET_SC; \
     TAIL_CALL_SYSCALL_ERROR
+#else
+/* This should only be called after a DO_CALL.  In such cases, r31 contains the
+   value of PPC_FEATURE2_SCV read from hwcap2 by CHECK_SCV_SUPPORT.  If it is
+   set, we know we have entered the kernel using scv, so handle the return code
+   accordingly.  */
+# define PSEUDO_RET \
+    cmpdi cr5,r31,0; \
+    NVOLREG_RESTORE; \
+    beq cr5,0f; \
+    RET_SCV; \
+    b 1f; \
+0:  RET_SC; \
+1:  TAIL_CALL_SYSCALL_ERROR
+#endif /* !defined(USE_PPC_SCV) || IS_IN(rtld) */
+
+#define RET_SCV \
+    li r9,-4095; \
+    cmpld r3,r9; \
+    bltlr+; \
+    neg r3,r3;
+
+#define RET_SC \
+    bnslr+;
 
 #define ret PSEUDO_RET
 
@@ -319,8 +417,15 @@ LT_LABELSUFFIX(name,_name_end): ; \
   ENTRY (name);						\
   DO_CALL (SYS_ify (syscall_name))
 
-#define PSEUDO_RET_NOERRNO \
+#if !defined(USE_PPC_SCV) || IS_IN(rtld)
+# define PSEUDO_RET_NOERRNO \
     blr
+#else
+/* This should only be called after a DO_CALL.  */
+# define PSEUDO_RET_NOERRNO \
+    NVOLREG_RESTORE; \
+    blr
+#endif /* !defined(USE_PPC_SCV) || IS_IN(rtld) */
 
 #define ret_NOERRNO PSEUDO_RET_NOERRNO
 
@@ -333,8 +438,15 @@ LT_LABELSUFFIX(name,_name_end): ; \
   ENTRY (name);						\
   DO_CALL (SYS_ify (syscall_name))
 
-#define PSEUDO_RET_ERRVAL \
+#if !defined(USE_PPC_SCV) || IS_IN(rtld)
+# define PSEUDO_RET_ERRVAL \
     blr
+#else
+/* This should only be called after a DO_CALL.  */
+# define PSEUDO_RET_ERRVAL \
+    NVOLREG_RESTORE; \
+    blr
+#endif /* !defined(USE_PPC_SCV) || IS_IN(rtld) */
 
 #define ret_ERRVAL PSEUDO_RET_ERRVAL
 
@@ -364,6 +476,12 @@ LT_LABELSUFFIX(name,_name_end): ; \
 # define __GLRO(rOUT, var, offset)		\
 	ld	rOUT,.LC__ ## var@toc(r2);	\
 	lwz	rOUT,0(rOUT)
+#endif
+
+#ifdef USE_PPC64_NOTOC
+# define NOTOC(l) l@notoc
+#else
+# define NOTOC(l) l
 #endif
 
 #else /* !__ASSEMBLER__ */

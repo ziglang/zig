@@ -36,5 +36,13 @@ s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "
 # Publish manifest.
 s3cmd put -P --add-header="cache-control: max-age=0, must-revalidate" "$MANIFEST" "s3://ziglang.org/builds/$ARCH-linux-$VERSION.json"
 
+# Avoid leaking oauth token.
+set +x
+
+cd $WORKSPACE
+./ci/srht/on_master_success "$VERSION" "$SRHT_OAUTH_TOKEN"
+
+set -x
+
 # Explicit exit helps show last command duration.
 exit

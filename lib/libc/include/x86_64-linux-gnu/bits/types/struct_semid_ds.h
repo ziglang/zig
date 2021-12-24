@@ -23,6 +23,9 @@
 /* Data structure describing a set of semaphores.  */
 struct semid_ds
 {
+#ifdef __USE_TIME_BITS64
+# include <bits/types/struct_semid64_ds_helper.h>
+#else
   struct ipc_perm sem_perm;   /* operation permission struct */
   __time_t sem_otime;  /* last semop() time */
   __syscall_ulong_t __sem_otime_high;
@@ -31,4 +34,5 @@ struct semid_ds
   __syscall_ulong_t sem_nsems;    /* number of semaphores in set */
   __syscall_ulong_t __glibc_reserved3;
   __syscall_ulong_t __glibc_reserved4;
+#endif
 };

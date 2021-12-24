@@ -72,6 +72,22 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "Hello, World!\n",
         );
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    assert(add(1, 2, 3, 4, 5, 6) == 21);
+            \\}
+            \\
+            \\fn add(a: u32, b: u32, c: u32, d: u32, e: u32, f: u32) u32 {
+            \\    return a + b + c + d + e + f;
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+        ,
+            "",
+        );
     }
 
     {
@@ -465,12 +481,12 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        const j = i + d; // 110
             \\        const k = i + j; // 210
             \\        const l = k + c; // 217
-            \\        const m = l * d; // 2170     
-            \\        const n = m + e; // 2184     
-            \\        const o = n * f; // 52416    
-            \\        const p = o + g; // 52454    
-            \\        const q = p * h; // 3252148  
-            \\        const r = q + i; // 3252248  
+            \\        const m = l * d; // 2170
+            \\        const n = m + e; // 2184
+            \\        const o = n * f; // 52416
+            \\        const p = o + g; // 52454
+            \\        const q = p * h; // 3252148
+            \\        const r = q + i; // 3252248
             \\        const s = r * j; // 357747280
             \\        const t = s + k; // 357747490
             \\        break :blk t;
@@ -529,6 +545,96 @@ pub fn addCases(ctx: *TestContext) !void {
             \\31415926
             \\
             ,
+        );
+    }
+
+    {
+        var case = ctx.exe("save compare flags", linux_arm);
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    foo(2, 1);
+            \\}
+            \\
+            \\fn foo(x: u32, y: u32) void {
+            \\    const b = x > y;
+            \\    assert(b);
+            \\    assert(b);
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+        ,
+            "",
+        );
+    }
+
+    {
+        var case = ctx.exe("optionals", linux_arm);
+        case.addCompareOutput(
+            \\var x: u32 = 42;
+            \\
+            \\pub fn main() void {
+            \\    var p: ?*u32 = null;
+            \\    assert(p == null);
+            \\    p = &x;
+            \\    assert(p != null);
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+
+    {
+        var case = ctx.exe("errors", linux_arm);
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    foo() catch print();
+            \\}
+            \\
+            \\fn foo() anyerror!void {}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{r2}" ("Hello, World!\n".len),
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+        ,
+            "",
+        );
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    foo() catch print();
+            \\}
+            \\
+            \\fn foo() anyerror!void {
+            \\    return error.Test;
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{r2}" ("Hello, World!\n".len),
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+        ,
+            "Hello, World!\n",
         );
     }
 }

@@ -1,9 +1,11 @@
-const __muloti4 = @import("muloti4.zig").__muloti4;
+const mulo = @import("mulo.zig");
 const testing = @import("std").testing;
+
+// ported from https://github.com/llvm-mirror/compiler-rt/tree/release_80/test/builtins/Unit
 
 fn test__muloti4(a: i128, b: i128, expected: i128, expected_overflow: c_int) !void {
     var overflow: c_int = undefined;
-    const x = __muloti4(a, b, &overflow);
+    const x = mulo.__muloti4(a, b, &overflow);
     try testing.expect(overflow == expected_overflow and (expected_overflow != 0 or x == expected));
 }
 
@@ -13,7 +15,6 @@ test "muloti4" {
     try test__muloti4(1, 0, 0, 0);
     try test__muloti4(0, 10, 0, 0);
     try test__muloti4(10, 0, 0, 0);
-
     try test__muloti4(0, 81985529216486895, 0, 0);
     try test__muloti4(81985529216486895, 0, 0, 0);
 
@@ -23,6 +24,18 @@ test "muloti4" {
     try test__muloti4(-10, 0, 0, 0);
     try test__muloti4(0, -81985529216486895, 0, 0);
     try test__muloti4(-81985529216486895, 0, 0, 0);
+
+    try test__muloti4(1, 1, 1, 0);
+    try test__muloti4(1, 10, 10, 0);
+    try test__muloti4(10, 1, 10, 0);
+    try test__muloti4(1, 81985529216486895, 81985529216486895, 0);
+    try test__muloti4(81985529216486895, 1, 81985529216486895, 0);
+
+    try test__muloti4(1, -1, -1, 0);
+    try test__muloti4(1, -10, -10, 0);
+    try test__muloti4(-10, 1, -10, 0);
+    try test__muloti4(1, -81985529216486895, -81985529216486895, 0);
+    try test__muloti4(-81985529216486895, 1, -81985529216486895, 0);
 
     try test__muloti4(3037000499, 3037000499, 9223372030926249001, 0);
     try test__muloti4(-3037000499, 3037000499, -9223372030926249001, 0);

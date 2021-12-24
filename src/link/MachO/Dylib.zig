@@ -9,11 +9,9 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const fat = @import("fat.zig");
-const commands = @import("commands.zig");
 
 const Allocator = mem.Allocator;
 const LibStub = @import("../tapi.zig").LibStub;
-const LoadCommand = commands.LoadCommand;
 const MachO = @import("../MachO.zig");
 
 file: fs.File,
@@ -25,7 +23,7 @@ header: ?macho.mach_header_64 = null,
 // an offset within a file if we are linking against a fat lib
 library_offset: u64 = 0,
 
-load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
+load_commands: std.ArrayListUnmanaged(macho.LoadCommand) = .{},
 
 symtab_cmd_index: ?u16 = null,
 dysymtab_cmd_index: ?u16 = null,
@@ -53,7 +51,7 @@ pub const Id = struct {
         };
     }
 
-    pub fn fromLoadCommand(allocator: Allocator, lc: commands.GenericCommandWithData(macho.dylib_command)) !Id {
+    pub fn fromLoadCommand(allocator: Allocator, lc: macho.GenericCommandWithData(macho.dylib_command)) !Id {
         const dylib = lc.inner.dylib;
         const dylib_name = @ptrCast([*:0]const u8, lc.data[dylib.name - @sizeOf(macho.dylib_command) ..]);
         const name = try allocator.dupe(u8, mem.sliceTo(dylib_name, 0));
@@ -177,21 +175,21 @@ fn readLoadCommands(self: *Dylib, allocator: Allocator, reader: anytype, depende
 
     var i: u16 = 0;
     while (i < self.header.?.ncmds) : (i += 1) {
-        var cmd = try LoadCommand.read(allocator, reader);
+        var cmd = try macho.LoadCommand.read(allocator, reader);
         switch (cmd.cmd()) {
-            macho.LC_SYMTAB => {
+            .SYMTAB => {
                 self.symtab_cmd_index = i;
             },
-            macho.LC_DYSYMTAB => {
+            .DYSYMTAB => {
                 self.dysymtab_cmd_index = i;
             },
-            macho.LC_ID_DYLIB => {
+            .ID_DYLIB => {
                 self.id_cmd_index = i;
             },
-            macho.LC_REEXPORT_DYLIB => {
+            .REEXPORT_DYLIB => {
                 if (should_lookup_reexports) {
                     // Parse install_name to dependent dylib.
-                    var id = try Id.fromLoadCommand(allocator, cmd.Dylib);
+                    var id = try Id.fromLoadCommand(allocator, cmd.dylib);
                     try dependent_libs.writeItem(id);
                 }
             },
@@ -209,12 +207,12 @@ fn parseId(self: *Dylib, allocator: Allocator) !void {
         self.id = try Id.default(allocator, self.name);
         return;
     };
-    self.id = try Id.fromLoadCommand(allocator, self.load_commands.items[index].Dylib);
+    self.id = try Id.fromLoadCommand(allocator, self.load_commands.items[index].dylib);
 }
 
 fn parseSymbols(self: *Dylib, allocator: Allocator) !void {
     const index = self.symtab_cmd_index orelse return;
-    const symtab_cmd = self.load_commands.items[index].Symtab;
+    const symtab_cmd = self.load_commands.items[index].symtab;
 
     var symtab = try allocator.alloc(u8, @sizeOf(macho.nlist_64) * symtab_cmd.nsyms);
     defer allocator.free(symtab);

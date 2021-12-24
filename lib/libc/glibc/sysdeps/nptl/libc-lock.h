@@ -1,5 +1,5 @@
 /* libc-internal interface for mutex locks.  NPTL version.
-   Copyright (C) 1996-2020 Free Software Foundation, Inc.
+   Copyright (C) 1996-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -143,39 +143,40 @@ typedef struct __libc_lock_recursive_opaque__ __libc_lock_recursive_t;
   __libc_maybe_call (__pthread_mutex_unlock, (&(NAME).mutex), 0)
 #endif
 
-/* Note that for I/O cleanup handling we are using the old-style
-   cancel handling.  It does not have to be integrated with C++ since
-   no C++ code is called in the middle.  The old-style handling is
-   faster and the support is not going away.  */
-extern void _pthread_cleanup_push_defer (struct _pthread_cleanup_buffer *buffer,
-					 void (*routine) (void *), void *arg);
-extern void _pthread_cleanup_pop_restore (struct _pthread_cleanup_buffer *buffer,
-					  int execute);
+/* Put the unwind buffer BUFFER on the per-thread callback stack.  The
+   caller must fill BUFFER->__routine and BUFFER->__arg before calling
+   this function.  */
+void __libc_cleanup_push_defer (struct _pthread_cleanup_buffer *buffer);
+libc_hidden_proto (__libc_cleanup_push_defer)
+/* Remove BUFFER from the unwind callback stack.  The caller must invoke
+   the callback if desired.  */
+void __libc_cleanup_pop_restore (struct _pthread_cleanup_buffer *buffer);
+libc_hidden_proto (__libc_cleanup_pop_restore)
 
 /* Start critical region with cleanup.  */
-#define __libc_cleanup_region_start(DOIT, FCT, ARG) \
-  { struct _pthread_cleanup_buffer _buffer;				      \
-    int _avail;								      \
-    if (DOIT) {								      \
-      _avail = PTFAVAIL (_pthread_cleanup_push_defer);			      \
-      if (_avail) {							      \
-	__libc_ptf_call_always (_pthread_cleanup_push_defer, (&_buffer, FCT,  \
-							      ARG));	      \
-      } else {								      \
-	_buffer.__routine = (FCT);					      \
-	_buffer.__arg = (ARG);						      \
-      }									      \
-    } else {								      \
-      _avail = 0;							      \
-    }
+#define __libc_cleanup_region_start(DOIT, FCT, ARG)			\
+  {   bool _cleanup_start_doit;						\
+  struct _pthread_cleanup_buffer _buffer;				\
+  /* Non-addressable copy of FCT, so that we avoid indirect calls on	\
+     the non-unwinding path.  */					\
+  void (*_cleanup_routine) (void *) = (FCT);				\
+  _buffer.__arg = (ARG);						\
+  if (DOIT)								\
+    {									\
+      _cleanup_start_doit = true;					\
+      _buffer.__routine = _cleanup_routine;				\
+      __libc_cleanup_push_defer (&_buffer);				\
+    }									\
+  else									\
+      _cleanup_start_doit = false;
 
 /* End critical region with cleanup.  */
-#define __libc_cleanup_region_end(DOIT) \
-    if (_avail) {							      \
-      __libc_ptf_call_always (_pthread_cleanup_pop_restore, (&_buffer, DOIT));\
-    } else if (DOIT)							      \
-      _buffer.__routine (_buffer.__arg);				      \
-  }
+#define __libc_cleanup_region_end(DOIT)		\
+  if (_cleanup_start_doit)			\
+    __libc_cleanup_pop_restore (&_buffer);	\
+  if (DOIT)					\
+    _cleanup_routine (_buffer.__arg);		\
+  } /* matches __libc_cleanup_region_start */
 
 
 /* Hide the definitions which are only supposed to be used inside libc in

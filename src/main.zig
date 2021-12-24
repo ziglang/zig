@@ -430,10 +430,14 @@ const usage_build_generic =
     \\  --image-base [addr]            Set base address for executable image
     \\  -framework [name]              (Darwin) link against framework
     \\  -F[dir]                        (Darwin) add search path for frameworks
+    \\  -install_name=[value]          (Darwin) add dylib's install name
     \\  --import-memory                (WebAssembly) import memory from the environment
+    \\  --import-table                 (WebAssembly) import function table from the host environment
+    \\  --export-table                 (WebAssembly) export function table to the host environment
     \\  --initial-memory=[bytes]       (WebAssembly) initial size of the linear memory
     \\  --max-memory=[bytes]           (WebAssembly) maximum size of the linear memory
     \\  --global-base=[addr]           (WebAssembly) where to start to place global data
+    \\  --export=[value]               (WebAssembly) Force a symbol to be exported
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match filter
@@ -625,6 +629,8 @@ fn buildOutputType(
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
     var linker_import_memory: ?bool = null;
+    var linker_import_table: bool = false;
+    var linker_export_table: bool = false;
     var linker_initial_memory: ?u64 = null;
     var linker_max_memory: ?u64 = null;
     var linker_global_base: ?u64 = null;
@@ -667,6 +673,7 @@ fn buildOutputType(
     var wasi_exec_model: ?std.builtin.WasiExecModel = null;
     var enable_link_snapshots: bool = false;
     var native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null;
+    var install_name: ?[]const u8 = null;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -710,6 +717,9 @@ fn buildOutputType(
     // null means replace with the test executable binary
     var test_exec_args = std.ArrayList(?[]const u8).init(gpa);
     defer test_exec_args.deinit();
+
+    var linker_export_symbol_names = std.ArrayList([]const u8).init(gpa);
+    defer linker_export_symbol_names.deinit();
 
     // This package only exists to clean up the code parsing --pkg-begin and
     // --pkg-end flags. Use dummy values that are safe for the destroy call.
@@ -869,6 +879,10 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
                         try frameworks.append(args[i]);
+                    } else if (mem.eql(u8, arg, "-install_name")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
+                        i += 1;
+                        install_name = args[i];
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
@@ -1169,12 +1183,18 @@ fn buildOutputType(
                         }
                     } else if (mem.eql(u8, arg, "--import-memory")) {
                         linker_import_memory = true;
+                    } else if (mem.eql(u8, arg, "--import-table")) {
+                        linker_import_table = true;
+                    } else if (mem.eql(u8, arg, "--export-table")) {
+                        linker_export_table = true;
                     } else if (mem.startsWith(u8, arg, "--initial-memory=")) {
                         linker_initial_memory = parseIntSuffix(arg, "--initial-memory=".len);
                     } else if (mem.startsWith(u8, arg, "--max-memory=")) {
                         linker_max_memory = parseIntSuffix(arg, "--max-memory=".len);
                     } else if (mem.startsWith(u8, arg, "--global-base=")) {
                         linker_global_base = parseIntSuffix(arg, "--global-base=".len);
+                    } else if (mem.startsWith(u8, arg, "--export=")) {
+                        try linker_export_symbol_names.append(arg["--export=".len..]);
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
@@ -1548,12 +1568,18 @@ fn buildOutputType(
                     linker_bind_global_refs_locally = true;
                 } else if (mem.eql(u8, arg, "--import-memory")) {
                     linker_import_memory = true;
+                } else if (mem.eql(u8, arg, "--import-table")) {
+                    linker_import_table = true;
+                } else if (mem.eql(u8, arg, "--export-table")) {
+                    linker_export_table = true;
                 } else if (mem.startsWith(u8, arg, "--initial-memory=")) {
                     linker_initial_memory = parseIntSuffix(arg, "--initial-memory=".len);
                 } else if (mem.startsWith(u8, arg, "--max-memory=")) {
                     linker_max_memory = parseIntSuffix(arg, "--max-memory=".len);
                 } else if (mem.startsWith(u8, arg, "--global-base=")) {
                     linker_global_base = parseIntSuffix(arg, "--global-base=".len);
+                } else if (mem.startsWith(u8, arg, "--export=")) {
+                    try linker_export_symbol_names.append(arg["--export=".len..]);
                 } else if (mem.eql(u8, arg, "-z")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
@@ -1703,6 +1729,22 @@ fn buildOutputType(
                     }
                     emit_implib = .{ .yes = linker_args.items[i] };
                     emit_implib_arg_provided = true;
+                } else if (mem.eql(u8, arg, "-undefined")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    if (mem.eql(u8, "dynamic_lookup", linker_args.items[i])) {
+                        linker_allow_shlib_undefined = true;
+                    } else {
+                        fatal("unsupported -undefined option '{s}'", .{linker_args.items[i]});
+                    }
+                } else if (mem.eql(u8, arg, "-install_name")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    install_name = linker_args.items[i];
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
@@ -2237,11 +2279,14 @@ fn buildOutputType(
     };
     defer emit_docs_resolved.deinit();
 
-    const is_dyn_lib = switch (output_mode) {
-        .Obj, .Exe => false,
+    const is_exe_or_dyn_lib = switch (output_mode) {
+        .Obj => false,
         .Lib => (link_mode orelse .Static) == .Dynamic,
+        .Exe => true,
     };
-    const implib_eligible = is_dyn_lib and
+    // Note that cmake when targeting Windows will try to execute
+    // zig cc to make an executable and output an implib too.
+    const implib_eligible = is_exe_or_dyn_lib and
         emit_bin_loc != null and target_info.target.os.tag == .windows;
     if (!implib_eligible) {
         if (!emit_implib_arg_provided) {
@@ -2422,9 +2467,12 @@ fn buildOutputType(
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
         .linker_import_memory = linker_import_memory,
+        .linker_import_table = linker_import_table,
+        .linker_export_table = linker_export_table,
         .linker_initial_memory = linker_initial_memory,
         .linker_max_memory = linker_max_memory,
         .linker_global_base = linker_global_base,
+        .linker_export_symbol_names = linker_export_symbol_names.items,
         .linker_z_nodelete = linker_z_nodelete,
         .linker_z_notext = linker_z_notext,
         .linker_z_defs = linker_z_defs,
@@ -2473,8 +2521,32 @@ fn buildOutputType(
         .debug_compile_errors = debug_compile_errors,
         .enable_link_snapshots = enable_link_snapshots,
         .native_darwin_sdk = native_darwin_sdk,
-    }) catch |err| {
-        fatal("unable to create compilation: {s}", .{@errorName(err)});
+        .install_name = install_name,
+    }) catch |err| switch (err) {
+        error.LibCUnavailable => {
+            const target = target_info.target;
+            const triple_name = try target.zigTriple(arena);
+            std.log.err("unable to find or provide libc for target '{s}'", .{triple_name});
+
+            for (target_util.available_libcs) |t| {
+                if (t.arch == target.cpu.arch and t.os == target.os.tag) {
+                    if (t.os_ver) |os_ver| {
+                        std.log.info("zig can provide libc for related target {s}-{s}.{d}-{s}", .{
+                            @tagName(t.arch), @tagName(t.os), os_ver.major, @tagName(t.abi),
+                        });
+                    } else {
+                        std.log.info("zig can provide libc for related target {s}-{s}-{s}", .{
+                            @tagName(t.arch), @tagName(t.os), @tagName(t.abi),
+                        });
+                    }
+                }
+            }
+            process.exit(1);
+        },
+        error.ExportTableAndImportTableConflict => {
+            fatal("--import-table and --export-table may not be used together", .{});
+        },
+        else => fatal("unable to create compilation: {s}", .{@errorName(err)}),
     };
     var comp_destroyed = false;
     defer if (!comp_destroyed) comp.destroy();

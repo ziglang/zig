@@ -16,8 +16,8 @@ pub extern "c" fn pthread_set_name_np(thread: std.c.pthread_t, name: [*:0]const 
 pub extern "c" fn pthread_get_name_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) void;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 
-pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
-pub extern "c" fn malloc_usable_size(?*const c_void) usize;
+pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
+pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
 
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
@@ -35,17 +35,17 @@ pub extern "c" fn sendfile(
     flags: u32,
 ) c_int;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int;
-pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
+pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub const pthread_mutex_t = extern struct {
-    inner: ?*c_void = null,
+    inner: ?*anyopaque = null,
 };
 pub const pthread_cond_t = extern struct {
-    inner: ?*c_void = null,
+    inner: ?*anyopaque = null,
 };
 pub const pthread_rwlock_t = extern struct {
-    ptr: ?*c_void = null,
+    ptr: ?*anyopaque = null,
 };
 
 pub const pthread_attr_t = extern struct {
@@ -216,7 +216,7 @@ pub const msghdr = extern struct {
     msg_iovlen: i32,
 
     /// ancillary data
-    msg_control: ?*c_void,
+    msg_control: ?*anyopaque,
 
     /// ancillary data buffer len
     msg_controllen: socklen_t,
@@ -239,7 +239,7 @@ pub const msghdr_const = extern struct {
     msg_iovlen: i32,
 
     /// ancillary data
-    msg_control: ?*c_void,
+    msg_control: ?*anyopaque,
 
     /// ancillary data buffer len
     msg_controllen: socklen_t,
@@ -393,7 +393,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*c_void, maxInt(usize));
+    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const FIXED = 0x0010;
@@ -515,7 +515,7 @@ pub const SIG = struct {
 };
 pub const sigval = extern union {
     int: c_int,
-    ptr: ?*c_void,
+    ptr: ?*anyopaque,
 };
 
 pub const sigset_t = extern struct {
@@ -949,7 +949,7 @@ const NSIG = 32;
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
     pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const c_void) callconv(.C) void;
+    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
@@ -971,7 +971,7 @@ pub const siginfo_t = extern struct {
     pid: pid_t,
     uid: uid_t,
     status: c_int,
-    addr: ?*c_void,
+    addr: ?*anyopaque,
     value: sigval,
     reason: extern union {
         fault: extern struct {

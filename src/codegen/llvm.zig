@@ -761,21 +761,25 @@ pub const DeclGen = struct {
                     dg.context.intType(8);
                 return llvm_elem_ty.pointerType(llvm_addrspace);
             },
-            .Opaque => {
-                const gop = try dg.object.type_map.getOrPut(gpa, t);
-                if (gop.found_existing) return gop.value_ptr.*;
+            .Opaque => switch (t.tag()) {
+                .@"opaque" => {
+                    const gop = try dg.object.type_map.getOrPut(gpa, t);
+                    if (gop.found_existing) return gop.value_ptr.*;
 
-                // The Type memory is ephemeral; since we want to store a longer-lived
-                // reference, we need to copy it here.
-                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
+                    // The Type memory is ephemeral; since we want to store a longer-lived
+                    // reference, we need to copy it here.
+                    gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
-                const opaque_obj = t.castTag(.@"opaque").?.data;
-                const name = try opaque_obj.getFullyQualifiedName(gpa);
-                defer gpa.free(name);
+                    const opaque_obj = t.castTag(.@"opaque").?.data;
+                    const name = try opaque_obj.getFullyQualifiedName(gpa);
+                    defer gpa.free(name);
 
-                const llvm_struct_ty = dg.context.structCreateNamed(name);
-                gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
-                return llvm_struct_ty;
+                    const llvm_struct_ty = dg.context.structCreateNamed(name);
+                    gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
+                    return llvm_struct_ty;
+                },
+                .anyopaque => return dg.context.intType(8),
+                else => unreachable,
             },
             .Array => {
                 const elem_type = try dg.llvmType(t.childType());
@@ -840,15 +844,90 @@ pub const DeclGen = struct {
                 var llvm_field_types = try std.ArrayListUnmanaged(*const llvm.Type).initCapacity(gpa, struct_obj.fields.count());
                 defer llvm_field_types.deinit(gpa);
 
-                for (struct_obj.fields.values()) |field| {
-                    if (!field.ty.hasCodeGenBits()) continue;
-                    llvm_field_types.appendAssumeCapacity(try dg.llvmType(field.ty));
+                if (struct_obj.layout == .Packed) {
+                    try llvm_field_types.ensureUnusedCapacity(gpa, struct_obj.fields.count() * 2);
+                    const target = dg.module.getTarget();
+                    comptime assert(Type.packed_struct_layout_version == 1);
+                    var offset: u64 = 0;
+                    var big_align: u32 = 0;
+                    var running_bits: u16 = 0;
+                    for (struct_obj.fields.values()) |field| {
+                        if (!field.ty.hasCodeGenBits()) continue;
+
+                        const field_align = field.packedAlignment();
+                        if (field_align == 0) {
+                            running_bits += @intCast(u16, field.ty.bitSize(target));
+                        } else {
+                            if (running_bits != 0) {
+                                var int_payload: Type.Payload.Bits = .{
+                                    .base = .{ .tag = .int_unsigned },
+                                    .data = running_bits,
+                                };
+                                const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                                const int_align = int_ty.abiAlignment(target);
+                                big_align = @maximum(big_align, int_align);
+                                const llvm_int_ty = try dg.llvmType(int_ty);
+                                const prev_offset = offset;
+                                offset = std.mem.alignForwardGeneric(u64, offset, int_align);
+                                const padding_bytes = @intCast(c_uint, offset - prev_offset);
+                                if (padding_bytes != 0) {
+                                    const padding = dg.context.intType(8).arrayType(padding_bytes);
+                                    llvm_field_types.appendAssumeCapacity(padding);
+                                }
+                                llvm_field_types.appendAssumeCapacity(llvm_int_ty);
+                                offset += int_ty.abiSize(target);
+                                running_bits = 0;
+                            }
+                            big_align = @maximum(big_align, field_align);
+                            const prev_offset = offset;
+                            offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+                            const padding_bytes = @intCast(c_uint, offset - prev_offset);
+                            if (padding_bytes != 0) {
+                                const padding = dg.context.intType(8).arrayType(padding_bytes);
+                                llvm_field_types.appendAssumeCapacity(padding);
+                            }
+                            llvm_field_types.appendAssumeCapacity(try dg.llvmType(field.ty));
+                            offset += field.ty.abiSize(target);
+                        }
+                    }
+
+                    if (running_bits != 0) {
+                        var int_payload: Type.Payload.Bits = .{
+                            .base = .{ .tag = .int_unsigned },
+                            .data = running_bits,
+                        };
+                        const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                        const int_align = int_ty.abiAlignment(target);
+                        big_align = @maximum(big_align, int_align);
+                        const prev_offset = offset;
+                        offset = std.mem.alignForwardGeneric(u64, offset, int_align);
+                        const padding_bytes = @intCast(c_uint, offset - prev_offset);
+                        if (padding_bytes != 0) {
+                            const padding = dg.context.intType(8).arrayType(padding_bytes);
+                            llvm_field_types.appendAssumeCapacity(padding);
+                        }
+                        const llvm_int_ty = try dg.llvmType(int_ty);
+                        llvm_field_types.appendAssumeCapacity(llvm_int_ty);
+                    }
+
+                    const prev_offset = offset;
+                    offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+                    const padding_bytes = @intCast(c_uint, offset - prev_offset);
+                    if (padding_bytes != 0) {
+                        const padding = dg.context.intType(8).arrayType(padding_bytes);
+                        llvm_field_types.appendAssumeCapacity(padding);
+                    }
+                } else {
+                    for (struct_obj.fields.values()) |field| {
+                        if (!field.ty.hasCodeGenBits()) continue;
+                        llvm_field_types.appendAssumeCapacity(try dg.llvmType(field.ty));
+                    }
                 }
 
                 llvm_struct_ty.structSetBody(
                     llvm_field_types.items.ptr,
                     @intCast(c_uint, llvm_field_types.items.len),
-                    llvm.Bool.fromBool(struct_obj.layout == .Packed),
+                    .False,
                 );
 
                 return llvm_struct_ty;
@@ -976,23 +1055,23 @@ pub const DeclGen = struct {
         }
     }
 
-    fn genTypedValue(self: *DeclGen, tv: TypedValue) Error!*const llvm.Value {
+    fn genTypedValue(dg: *DeclGen, tv: TypedValue) Error!*const llvm.Value {
         if (tv.val.isUndef()) {
-            const llvm_type = try self.llvmType(tv.ty);
+            const llvm_type = try dg.llvmType(tv.ty);
             return llvm_type.getUndef();
         }
 
         switch (tv.ty.zigTypeTag()) {
             .Bool => {
-                const llvm_type = try self.llvmType(tv.ty);
+                const llvm_type = try dg.llvmType(tv.ty);
                 return if (tv.val.toBool()) llvm_type.constAllOnes() else llvm_type.constNull();
             },
             .Int => {
                 var bigint_space: Value.BigIntSpace = undefined;
                 const bigint = tv.val.toBigInt(&bigint_space);
-                const target = self.module.getTarget();
+                const target = dg.module.getTarget();
                 const int_info = tv.ty.intInfo(target);
-                const llvm_type = self.context.intType(int_info.bits);
+                const llvm_type = dg.context.intType(int_info.bits);
 
                 const unsigned_val = v: {
                     if (bigint.limbs.len == 1) {
@@ -1018,9 +1097,9 @@ pub const DeclGen = struct {
                 var bigint_space: Value.BigIntSpace = undefined;
                 const bigint = int_val.toBigInt(&bigint_space);
 
-                const target = self.module.getTarget();
+                const target = dg.module.getTarget();
                 const int_info = tv.ty.intInfo(target);
-                const llvm_type = self.context.intType(int_info.bits);
+                const llvm_type = dg.context.intType(int_info.bits);
 
                 const unsigned_val = v: {
                     if (bigint.limbs.len == 1) {
@@ -1040,8 +1119,8 @@ pub const DeclGen = struct {
                 return unsigned_val;
             },
             .Float => {
-                const llvm_ty = try self.llvmType(tv.ty);
-                if (tv.ty.floatBits(self.module.getTarget()) <= 64) {
+                const llvm_ty = try dg.llvmType(tv.ty);
+                if (tv.ty.floatBits(dg.module.getTarget()) <= 64) {
                     return llvm_ty.constReal(tv.val.toFloat(f64));
                 }
 
@@ -1052,18 +1131,18 @@ pub const DeclGen = struct {
                     std.mem.swap(u64, &buf[0], &buf[1]);
                 }
 
-                const int = self.context.intType(128).constIntOfArbitraryPrecision(buf.len, &buf);
+                const int = dg.context.intType(128).constIntOfArbitraryPrecision(buf.len, &buf);
                 return int.constBitCast(llvm_ty);
             },
             .Pointer => switch (tv.val.tag()) {
-                .decl_ref_mut => return lowerDeclRefValue(self, tv, tv.val.castTag(.decl_ref_mut).?.data.decl),
-                .decl_ref => return lowerDeclRefValue(self, tv, tv.val.castTag(.decl_ref).?.data),
+                .decl_ref_mut => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref_mut).?.data.decl),
+                .decl_ref => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref).?.data),
                 .variable => {
                     const decl = tv.val.castTag(.variable).?.data.owner_decl;
                     decl.alive = true;
-                    const val = try self.resolveGlobalDecl(decl);
-                    const llvm_var_type = try self.llvmType(tv.ty);
-                    const llvm_addrspace = self.llvmAddressSpace(decl.@"addrspace");
+                    const val = try dg.resolveGlobalDecl(decl);
+                    const llvm_var_type = try dg.llvmType(tv.ty);
+                    const llvm_addrspace = dg.llvmAddressSpace(decl.@"addrspace");
                     const llvm_type = llvm_var_type.pointerType(llvm_addrspace);
                     return val.constBitCast(llvm_type);
                 },
@@ -1071,26 +1150,26 @@ pub const DeclGen = struct {
                     const slice = tv.val.castTag(.slice).?.data;
                     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                     const fields: [2]*const llvm.Value = .{
-                        try self.genTypedValue(.{
+                        try dg.genTypedValue(.{
                             .ty = tv.ty.slicePtrFieldType(&buf),
                             .val = slice.ptr,
                         }),
-                        try self.genTypedValue(.{
+                        try dg.genTypedValue(.{
                             .ty = Type.usize,
                             .val = slice.len,
                         }),
                     };
-                    return self.context.constStruct(&fields, fields.len, .False);
+                    return dg.context.constStruct(&fields, fields.len, .False);
                 },
                 .int_u64, .one, .int_big_positive => {
-                    const llvm_usize = try self.llvmType(Type.usize);
+                    const llvm_usize = try dg.llvmType(Type.usize);
                     const llvm_int = llvm_usize.constInt(tv.val.toUnsignedInt(), .False);
-                    return llvm_int.constIntToPtr(try self.llvmType(tv.ty));
+                    return llvm_int.constIntToPtr(try dg.llvmType(tv.ty));
                 },
                 .field_ptr => {
                     const field_ptr = tv.val.castTag(.field_ptr).?.data;
-                    const parent_ptr = try self.lowerParentPtr(field_ptr.container_ptr);
-                    const llvm_u32 = self.context.intType(32);
+                    const parent_ptr = try dg.lowerParentPtr(field_ptr.container_ptr);
+                    const llvm_u32 = dg.context.intType(32);
                     const indices: [2]*const llvm.Value = .{
                         llvm_u32.constInt(0, .False),
                         llvm_u32.constInt(field_ptr.field_index, .False),
@@ -1099,8 +1178,8 @@ pub const DeclGen = struct {
                 },
                 .elem_ptr => {
                     const elem_ptr = tv.val.castTag(.elem_ptr).?.data;
-                    const parent_ptr = try self.lowerParentPtr(elem_ptr.array_ptr);
-                    const llvm_usize = try self.llvmType(Type.usize);
+                    const parent_ptr = try dg.lowerParentPtr(elem_ptr.array_ptr);
+                    const llvm_usize = try dg.llvmType(Type.usize);
                     if (parent_ptr.typeOf().getElementType().getTypeKind() == .Array) {
                         const indices: [2]*const llvm.Value = .{
                             llvm_usize.constInt(0, .False),
@@ -1115,15 +1194,15 @@ pub const DeclGen = struct {
                     }
                 },
                 .null_value, .zero => {
-                    const llvm_type = try self.llvmType(tv.ty);
+                    const llvm_type = try dg.llvmType(tv.ty);
                     return llvm_type.constNull();
                 },
-                else => |tag| return self.todo("implement const of pointer type '{}' ({})", .{ tv.ty, tag }),
+                else => |tag| return dg.todo("implement const of pointer type '{}' ({})", .{ tv.ty, tag }),
             },
             .Array => switch (tv.val.tag()) {
                 .bytes => {
                     const bytes = tv.val.castTag(.bytes).?.data;
-                    return self.context.constString(
+                    return dg.context.constString(
                         bytes.ptr,
                         @intCast(c_uint, bytes.len),
                         .True, // don't null terminate. bytes has the sentinel, if any.
@@ -1132,13 +1211,13 @@ pub const DeclGen = struct {
                 .array => {
                     const elem_vals = tv.val.castTag(.array).?.data;
                     const elem_ty = tv.ty.elemType();
-                    const gpa = self.gpa;
+                    const gpa = dg.gpa;
                     const llvm_elems = try gpa.alloc(*const llvm.Value, elem_vals.len);
                     defer gpa.free(llvm_elems);
                     for (elem_vals) |elem_val, i| {
-                        llvm_elems[i] = try self.genTypedValue(.{ .ty = elem_ty, .val = elem_val });
+                        llvm_elems[i] = try dg.genTypedValue(.{ .ty = elem_ty, .val = elem_val });
                     }
-                    const llvm_elem_ty = try self.llvmType(elem_ty);
+                    const llvm_elem_ty = try dg.llvmType(elem_ty);
                     return llvm_elem_ty.constArray(
                         llvm_elems.ptr,
                         @intCast(c_uint, llvm_elems.len),
@@ -1150,16 +1229,16 @@ pub const DeclGen = struct {
                     const sentinel = tv.ty.sentinel();
                     const len = @intCast(usize, tv.ty.arrayLen());
                     const len_including_sent = len + @boolToInt(sentinel != null);
-                    const gpa = self.gpa;
+                    const gpa = dg.gpa;
                     const llvm_elems = try gpa.alloc(*const llvm.Value, len_including_sent);
                     defer gpa.free(llvm_elems);
                     for (llvm_elems[0..len]) |*elem| {
-                        elem.* = try self.genTypedValue(.{ .ty = elem_ty, .val = val });
+                        elem.* = try dg.genTypedValue(.{ .ty = elem_ty, .val = val });
                     }
                     if (sentinel) |sent| {
-                        llvm_elems[len] = try self.genTypedValue(.{ .ty = elem_ty, .val = sent });
+                        llvm_elems[len] = try dg.genTypedValue(.{ .ty = elem_ty, .val = sent });
                     }
-                    const llvm_elem_ty = try self.llvmType(elem_ty);
+                    const llvm_elem_ty = try dg.llvmType(elem_ty);
                     return llvm_elem_ty.constArray(
                         llvm_elems.ptr,
                         @intCast(c_uint, llvm_elems.len),
@@ -1168,9 +1247,9 @@ pub const DeclGen = struct {
                 .empty_array_sentinel => {
                     const elem_ty = tv.ty.elemType();
                     const sent_val = tv.ty.sentinel().?;
-                    const sentinel = try self.genTypedValue(.{ .ty = elem_ty, .val = sent_val });
+                    const sentinel = try dg.genTypedValue(.{ .ty = elem_ty, .val = sent_val });
                     const llvm_elems: [1]*const llvm.Value = .{sentinel};
-                    const llvm_elem_ty = try self.llvmType(elem_ty);
+                    const llvm_elem_ty = try dg.llvmType(elem_ty);
                     return llvm_elem_ty.constArray(&llvm_elems, llvm_elems.len);
                 },
                 else => unreachable,
@@ -1178,7 +1257,7 @@ pub const DeclGen = struct {
             .Optional => {
                 var buf: Type.Payload.ElemType = undefined;
                 const payload_ty = tv.ty.optionalChild(&buf);
-                const llvm_i1 = self.context.intType(1);
+                const llvm_i1 = dg.context.intType(1);
                 const is_pl = !tv.val.isNull();
                 const non_null_bit = if (is_pl) llvm_i1.constAllOnes() else llvm_i1.constNull();
                 if (!payload_ty.hasCodeGenBits()) {
@@ -1186,22 +1265,22 @@ pub const DeclGen = struct {
                 }
                 if (tv.ty.isPtrLikeOptional()) {
                     if (tv.val.castTag(.opt_payload)) |payload| {
-                        return self.genTypedValue(.{ .ty = payload_ty, .val = payload.data });
+                        return dg.genTypedValue(.{ .ty = payload_ty, .val = payload.data });
                     } else if (is_pl) {
-                        return self.genTypedValue(.{ .ty = payload_ty, .val = tv.val });
+                        return dg.genTypedValue(.{ .ty = payload_ty, .val = tv.val });
                     } else {
-                        const llvm_ty = try self.llvmType(tv.ty);
+                        const llvm_ty = try dg.llvmType(tv.ty);
                         return llvm_ty.constNull();
                     }
                 }
                 const fields: [2]*const llvm.Value = .{
-                    try self.genTypedValue(.{
+                    try dg.genTypedValue(.{
                         .ty = payload_ty,
                         .val = if (tv.val.castTag(.opt_payload)) |pl| pl.data else Value.initTag(.undef),
                     }),
                     non_null_bit,
                 };
-                return self.context.constStruct(&fields, fields.len, .False);
+                return dg.context.constStruct(&fields, fields.len, .False);
             },
             .Fn => {
                 const fn_decl = switch (tv.val.tag()) {
@@ -1210,14 +1289,14 @@ pub const DeclGen = struct {
                     else => unreachable,
                 };
                 fn_decl.alive = true;
-                return self.resolveLlvmFunction(fn_decl);
+                return dg.resolveLlvmFunction(fn_decl);
             },
             .ErrorSet => {
-                const llvm_ty = try self.llvmType(tv.ty);
+                const llvm_ty = try dg.llvmType(tv.ty);
                 switch (tv.val.tag()) {
                     .@"error" => {
                         const err_name = tv.val.castTag(.@"error").?.data.name;
-                        const kv = try self.module.getErrorValue(err_name);
+                        const kv = try dg.module.getErrorValue(err_name);
                         return llvm_ty.constInt(kv.value, .False);
                     },
                     else => {
@@ -1234,76 +1313,168 @@ pub const DeclGen = struct {
                 if (!payload_type.hasCodeGenBits()) {
                     // We use the error type directly as the type.
                     const err_val = if (!is_pl) tv.val else Value.initTag(.zero);
-                    return self.genTypedValue(.{ .ty = error_type, .val = err_val });
+                    return dg.genTypedValue(.{ .ty = error_type, .val = err_val });
                 }
 
                 const fields: [2]*const llvm.Value = .{
-                    try self.genTypedValue(.{
+                    try dg.genTypedValue(.{
                         .ty = error_type,
                         .val = if (is_pl) Value.initTag(.zero) else tv.val,
                     }),
-                    try self.genTypedValue(.{
+                    try dg.genTypedValue(.{
                         .ty = payload_type,
                         .val = if (tv.val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef),
                     }),
                 };
-                return self.context.constStruct(&fields, fields.len, .False);
+                return dg.context.constStruct(&fields, fields.len, .False);
             },
             .Struct => {
-                const llvm_struct_ty = try self.llvmType(tv.ty);
+                const llvm_struct_ty = try dg.llvmType(tv.ty);
                 const field_vals = tv.val.castTag(.@"struct").?.data;
-                const gpa = self.gpa;
+                const gpa = dg.gpa;
+                const llvm_field_count = llvm_struct_ty.countStructElementTypes();
 
-                var llvm_fields = try std.ArrayListUnmanaged(*const llvm.Value).initCapacity(gpa, field_vals.len);
+                var llvm_fields = try std.ArrayListUnmanaged(*const llvm.Value).initCapacity(gpa, llvm_field_count);
                 defer llvm_fields.deinit(gpa);
 
-                for (field_vals) |field_val, i| {
-                    const field_ty = tv.ty.structFieldType(i);
-                    if (!field_ty.hasCodeGenBits()) continue;
+                const struct_obj = tv.ty.castTag(.@"struct").?.data;
+                if (struct_obj.layout == .Packed) {
+                    const target = dg.module.getTarget();
+                    const fields = struct_obj.fields.values();
+                    comptime assert(Type.packed_struct_layout_version == 1);
+                    var offset: u64 = 0;
+                    var big_align: u32 = 0;
+                    var running_bits: u16 = 0;
+                    var running_int: *const llvm.Value = llvm_struct_ty.structGetTypeAtIndex(0).constNull();
+                    for (field_vals) |field_val, i| {
+                        const field = fields[i];
+                        if (!field.ty.hasCodeGenBits()) continue;
 
-                    llvm_fields.appendAssumeCapacity(try self.genTypedValue(.{
-                        .ty = field_ty,
-                        .val = field_val,
-                    }));
+                        const field_align = field.packedAlignment();
+                        if (field_align == 0) {
+                            const non_int_val = try dg.genTypedValue(.{
+                                .ty = field.ty,
+                                .val = field_val,
+                            });
+                            const ty_bit_size = @intCast(u16, field.ty.bitSize(target));
+                            const llvm_int_ty = dg.context.intType(ty_bit_size);
+                            const int_val = non_int_val.constBitCast(llvm_int_ty);
+                            const shift_rhs = llvm_int_ty.constInt(running_bits, .False);
+                            const shifted = int_val.constShl(shift_rhs);
+                            running_int = running_int.constOr(shifted);
+                            running_bits += ty_bit_size;
+                        } else {
+                            big_align = @maximum(big_align, field_align);
+                            if (running_bits != 0) {
+                                var int_payload: Type.Payload.Bits = .{
+                                    .base = .{ .tag = .int_unsigned },
+                                    .data = running_bits,
+                                };
+                                const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                                const int_align = int_ty.abiAlignment(target);
+                                big_align = @maximum(big_align, int_align);
+                                const prev_offset = offset;
+                                offset = std.mem.alignForwardGeneric(u64, offset, int_align);
+                                const padding_bytes = @intCast(c_uint, offset - prev_offset);
+                                if (padding_bytes != 0) {
+                                    const padding = dg.context.intType(8).arrayType(padding_bytes);
+                                    llvm_fields.appendAssumeCapacity(padding.getUndef());
+                                }
+                                llvm_fields.appendAssumeCapacity(running_int);
+                                running_int = llvm_struct_ty.structGetTypeAtIndex(@intCast(c_uint, llvm_fields.items.len)).constNull();
+                                offset += int_ty.abiSize(target);
+                                running_bits = 0;
+                            }
+                            const prev_offset = offset;
+                            offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+                            const padding_bytes = @intCast(c_uint, offset - prev_offset);
+                            if (padding_bytes != 0) {
+                                const padding = dg.context.intType(8).arrayType(padding_bytes);
+                                llvm_fields.appendAssumeCapacity(padding.getUndef());
+                            }
+                            llvm_fields.appendAssumeCapacity(try dg.genTypedValue(.{
+                                .ty = field.ty,
+                                .val = field_val,
+                            }));
+                            offset += field.ty.abiSize(target);
+                        }
+                    }
+                    if (running_bits != 0) {
+                        var int_payload: Type.Payload.Bits = .{
+                            .base = .{ .tag = .int_unsigned },
+                            .data = running_bits,
+                        };
+                        const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                        const int_align = int_ty.abiAlignment(target);
+                        big_align = @maximum(big_align, int_align);
+                        const prev_offset = offset;
+                        offset = std.mem.alignForwardGeneric(u64, offset, int_align);
+                        const padding_bytes = @intCast(c_uint, offset - prev_offset);
+                        if (padding_bytes != 0) {
+                            const padding = dg.context.intType(8).arrayType(padding_bytes);
+                            llvm_fields.appendAssumeCapacity(padding.getUndef());
+                        }
+                        llvm_fields.appendAssumeCapacity(running_int);
+                        offset += int_ty.abiSize(target);
+                    }
+
+                    const prev_offset = offset;
+                    offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+                    const padding_bytes = @intCast(c_uint, offset - prev_offset);
+                    if (padding_bytes != 0) {
+                        const padding = dg.context.intType(8).arrayType(padding_bytes);
+                        llvm_fields.appendAssumeCapacity(padding.getUndef());
+                    }
+                } else {
+                    for (field_vals) |field_val, i| {
+                        const field_ty = tv.ty.structFieldType(i);
+                        if (!field_ty.hasCodeGenBits()) continue;
+
+                        llvm_fields.appendAssumeCapacity(try dg.genTypedValue(.{
+                            .ty = field_ty,
+                            .val = field_val,
+                        }));
+                    }
                 }
+
                 return llvm_struct_ty.constNamedStruct(
                     llvm_fields.items.ptr,
                     @intCast(c_uint, llvm_fields.items.len),
                 );
             },
             .Union => {
-                const llvm_union_ty = try self.llvmType(tv.ty);
+                const llvm_union_ty = try dg.llvmType(tv.ty);
                 const tag_and_val = tv.val.castTag(.@"union").?.data;
 
-                const target = self.module.getTarget();
+                const target = dg.module.getTarget();
                 const layout = tv.ty.unionGetLayout(target);
 
                 if (layout.payload_size == 0) {
-                    return genTypedValue(self, .{ .ty = tv.ty.unionTagType().?, .val = tag_and_val.tag });
+                    return genTypedValue(dg, .{ .ty = tv.ty.unionTagType().?, .val = tag_and_val.tag });
                 }
                 const field_ty = tv.ty.unionFieldType(tag_and_val.tag);
                 const payload = p: {
                     if (!field_ty.hasCodeGenBits()) {
                         const padding_len = @intCast(c_uint, layout.payload_size);
-                        break :p self.context.intType(8).arrayType(padding_len).getUndef();
+                        break :p dg.context.intType(8).arrayType(padding_len).getUndef();
                     }
-                    const field = try genTypedValue(self, .{ .ty = field_ty, .val = tag_and_val.val });
+                    const field = try genTypedValue(dg, .{ .ty = field_ty, .val = tag_and_val.val });
                     const field_size = field_ty.abiSize(target);
                     if (field_size == layout.payload_size) {
                         break :p field;
                     }
                     const padding_len = @intCast(c_uint, layout.payload_size - field_size);
                     const fields: [2]*const llvm.Value = .{
-                        field, self.context.intType(8).arrayType(padding_len).getUndef(),
+                        field, dg.context.intType(8).arrayType(padding_len).getUndef(),
                     };
-                    break :p self.context.constStruct(&fields, fields.len, .False);
+                    break :p dg.context.constStruct(&fields, fields.len, .False);
                 };
                 if (layout.tag_size == 0) {
                     const llvm_payload_ty = llvm_union_ty.structGetTypeAtIndex(0);
                     const fields: [1]*const llvm.Value = .{payload.constBitCast(llvm_payload_ty)};
                     return llvm_union_ty.constNamedStruct(&fields, fields.len);
                 }
-                const llvm_tag_value = try genTypedValue(self, .{
+                const llvm_tag_value = try genTypedValue(dg, .{
                     .ty = tv.ty.unionTagType().?,
                     .val = tag_and_val.tag,
                 });
@@ -1325,15 +1496,15 @@ pub const DeclGen = struct {
                     assert(vector_len == bytes.len or vector_len + 1 == bytes.len);
 
                     const elem_ty = tv.ty.elemType();
-                    const llvm_elems = try self.gpa.alloc(*const llvm.Value, vector_len);
-                    defer self.gpa.free(llvm_elems);
+                    const llvm_elems = try dg.gpa.alloc(*const llvm.Value, vector_len);
+                    defer dg.gpa.free(llvm_elems);
                     for (llvm_elems) |*elem, i| {
                         var byte_payload: Value.Payload.U64 = .{
                             .base = .{ .tag = .int_u64 },
                             .data = bytes[i],
                         };
 
-                        elem.* = try self.genTypedValue(.{
+                        elem.* = try dg.genTypedValue(.{
                             .ty = elem_ty,
                             .val = Value.initPayload(&byte_payload.base),
                         });
@@ -1350,10 +1521,10 @@ pub const DeclGen = struct {
                     const vector_len = @intCast(usize, tv.ty.arrayLen());
                     assert(vector_len == elem_vals.len or vector_len + 1 == elem_vals.len);
                     const elem_ty = tv.ty.elemType();
-                    const llvm_elems = try self.gpa.alloc(*const llvm.Value, vector_len);
-                    defer self.gpa.free(llvm_elems);
+                    const llvm_elems = try dg.gpa.alloc(*const llvm.Value, vector_len);
+                    defer dg.gpa.free(llvm_elems);
                     for (llvm_elems) |*elem, i| {
-                        elem.* = try self.genTypedValue(.{ .ty = elem_ty, .val = elem_vals[i] });
+                        elem.* = try dg.genTypedValue(.{ .ty = elem_ty, .val = elem_vals[i] });
                     }
                     return llvm.constVector(
                         llvm_elems.ptr,
@@ -1365,10 +1536,10 @@ pub const DeclGen = struct {
                     const val = tv.val.castTag(.repeated).?.data;
                     const elem_ty = tv.ty.elemType();
                     const len = @intCast(usize, tv.ty.arrayLen());
-                    const llvm_elems = try self.gpa.alloc(*const llvm.Value, len);
-                    defer self.gpa.free(llvm_elems);
+                    const llvm_elems = try dg.gpa.alloc(*const llvm.Value, len);
+                    defer dg.gpa.free(llvm_elems);
                     for (llvm_elems) |*elem| {
-                        elem.* = try self.genTypedValue(.{ .ty = elem_ty, .val = val });
+                        elem.* = try dg.genTypedValue(.{ .ty = elem_ty, .val = val });
                     }
                     return llvm.constVector(
                         llvm_elems.ptr,
@@ -1391,7 +1562,7 @@ pub const DeclGen = struct {
 
             .Frame,
             .AnyFrame,
-            => return self.todo("implement const of type '{}'", .{tv.ty}),
+            => return dg.todo("implement const of type '{}'", .{tv.ty}),
         }
     }
 
@@ -1483,7 +1654,6 @@ pub const DeclGen = struct {
             return self.context.constStruct(&fields, fields.len, .False);
         }
 
-        const llvm_type = try self.llvmType(tv.ty);
         if (!tv.ty.childType().hasCodeGenBits() or !decl.ty.hasCodeGenBits()) {
             return self.lowerPtrToVoid(tv.ty);
         }
@@ -1494,6 +1664,8 @@ pub const DeclGen = struct {
             try self.resolveLlvmFunction(decl)
         else
             try self.resolveGlobalDecl(decl);
+
+        const llvm_type = try self.llvmType(tv.ty);
         return llvm_val.constBitCast(llvm_type);
     }
 
@@ -1714,6 +1886,11 @@ pub const FuncGen = struct {
                 .max       => try self.airMax(inst),
                 .slice     => try self.airSlice(inst),
 
+                .add_with_overflow => try self.airOverflow(inst, "llvm.sadd.with.overflow", "llvm.uadd.with.overflow"),
+                .sub_with_overflow => try self.airOverflow(inst, "llvm.ssub.with.overflow", "llvm.usub.with.overflow"),
+                .mul_with_overflow => try self.airOverflow(inst, "llvm.smul.with.overflow", "llvm.umul.with.overflow"),
+                .shl_with_overflow => try self.airShlWithOverflow(inst),
+
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
                 .xor                => try self.airXor(inst),
@@ -1745,6 +1922,7 @@ pub const FuncGen = struct {
                 .br             => try self.airBr(inst),
                 .switch_br      => try self.airSwitchBr(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
+                .ret_addr       => try self.airRetAddr(inst),
                 .call           => try self.airCall(inst),
                 .cond_br        => try self.airCondBr(inst),
                 .intcast        => try self.airIntCast(inst),
@@ -2392,26 +2570,28 @@ pub const FuncGen = struct {
 
         assert(isByRef(struct_ty));
 
-        const field_ptr = switch (struct_ty.zigTypeTag()) {
-            .Struct => blk: {
-                const llvm_field_index = llvmFieldIndex(struct_ty, field_index);
-                break :blk self.builder.buildStructGEP(struct_llvm_val, llvm_field_index, "");
+        const target = self.dg.module.getTarget();
+        switch (struct_ty.zigTypeTag()) {
+            .Struct => {
+                var ptr_ty_buf: Type.Payload.Pointer = undefined;
+                const llvm_field_index = llvmFieldIndex(struct_ty, field_index, target, &ptr_ty_buf);
+                const field_ptr = self.builder.buildStructGEP(struct_llvm_val, llvm_field_index, "");
+                const field_ptr_ty = Type.initPayload(&ptr_ty_buf.base);
+                return self.load(field_ptr, field_ptr_ty);
             },
-            .Union => blk: {
+            .Union => {
                 const llvm_field_ty = try self.dg.llvmType(field_ty);
-                const target = self.dg.module.getTarget();
                 const layout = struct_ty.unionGetLayout(target);
                 const payload_index = @boolToInt(layout.tag_align >= layout.payload_align);
                 const union_field_ptr = self.builder.buildStructGEP(struct_llvm_val, payload_index, "");
-                break :blk self.builder.buildBitCast(union_field_ptr, llvm_field_ty.pointerType(0), "");
+                const field_ptr = self.builder.buildBitCast(union_field_ptr, llvm_field_ty.pointerType(0), "");
+                if (isByRef(field_ty)) {
+                    return field_ptr;
+                } else {
+                    return self.builder.buildLoad(field_ptr, "");
+                }
             },
             else => unreachable,
-        };
-
-        if (isByRef(field_ty)) {
-            return field_ptr;
-        } else {
-            return self.builder.buildLoad(field_ptr, "");
         }
     }
 
@@ -3133,6 +3313,75 @@ pub const FuncGen = struct {
         }
     }
 
+    fn airOverflow(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        signed_intrinsic: []const u8,
+        unsigned_intrinsic: []const u8,
+    ) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+
+        const ptr = try self.resolveInst(pl_op.operand);
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+
+        const ptr_ty = self.air.typeOf(pl_op.operand);
+        const lhs_ty = self.air.typeOf(extra.lhs);
+
+        const intrinsic_name = if (lhs_ty.isSignedInt()) signed_intrinsic else unsigned_intrinsic;
+
+        const llvm_lhs_ty = try self.dg.llvmType(lhs_ty);
+
+        const llvm_fn = self.getIntrinsic(intrinsic_name, &.{llvm_lhs_ty});
+        const result_struct = self.builder.buildCall(llvm_fn, &[_]*const llvm.Value{ lhs, rhs }, 2, .Fast, .Auto, "");
+
+        const result = self.builder.buildExtractValue(result_struct, 0, "");
+        const overflow_bit = self.builder.buildExtractValue(result_struct, 1, "");
+
+        self.store(ptr, ptr_ty, result, .NotAtomic);
+
+        return overflow_bit;
+    }
+
+    fn airShlWithOverflow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst))
+            return null;
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+
+        const ptr = try self.resolveInst(pl_op.operand);
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+
+        const ptr_ty = self.air.typeOf(pl_op.operand);
+        const lhs_ty = self.air.typeOf(extra.lhs);
+        const rhs_ty = self.air.typeOf(extra.rhs);
+
+        const tg = self.dg.module.getTarget();
+
+        const casted_rhs = if (rhs_ty.bitSize(tg) < lhs_ty.bitSize(tg))
+            self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_ty), "")
+        else
+            rhs;
+
+        const result = self.builder.buildShl(lhs, casted_rhs, "");
+        const reconstructed = if (lhs_ty.isSignedInt())
+            self.builder.buildAShr(result, casted_rhs, "")
+        else
+            self.builder.buildLShr(result, casted_rhs, "");
+
+        const overflow_bit = self.builder.buildICmp(.NE, lhs, reconstructed, "");
+
+        self.store(ptr, ptr_ty, result, .NotAtomic);
+
+        return overflow_bit;
+    }
+
     fn airAnd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
@@ -3511,9 +3760,18 @@ pub const FuncGen = struct {
 
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         _ = inst;
-        const llvm_fn = self.getIntrinsic("llvm.debugtrap");
+        const llvm_fn = self.getIntrinsic("llvm.debugtrap", &.{});
         _ = self.builder.buildCall(llvm_fn, undefined, 0, .C, .Auto, "");
         return null;
+    }
+
+    fn airRetAddr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        _ = inst;
+        const i32_zero = self.context.intType(32).constNull();
+        const usize_llvm_ty = try self.dg.llvmType(Type.usize);
+        const llvm_fn = self.getIntrinsic("llvm.returnaddress", &.{});
+        const ptr_val = self.builder.buildCall(llvm_fn, &[_]*const llvm.Value{i32_zero}, 1, .Fast, .Auto, "");
+        return self.builder.buildPtrToInt(ptr_val, usize_llvm_ty, "");
     }
 
     fn airFence(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -3641,11 +3899,11 @@ pub const FuncGen = struct {
         if (opt_abi_ty) |abi_ty| {
             // operand needs widening and truncating
             const casted_ptr = self.builder.buildBitCast(ptr, abi_ty.pointerType(0), "");
-            const load_inst = self.load(casted_ptr, ptr_ty).?;
+            const load_inst = (try self.load(casted_ptr, ptr_ty)).?;
             load_inst.setOrdering(ordering);
             return self.builder.buildTrunc(load_inst, try self.dg.llvmType(operand_ty), "");
         }
-        const load_inst = self.load(ptr, ptr_ty).?;
+        const load_inst = (try self.load(ptr, ptr_ty)).?;
         load_inst.setOrdering(ordering);
         return load_inst;
     }
@@ -3908,7 +4166,9 @@ pub const FuncGen = struct {
         const struct_ty = struct_ptr_ty.childType();
         switch (struct_ty.zigTypeTag()) {
             .Struct => {
-                const llvm_field_index = llvmFieldIndex(struct_ty, field_index);
+                const target = self.dg.module.getTarget();
+                var ty_buf: Type.Payload.Pointer = undefined;
+                const llvm_field_index = llvmFieldIndex(struct_ty, field_index, target, &ty_buf);
                 return self.builder.buildStructGEP(struct_ptr, llvm_field_index, "");
             },
             .Union => return self.unionFieldPtr(inst, struct_ptr, struct_ty, field_index),
@@ -3946,24 +4206,58 @@ pub const FuncGen = struct {
         return self.builder.buildInBoundsGEP(base_ptr, &indices, indices.len, "");
     }
 
-    fn getIntrinsic(self: *FuncGen, name: []const u8) *const llvm.Value {
+    fn getIntrinsic(self: *FuncGen, name: []const u8, types: []*const llvm.Type) *const llvm.Value {
         const id = llvm.lookupIntrinsicID(name.ptr, name.len);
         assert(id != 0);
-        // TODO: add support for overload intrinsics by passing the prefix of the intrinsic
-        //       to `lookupIntrinsicID` and then passing the correct types to
-        //       `getIntrinsicDeclaration`
-        return self.llvmModule().getIntrinsicDeclaration(id, null, 0);
+        return self.llvmModule().getIntrinsicDeclaration(id, types.ptr, types.len);
     }
 
-    fn load(self: *FuncGen, ptr: *const llvm.Value, ptr_ty: Type) ?*const llvm.Value {
-        const pointee_ty = ptr_ty.childType();
-        if (!pointee_ty.hasCodeGenBits()) return null;
-        if (isByRef(pointee_ty)) return ptr;
-        const llvm_inst = self.builder.buildLoad(ptr, "");
+    fn load(self: *FuncGen, ptr: *const llvm.Value, ptr_ty: Type) !?*const llvm.Value {
+        const info = ptr_ty.ptrInfo().data;
+        if (!info.pointee_type.hasCodeGenBits()) return null;
+
         const target = self.dg.module.getTarget();
-        llvm_inst.setAlignment(ptr_ty.ptrAlignment(target));
-        llvm_inst.setVolatile(llvm.Bool.fromBool(ptr_ty.isVolatilePtr()));
-        return llvm_inst;
+        const ptr_alignment = ptr_ty.ptrAlignment(target);
+        const ptr_volatile = llvm.Bool.fromBool(ptr_ty.isVolatilePtr());
+        if (info.host_size == 0) {
+            if (isByRef(info.pointee_type)) return ptr;
+            const llvm_inst = self.builder.buildLoad(ptr, "");
+            llvm_inst.setAlignment(ptr_alignment);
+            llvm_inst.setVolatile(ptr_volatile);
+            return llvm_inst;
+        }
+
+        const int_ptr_ty = self.context.intType(info.host_size * 8).pointerType(0);
+        const int_ptr = self.builder.buildBitCast(ptr, int_ptr_ty, "");
+        const containing_int = self.builder.buildLoad(int_ptr, "");
+        containing_int.setAlignment(ptr_alignment);
+        containing_int.setVolatile(ptr_volatile);
+
+        const elem_bits = @intCast(c_uint, ptr_ty.elemType().bitSize(target));
+        const shift_amt = containing_int.typeOf().constInt(info.bit_offset, .False);
+        const shifted_value = self.builder.buildLShr(containing_int, shift_amt, "");
+        const elem_llvm_ty = try self.dg.llvmType(info.pointee_type);
+
+        if (isByRef(info.pointee_type)) {
+            const result_align = info.pointee_type.abiAlignment(target);
+            const result_ptr = self.buildAlloca(elem_llvm_ty);
+            result_ptr.setAlignment(result_align);
+
+            const same_size_int = self.context.intType(elem_bits);
+            const truncated_int = self.builder.buildTrunc(shifted_value, same_size_int, "");
+            const bitcasted_ptr = self.builder.buildBitCast(result_ptr, same_size_int.pointerType(0), "");
+            const store_inst = self.builder.buildStore(truncated_int, bitcasted_ptr);
+            store_inst.setAlignment(result_align);
+            return result_ptr;
+        }
+
+        if (info.pointee_type.zigTypeTag() == .Float) {
+            const same_size_int = self.context.intType(elem_bits);
+            const truncated_int = self.builder.buildTrunc(shifted_value, same_size_int, "");
+            return self.builder.buildBitCast(truncated_int, elem_llvm_ty, "");
+        }
+
+        return self.builder.buildTrunc(shifted_value, elem_llvm_ty, "");
     }
 
     fn store(
@@ -3973,16 +4267,50 @@ pub const FuncGen = struct {
         elem: *const llvm.Value,
         ordering: llvm.AtomicOrdering,
     ) void {
-        const elem_ty = ptr_ty.childType();
+        const info = ptr_ty.ptrInfo().data;
+        const elem_ty = info.pointee_type;
         if (!elem_ty.hasCodeGenBits()) {
             return;
         }
         const target = self.dg.module.getTarget();
+        const ptr_alignment = ptr_ty.ptrAlignment(target);
+        const ptr_volatile = llvm.Bool.fromBool(info.@"volatile");
+        if (info.host_size != 0) {
+            const int_ptr_ty = self.context.intType(info.host_size * 8).pointerType(0);
+            const int_ptr = self.builder.buildBitCast(ptr, int_ptr_ty, "");
+            const containing_int = self.builder.buildLoad(int_ptr, "");
+            assert(ordering == .NotAtomic);
+            containing_int.setAlignment(ptr_alignment);
+            containing_int.setVolatile(ptr_volatile);
+            const elem_bits = @intCast(c_uint, ptr_ty.elemType().bitSize(target));
+            const containing_int_ty = containing_int.typeOf();
+            const shift_amt = containing_int_ty.constInt(info.bit_offset, .False);
+            // Convert to equally-sized integer type in order to perform the bit
+            // operations on the value to store
+            const value_bits_type = self.context.intType(elem_bits);
+            const value_bits = self.builder.buildBitCast(elem, value_bits_type, "");
+
+            var mask_val = value_bits_type.constAllOnes();
+            mask_val = mask_val.constZExt(containing_int_ty);
+            mask_val = mask_val.constShl(shift_amt);
+            mask_val = mask_val.constNot();
+
+            const anded_containing_int = self.builder.buildAnd(containing_int, mask_val, "");
+            const extended_value = self.builder.buildZExt(value_bits, containing_int_ty, "");
+            const shifted_value = self.builder.buildShl(extended_value, shift_amt, "");
+            const ored_value = self.builder.buildOr(shifted_value, anded_containing_int, "");
+
+            const store_inst = self.builder.buildStore(ored_value, int_ptr);
+            assert(ordering == .NotAtomic);
+            store_inst.setAlignment(ptr_alignment);
+            store_inst.setVolatile(ptr_volatile);
+            return;
+        }
         if (!isByRef(elem_ty)) {
             const store_inst = self.builder.buildStore(elem, ptr);
             store_inst.setOrdering(ordering);
-            store_inst.setAlignment(ptr_ty.ptrAlignment(target));
-            store_inst.setVolatile(llvm.Bool.fromBool(ptr_ty.isVolatilePtr()));
+            store_inst.setAlignment(ptr_alignment);
+            store_inst.setVolatile(ptr_volatile);
             return;
         }
         assert(ordering == .NotAtomic);
@@ -3994,7 +4322,7 @@ pub const FuncGen = struct {
             self.builder.buildBitCast(elem, llvm_ptr_u8, ""),
             elem_ty.abiAlignment(target),
             self.context.intType(Type.usize.intInfo(target).bits).constInt(size_bytes, .False),
-            ptr_ty.isVolatilePtr(),
+            info.@"volatile",
         );
     }
 };
@@ -4237,15 +4565,104 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) llvm.Ca
 }
 
 /// Take into account 0 bit fields.
-fn llvmFieldIndex(ty: Type, index: u32) c_uint {
+fn llvmFieldIndex(
+    ty: Type,
+    field_index: u32,
+    target: std.Target,
+    ptr_pl_buf: *Type.Payload.Pointer,
+) c_uint {
     const struct_obj = ty.castTag(.@"struct").?.data;
-    var result: c_uint = 0;
-    for (struct_obj.fields.values()[0..index]) |field| {
-        if (field.ty.hasCodeGenBits()) {
-            result += 1;
+    if (struct_obj.layout != .Packed) {
+        var llvm_field_index: c_uint = 0;
+        for (struct_obj.fields.values()) |field, i| {
+            if (!field.ty.hasCodeGenBits()) continue;
+
+            if (i == field_index) {
+                ptr_pl_buf.* = .{
+                    .data = .{
+                        .pointee_type = field.ty,
+                        .@"align" = field.normalAlignment(target),
+                        .@"addrspace" = .generic,
+                    },
+                };
+                return llvm_field_index;
+            }
+            llvm_field_index += 1;
+        }
+        unreachable;
+    }
+
+    // Our job here is to return the host integer field index.
+    comptime assert(Type.packed_struct_layout_version == 1);
+    var offset: u64 = 0;
+    var running_bits: u16 = 0;
+    var llvm_field_index: c_uint = 0;
+    for (struct_obj.fields.values()) |field, i| {
+        if (!field.ty.hasCodeGenBits()) continue;
+
+        const field_align = field.packedAlignment();
+        if (field_align == 0) {
+            if (i == field_index) {
+                ptr_pl_buf.* = .{
+                    .data = .{
+                        .pointee_type = field.ty,
+                        .bit_offset = running_bits,
+                        .@"addrspace" = .generic,
+                    },
+                };
+            }
+            running_bits += @intCast(u16, field.ty.bitSize(target));
+        } else {
+            if (running_bits != 0) {
+                var int_payload: Type.Payload.Bits = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = running_bits,
+                };
+                const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                if (i > field_index) {
+                    ptr_pl_buf.data.host_size = @intCast(u16, int_ty.abiSize(target));
+                    return llvm_field_index;
+                }
+
+                const int_align = int_ty.abiAlignment(target);
+                const prev_offset = offset;
+                offset = std.mem.alignForwardGeneric(u64, offset, int_align);
+                const padding_bytes = @intCast(c_uint, offset - prev_offset);
+                if (padding_bytes != 0) {
+                    llvm_field_index += 1;
+                }
+                llvm_field_index += 1;
+                offset += int_ty.abiSize(target);
+                running_bits = 0;
+            }
+            const prev_offset = offset;
+            offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+            const padding_bytes = @intCast(c_uint, offset - prev_offset);
+            if (padding_bytes != 0) {
+                llvm_field_index += 1;
+            }
+            if (i == field_index) {
+                ptr_pl_buf.* = .{
+                    .data = .{
+                        .pointee_type = field.ty,
+                        .@"align" = field_align,
+                        .@"addrspace" = .generic,
+                    },
+                };
+                return llvm_field_index;
+            }
+            llvm_field_index += 1;
+            offset += field.ty.abiSize(target);
         }
     }
-    return result;
+    assert(running_bits != 0);
+    var int_payload: Type.Payload.Bits = .{
+        .base = .{ .tag = .int_unsigned },
+        .data = running_bits,
+    };
+    const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+    ptr_pl_buf.data.host_size = @intCast(u16, int_ty.abiSize(target));
+    return llvm_field_index;
 }
 
 fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool {

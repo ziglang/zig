@@ -1481,6 +1481,7 @@ pub const Dir = struct {
             error.PathAlreadyExists => unreachable, // not providing O.CREAT
             error.FileLocksNotSupported => unreachable, // locking folders is not supported
             error.WouldBlock => unreachable, // can't happen for directories
+            error.FileBusy => unreachable, // can't happen for directories
             else => |e| return e,
         };
         return Dir{ .fd = fd };
@@ -1525,6 +1526,7 @@ pub const Dir = struct {
             error.PathAlreadyExists => unreachable, // not providing O.CREAT
             error.FileLocksNotSupported => unreachable, // locking folders is not supported
             error.WouldBlock => unreachable, // can't happen for directories
+            error.FileBusy => unreachable, // can't happen for directories
             else => |e| return e,
         };
         return Dir{ .fd = fd };
@@ -2165,6 +2167,16 @@ pub const Dir = struct {
             .handle = self.fd,
             .capable_io_mode = .blocking,
         };
+        return file.stat();
+    }
+
+    pub const StatFileError = File.OpenError || StatError;
+
+    // TODO: improve this to use the fstatat syscall instead of making 2 syscalls here.
+    pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!File.Stat {
+        var file = try self.openFile(sub_path, .{});
+        defer file.close();
+
         return file.stat();
     }
 

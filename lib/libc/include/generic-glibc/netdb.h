@@ -701,6 +701,17 @@ extern int getaddrinfo_a (int __mode, struct gaicb *__list[__restrict_arr],
 extern int gai_suspend (const struct gaicb *const __list[], int __ent,
 			const struct timespec *__timeout);
 
+# ifdef __USE_TIME_BITS64
+#  if defined(__REDIRECT)
+extern int __REDIRECT (gai_suspend, (const struct gaicb *const __list[],
+                                     int __ent,
+                                     const struct timespec *__timeout),
+                       __gai_suspend_time64);
+#  else
+#   define gai_suspend __gai_suspend_time64
+#  endif
+# endif
+
 /* Get the error status of the request REQ.  */
 extern int gai_error (struct gaicb *__req) __THROW;
 

@@ -1,11 +1,16 @@
-// Ported from go, which is licensed under a BSD-3 license.
-// https://golang.org/LICENSE
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// https://golang.org/src/math/sin.go
-
+// https://git.musl-libc.org/cgit/musl/tree/src/math/sinf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/sin.c
+//
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
+
+const kernel = @import("__trig.zig");
+const __rem_pio2 = @import("__rem_pio2.zig").__rem_pio2;
+const __rem_pio2f = @import("__rem_pio2f.zig").__rem_pio2f;
 
 /// Returns the sine of the radian value x.
 ///
@@ -16,114 +21,148 @@ const expect = std.testing.expect;
 pub fn sin(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
-        f32 => sin_(T, x),
-        f64 => sin_(T, x),
+        f32 => sin32(x),
+        f64 => sin64(x),
         else => @compileError("sin not implemented for " ++ @typeName(T)),
     };
 }
 
-// sin polynomial coefficients
-const S0 = 1.58962301576546568060E-10;
-const S1 = -2.50507477628578072866E-8;
-const S2 = 2.75573136213857245213E-6;
-const S3 = -1.98412698295895385996E-4;
-const S4 = 8.33333333332211858878E-3;
-const S5 = -1.66666666666666307295E-1;
+fn sin32(x: f32) f32 {
+    // Small multiples of pi/2 rounded to double precision.
+    const s1pio2: f64 = 1.0 * math.pi / 2.0; // 0x3FF921FB, 0x54442D18
+    const s2pio2: f64 = 2.0 * math.pi / 2.0; // 0x400921FB, 0x54442D18
+    const s3pio2: f64 = 3.0 * math.pi / 2.0; // 0x4012D97C, 0x7F3321D2
+    const s4pio2: f64 = 4.0 * math.pi / 2.0; // 0x401921FB, 0x54442D18
 
-// cos polynomial coeffiecients
-const C0 = -1.13585365213876817300E-11;
-const C1 = 2.08757008419747316778E-9;
-const C2 = -2.75573141792967388112E-7;
-const C3 = 2.48015872888517045348E-5;
-const C4 = -1.38888888888730564116E-3;
-const C5 = 4.16666666666665929218E-2;
+    var ix = @bitCast(u32, x);
+    const sign = ix >> 31 != 0;
+    ix &= 0x7fffffff;
 
-const pi4a = 7.85398125648498535156e-1;
-const pi4b = 3.77489470793079817668E-8;
-const pi4c = 2.69515142907905952645E-15;
-const m4pi = 1.273239544735162542821171882678754627704620361328125;
-
-fn sin_(comptime T: type, x_: T) T {
-    const I = std.meta.Int(.signed, @typeInfo(T).Float.bits);
-
-    var x = x_;
-    if (x == 0 or math.isNan(x)) {
-        return x;
+    if (ix <= 0x3f490fda) { // |x| ~<= pi/4
+        if (ix < 0x39800000) { // |x| < 2**-12
+            // raise inexact if x!=0 and underflow if subnormal
+            math.doNotOptimizeAway(if (ix < 0x00800000) x / 0x1p120 else x + 0x1p120);
+            return x;
+        }
+        return kernel.__sindf(x);
     }
-    if (math.isInf(x)) {
-        return math.nan(T);
+    if (ix <= 0x407b53d1) { // |x| ~<= 5*pi/4
+        if (ix <= 0x4016cbe3) { // |x| ~<= 3pi/4
+            if (sign) {
+                return -kernel.__cosdf(x + s1pio2);
+            } else {
+                return kernel.__cosdf(x - s1pio2);
+            }
+        }
+        return kernel.__sindf(if (sign) -(x + s2pio2) else -(x - s2pio2));
     }
-
-    var sign = x < 0;
-    x = math.fabs(x);
-
-    var y = math.floor(x * m4pi);
-    var j = @floatToInt(I, y);
-
-    if (j & 1 == 1) {
-        j += 1;
-        y += 1;
+    if (ix <= 0x40e231d5) { // |x| ~<= 9*pi/4
+        if (ix <= 0x40afeddf) { // |x| ~<= 7*pi/4
+            if (sign) {
+                return kernel.__cosdf(x + s3pio2);
+            } else {
+                return -kernel.__cosdf(x - s3pio2);
+            }
+        }
+        return kernel.__sindf(if (sign) x + s4pio2 else x - s4pio2);
     }
 
-    j &= 7;
-    if (j > 3) {
-        j -= 4;
-        sign = !sign;
+    // sin(Inf or NaN) is NaN
+    if (ix >= 0x7f800000) {
+        return x - x;
     }
 
-    const z = ((x - y * pi4a) - y * pi4b) - y * pi4c;
-    const w = z * z;
+    var y: f64 = undefined;
+    const n = __rem_pio2f(x, &y);
+    return switch (n & 3) {
+        0 => kernel.__sindf(y),
+        1 => kernel.__cosdf(y),
+        2 => kernel.__sindf(-y),
+        else => -kernel.__cosdf(y),
+    };
+}
 
-    const r = if (j == 1 or j == 2)
-        1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))))
-    else
-        z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))));
+fn sin64(x: f64) f64 {
+    var ix = @bitCast(u64, x) >> 32;
+    ix &= 0x7fffffff;
 
-    return if (sign) -r else r;
+    // |x| ~< pi/4
+    if (ix <= 0x3fe921fb) {
+        if (ix < 0x3e500000) { // |x| < 2**-26
+            // raise inexact if x != 0 and underflow if subnormal
+            math.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
+            return x;
+        }
+        return kernel.__sin(x, 0.0, 0);
+    }
+
+    // sin(Inf or NaN) is NaN
+    if (ix >= 0x7ff00000) {
+        return x - x;
+    }
+
+    var y: [2]f64 = undefined;
+    const n = __rem_pio2(x, &y);
+    return switch (n & 3) {
+        0 => kernel.__sin(y[0], y[1], 1),
+        1 => kernel.__cos(y[0], y[1]),
+        2 => -kernel.__sin(y[0], y[1], 1),
+        else => -kernel.__cos(y[0], y[1]),
+    };
 }
 
 test "math.sin" {
-    try expect(sin(@as(f32, 0.0)) == sin_(f32, 0.0));
-    try expect(sin(@as(f64, 0.0)) == sin_(f64, 0.0));
+    try expect(sin(@as(f32, 0.0)) == sin32(0.0));
+    try expect(sin(@as(f64, 0.0)) == sin64(0.0));
     try expect(comptime (math.sin(@as(f64, 2))) == math.sin(@as(f64, 2)));
 }
 
 test "math.sin32" {
-    const epsilon = 0.000001;
+    const epsilon = 0.00001;
 
-    try expect(math.approxEqAbs(f32, sin_(f32, 0.0), 0.0, epsilon));
-    try expect(math.approxEqAbs(f32, sin_(f32, 0.2), 0.198669, epsilon));
-    try expect(math.approxEqAbs(f32, sin_(f32, 0.8923), 0.778517, epsilon));
-    try expect(math.approxEqAbs(f32, sin_(f32, 1.5), 0.997495, epsilon));
-    try expect(math.approxEqAbs(f32, sin_(f32, -1.5), -0.997495, epsilon));
-    try expect(math.approxEqAbs(f32, sin_(f32, 37.45), -0.246544, epsilon));
-    try expect(math.approxEqAbs(f32, sin_(f32, 89.123), 0.916166, epsilon));
+    try expect(math.approxEqAbs(f32, sin32(0.0), 0.0, epsilon));
+    try expect(math.approxEqAbs(f32, sin32(0.2), 0.198669, epsilon));
+    try expect(math.approxEqAbs(f32, sin32(0.8923), 0.778517, epsilon));
+    try expect(math.approxEqAbs(f32, sin32(1.5), 0.997495, epsilon));
+    try expect(math.approxEqAbs(f32, sin32(-1.5), -0.997495, epsilon));
+    try expect(math.approxEqAbs(f32, sin32(37.45), -0.246544, epsilon));
+    try expect(math.approxEqAbs(f32, sin32(89.123), 0.916166, epsilon));
 }
 
 test "math.sin64" {
     const epsilon = 0.000001;
 
-    try expect(math.approxEqAbs(f64, sin_(f64, 0.0), 0.0, epsilon));
-    try expect(math.approxEqAbs(f64, sin_(f64, 0.2), 0.198669, epsilon));
-    try expect(math.approxEqAbs(f64, sin_(f64, 0.8923), 0.778517, epsilon));
-    try expect(math.approxEqAbs(f64, sin_(f64, 1.5), 0.997495, epsilon));
-    try expect(math.approxEqAbs(f64, sin_(f64, -1.5), -0.997495, epsilon));
-    try expect(math.approxEqAbs(f64, sin_(f64, 37.45), -0.246543, epsilon));
-    try expect(math.approxEqAbs(f64, sin_(f64, 89.123), 0.916166, epsilon));
+    try expect(math.approxEqAbs(f64, sin64(0.0), 0.0, epsilon));
+    try expect(math.approxEqAbs(f64, sin64(0.2), 0.198669, epsilon));
+    try expect(math.approxEqAbs(f64, sin64(0.8923), 0.778517, epsilon));
+    try expect(math.approxEqAbs(f64, sin64(1.5), 0.997495, epsilon));
+    try expect(math.approxEqAbs(f64, sin64(-1.5), -0.997495, epsilon));
+    try expect(math.approxEqAbs(f64, sin64(37.45), -0.246543, epsilon));
+    try expect(math.approxEqAbs(f64, sin64(89.123), 0.916166, epsilon));
 }
 
 test "math.sin32.special" {
-    try expect(sin_(f32, 0.0) == 0.0);
-    try expect(sin_(f32, -0.0) == -0.0);
-    try expect(math.isNan(sin_(f32, math.inf(f32))));
-    try expect(math.isNan(sin_(f32, -math.inf(f32))));
-    try expect(math.isNan(sin_(f32, math.nan(f32))));
+    try expect(sin32(0.0) == 0.0);
+    try expect(sin32(-0.0) == -0.0);
+    try expect(math.isNan(sin32(math.inf(f32))));
+    try expect(math.isNan(sin32(-math.inf(f32))));
+    try expect(math.isNan(sin32(math.nan(f32))));
 }
 
 test "math.sin64.special" {
-    try expect(sin_(f64, 0.0) == 0.0);
-    try expect(sin_(f64, -0.0) == -0.0);
-    try expect(math.isNan(sin_(f64, math.inf(f64))));
-    try expect(math.isNan(sin_(f64, -math.inf(f64))));
-    try expect(math.isNan(sin_(f64, math.nan(f64))));
+    try expect(sin64(0.0) == 0.0);
+    try expect(sin64(-0.0) == -0.0);
+    try expect(math.isNan(sin64(math.inf(f64))));
+    try expect(math.isNan(sin64(-math.inf(f64))));
+    try expect(math.isNan(sin64(math.nan(f64))));
+}
+
+test "math.sin32 #9901" {
+    const float = @bitCast(f32, @as(u32, 0b11100011111111110000000000000000));
+    _ = std.math.sin(float);
+}
+
+test "math.sin64 #9901" {
+    const float = @bitCast(f64, @as(u64, 0b1111111101000001000000001111110111111111100000000000000000000001));
+    _ = std.math.sin(float);
 }

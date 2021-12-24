@@ -1139,6 +1139,24 @@ static LLVMValueRef gen_wasm_memory_grow(CodeGen *g) {
     return g->wasm_memory_grow;
 }
 
+static LLVMValueRef gen_prefetch(CodeGen *g) {
+    if (g->prefetch)
+        return g->prefetch;
+
+    // declare void @llvm.prefetch(i8*, i32, i32, i32)
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMInt32Type(),
+        LLVMInt32Type(),
+        LLVMInt32Type(),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 4, false);
+    g->prefetch = LLVMAddFunction(g->module, "llvm.prefetch.p0i8", fn_type);
+    assert(LLVMGetIntrinsicID(g->prefetch));
+
+    return g->prefetch;
+}
+
 static LLVMValueRef get_stacksave_fn_val(CodeGen *g) {
     if (g->stacksave_fn_val)
         return g->stacksave_fn_val;
@@ -5899,6 +5917,52 @@ static LLVMValueRef ir_render_wasm_memory_grow(CodeGen *g, Stage1Air *executable
     return val;
 }
 
+static LLVMValueRef ir_render_prefetch(CodeGen *g, Stage1Air *executable, Stage1AirInstPrefetch *instruction) {
+    static_assert(PrefetchRwRead == 0, "");
+    static_assert(PrefetchRwWrite == 1, "");
+    assert(instruction->rw == PrefetchRwRead || instruction->rw == PrefetchRwWrite);
+
+    assert(instruction->locality >= 0 && instruction->locality <= 3);
+
+    static_assert(PrefetchCacheInstruction == 0, "");
+    static_assert(PrefetchCacheData == 1, "");
+    assert(instruction->cache == PrefetchCacheData || instruction->cache == PrefetchCacheInstruction);
+    
+    // LLVM fails during codegen of instruction cache prefetchs for these architectures.
+    // This is an LLVM bug as the prefetch intrinsic should be a noop if not supported by the target.
+    // To work around this, simply don't emit llvm.prefetch in this case.
+    // See https://bugs.llvm.org/show_bug.cgi?id=21037
+    if (instruction->cache == PrefetchCacheInstruction) {
+        switch (g->zig_target->arch) {
+            case ZigLLVM_x86:
+            case ZigLLVM_x86_64:
+                return nullptr;
+            default:
+                break;
+        }
+    }
+
+    // Another case of the same LLVM bug described above
+    if (instruction->rw == PrefetchRwWrite && instruction->cache == PrefetchCacheInstruction) {
+        switch (g->zig_target->arch) {
+            case ZigLLVM_arm:
+                return nullptr;
+            default:
+                break;
+        }
+
+    }
+
+    LLVMValueRef params[] = {
+        LLVMBuildBitCast(g->builder, ir_llvm_value(g, instruction->ptr), LLVMPointerType(LLVMInt8Type(), 0), ""),
+        LLVMConstInt(LLVMInt32Type(), instruction->rw, false),
+        LLVMConstInt(LLVMInt32Type(), instruction->locality, false),
+        LLVMConstInt(LLVMInt32Type(), instruction->cache, false),
+    };
+    LLVMValueRef val = LLVMBuildCall(g->builder, gen_prefetch(g), params, 4, "");
+    return val;
+}
+
 static LLVMValueRef ir_render_slice(CodeGen *g, Stage1Air *executable, Stage1AirInstSlice *instruction) {
     Error err;
 
@@ -6144,7 +6208,7 @@ static LLVMValueRef ir_render_breakpoint(CodeGen *g, Stage1Air *executable, Stag
 static LLVMValueRef ir_render_return_address(CodeGen *g, Stage1Air *executable,
         Stage1AirInstReturnAddress *instruction)
 {
-    if (target_is_wasm(g->zig_target) && g->zig_target->os != OsEmscripten) {
+    if ((target_is_wasm(g->zig_target) && g->zig_target->os != OsEmscripten) || target_is_bpf(g->zig_target)) {
         // I got this error from LLVM 10:
         // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address"
         return LLVMConstNull(get_llvm_type(g, instruction->base.value->type));
@@ -7150,6 +7214,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, Stage1Air *executable, Sta
             return ir_render_wasm_memory_grow(g, executable, (Stage1AirInstWasmMemoryGrow *) instruction);
         case Stage1AirInstIdExtern:
             return ir_render_extern(g, executable, (Stage1AirInstExtern *) instruction);
+        case Stage1AirInstIdPrefetch:
+            return ir_render_prefetch(g, executable, (Stage1AirInstPrefetch *) instruction);
     }
     zig_unreachable();
 }
@@ -8948,9 +9014,9 @@ static void define_builtin_types(CodeGen *g) {
     g->builtin_types.entry_i64 = get_int_type(g, true, 64);
 
     {
-        g->builtin_types.entry_c_void = get_opaque_type(g, nullptr, nullptr, "c_void",
-                buf_create_from_str("c_void"));
-        g->primitive_type_table.put(&g->builtin_types.entry_c_void->name, g->builtin_types.entry_c_void);
+        g->builtin_types.entry_anyopaque = get_opaque_type(g, nullptr, nullptr, "anyopaque",
+                buf_create_from_str("anyopaque"));
+        g->primitive_type_table.put(&g->builtin_types.entry_anyopaque->name, g->builtin_types.entry_anyopaque);
     }
 
     {
@@ -9120,6 +9186,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdReduce, "reduce", 2);
     create_builtin_fn(g, BuiltinFnIdMaximum, "maximum", 2);
     create_builtin_fn(g, BuiltinFnIdMinimum, "minimum", 2);
+    create_builtin_fn(g, BuiltinFnIdPrefetch, "prefetch", 2);
 }
 
 static const char *bool_to_str(bool b) {

@@ -135,6 +135,30 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// Uses the `bin_op` field.
         min,
+        /// Integer addition with overflow. Both operands are guaranteed to be the same type,
+        /// and the result is bool. The wrapped value is written to the pointer given by the in
+        /// operand of the `pl_op` field. Payload is `Bin` with `lhs` and `rhs` the relevant types
+        /// of the operation.
+        /// Uses the `pl_op` field with payload `Bin`.
+        add_with_overflow,
+        /// Integer subtraction with overflow. Both operands are guaranteed to be the same type,
+        /// and the result is bool. The wrapped value is written to the pointer given by the in
+        /// operand of the `pl_op` field. Payload is `Bin` with `lhs` and `rhs` the relevant types
+        /// of the operation.
+        /// Uses the `pl_op` field with payload `Bin`.
+        sub_with_overflow,
+        /// Integer multiplication with overflow. Both operands are guaranteed to be the same type,
+        /// and the result is bool. The wrapped value is written to the pointer given by the in
+        /// operand of the `pl_op` field. Payload is `Bin` with `lhs` and `rhs` the relevant types
+        /// of the operation.
+        /// Uses the `pl_op` field with payload `Bin`.
+        mul_with_overflow,
+        /// Integer left-shift with overflow. Both operands are guaranteed to be the same type,
+        /// and the result is bool. The wrapped value is written to the pointer given by the in
+        /// operand of the `pl_op` field. Payload is `Bin` with `lhs` and `rhs` the relevant types
+        /// of the operation.
+        /// Uses the `pl_op` field with payload `Bin`.
+        shl_with_overflow,
         /// Allocates stack local memory.
         /// Uses the `ty` field.
         alloc,
@@ -189,6 +213,9 @@ pub const Inst = struct {
         /// Lowers to a hardware trap instruction, or the next best thing.
         /// Result type is always void.
         breakpoint,
+        /// Yields the return address of the current function.
+        /// Uses the `no_op` field.
+        ret_addr,
         /// Function call.
         /// Result type is the return type of the function being called.
         /// Uses the `pl_op` field with the `Call` payload. operand is the callee.
@@ -779,6 +806,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .ptrtoint,
         .slice_len,
+        .ret_addr,
         => return Type.initTag(.usize),
 
         .bool_to_int => return Type.initTag(.u1),
@@ -804,6 +832,12 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
             const ptr_ty = air.typeOf(datas[inst].pl_op.operand);
             return ptr_ty.elemType();
         },
+
+        .add_with_overflow,
+        .sub_with_overflow,
+        .mul_with_overflow,
+        .shl_with_overflow,
+        => return Type.initTag(.bool),
     }
 }
 
