@@ -50,6 +50,11 @@ pub fn log10_32(x_: f32) f32 {
     const Lg3: f32 = 0x91e9ee.0p-25;
     const Lg4: f32 = 0xf89e26.0p-26;
 
+    // TODO: This should be handled beneath.
+    if (math.isNan(x_)) {
+        return x_;
+    }
+
     var x = x_;
     var u = @bitCast(u32, x);
     var ix = u;
@@ -113,6 +118,11 @@ pub fn log10_64(x_: f64) f64 {
     const Lg6: f64 = 1.531383769920937332e-01;
     const Lg7: f64 = 1.479819860511658591e-01;
 
+    // TODO: This should be handled beneath.
+    if (math.isNan(x_)) {
+        return x_;
+    }
+
     var x = x_;
     var ix = @bitCast(u64, x);
     var hx = @intCast(u32, ix >> 32);
@@ -121,11 +131,11 @@ pub fn log10_64(x_: f64) f64 {
     if (hx < 0x00100000 or hx >> 31 != 0) {
         // log(+-0) = -inf
         if (ix << 1 == 0) {
-            return -math.inf(f32);
+            return -math.inf(f64);
         }
         // log(-#) = nan
         if (hx >> 31 != 0) {
-            return math.nan(f32);
+            return math.nan(f64);
         }
 
         // subnormal, scale x
