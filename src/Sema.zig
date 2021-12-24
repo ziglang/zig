@@ -12125,11 +12125,61 @@ fn structFieldPtr(
         return sema.failWithBadStructFieldAccess(block, struct_obj, field_name_src, field_name);
     const field_index = @intCast(u32, field_index_big);
     const field = struct_obj.fields.values()[field_index];
-    const ptr_field_ty = try Type.ptr(arena, .{
+
+    var ptr_ty_data: Type.Payload.Pointer.Data = .{
         .pointee_type = field.ty,
         .mutable = struct_ptr_ty.ptrIsMutable(),
         .@"addrspace" = struct_ptr_ty.ptrAddressSpace(),
-    });
+    };
+    // TODO handle when the struct pointer is overaligned, we should return a potentially
+    // over-aligned field pointer too.
+    if (struct_obj.layout == .Packed) p: {
+        const target = sema.mod.getTarget();
+        comptime assert(Type.packed_struct_layout_version == 1);
+
+        var offset: u64 = 0;
+        var running_bits: u16 = 0;
+        for (struct_obj.fields.values()) |f, i| {
+            if (!f.ty.hasCodeGenBits()) continue;
+
+            const field_align = f.packedAlignment();
+            if (field_align == 0) {
+                if (i == field_index) {
+                    ptr_ty_data.bit_offset = running_bits;
+                }
+                running_bits += @intCast(u16, f.ty.bitSize(target));
+            } else {
+                if (running_bits != 0) {
+                    var int_payload: Type.Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = running_bits,
+                    };
+                    const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                    if (i > field_index) {
+                        ptr_ty_data.host_size = @intCast(u16, int_ty.abiSize(target));
+                        break :p;
+                    }
+                    const int_align = int_ty.abiAlignment(target);
+                    offset = std.mem.alignForwardGeneric(u64, offset, int_align);
+                    offset += int_ty.abiSize(target);
+                    running_bits = 0;
+                }
+                offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+                if (i == field_index) {
+                    break :p;
+                }
+                offset += f.ty.abiSize(target);
+            }
+        }
+        assert(running_bits != 0);
+        var int_payload: Type.Payload.Bits = .{
+            .base = .{ .tag = .int_unsigned },
+            .data = running_bits,
+        };
+        const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+        ptr_ty_data.host_size = @intCast(u16, int_ty.abiSize(target));
+    }
+    const ptr_field_ty = try Type.ptr(arena, ptr_ty_data);
 
     if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
         return sema.addConstant(
