@@ -205,13 +205,3 @@ test "math.exp64" {
     try expect(math.approxEqAbs(f64, exp64(0.8923), 2.440737, epsilon));
     try expect(math.approxEqAbs(f64, exp64(1.5), 4.481689, epsilon));
 }
-
-test "math.exp32.special" {
-    try expect(math.isPositiveInf(exp32(math.inf(f32))));
-    try expect(math.isNan(exp32(math.nan(f32))));
-}
-
-test "math.exp64.special" {
-    try expect(math.isPositiveInf(exp64(math.inf(f64))));
-    try expect(math.isNan(exp64(math.nan(f64))));
-}

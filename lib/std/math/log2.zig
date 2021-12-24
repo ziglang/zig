@@ -197,17 +197,3 @@ test "math.log2_64" {
     try expect(math.approxEqAbs(f64, log2_64(37.45), 5.226894, epsilon));
     try expect(math.approxEqAbs(f64, log2_64(123123.234375), 16.909744, epsilon));
 }
-
-test "math.log2_32.special" {
-    try expect(math.isPositiveInf(log2_32(math.inf(f32))));
-    try expect(math.isNegativeInf(log2_32(0.0)));
-    try expect(math.isNan(log2_32(-1.0)));
-    try expect(math.isNan(log2_32(math.nan(f32))));
-}
-
-test "math.log2_64.special" {
-    try expect(math.isPositiveInf(log2_64(math.inf(f64))));
-    try expect(math.isNegativeInf(log2_64(0.0)));
-    try expect(math.isNan(log2_64(-1.0)));
-    try expect(math.isNan(log2_64(math.nan(f64))));
-}
