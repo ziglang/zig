@@ -293,7 +293,6 @@ pub const Inst = struct {
         /// Another instruction.
         inst: Index,
         /// A 32-bit immediate value.
-        /// TODO we should add support for 16- and 8-bit immediate values.
         imm: i32,
         /// An extern function.
         /// Index into the linker's string table.
