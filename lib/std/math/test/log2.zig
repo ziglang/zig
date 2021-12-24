@@ -44,10 +44,9 @@ test "math.log2_32() special" {
         // tc32(-inf32,  nan32),
         // NaNs: should be unchanged when passed through.
         tc32( nan32,  nan32),
-        // TODO: Shouldn't be dropping sign bit
-        // tc32(-nan32, -nan32),
+        tc32(-nan32, -nan32),
         tc32(floatFromBits(f32, 0x7ff01234), floatFromBits(f32, 0x7ff01234)),
-        // tc32(floatFromBits(f32, 0xfff01234), floatFromBits(f32, 0xfff01234)),
+        tc32(floatFromBits(f32, 0xfff01234), floatFromBits(f32, 0xfff01234)),
         // zig fmt: on
     };
     try runTests(cases);
@@ -92,10 +91,9 @@ test "math.log2_64() special" {
         tc64(-inf64,  nan64),
         // NaNs: should be unchanged when passed through.
         tc64( nan64,  nan64),
-        // TODO: Shouldn't be dropping sign bit
-        // tc64(-nan64, -nan64),
+        tc64(-nan64, -nan64),
         tc64(floatFromBits(f64, 0x7ff0123400000000), floatFromBits(f64, 0x7ff0123400000000)),
-        // tc64(floatFromBits(f64, 0xfff0123400000000), floatFromBits(f64, 0xfff0123400000000)),
+        tc64(floatFromBits(f64, 0xfff0123400000000), floatFromBits(f64, 0xfff0123400000000)),
         // zig fmt: on
     };
     try runTests(cases);

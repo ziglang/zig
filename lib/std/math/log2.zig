@@ -54,6 +54,11 @@ pub fn log2_32(x_: f32) f32 {
     const Lg3: f32 = 0x91e9ee.0p-25;
     const Lg4: f32 = 0xf89e26.0p-26;
 
+    // TODO: This should be handled beneath.
+    if (math.isNan(x_)) {
+        return x_;
+    }
+
     var x = x_;
     var u = @bitCast(u32, x);
     var ix = u;
@@ -112,6 +117,11 @@ pub fn log2_64(x_: f64) f64 {
     const Lg5: f64 = 1.818357216161805012e-01;
     const Lg6: f64 = 1.531383769920937332e-01;
     const Lg7: f64 = 1.479819860511658591e-01;
+
+    // TODO: This should be handled beneath.
+    if (math.isNan(x_)) {
+        return x_;
+    }
 
     var x = x_;
     var ix = @bitCast(u64, x);
