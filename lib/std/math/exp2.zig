@@ -372,7 +372,7 @@ fn exp2_64(x: f64) f64 {
 
     // TODO: This should be handled beneath.
     if (math.isNan(x)) {
-        return math.nan(f64);
+        return x;
     }
 
     // |x| >= 1022 or nan

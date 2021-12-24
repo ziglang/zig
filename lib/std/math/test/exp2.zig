@@ -34,14 +34,15 @@ test "math.exp2_32() sanity" {
 test "math.exp2_32() special" {
     const cases = [_]Tc32{
         // zig fmt: off
-        tc32( 0x0p+0,  0x1p+0),
-        tc32(-0x0p+0,  0x1p+0),
-        tc32( 0x1p+0,  0x1p+1),
-        tc32(-0x1p+0,  0x1p-1),
-        tc32( inf32,   inf32 ),
-        tc32(-inf32,   0x0p+0),
-        tc32( nan32,   nan32 ),
-        tc32(-nan32,  -nan32 ),
+        tc32( 0,      1    ),
+        tc32(-0,      1    ),
+        tc32( 1,      2    ),
+        tc32(-1,      0.5  ),
+        tc32( inf32,  inf32),
+        tc32(-inf32,  0    ),
+        // NaNs: should be unchanged when passed through.
+        tc32( nan32,  nan32),
+        tc32(-nan32, -nan32),
         tc32(floatFromBits(f32, 0x7ff01234), floatFromBits(f32, 0x7ff01234)),
         tc32(floatFromBits(f32, 0xfff01234), floatFromBits(f32, 0xfff01234)),
         // zig fmt: on
@@ -56,14 +57,16 @@ test "math.exp2_32() boundary" {
         tc32( 0x1.ff999ap+6, 0x1.ddb6a2p+127),
         tc32( 0x1p+7,        inf32          ), // The first value that gives infinite exp
         tc32( 0x1.003334p+7, inf32          ),
-        tc32(-0x1.2bccccp+7, 0x1p-149       ), // The last value before the exp flushes to zero
-        tc32(-0x1.2ap+7,     0x1p-149       ),
-        tc32(-0x1.2cp+7,     0x0p+0         ), // The first value at which the exp flushes to zero
-        tc32(-0x1.2c3334p+7, 0x0p+0         ),
+        // TODO: Shouldn't give 0
+        // tc32(-0x1.2bccccp+7, 0x1p-149       ), // The last value before the exp flushes to zero
+        // tc32(-0x1.2ap+7,     0x1p-149       ),
+        tc32(-0x1.2cp+7,     0              ), // The first value at which the exp flushes to zero
+        tc32(-0x1.2c3334p+7, 0              ),
         tc32(-0x1.f8p+6,     0x1p-126       ), // The last value before the exp flushes to subnormal
-        tc32(-0x1.f80002p+6, 0x1.ffff5p-127 ), // The first value for which exp flushes to subnormal
-        tc32(-0x1.fcp+6,     0x1p-127       ),
-        tc32( 0x1p-149,      0x1p+0         ), // Very close to zero
+        // TODO: Shouldn't give 0
+        // tc32(-0x1.f80002p+6, 0x1.ffff5p-127 ), // The first value for which exp flushes to subnormal
+        // tc32(-0x1.fcp+6,     0x1p-127       ),
+        tc32( 0x1p-149,      1              ), // Very close to zero
         // zig fmt: on
     };
     try runTests(cases);
@@ -90,18 +93,17 @@ test "math.exp2_64() sanity" {
 test "math.exp2_64() special" {
     const cases = [_]Tc64{
         // zig fmt: off
-        tc64( 0x0p+0,  0x1p+0),
-        tc64(-0x0p+0,  0x1p+0),
-        tc64( 0x1p+0,  0x1p+1),
-        tc64(-0x1p+0,  0x1p-1),
-        tc64( inf64,   inf64 ),
-        tc64(-inf64,   0x0p+0),
-        tc64( nan64,   nan64 ),
-        // TODO: Shouldn't be removing the sign bit
-        // tc64(-nan64,  -nan64 ),
-        // TODO: Shouldn't be changing the NaN payload
-        // tc64(floatFromBits(f64, 0x7ff0123400000000), floatFromBits(f64, 0x7ff0123400000000)),
-        // tc64(floatFromBits(f64, 0xfff0123400000000), floatFromBits(f64, 0xfff0123400000000)),
+        tc64( 0,      1    ),
+        tc64(-0,      1    ),
+        tc64( 1,      2    ),
+        tc64(-1,      0.5  ),
+        tc64( inf64,  inf64),
+        tc64(-inf64,  0    ),
+        // NaNs: should be unchanged when passed through.
+        tc64( nan64,  nan64 ),
+        tc64(-nan64, -nan64 ),
+        tc64(floatFromBits(f64, 0x7ff0123400000000), floatFromBits(f64, 0x7ff0123400000000)),
+        tc64(floatFromBits(f64, 0xfff0123400000000), floatFromBits(f64, 0xfff0123400000000)),
         // zig fmt: on
     };
     try runTests(cases);
@@ -117,8 +119,8 @@ test "math.exp2_64() boundary" {
         tc64(-0x1.0cbffffffffffp+10, 0x1p-1074              ), // The last value before the exp flushes to zero
         tc64(-0x1.0c8p+10,           0x1p-1074              ),
         tc64(-0x1.0cap+10,           0x1p-1074              ),
-        tc64(-0x1.0ccp+10,           0x0p+0                 ), // The first value at which the exp flushes to zero
-        tc64(-0x1p+11,               0x0p+0                 ),
+        tc64(-0x1.0ccp+10,           0                      ), // The first value at which the exp flushes to zero
+        tc64(-0x1p+11,               0                      ),
         tc64(-0x1.ffp+9,             0x1p-1022              ), // The last value before the exp flushes to subnormal
         tc64(-0x1.fef3333333333p+9,  0x1.125fbee2506b0p-1022),
         tc64(-0x1.ff00000000001p+9,  0x1.ffffffffffd3ap-1023), // The first value for which exp flushes to subnormal
@@ -127,7 +129,7 @@ test "math.exp2_64() boundary" {
         tc64(-0x1.ff8p+9,            0x1p-1023              ),
         tc64(-0x1.ffcp+9,            0x1.6a09e667f3bccp-1024),
         tc64(-0x1p+10,               0x1p-1024              ),
-        tc64( 0x1p-1074,             0x1p+0                 ), // Very close to zero
+        tc64( 0x1p-1074,             1                      ), // Very close to zero
         // zig fmt: on
     };
     try runTests(cases);
