@@ -140,6 +140,7 @@ pub const Inst = struct {
         mov_scale_src,
         mov_scale_dst,
         mov_scale_imm,
+
         lea,
         lea_scale_src,
         lea_scale_dst,
