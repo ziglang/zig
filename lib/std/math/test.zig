@@ -1,5 +1,7 @@
 const std = @import("../std.zig");
 const print = std.debug.print;
+const meta = std.meta;
+const bitCount = meta.bitCount;
 
 var verbose = false;
 
@@ -29,8 +31,8 @@ pub fn Testcase(
 
         const Self = @This();
 
-        const bits = std.meta.bitCount(F);
-        const U: type = std.meta.Int(.unsigned, bits);
+        const bits = bitCount(F);
+        const U: type = meta.Int(.unsigned, bits);
 
         pub fn init(input: F, exp_output: F) Self {
             return .{ .input = input, .exp_output = exp_output };
@@ -98,4 +100,8 @@ pub fn runTests(tests: anytype) !void {
         );
     }
     if (failures > 0) return error.Failure;
+}
+
+pub fn floatFromBits(comptime T: type, bits: meta.Int(.unsigned, bitCount(T))) T {
+    return @bitCast(T, bits);
 }

@@ -1,6 +1,7 @@
 const math = @import("../../math.zig");
 const Testcase = @import("../test.zig").Testcase;
 const runTests = @import("../test.zig").runTests;
+const floatFromBits = @import("../test.zig").floatFromBits;
 const inf32 = math.inf_f32;
 const inf64 = math.inf_f64;
 const nan32 = math.nan_f32;
@@ -43,14 +44,14 @@ test "math.exp32() sanity" {
 test "math.exp32() special" {
     const cases = [_]Tc32{
         // zig fmt: off
-        tc32( 0x0p+0, 0x1p+0),
-        tc32(-0x0p+0, 0x1p+0),
-        tc32( inf32,  inf32 ),
-        tc32(-inf32,  0x0p+0),
-        tc32( nan32,  nan32 ),
-        tc32(-nan32,  nan32 ),
-        tc32(@bitCast(f32, @as(u32, 0x7ff01234)), nan32),
-        tc32(@bitCast(f32, @as(u32, 0xfff01234)), nan32),
+        tc32( 0x0p+0,  0x1p+0),
+        tc32(-0x0p+0,  0x1p+0),
+        tc32( inf32,   inf32 ),
+        tc32(-inf32,   0x0p+0),
+        tc32( nan32,   nan32 ),
+        tc32(-nan32,  -nan32 ),
+        tc32(floatFromBits(f32, 0x7ff01234), floatFromBits(f32, 0x7ff01234)),
+        tc32(floatFromBits(f32, 0xfff01234), floatFromBits(f32, 0xfff01234)),
         // zig fmt: on
     };
     try runTests(cases);
@@ -106,14 +107,14 @@ test "math.exp64() sanity" {
 test "math.exp64() special" {
     const cases = [_]Tc64{
         // zig fmt: off
-        tc64( 0x0p+0, 0x1p+0),
-        tc64(-0x0p+0, 0x1p+0),
-        tc64( inf64,  inf64 ),
-        tc64(-inf64,  0x0p+0),
-        tc64( nan64,  nan64 ),
-        tc64(-nan64,  nan64 ),
-        tc64(@bitCast(f64, @as(u64, 0x7ff0123400000000)), nan64),
-        tc64(@bitCast(f64, @as(u64, 0xfff0123400000000)), nan64),
+        tc64( 0x0p+0,  0x1p+0),
+        tc64(-0x0p+0,  0x1p+0),
+        tc64( inf64,   inf64 ),
+        tc64(-inf64,   0x0p+0),
+        tc64( nan64,   nan64 ),
+        tc64(-nan64,  -nan64 ),
+        tc64(floatFromBits(f64, 0x7ff0123400000000), floatFromBits(f64, 0x7ff0123400000000)),
+        tc64(floatFromBits(f64, 0xfff0123400000000), floatFromBits(f64, 0xfff0123400000000)),
         // zig fmt: on
     };
     try runTests(cases);
