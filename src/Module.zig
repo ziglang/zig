@@ -849,6 +849,24 @@ pub const Struct = struct {
         /// undefined until `status` is `have_layout`.
         offset: u32,
         is_comptime: bool,
+
+        /// Returns the field alignment, assuming the struct is packed.
+        pub fn packedAlignment(field: Field) u32 {
+            if (field.abi_align.tag() == .abi_align_default) {
+                return 0;
+            } else {
+                return @intCast(u32, field.abi_align.toUnsignedInt());
+            }
+        }
+
+        /// Returns the field alignment, assuming the struct is not packed.
+        pub fn normalAlignment(field: Field, target: Target) u32 {
+            if (field.abi_align.tag() == .abi_align_default) {
+                return field.ty.abiAlignment(target);
+            } else {
+                return @intCast(u32, field.abi_align.toUnsignedInt());
+            }
+        }
     };
 
     pub fn getFullyQualifiedName(s: *Struct, gpa: Allocator) ![:0]u8 {

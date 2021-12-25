@@ -1173,7 +1173,7 @@ pub const Type = extern union {
                         .C => try writer.writeAll("[*c]"),
                         .Slice => try writer.writeAll("[]"),
                     }
-                    if (payload.@"align" != 0) {
+                    if (payload.@"align" != 0 or payload.host_size != 0) {
                         try writer.print("align({d}", .{payload.@"align"});
 
                         if (payload.bit_offset != 0) {
@@ -1867,24 +1867,57 @@ pub const Type = extern union {
 
             .@"struct" => {
                 const fields = self.structFields();
-                if (self.castTag(.@"struct")) |payload| {
+                const is_packed = if (self.castTag(.@"struct")) |payload| p: {
                     const struct_obj = payload.data;
                     assert(struct_obj.status == .have_layout);
-                    const is_packed = struct_obj.layout == .Packed;
-                    if (is_packed) @panic("TODO packed structs");
+                    break :p struct_obj.layout == .Packed;
+                } else false;
+
+                if (!is_packed) {
+                    var big_align: u32 = 0;
+                    for (fields.values()) |field| {
+                        if (!field.ty.hasCodeGenBits()) continue;
+
+                        const field_align = field.normalAlignment(target);
+                        big_align = @maximum(big_align, field_align);
+                    }
+                    return big_align;
                 }
+
+                // For packed structs, we take the maximum alignment of the backing integers.
+                comptime assert(Type.packed_struct_layout_version == 1);
                 var big_align: u32 = 0;
+                var running_bits: u16 = 0;
+
                 for (fields.values()) |field| {
                     if (!field.ty.hasCodeGenBits()) continue;
 
-                    const field_align = a: {
-                        if (field.abi_align.tag() == .abi_align_default) {
-                            break :a field.ty.abiAlignment(target);
-                        } else {
-                            break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                    const field_align = field.packedAlignment();
+                    if (field_align == 0) {
+                        running_bits += @intCast(u16, field.ty.bitSize(target));
+                    } else {
+                        if (running_bits != 0) {
+                            var int_payload: Payload.Bits = .{
+                                .base = .{ .tag = .int_unsigned },
+                                .data = running_bits,
+                            };
+                            const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                            const int_align = int_ty.abiAlignment(target);
+                            big_align = @maximum(big_align, int_align);
+                            running_bits = 0;
                         }
+                        big_align = @maximum(big_align, field_align);
+                    }
+                }
+
+                if (running_bits != 0) {
+                    var int_payload: Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = running_bits,
                     };
-                    big_align = @maximum(big_align, field_align);
+                    const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                    const int_align = int_ty.abiAlignment(target);
+                    big_align = @maximum(big_align, int_align);
                 }
                 return big_align;
             },
@@ -3635,30 +3668,70 @@ pub const Type = extern union {
     }
 
     /// Supports structs and unions.
+    /// For packed structs, it returns the byte offset of the containing integer.
     pub fn structFieldOffset(ty: Type, index: usize, target: Target) u64 {
         switch (ty.tag()) {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 assert(struct_obj.status == .have_layout);
                 const is_packed = struct_obj.layout == .Packed;
-                if (is_packed) @panic("TODO packed structs");
+                if (!is_packed) {
+                    var offset: u64 = 0;
+                    var big_align: u32 = 0;
+                    for (struct_obj.fields.values()) |field, i| {
+                        if (!field.ty.hasCodeGenBits()) continue;
 
+                        const field_align = field.normalAlignment(target);
+                        big_align = @maximum(big_align, field_align);
+                        offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+                        if (i == index) return offset;
+                        offset += field.ty.abiSize(target);
+                    }
+                    offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+                    return offset;
+                }
+
+                comptime assert(Type.packed_struct_layout_version == 1);
                 var offset: u64 = 0;
                 var big_align: u32 = 0;
+                var running_bits: u16 = 0;
                 for (struct_obj.fields.values()) |field, i| {
                     if (!field.ty.hasCodeGenBits()) continue;
 
-                    const field_align = a: {
-                        if (field.abi_align.tag() == .abi_align_default) {
-                            break :a field.ty.abiAlignment(target);
-                        } else {
-                            break :a @intCast(u32, field.abi_align.toUnsignedInt());
+                    const field_align = field.packedAlignment();
+                    if (field_align == 0) {
+                        if (i == index) return offset;
+                        running_bits += @intCast(u16, field.ty.bitSize(target));
+                    } else {
+                        big_align = @maximum(big_align, field_align);
+
+                        if (running_bits != 0) {
+                            var int_payload: Payload.Bits = .{
+                                .base = .{ .tag = .int_unsigned },
+                                .data = running_bits,
+                            };
+                            const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                            const int_align = int_ty.abiAlignment(target);
+                            big_align = @maximum(big_align, int_align);
+                            offset = std.mem.alignForwardGeneric(u64, offset, int_align);
+                            offset += int_ty.abiSize(target);
+                            running_bits = 0;
                         }
+                        offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+                        if (i == index) return offset;
+                        offset += field.ty.abiSize(target);
+                    }
+                }
+                if (running_bits != 0) {
+                    var int_payload: Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = running_bits,
                     };
-                    big_align = @maximum(big_align, field_align);
-                    offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-                    if (i == index) return offset;
-                    offset += field.ty.abiSize(target);
+                    const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                    const int_align = int_ty.abiAlignment(target);
+                    big_align = @maximum(big_align, int_align);
+                    offset = std.mem.alignForwardGeneric(u64, offset, int_align);
+                    offset += int_ty.abiSize(target);
                 }
                 offset = std.mem.alignForwardGeneric(u64, offset, big_align);
                 return offset;
@@ -4350,6 +4423,10 @@ pub const Type = extern union {
             else => return Tag.int_unsigned.create(arena, bits),
         };
     }
+
+    /// This is only used for comptime asserts. Bump this number when you make a change
+    /// to packed struct layout to find out all the places in the codebase you need to edit!
+    pub const packed_struct_layout_version = 1;
 };
 
 pub const CType = enum {

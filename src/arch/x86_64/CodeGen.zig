@@ -275,7 +275,9 @@ pub fn generate(
         .stack_align = undefined,
         .end_di_line = module_fn.rbrace_line,
         .end_di_column = module_fn.rbrace_column,
-        .mir_to_air_map = if (builtin.mode == .Debug) std.AutoHashMap(Mir.Inst.Index, Air.Inst.Index).init(bin_file.allocator) else {},
+        .mir_to_air_map = if (builtin.mode == .Debug)
+            std.AutoHashMap(Mir.Inst.Index, Air.Inst.Index).init(bin_file.allocator)
+        else {},
     };
     defer function.stack.deinit(bin_file.allocator);
     defer function.blocks.deinit(bin_file.allocator);
@@ -386,8 +388,8 @@ fn gen(self: *Self) InnerError!void {
         _ = try self.addInst(.{
             .tag = .mov,
             .ops = (Mir.Ops{
-                .reg1 = .rsp,
-                .reg2 = .rbp,
+                .reg1 = .rbp,
+                .reg2 = .rsp,
             }).encode(),
             .data = undefined,
         });
@@ -1632,18 +1634,18 @@ fn genBinMathOpMir(
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = src_reg,
-                            .reg2 = dst_reg,
-                            .flags = 0b11,
+                            .reg1 = registerAlias(dst_reg, @divExact(src_reg.size(), 8)),
+                            .reg2 = src_reg,
                         }).encode(),
                         .data = undefined,
                     });
                 },
                 .immediate => |imm| {
+                    // TODO I am not quite sure why we need to set the size of the register here...
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = dst_reg,
+                            .reg1 = registerAlias(dst_reg, 4),
                         }).encode(),
                         .data = .{ .imm = @intCast(i32, imm) },
                     });
@@ -1661,7 +1663,7 @@ fn genBinMathOpMir(
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
                             .reg1 = registerAlias(dst_reg, @intCast(u32, abi_size)),
-                            .reg2 = registerAlias(.rbp, @intCast(u32, abi_size)),
+                            .reg2 = .rbp,
                             .flags = 0b01,
                         }).encode(),
                         .data = .{ .imm = -@intCast(i32, adj_off) },
@@ -1691,8 +1693,8 @@ fn genBinMathOpMir(
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = registerAlias(src_reg, @intCast(u32, abi_size)),
-                            .reg2 = registerAlias(.rbp, @intCast(u32, abi_size)),
+                            .reg1 = .rbp,
+                            .reg2 = registerAlias(src_reg, @intCast(u32, abi_size)),
                             .flags = 0b10,
                         }).encode(),
                         .data = .{ .imm = -@intCast(i32, adj_off) },
@@ -1741,7 +1743,7 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                     _ = try self.addInst(.{
                         .tag = .imul_complex,
                         .ops = (Mir.Ops{
-                            .reg1 = dst_reg,
+                            .reg1 = registerAlias(dst_reg, @divExact(src_reg.size(), 8)),
                             .reg2 = src_reg,
                         }).encode(),
                         .data = undefined,
@@ -1790,7 +1792,7 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                     _ = try self.addInst(.{
                         .tag = .imul_complex,
                         .ops = (Mir.Ops{
-                            .reg1 = dst_reg,
+                            .reg1 = registerAlias(dst_reg, @divExact(src_reg.size(), 8)),
                             .reg2 = src_reg,
                         }).encode(),
                         .data = undefined,
@@ -2868,8 +2870,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
-                    .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
-                    .reg2 = registerAlias(.rbp, @intCast(u32, abi_size)),
+                    .reg1 = .rbp,
+                    .reg2 = registerAlias(reg, @intCast(u32, abi_size)),
                     .flags = 0b10,
                 }).encode(),
                 .data = .{ .imm = -@intCast(i32, adj_off) },
@@ -2926,7 +2928,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             _ = try self.addInst(.{
                 .tag = tag,
                 .ops = (Mir.Ops{
-                    .reg1 = reg,
+                    .reg1 = reg.to8(),
                     .flags = flags,
                 }).encode(),
                 .data = undefined,
@@ -2952,10 +2954,11 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             }
             if (x <= math.maxInt(i32)) {
                 // Next best case: if we set the lower four bytes, the upper four will be zeroed.
+                // TODO I am not quite sure why we need to set the size of the register here...
                 _ = try self.addInst(.{
                     .tag = .mov,
                     .ops = (Mir.Ops{
-                        .reg1 = reg,
+                        .reg1 = registerAlias(reg, 4),
                     }).encode(),
                     .data = .{ .imm = @intCast(i32, x) },
                 });
@@ -2996,9 +2999,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
-                    .reg1 = reg,
+                    .reg1 = registerAlias(reg, @divExact(src_reg.size(), 8)),
                     .reg2 = src_reg,
-                    .flags = 0b11,
                 }).encode(),
                 .data = undefined,
             });
@@ -3085,15 +3087,14 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             if (off < std.math.minInt(i32) or off > std.math.maxInt(i32)) {
                 return self.fail("stack offset too large", .{});
             }
-            const ioff = -@intCast(i32, off);
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
                     .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
-                    .reg2 = registerAlias(.rbp, @intCast(u32, abi_size)),
+                    .reg2 = .rbp,
                     .flags = 0b01,
                 }).encode(),
-                .data = .{ .imm = ioff },
+                .data = .{ .imm = -@intCast(i32, off) },
             });
         },
     }
