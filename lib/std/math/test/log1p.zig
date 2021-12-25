@@ -1,12 +1,12 @@
 const math = @import("../../math.zig");
-const Testcase = @import("../test.zig").Testcase;
-const runTests = @import("../test.zig").runTests;
-const floatFromBits = @import("../test.zig").floatFromBits;
+const test_utils = @import("../test.zig");
+const Testcase = test_utils.Testcase;
+const runTests = test_utils.runTests;
+const floatFromBits = test_utils.floatFromBits;
 const inf32 = math.inf_f32;
 const inf64 = math.inf_f64;
 const nan32 = math.nan_f32;
 const nan64 = math.nan_f64;
-
 
 const Tc32 = Testcase(math.log1p, "log1p", f32);
 const tc32 = Tc32.init;

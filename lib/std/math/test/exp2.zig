@@ -1,7 +1,8 @@
 const math = @import("../../math.zig");
-const Testcase = @import("../test.zig").Testcase;
-const runTests = @import("../test.zig").runTests;
-const floatFromBits = @import("../test.zig").floatFromBits;
+const test_utils = @import("../test.zig");
+const Testcase = test_utils.Testcase;
+const runTests = test_utils.runTests;
+const floatFromBits = test_utils.floatFromBits;
 const inf32 = math.inf_f32;
 const inf64 = math.inf_f64;
 const nan32 = math.nan_f32;
@@ -53,18 +54,18 @@ test "math.exp2_32() special" {
 test "math.exp2_32() boundary" {
     const cases = [_]Tc32{
         // zig fmt: off
-        tc32( 0x1.fffffep+6, 0x1.ffff4ep+127), // The last value before the exp gets infinite
+        tc32( 0x1.fffffep+6, 0x1.ffff4ep+127), // The last value before the result gets infinite
         tc32( 0x1.ff999ap+6, 0x1.ddb6a2p+127),
-        tc32( 0x1p+7,        inf32          ), // The first value that gives infinite exp
+        tc32( 0x1p+7,        inf32          ), // The first value that gives infinite result
         tc32( 0x1.003334p+7, inf32          ),
         // TODO: Shouldn't give 0
-        // tc32(-0x1.2bccccp+7, 0x1p-149       ), // The last value before the exp flushes to zero
+        // tc32(-0x1.2bccccp+7, 0x1p-149       ), // The last value before the result flushes to zero
         // tc32(-0x1.2ap+7,     0x1p-149       ),
-        tc32(-0x1.2cp+7,     0              ), // The first value at which the exp flushes to zero
+        tc32(-0x1.2cp+7,     0              ), // The first value at which the result flushes to zero
         tc32(-0x1.2c3334p+7, 0              ),
-        tc32(-0x1.f8p+6,     0x1p-126       ), // The last value before the exp flushes to subnormal
+        tc32(-0x1.f8p+6,     0x1p-126       ), // The last value before the result flushes to subnormal
         // TODO: Shouldn't give 0
-        // tc32(-0x1.f80002p+6, 0x1.ffff5p-127 ), // The first value for which exp flushes to subnormal
+        // tc32(-0x1.f80002p+6, 0x1.ffff5p-127 ), // The first value for which the result flushes to subnormal
         // tc32(-0x1.fcp+6,     0x1p-127       ),
         tc32( 0x1p-149,      1              ), // Very close to zero
         // zig fmt: on
@@ -112,18 +113,18 @@ test "math.exp2_64() special" {
 test "math.exp2_64() boundary" {
     const cases = [_]Tc64{
         // zig fmt: off
-        tc64( 0x1.fffffffffffffp+9,  0x1.ffffffffffd3ap+1023), // The last value before the exp gets infinite
+        tc64( 0x1.fffffffffffffp+9,  0x1.ffffffffffd3ap+1023), // The last value before the result gets infinite
         tc64( 0x1.fff3333333333p+9,  0x1.ddb680117aa8ep+1023),
-        tc64( 0x1p+10,               inf64                  ), // The first value that gives infinite exp
+        tc64( 0x1p+10,               inf64                  ), // The first value that gives infinite result
         tc64( 0x1.0006666666666p+10, inf64                  ),
-        tc64(-0x1.0cbffffffffffp+10, 0x1p-1074              ), // The last value before the exp flushes to zero
+        tc64(-0x1.0cbffffffffffp+10, 0x1p-1074              ), // The last value before the result flushes to zero
         tc64(-0x1.0c8p+10,           0x1p-1074              ),
         tc64(-0x1.0cap+10,           0x1p-1074              ),
-        tc64(-0x1.0ccp+10,           0                      ), // The first value at which the exp flushes to zero
+        tc64(-0x1.0ccp+10,           0                      ), // The first value at which the result flushes to zero
         tc64(-0x1p+11,               0                      ),
-        tc64(-0x1.ffp+9,             0x1p-1022              ), // The last value before the exp flushes to subnormal
+        tc64(-0x1.ffp+9,             0x1p-1022              ), // The last value before the result flushes to subnormal
         tc64(-0x1.fef3333333333p+9,  0x1.125fbee2506b0p-1022),
-        tc64(-0x1.ff00000000001p+9,  0x1.ffffffffffd3ap-1023), // The first value for which exp flushes to subnormal
+        tc64(-0x1.ff00000000001p+9,  0x1.ffffffffffd3ap-1023), // The first value for which the result flushes to subnormal
         tc64(-0x1.ff0cccccccccdp+9,  0x1.ddb680117aa8ep-1023),
         tc64(-0x1.ff4p+9,            0x1.6a09e667f3bccp-1023),
         tc64(-0x1.ff8p+9,            0x1p-1023              ),

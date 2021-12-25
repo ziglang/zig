@@ -1,12 +1,12 @@
 const math = @import("../../math.zig");
-const Testcase = @import("../test.zig").Testcase;
-const runTests = @import("../test.zig").runTests;
-const floatFromBits = @import("../test.zig").floatFromBits;
+const test_utils = @import("../test.zig");
+const Testcase = test_utils.Testcase;
+const runTests = test_utils.runTests;
+const floatFromBits = test_utils.floatFromBits;
 const inf32 = math.inf_f32;
 const inf64 = math.inf_f64;
 const nan32 = math.nan_f32;
 const nan64 = math.nan_f64;
-
 
 const Tc32 = Testcase(math.ln, "ln", f32);
 const tc32 = Tc32.init;
@@ -56,7 +56,13 @@ test "math.ln32() special" {
 test "math.ln32() boundary" {
     const cases = [_]Tc32{
         // zig fmt: off
-        // TODO
+        tc32( 0x1.fffffep+127,  0x1.62e430p+6 ), // Max input value
+        tc32( 0x1p-149,        -0x1.9d1da0p+6 ), // Tiny input value
+        tc32(-0x1p-149,         nan32         ), // Tiny negative input value
+        tc32( 0x1.000002p+0,    0x1.fffffep-24), // Last value before result reaches +0
+        tc32( 0x1.fffffep-1,   -0x1p-24       ), // Last value before result reaches -0
+        tc32( 0x1p-126,        -0x1.5d58a0p+6 ), // First subnormal
+        tc32(-0x1p-126,         nan32         ), // First negative subnormal
         // zig fmt: on
     };
     try runTests(cases);
@@ -104,7 +110,14 @@ test "math.ln64() special" {
 test "math.ln64() boundary" {
     const cases = [_]Tc64{
         // zig fmt: off
-        // TODO
+        tc64( 0x1.fffffffffffffp+1023,  0x1.62e42fefa39efp+9 ), // Max input value
+        // TODO: Off from the second decimal digit onwards
+        // tc64( 0x1p-1074,               -0x1.74385446d71c3p+9 ), // Tiny input value
+        tc64(-0x1p-1074,                nan64                ), // Tiny negative input value
+        tc64( 0x1.0000000000001p+0,     0x1.fffffffffffffp-53), // Last value before result reaches +0
+        tc64( 0x1.fffffffffffffp-1,    -0x1p-53              ), // Last value before result reaches -0
+        tc64( 0x1p-1022,               -0x1.6232bdd7abcd2p+9 ), // First subnormal
+        tc64(-0x1p-1022,                nan64                ), // First negative subnormal
         // zig fmt: on
     };
     try runTests(cases);
