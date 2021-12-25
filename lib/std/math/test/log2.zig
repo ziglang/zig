@@ -55,7 +55,13 @@ test "math.log2_32() special" {
 test "math.log2_32() boundary" {
     const cases = [_]Tc32{
         // zig fmt: off
-        // TODO
+        tc32( 0x1.fffffep+127,  0x1p+7        ), // Max input value
+        tc32( 0x1p-149,        -0x1.2ap+7     ), // Tiny input value
+        tc32(-0x1p-149,         nan32         ), // Tiny negative input value
+        tc32( 0x1.000002p+0,    0x1.715474p-23), // Last value before result reaches +0
+        tc32( 0x1.fffffep-1,   -0x1.715478p-24), // Last value before result reaches -0
+        tc32( 0x1p-126,        -0x1.f8p+6     ), // First subnormal
+        tc32(-0x1p-126,         nan32         ), // First negative subnormal
         // zig fmt: on
     };
     try runTests(cases);
@@ -102,7 +108,13 @@ test "math.log2_64() special" {
 test "math.log2_64() boundary" {
     const cases = [_]Tc64{
         // zig fmt: off
-        // TODO
+        tc64( 0x1.fffffffffffffp+1023,  0x1p+10              ), // Max input value
+        tc64( 0x1p-1074,               -0x1.0c8p+10          ), // Tiny input value
+        tc64(-0x1p-1074,                nan64                ), // Tiny negative input value
+        tc64( 0x1.0000000000001p+0,     0x1.71547652b82fdp-52), // Last value before result reaches +0
+        tc64( 0x1.fffffffffffffp-1,    -0x1.71547652b82fep-53), // Last value before result reaches -0
+        tc64( 0x1p-1022,               -0x1.ffp+9            ), // First subnormal
+        tc64(-0x1p-1022,                nan64                ), // First negative subnormal
         // zig fmt: on
     };
     try runTests(cases);
