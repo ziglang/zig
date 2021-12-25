@@ -183,17 +183,3 @@ test "math.ln64" {
     try expect(math.approxEqAbs(f64, ln_64(89.123), 4.490017, epsilon));
     try expect(math.approxEqAbs(f64, ln_64(123123.234375), 11.720941, epsilon));
 }
-
-test "math.ln32.special" {
-    try expect(math.isPositiveInf(ln_32(math.inf(f32))));
-    try expect(math.isNegativeInf(ln_32(0.0)));
-    try expect(math.isNan(ln_32(-1.0)));
-    try expect(math.isNan(ln_32(math.nan(f32))));
-}
-
-test "math.ln64.special" {
-    try expect(math.isPositiveInf(ln_64(math.inf(f64))));
-    try expect(math.isNegativeInf(ln_64(0.0)));
-    try expect(math.isNan(ln_64(-1.0)));
-    try expect(math.isNan(ln_64(math.nan(f64))));
-}

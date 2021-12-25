@@ -211,17 +211,3 @@ test "math.log10_64" {
     try testing.expect(math.approxEqAbs(f64, log10_64(89.123), 1.94999, epsilon));
     try testing.expect(math.approxEqAbs(f64, log10_64(123123.234375), 5.09034, epsilon));
 }
-
-test "math.log10_32.special" {
-    try testing.expect(math.isPositiveInf(log10_32(math.inf(f32))));
-    try testing.expect(math.isNegativeInf(log10_32(0.0)));
-    try testing.expect(math.isNan(log10_32(-1.0)));
-    try testing.expect(math.isNan(log10_32(math.nan(f32))));
-}
-
-test "math.log10_64.special" {
-    try testing.expect(math.isPositiveInf(log10_64(math.inf(f64))));
-    try testing.expect(math.isNegativeInf(log10_64(0.0)));
-    try testing.expect(math.isNan(log10_64(-1.0)));
-    try testing.expect(math.isNan(log10_64(math.nan(f64))));
-}
