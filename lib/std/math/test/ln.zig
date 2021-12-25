@@ -57,8 +57,8 @@ test "math.ln32() boundary" {
     const cases = [_]Tc32{
         // zig fmt: off
         tc32( 0x1.fffffep+127,  0x1.62e430p+6 ), // Max input value
-        tc32( 0x1p-149,        -0x1.9d1da0p+6 ), // Tiny input value
-        tc32(-0x1p-149,         nan32         ), // Tiny negative input value
+        tc32( 0x1p-149,        -0x1.9d1da0p+6 ), // Min positive input value
+        tc32(-0x1p-149,         nan32         ), // Min negative input value
         tc32( 0x1.000002p+0,    0x1.fffffep-24), // Last value before result reaches +0
         tc32( 0x1.fffffep-1,   -0x1p-24       ), // Last value before result reaches -0
         tc32( 0x1p-126,        -0x1.5d58a0p+6 ), // First subnormal
@@ -112,8 +112,8 @@ test "math.ln64() boundary" {
         // zig fmt: off
         tc64( 0x1.fffffffffffffp+1023,  0x1.62e42fefa39efp+9 ), // Max input value
         // TODO: Off from the second decimal digit onwards
-        // tc64( 0x1p-1074,               -0x1.74385446d71c3p+9 ), // Tiny input value
-        tc64(-0x1p-1074,                nan64                ), // Tiny negative input value
+        // tc64( 0x1p-1074,               -0x1.74385446d71c3p+9 ), // Min positive input value
+        tc64(-0x1p-1074,                nan64                ), // Min negative input value
         tc64( 0x1.0000000000001p+0,     0x1.fffffffffffffp-53), // Last value before result reaches +0
         tc64( 0x1.fffffffffffffp-1,    -0x1p-53              ), // Last value before result reaches -0
         tc64( 0x1p-1022,               -0x1.6232bdd7abcd2p+9 ), // First subnormal

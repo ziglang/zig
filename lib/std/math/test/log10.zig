@@ -28,7 +28,6 @@ test "math.log10_32() sanity" {
         tc32( 0x1.1f9efap-1, -0x1.0075ccp-2),
         tc32( 0x1.8c5db0p-1, -0x1.c75df8p-4),
         tc32(-0x1.5b86eap-1,  nan32        ),
-
         // zig fmt: on
     };
     try runTests(cases);
@@ -58,7 +57,13 @@ test "math.log10_32() special" {
 test "math.log10_32() boundary" {
     const cases = [_]Tc32{
         // zig fmt: off
-        // TODO
+        tc32( 0x1.fffffep+127,  0x1.344136p+5 ), // Max input value
+        tc32( 0x1p-149,        -0x1.66d3e8p+5 ), // Min positive input value
+        tc32(-0x1p-149,         nan32         ), // Min negative input value
+        tc32( 0x1.000002p+0,    0x1.bcb7b0p-25), // Last value before result reaches +0
+        tc32( 0x1.fffffep-1,   -0x1.bcb7b2p-26), // Last value before result reaches -0
+        tc32( 0x1p-126,        -0x1.2f7030p+5 ), // First subnormal
+        tc32(-0x1p-126,         nan32         ), // First negative subnormal
         // zig fmt: on
     };
     try runTests(cases);
@@ -106,7 +111,13 @@ test "math.log10_64() special" {
 test "math.log10_64() boundary" {
     const cases = [_]Tc64{
         // zig fmt: off
-        // TODO
+        tc64( 0x1.fffffffffffffp+1023,  0x1.34413509f79ffp+8 ), // Max input value
+        tc64( 0x1p-1074,               -0x1.434e6420f4374p+8 ), // Min positive input value
+        tc64(-0x1p-1074,                nan64                ), // Min negative input value
+        tc64( 0x1.0000000000001p+0,     0x1.bcb7b1526e50dp-54), // Last value before result reaches +0
+        tc64( 0x1.fffffffffffffp-1,    -0x1.bcb7b1526e50fp-55), // Last value before result reaches -0
+        tc64( 0x1p-1022,               -0x1.33a7146f72a42p+8 ), // First subnormal
+        tc64(-0x1p-1022,                nan64                ), // First negative subnormal
         // zig fmt: on
     };
     try runTests(cases);

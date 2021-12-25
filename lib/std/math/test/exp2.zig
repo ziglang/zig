@@ -67,7 +67,7 @@ test "math.exp2_32() boundary" {
         // TODO: Shouldn't give 0
         // tc32(-0x1.f80002p+6, 0x1.ffff5p-127 ), // The first value for which the result flushes to subnormal
         // tc32(-0x1.fcp+6,     0x1p-127       ),
-        tc32( 0x1p-149,      1              ), // Very close to zero
+        tc32( 0x1p-149,      1              ), // Min positive input value
         // zig fmt: on
     };
     try runTests(cases);
@@ -130,7 +130,7 @@ test "math.exp2_64() boundary" {
         tc64(-0x1.ff8p+9,            0x1p-1023              ),
         tc64(-0x1.ffcp+9,            0x1.6a09e667f3bccp-1024),
         tc64(-0x1p+10,               0x1p-1024              ),
-        tc64( 0x1p-1074,             1                      ), // Very close to zero
+        tc64( 0x1p-1074,             1                      ), // Min positive input value
         // zig fmt: on
     };
     try runTests(cases);
