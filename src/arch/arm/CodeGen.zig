@@ -1317,8 +1317,37 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 .stack_offset => |off| {
                     if (elem_ty.abiSize(self.target.*) <= 4) {
                         const tmp_reg = try self.register_manager.allocReg(null, &.{});
-                        try self.load(.{ .register = tmp_reg }, ptr, elem_ty);
-                        return self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg });
+                        try self.load(.{ .register = tmp_reg }, ptr, ptr_ty);
+                        try self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg });
+                    } else if (elem_ty.abiSize(self.target.*) == 8) {
+                        // TODO generalize this: maybe add a
+                        // genArmMemcpy function which manually copies
+                        // data if the size is below a certain
+                        // threshold and calls "memcpy" if the size is
+                        // larger
+
+                        const usize_ty = Type.initTag(.usize);
+                        const tmp_regs = try self.register_manager.allocRegs(2, .{ null, null }, &.{});
+                        _ = try self.addInst(.{
+                            .tag = .ldr,
+                            .cond = .al,
+                            .data = .{ .rr_offset = .{
+                                .rt = tmp_regs[0],
+                                .rn = reg,
+                                .offset = .{ .offset = Instruction.Offset.none },
+                            } },
+                        });
+                        _ = try self.addInst(.{
+                            .tag = .ldr,
+                            .cond = .al,
+                            .data = .{ .rr_offset = .{
+                                .rt = tmp_regs[1],
+                                .rn = reg,
+                                .offset = .{ .offset = Instruction.Offset.imm(4) },
+                            } },
+                        });
+                        try self.genSetStack(usize_ty, off, MCValue{ .register = tmp_regs[0] });
+                        try self.genSetStack(usize_ty, off + 4, MCValue{ .register = tmp_regs[1] });
                     } else {
                         return self.fail("TODO implement memcpy", .{});
                     }
