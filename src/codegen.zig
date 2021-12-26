@@ -150,6 +150,13 @@ pub fn generateSymbol(
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (typed_value.val.isUndefDeep()) {
+        const target = bin_file.options.target;
+        const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
+        try code.appendNTimes(0xaa, abi_size);
+        return Result{ .appended = {} };
+    }
+
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
             return Result{
@@ -193,6 +200,38 @@ pub fn generateSymbol(
         },
         .Pointer => switch (typed_value.ty.ptrSize()) {
             .Slice => {
+                // TODO populate .debug_info for the slice
+
+                // generate ptr
+                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf);
+                switch (try generateSymbol(bin_file, src_loc, .{
+                    .ty = slice_ptr_field_type,
+                    .val = typed_value.val.slicePtr(),
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |slice| {
+                        code.appendSliceAssumeCapacity(slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+
+                // generate length
+                var int_buffer: Value.Payload.U64 = .{
+                    .base = .{ .tag = .int_u64 },
+                    .data = typed_value.val.sliceLen(),
+                };
+                switch (try generateSymbol(bin_file, src_loc, .{
+                    .ty = Type.initTag(.usize),
+                    .val = Value.initPayload(&int_buffer.base),
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |slice| {
+                        code.appendSliceAssumeCapacity(slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+
                 return Result{
                     .fail = try ErrorMsg.create(
                         bin_file.allocator,
