@@ -65,7 +65,7 @@ test "math.exp32() boundary" {
     const cases = [_]Tc32{
         // zig fmt: off
         tc32( 0x1.62e42ep+6,   0x1.ffff08p+127), // The last value before the result gets infinite
-        tc32( 0x1.62e430p+6,   inf32          ), // The first value that gives infinite exp
+        tc32( 0x1.62e430p+6,   inf32          ), // The first value that gives inf
         tc32( 0x1.fffffep+127, inf32          ), // Max input value
         tc32( 0x1p-149,        1              ), // Min positive input value
         tc32(-0x1p-149,        1              ), // Min negative input value
@@ -74,7 +74,7 @@ test "math.exp32() boundary" {
         tc32(-0x1.9fe368p+6,   0x1p-149       ), // The last value before the result flushes to zero
         tc32(-0x1.9fe36ap+6,   0              ), // The first value at which the result flushes to zero
         tc32(-0x1.5d589ep+6,   0x1.00004cp-126), // The last value before the result flushes to subnormal
-        tc32(-0x1.5d58a0p+6,   0x1.ffff98p-127), // The first value for which exp flushes to subnormal
+        tc32(-0x1.5d58a0p+6,   0x1.ffff98p-127), // The first value for which the result flushes to subnormal
         // zig fmt: on
     };
     try runTests(cases);
@@ -131,17 +131,17 @@ test "math.exp64() special" {
 test "math.exp64() boundary" {
     const cases = [_]Tc64{
         // zig fmt: off
-        tc64( 0x1.62e42fefa39efp+9,   0x1.fffffffffff2ap+1023), // The last value before the result gets infinite
-        tc64( 0x1.62e42fefa39f0p+9,   inf64                  ), // The first value that gives infinite exp
-        tc64( 0x1.fffffffffffffp+127, inf64                  ), // Max input value
-        tc64( 0x1p-1074,              1                      ), // Min positive input value
-        tc64(-0x1p-1074,              1                      ), // Min negative input value
-        tc64( 0x1p-1022,              1                      ), // First positive subnormal input
-        tc64(-0x1p-1022,              1                      ), // First negative subnormal input
-        tc64(-0x1.74910d52d3051p+9,   0x1p-1074              ), // The last value before the result flushes to zero
-        tc64(-0x1.74910d52d3052p+9,   0                      ), // The first value at which the result flushes to zero
-        tc64(-0x1.6232bdd7abcd2p+9,   0x1.000000000007cp-1022), // The last value before the result flushes to subnormal
-        tc64(-0x1.6232bdd7abcd3p+9,   0x1.ffffffffffcf8p-1023), // The first value for which the result flushes to subnormal
+        tc64( 0x1.62e42fefa39efp+9,    0x1.fffffffffff2ap+1023), // The last value before the result gets infinite
+        tc64( 0x1.62e42fefa39f0p+9,    inf64                  ), // The first value that gives inf
+        tc64( 0x1.fffffffffffffp+1023, inf64                  ), // Max input value
+        tc64( 0x1p-1074,               1                      ), // Min positive input value
+        tc64(-0x1p-1074,               1                      ), // Min negative input value
+        tc64( 0x1p-1022,               1                      ), // First positive subnormal input
+        tc64(-0x1p-1022,               1                      ), // First negative subnormal input
+        tc64(-0x1.74910d52d3051p+9,    0x1p-1074              ), // The last value before the result flushes to zero
+        tc64(-0x1.74910d52d3052p+9,    0                      ), // The first value at which the result flushes to zero
+        tc64(-0x1.6232bdd7abcd2p+9,    0x1.000000000007cp-1022), // The last value before the result flushes to subnormal
+        tc64(-0x1.6232bdd7abcd3p+9,    0x1.ffffffffffcf8p-1023), // The first value for which the result flushes to subnormal
         // zig fmt: on
     };
     try runTests(cases);

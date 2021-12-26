@@ -55,7 +55,18 @@ test "math.expm1_32() special" {
 test "math.expm1_32() boundary" {
     const cases = [_]Tc32{
         // zig fmt: off
-        // TODO
+        tc32( 0x1.62e300p+6,    0x1.ff681ep+127), // Last value before result is inf
+        // TODO: Is this right? The last value before inf is not very close to the max float...
+        tc32( 0x1.62e302p+6,    inf32          ), // First value that gives inf
+        tc32( 0x1.fffffep+127,  inf32          ), // Max input value
+        tc32( 0x1p-149,         0x1p-149       ), // Min positive input value
+        tc32(-0x1p-149,        -0x1p-149       ), // Min negative input value
+        tc32( 0x1p-126,         0x1p-126       ), // First positive subnormal input
+        tc32(-0x1p-126,        -0x1p-126       ), // First negative subnormal input
+        tc32( 0x1.fffffep-125,  0x1.fffffep-125), // Last positive value before subnormal
+        tc32(-0x1.fffffep-125, -0x1.fffffep-125), // Last negative value before subnormal
+        tc32(-0x1.154244p+4,   -0x1.fffffep-1  ), // Last value before result is -1
+        tc32(-0x1.154246p+4,   -1              ), // First value where result is -1
         // zig fmt: on
     };
     try runTests(cases);
@@ -99,7 +110,17 @@ test "math.expm1_64() special" {
 test "math.expm1_64() boundary" {
     const cases = [_]Tc64{
         // zig fmt: off
-        // TODO
+        tc64( 0x1.62e42fefa39efp+9,     0x1.fffffffffff2ap+1023), // Last value before result is inf
+        tc64( 0x1.62e42fefa39f0p+9,     inf64                  ), // First value that gives inf
+        tc64( 0x1.fffffffffffffp+1023,  inf64                  ), // Max input value
+        tc64( 0x1p-1074,                0x1p-1074              ), // Min positive input value
+        tc64(-0x1p-1074,               -0x1p-1074              ), // Min negative input value
+        tc64( 0x1p-1022,                0x1p-1022              ), // First positive subnormal input
+        tc64(-0x1p-1022,               -0x1p-1022              ), // First negative subnormal input
+        tc64( 0x1.fffffffffffffp-1021,  0x1.fffffffffffffp-1021), // Last positive value before subnormal
+        tc64(-0x1.fffffffffffffp-1021, -0x1.fffffffffffffp-1021), // Last negative value before subnormal
+        tc64(-0x1.2b708872320e1p+5,    -0x1.fffffffffffffp-1   ), // Last value before result is -1
+        tc64(-0x1.2b708872320e2p+5,    -1                      ), // First value where result is -1
         // zig fmt: on
     };
     try runTests(cases);
