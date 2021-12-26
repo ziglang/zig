@@ -86,7 +86,7 @@ fn expm1_32(x_: f32) f32 {
             }
 
             k = @floatToInt(i32, kf);
-            const t: f32 = kf;
+            const t = @intToFloat(f32, k);
             hi = x - t * ln2_hi;
             lo = t * ln2_lo;
         }
