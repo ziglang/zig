@@ -37,16 +37,11 @@ fn expm1_32(x_: f32) f32 {
     var x = x_;
     const ux = @bitCast(u32, x);
     const hx = ux & 0x7FFFFFFF;
-    const sign = hx >> 31;
+    const sign = ux >> 31;
 
     // TODO: Shouldn't need this check explicitly.
     if (math.isNegativeInf(x)) {
         return -1.0;
-    }
-
-    // TODO: This should be handled beneath.
-    if (math.isNan(x_)) {
-        return x_;
     }
 
     // |x| >= 27 * ln2
@@ -91,7 +86,7 @@ fn expm1_32(x_: f32) f32 {
             }
 
             k = @floatToInt(i32, kf);
-            const t = @intToFloat(f32, k);
+            const t: f32 = kf;
             hi = x - t * ln2_hi;
             lo = t * ln2_lo;
         }
@@ -148,7 +143,7 @@ fn expm1_32(x_: f32) f32 {
         return y - 1.0;
     }
 
-    const uf = @bitCast(f32, @intCast(u32, 0x7F -% k) << 23);
+    const uf = @bitCast(f32, @intCast(u32, (0x7F -% k) << 23));
     if (k < 23) {
         return (x - e + (1 - uf)) * twopk;
     } else {

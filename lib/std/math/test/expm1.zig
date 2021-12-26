@@ -21,15 +21,12 @@ test "math.expm1_32() sanity" {
         tc32( 0x1.161868p+2,  0x1.30712ap+6 ),
         tc32(-0x1.0c34b4p+3, -0x1.ffe1fap-1 ),
         tc32(-0x1.a206f0p+2, -0x1.ff4116p-1 ),
-        // TODO: Error in last digit
-        // tc32( 0x1.288bbcp+3,  0x1.4ab482p+13),
+        tc32( 0x1.288bbcp+3,  0x1.4ab480p+13),
         tc32( 0x1.52efd0p-1,  0x1.e09536p-1 ),
-        // TODO:  Giving   ->   -0x1.561becp-2
-        // tc32(-0x1.a05cc8p-2, -0x1.561c3ep-2 ),
+        tc32(-0x1.a05cc8p-2, -0x1.561c3ep-2 ),
         tc32( 0x1.1f9efap-1,  0x1.81ec4ep-1 ),
         tc32( 0x1.8c5db0p-1,  0x1.2b3364p+0 ),
-        // TODO:  Giving   ->   -0x1.f8933p-2
-        // tc32(-0x1.5b86eap-1, -0x1.f8951ap-2 ),
+        tc32(-0x1.5b86eap-1, -0x1.f8951ap-2 ),
         // zig fmt: on
     };
     try runTests(cases);
