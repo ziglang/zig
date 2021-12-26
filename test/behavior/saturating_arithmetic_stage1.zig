@@ -19,4 +19,6 @@ test "saturating shl uses the LHS type" {
     try expect((@as(u8, 1) <<| 8) == 255);
     try expect((@as(u8, 1) <<| rhs_const) == 255);
     try expect((@as(u8, 1) <<| rhs_var) == 255);
+
+    try expect((1 <<| @as(u8, 200)) == 1606938044258990275541962092341162602522202993782792835301376);
 }

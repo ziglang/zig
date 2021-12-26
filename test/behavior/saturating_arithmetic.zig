@@ -29,8 +29,14 @@ test "saturating add" {
             try expect(x == expected);
         }
     };
+
     try S.doTheTest();
     comptime try S.doTheTest();
+
+    comptime try S.testSatAdd(comptime_int, 0, 0, 0);
+    comptime try S.testSatAdd(comptime_int, 3, 2, 5);
+    comptime try S.testSatAdd(comptime_int, 651075816498665588400716961808225370057, 468229432685078038144554201546849378455, 1119305249183743626545271163355074748512);
+    comptime try S.testSatAdd(comptime_int, 7, -593423721213448152027139550640105366508, -593423721213448152027139550640105366501);
 }
 
 test "saturating subtraction" {
@@ -56,8 +62,14 @@ test "saturating subtraction" {
             try expect(x == expected);
         }
     };
+
     try S.doTheTest();
     comptime try S.doTheTest();
+
+    comptime try S.testSatSub(comptime_int, 0, 0, 0);
+    comptime try S.testSatSub(comptime_int, 3, 2, 1);
+    comptime try S.testSatSub(comptime_int, 651075816498665588400716961808225370057, 468229432685078038144554201546849378455, 182846383813587550256162760261375991602);
+    comptime try S.testSatSub(comptime_int, 7, -593423721213448152027139550640105366508, 593423721213448152027139550640105366515);
 }
 
 test "saturating multiplication" {
@@ -90,6 +102,11 @@ test "saturating multiplication" {
 
     try S.doTheTest();
     comptime try S.doTheTest();
+
+    comptime try S.testSatMul(comptime_int, 0, 0, 0);
+    comptime try S.testSatMul(comptime_int, 3, 2, 6);
+    comptime try S.testSatMul(comptime_int, 651075816498665588400716961808225370057, 468229432685078038144554201546849378455, 304852860194144160265083087140337419215516305999637969803722975979232817921935);
+    comptime try S.testSatMul(comptime_int, 7, -593423721213448152027139550640105366508, -4153966048494137064189976854480737565556);
 }
 
 test "saturating shift-left" {
@@ -107,6 +124,7 @@ test "saturating shift-left" {
             try testSatShl(u8, 1, 2, 4);
             try testSatShl(u8, 255, 1, 255);
         }
+
         fn testSatShl(comptime T: type, lhs: T, rhs: T, expected: T) !void {
             try expect((lhs <<| rhs) == expected);
 
@@ -115,6 +133,12 @@ test "saturating shift-left" {
             try expect(x == expected);
         }
     };
+
     try S.doTheTest();
     comptime try S.doTheTest();
+
+    comptime try S.testSatShl(comptime_int, 0, 0, 0);
+    comptime try S.testSatShl(comptime_int, 1, 2, 4);
+    comptime try S.testSatShl(comptime_int, 13, 150, 18554220005177478453757717602843436772975706112);
+    comptime try S.testSatShl(comptime_int, -582769, 180, -893090893854873184096635538665358532628308979495815656505344);
 }
