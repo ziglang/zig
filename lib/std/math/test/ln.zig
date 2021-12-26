@@ -101,8 +101,7 @@ test "math.ln64() boundary" {
     const cases = [_]Tc64{
         // zig fmt: off
         tc64( 0x1.fffffffffffffp+1023,  0x1.62e42fefa39efp+9 ), // Max input value
-        // TODO: Off from the second decimal digit onwards
-        // tc64( 0x1p-1074,               -0x1.74385446d71c3p+9 ), // Min positive input value
+        tc64( 0x1p-1074,               -0x1.74385446d71c3p+9 ), // Min positive input value
         tc64(-0x1p-1074,                nan64                ), // Min negative input value
         tc64( 0x1.0000000000001p+0,     0x1.fffffffffffffp-53), // Last value before result reaches +0
         tc64( 0x1.fffffffffffffp-1,    -0x1p-53              ), // Last value before result reaches -0

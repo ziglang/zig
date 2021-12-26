@@ -129,8 +129,8 @@ pub fn ln_64(x_: f64) f64 {
 
         // subnormal, scale x
         k -= 54;
-        x *= 0x1.0p54;
-        hx = @intCast(u32, @bitCast(u64, ix) >> 32);
+        x *= 0x1p54;
+        hx = @intCast(u32, @bitCast(u64, x) >> 32);
     } else if (hx >= 0x7FF00000) {
         return x;
     } else if (hx == 0x3FF00000 and ix << 32 == 0) {
