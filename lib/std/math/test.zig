@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 const print = std.debug.print;
 const meta = std.meta;
 const bitCount = meta.bitCount;
+const nan = std.math.nan;
 
 // Switch to 'true' to enable debug output.
 var verbose = false;
@@ -32,14 +33,14 @@ pub fn Testcase(
     if (@typeInfo(float_type) != .Float) @compileError("Expected float type");
 
     return struct {
-        const F: type = float_type;
+        pub const F: type = float_type;
 
         input: F,
         exp_output: F,
 
         const Self = @This();
 
-        const bits = bitCount(F);
+        pub const bits = bitCount(F);
         const U: type = meta.Int(.unsigned, bits);
 
         pub fn init(input: F, exp_output: F) Self {
@@ -112,4 +113,23 @@ pub fn runTests(tests: anytype) !void {
 
 pub fn floatFromBits(comptime T: type, bits: meta.Int(.unsigned, bitCount(T))) T {
     return @bitCast(T, bits);
+}
+
+pub fn nanTests(comptime T: type) [4]T {
+    // NaNs should always be unchanged when passed through.
+    switch (T.bits) {
+        32 => return .{
+            T.init(nan(T.F), nan(T.F)),
+            T.init(-nan(T.F), -nan(T.F)),
+            T.init(floatFromBits(T.F, 0x7ff01234), floatFromBits(T.F, 0x7ff01234)),
+            T.init(floatFromBits(T.F, 0xfff01234), floatFromBits(T.F, 0xfff01234)),
+        },
+        64 => return .{
+            T.init(nan(T.F), nan(T.F)),
+            T.init(-nan(T.F), -nan(T.F)),
+            T.init(floatFromBits(T.F, 0x7ff0123400000000), floatFromBits(T.F, 0x7ff0123400000000)),
+            T.init(floatFromBits(T.F, 0xfff0123400000000), floatFromBits(T.F, 0xfff0123400000000)),
+        },
+        else => @compileError("Not yet implemented for " ++ @typeName(T.F)),
+    }
 }

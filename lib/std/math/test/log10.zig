@@ -44,13 +44,8 @@ test "math.log10_32() special" {
         tc32(-1,      nan32),
         tc32( inf32,  inf32),
         tc32(-inf32,  nan32),
-        // NaNs: should be unchanged when passed through.
-        tc32( nan32,  nan32),
-        tc32(-nan32, -nan32),
-        tc32(floatFromBits(f32, 0x7ff01234), floatFromBits(f32, 0x7ff01234)),
-        tc32(floatFromBits(f32, 0xfff01234), floatFromBits(f32, 0xfff01234)),
         // zig fmt: on
-    };
+    } ++ test_utils.nanTests(Tc32);
     try runTests(cases);
 }
 
@@ -98,13 +93,8 @@ test "math.log10_64() special" {
         tc64(-1,      nan64),
         tc64( inf64,  inf64),
         tc64(-inf64,  nan64),
-        // NaNs: should be unchanged when passed through.
-        tc64( nan64,  nan64),
-        tc64(-nan64, -nan64),
-        tc64(floatFromBits(f64, 0x7ff0123400000000), floatFromBits(f64, 0x7ff0123400000000)),
-        tc64(floatFromBits(f64, 0xfff0123400000000), floatFromBits(f64, 0xfff0123400000000)),
         // zig fmt: on
-    };
+    } ++ test_utils.nanTests(Tc64);
     try runTests(cases);
 }
 
