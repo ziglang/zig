@@ -108,7 +108,7 @@ test "math.exp64() special" {
         // zig fmt: off
         tc64( 0,         1     ),
         tc64(-0,         1     ),
-        // TODO: Accuracy error
+        // TODO: Accuracy error - off in the last bit, disagreeing with GCC
         // tc64( 1,         math.e),
         tc64( math.ln2,  2     ),
         tc64( inf64,     inf64 ),
