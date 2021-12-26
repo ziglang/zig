@@ -115,16 +115,16 @@ pub fn floatFromBits(comptime T: type, bits: meta.Int(.unsigned, bitCount(T))) T
     return @bitCast(T, bits);
 }
 
-pub fn nanTests(comptime T: type) [4]T {
+pub fn nanTests(comptime T: type) []const T {
     // NaNs should always be unchanged when passed through.
     switch (T.bits) {
-        32 => return .{
+        32 => return &.{
             T.init(nan(T.F), nan(T.F)),
             T.init(-nan(T.F), -nan(T.F)),
             T.init(floatFromBits(T.F, 0x7ff01234), floatFromBits(T.F, 0x7ff01234)),
             T.init(floatFromBits(T.F, 0xfff01234), floatFromBits(T.F, 0xfff01234)),
         },
-        64 => return .{
+        64 => return &.{
             T.init(nan(T.F), nan(T.F)),
             T.init(-nan(T.F), -nan(T.F)),
             T.init(floatFromBits(T.F, 0x7ff0123400000000), floatFromBits(T.F, 0x7ff0123400000000)),

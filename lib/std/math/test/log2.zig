@@ -33,7 +33,7 @@ test "math.log2_32() sanity" {
 }
 
 test "math.log2_32() special" {
-    const cases = [_]Tc32{
+    const cases = &[_]Tc32{
         // zig fmt: off
         tc32( 0,     -inf32),
         tc32(-0,     -inf32),
@@ -81,7 +81,7 @@ test "math.log2_64() sanity" {
 }
 
 test "math.log2_64() special" {
-    const cases = [_]Tc64{
+    const cases = &[_]Tc64{
         // zig fmt: off
         tc64( 0,     -inf64),
         tc64(-0,     -inf64),

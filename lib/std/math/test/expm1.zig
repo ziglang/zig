@@ -33,7 +33,7 @@ test "math.expm1_32() sanity" {
 }
 
 test "math.expm1_32() special" {
-    const cases = [_]Tc32{
+    const cases = &[_]Tc32{
         // zig fmt: off
         tc32( 0,      0     ),
         tc32(-0,      0     ),
@@ -83,7 +83,7 @@ test "math.expm1_64() sanity" {
 }
 
 test "math.expm1_64() special" {
-    const cases = [_]Tc64{
+    const cases = &[_]Tc64{
         // zig fmt: off
         tc64( 0,      0    ),
         tc64(-0,      0    ),

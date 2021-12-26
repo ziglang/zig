@@ -43,7 +43,7 @@ test "math.expo2_32() sanity" {
 }
 
 test "math.expo2_32() special" {
-    const cases = [_]Tc32{
+    const cases = &[_]Tc32{
         // zig fmt: off
         tc32( 0,         0.5   ),
         tc32(-0,         0.5   ),
@@ -93,7 +93,7 @@ test "math.expo2_64() sanity" {
 }
 
 test "math.expo2_64() special" {
-    const cases = [_]Tc64{
+    const cases = &[_]Tc64{
         // zig fmt: off
         tc64( 0,         0.5  ),
         tc64(-0,         0.5  ),

@@ -33,7 +33,7 @@ test "math.ln32() sanity" {
 }
 
 test "math.ln32() special" {
-    const cases = [_]Tc32{
+    const cases = &[_]Tc32{
         // zig fmt: off
         tc32( 0,      -inf32   ),
         tc32(-0,      -inf32   ),
@@ -82,7 +82,7 @@ test "math.ln64() sanity" {
 }
 
 test "math.ln64() special" {
-    const cases = [_]Tc64{
+    const cases = &[_]Tc64{
         // zig fmt: off
         tc64( 0,      -inf64   ),
         tc64(-0,      -inf64   ),
