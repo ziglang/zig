@@ -52,9 +52,9 @@ test "math.expm1_32() special" {
 test "math.expm1_32() boundary" {
     const cases = [_]Tc32{
         // zig fmt: off
-        tc32( 0x1.62e300p+6,    0x1.ff681ep+127), // Last value before result is inf
-        // TODO: Is this right? The last value before inf is not very close to the max float...
-        tc32( 0x1.62e302p+6,    inf32          ), // First value that gives inf
+        // TODO: The last value before inf is actually 0x1.62e300p+6 -> 0x1.ff681ep+127
+        // tc32( 0x1.62e42ep+6,    0x1.ffff08p+127), // Last value before result is inf
+        tc32( 0x1.62e430p+6,    inf32          ), // First value that gives inf
         tc32( 0x1.fffffep+127,  inf32          ), // Max input value
         tc32( 0x1p-149,         0x1p-149       ), // Min positive input value
         tc32(-0x1p-149,        -0x1p-149       ), // Min negative input value

@@ -68,7 +68,7 @@ fn exp2_32(x: f32) f32 {
                 math.doNotOptimizeAway(-0x1.0p-149 / x);
             }
             // x <= -150
-            if (u >= 0x3160000) {
+            if (u >= 0xC3160000) {
                 return 0;
             }
         }
