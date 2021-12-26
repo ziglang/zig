@@ -1152,6 +1152,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .block => self.airBlock(inst),
         .breakpoint => self.airBreakpoint(inst),
         .br => self.airBr(inst),
+        .bool_to_int => self.airBoolToInt(inst),
         .call => self.airCall(inst),
         .cond_br => self.airCondBr(inst),
         .constant => unreachable,
@@ -1277,6 +1278,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         const arg_val = self.resolveInst(arg_ref);
 
         const arg_ty = self.air.typeOf(arg_ref);
+        if (!arg_ty.hasCodeGenBits()) continue;
         switch (arg_ty.zigTypeTag()) {
             .Struct, .Pointer, .Optional, .ErrorUnion => {
                 // single pointer can be passed directly
@@ -1396,6 +1398,11 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                     return try self.store(lhs, tag_local, tag_ty, 0);
                 },
                 .local_with_offset => |with_offset| {
+                    // check if we're storing the payload, or the error
+                    if (with_offset.offset == 0) {
+                        try self.store(lhs, .{ .local = with_offset.local }, tag_ty, 0);
+                        return;
+                    }
                     const tag_local = try self.allocLocal(tag_ty);
                     try self.addImm32(0);
                     try self.addLabel(.local_set, tag_local.local);
@@ -1449,7 +1456,7 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
     // that is portable across the backend, rather than copying logic.
     const abi_size = if ((ty.isInt() or ty.isAnyFloat()) and ty.abiSize(self.target) <= 8)
         @intCast(u8, ty.abiSize(self.target))
-    else if (ty.zigTypeTag() == .ErrorSet or ty.zigTypeTag() == .Enum)
+    else if (ty.zigTypeTag() == .ErrorSet or ty.zigTypeTag() == .Enum or ty.zigTypeTag() == .Bool)
         @intCast(u8, ty.abiSize(self.target))
     else
         @as(u8, 4);
@@ -1499,7 +1506,7 @@ fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
     // that is portable across the backend, rather than copying logic.
     const abi_size = if ((ty.isInt() or ty.isAnyFloat()) and ty.abiSize(self.target) <= 8)
         @intCast(u8, ty.abiSize(self.target))
-    else if (ty.zigTypeTag() == .ErrorSet or ty.zigTypeTag() == .Enum)
+    else if (ty.zigTypeTag() == .ErrorSet or ty.zigTypeTag() == .Enum or ty.zigTypeTag() == .Bool)
         @intCast(u8, ty.abiSize(self.target))
     else
         @as(u8, 4);
@@ -2168,6 +2175,7 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!W
 }
 
 fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue.none;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = self.resolveInst(ty_op.operand);
     const err_ty = self.air.typeOf(ty_op.operand);
@@ -2205,7 +2213,11 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue.none;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    return self.resolveInst(ty_op.operand);
+    const operand = self.resolveInst(ty_op.operand);
+    return WValue{ .local_with_offset = .{
+        .local = operand.local,
+        .offset = 0,
+    } };
 }
 
 fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2406,4 +2418,9 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     try self.addLabel(.local_set, result.local);
     return result;
+}
+
+fn airBoolToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    return self.resolveInst(un_op);
 }

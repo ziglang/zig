@@ -4,6 +4,7 @@ test {
     // Tests that pass for stage1, stage2, the C -and wasm backend.
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/bitcast.zig");
+    _ = @import("behavior/bool.zig");
     _ = @import("behavior/bugs/624.zig");
     _ = @import("behavior/bugs/655.zig");
     _ = @import("behavior/bugs/679.zig");
