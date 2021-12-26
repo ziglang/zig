@@ -60,6 +60,9 @@ static void to_twos_complement(BigInt *dest, const BigInt *op, size_t bit_count)
         bigint_init_unsigned(dest, 0);
         return;
     }
+
+    BigInt pos_op = {0};
+
     if (op->is_negative) {
         BigInt negated = {0};
         bigint_negate(&negated, op);
@@ -70,13 +73,14 @@ static void to_twos_complement(BigInt *dest, const BigInt *op, size_t bit_count)
         BigInt one = {0};
         bigint_init_unsigned(&one, 1);
 
-        bigint_add(dest, &inverted, &one);
-        return;
+        bigint_add(&pos_op, &inverted, &one);
+    } else {
+        bigint_init_bigint(&pos_op, op);
     }
 
     dest->is_negative = false;
-    const uint64_t *op_digits = bigint_ptr(op);
-    if (op->digit_count == 1) {
+    const uint64_t *op_digits = bigint_ptr(&pos_op);
+    if (pos_op.digit_count == 1) {
         dest->data.digit = op_digits[0];
         if (bit_count < 64) {
             dest->data.digit &= (1ULL << bit_count) - 1;
@@ -98,11 +102,11 @@ static void to_twos_complement(BigInt *dest, const BigInt *op, size_t bit_count)
     }
     dest->data.digits = heap::c_allocator.allocate_nonzero<uint64_t>(dest->digit_count);
     for (size_t i = 0; i < digits_to_copy; i += 1) {
-        uint64_t digit = (i < op->digit_count) ? op_digits[i] : 0;
+        uint64_t digit = (i < pos_op.digit_count) ? op_digits[i] : 0;
         dest->data.digits[i] = digit;
     }
     if (leftover_bits != 0) {
-        uint64_t digit = (digits_to_copy < op->digit_count) ? op_digits[digits_to_copy] : 0;
+        uint64_t digit = (digits_to_copy < pos_op.digit_count) ? op_digits[digits_to_copy] : 0;
         dest->data.digits[digits_to_copy] = digit & ((1ULL << leftover_bits) - 1);
     }
     bigint_normalize(dest);
@@ -469,18 +473,18 @@ void bigint_min(BigInt* dest, const BigInt *op1, const BigInt *op2) {
 }
 
 /// clamps op within bit_count/signedness boundaries
-/// signed bounds are  [-2^(bit_count-1)..2^(bit_count-1)-1] 
-/// unsigned bounds are  [0..2^bit_count-1] 
+/// signed bounds are  [-2^(bit_count-1)..2^(bit_count-1)-1]
+/// unsigned bounds are  [0..2^bit_count-1]
 void bigint_clamp_by_bitcount(BigInt* dest, uint32_t bit_count, bool is_signed) {
-    // compute the number of bits required to store the value, and use that 
+    // compute the number of bits required to store the value, and use that
     // to decide whether to clamp the result
     bool is_negative = dest->is_negative;
-    // to workaround the fact this bits_needed calculation would yield 65 or more for 
-    // all negative numbers, set is_negative to false.  this is a cheap way to find 
-    // bits_needed(abs(dest)).  
+    // to workaround the fact this bits_needed calculation would yield 65 or more for
+    // all negative numbers, set is_negative to false.  this is a cheap way to find
+    // bits_needed(abs(dest)).
     dest->is_negative = false;
     // because we've set is_negative to false, we have to account for the extra bit here
-    // by adding 1 additional bit_needed when (is_negative && !is_signed).  
+    // by adding 1 additional bit_needed when (is_negative && !is_signed).
     size_t full_bits = dest->digit_count * 64;
     size_t leading_zero_count = bigint_clz(dest, full_bits);
     size_t bits_needed = full_bits - leading_zero_count + (is_negative && !is_signed);
@@ -491,7 +495,7 @@ void bigint_clamp_by_bitcount(BigInt* dest, uint32_t bit_count, bool is_signed) 
         bigint_init_unsigned(&one, 1);
         BigInt bit_count_big;
         bigint_init_unsigned(&bit_count_big, bit_count);
-        
+
         if(is_signed) {
             if(is_negative) {
                 BigInt bound;
@@ -639,25 +643,22 @@ void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     size_t i = 1;
 
     for (;;) {
-        bool found_digit = false;
         uint64_t x = bigger_op_digits[i];
         uint64_t prev_overflow = overflow;
         overflow = 0;
 
         if (i < smaller_op->digit_count) {
-            found_digit = true;
             uint64_t digit = smaller_op_digits[i];
             overflow += sub_u64_overflow(x, digit, &x);
         }
-        if (sub_u64_overflow(x, prev_overflow, &x)) {
-            found_digit = true;
-            overflow += 1;
-        }
+
+        overflow += sub_u64_overflow(x, prev_overflow, &x);
         dest->data.digits[i] = x;
         i += 1;
 
-        if (!found_digit || i >= bigger_op->digit_count)
+        if (i >= bigger_op->digit_count) {
             break;
+        }
     }
     assert(overflow == 0);
     dest->digit_count = i;
