@@ -284,7 +284,7 @@ fn expm1_64(x_: f64) f64 {
     }
 }
 
-test "math.exp1m" {
+test "math.expm1" {
     try expect(expm1(@as(f32, 0.0)) == expm1_32(0.0));
     try expect(expm1(@as(f64, 0.0)) == expm1_64(0.0));
 }

@@ -285,6 +285,7 @@ pub const big = @import("math/big.zig");
 
 test {
     std.testing.refAllDecls(@This());
+    _ = @import("math/test.zig");
 }
 
 /// Returns the number of bits in the mantissa of floating point type
