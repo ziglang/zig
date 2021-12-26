@@ -66,8 +66,7 @@ test "math.log1p_64() sanity" {
     const cases = [_]Tc64{
         // zig fmt: off
         tc64(-0x1.02239f3c6a8f1p+3,  nan64               ),
-        // TODO: Error in last digit
-        // tc64( 0x1.161868e18bc67p+2,  0x1.ad1bdd1e9e687p+0),
+        tc64( 0x1.161868e18bc67p+2,  0x1.ad1bdd1e9e686p+0), // Disagrees with GCC in last bit
         tc64(-0x1.0c34b3e01e6e7p+3,  nan64               ),
         tc64(-0x1.a206f0a19dcc4p+2,  nan64               ),
         tc64( 0x1.288bbb0d6a1e6p+3,  0x1.2a1ab8365b56fp+1),

@@ -22,8 +22,7 @@ test "math.log10_32() sanity" {
         tc32(-0x1.0c34b4p+3,  nan32        ),
         tc32(-0x1.a206f0p+2,  nan32        ),
         tc32( 0x1.288bbcp+3,  0x1.ef1300p-1),
-        // TODO: Incorrect last digit
-        // tc32( 0x1.52efd0p-1, -0x1.6ee6dep-3),
+        tc32( 0x1.52efd0p-1, -0x1.6ee6dcp-3), // Disagrees with GCC in last bit
         tc32(-0x1.a05cc8p-2,  nan32        ),
         tc32( 0x1.1f9efap-1, -0x1.0075ccp-2),
         tc32( 0x1.8c5db0p-1, -0x1.c75df8p-4),
