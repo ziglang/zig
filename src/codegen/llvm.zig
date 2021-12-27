@@ -636,15 +636,6 @@ pub const DeclGen = struct {
             llvm_param_i += 1;
         }
 
-        if (dg.module.comp.bin_file.options.skip_linker_dependencies) {
-            // The intent here is for compiler-rt and libc functions to not generate
-            // infinite recursion. For example, if we are compiling the memcpy function,
-            // and llvm detects that the body is equivalent to memcpy, it may replace the
-            // body of memcpy with a call to memcpy, which would then cause a stack
-            // overflow instead of performing memcpy.
-            dg.addFnAttr(llvm_fn, "nobuiltin");
-        }
-
         // TODO: more attributes. see codegen.cpp `make_fn_llvm_value`.
         if (fn_info.cc == .Naked) {
             dg.addFnAttr(llvm_fn, "naked");
@@ -653,6 +644,16 @@ pub const DeclGen = struct {
         }
 
         // Function attributes that are independent of analysis results of the function body.
+        dg.addCommonFnAttributes(llvm_fn);
+
+        if (return_type.isNoReturn()) {
+            dg.addFnAttr(llvm_fn, "noreturn");
+        }
+
+        return llvm_fn;
+    }
+
+    fn addCommonFnAttributes(dg: *DeclGen, llvm_fn: *const llvm.Value) void {
         if (!dg.module.comp.bin_file.options.red_zone) {
             dg.addFnAttr(llvm_fn, "noredzone");
         }
@@ -665,6 +666,14 @@ pub const DeclGen = struct {
         if (dg.module.comp.unwind_tables) {
             dg.addFnAttr(llvm_fn, "uwtable");
         }
+        if (dg.module.comp.bin_file.options.skip_linker_dependencies) {
+            // The intent here is for compiler-rt and libc functions to not generate
+            // infinite recursion. For example, if we are compiling the memcpy function,
+            // and llvm detects that the body is equivalent to memcpy, it may replace the
+            // body of memcpy with a call to memcpy, which would then cause a stack
+            // overflow instead of performing memcpy.
+            dg.addFnAttr(llvm_fn, "nobuiltin");
+        }
         if (dg.module.comp.bin_file.options.optimize_mode == .ReleaseSmall) {
             dg.addFnAttr(llvm_fn, "minsize");
             dg.addFnAttr(llvm_fn, "optsize");
@@ -673,11 +682,6 @@ pub const DeclGen = struct {
             dg.addFnAttr(llvm_fn, "sanitize_thread");
         }
         // TODO add target-cpu and target-features fn attributes
-        if (return_type.isNoReturn()) {
-            dg.addFnAttr(llvm_fn, "noreturn");
-        }
-
-        return llvm_fn;
     }
 
     fn resolveGlobalDecl(dg: *DeclGen, decl: *Module.Decl) Error!*const llvm.Value {
@@ -1958,6 +1962,7 @@ pub const FuncGen = struct {
                 .clz            => try self.airClzCtz(inst, "ctlz"),
                 .ctz            => try self.airClzCtz(inst, "cttz"),
                 .popcount       => try self.airPopCount(inst, "ctpop"),
+                .tag_name       => try self.airTagName(inst),
 
                 .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
                 .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -4091,6 +4096,119 @@ pub const FuncGen = struct {
         } else {
             return wrong_size_result;
         }
+    }
+
+    fn airTagName(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        var arena_allocator = std.heap.ArenaAllocator.init(self.gpa);
+        defer arena_allocator.deinit();
+        const arena = arena_allocator.allocator();
+
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand = try self.resolveInst(un_op);
+        const enum_ty = self.air.typeOf(un_op);
+
+        const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{
+            try enum_ty.getOwnerDecl().getFullyQualifiedName(arena),
+        });
+
+        const llvm_fn = try self.getEnumTagNameFunction(enum_ty, llvm_fn_name);
+        const params = [_]*const llvm.Value{operand};
+        return self.builder.buildCall(llvm_fn, &params, params.len, .Fast, .Auto, "");
+    }
+
+    fn getEnumTagNameFunction(
+        self: *FuncGen,
+        enum_ty: Type,
+        llvm_fn_name: [:0]const u8,
+    ) !*const llvm.Value {
+        // TODO: detect when the type changes and re-emit this function.
+        if (self.dg.object.llvm_module.getNamedFunction(llvm_fn_name)) |llvm_fn| {
+            return llvm_fn;
+        }
+
+        const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
+        const llvm_ret_ty = try self.dg.llvmType(slice_ty);
+        const usize_llvm_ty = try self.dg.llvmType(Type.usize);
+        const target = self.dg.module.getTarget();
+        const slice_alignment = slice_ty.abiAlignment(target);
+
+        var int_tag_type_buffer: Type.Payload.Bits = undefined;
+        const int_tag_ty = enum_ty.intTagType(&int_tag_type_buffer);
+        const param_types = [_]*const llvm.Type{try self.dg.llvmType(int_tag_ty)};
+
+        const fn_type = llvm.functionType(llvm_ret_ty, &param_types, param_types.len, .False);
+        const fn_val = self.dg.object.llvm_module.addFunction(llvm_fn_name, fn_type);
+        fn_val.setLinkage(.Internal);
+        fn_val.setFunctionCallConv(.Fast);
+        self.dg.addCommonFnAttributes(fn_val);
+
+        const prev_block = self.builder.getInsertBlock();
+        const prev_debug_location = self.builder.getCurrentDebugLocation2();
+        defer {
+            self.builder.positionBuilderAtEnd(prev_block);
+            if (!self.dg.module.comp.bin_file.options.strip) {
+                self.builder.setCurrentDebugLocation2(prev_debug_location);
+            }
+        }
+
+        const entry_block = self.dg.context.appendBasicBlock(fn_val, "Entry");
+        self.builder.positionBuilderAtEnd(entry_block);
+        self.builder.clearCurrentDebugLocation();
+
+        const fields = enum_ty.enumFields();
+        const bad_value_block = self.dg.context.appendBasicBlock(fn_val, "BadValue");
+        const tag_int_value = fn_val.getParam(0);
+        const switch_instr = self.builder.buildSwitch(tag_int_value, bad_value_block, @intCast(c_uint, fields.count()));
+
+        const array_ptr_indices = [_]*const llvm.Value{
+            usize_llvm_ty.constNull(), usize_llvm_ty.constNull(),
+        };
+
+        for (fields.keys()) |name, field_index| {
+            const str_init = self.dg.context.constString(name.ptr, @intCast(c_uint, name.len), .False);
+            const str_global = self.dg.object.llvm_module.addGlobal(str_init.typeOf(), "");
+            str_global.setInitializer(str_init);
+            str_global.setLinkage(.Private);
+            str_global.setGlobalConstant(.True);
+            str_global.setUnnamedAddr(.True);
+            str_global.setAlignment(1);
+
+            const slice_fields = [_]*const llvm.Value{
+                str_global.constInBoundsGEP(&array_ptr_indices, array_ptr_indices.len),
+                usize_llvm_ty.constInt(name.len, .False),
+            };
+            const slice_init = llvm_ret_ty.constNamedStruct(&slice_fields, slice_fields.len);
+            const slice_global = self.dg.object.llvm_module.addGlobal(slice_init.typeOf(), "");
+            slice_global.setInitializer(slice_init);
+            slice_global.setLinkage(.Private);
+            slice_global.setGlobalConstant(.True);
+            slice_global.setUnnamedAddr(.True);
+            slice_global.setAlignment(slice_alignment);
+
+            const return_block = self.dg.context.appendBasicBlock(fn_val, "Name");
+            const this_tag_int_value = int: {
+                var tag_val_payload: Value.Payload.U32 = .{
+                    .base = .{ .tag = .enum_field_index },
+                    .data = @intCast(u32, field_index),
+                };
+                break :int try self.dg.genTypedValue(.{
+                    .ty = enum_ty,
+                    .val = Value.initPayload(&tag_val_payload.base),
+                });
+            };
+            switch_instr.addCase(this_tag_int_value, return_block);
+
+            self.builder.positionBuilderAtEnd(return_block);
+            const loaded = self.builder.buildLoad(slice_global, "");
+            loaded.setAlignment(slice_alignment);
+            _ = self.builder.buildRet(loaded);
+        }
+
+        self.builder.positionBuilderAtEnd(bad_value_block);
+        _ = self.builder.buildUnreachable();
+        return fn_val;
     }
 
     /// Assumes the optional is not pointer-like and payload has bits.

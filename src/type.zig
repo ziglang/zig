@@ -94,6 +94,7 @@ pub const Type = extern union {
 
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             .single_const_pointer,
             .single_mut_pointer,
             .many_const_pointer,
@@ -107,6 +108,7 @@ pub const Type = extern union {
             .inferred_alloc_mut,
             .manyptr_u8,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             => return .Pointer,
 
             .optional,
@@ -254,6 +256,7 @@ pub const Type = extern union {
             .optional_single_mut_pointer,
             .manyptr_u8,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             => self.cast(Payload.ElemType),
 
             .inferred_alloc_const => unreachable,
@@ -275,9 +278,11 @@ pub const Type = extern union {
         return switch (ty.tag()) {
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             .single_const_pointer,
             .many_const_pointer,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             .c_const_pointer,
             .const_slice,
             => false,
@@ -330,6 +335,18 @@ pub const Type = extern union {
                 .@"volatile" = false,
                 .size = .Slice,
             } },
+            .const_slice_u8_sentinel_0 => return .{ .data = .{
+                .pointee_type = Type.initTag(.u8),
+                .sentinel = Value.zero,
+                .@"align" = 0,
+                .@"addrspace" = .generic,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .Slice,
+            } },
             .single_const_pointer => return .{ .data = .{
                 .pointee_type = self.castPointer().?.data,
                 .sentinel = null,
@@ -369,6 +386,18 @@ pub const Type = extern union {
             .manyptr_const_u8 => return .{ .data = .{
                 .pointee_type = Type.initTag(.u8),
                 .sentinel = null,
+                .@"align" = 0,
+                .@"addrspace" = .generic,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .Many,
+            } },
+            .manyptr_const_u8_sentinel_0 => return .{ .data = .{
+                .pointee_type = Type.initTag(.u8),
+                .sentinel = Value.zero,
                 .@"align" = 0,
                 .@"addrspace" = .generic,
                 .bit_offset = 0,
@@ -784,6 +813,7 @@ pub const Type = extern union {
             .fn_ccc_void_no_args,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             .enum_literal,
             .anyerror_void_error_union,
             .inferred_alloc_const,
@@ -792,6 +822,7 @@ pub const Type = extern union {
             .empty_struct_literal,
             .manyptr_u8,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
@@ -1016,6 +1047,7 @@ pub const Type = extern union {
 
                 .anyerror_void_error_union => return writer.writeAll("anyerror!void"),
                 .const_slice_u8 => return writer.writeAll("[]const u8"),
+                .const_slice_u8_sentinel_0 => return writer.writeAll("[:0]const u8"),
                 .fn_noreturn_no_args => return writer.writeAll("fn() noreturn"),
                 .fn_void_no_args => return writer.writeAll("fn() void"),
                 .fn_naked_noreturn_no_args => return writer.writeAll("fn() callconv(.Naked) noreturn"),
@@ -1023,6 +1055,7 @@ pub const Type = extern union {
                 .single_const_pointer_to_comptime_int => return writer.writeAll("*const comptime_int"),
                 .manyptr_u8 => return writer.writeAll("[*]u8"),
                 .manyptr_const_u8 => return writer.writeAll("[*]const u8"),
+                .manyptr_const_u8_sentinel_0 => return writer.writeAll("[*:0]const u8"),
                 .atomic_order => return writer.writeAll("std.builtin.AtomicOrder"),
                 .atomic_rmw_op => return writer.writeAll("std.builtin.AtomicRmwOp"),
                 .calling_convention => return writer.writeAll("std.builtin.CallingConvention"),
@@ -1308,6 +1341,7 @@ pub const Type = extern union {
 
             .anyerror_void_error_union => return "anyerror!void",
             .const_slice_u8 => return "[]const u8",
+            .const_slice_u8_sentinel_0 => return "[:0]const u8",
             .fn_noreturn_no_args => return "fn() noreturn",
             .fn_void_no_args => return "fn() void",
             .fn_naked_noreturn_no_args => return "fn() callconv(.Naked) noreturn",
@@ -1315,6 +1349,7 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int => return "*const comptime_int",
             .manyptr_u8 => return "[*]u8",
             .manyptr_const_u8 => return "[*]const u8",
+            .manyptr_const_u8_sentinel_0 => return "[*:0]const u8",
             .atomic_order => return "AtomicOrder",
             .atomic_rmw_op => return "AtomicRmwOp",
             .calling_convention => return "CallingConvention",
@@ -1386,11 +1421,13 @@ pub const Type = extern union {
             .extern_options,
             .manyptr_u8,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             .fn_noreturn_no_args,
             .fn_void_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             .anyerror_void_error_union,
             .empty_struct_literal,
             .function,
@@ -1498,9 +1535,11 @@ pub const Type = extern union {
             .fn_ccc_void_no_args => return Value.initTag(.fn_ccc_void_no_args_type),
             .single_const_pointer_to_comptime_int => return Value.initTag(.single_const_pointer_to_comptime_int_type),
             .const_slice_u8 => return Value.initTag(.const_slice_u8_type),
+            .const_slice_u8_sentinel_0 => return Value.initTag(.const_slice_u8_sentinel_0_type),
             .enum_literal => return Value.initTag(.enum_literal_type),
             .manyptr_u8 => return Value.initTag(.manyptr_u8_type),
             .manyptr_const_u8 => return Value.initTag(.manyptr_const_u8_type),
+            .manyptr_const_u8_sentinel_0 => return Value.initTag(.manyptr_const_u8_sentinel_0_type),
             .atomic_order => return Value.initTag(.atomic_order_type),
             .atomic_rmw_op => return Value.initTag(.atomic_rmw_op_type),
             .calling_convention => return Value.initTag(.calling_convention_type),
@@ -1550,6 +1589,7 @@ pub const Type = extern union {
             .anyerror,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             .array_u8_sentinel_0,
             .optional,
             .optional_single_mut_pointer,
@@ -1561,6 +1601,7 @@ pub const Type = extern union {
             .error_set_merged,
             .manyptr_u8,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
@@ -1703,7 +1744,9 @@ pub const Type = extern union {
 
             .manyptr_u8,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             => return 1,
 
             .pointer => {
@@ -1723,6 +1766,7 @@ pub const Type = extern union {
         return switch (self.tag()) {
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             .single_const_pointer,
             .single_mut_pointer,
             .many_const_pointer,
@@ -1735,6 +1779,7 @@ pub const Type = extern union {
             .inferred_alloc_mut,
             .manyptr_u8,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             => .generic,
 
             .pointer => self.castTag(.pointer).?.data.@"addrspace",
@@ -1785,6 +1830,7 @@ pub const Type = extern union {
             .usize,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             .single_const_pointer,
             .single_mut_pointer,
             .many_const_pointer,
@@ -1798,6 +1844,7 @@ pub const Type = extern union {
             .pointer,
             .manyptr_u8,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             .@"anyframe",
             .anyframe_T,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
@@ -2050,7 +2097,9 @@ pub const Type = extern union {
                 if (self.elemType().hasCodeGenBits()) return @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2;
                 return @divExact(target.cpu.arch.ptrBitWidth(), 8);
             },
-            .const_slice_u8 => return @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2,
+            .const_slice_u8,
+            .const_slice_u8_sentinel_0,
+            => return @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2,
 
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
@@ -2068,6 +2117,7 @@ pub const Type = extern union {
             .pointer,
             .manyptr_u8,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
             .c_short => return @divExact(CType.short.sizeInBits(target), 8),
@@ -2223,7 +2273,9 @@ pub const Type = extern union {
                     return target.cpu.arch.ptrBitWidth();
                 }
             },
-            .const_slice_u8 => target.cpu.arch.ptrBitWidth() * 2,
+            .const_slice_u8,
+            .const_slice_u8_sentinel_0,
+            => target.cpu.arch.ptrBitWidth() * 2,
 
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
@@ -2252,6 +2304,7 @@ pub const Type = extern union {
 
             .manyptr_u8,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             => return target.cpu.arch.ptrBitWidth(),
 
             .c_short => return CType.short.sizeInBits(target),
@@ -2337,12 +2390,14 @@ pub const Type = extern union {
             .const_slice,
             .mut_slice,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             => .Slice,
 
             .many_const_pointer,
             .many_mut_pointer,
             .manyptr_u8,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             => .Many,
 
             .c_const_pointer,
@@ -2367,6 +2422,7 @@ pub const Type = extern union {
             .const_slice,
             .mut_slice,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             => true,
 
             .pointer => self.castTag(.pointer).?.data.size == .Slice,
@@ -2383,6 +2439,7 @@ pub const Type = extern union {
     pub fn slicePtrFieldType(self: Type, buffer: *SlicePtrFieldTypeBuffer) Type {
         switch (self.tag()) {
             .const_slice_u8 => return Type.initTag(.manyptr_const_u8),
+            .const_slice_u8_sentinel_0 => return Type.initTag(.manyptr_const_u8_sentinel_0),
 
             .const_slice => {
                 const elem_type = self.castTag(.const_slice).?.data;
@@ -2464,8 +2521,10 @@ pub const Type = extern union {
             .c_const_pointer,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             .const_slice,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             => true,
 
             .pointer => !self.castTag(.pointer).?.data.mutable,
@@ -2513,6 +2572,7 @@ pub const Type = extern union {
             .many_const_pointer,
             .many_mut_pointer,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             .manyptr_u8,
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
@@ -2648,9 +2708,11 @@ pub const Type = extern union {
             .array_u8,
             .array_u8_sentinel_0,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             .manyptr_u8,
             .manyptr_const_u8,
-            => Type.initTag(.u8),
+            .manyptr_const_u8_sentinel_0,
+            => Type.u8,
 
             .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
             .pointer => ty.castTag(.pointer).?.data.pointee_type,
@@ -2690,9 +2752,11 @@ pub const Type = extern union {
             .array_u8,
             .array_u8_sentinel_0,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             .manyptr_u8,
             .manyptr_const_u8,
-            => Type.initTag(.u8),
+            .manyptr_const_u8_sentinel_0,
+            => Type.u8,
 
             .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
             .pointer => {
@@ -2937,7 +3001,11 @@ pub const Type = extern union {
 
             .pointer => return self.castTag(.pointer).?.data.sentinel,
             .array_sentinel => return self.castTag(.array_sentinel).?.data.sentinel,
-            .array_u8_sentinel_0 => return Value.zero,
+
+            .array_u8_sentinel_0,
+            .const_slice_u8_sentinel_0,
+            .manyptr_const_u8_sentinel_0,
+            => return Value.zero,
 
             else => unreachable,
         };
@@ -3309,6 +3377,7 @@ pub const Type = extern union {
             .array_sentinel,
             .array_u8_sentinel_0,
             .const_slice_u8,
+            .const_slice_u8_sentinel_0,
             .const_slice,
             .mut_slice,
             .anyopaque,
@@ -3326,6 +3395,7 @@ pub const Type = extern union {
             .var_args_param,
             .manyptr_u8,
             .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
             .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
@@ -3956,12 +4026,14 @@ pub const Type = extern union {
         type_info,
         manyptr_u8,
         manyptr_const_u8,
+        manyptr_const_u8_sentinel_0,
         fn_noreturn_no_args,
         fn_void_no_args,
         fn_naked_noreturn_no_args,
         fn_ccc_void_no_args,
         single_const_pointer_to_comptime_int,
         const_slice_u8,
+        const_slice_u8_sentinel_0,
         anyerror_void_error_union,
         generic_poison,
         /// This is a special type for variadic parameters of a function call.
@@ -4064,6 +4136,7 @@ pub const Type = extern union {
                 .single_const_pointer_to_comptime_int,
                 .anyerror_void_error_union,
                 .const_slice_u8,
+                .const_slice_u8_sentinel_0,
                 .generic_poison,
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
@@ -4071,6 +4144,7 @@ pub const Type = extern union {
                 .empty_struct_literal,
                 .manyptr_u8,
                 .manyptr_const_u8,
+                .manyptr_const_u8_sentinel_0,
                 .atomic_order,
                 .atomic_rmw_op,
                 .calling_convention,
@@ -4322,36 +4396,55 @@ pub const Type = extern union {
 
     pub fn ptr(arena: Allocator, d: Payload.Pointer.Data) !Type {
         assert(d.host_size == 0 or d.bit_offset < d.host_size * 8);
+        if (d.size == .C) {
+            assert(d.@"allowzero"); // All C pointers must set allowzero to true.
+        }
 
-        if (d.sentinel != null or d.@"align" != 0 or d.@"addrspace" != .generic or
-            d.bit_offset != 0 or d.host_size != 0 or d.@"allowzero" or d.@"volatile")
+        if (d.@"align" == 0 and d.@"addrspace" == .generic and
+            d.bit_offset == 0 and d.host_size == 0 and !d.@"allowzero" and !d.@"volatile")
         {
-            if (d.size == .C) {
-                assert(d.@"allowzero"); // All C pointers must set allowzero to true.
+            if (d.sentinel) |sent| {
+                if (!d.mutable and d.pointee_type.eql(Type.u8)) {
+                    switch (d.size) {
+                        .Slice => {
+                            if (sent.compareWithZero(.eq)) {
+                                return Type.initTag(.const_slice_u8_sentinel_0);
+                            }
+                        },
+                        .Many => {
+                            if (sent.compareWithZero(.eq)) {
+                                return Type.initTag(.manyptr_const_u8_sentinel_0);
+                            }
+                        },
+                        else => {},
+                    }
+                }
+            } else if (!d.mutable and d.pointee_type.eql(Type.u8)) {
+                switch (d.size) {
+                    .Slice => return Type.initTag(.const_slice_u8),
+                    .Many => return Type.initTag(.manyptr_const_u8),
+                    else => {},
+                }
+            } else {
+                // TODO stage1 type inference bug
+                const T = Type.Tag;
+
+                const type_payload = try arena.create(Type.Payload.ElemType);
+                type_payload.* = .{
+                    .base = .{
+                        .tag = switch (d.size) {
+                            .One => if (d.mutable) T.single_mut_pointer else T.single_const_pointer,
+                            .Many => if (d.mutable) T.many_mut_pointer else T.many_const_pointer,
+                            .C => if (d.mutable) T.c_mut_pointer else T.c_const_pointer,
+                            .Slice => if (d.mutable) T.mut_slice else T.const_slice,
+                        },
+                    },
+                    .data = d.pointee_type,
+                };
+                return Type.initPayload(&type_payload.base);
             }
-            return Type.Tag.pointer.create(arena, d);
         }
-
-        if (!d.mutable and d.size == .Slice and d.pointee_type.eql(Type.initTag(.u8))) {
-            return Type.initTag(.const_slice_u8);
-        }
-
-        // TODO stage1 type inference bug
-        const T = Type.Tag;
-
-        const type_payload = try arena.create(Type.Payload.ElemType);
-        type_payload.* = .{
-            .base = .{
-                .tag = switch (d.size) {
-                    .One => if (d.mutable) T.single_mut_pointer else T.single_const_pointer,
-                    .Many => if (d.mutable) T.many_mut_pointer else T.many_const_pointer,
-                    .C => if (d.mutable) T.c_mut_pointer else T.c_const_pointer,
-                    .Slice => if (d.mutable) T.mut_slice else T.const_slice,
-                },
-            },
-            .data = d.pointee_type,
-        };
-        return Type.initPayload(&type_payload.base);
+        return Type.Tag.pointer.create(arena, d);
     }
 
     pub fn array(
