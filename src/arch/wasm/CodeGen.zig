@@ -644,6 +644,12 @@ fn addFloat64(self: *Self, float: f64) error{OutOfMemory}!void {
     try self.addInst(.{ .tag = .f64_const, .data = .{ .payload = extra_index } });
 }
 
+/// Inserts an instruction to load/store from/to wasm's linear memory dependent on the given `tag`.
+fn addMemArg(self: *Self, tag: Mir.Inst.Tag, mem_arg: Mir.MemArg) error{OutOfMemory}!void {
+    const extra_index = try self.addExtra(mem_arg);
+    try self.addInst(.{ .tag = tag, .data = .{ .payload = extra_index } });
+}
+
 /// Appends entries to `mir_extra` based on the type of `extra`.
 /// Returns the index into `mir_extra`
 fn addExtra(self: *Self, extra: anytype) error{OutOfMemory}!u32 {
@@ -692,8 +698,9 @@ fn typeToValtype(self: *Self, ty: Type) InnerError!wasm.Valtype {
         .ErrorUnion,
         .Optional,
         .Fn,
+        .Array,
         => wasm.Valtype.i32,
-        else => self.fail("TODO - Wasm valtype for type '{}'", .{ty}),
+        else => self.fail("TODO - Wasm typeToValtype for type '{}'", .{ty}),
     };
 }
 
@@ -756,7 +763,6 @@ fn genFunctype(self: *Self, fn_ty: Type) !wasm.Type {
     switch (return_type.zigTypeTag()) {
         .Void, .NoReturn => {},
         .Struct => return self.fail("TODO: Implement struct as return type for wasm", .{}),
-        .Optional => return self.fail("TODO: Implement optionals as return type for wasm", .{}),
         else => try returns.append(try self.typeToValtype(return_type)),
     }
 
@@ -1146,6 +1152,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .cmp_lt => self.airCmp(inst, .lt),
         .cmp_neq => self.airCmp(inst, .neq),
 
+        .array_to_slice => self.airArrayToSlice(inst),
         .alloc => self.airAlloc(inst),
         .arg => self.airArg(inst),
         .bitcast => self.airBitcast(inst),
@@ -1178,6 +1185,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .ret_load => self.airRetLoad(inst),
         .slice_len => self.airSliceLen(inst),
         .slice_elem_val => self.airSliceElemVal(inst),
+        .slice_elem_ptr => self.airSliceElemPtr(inst),
         .slice_ptr => self.airSlicePtr(inst),
         .store => self.airStore(inst),
         .struct_field_ptr => self.airStructFieldPtr(inst),
@@ -1283,6 +1291,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             .Struct, .Pointer, .Optional, .ErrorUnion => {
                 // single pointer can be passed directly
                 if (arg_ty.isSinglePointer() or arg_val != .constant) {
+                    if (arg_val == .none) {
+                        // when the argument is a 0-sized value, but the function
+                        // expects a non-zero typed value (such as a slice), we must emit an argument
+                        // as function calls are verified with the function signature in wasm.
+                        // In those cases we will emit a '0xaa' as address, meaning invalid memory.
+                        try self.addImm32(@bitCast(i32, @as(u32, 0xaaaaaaaa)));
+                        continue;
+                    }
                     try self.emitWValue(arg_val);
                     continue;
                 }
@@ -1467,14 +1483,10 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
     });
 
     // store rhs value at stack pointer's location in memory
-    const mem_arg_index = try self.addExtra(Mir.MemArg{
-        .offset = offset,
-        .alignment = ty.abiAlignment(self.target),
-    });
-    try self.addInst(.{
-        .tag = Mir.Inst.Tag.fromOpcode(opcode),
-        .data = .{ .payload = mem_arg_index },
-    });
+    try self.addMemArg(
+        Mir.Inst.Tag.fromOpcode(opcode),
+        .{ .offset = offset, .alignment = ty.abiAlignment(self.target) },
+    );
 }
 
 fn airLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1518,14 +1530,10 @@ fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
         .signedness = signedness,
     });
 
-    const mem_arg_index = try self.addExtra(Mir.MemArg{
-        .offset = offset,
-        .alignment = ty.abiAlignment(self.target),
-    });
-    try self.addInst(.{
-        .tag = Mir.Inst.Tag.fromOpcode(opcode),
-        .data = .{ .payload = mem_arg_index },
-    });
+    try self.addMemArg(
+        Mir.Inst.Tag.fromOpcode(opcode),
+        .{ .offset = offset, .alignment = ty.abiAlignment(self.target) },
+    );
 
     // store the result in a local
     const result = try self.allocLocal(ty);
@@ -1713,10 +1721,10 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
 
             // When constant has value 'null', set is_null local to '1'
             // and payload to '0'
-            if (val.castTag(.opt_payload)) |pl| {
-                const payload_val = pl.data;
+            if (val.castTag(.opt_payload)) |payload| {
                 try self.addImm32(0);
-                try self.emitConstant(payload_val, payload_type);
+                if (payload_type.hasCodeGenBits())
+                    try self.emitConstant(payload.data, payload_type);
             } else {
                 // set null-tag
                 try self.addImm32(1);
@@ -1740,6 +1748,7 @@ fn emitUndefined(self: *Self, ty: Type) InnerError!void {
             33...64 => try self.addFloat64(@bitCast(f64, @as(u64, 0xaaaaaaaaaaaaaaaa))),
             else => |bits| return self.fail("Wasm TODO: emitUndefined for float bitsize: {d}", .{bits}),
         },
+        .Array => try self.addImm32(@bitCast(i32, @as(u32, 0xaaaaaaaa))),
         else => return self.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty}),
     }
 }
@@ -1953,7 +1962,14 @@ fn airUnreachable(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airBitcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    return self.resolveInst(ty_op.operand);
+    const operand = self.resolveInst(ty_op.operand);
+    if (operand == .constant) {
+        const result = try self.allocLocal(self.air.typeOfIndex(inst));
+        try self.emitWValue(operand);
+        try self.addLabel(.local_set, result.local);
+        return result;
+    }
+    return operand;
 }
 
 fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1973,12 +1989,21 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u32) InnerEr
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const struct_ptr = self.resolveInst(ty_op.operand);
     const struct_ty = self.air.typeOf(ty_op.operand).childType();
+    const field_ty = struct_ty.structFieldType(index);
     const offset = std.math.cast(u32, struct_ty.structFieldOffset(index, self.target)) catch {
         return self.fail("Field type '{}' too big to fit into stack frame", .{
-            struct_ty.structFieldType(index),
+            field_ty,
         });
     };
-    return structFieldPtr(struct_ptr, offset);
+    // field points to another struct, so retrieve that struct first
+    switch (struct_ptr) {
+        .local => return structFieldPtr(struct_ptr, offset),
+        .local_with_offset => |with_offset| {
+            const result = try self.load(struct_ptr, field_ty, with_offset.offset);
+            return structFieldPtr(result, offset);
+        },
+        else => unreachable,
+    }
 }
 
 fn structFieldPtr(struct_ptr: WValue, offset: u32) InnerError!WValue {
@@ -2156,14 +2181,10 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!W
 
     // load the error tag value
     try self.emitWValue(operand);
-    const mem_arg_index = try self.addExtra(Mir.MemArg{
-        .offset = 0,
-        .alignment = err_ty.abiAlignment(self.target),
-    });
-    try self.addInst(.{
-        .tag = .i32_load16_u,
-        .data = .{ .payload = mem_arg_index },
-    });
+    try self.addMemArg(
+        .i32_load16_u,
+        .{ .offset = 0, .alignment = err_ty.abiAlignment(self.target) },
+    );
 
     // Compare the error value with '0'
     try self.addImm32(0);
@@ -2257,11 +2278,7 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!
 
     // load the null tag value
     try self.emitWValue(operand);
-    const mem_arg_index = try self.addExtra(Mir.MemArg{ .offset = 0, .alignment = 1 });
-    try self.addInst(.{
-        .tag = .i32_load8_u,
-        .data = .{ .payload = mem_arg_index },
-    });
+    try self.addMemArg(.i32_load8_u, .{ .offset = 0, .alignment = 1 });
 
     // Compare the error value with '0'
     try self.addImm32(0);
@@ -2353,6 +2370,31 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     };
 }
 
+fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue.none;
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const slice_ty = self.air.typeOf(bin_op.lhs);
+    const elem_ty = self.air.getRefType(ty_pl.ty).childType();
+    const elem_size = elem_ty.abiSize(self.target);
+
+    const slice = self.resolveInst(bin_op.lhs);
+    const index = self.resolveInst(bin_op.rhs);
+
+    const slice_ptr = try self.load(slice, slice_ty, 0);
+    try self.addLabel(.local_get, slice_ptr.local);
+
+    // calculate index into slice
+    try self.emitWValue(index);
+    try self.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
+    try self.addTag(.i32_mul);
+    try self.addTag(.i32_add);
+
+    const result = try self.allocLocal(Type.initTag(.i32));
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
 fn airSlicePtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue.none;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -2423,4 +2465,9 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airBoolToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     return self.resolveInst(un_op);
+}
+
+fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    return self.resolveInst(ty_op.operand);
 }
