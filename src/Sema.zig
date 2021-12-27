@@ -3888,6 +3888,14 @@ fn analyzeCall(
 
                 if (is_comptime_call) {
                     const arg_val = try sema.resolveConstMaybeUndefVal(&child_block, arg_src, casted_arg);
+                    switch (arg_val.tag()) {
+                        .generic_poison, .generic_poison_type => {
+                            // This function is currently evaluated as part of an as-of-yet unresolvable
+                            // parameter or return type.
+                            return error.GenericPoison;
+                        },
+                        else => {},
+                    }
                     memoized_call_key.args[arg_i] = .{
                         .ty = param_ty,
                         .val = arg_val,
@@ -3905,6 +3913,14 @@ fn analyzeCall(
                 if (is_comptime_call) {
                     const arg_src = call_src; // TODO: better source location
                     const arg_val = try sema.resolveConstMaybeUndefVal(&child_block, arg_src, uncasted_arg);
+                    switch (arg_val.tag()) {
+                        .generic_poison, .generic_poison_type => {
+                            // This function is currently evaluated as part of an as-of-yet unresolvable
+                            // parameter or return type.
+                            return error.GenericPoison;
+                        },
+                        else => {},
+                    }
                     memoized_call_key.args[arg_i] = .{
                         .ty = sema.typeOf(uncasted_arg),
                         .val = arg_val,
