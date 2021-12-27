@@ -339,3 +339,21 @@ test "slice bounds in comptime concatenation" {
     try expect(str2.len == 1);
     try expect(std.mem.eql(u8, str2, "1"));
 }
+
+test "slice sentinel access at comptime" {
+    {
+        const str0 = &[_:0]u8{ '1', '2', '3' };
+        const slice0: [:0]const u8 = str0;
+
+        try expect(slice0.len == 3);
+        try expect(slice0[slice0.len] == 0);
+    }
+    {
+        const str0 = "123";
+        _ = &str0[0];
+        const slice0: [:0]const u8 = str0;
+
+        try expect(slice0.len == 3);
+        try expect(slice0[slice0.len] == 0);
+    }
+}

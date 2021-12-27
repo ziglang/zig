@@ -14982,12 +14982,16 @@ static Stage1AirInst *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, Stage1ZirI
                         case ConstPtrSpecialSubArray:
                         case ConstPtrSpecialBaseArray:
                             {
+                                uint64_t array_len = ptr_field->data.x_ptr.data.base_array.array_val->type->data.array.len;
+                                if (ptr_field->data.x_ptr.data.base_array.array_val->type->data.array.sentinel != nullptr) {
+                                    array_len += 1;
+                                }
                                 size_t offset = ptr_field->data.x_ptr.data.base_array.elem_index;
                                 uint64_t new_index = offset + index;
                                 if (ptr_field->data.x_ptr.data.base_array.array_val->data.x_array.special !=
                                         ConstArraySpecialBuf)
                                 {
-                                    if (new_index >= ptr_field->data.x_ptr.data.base_array.array_val->type->data.array.len) {
+                                    if (new_index >= array_len) {
                                         ir_add_error_node(ira, elem_ptr_instruction->base.source_node, buf_sprintf("out of bounds slice"));
                                         return ira->codegen->invalid_inst_gen;
                                     }
