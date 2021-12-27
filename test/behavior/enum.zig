@@ -699,3 +699,126 @@ test "single field non-exhaustive enum" {
     try S.doTheTest(23);
     comptime try S.doTheTest(23);
 }
+
+const EnumWithTagValues = enum(u4) {
+    A = 1 << 0,
+    B = 1 << 1,
+    C = 1 << 2,
+    D = 1 << 3,
+};
+test "enum with tag values don't require parens" {
+    try expect(@enumToInt(EnumWithTagValues.C) == 0b0100);
+}
+
+const MultipleChoice2 = enum(u32) {
+    Unspecified1,
+    A = 20,
+    Unspecified2,
+    B = 40,
+    Unspecified3,
+    C = 60,
+    Unspecified4,
+    D = 1000,
+    Unspecified5,
+};
+
+test "cast integer literal to enum" {
+    try expect(@intToEnum(MultipleChoice2, 0) == MultipleChoice2.Unspecified1);
+    try expect(@intToEnum(MultipleChoice2, 40) == MultipleChoice2.B);
+}
+
+test "enum with specified and unspecified tag values" {
+    try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
+    comptime try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
+}
+
+fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
+    try expect(@enumToInt(x) == 1000);
+    try expect(1234 == switch (x) {
+        MultipleChoice2.A => 1,
+        MultipleChoice2.B => 2,
+        MultipleChoice2.C => 3,
+        MultipleChoice2.D => @as(u32, 1234),
+        MultipleChoice2.Unspecified1 => 5,
+        MultipleChoice2.Unspecified2 => 6,
+        MultipleChoice2.Unspecified3 => 7,
+        MultipleChoice2.Unspecified4 => 8,
+        MultipleChoice2.Unspecified5 => 9,
+    });
+}
+
+const Small2 = enum(u2) { One, Two };
+const Small = enum(u2) { One, Two, Three, Four };
+
+test "set enum tag type" {
+    {
+        var x = Small.One;
+        x = Small.Two;
+        comptime try expect(Tag(Small) == u2);
+    }
+    {
+        var x = Small2.One;
+        x = Small2.Two;
+        comptime try expect(Tag(Small2) == u2);
+    }
+}
+
+test "casting enum to its tag type" {
+    try testCastEnumTag(Small2.Two);
+    comptime try testCastEnumTag(Small2.Two);
+}
+
+fn testCastEnumTag(value: Small2) !void {
+    try expect(@enumToInt(value) == 1);
+}
+
+test "enum with 1 field but explicit tag type should still have the tag type" {
+    const Enum = enum(u8) {
+        B = 2,
+    };
+    comptime try expect(@sizeOf(Enum) == @sizeOf(u8));
+}
+
+test "signed integer as enum tag" {
+    const SignedEnum = enum(i2) {
+        A0 = -1,
+        A1 = 0,
+        A2 = 1,
+    };
+
+    try expect(@enumToInt(SignedEnum.A0) == -1);
+    try expect(@enumToInt(SignedEnum.A1) == 0);
+    try expect(@enumToInt(SignedEnum.A2) == 1);
+}
+
+test "enum with one member and custom tag type" {
+    const E = enum(u2) {
+        One,
+    };
+    try expect(@enumToInt(E.One) == 0);
+    const E2 = enum(u2) {
+        One = 2,
+    };
+    try expect(@enumToInt(E2.One) == 2);
+}
+
+test "enum with one member and u1 tag type @enumToInt" {
+    const Enum = enum(u1) {
+        Test,
+    };
+    try expect(@enumToInt(Enum.Test) == 0);
+}
+
+test "enum with comptime_int tag type" {
+    const Enum = enum(comptime_int) {
+        One = 3,
+        Two = 2,
+        Three = 1,
+    };
+    comptime try expect(Tag(Enum) == comptime_int);
+}
+
+test "enum with one member default to u0 tag type" {
+    const E0 = enum { X };
+    comptime try expect(Tag(E0) == u0);
+}

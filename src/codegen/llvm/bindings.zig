@@ -785,7 +785,22 @@ pub const Builder = opaque {
 
     pub const buildExactSDiv = LLVMBuildExactSDiv;
     extern fn LLVMBuildExactSDiv(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
+
+    pub const zigSetCurrentDebugLocation = ZigLLVMSetCurrentDebugLocation;
+    extern fn ZigLLVMSetCurrentDebugLocation(builder: *const Builder, line: c_int, column: c_int, scope: *DIScope) void;
+
+    pub const clearCurrentDebugLocation = ZigLLVMClearCurrentDebugLocation;
+    extern fn ZigLLVMClearCurrentDebugLocation(builder: *const Builder) void;
+
+    pub const getCurrentDebugLocation2 = LLVMGetCurrentDebugLocation2;
+    extern fn LLVMGetCurrentDebugLocation2(Builder: *const Builder) *Metadata;
+
+    pub const setCurrentDebugLocation2 = LLVMSetCurrentDebugLocation2;
+    extern fn LLVMSetCurrentDebugLocation2(Builder: *const Builder, Loc: *Metadata) void;
 };
+
+pub const DIScope = opaque {};
+pub const Metadata = opaque {};
 
 pub const IntPredicate = enum(c_uint) {
     EQ = 32,

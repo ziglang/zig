@@ -1230,6 +1230,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .clz              => try airBuiltinCall(f, inst, "clz"),
             .ctz              => try airBuiltinCall(f, inst, "ctz"),
             .popcount         => try airBuiltinCall(f, inst, "popcount"),
+            .tag_name         => try airTagName(f, inst),
 
             .int_to_float,
             .float_to_int,
@@ -2912,6 +2913,24 @@ fn airGetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, operand);
     try writer.writeAll(");\n");
     return local;
+}
+
+fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const operand = try f.resolveInst(un_op);
+    const local = try f.allocLocal(inst_ty, .Const);
+
+    try writer.writeAll(" = ");
+
+    _ = operand;
+    _ = local;
+    return f.fail("TODO: C backend: implement airTagName", .{});
+    //try writer.writeAll(";\n");
+    //return local;
 }
 
 fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {

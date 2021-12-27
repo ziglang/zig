@@ -2804,8 +2804,11 @@ fn zirStr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     const tracy = trace(@src());
     defer tracy.end();
 
-    const zir_bytes = sema.code.instructions.items(.data)[inst].str.get(sema.code);
+    const bytes = sema.code.instructions.items(.data)[inst].str.get(sema.code);
+    return sema.addStrLit(block, bytes);
+}
 
+fn addStrLit(sema: *Sema, block: *Block, zir_bytes: []const u8) CompileError!Air.Inst.Ref {
     // `zir_bytes` references memory inside the ZIR module, which can get deallocated
     // after semantic analysis is complete, for example in the case of the initialization
     // expression of a variable declaration. We need the memory to be in the new
@@ -10045,8 +10048,50 @@ fn zirUnaryMath(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
 fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirTagName", .{});
+    const operand = sema.resolveInst(inst_data.operand);
+    const operand_ty = sema.typeOf(operand);
+
+    const enum_ty = switch (operand_ty.zigTypeTag()) {
+        .Enum => operand_ty,
+        .Union => operand_ty.unionTagType() orelse {
+            const decl = operand_ty.getOwnerDecl();
+            const msg = msg: {
+                const msg = try sema.errMsg(block, src, "union '{s}' is untagged", .{
+                    decl.name,
+                });
+                errdefer msg.destroy(sema.gpa);
+                try sema.mod.errNoteNonLazy(decl.srcLoc(), msg, "declared here", .{});
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
+        },
+        else => return sema.fail(block, operand_src, "expected enum or union; found {}", .{
+            operand_ty,
+        }),
+    };
+    const enum_decl = enum_ty.getOwnerDecl();
+    const casted_operand = try sema.coerce(block, enum_ty, operand, operand_src);
+    if (try sema.resolveDefinedValue(block, operand_src, casted_operand)) |val| {
+        const field_index = enum_ty.enumTagFieldIndex(val) orelse {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, src, "no field with value {} in enum '{s}'", .{
+                    casted_operand, enum_decl.name,
+                });
+                errdefer msg.destroy(sema.gpa);
+                try sema.mod.errNoteNonLazy(enum_decl.srcLoc(), msg, "declared here", .{});
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
+        };
+        const field_name = enum_ty.enumFieldName(field_index);
+        return sema.addStrLit(block, field_name);
+    }
+    // In case the value is runtime-known, we have an AIR instruction for this instead
+    // of trying to lower it in Sema because an optimization pass may result in the operand
+    // being comptime-known, which would let us elide the `tag_name` AIR instruction.
+    return block.addUnOp(.tag_name, casted_operand);
 }
 
 fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -15339,6 +15384,7 @@ fn typeHasOnePossibleValue(
         .array_sentinel,
         .array_u8_sentinel_0,
         .const_slice_u8,
+        .const_slice_u8_sentinel_0,
         .const_slice,
         .mut_slice,
         .anyopaque,
@@ -15356,6 +15402,7 @@ fn typeHasOnePossibleValue(
         .var_args_param,
         .manyptr_u8,
         .manyptr_const_u8,
+        .manyptr_const_u8_sentinel_0,
         .atomic_order,
         .atomic_rmw_op,
         .calling_convention,
