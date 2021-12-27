@@ -646,3 +646,56 @@ test "non-exhaustive enum" {
     try S.doTheTest(52);
     comptime try S.doTheTest(52);
 }
+
+test "empty non-exhaustive enum" {
+    const S = struct {
+        const E = enum(u8) { _ };
+
+        fn doTheTest(y: u8) !void {
+            var e = @intToEnum(E, y);
+            try expect(switch (e) {
+                _ => true,
+            });
+            try expect(@enumToInt(e) == y);
+
+            try expect(@typeInfo(E).Enum.fields.len == 0);
+            try expect(@typeInfo(E).Enum.is_exhaustive == false);
+        }
+    };
+    try S.doTheTest(42);
+    comptime try S.doTheTest(42);
+}
+
+test "single field non-exhaustive enum" {
+    const S = struct {
+        const E = enum(u8) { a, _ };
+        fn doTheTest(y: u8) !void {
+            var e: E = .a;
+            try expect(switch (e) {
+                .a => true,
+                _ => false,
+            });
+            e = @intToEnum(E, 12);
+            try expect(switch (e) {
+                .a => false,
+                _ => true,
+            });
+
+            try expect(switch (e) {
+                .a => false,
+                else => true,
+            });
+            e = .a;
+            try expect(switch (e) {
+                .a => true,
+                else => false,
+            });
+
+            try expect(@enumToInt(@intToEnum(E, y)) == y);
+            try expect(@typeInfo(E).Enum.fields.len == 1);
+            try expect(@typeInfo(E).Enum.is_exhaustive == false);
+        }
+    };
+    try S.doTheTest(23);
+    comptime try S.doTheTest(23);
+}

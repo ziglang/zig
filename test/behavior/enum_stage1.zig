@@ -2,64 +2,6 @@ const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 const Tag = @import("std").meta.Tag;
 
-test "empty non-exhaustive enum" {
-    const S = struct {
-        const E = enum(u8) {
-            _,
-        };
-        fn doTheTest(y: u8) !void {
-            var e = @intToEnum(E, y);
-            try expect(switch (e) {
-                _ => true,
-            });
-            try expect(@enumToInt(e) == y);
-
-            try expect(@typeInfo(E).Enum.fields.len == 0);
-            try expect(@typeInfo(E).Enum.is_exhaustive == false);
-        }
-    };
-    try S.doTheTest(42);
-    comptime try S.doTheTest(42);
-}
-
-test "single field non-exhaustive enum" {
-    const S = struct {
-        const E = enum(u8) { a, _ };
-        fn doTheTest(y: u8) !void {
-            var e: E = .a;
-            try expect(switch (e) {
-                .a => true,
-                _ => false,
-            });
-            e = @intToEnum(E, 12);
-            try expect(switch (e) {
-                .a => false,
-                _ => true,
-            });
-
-            try expect(switch (e) {
-                .a => false,
-                else => true,
-            });
-            e = .a;
-            try expect(switch (e) {
-                .a => true,
-                else => false,
-            });
-
-            try expect(@enumToInt(@intToEnum(E, y)) == y);
-            try expect(@typeInfo(E).Enum.fields.len == 1);
-            try expect(@typeInfo(E).Enum.is_exhaustive == false);
-        }
-    };
-    try S.doTheTest(23);
-    comptime try S.doTheTest(23);
-}
-
-const Bar = enum { A, B, C, D };
-
-const Number = enum { Zero, One, Two, Three, Four };
-
 test "@tagName" {
     try expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
     comptime try expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
@@ -303,6 +245,8 @@ test "enum with one member and custom tag type" {
     };
     try expect(@enumToInt(E2.One) == 2);
 }
+
+const Bar = enum { A, B, C, D };
 
 test "enum literal casting to optional" {
     var bar: ?Bar = undefined;

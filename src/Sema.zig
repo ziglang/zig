@@ -1759,6 +1759,11 @@ fn zirEnumDecl(
     const body = sema.code.extra[extra_index..][0..body_len];
     if (fields_len == 0) {
         assert(body.len == 0);
+        if (tag_type_ref != .none) {
+            // TODO better source location
+            const ty = try sema.resolveType(block, src, tag_type_ref);
+            enum_obj.tag_ty = try ty.copy(new_decl_arena_allocator);
+        }
         try new_decl.finalizeNewArena(&new_decl_arena);
         return sema.analyzeDeclVal(block, src, new_decl);
     }
@@ -1810,7 +1815,8 @@ fn zirEnumDecl(
         const tag_ty = blk: {
             if (tag_type_ref != .none) {
                 // TODO better source location
-                break :blk try sema.resolveType(block, src, tag_type_ref);
+                const ty = try sema.resolveType(block, src, tag_type_ref);
+                break :blk try ty.copy(new_decl_arena_allocator);
             }
             const bits = std.math.log2_int_ceil(usize, fields_len);
             break :blk try Type.Tag.int_unsigned.create(new_decl_arena_allocator, bits);
