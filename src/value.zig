@@ -2031,6 +2031,10 @@ pub const Value = extern union {
     ) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
+        if (ty.zigTypeTag() == .ComptimeInt) {
+            return intAdd(lhs, rhs, arena);
+        }
+
         if (ty.isAnyFloat()) {
             return floatAdd(lhs, rhs, ty, arena);
         }
@@ -2117,6 +2121,10 @@ pub const Value = extern union {
     ) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
 
+        if (ty.zigTypeTag() == .ComptimeInt) {
+            return intSub(lhs, rhs, arena);
+        }
+
         if (ty.isAnyFloat()) {
             return floatSub(lhs, rhs, ty, arena);
         }
@@ -2195,6 +2203,10 @@ pub const Value = extern union {
         target: Target,
     ) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+
+        if (ty.zigTypeTag() == .ComptimeInt) {
+            return intMul(lhs, rhs, arena);
+        }
 
         if (ty.isAnyFloat()) {
             return floatMul(lhs, rhs, ty, arena);

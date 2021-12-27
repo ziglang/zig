@@ -6949,7 +6949,10 @@ fn zirShl(
         }
         const val = switch (air_tag) {
             .shl_exact => return sema.fail(block, lhs_src, "TODO implement Sema for comptime shl_exact", .{}),
-            .shl_sat => try lhs_val.shlSat(rhs_val, lhs_ty, sema.arena, sema.mod.getTarget()),
+            .shl_sat => if (lhs_ty.zigTypeTag() == .ComptimeInt)
+                try lhs_val.shl(rhs_val, sema.arena)
+            else
+                try lhs_val.shlSat(rhs_val, lhs_ty, sema.arena, sema.mod.getTarget()),
             .shl => try lhs_val.shl(rhs_val, sema.arena),
             else => unreachable,
         };
@@ -7658,10 +7661,12 @@ fn analyzeArithmetic(
                         return casted_lhs;
                     }
                     if (maybe_lhs_val) |lhs_val| {
-                        return sema.addConstant(
-                            scalar_type,
-                            try lhs_val.intAddSat(rhs_val, scalar_type, sema.arena, target),
-                        );
+                        const val = if (scalar_tag == .ComptimeInt)
+                            try lhs_val.intAdd(rhs_val, sema.arena)
+                        else
+                            try lhs_val.intAddSat(rhs_val, scalar_type, sema.arena, target);
+
+                        return sema.addConstant(scalar_type, val);
                     } else break :rs .{ .src = lhs_src, .air_tag = .add_sat };
                 } else break :rs .{ .src = rhs_src, .air_tag = .add_sat };
             },
@@ -7749,10 +7754,12 @@ fn analyzeArithmetic(
                         return sema.addConstUndef(scalar_type);
                     }
                     if (maybe_rhs_val) |rhs_val| {
-                        return sema.addConstant(
-                            scalar_type,
-                            try lhs_val.intSubSat(rhs_val, scalar_type, sema.arena, target),
-                        );
+                        const val = if (scalar_tag == .ComptimeInt)
+                            try lhs_val.intSub(rhs_val, sema.arena)
+                        else
+                            try lhs_val.intSubSat(rhs_val, scalar_type, sema.arena, target);
+
+                        return sema.addConstant(scalar_type, val);
                     } else break :rs .{ .src = rhs_src, .air_tag = .sub_sat };
                 } else break :rs .{ .src = lhs_src, .air_tag = .sub_sat };
             },
@@ -8132,10 +8139,13 @@ fn analyzeArithmetic(
                         if (lhs_val.isUndef()) {
                             return sema.addConstUndef(scalar_type);
                         }
-                        return sema.addConstant(
-                            scalar_type,
-                            try lhs_val.intMulSat(rhs_val, scalar_type, sema.arena, target),
-                        );
+
+                        const val = if (scalar_tag == .ComptimeInt)
+                            try lhs_val.intMul(rhs_val, sema.arena)
+                        else
+                            try lhs_val.intMulSat(rhs_val, scalar_type, sema.arena, target);
+
+                        return sema.addConstant(scalar_type, val);
                     } else break :rs .{ .src = lhs_src, .air_tag = .mul_sat };
                 } else break :rs .{ .src = rhs_src, .air_tag = .mul_sat };
             },
