@@ -605,3 +605,44 @@ test "enum with specified tag values" {
     try testEnumWithSpecifiedTagValues(MultipleChoice.C);
     comptime try testEnumWithSpecifiedTagValues(MultipleChoice.C);
 }
+
+test "non-exhaustive enum" {
+    const S = struct {
+        const E = enum(u8) { a, b, _ };
+
+        fn doTheTest(y: u8) !void {
+            var e: E = .b;
+            try expect(switch (e) {
+                .a => false,
+                .b => true,
+                _ => false,
+            });
+            e = @intToEnum(E, 12);
+            try expect(switch (e) {
+                .a => false,
+                .b => false,
+                _ => true,
+            });
+
+            try expect(switch (e) {
+                .a => false,
+                .b => false,
+                else => true,
+            });
+            e = .b;
+            try expect(switch (e) {
+                .a => false,
+                else => true,
+            });
+
+            try expect(@typeInfo(E).Enum.fields.len == 2);
+            e = @intToEnum(E, 12);
+            try expect(@enumToInt(e) == 12);
+            e = @intToEnum(E, y);
+            try expect(@enumToInt(e) == 52);
+            try expect(@typeInfo(E).Enum.is_exhaustive == false);
+        }
+    };
+    try S.doTheTest(52);
+    comptime try S.doTheTest(52);
+}

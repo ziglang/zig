@@ -334,6 +334,7 @@ pub const TypeInfo = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Enum = struct {
+        /// TODO enums should no longer have this field in type info.
         layout: ContainerLayout,
         tag_type: type,
         fields: []const EnumField,

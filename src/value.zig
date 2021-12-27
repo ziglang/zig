@@ -1461,14 +1461,25 @@ pub const Value = extern union {
             return false;
         }
 
-        if (ty.zigTypeTag() == .Type) {
-            var buf_a: ToTypeBuffer = undefined;
-            var buf_b: ToTypeBuffer = undefined;
-            const a_type = a.toType(&buf_a);
-            const b_type = b.toType(&buf_b);
-            return a_type.eql(b_type);
+        switch (ty.zigTypeTag()) {
+            .Type => {
+                var buf_a: ToTypeBuffer = undefined;
+                var buf_b: ToTypeBuffer = undefined;
+                const a_type = a.toType(&buf_a);
+                const b_type = b.toType(&buf_b);
+                return a_type.eql(b_type);
+            },
+            .Enum => {
+                var buf_a: Payload.U64 = undefined;
+                var buf_b: Payload.U64 = undefined;
+                const a_val = a.enumToInt(ty, &buf_a);
+                const b_val = b.enumToInt(ty, &buf_b);
+                var buf_ty: Type.Payload.Bits = undefined;
+                const int_ty = ty.intTagType(&buf_ty);
+                return eql(a_val, b_val, int_ty);
+            },
+            else => return order(a, b).compare(.eq),
         }
-        return order(a, b).compare(.eq);
     }
 
     pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash) void {
@@ -3037,6 +3048,8 @@ pub const Value = extern union {
     pub const undef = initTag(.undef);
     pub const @"void" = initTag(.void_value);
     pub const @"null" = initTag(.null_value);
+    pub const @"false" = initTag(.bool_false);
+    pub const @"true" = initTag(.bool_true);
 };
 
 var negative_one_payload: Value.Payload.I64 = .{

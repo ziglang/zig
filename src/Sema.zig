@@ -5951,7 +5951,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             }
             const all_tags_handled = for (seen_fields) |seen_src| {
                 if (seen_src == null) break false;
-            } else true;
+            } else !operand_ty.isNonexhaustiveEnum();
 
             switch (special_prong) {
                 .none => {
@@ -9035,9 +9035,119 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 }),
             );
         },
-        else => |t| return sema.fail(block, src, "TODO: implement zirTypeInfo for {s}", .{
-            @tagName(t),
-        }),
+        .Enum => {
+            // TODO: look into memoizing this result.
+            var int_tag_type_buffer: Type.Payload.Bits = undefined;
+            const int_tag_ty = try ty.intTagType(&int_tag_type_buffer).copy(sema.arena);
+
+            const is_exhaustive = if (ty.isNonexhaustiveEnum()) Value.@"false" else Value.@"true";
+
+            var fields_anon_decl = try block.startAnonDecl();
+            defer fields_anon_decl.deinit();
+
+            const enum_field_ty = t: {
+                const enum_field_ty_decl = (try sema.namespaceLookup(
+                    block,
+                    src,
+                    type_info_ty.getNamespace().?,
+                    "EnumField",
+                )).?;
+                try sema.mod.declareDeclDependency(sema.owner_decl, enum_field_ty_decl);
+                try sema.ensureDeclAnalyzed(enum_field_ty_decl);
+                var buffer: Value.ToTypeBuffer = undefined;
+                break :t try enum_field_ty_decl.val.toType(&buffer).copy(fields_anon_decl.arena());
+            };
+
+            const enum_fields = ty.enumFields();
+            const enum_field_vals = try fields_anon_decl.arena().alloc(Value, enum_fields.count());
+
+            for (enum_field_vals) |*field_val, i| {
+                var tag_val_payload: Value.Payload.U32 = .{
+                    .base = .{ .tag = .enum_field_index },
+                    .data = @intCast(u32, i),
+                };
+                const tag_val = Value.initPayload(&tag_val_payload.base);
+
+                var buffer: Value.Payload.U64 = undefined;
+                const int_val = try tag_val.enumToInt(ty, &buffer).copy(fields_anon_decl.arena());
+
+                const name = enum_fields.keys()[i];
+                const name_val = v: {
+                    var anon_decl = try block.startAnonDecl();
+                    defer anon_decl.deinit();
+                    const bytes = try anon_decl.arena().dupeZ(u8, name);
+                    const new_decl = try anon_decl.finish(
+                        try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
+                        try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                    );
+                    break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
+                };
+
+                const enum_field_fields = try fields_anon_decl.arena().create([2]Value);
+                enum_field_fields.* = .{
+                    // name: []const u8,
+                    name_val,
+                    // value: comptime_int,
+                    int_val,
+                };
+                field_val.* = try Value.Tag.@"struct".create(fields_anon_decl.arena(), enum_field_fields);
+            }
+
+            const fields_val = v: {
+                const new_decl = try fields_anon_decl.finish(
+                    try Type.Tag.array.create(fields_anon_decl.arena(), .{
+                        .len = enum_field_vals.len,
+                        .elem_type = enum_field_ty,
+                    }),
+                    try Value.Tag.array.create(
+                        fields_anon_decl.arena(),
+                        try fields_anon_decl.arena().dupe(Value, enum_field_vals),
+                    ),
+                );
+                break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
+            };
+
+            if (ty.getNamespace()) |namespace| {
+                if (namespace.decls.count() != 0) {
+                    return sema.fail(block, src, "TODO: implement zirTypeInfo for Enum which has declarations", .{});
+                }
+            }
+            const decls_val = Value.initTag(.empty_array);
+
+            const field_values = try sema.arena.create([5]Value);
+            field_values.* = .{
+                // layout: ContainerLayout,
+                try Value.Tag.enum_field_index.create(
+                    sema.arena,
+                    @enumToInt(std.builtin.TypeInfo.ContainerLayout.Auto),
+                ),
+
+                // tag_type: type,
+                try Value.Tag.ty.create(sema.arena, int_tag_ty),
+                // fields: []const EnumField,
+                fields_val,
+                // decls: []const Declaration,
+                decls_val,
+                // is_exhaustive: bool,
+                is_exhaustive,
+            };
+
+            return sema.addConstant(
+                type_info_ty,
+                try Value.Tag.@"union".create(sema.arena, .{
+                    .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Enum)),
+                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                }),
+            );
+        },
+        .Struct => return sema.fail(block, src, "TODO: implement zirTypeInfo for Struct", .{}),
+        .ErrorSet => return sema.fail(block, src, "TODO: implement zirTypeInfo for ErrorSet", .{}),
+        .Union => return sema.fail(block, src, "TODO: implement zirTypeInfo for Union", .{}),
+        .BoundFn => @panic("TODO remove this type from the language and compiler"),
+        .Opaque => return sema.fail(block, src, "TODO: implement zirTypeInfo for Opaque", .{}),
+        .Frame => return sema.fail(block, src, "TODO: implement zirTypeInfo for Frame", .{}),
+        .AnyFrame => return sema.fail(block, src, "TODO: implement zirTypeInfo for AnyFrame", .{}),
+        .Vector => return sema.fail(block, src, "TODO: implement zirTypeInfo for Vector", .{}),
     }
 }
 
@@ -15153,13 +15263,13 @@ fn getBuiltin(
     );
     const builtin_inst = try sema.analyzeLoad(block, src, opt_builtin_inst.?, src);
     const builtin_ty = try sema.analyzeAsType(block, src, builtin_inst);
-    const opt_ty_inst = try sema.namespaceLookupRef(
+    const opt_ty_decl = try sema.namespaceLookup(
         block,
         src,
         builtin_ty.getNamespace().?,
         name,
     );
-    return sema.analyzeLoad(block, src, opt_ty_inst.?, src);
+    return sema.analyzeDeclVal(block, src, opt_ty_decl.?);
 }
 
 fn getBuiltinType(
