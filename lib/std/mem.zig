@@ -345,7 +345,7 @@ test "mem.zeroes" {
 
     const ZigStruct = struct {
         comptime comptime_field: u8 = 5,
-        
+
         integral_types: struct {
             integer_0: i0,
             integer_8: i8,
