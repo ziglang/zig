@@ -26,23 +26,6 @@ fn mangleString(s: []u8) void {
     }
 }
 
-test "2 break statements and an else" {
-    const S = struct {
-        fn entry(t: bool, f: bool) !void {
-            var buf: [10]u8 = undefined;
-            var ok = false;
-            ok = for (buf) |item| {
-                _ = item;
-                if (f) break false;
-                if (t) break true;
-            } else false;
-            try expect(ok);
-        }
-    };
-    try S.entry(true, false);
-    comptime try S.entry(true, false);
-}
-
 test "for copies its payload" {
     const S = struct {
         fn doTheTest() !void {

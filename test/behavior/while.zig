@@ -236,3 +236,33 @@ test "while on error union with else result follow break prong" {
     } else |_| @as(i32, 2);
     try expect(result == 10);
 }
+
+test "while bool 2 break statements and an else" {
+    const S = struct {
+        fn entry(t: bool, f: bool) !void {
+            var ok = false;
+            ok = while (t) {
+                if (f) break false;
+                if (t) break true;
+            } else false;
+            try expect(ok);
+        }
+    };
+    try S.entry(true, false);
+    comptime try S.entry(true, false);
+}
+
+test "while optional 2 break statements and an else" {
+    const S = struct {
+        fn entry(opt_t: ?bool, f: bool) !void {
+            var ok = false;
+            ok = while (opt_t) |t| {
+                if (f) break false;
+                if (t) break true;
+            } else false;
+            try expect(ok);
+        }
+    };
+    try S.entry(true, false);
+    comptime try S.entry(true, false);
+}

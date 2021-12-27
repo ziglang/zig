@@ -12528,7 +12528,7 @@ fn elemVal(
     block: *Block,
     src: LazySrcLoc,
     array: Air.Inst.Ref,
-    elem_index: Air.Inst.Ref,
+    elem_index_uncasted: Air.Inst.Ref,
     elem_index_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
     const array_src = src; // TODO better source location
@@ -12537,6 +12537,8 @@ fn elemVal(
     if (!array_ty.isIndexable()) {
         return sema.fail(block, src, "array access of non-indexable type '{}'", .{array_ty});
     }
+
+    const elem_index = try sema.coerce(block, Type.usize, elem_index_uncasted, elem_index_src);
 
     switch (array_ty.zigTypeTag()) {
         .Pointer => switch (array_ty.ptrSize()) {
