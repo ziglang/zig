@@ -3,8 +3,7 @@ const test_utils = @import("../test.zig");
 const Testcase = test_utils.Testcase;
 const runTests = test_utils.runTests;
 const floatFromBits = test_utils.floatFromBits;
-const inf32 = math.inf_f32;
-const inf64 = math.inf_f64;
+const negInf = test_utils.negInf;
 const nan32 = math.nan_f32;
 const nan64 = math.nan_f64;
 
@@ -13,6 +12,19 @@ const tc32 = Tc32.init;
 
 const Tc64 = Testcase(math.log1p, "log1p", f64);
 const tc64 = Tc64.init;
+
+// Special-case tests shared between different float sizes, see genTests().
+const special_tests = .{
+    // zig fmt: off
+    .{ 0,         0       },
+    .{-0,        -0       },
+    .{-1,         negInf  },
+    .{ 1,         math.ln2},
+    .{-2,         math.nan},
+    .{ math.inf,  math.inf},
+    .{ negInf,    math.nan},
+    // zig fmt: on
+};
 
 test "math.log1p_32() sanity" {
     const cases = [_]Tc32{
@@ -33,17 +45,7 @@ test "math.log1p_32() sanity" {
 }
 
 test "math.log1p_32() special" {
-    const cases = &[_]Tc32{
-        // zig fmt: off
-        tc32( 0,       0       ),
-        tc32(-0,      -0       ),
-        tc32(-1,      -inf32   ),
-        tc32( 1,       math.ln2),
-        tc32(-2,       nan32   ),
-        tc32( inf32,   inf32   ),
-        tc32(-inf32,   nan32   ),
-        // zig fmt: on
-    } ++ test_utils.nanTests(Tc32);
+    const cases = test_utils.genTests(Tc32, special_tests) ++ test_utils.nanTests(Tc32);
     try runTests(cases);
 }
 
@@ -81,17 +83,7 @@ test "math.log1p_64() sanity" {
 }
 
 test "math.log1p_64() special" {
-    const cases = &[_]Tc64{
-        // zig fmt: off
-        tc64( 0,       0       ),
-        tc64(-0,      -0       ),
-        tc64(-1,      -inf64   ),
-        tc64( 1,       math.ln2),
-        tc64(-2,       nan64   ),
-        tc64( inf64,   inf64   ),
-        tc64(-inf64,   nan64   ),
-        // zig fmt: on
-    } ++ test_utils.nanTests(Tc64);
+    const cases = test_utils.genTests(Tc64, special_tests) ++ test_utils.nanTests(Tc64);
     try runTests(cases);
 }
 

@@ -3,16 +3,28 @@ const test_utils = @import("../test.zig");
 const Testcase = test_utils.Testcase;
 const runTests = test_utils.runTests;
 const floatFromBits = test_utils.floatFromBits;
+const negInf = test_utils.negInf;
 const inf32 = math.inf_f32;
 const inf64 = math.inf_f64;
-const nan32 = math.nan_f32;
-const nan64 = math.nan_f64;
 
 const Tc32 = Testcase(math.exp, "exp", f32);
 const tc32 = Tc32.init;
 
 const Tc64 = Testcase(math.exp, "exp", f64);
 const tc64 = Tc64.init;
+
+// Special-case tests shared between different float sizes, see genTests().
+const special_tests = .{
+    // zig fmt: off
+    .{ 0,        1       },
+    .{-0,        1       },
+    // TODO: Accuracy error - off in the last bit in 64-bit, disagreeing with GCC
+    // .{ 1,        math.e  },
+    .{ math.ln2, 2       },
+    .{ math.inf, math.inf},
+    .{ negInf,   0       },
+    // zig fmt: on
+};
 
 test "math.exp32() sanity" {
     const cases = [_]Tc32{
@@ -43,16 +55,7 @@ test "math.exp32() sanity" {
 }
 
 test "math.exp32() special" {
-    const cases = &[_]Tc32{
-        // zig fmt: off
-        tc32( 0,         1     ),
-        tc32(-0,         1     ),
-        tc32( 1,         math.e),
-        tc32( math.ln2,  2     ),
-        tc32( inf32,     inf32 ),
-        tc32(-inf32,     0     ),
-        // zig fmt: on
-    } ++ test_utils.nanTests(Tc32);
+    const cases = test_utils.genTests(Tc32, special_tests) ++ test_utils.nanTests(Tc32);
     try runTests(cases);
 }
 
@@ -104,17 +107,7 @@ test "math.exp64() sanity" {
 }
 
 test "math.exp64() special" {
-    const cases = &[_]Tc64{
-        // zig fmt: off
-        tc64( 0,         1     ),
-        tc64(-0,         1     ),
-        // TODO: Accuracy error - off in the last bit, disagreeing with GCC
-        // tc64( 1,         math.e),
-        tc64( math.ln2,  2     ),
-        tc64( inf64,     inf64 ),
-        tc64(-inf64,     0     ),
-        // zig fmt: on
-    } ++ test_utils.nanTests(Tc64);
+    const cases = test_utils.genTests(Tc64, special_tests) ++ test_utils.nanTests(Tc64);
     try runTests(cases);
 }
 

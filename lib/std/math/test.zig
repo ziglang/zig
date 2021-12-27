@@ -1,8 +1,9 @@
 const std = @import("../std.zig");
 const print = std.debug.print;
 const meta = std.meta;
+const math = std.math;
 const bitCount = meta.bitCount;
-const nan = std.math.nan;
+const nan = math.nan;
 
 // Switch to 'true' to enable debug output.
 var verbose = false;
@@ -20,11 +21,21 @@ comptime {
     _ = @import("test/log1p.zig");
 }
 
+/// Return negative infinity of the given float type.
+///
+/// Intended for use with 'genTests()'.
+pub fn negInf(comptime T: type) T {
+    return -math.inf(T);
+}
+
 // Used for the type signature.
 fn genericFloatInFloatOut(x: anytype) @TypeOf(x) {
     return x;
 }
 
+/// Create a testcase struct type for a given function that takes in a generic
+/// float value and outputs the same float type. Provides descriptive reporting
+/// of errors.
 pub fn Testcase(
     comptime func: @TypeOf(genericFloatInFloatOut),
     comptime name: []const u8,
@@ -93,6 +104,7 @@ pub fn Testcase(
     };
 }
 
+/// Run all testcases in the given iterable, using the '.run()' method.
 pub fn runTests(tests: anytype) !void {
     var failures: usize = 0;
     print("\n", .{});
@@ -111,10 +123,40 @@ pub fn runTests(tests: anytype) !void {
     if (failures > 0) return error.Failure;
 }
 
+/// Create a float of the given type using the unsigned integer bit representation.
 pub fn floatFromBits(comptime T: type, bits: meta.Int(.unsigned, bitCount(T))) T {
     return @bitCast(T, bits);
 }
 
+/// Generate a comptime slice of testcases of the given type.
+///
+/// The input type should be an instance of 'Testcase'.
+///
+/// The input testcases should be a comptime iterable of 2-tuples containing
+/// input and expected output for the testcase. These values may be any of:
+///  - a comptime integer or float
+///  - a regular float (to be cast to the destination float type)
+///  - a function that takes a float type and returns the value, intended for
+///    use with math.inf() and math.nan()
+pub fn genTests(comptime T: type, comptime testcases: anytype) []const T {
+    comptime var out_tests: []const T = &.{};
+    inline for (testcases) |tc| {
+        const input: T.F = switch (@typeInfo(@TypeOf(tc[0]))) {
+            .ComptimeInt, .ComptimeFloat, .Float => tc[0],
+            else => tc[0](T.F),
+        };
+        const exp_output: T.F = switch (@typeInfo(@TypeOf(tc[1]))) {
+            .ComptimeInt, .ComptimeFloat, .Float => tc[1],
+            else => tc[1](T.F),
+        };
+        out_tests = out_tests ++ &[_]T{T.init(input, exp_output)};
+    }
+    return out_tests;
+}
+
+/// A comptime slice of NaN testcases, applicable to all functions.
+///
+/// The input type should be an instance of 'Testcase'.
 pub fn nanTests(comptime T: type) []const T {
     // NaNs should always be unchanged when passed through.
     switch (T.bits) {
