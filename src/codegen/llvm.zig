@@ -1361,10 +1361,12 @@ pub const DeclGen = struct {
                                 .val = field_val,
                             });
                             const ty_bit_size = @intCast(u16, field.ty.bitSize(target));
-                            const llvm_int_ty = dg.context.intType(ty_bit_size);
-                            const int_val = non_int_val.constBitCast(llvm_int_ty);
-                            const shift_rhs = llvm_int_ty.constInt(running_bits, .False);
-                            const shifted = int_val.constShl(shift_rhs);
+                            const small_int_ty = dg.context.intType(ty_bit_size);
+                            const small_int_val = non_int_val.constBitCast(small_int_ty);
+                            const big_int_ty = running_int.typeOf();
+                            const shift_rhs = big_int_ty.constInt(running_bits, .False);
+                            const extended_int_val = small_int_val.constZExt(big_int_ty);
+                            const shifted = extended_int_val.constShl(shift_rhs);
                             running_int = running_int.constOr(shifted);
                             running_bits += ty_bit_size;
                         } else {

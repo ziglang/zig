@@ -21,7 +21,7 @@ test {
     _ = @import("behavior/usingnamespace.zig");
 
     // Tests that pass for stage1, stage2 and the C backend, but not for the wasm backend
-    if (!builtin.zig_is_stage2 or (builtin.zig_is_stage2 and builtin.stage2_arch != .wasm32)) {
+    if (!builtin.zig_is_stage2 or builtin.stage2_arch != .wasm32) {
         _ = @import("behavior/align.zig");
         _ = @import("behavior/bool.zig");
         _ = @import("behavior/bugs/704.zig");

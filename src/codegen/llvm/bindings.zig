@@ -201,6 +201,11 @@ pub const Value = opaque {
 
     pub const addCase = LLVMAddCase;
     extern fn LLVMAddCase(Switch: *const Value, OnVal: *const Value, Dest: *const BasicBlock) void;
+
+    pub inline fn isPoison(Val: *const Value) bool {
+        return LLVMIsPoison(Val).toBool();
+    }
+    extern fn LLVMIsPoison(Val: *const Value) Bool;
 };
 
 pub const Type = opaque {
