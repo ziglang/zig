@@ -74,6 +74,7 @@ pub const hash = struct {
     pub const Sha1 = @import("crypto/sha1.zig").Sha1;
     pub const sha2 = @import("crypto/sha2.zig");
     pub const sha3 = @import("crypto/sha3.zig");
+    pub const Ripemd160 = @import("crypto/ripemd160.zig").Ripemd160;
 };
 
 /// Key derivation functions.
