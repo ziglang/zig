@@ -4327,16 +4327,16 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
     var runtime_param_index: usize = 0;
     var total_param_index: usize = 0;
     for (fn_info.param_body) |inst| {
-        const name = switch (zir_tags[inst]) {
+        const param: struct { name: u32, src: LazySrcLoc } = switch (zir_tags[inst]) {
             .param, .param_comptime => blk: {
-                const inst_data = sema.code.instructions.items(.data)[inst].pl_tok;
-                const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index).data;
-                break :blk extra.name;
+                const pl_tok = sema.code.instructions.items(.data)[inst].pl_tok;
+                const extra = sema.code.extraData(Zir.Inst.Param, pl_tok.payload_index).data;
+                break :blk .{ .name = extra.name, .src = pl_tok.src() };
             },
 
             .param_anytype, .param_anytype_comptime => blk: {
                 const str_tok = sema.code.instructions.items(.data)[inst].str_tok;
-                break :blk str_tok.start;
+                break :blk .{ .name = str_tok.start, .src = str_tok.src() };
             },
 
             else => continue,
@@ -4352,6 +4352,18 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
             }
         }
         const param_type = fn_ty.fnParamType(runtime_param_index);
+        const opt_opv = sema.typeHasOnePossibleValue(&inner_block, param.src, param_type) catch |err| switch (err) {
+            error.NeededSourceLocation => unreachable,
+            error.GenericPoison => unreachable,
+            error.ComptimeReturn => unreachable,
+            else => |e| return e,
+        };
+        if (opt_opv) |opv| {
+            const arg = try sema.addConstant(param_type, opv);
+            sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
+            total_param_index += 1;
+            continue;
+        }
         const ty_ref = try sema.addType(param_type);
         const arg_index = @intCast(u32, sema.air_instructions.len);
         inner_block.instructions.appendAssumeCapacity(arg_index);
@@ -4359,7 +4371,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
             .tag = .arg,
             .data = .{ .ty_str = .{
                 .ty = ty_ref,
-                .str = name,
+                .str = param.name,
             } },
         });
         sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));

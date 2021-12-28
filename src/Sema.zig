@@ -266,7 +266,7 @@ pub const Block = struct {
         });
     }
 
-    pub fn addBinOp(
+    fn addBinOp(
         block: *Block,
         tag: Air.Inst.Tag,
         lhs: Air.Inst.Ref,
@@ -281,7 +281,7 @@ pub const Block = struct {
         });
     }
 
-    pub fn addArg(block: *Block, ty: Type, name: u32) error{OutOfMemory}!Air.Inst.Ref {
+    fn addArg(block: *Block, ty: Type, name: u32) error{OutOfMemory}!Air.Inst.Ref {
         return block.addInst(.{
             .tag = .arg,
             .data = .{ .ty_str = .{
@@ -291,7 +291,7 @@ pub const Block = struct {
         });
     }
 
-    pub fn addStructFieldPtr(
+    fn addStructFieldPtr(
         block: *Block,
         struct_ptr: Air.Inst.Ref,
         field_index: u32,
@@ -15339,7 +15339,7 @@ fn getBuiltinType(
 /// in `Sema` is for calling during semantic analysis, and performs field resolution
 /// to get the answer. The one in `Type` is for calling during codegen and asserts
 /// that the types are already resolved.
-fn typeHasOnePossibleValue(
+pub fn typeHasOnePossibleValue(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
