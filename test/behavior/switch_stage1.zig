@@ -3,24 +3,6 @@ const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
 
-const Number = union(enum) {
-    One: u64,
-    Two: u8,
-    Three: f32,
-};
-
-const number = Number{ .Three = 1.23 };
-
-fn returnsFalse() bool {
-    switch (number) {
-        Number.One => |x| return x > 1234,
-        Number.Two => |x| return x == 'a',
-        Number.Three => |x| return x > 12.34,
-    }
-}
-test "switch on const enum with var" {
-    try expect(!returnsFalse());
-}
 test "switch all prongs unreachable" {
     try testAllProngsUnreachable();
     comptime try testAllProngsUnreachable();

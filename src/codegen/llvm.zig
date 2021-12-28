@@ -557,8 +557,8 @@ pub const DeclGen = struct {
         return self.object.llvm_module;
     }
 
-    fn genDecl(self: *DeclGen) !void {
-        const decl = self.decl;
+    fn genDecl(dg: *DeclGen) !void {
+        const decl = dg.decl;
         assert(decl.has_tv);
 
         log.debug("gen: {s} type: {}, value: {}", .{ decl.name, decl.ty, decl.val });
@@ -567,10 +567,10 @@ pub const DeclGen = struct {
             _ = func_payload;
             @panic("TODO llvm backend genDecl function pointer");
         } else if (decl.val.castTag(.extern_fn)) |extern_fn| {
-            _ = try self.resolveLlvmFunction(extern_fn.data);
+            _ = try dg.resolveLlvmFunction(extern_fn.data);
         } else {
-            const target = self.module.getTarget();
-            const global = try self.resolveGlobalDecl(decl);
+            const target = dg.module.getTarget();
+            const global = try dg.resolveGlobalDecl(decl);
             global.setAlignment(decl.getAlignment(target));
             assert(decl.has_tv);
             const init_val = if (decl.val.castTag(.variable)) |payload| init_val: {
@@ -581,8 +581,35 @@ pub const DeclGen = struct {
                 break :init_val decl.val;
             };
             if (init_val.tag() != .unreachable_value) {
-                const llvm_init = try self.genTypedValue(.{ .ty = decl.ty, .val = init_val });
-                global.setInitializer(llvm_init);
+                const llvm_init = try dg.genTypedValue(.{ .ty = decl.ty, .val = init_val });
+                if (global.globalGetValueType() == llvm_init.typeOf()) {
+                    global.setInitializer(llvm_init);
+                } else {
+                    // LLVM does not allow us to change the type of globals. So we must
+                    // create a new global with the correct type, copy all its attributes,
+                    // and then update all references to point to the new global,
+                    // delete the original, and rename the new one to the old one's name.
+                    // This is necessary because LLVM does not support const bitcasting
+                    // a struct with padding bytes, which is needed to lower a const union value
+                    // to LLVM, when a field other than the most-aligned is active. Instead,
+                    // we must lower to an unnamed struct, and pointer cast at usage sites
+                    // of the global. Such an unnamed struct is the cause of the global type
+                    // mismatch, because we don't have the LLVM type until the *value* is created,
+                    // whereas the global needs to be created based on the type alone, because
+                    // lowering the value may reference the global as a pointer.
+                    const new_global = dg.object.llvm_module.addGlobalInAddressSpace(
+                        llvm_init.typeOf(),
+                        "",
+                        dg.llvmAddressSpace(decl.@"addrspace"),
+                    );
+                    new_global.setLinkage(global.getLinkage());
+                    new_global.setUnnamedAddr(global.getUnnamedAddress());
+                    new_global.setAlignment(global.getAlignment());
+                    new_global.setInitializer(llvm_init);
+                    global.replaceAllUsesWith(new_global);
+                    new_global.takeName(global);
+                    global.deleteGlobal();
+                }
             }
         }
     }
@@ -1456,9 +1483,15 @@ pub const DeclGen = struct {
                 const layout = tv.ty.unionGetLayout(target);
 
                 if (layout.payload_size == 0) {
-                    return genTypedValue(dg, .{ .ty = tv.ty.unionTagType().?, .val = tag_and_val.tag });
+                    return genTypedValue(dg, .{
+                        .ty = tv.ty.unionTagType().?,
+                        .val = tag_and_val.tag,
+                    });
                 }
-                const field_ty = tv.ty.unionFieldType(tag_and_val.tag);
+                const union_obj = tv.ty.cast(Type.Payload.Union).?.data;
+                const field_index = union_obj.tag_ty.enumTagFieldIndex(tag_and_val.tag).?;
+                assert(union_obj.haveFieldTypes());
+                const field_ty = union_obj.fields.values()[field_index].ty;
                 const payload = p: {
                     if (!field_ty.hasCodeGenBits()) {
                         const padding_len = @intCast(c_uint, layout.payload_size);
@@ -1475,10 +1508,20 @@ pub const DeclGen = struct {
                     };
                     break :p dg.context.constStruct(&fields, fields.len, .False);
                 };
+
+                // In this case we must make an unnamed struct because LLVM does
+                // not support bitcasting our payload struct to the true union payload type.
+                // Instead we use an unnamed struct and every reference to the global
+                // must pointer cast to the expected type before accessing the union.
+                const need_unnamed = layout.most_aligned_field != field_index;
+
                 if (layout.tag_size == 0) {
-                    const llvm_payload_ty = llvm_union_ty.structGetTypeAtIndex(0);
-                    const fields: [1]*const llvm.Value = .{payload.constBitCast(llvm_payload_ty)};
-                    return llvm_union_ty.constNamedStruct(&fields, fields.len);
+                    const fields: [1]*const llvm.Value = .{payload};
+                    if (need_unnamed) {
+                        return dg.context.constStruct(&fields, fields.len, .False);
+                    } else {
+                        return llvm_union_ty.constNamedStruct(&fields, fields.len);
+                    }
                 }
                 const llvm_tag_value = try genTypedValue(dg, .{
                     .ty = tv.ty.unionTagType().?,
@@ -1486,13 +1529,15 @@ pub const DeclGen = struct {
                 });
                 var fields: [2]*const llvm.Value = undefined;
                 if (layout.tag_align >= layout.payload_align) {
-                    fields[0] = llvm_tag_value;
-                    fields[1] = payload.constBitCast(llvm_union_ty.structGetTypeAtIndex(1));
+                    fields = .{ llvm_tag_value, payload };
                 } else {
-                    fields[0] = payload.constBitCast(llvm_union_ty.structGetTypeAtIndex(0));
-                    fields[1] = llvm_tag_value;
+                    fields = .{ payload, llvm_tag_value };
                 }
-                return llvm_union_ty.constNamedStruct(&fields, fields.len);
+                if (need_unnamed) {
+                    return dg.context.constStruct(&fields, fields.len, .False);
+                } else {
+                    return llvm_union_ty.constNamedStruct(&fields, fields.len);
+                }
             },
             .Vector => switch (tv.val.tag()) {
                 .bytes => {
@@ -1859,8 +1904,14 @@ pub const FuncGen = struct {
         global.setGlobalConstant(.True);
         global.setUnnamedAddr(.True);
         global.setAlignment(ty.abiAlignment(target));
-        gop.value_ptr.* = global;
-        return global;
+        // Because of LLVM limitations for lowering certain types such as unions,
+        // the type of global constants might not match the type it is supposed to
+        // be, and so we must bitcast the pointer at the usage sites.
+        const wanted_llvm_ty = try self.dg.llvmType(ty);
+        const wanted_llvm_ptr_ty = wanted_llvm_ty.pointerType(0);
+        const casted_ptr = global.constBitCast(wanted_llvm_ptr_ty);
+        gop.value_ptr.* = casted_ptr;
+        return casted_ptr;
     }
 
     fn genBody(self: *FuncGen, body: []const Air.Inst.Index) Error!void {

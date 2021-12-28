@@ -184,6 +184,9 @@ pub const Value = opaque {
     pub const setValueName2 = LLVMSetValueName2;
     extern fn LLVMSetValueName2(Val: *const Value, Name: [*]const u8, NameLen: usize) void;
 
+    pub const takeName = ZigLLVMTakeName;
+    extern fn ZigLLVMTakeName(new_owner: *const Value, victim: *const Value) void;
+
     pub const deleteFunction = LLVMDeleteFunction;
     extern fn LLVMDeleteFunction(Fn: *const Value) void;
 
@@ -206,6 +209,21 @@ pub const Value = opaque {
         return LLVMIsPoison(Val).toBool();
     }
     extern fn LLVMIsPoison(Val: *const Value) Bool;
+
+    pub const replaceAllUsesWith = LLVMReplaceAllUsesWith;
+    extern fn LLVMReplaceAllUsesWith(OldVal: *const Value, NewVal: *const Value) void;
+
+    pub const globalGetValueType = LLVMGlobalGetValueType;
+    extern fn LLVMGlobalGetValueType(Global: *const Value) *const Type;
+
+    pub const getLinkage = LLVMGetLinkage;
+    extern fn LLVMGetLinkage(Global: *const Value) Linkage;
+
+    pub const getUnnamedAddress = LLVMGetUnnamedAddress;
+    extern fn LLVMGetUnnamedAddress(Global: *const Value) Bool;
+
+    pub const getAlignment = LLVMGetAlignment;
+    extern fn LLVMGetAlignment(V: *const Value) c_uint;
 };
 
 pub const Type = opaque {

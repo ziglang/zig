@@ -294,3 +294,22 @@ test "switch on union with some prongs capturing" {
     };
     try expect(y == 11);
 }
+
+const Number = union(enum) {
+    One: u64,
+    Two: u8,
+    Three: f32,
+};
+
+const number = Number{ .Three = 1.23 };
+
+fn returnsFalse() bool {
+    switch (number) {
+        Number.One => |x| return x > 1234,
+        Number.Two => |x| return x == 'a',
+        Number.Three => |x| return x > 12.34,
+    }
+}
+test "switch on const enum with var" {
+    try expect(!returnsFalse());
+}
