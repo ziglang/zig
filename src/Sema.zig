@@ -13421,7 +13421,7 @@ fn beginComptimePtrMutation(
                     // bytes.len may be one greater than dest_len because of the case when
                     // assigning `[N:S]T` to `[N]T`. This is allowed; the sentinel is omitted.
                     assert(bytes.len >= dest_len);
-                    const elems = try arena.alloc(Value, dest_len);
+                    const elems = try arena.alloc(Value, @intCast(usize, dest_len));
                     for (elems) |*elem, i| {
                         elem.* = try Value.Tag.int_u64.create(arena, bytes[i]);
                     }
