@@ -34,44 +34,6 @@ test "explicit cast optional pointers" {
     _ = b;
 }
 
-test "constant enum initialization with differing sizes" {
-    try test3_1(test3_foo);
-    try test3_2(test3_bar);
-}
-const Test3Foo = union(enum) {
-    One: void,
-    Two: f32,
-    Three: Test3Point,
-};
-const Test3Point = struct {
-    x: i32,
-    y: i32,
-};
-const test3_foo = Test3Foo{
-    .Three = Test3Point{
-        .x = 3,
-        .y = 4,
-    },
-};
-const test3_bar = Test3Foo{ .Two = 13 };
-fn test3_1(f: Test3Foo) !void {
-    switch (f) {
-        Test3Foo.Three => |pt| {
-            try expect(pt.x == 3);
-            try expect(pt.y == 4);
-        },
-        else => unreachable,
-    }
-}
-fn test3_2(f: Test3Foo) !void {
-    switch (f) {
-        Test3Foo.Two => |x| {
-            try expect(x == 13);
-        },
-        else => unreachable,
-    }
-}
-
 test "pointer comparison" {
     const a = @as([]const u8, "a");
     const b = &a;

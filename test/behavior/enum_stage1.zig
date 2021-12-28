@@ -43,30 +43,6 @@ test "enum literal casting to error union with payload enum" {
     try expect((try bar) == Bar.B);
 }
 
-test "method call on an enum" {
-    const S = struct {
-        const E = enum {
-            one,
-            two,
-
-            fn method(self: *E) bool {
-                return self.* == .two;
-            }
-
-            fn generic_method(self: *E, foo: anytype) bool {
-                return self.* == .two and foo == bool;
-            }
-        };
-        fn doTheTest() !void {
-            var e = E.two;
-            try expect(e.method());
-            try expect(e.generic_method(bool));
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
-}
-
 test "exporting enum type and value" {
     const S = struct {
         const E = enum(c_int) { one, two };
@@ -79,4 +55,42 @@ test "exporting enum type and value" {
         }
     };
     try expect(S.e == .two);
+}
+
+test "constant enum initialization with differing sizes" {
+    try test3_1(test3_foo);
+    try test3_2(test3_bar);
+}
+const Test3Foo = union(enum) {
+    One: void,
+    Two: f32,
+    Three: Test3Point,
+};
+const Test3Point = struct {
+    x: i32,
+    y: i32,
+};
+const test3_foo = Test3Foo{
+    .Three = Test3Point{
+        .x = 3,
+        .y = 4,
+    },
+};
+const test3_bar = Test3Foo{ .Two = 13 };
+fn test3_1(f: Test3Foo) !void {
+    switch (f) {
+        Test3Foo.Three => |pt| {
+            try expect(pt.x == 3);
+            try expect(pt.y == 4);
+        },
+        else => unreachable,
+    }
+}
+fn test3_2(f: Test3Foo) !void {
+    switch (f) {
+        Test3Foo.Two => |x| {
+            try expect(x == 13);
+        },
+        else => unreachable,
+    }
 }

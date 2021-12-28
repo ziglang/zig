@@ -822,3 +822,51 @@ test "enum with one member default to u0 tag type" {
     const E0 = enum { X };
     comptime try expect(Tag(E0) == u0);
 }
+
+const EnumWithOneMember = enum { Eof };
+
+fn doALoopThing(id: EnumWithOneMember) void {
+    while (true) {
+        if (id == EnumWithOneMember.Eof) {
+            break;
+        }
+        @compileError("above if condition should be comptime");
+    }
+}
+
+test "comparison operator on enum with one member is comptime known" {
+    doALoopThing(EnumWithOneMember.Eof);
+}
+
+const State = enum { Start };
+test "switch on enum with one member is comptime known" {
+    var state = State.Start;
+    switch (state) {
+        State.Start => return,
+    }
+    @compileError("analysis should not reach here");
+}
+
+test "method call on an enum" {
+    const S = struct {
+        const E = enum {
+            one,
+            two,
+
+            fn method(self: *E) bool {
+                return self.* == .two;
+            }
+
+            fn generic_method(self: *E, foo: anytype) bool {
+                return self.* == .two and foo == bool;
+            }
+        };
+        fn doTheTest() !void {
+            var e = E.two;
+            try expect(e.method());
+            try expect(e.generic_method(bool));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}

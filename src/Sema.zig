@@ -4187,10 +4187,17 @@ fn analyzeCall(
                         return sema.failWithNeededComptime(block, arg_src);
                     }
                 } else if (is_anytype) {
-                    // We insert into the map an instruction which is runtime-known
-                    // but has the type of the argument.
-                    const child_arg = try child_block.addArg(sema.typeOf(arg), 0);
-                    child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
+                    const arg_ty = sema.typeOf(arg);
+                    if (arg_ty.requiresComptime()) {
+                        const arg_val = try sema.resolveConstValue(block, arg_src, arg);
+                        const child_arg = try child_sema.addConstant(arg_ty, arg_val);
+                        child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
+                    } else {
+                        // We insert into the map an instruction which is runtime-known
+                        // but has the type of the argument.
+                        const child_arg = try child_block.addArg(arg_ty, 0);
+                        child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
+                    }
                 }
                 arg_i += 1;
             }
@@ -5130,9 +5137,8 @@ fn funcCommon(
         const comptime_params = try sema.arena.alloc(bool, block.params.items.len);
         for (block.params.items) |param, i| {
             param_types[i] = param.ty;
-            comptime_params[i] = param.is_comptime;
-            is_generic = is_generic or param.is_comptime or
-                param.ty.tag() == .generic_poison or param.ty.requiresComptime();
+            comptime_params[i] = param.is_comptime or param.ty.requiresComptime();
+            is_generic = is_generic or comptime_params[i] or param.ty.tag() == .generic_poison;
         }
 
         if (align_val.tag() != .null_value) {
@@ -13146,7 +13152,7 @@ fn coerceInMemoryAllowedFns(
             return .no_match;
         }
 
-        // TODO: nolias
+        // TODO: noalias
 
         // Note: Cast direction is reversed here.
         const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, false, target, dest_src, src_src);

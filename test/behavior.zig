@@ -67,6 +67,7 @@ test {
             _ = @import("behavior/bugs/394.zig");
             _ = @import("behavior/bugs/656.zig");
             _ = @import("behavior/bugs/1277.zig");
+            _ = @import("behavior/bugs/1310.zig");
             _ = @import("behavior/bugs/1381.zig");
             _ = @import("behavior/bugs/1500.zig");
             _ = @import("behavior/bugs/1741.zig");
@@ -74,7 +75,9 @@ test {
             _ = @import("behavior/bugs/2578.zig");
             _ = @import("behavior/bugs/3007.zig");
             _ = @import("behavior/bugs/3112.zig");
+            _ = @import("behavior/bugs/3367.zig");
             _ = @import("behavior/bugs/7250.zig");
+            _ = @import("behavior/bugs/9584.zig");
             _ = @import("behavior/cast_llvm.zig");
             _ = @import("behavior/enum_llvm.zig");
             _ = @import("behavior/eval.zig");
@@ -121,7 +124,6 @@ test {
                 _ = @import("behavior/bugs/1025.zig");
                 _ = @import("behavior/bugs/1076.zig");
                 _ = @import("behavior/bugs/1120.zig");
-                _ = @import("behavior/bugs/1310.zig");
                 _ = @import("behavior/bugs/1322.zig");
                 _ = @import("behavior/bugs/1421.zig");
                 _ = @import("behavior/bugs/1442.zig");
@@ -130,7 +132,6 @@ test {
                 _ = @import("behavior/bugs/1851.zig");
                 _ = @import("behavior/bugs/1914.zig");
                 _ = @import("behavior/bugs/2114.zig");
-                _ = @import("behavior/bugs/3367.zig");
                 _ = @import("behavior/bugs/3384.zig");
                 _ = @import("behavior/bugs/3742.zig");
                 _ = @import("behavior/bugs/3779.zig");
@@ -144,7 +145,6 @@ test {
                 _ = @import("behavior/bugs/7003.zig");
                 _ = @import("behavior/bugs/7027.zig");
                 _ = @import("behavior/bugs/7047.zig");
-                _ = @import("behavior/bugs/9584.zig");
                 _ = @import("behavior/bugs/10147.zig");
                 _ = @import("behavior/byteswap.zig");
                 _ = @import("behavior/call_stage1.zig");

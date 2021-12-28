@@ -96,30 +96,6 @@ fn getC(data: *const BitFieldOfEnums) C {
     return data.c;
 }
 
-const EnumWithOneMember = enum { Eof };
-
-fn doALoopThing(id: EnumWithOneMember) void {
-    while (true) {
-        if (id == EnumWithOneMember.Eof) {
-            break;
-        }
-        @compileError("above if condition should be comptime");
-    }
-}
-
-test "comparison operator on enum with one member is comptime known" {
-    doALoopThing(EnumWithOneMember.Eof);
-}
-
-const State = enum { Start };
-test "switch on enum with one member is comptime known" {
-    var state = State.Start;
-    switch (state) {
-        State.Start => return,
-    }
-    @compileError("analysis should not reach here");
-}
-
 test "enum literal in array literal" {
     const Items = enum { one, two };
     const array = [_]Items{ .one, .two };

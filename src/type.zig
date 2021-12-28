@@ -4275,7 +4275,6 @@ pub const Type = extern union {
                 is_generic: bool,
 
                 pub fn paramIsComptime(self: @This(), i: usize) bool {
-                    if (!self.is_generic) return false;
                     assert(i < self.param_types.len);
                     return self.comptime_params[i];
                 }
