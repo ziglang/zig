@@ -13014,7 +13014,25 @@ fn coerceInMemoryAllowed(
         return try sema.coerceInMemoryAllowedErrorSets(dest_ty, src_ty);
     }
 
-    // TODO: arrays
+    // Arrays
+    if (dest_tag == .Array and src_tag == .Array) arrays: {
+        const dest_info = dest_ty.arrayInfo();
+        const src_info = src_ty.arrayInfo();
+        if (dest_info.len != src_info.len) break :arrays;
+
+        const child = try sema.coerceInMemoryAllowed(block, dest_info.elem_type, src_info.elem_type, dest_is_mut, target, dest_src, src_src);
+        if (child == .no_match) {
+            return child;
+        }
+        const ok_sent = dest_info.sentinel == null or
+            (src_info.sentinel != null and
+            dest_info.sentinel.?.eql(src_info.sentinel.?, dest_info.elem_type));
+        if (!ok_sent) {
+            return .no_match;
+        }
+        return .ok;
+    }
+
     // TODO: non-pointer-like optionals
     // TODO: vectors
 
@@ -13399,8 +13417,11 @@ fn beginComptimePtrMutation(
                     defer parent.finishArena();
 
                     const bytes = parent.val.castTag(.bytes).?.data;
-                    assert(bytes.len == parent.ty.arrayLenIncludingSentinel());
-                    const elems = try arena.alloc(Value, bytes.len);
+                    const dest_len = parent.ty.arrayLenIncludingSentinel();
+                    // bytes.len may be one greater than dest_len because of the case when
+                    // assigning `[N:S]T` to `[N]T`. This is allowed; the sentinel is omitted.
+                    assert(bytes.len >= dest_len);
+                    const elems = try arena.alloc(Value, dest_len);
                     for (elems) |*elem, i| {
                         elem.* = try Value.Tag.int_u64.create(arena, bytes[i]);
                     }

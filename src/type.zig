@@ -2189,8 +2189,8 @@ pub const Type = extern union {
     }
 
     /// Asserts the type has the bit size already resolved.
-    pub fn bitSize(self: Type, target: Target) u64 {
-        return switch (self.tag()) {
+    pub fn bitSize(ty: Type, target: Target) u64 {
+        return switch (ty.tag()) {
             .fn_noreturn_no_args => unreachable, // represents machine code; not a pointer
             .fn_void_no_args => unreachable, // represents machine code; not a pointer
             .fn_naked_noreturn_no_args => unreachable, // represents machine code; not a pointer
@@ -2216,11 +2216,21 @@ pub const Type = extern union {
             .bound_fn => unreachable,
 
             .@"struct" => {
-                @panic("TODO bitSize struct");
+                const field_count = ty.structFieldCount();
+                if (field_count == 0) return 0;
+
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                assert(struct_obj.status == .have_layout);
+
+                var total: u64 = 0;
+                for (struct_obj.fields.values()) |field| {
+                    total += field.ty.bitSize(target);
+                }
+                return total;
             },
             .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
                 var buffer: Payload.Bits = undefined;
-                const int_tag_ty = self.intTagType(&buffer);
+                const int_tag_ty = ty.intTagType(&buffer);
                 return int_tag_ty.bitSize(target);
             },
             .@"union", .union_tagged => {
@@ -2232,21 +2242,21 @@ pub const Type = extern union {
             .bool, .u1 => 1,
 
             .vector => {
-                const payload = self.castTag(.vector).?.data;
+                const payload = ty.castTag(.vector).?.data;
                 const elem_bit_size = payload.elem_type.bitSize(target);
                 return elem_bit_size * payload.len;
             },
-            .array_u8 => 8 * self.castTag(.array_u8).?.data,
-            .array_u8_sentinel_0 => 8 * (self.castTag(.array_u8_sentinel_0).?.data + 1),
+            .array_u8 => 8 * ty.castTag(.array_u8).?.data,
+            .array_u8_sentinel_0 => 8 * (ty.castTag(.array_u8_sentinel_0).?.data + 1),
             .array => {
-                const payload = self.castTag(.array).?.data;
+                const payload = ty.castTag(.array).?.data;
                 const elem_size = std.math.max(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
                 if (elem_size == 0 or payload.len == 0)
                     return 0;
                 return (payload.len - 1) * 8 * elem_size + payload.elem_type.bitSize(target);
             },
             .array_sentinel => {
-                const payload = self.castTag(.array_sentinel).?.data;
+                const payload = ty.castTag(.array_sentinel).?.data;
                 const elem_size = std.math.max(
                     payload.elem_type.abiAlignment(target),
                     payload.elem_type.abiSize(target),
@@ -2267,7 +2277,7 @@ pub const Type = extern union {
             .const_slice,
             .mut_slice,
             => {
-                if (self.elemType().hasCodeGenBits()) {
+                if (ty.elemType().hasCodeGenBits()) {
                     return target.cpu.arch.ptrBitWidth() * 2;
                 } else {
                     return target.cpu.arch.ptrBitWidth();
@@ -2280,7 +2290,7 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
             => {
-                if (self.elemType().hasCodeGenBits()) {
+                if (ty.elemType().hasCodeGenBits()) {
                     return target.cpu.arch.ptrBitWidth();
                 } else {
                     return 1;
@@ -2295,7 +2305,7 @@ pub const Type = extern union {
             .c_mut_pointer,
             .pointer,
             => {
-                if (self.elemType().hasCodeGenBits()) {
+                if (ty.elemType().hasCodeGenBits()) {
                     return target.cpu.arch.ptrBitWidth();
                 } else {
                     return 0;
@@ -2325,11 +2335,11 @@ pub const Type = extern union {
             .error_set_merged,
             => return 16, // TODO revisit this when we have the concept of the error tag type
 
-            .int_signed, .int_unsigned => self.cast(Payload.Bits).?.data,
+            .int_signed, .int_unsigned => ty.cast(Payload.Bits).?.data,
 
             .optional => {
                 var buf: Payload.ElemType = undefined;
-                const child_type = self.optionalChild(&buf);
+                const child_type = ty.optionalChild(&buf);
                 if (!child_type.hasCodeGenBits()) return 8;
 
                 if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr())
@@ -2343,7 +2353,7 @@ pub const Type = extern union {
             },
 
             .error_union => {
-                const payload = self.castTag(.error_union).?.data;
+                const payload = ty.castTag(.error_union).?.data;
                 if (!payload.error_set.hasCodeGenBits() and !payload.payload.hasCodeGenBits()) {
                     return 0;
                 } else if (!payload.error_set.hasCodeGenBits()) {
