@@ -101,41 +101,11 @@ fn compress(hash: *[5]u32, words: [16]u32) void {
     round(bfn2, -3, 0x7a6d76e9, permutations[8], shifts[8], &right, words);
     round(bfn1, -4, 0x00000000, permutations[9], shifts[9], &right, words);
 
-    right[3] = blk: {
-        var x: u32 = right[3];
-        _ = @addWithOverflow(u32, x, left[2], &x);
-        _ = @addWithOverflow(u32, x, hash[1], &x);
-        break :blk x;
-    };
-
-    hash[1] = blk: {
-        var x: u32 = hash[2];
-        _ = @addWithOverflow(u32, x, left[3], &x);
-        _ = @addWithOverflow(u32, x, right[4], &x);
-        break :blk x;
-    };
-
-    hash[2] = blk: {
-        var x: u32 = hash[3];
-        _ = @addWithOverflow(u32, x, left[4], &x);
-        _ = @addWithOverflow(u32, x, right[0], &x);
-        break :blk x;
-    };
-
-    hash[3] = blk: {
-        var x: u32 = hash[4];
-        _ = @addWithOverflow(u32, x, left[0], &x);
-        _ = @addWithOverflow(u32, x, right[1], &x);
-        break :blk x;
-    };
-
-    hash[4] = blk: {
-        var x: u32 = hash[0];
-        _ = @addWithOverflow(u32, x, left[1], &x);
-        _ = @addWithOverflow(u32, x, right[2], &x);
-        break :blk x;
-    };
-
+    right[3] = right[3] +% left[2] +% hash[1];
+    hash[1] = hash[2] +% left[3] +% right[4];
+    hash[2] = hash[3] +% left[4] +% right[0];
+    hash[3] = hash[4] +% left[0] +% right[1];
+    hash[4] = hash[0] +% left[1] +% right[2];
     hash[0] = right[3];
 }
 
@@ -151,30 +121,11 @@ fn round(
     comptime var r = off;
     comptime var i: usize = 0;
     inline while (i < 16) : (i += 1) {
-        hash[@mod(r + 0, 5)] = blk: {
-            var x: u32 = hash[@mod(r + 0, 5)];
-            _ = @addWithOverflow(u32, x, bfn(hash[@mod(r + 1, 5)], hash[@mod(r + 2, 5)], hash[@mod(r + 3, 5)]), &x);
-            _ = @addWithOverflow(u32, x, words[p[i]], &x);
-            _ = @addWithOverflow(u32, x, constant, &x);
-            break :blk x;
-        };
-
-        hash[@mod(r + 0, 5)] = blk: {
-            var x: u32 = rol(hash[@mod(r + 0, 5)], shifts[i]);
-            _ = @addWithOverflow(u32, x, hash[@mod(r + 4, 5)], &x);
-            break :blk x;
-        };
-
-        hash[@mod(r + 2, 5)] = rol(hash[@mod(r + 2, 5)], 10);
-
+        hash[@mod(r + 0, 5)] = hash[@mod(r + 0, 5)] +% bfn(hash[@mod(r + 1, 5)], hash[@mod(r + 2, 5)], hash[@mod(r + 3, 5)]) +% words[p[i]] +% constant;
+        hash[@mod(r + 0, 5)] = std.math.rotl(u32, hash[@mod(r + 0, 5)], @intCast(u32, shifts[i])) +% hash[@mod(r + 4, 5)];
+        hash[@mod(r + 2, 5)] = std.math.rotl(u32, hash[@mod(r + 2, 5)], 10);
         r -= 1;
     }
-}
-
-/// cyclically rotates x over n bits to the left
-fn rol(x: u32, comptime n: usize) u32 {
-    if (n >= 32) @compileError("Invalid n. Valid range is 0 <= n < 32");
-    return (x << n) | (x >> (32 - n));
 }
 
 fn bfn1(x: u32, y: u32, z: u32) u32 {
@@ -199,10 +150,9 @@ fn bfn5(x: u32, y: u32, z: u32) u32 {
 
 fn testHashEql(expected: []const u8, in: []const u8) !void {
     const hash = Ripemd160.hash(in);
-    const hex_str = try std.fmt.allocPrint(std.testing.allocator, "{x}", .{std.fmt.fmtSliceHexLower(hash.bytes[0..])});
-    defer std.testing.allocator.free(hex_str);
-    //std.debug.print("\"{s}\" => \"{s}\", expected = \"{s}\"\n", .{ in, hex_str, expected });
-    try std.testing.expectEqualSlices(u8, expected, hex_str);
+    var hex_str: [40]u8 = undefined;
+    _ = try std.fmt.bufPrint(&hex_str, "{x}", .{std.fmt.fmtSliceHexLower(hash.bytes[0..])});
+    try std.testing.expectEqualSlices(u8, expected, hex_str[0..]);
 }
 
 test "RIPEMD-160 standard tests" {
