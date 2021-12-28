@@ -64,45 +64,55 @@ pub const f16_toint = 1.0 / f16_epsilon;
 
 pub const epsilon = @import("math/epsilon.zig").epsilon;
 
-pub const nan_u16 = @as(u16, 0x7C01);
-pub const nan_f16 = @bitCast(f16, nan_u16);
+pub const inf_u16 = @as(u16, 0x7C00);
+pub const inf_f16 = @bitCast(f16, inf_u16);
 
 pub const qnan_u16 = @as(u16, 0x7E00);
 pub const qnan_f16 = @bitCast(f16, qnan_u16);
 
-pub const inf_u16 = @as(u16, 0x7C00);
-pub const inf_f16 = @bitCast(f16, inf_u16);
-
-pub const nan_u32 = @as(u32, 0x7F800001);
-pub const nan_f32 = @bitCast(f32, nan_u32);
-
-pub const qnan_u32 = @as(u32, 0x7FC00000);
-pub const qnan_f32 = @bitCast(f32, qnan_u32);
+pub const snan_u16 = @as(u16, 0x7C01);
+pub const snan_f16 = @bitCast(f16, snan_u16);
 
 pub const inf_u32 = @as(u32, 0x7F800000);
 pub const inf_f32 = @bitCast(f32, inf_u32);
 
-pub const nan_u64 = @as(u64, 0x7FF << 52) | 1;
-pub const nan_f64 = @bitCast(f64, nan_u64);
+pub const qnan_u32 = @as(u32, 0x7FC00000);
+pub const qnan_f32 = @bitCast(f32, qnan_u32);
 
-pub const qnan_u64 = @as(u64, 0x7ff8000000000000);
-pub const qnan_f64 = @bitCast(f64, qnan_u64);
+pub const snan_u32 = @as(u32, 0x7F800001);
+pub const snan_f32 = @bitCast(f32, snan_u32);
 
 pub const inf_u64 = @as(u64, 0x7FF << 52);
 pub const inf_f64 = @bitCast(f64, inf_u64);
 
-pub const nan_u128 = @as(u128, 0x7fff0000000000000000000000000001);
-pub const nan_f128 = @bitCast(f128, nan_u128);
+pub const qnan_u64 = @as(u64, 0x7FF8000000000000);
+pub const qnan_f64 = @bitCast(f64, qnan_u64);
 
-pub const qnan_u128 = @as(u128, 0x7fff8000000000000000000000000000);
+pub const snan_u64 = @as(u64, 0x7FF << 52) | 1;
+pub const snan_f64 = @bitCast(f64, snan_u64);
+
+pub const inf_u128 = @as(u128, 0x7FFF0000000000000000000000000000);
+pub const inf_f128 = @bitCast(f128, inf_u128);
+
+pub const qnan_u128 = @as(u128, 0x7FFF8000000000000000000000000000);
 pub const qnan_f128 = @bitCast(f128, qnan_u128);
 
-pub const inf_u128 = @as(u128, 0x7fff0000000000000000000000000000);
-pub const inf_f128 = @bitCast(f128, inf_u128);
+pub const snan_u128 = @as(u128, 0x7FFF0000000000000000000000000001);
+pub const snan_f128 = @bitCast(f128, snan_u128);
 
 pub const nan = @import("math/nan.zig").nan;
 pub const snan = @import("math/nan.zig").snan;
 pub const inf = @import("math/inf.zig").inf;
+
+// TODO: Backwards compatibility constants - switch to using nan().
+pub const nan_f16 = nan(f16);
+pub const nan_f32 = nan(f32);
+pub const nan_f64 = nan(f64);
+pub const nan_f128 = nan(f128);
+pub const nan_u16 = @bitCast(u16, nan_f16);
+pub const nan_u32 = @bitCast(u32, nan_f32);
+pub const nan_u64 = @bitCast(u64, nan_f64);
+pub const nan_u128 = @bitCast(u128, nan_f128);
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
