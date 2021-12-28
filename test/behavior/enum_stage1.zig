@@ -43,11 +43,6 @@ test "enum literal casting to error union with payload enum" {
     try expect((try bar) == Bar.B);
 }
 
-test "tagName on enum literals" {
-    try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
-    comptime try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
-}
-
 test "method call on an enum" {
     const S = struct {
         const E = enum {

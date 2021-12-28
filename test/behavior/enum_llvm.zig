@@ -39,6 +39,11 @@ test "tag name with assigned enum values" {
     try expect(mem.eql(u8, @tagName(b), "B"));
 }
 
+test "@tagName on enum literals" {
+    try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
+    comptime try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
+}
+
 const Bar = enum { A, B, C, D };
 
 test "enum literal casting to optional" {
