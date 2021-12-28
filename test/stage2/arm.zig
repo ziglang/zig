@@ -637,4 +637,25 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
     }
+
+    {
+        var case = ctx.exe("slices", linux_arm);
+        case.addCompareOutput(
+            \\var array = [_]u32{ 0, 42, 123, 69 };
+            \\var s: []const u32 = &array;
+            \\
+            \\pub fn main() void {
+            \\    assert(s[0] == 0);
+            \\    assert(s[1] == 42);
+            \\    assert(s[2] == 123);
+            \\    assert(s[3] == 69);
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }
