@@ -1159,13 +1159,29 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(ty_op.operand);
+        switch (mcv) {
+            .stack_offset => |off| {
+                break :result MCValue{ .stack_offset = off };
+            },
+            else => return self.fail("TODO implement slice_ptr for {}", .{mcv}),
+        }
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice_len for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(ty_op.operand);
+        switch (mcv) {
+            .stack_offset => |off| {
+                break :result MCValue{ .stack_offset = off + 4 };
+            },
+            else => return self.fail("TODO implement slice_len for {}", .{mcv}),
+        }
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1184,7 +1200,76 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const is_volatile = false; // TODO
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice_elem_val for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else result: {
+        const slice_mcv = try self.resolveInst(bin_op.lhs);
+        const index_mcv = try self.resolveInst(bin_op.rhs);
+
+        const slice_ty = self.air.typeOf(bin_op.lhs);
+        const elem_ty = slice_ty.childType();
+        const elem_size = elem_ty.abiSize(self.target.*);
+
+        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+        const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf);
+
+        // TODO optimize this for the case when elem_size is a power
+        // of two (includes elem_size == 1)
+        const offset_mcv = try self.genArmMulConstant(inst, bin_op.rhs, 1, @intCast(u32, elem_size));
+        assert(offset_mcv == .register); // result of multiplication should always be register
+
+        const base_mcv: MCValue = switch (slice_mcv) {
+            .stack_offset => |off| blk: {
+                const reg = try self.register_manager.allocReg(null, &.{offset_mcv.register});
+                try self.genSetReg(slice_ptr_field_type, reg, MCValue{ .stack_offset = off });
+                break :blk MCValue{ .register = reg };
+            },
+            else => return self.fail("TODO slice_elem_val when slice is {}", .{slice_mcv}),
+        };
+
+        if (elem_size <= 4) {
+            const dst_reg = try self.register_manager.allocReg(inst, &.{ base_mcv.register, offset_mcv.register });
+            switch (elem_size) {
+                1, 4 => {
+                    const tag: Mir.Inst.Tag = switch (elem_size) {
+                        1 => .ldrb,
+                        4 => .ldr,
+                        else => unreachable,
+                    };
+
+                    _ = try self.addInst(.{
+                        .tag = tag,
+                        .cond = .al,
+                        .data = .{ .rr_offset = .{
+                            .rt = dst_reg,
+                            .rn = base_mcv.register,
+                            .offset = .{ .offset = Instruction.Offset.reg(offset_mcv.register, 0) },
+                        } },
+                    });
+                },
+                2 => {
+                    _ = try self.addInst(.{
+                        .tag = .ldrh,
+                        .cond = .al,
+                        .data = .{ .rr_extra_offset = .{
+                            .rt = dst_reg,
+                            .rn = base_mcv.register,
+                            .offset = .{ .offset = Instruction.ExtraLoadStoreOffset.reg(offset_mcv.register) },
+                        } },
+                    });
+                },
+                else => unreachable,
+            }
+
+            break :result MCValue{ .register = dst_reg };
+        } else {
+            // const dst_mcv = try self.allocRegOrMem(inst, false);
+            return self.fail("TODO implement slice_elem_val for elem_size >= 4", .{});
+        }
+
+        _ = offset_mcv;
+        _ = slice_mcv;
+        _ = index_mcv;
+        _ = offset_mcv;
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1826,6 +1911,58 @@ fn genArmMul(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Ai
     if (!rhs_is_register) {
         try self.genSetReg(self.air.typeOf(op_rhs), rhs_mcv.register, rhs);
     }
+
+    _ = try self.addInst(.{
+        .tag = .mul,
+        .cond = .al,
+        .data = .{ .rrr = .{
+            .rd = dst_mcv.register,
+            .rn = lhs_mcv.register,
+            .rm = rhs_mcv.register,
+        } },
+    });
+    return dst_mcv;
+}
+
+fn genArmMulConstant(self: *Self, inst: Air.Inst.Index, op: Air.Inst.Ref, op_index: Liveness.OperandInt, imm: u32) !MCValue {
+    const mcv = try self.resolveInst(op);
+    const rhs = MCValue{ .immediate = imm };
+
+    const lhs_is_register = mcv == .register;
+    const reuse_lhs = lhs_is_register and self.reuseOperand(inst, op, op_index, mcv);
+
+    // Destination must be a register
+    // LHS must be a register
+    // RHS must be a register
+    var dst_mcv: MCValue = undefined;
+    var lhs_mcv: MCValue = mcv;
+    var rhs_mcv: MCValue = rhs;
+
+    // Allocate registers for operands and/or destination
+    if (reuse_lhs) {
+        // Allocate 1 register
+        rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(null, &.{mcv.register}) };
+        dst_mcv = mcv;
+    } else {
+        // Allocate 1 or 2 registers
+        if (lhs_is_register) {
+            // Move RHS to register
+            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{mcv.register}) };
+            rhs_mcv = dst_mcv;
+        } else {
+            // Move LHS and RHS to register
+            const regs = try self.register_manager.allocRegs(2, .{ inst, null }, &.{});
+            lhs_mcv = MCValue{ .register = regs[0] };
+            rhs_mcv = MCValue{ .register = regs[1] };
+            dst_mcv = lhs_mcv;
+        }
+    }
+
+    // Move the operands to the newly allocated registers
+    if (!lhs_is_register) {
+        try self.genSetReg(self.air.typeOf(op), lhs_mcv.register, mcv);
+    }
+    try self.genSetReg(Type.initTag(.usize), rhs_mcv.register, rhs);
 
     _ = try self.addInst(.{
         .tag = .mul,
