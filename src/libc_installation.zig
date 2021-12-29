@@ -275,7 +275,7 @@ pub const LibCInstallation = struct {
             dev_null,
         });
 
-        const exec_res = std.ChildProcess.exec(.{
+        const exec_res = std.ChildProcess.initAndExec(.{
             .allocator = allocator,
             .argv = argv.items,
             .max_output_bytes = 1024 * 1024,
@@ -596,7 +596,7 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     try appendCcExe(&argv, skip_cc_env_var);
     try argv.append(arg1);
 
-    const exec_res = std.ChildProcess.exec(.{
+    const exec_res = std.ChildProcess.initAndExec(.{
         .allocator = allocator,
         .argv = argv.items,
         .max_output_bytes = 1024 * 1024,

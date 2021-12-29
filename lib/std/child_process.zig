@@ -328,7 +328,7 @@ pub const ChildProcess = struct {
 
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
-    pub fn exec(args: struct {
+    pub fn initAndExec(args: struct {
         allocator: mem.Allocator,
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
@@ -348,6 +348,10 @@ pub const ChildProcess = struct {
         child.env_map = args.env_map;
         child.expand_arg0 = args.expand_arg0;
 
+        return try child.exec(args.max_output_bytes);
+    }
+
+    pub fn exec(child: *ChildProcess, max_output_bytes: usize) !ExecResult {
         try child.spawn();
 
         // TODO collect output in a deadlock-avoiding way on Windows.
@@ -356,10 +360,10 @@ pub const ChildProcess = struct {
             const stdout_in = child.stdout.?.reader();
             const stderr_in = child.stderr.?.reader();
 
-            const stdout = try stdout_in.readAllAlloc(args.allocator, args.max_output_bytes);
-            errdefer args.allocator.free(stdout);
-            const stderr = try stderr_in.readAllAlloc(args.allocator, args.max_output_bytes);
-            errdefer args.allocator.free(stderr);
+            const stdout = try stdout_in.readAllAlloc(child.allocator, max_output_bytes);
+            errdefer child.allocator.free(stdout);
+            const stderr = try stderr_in.readAllAlloc(child.allocator, max_output_bytes);
+            errdefer child.allocator.free(stderr);
 
             return ExecResult{
                 .term = try child.wait(),
@@ -368,17 +372,17 @@ pub const ChildProcess = struct {
             };
         }
 
-        var stdout = std.ArrayList(u8).init(args.allocator);
-        var stderr = std.ArrayList(u8).init(args.allocator);
+        var stdout = std.ArrayList(u8).init(child.allocator);
+        var stderr = std.ArrayList(u8).init(child.allocator);
         errdefer {
             stdout.deinit();
             stderr.deinit();
         }
 
         if (builtin.os.tag == .windows) {
-            try collectOutputWindows(child, [_]*std.ArrayList(u8){ &stdout, &stderr }, args.max_output_bytes);
+            try collectOutputWindows(child, [_]*std.ArrayList(u8){ &stdout, &stderr }, max_output_bytes);
         } else {
-            try collectOutputPosix(child, &stdout, &stderr, args.max_output_bytes);
+            try collectOutputPosix(child, &stdout, &stderr, max_output_bytes);
         }
 
         return ExecResult{
