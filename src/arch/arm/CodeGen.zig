@@ -105,7 +105,7 @@ const MCValue = union(enum) {
     undef,
     /// A pointer-sized integer that fits in a register.
     /// If the type is a pointer, this is the pointer address in virtual address space.
-    immediate: u64,
+    immediate: u32,
     /// The constant was emitted into the code, at this offset.
     /// If the type is a pointer, it means the pointer address is embedded in the code.
     embedded_in_code: usize,
@@ -2920,7 +2920,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 1 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaa }),
                 2 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaa }),
                 4 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
-                8 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
                 else => return self.fail("TODO implement memset", .{}),
             }
         },
@@ -2936,7 +2935,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             return self.fail("TODO implement set stack variable from embedded_in_code", .{});
         },
         .register => |reg| {
-            const abi_size = ty.abiSize(self.target.*);
+            const abi_size = @intCast(u32, ty.abiSize(self.target.*));
             const adj_off = stack_offset + abi_size;
 
             switch (abi_size) {
@@ -3195,7 +3194,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         .memory => |addr| {
             // The value is in memory at a hard-coded address.
             // If the type is a pointer, it means the pointer address is at this memory location.
-            try self.genSetReg(ty, reg, .{ .immediate = addr });
+            try self.genSetReg(ty, reg, .{ .immediate = @intCast(u32, addr) });
             _ = try self.addInst(.{
                 .tag = .ldr,
                 .cond = .al,
@@ -3208,7 +3207,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         },
         .stack_offset => |unadjusted_off| {
             // TODO: maybe addressing from sp instead of fp
-            const abi_size = ty.abiSize(self.target.*);
+            const abi_size = @intCast(u32, ty.abiSize(self.target.*));
             const adj_off = unadjusted_off + abi_size;
 
             switch (abi_size) {
@@ -3294,12 +3293,11 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                 1 => return self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaa }),
                 2 => return self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaaaa }),
                 4 => return self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
-                8 => return self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
                 else => return self.fail("TODO implement memset", .{}),
             }
         },
         .register => |reg| {
-            const abi_size = ty.abiSize(self.target.*);
+            const abi_size = @intCast(u32, ty.abiSize(self.target.*));
             const adj_off = stack_offset - abi_size;
 
             switch (abi_size) {
@@ -3540,7 +3538,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                     }
                 }
                 if (typed_value.val.tag() == .int_u64) {
-                    return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+                    return MCValue{ .immediate = @intCast(u32, typed_value.val.toUnsignedInt()) };
                 }
                 return self.fail("TODO codegen more kinds of const pointers", .{});
             },
@@ -3550,7 +3548,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             if (info.bits > ptr_bits or info.signedness == .signed) {
                 return self.fail("TODO const int bigger than ptr and signed int", .{});
             }
-            return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+            return MCValue{ .immediate = @intCast(u32, typed_value.val.toUnsignedInt()) };
         },
         .Bool => {
             return MCValue{ .immediate = @boolToInt(typed_value.val.toBool()) };
