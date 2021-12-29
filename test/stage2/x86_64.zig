@@ -1604,6 +1604,64 @@ pub fn addCases(ctx: *TestContext) !void {
                 ":2:28: error: cannot set address space of local variable 'foo'",
             });
         }
+
+        {
+            var case = ctx.exe("saving vars of different ABI size to stack", target);
+
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    assert(callMe(2) == 24);
+                \\}
+                \\
+                \\fn callMe(a: u8) u8 {
+                \\    var b: u8 = a + 10;
+                \\    const c = 2 * b;
+                \\    return c;
+                \\}
+                \\
+                \\pub fn assert(ok: bool) void {
+                \\    if (!ok) unreachable; // assertion failure
+                \\}
+            ,
+                "",
+            );
+
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    assert(callMe(2) == 24);
+                \\}
+                \\
+                \\fn callMe(a: u16) u16 {
+                \\    var b: u16 = a + 10;
+                \\    const c = 2 * b;
+                \\    return c;
+                \\}
+                \\
+                \\pub fn assert(ok: bool) void {
+                \\    if (!ok) unreachable; // assertion failure
+                \\}
+            ,
+                "",
+            );
+
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    assert(callMe(2) == 24);
+                \\}
+                \\
+                \\fn callMe(a: u32) u32 {
+                \\    var b: u32 = a + 10;
+                \\    const c = 2 * b;
+                \\    return c;
+                \\}
+                \\
+                \\pub fn assert(ok: bool) void {
+                \\    if (!ok) unreachable; // assertion failure
+                \\}
+            ,
+                "",
+            );
+        }
     }
 }
 

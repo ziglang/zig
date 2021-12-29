@@ -468,7 +468,15 @@ fn mirArithMemImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     ) catch |err| emit.failWithLoweringError(err);
 }
 
-fn immOpSize(imm: i64) u8 {
+inline fn setRexWRegister(reg: Register) bool {
+    if (reg.size() == 64) return true;
+    return switch (reg) {
+        .ah, .bh, .ch, .dh => true,
+        else => false,
+    };
+}
+
+inline fn immOpSize(imm: i64) u8 {
     blk: {
         _ = math.cast(i8, imm) catch break :blk;
         return 8;
@@ -1370,7 +1378,10 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
                 encoder.opcode_1byte(0x66);
             }
             encoder.rex(.{
-                .w = tag.isSetCC(),
+                .w = switch (reg) {
+                    .ah, .bh, .ch, .dh => true,
+                    else => false,
+                },
                 .b = reg.isExtended(),
             });
             opc.encode(encoder);
@@ -1389,7 +1400,7 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
                     return error.OperandSizeMismatch;
                 }
                 encoder.rex(.{
-                    .w = tag.isSetCC(),
+                    .w = false,
                     .b = reg.isExtended(),
                 });
                 opc.encode(encoder);
@@ -1455,7 +1466,7 @@ fn lowerToTdFdEnc(tag: Tag, reg: Register, moffs: i64, code: *std.ArrayList(u8),
         encoder.opcode_1byte(0x66);
     }
     encoder.rex(.{
-        .w = reg.size() == 64,
+        .w = setRexWRegister(reg),
     });
     opc.encode(encoder);
     switch (reg.size()) {
@@ -1488,7 +1499,7 @@ fn lowerToOiEnc(tag: Tag, reg: Register, imm: i64, code: *std.ArrayList(u8)) Low
         encoder.opcode_1byte(0x66);
     }
     encoder.rex(.{
-        .w = reg.size() == 64,
+        .w = setRexWRegister(reg),
         .b = reg.isExtended(),
     });
     opc.encodeWithReg(encoder, reg);
@@ -1525,7 +1536,7 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: i32, code: *std.Arr
                 encoder.opcode_1byte(0x66);
             }
             encoder.rex(.{
-                .w = dst_reg.size() == 64,
+                .w = setRexWRegister(dst_reg),
                 .b = dst_reg.isExtended(),
             });
             opc.encode(encoder);
@@ -1623,7 +1634,7 @@ fn lowerToRmEnc(
             }
             const encoder = try Encoder.init(code, 3);
             encoder.rex(.{
-                .w = reg.size() == 64,
+                .w = setRexWRegister(reg) or setRexWRegister(src_reg),
                 .r = reg.isExtended(),
                 .b = src_reg.isExtended(),
             });
@@ -1645,7 +1656,7 @@ fn lowerToRmEnc(
                     return error.OperandSizeMismatch;
                 }
                 encoder.rex(.{
-                    .w = reg.size() == 64,
+                    .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
                     .b = src_reg.isExtended(),
                 });
@@ -1676,7 +1687,7 @@ fn lowerToRmEnc(
                 }
             } else {
                 encoder.rex(.{
-                    .w = reg.size() == 64,
+                    .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
                 });
                 opc.encode(encoder);
@@ -1706,7 +1717,7 @@ fn lowerToMrEnc(
             }
             const encoder = try Encoder.init(code, 3);
             encoder.rex(.{
-                .w = dst_reg.size() == 64,
+                .w = setRexWRegister(dst_reg) or setRexWRegister(reg),
                 .r = reg.isExtended(),
                 .b = dst_reg.isExtended(),
             });
@@ -1726,7 +1737,7 @@ fn lowerToMrEnc(
                     return error.OperandSizeMismatch;
                 }
                 encoder.rex(.{
-                    .w = dst_mem.ptr_size == .qword_ptr,
+                    .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
                     .r = reg.isExtended(),
                     .b = dst_reg.isExtended(),
                 });
@@ -1757,7 +1768,7 @@ fn lowerToMrEnc(
                 }
             } else {
                 encoder.rex(.{
-                    .w = dst_mem.ptr_size == .qword_ptr,
+                    .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
                     .r = reg.isExtended(),
                 });
                 opc.encode(encoder);
@@ -1794,7 +1805,7 @@ fn lowerToRmiEnc(
                 return error.OperandSizeMismatch;
             }
             encoder.rex(.{
-                .w = reg.size() == 64,
+                .w = setRexWRegister(reg) or setRexWRegister(src_reg),
                 .r = reg.isExtended(),
                 .b = src_reg.isExtended(),
             });
@@ -1812,7 +1823,7 @@ fn lowerToRmiEnc(
                     return error.OperandSizeMismatch;
                 }
                 encoder.rex(.{
-                    .w = reg.size() == 64,
+                    .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
                     .b = src_reg.isExtended(),
                 });
@@ -1843,7 +1854,7 @@ fn lowerToRmiEnc(
                 }
             } else {
                 encoder.rex(.{
-                    .w = reg.size() == 64,
+                    .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
                 });
                 opc.encode(encoder);
@@ -2089,7 +2100,7 @@ test "lower M encoding" {
     try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(null, 0x10, .qword_ptr), code.buffer());
     try expectEqualHexStrings("\xFF\x24\x25\x10\x00\x00\x00", code.emitted(), "jmp qword ptr [ds:0x10]");
     try lowerToMEnc(.seta, RegisterOrMemory.reg(.r11b), code.buffer());
-    try expectEqualHexStrings("\x49\x0F\x97\xC3", code.emitted(), "seta r11b");
+    try expectEqualHexStrings("\x41\x0F\x97\xC3", code.emitted(), "seta r11b");
 }
 
 test "lower O encoding" {
@@ -2111,9 +2122,9 @@ test "lower RMI encoding" {
         "imul rax, qword ptr [rbp - 8], 0x10",
     );
     try lowerToRmiEnc(.imul, .eax, RegisterOrMemory.mem(.rbp, -4, .dword_ptr), 0x10, code.buffer());
-    try expectEqualHexStrings("\x69\x45\xFC\x10\x00\x00\x00", code.emitted(), "imul ax, [rbp - 2], 0x10");
+    try expectEqualHexStrings("\x69\x45\xFC\x10\x00\x00\x00", code.emitted(), "imul eax, dword ptr [rbp - 4], 0x10");
     try lowerToRmiEnc(.imul, .ax, RegisterOrMemory.mem(.rbp, -2, .word_ptr), 0x10, code.buffer());
-    try expectEqualHexStrings("\x66\x69\x45\xFE\x10\x00", code.emitted(), "imul eax, [rbp - 4], 0x10");
+    try expectEqualHexStrings("\x66\x69\x45\xFE\x10\x00", code.emitted(), "imul ax, word ptr [rbp - 2], 0x10");
     try lowerToRmiEnc(.imul, .r12, RegisterOrMemory.reg(.r12), 0x10, code.buffer());
     try expectEqualHexStrings("\x4D\x69\xE4\x10\x00\x00\x00", code.emitted(), "imul r12, r12, 0x10");
     try lowerToRmiEnc(.imul, .r12w, RegisterOrMemory.reg(.r12w), 0x10, code.buffer());
