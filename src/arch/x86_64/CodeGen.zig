@@ -1646,7 +1646,7 @@ fn genBinMathOpMir(
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = registerAlias(dst_reg, 4),
+                            .reg1 = dst_reg.to32(),
                         }).encode(),
                         .data = .{ .imm = @intCast(i32, imm) },
                     });
@@ -2807,10 +2807,10 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                         .operand = @bitCast(i32, @intCast(u32, x_big)),
                     });
                     _ = try self.addInst(.{
-                        .tag = .mov,
+                        .tag = .mov_mem_imm,
                         .ops = (Mir.Ops{
                             .reg1 = .rbp,
-                            .flags = 0b11,
+                            .flags = 0b10,
                         }).encode(),
                         .data = .{ .payload = payload },
                     });
@@ -2828,10 +2828,10 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             .operand = @bitCast(i32, @truncate(u32, x_big >> 32)),
                         });
                         _ = try self.addInst(.{
-                            .tag = .mov,
+                            .tag = .mov_mem_imm,
                             .ops = (Mir.Ops{
                                 .reg1 = .rbp,
-                                .flags = 0b11,
+                                .flags = 0b10,
                             }).encode(),
                             .data = .{ .payload = payload },
                         });
@@ -2842,10 +2842,10 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             .operand = @bitCast(i32, @truncate(u32, x_big)),
                         });
                         _ = try self.addInst(.{
-                            .tag = .mov,
+                            .tag = .mov_mem_imm,
                             .ops = (Mir.Ops{
                                 .reg1 = .rbp,
-                                .flags = 0b11,
+                                .flags = 0b10,
                             }).encode(),
                             .data = .{ .payload = payload },
                         });
@@ -2955,11 +2955,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             }
             if (x <= math.maxInt(i32)) {
                 // Next best case: if we set the lower four bytes, the upper four will be zeroed.
-                // TODO I am not quite sure why we need to set the size of the register here...
                 _ = try self.addInst(.{
                     .tag = .mov,
                     .ops = (Mir.Ops{
-                        .reg1 = registerAlias(reg, 4),
+                        .reg1 = reg.to32(),
                     }).encode(),
                     .data = .{ .imm = @intCast(i32, x) },
                 });
@@ -2985,9 +2984,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // We need the offset from RIP in a signed i32 twos complement.
             const payload = try self.addExtra(Mir.Imm64.encode(code_offset));
             _ = try self.addInst(.{
-                .tag = .lea_rip,
+                .tag = .lea,
                 .ops = (Mir.Ops{
                     .reg1 = reg,
+                    .flags = 0b01,
                 }).encode(),
                 .data = .{ .payload = payload },
             });
@@ -3011,10 +3011,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             if (self.bin_file.options.pie) {
                 // TODO we should flag up `x` as GOT symbol entry explicitly rather than as a hack.
                 _ = try self.addInst(.{
-                    .tag = .lea_rip,
+                    .tag = .lea,
                     .ops = (Mir.Ops{
                         .reg1 = reg,
-                        .flags = 0b01,
+                        .flags = 0b10,
                     }).encode(),
                     .data = .{ .got_entry = @intCast(u32, x) },
                 });

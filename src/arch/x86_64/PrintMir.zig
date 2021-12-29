@@ -64,6 +64,15 @@ pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap
             .sbb => try print.mirArith(.sbb, inst, w),
             .cmp => try print.mirArith(.cmp, inst, w),
 
+            .adc_mem_imm => try print.mirArithMemImm(.adc, inst, w),
+            .add_mem_imm => try print.mirArithMemImm(.add, inst, w),
+            .sub_mem_imm => try print.mirArithMemImm(.sub, inst, w),
+            .xor_mem_imm => try print.mirArithMemImm(.xor, inst, w),
+            .and_mem_imm => try print.mirArithMemImm(.@"and", inst, w),
+            .or_mem_imm => try print.mirArithMemImm(.@"or", inst, w),
+            .sbb_mem_imm => try print.mirArithMemImm(.sbb, inst, w),
+            .cmp_mem_imm => try print.mirArithMemImm(.cmp, inst, w),
+
             .adc_scale_src => try print.mirArithScaleSrc(.adc, inst, w),
             .add_scale_src => try print.mirArithScaleSrc(.add, inst, w),
             .sub_scale_src => try print.mirArithScaleSrc(.sub, inst, w),
@@ -98,7 +107,6 @@ pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap
             .movabs => try print.mirMovabs(inst, w),
 
             .lea => try print.mirLea(inst, w),
-            .lea_rip => try print.mirLeaRip(inst, w),
 
             .imul_complex => try print.mirIMulComplex(inst, w),
 
@@ -490,6 +498,13 @@ fn mirArith(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: any
     try w.writeByte('\n');
 }
 
+fn mirArithMemImm(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
+    _ = print;
+    _ = tag;
+    _ = inst;
+    return w.writeAll("TODO mirArithMemImm\n");
+}
+
 fn mirArithScaleSrc(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
     const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
@@ -560,19 +575,16 @@ fn mirIMulComplex(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
 }
 
 fn mirLea(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
-    const tag = print.mir.instructions.items(.tag)[inst];
-    assert(tag == .lea);
-    const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
-    assert(ops.flags == 0b01);
-    const imm = print.mir.instructions.items(.data)[inst].imm;
-
-    try w.print("lea {s} [{s} + {d}]\n", .{ @tagName(ops.reg1), @tagName(ops.reg2), imm });
-}
-
-fn mirLeaRip(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
     _ = print;
     _ = inst;
-    return w.writeAll("TODO lea_rip\n");
+    return w.writeAll("TODO lea\n");
+    // const tag = print.mir.instructions.items(.tag)[inst];
+    // assert(tag == .lea);
+    // const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
+    // assert(ops.flags == 0b01);
+    // const imm = print.mir.instructions.items(.data)[inst].imm;
+
+    // try w.print("lea {s} [{s} + {d}]\n", .{ @tagName(ops.reg1), @tagName(ops.reg2), imm });
 }
 
 fn mirCallExtern(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {

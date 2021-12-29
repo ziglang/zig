@@ -38,12 +38,17 @@ pub const Inst = struct {
         ///       0b01  reg1, [reg2 + imm32]
         ///       0b01  reg1, [ds:imm32]
         ///       0b10  [reg1 + imm32], reg2
-        ///       0b10  [reg1 + 0], imm32
-        ///       0b11  [reg1 + imm32], imm32
         /// Notes:
         ///  * If reg2 is `none` then it means Data field `imm` is used as the immediate.
         ///  * When two imm32 values are required, Data field `payload` points at `ImmPair`.
         adc,
+
+        /// ops flags: form:
+        ///       0b00 byte ptr [reg1 + imm32], imm8
+        ///       0b01 word ptr [reg1 + imm32], imm16
+        ///       0b10 dword ptr [reg1 + imm32], imm32
+        ///       0b11 qword ptr [reg1 + imm32], imm32 (sign-extended to imm64)
+        adc_mem_imm,
 
         /// form: reg1, [reg2 + scale*rcx + imm32]
         /// ops flags  scale
@@ -77,74 +82,95 @@ pub const Inst = struct {
         // The following instructions all have the same encoding as `adc`.
 
         add,
+        add_mem_imm,
         add_scale_src,
         add_scale_dst,
         add_scale_imm,
         sub,
+        sub_mem_imm,
         sub_scale_src,
         sub_scale_dst,
         sub_scale_imm,
         xor,
+        xor_mem_imm,
         xor_scale_src,
         xor_scale_dst,
         xor_scale_imm,
         @"and",
+        and_mem_imm,
         and_scale_src,
         and_scale_dst,
         and_scale_imm,
         @"or",
+        or_mem_imm,
         or_scale_src,
         or_scale_dst,
         or_scale_imm,
         rol,
+        rol_mem_imm,
         rol_scale_src,
         rol_scale_dst,
         rol_scale_imm,
         ror,
+        ror_mem_imm,
         ror_scale_src,
         ror_scale_dst,
         ror_scale_imm,
         rcl,
+        rcl_mem_imm,
         rcl_scale_src,
         rcl_scale_dst,
         rcl_scale_imm,
         rcr,
+        rcr_mem_imm,
         rcr_scale_src,
         rcr_scale_dst,
         rcr_scale_imm,
         shl,
+        shl_mem_imm,
         shl_scale_src,
         shl_scale_dst,
         shl_scale_imm,
         sal,
+        sal_mem_imm,
         sal_scale_src,
         sal_scale_dst,
         sal_scale_imm,
         shr,
+        shr_mem_imm,
         shr_scale_src,
         shr_scale_dst,
         shr_scale_imm,
         sar,
+        sar_mem_imm,
         sar_scale_src,
         sar_scale_dst,
         sar_scale_imm,
         sbb,
+        sbb_mem_imm,
         sbb_scale_src,
         sbb_scale_dst,
         sbb_scale_imm,
         cmp,
+        cmp_mem_imm,
         cmp_scale_src,
         cmp_scale_dst,
         cmp_scale_imm,
         mov,
+        mov_mem_imm,
         mov_scale_src,
         mov_scale_dst,
         mov_scale_imm,
 
+        /// ops flags: form:
+        ///      0b00  reg1, [reg2 + imm32]
+        ///      0b00  reg1, [ds:imm32]
+        ///      0b01  reg1, [rip + imm32]
+        ///      0b10  reg1, [rip + reloc]
+        /// Notes:
+        /// * if flags are 0b10, `Data` contains `got_entry` for the linker to generate
+        /// a valid relocation for.
         lea,
-        lea_scale_src,
-        lea_scale_dst,
-        lea_scale_imm,
 
         /// ops flags: form:
         ///      0bX0  reg1
@@ -159,15 +185,6 @@ pub const Inst = struct {
         ///      0b10  reg1, reg2, imm32
         ///      0b11  reg1, [reg2 + imm32], imm32
         imul_complex,
-
-        /// ops flags:  form:
-        ///      0bX0   reg1, [rip + imm32]
-        ///      0bX1   reg1, [rip + reloc]
-        /// Notes:
-        /// * if flags are 0bX1, `Data` contains `got_entry` for linker to generate
-        ///   valid relocation for.
-        /// TODO handle more cases
-        lea_rip,
 
         /// ops flags:  form:
         ///      0bX0   reg1, imm64
@@ -233,16 +250,8 @@ pub const Inst = struct {
         syscall,
 
         /// ops flags:  form:
-        ///       0b00  reg1, reg2
         ///       0b00  reg1, imm32
-        ///       0b01  reg1, [reg2 + imm32]
-        ///       0b01  reg1, [ds:imm32]
-        ///       0b10  [reg1 + imm32], reg2
-        ///       0b10  [reg1 + 0], imm32
-        ///       0b11  [reg1 + imm32], imm32
-        /// Notes:
-        ///  * If reg2 is `none` then it means Data field `imm` is used as the immediate.
-        ///  * When two imm32 values are required, Data field `payload` points at `ImmPair`.
+        /// TODO handle more cases
         @"test",
 
         /// Breakpoint
