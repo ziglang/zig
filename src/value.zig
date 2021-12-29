@@ -1543,6 +1543,8 @@ pub const Value = extern union {
                     hash(slice.len, Type.usize, hasher);
                 },
 
+                // For these, hash them as hash of a pointer to the decl,
+                // combined with a hash of the byte offset from the decl.
                 .elem_ptr => @panic("TODO: Implement more pointer hashing cases"),
                 .field_ptr => @panic("TODO: Implement more pointer hashing cases"),
                 .eu_payload_ptr => @panic("TODO: Implement more pointer hashing cases"),
