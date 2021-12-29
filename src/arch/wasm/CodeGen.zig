@@ -1122,6 +1122,26 @@ fn moveStack(self: *Self, offset: u32, local: u32) !void {
     try self.addLabel(.global_set, 0);
 }
 
+/// From a given type, will create space on the virtual stack to store the value of such type.
+/// This returns a `WValue` with its active tag set to `local`, containing the index to the local
+/// that points to the position on the virtual stack. This function should be used instead of
+/// moveStack unless a local was already created to store the point.
+///
+/// Asserts Type has codegenbits
+fn allocStack(self: *Self, ty: Type) !WValue {
+    assert(ty.hasCodeGenBits());
+
+    // calculate needed stack space
+    const abi_size = std.math.cast(u32, ty.abiSize(self.target)) catch {
+        return self.fail("Given type '{}' too big to fit into stack frame", .{ty});
+    };
+
+    // allocate a local using wasm's pointer size
+    const local = try self.allocLocal(Type.@"usize");
+    try self.moveStack(abi_size, local.local);
+    return local;
+}
+
 /// From given zig bitsize, returns the wasm bitsize
 fn toWasmIntBits(bits: u16) ?u16 {
     return for ([_]u16{ 32, 64 }) |wasm_bits| {
@@ -1238,21 +1258,24 @@ fn airRetPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         try self.initializeStack();
     }
 
-    const abi_size = child_type.abiSize(self.target);
-    if (abi_size == 0) return WValue{ .none = {} };
+    if (child_type.abiSize(self.target) == 0) return WValue{ .none = {} };
 
-    // local, containing the offset to the stack position
-    const local = try self.allocLocal(Type.initTag(.i32)); // always pointer therefore i32
-    try self.moveStack(@intCast(u32, abi_size), local.local);
-    return local;
+    return self.allocStack(child_type);
 }
 
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
+    const ret_ty = self.air.typeOf(un_op).childType();
+    if (!ret_ty.hasCodeGenBits()) return WValue.none;
 
-    const result = try self.load(operand, self.air.typeOf(un_op).childType(), 0);
-    try self.emitWValue(result);
+    if (ret_ty.isSlice() or ret_ty.zigTypeTag() == .ErrorUnion) {
+        try self.emitWValue(operand);
+    } else {
+        const result = try self.load(operand, ret_ty, 0);
+        try self.emitWValue(result);
+    }
+
     try self.restoreStackPointer();
     try self.addTag(.@"return");
     return .none;
@@ -1287,10 +1310,22 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
         const arg_ty = self.air.typeOf(arg_ref);
         if (!arg_ty.hasCodeGenBits()) continue;
+        // Passing constant function pointers must be turned into a stack pointer first.
+        // This is because function pointers are stored as function table indexes,
+        // Which means we would try to attempt to load a function pointer's value by reading
+        // from the table index, rather than an address.
+        var is_fn_ptr = false;
+        if (arg_val == .constant) {
+            if (arg_val.constant.val.castTag(.decl_ref)) |decl| {
+                if (decl.data.ty.zigTypeTag() == .Fn) {
+                    is_fn_ptr = true;
+                }
+            }
+        }
         switch (arg_ty.zigTypeTag()) {
             .Struct, .Pointer, .Optional, .ErrorUnion => {
                 // single pointer can be passed directly
-                if (arg_ty.isSinglePointer() or arg_val != .constant) {
+                if ((arg_ty.isSinglePointer() and !is_fn_ptr) or arg_val != .constant) {
                     if (arg_val == .none) {
                         // when the argument is a 0-sized value, but the function
                         // expects a non-zero typed value (such as a slice), we must emit an argument
@@ -1302,9 +1337,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                     try self.emitWValue(arg_val);
                     continue;
                 }
-                const abi_size = arg_ty.abiSize(self.target);
-                const arg_local = try self.allocLocal(Type.initTag(.i32));
-                try self.moveStack(@intCast(u32, abi_size), arg_local.local);
+                const arg_local = try self.allocStack(arg_ty);
                 try self.store(arg_local, arg_val, arg_ty, 0);
                 try self.emitWValue(arg_local);
             },
@@ -1336,9 +1369,28 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ret_ty = fn_ty.fnReturnType();
     if (!ret_ty.hasCodeGenBits()) return WValue.none;
 
+    // slices are stored on the virtual stack, so we must pull out both ptr and len
+    // to not overwrite the stack
+    if (ret_ty.isSlice()) {
+        // first load the values onto the regular stack, before we move the stack pointer
+        // to prevent overwriting the return value.
+        const tmp = try self.allocLocal(ret_ty);
+        try self.addLabel(.local_set, tmp.local);
+        const field_ty = Type.@"usize";
+        const offset = @intCast(u32, field_ty.abiSize(self.target));
+        const ptr_local = try self.load(tmp, field_ty, 0);
+        const len_local = try self.load(tmp, field_ty, offset);
+
+        // As our values are now safe, we reserve space on the virtual stack and
+        // store the values there.
+        const result = try self.allocStack(ret_ty);
+        try self.store(result, ptr_local, field_ty, 0);
+        try self.store(result, len_local, field_ty, offset);
+        return result;
+    }
+
     const result_local = try self.allocLocal(ret_ty);
     try self.addLabel(.local_set, result_local.local);
-    // if the result was allocated on the virtual stack, we must load
     return result_local;
 }
 
@@ -1349,14 +1401,8 @@ fn airAlloc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.initial_stack_value == .none) {
         try self.initializeStack();
     }
-
-    const abi_size = child_type.abiSize(self.target);
-    if (abi_size == 0) return WValue{ .none = {} };
-
-    // local, containing the offset to the stack position
-    const local = try self.allocLocal(Type.initTag(.i32)); // always pointer therefore i32
-    try self.moveStack(@intCast(u32, abi_size), local.local);
-    return local;
+    if (child_type.abiSize(self.target) == 0) return WValue{ .none = {} };
+    return self.allocStack(child_type);
 }
 
 fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1453,12 +1499,33 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
         .Pointer => {
             if (ty.isSlice() and rhs == .constant) {
                 try self.emitWValue(rhs);
+
+                const val = rhs.constant.val;
                 const len_local = try self.allocLocal(Type.usize);
                 const ptr_local = try self.allocLocal(Type.usize);
+                const len_offset = self.target.cpu.arch.ptrBitWidth() / 8;
+                if (val.castTag(.decl_ref)) |decl| {
+                    // for decl references we also need to retrieve the length and the original decl's pointer
+                    try self.addMemArg(.i32_load, .{ .offset = 0, .alignment = Type.@"usize".abiAlignment(self.target) });
+                    try self.addLabel(.memory_address, decl.data.link.wasm.sym_index);
+                    try self.addMemArg(
+                        .i32_load,
+                        .{ .offset = len_offset, .alignment = Type.@"usize".abiAlignment(self.target) },
+                    );
+                }
                 try self.addLabel(.local_set, len_local.local);
                 try self.addLabel(.local_set, ptr_local.local);
                 try self.store(lhs, ptr_local, Type.usize, 0);
-                try self.store(lhs, len_local, Type.usize, self.target.cpu.arch.ptrBitWidth() / 8);
+                try self.store(lhs, len_local, Type.usize, len_offset);
+                return;
+            } else if (ty.isSlice()) {
+                // store pointer first
+                const ptr_local = try self.load(rhs, Type.@"usize", 0);
+                try self.store(lhs, ptr_local, Type.@"usize", 0);
+
+                // retrieve length from rhs, and store that alongside lhs as well
+                const len_local = try self.load(rhs, Type.@"usize", 4);
+                try self.store(lhs, len_local, Type.@"usize", 4);
                 return;
             }
         },
@@ -1732,6 +1799,20 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 try self.addImm32(0);
             }
         },
+        .Struct => {
+            const struct_data = val.castTag(.@"struct").?;
+            // in case of structs, we reserve stack space and store it there.
+            const result = try self.allocStack(ty);
+
+            const fields = ty.structFields();
+            for (fields.values()) |field, index| {
+                const tmp = try self.allocLocal(field.ty);
+                try self.emitConstant(struct_data.data[index], field.ty);
+                try self.addLabel(.local_set, tmp.local);
+                try self.store(result, tmp, field.ty, field.offset);
+            }
+            try self.addLabel(.local_get, result.local);
+        },
         else => |zig_type| return self.fail("Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
     }
 }
@@ -1748,7 +1829,14 @@ fn emitUndefined(self: *Self, ty: Type) InnerError!void {
             33...64 => try self.addFloat64(@bitCast(f64, @as(u64, 0xaaaaaaaaaaaaaaaa))),
             else => |bits| return self.fail("Wasm TODO: emitUndefined for float bitsize: {d}", .{bits}),
         },
-        .Array => try self.addImm32(@bitCast(i32, @as(u32, 0xaaaaaaaa))),
+        // As arrays point to linear memory, we cannot use 0xaaaaaaaa as the wasm
+        // validator will not accept it due to out-of-bounds memory access);
+        .Array => try self.addImm32(@bitCast(i32, @as(u32, 0xaa))),
+        .Struct => {
+            // TODO: Write 0xaa to each field
+            const result = try self.allocStack(ty);
+            try self.addLabel(.local_get, result.local);
+        },
         else => return self.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty}),
     }
 }
@@ -2221,24 +2309,43 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const operand = self.resolveInst(ty_op.operand);
 
     const op_ty = self.air.typeOf(ty_op.operand);
-    if (!op_ty.hasCodeGenBits()) return WValue.none;
+    if (!op_ty.hasCodeGenBits()) return operand;
     const err_ty = self.air.getRefType(ty_op.ty);
     const offset = err_ty.errorUnionSet().abiSize(self.target);
 
-    return WValue{ .local_with_offset = .{
-        .local = operand.local,
-        .offset = @intCast(u32, offset),
-    } };
+    const err_union = try self.allocStack(err_ty);
+    const to_store = switch (op_ty.zigTypeTag()) {
+        // for those types we must load the pointer and then store
+        // its value
+        .Pointer, .Optional => blk: {
+            if (!op_ty.isPtrLikeOptional()) {
+                return self.fail("TODO: airWrapErrUnionPayload for optional type {}", .{op_ty});
+            }
+            break :blk try self.load(operand, op_ty, 0);
+        },
+        .Int => operand,
+        else => return self.fail("TODO: airWrapErrUnionPayload for type {}", .{op_ty}),
+    };
+
+    try self.store(err_union, to_store, op_ty, @intCast(u32, offset));
+
+    // ensure we also write '0' to the error part, so any present stack value gets overwritten by it.
+    const tmp_local = try self.allocLocal(err_ty.errorUnionSet()); // locals are '0' by default.
+    try self.store(err_union, tmp_local, err_ty.errorUnionSet(), 0);
+
+    return err_union;
 }
 
 fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue.none;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = self.resolveInst(ty_op.operand);
-    return WValue{ .local_with_offset = .{
-        .local = operand.local,
-        .offset = 0,
-    } };
+    const err_ty = self.air.getRefType(ty_op.ty);
+
+    const err_union = try self.allocStack(err_ty);
+    // TODO: Also write 'undefined' to the payload
+    try self.store(err_union, operand, err_ty.errorUnionSet(), 0);
+    return err_union;
 }
 
 fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2276,9 +2383,11 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
 
-    // load the null tag value
+    const op_ty = self.air.typeOf(un_op);
     try self.emitWValue(operand);
-    try self.addMemArg(.i32_load8_u, .{ .offset = 0, .alignment = 1 });
+    if (!op_ty.isPtrLikeOptional()) {
+        try self.addMemArg(.i32_load8_u, .{ .offset = 0, .alignment = 1 });
+    }
 
     // Compare the error value with '0'
     try self.addImm32(0);
@@ -2469,5 +2578,26 @@ fn airBoolToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    return self.resolveInst(ty_op.operand);
+    const operand = self.resolveInst(ty_op.operand);
+    const array_ty = self.air.typeOf(ty_op.operand).childType();
+    const ty = Type.@"usize";
+    const ptr_width = @intCast(u32, ty.abiSize(self.target));
+    const slice_ty = self.air.getRefType(ty_op.ty);
+
+    // create a slice on the stack
+    const slice_local = try self.allocStack(slice_ty);
+
+    // store the array ptr in the slice
+    if (array_ty.hasCodeGenBits()) {
+        try self.store(slice_local, operand, ty, 0);
+    }
+
+    // store the length of the array in the slice
+    const len = array_ty.arrayLen();
+    try self.addImm32(@bitCast(i32, @intCast(u32, len)));
+    const len_local = try self.allocLocal(ty);
+    try self.addLabel(.local_set, len_local.local);
+    try self.store(slice_local, len_local, ty, ptr_width);
+
+    return slice_local;
 }

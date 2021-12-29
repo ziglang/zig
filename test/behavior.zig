@@ -21,7 +21,11 @@ test {
     _ = @import("behavior/bugs/4769_b.zig");
     _ = @import("behavior/bugs/4954.zig");
     _ = @import("behavior/bugs/6850.zig");
+    _ = @import("behavior/byval_arg_var.zig");
+    _ = @import("behavior/call.zig");
+    _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
+    _ = @import("behavior/error.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/import.zig");
@@ -49,8 +53,6 @@ test {
         _ = @import("behavior/byval_arg_var.zig");
         _ = @import("behavior/call.zig");
         _ = @import("behavior/cast.zig");
-        _ = @import("behavior/defer.zig");
-        _ = @import("behavior/error.zig");
         _ = @import("behavior/fn_in_struct_in_comptime.zig");
         _ = @import("behavior/for.zig");
         _ = @import("behavior/generics.zig");

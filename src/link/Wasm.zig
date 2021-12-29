@@ -257,6 +257,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl);
     }
+    if (!decl.ty.hasCodeGenBits()) return;
     assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
 
     decl.link.wasm.clear();
@@ -700,7 +701,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
     // Table section
     const export_table = self.base.options.export_table;
-    if (!import_table and (self.function_table.count() > 0 or export_table)) {
+    if (!import_table) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
 
