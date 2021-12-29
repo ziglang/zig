@@ -330,6 +330,8 @@ test "basic functionality" {
     const root_node = try progress.start("", 100);
     defer root_node.end();
 
+    const speed_factor = std.time.ns_per_ms;
+
     const sub_task_names = [_][]const u8{
         "reticulating splines",
         "adjusting shoes",
@@ -345,24 +347,24 @@ test "basic functionality" {
         next_sub_task = (next_sub_task + 1) % sub_task_names.len;
 
         node.completeOne();
-        std.time.sleep(5 * std.time.ns_per_ms);
+        std.time.sleep(5 * speed_factor);
         node.completeOne();
         node.completeOne();
-        std.time.sleep(5 * std.time.ns_per_ms);
+        std.time.sleep(5 * speed_factor);
         node.completeOne();
         node.completeOne();
-        std.time.sleep(5 * std.time.ns_per_ms);
+        std.time.sleep(5 * speed_factor);
 
         node.end();
 
-        std.time.sleep(5 * std.time.ns_per_ms);
+        std.time.sleep(5 * speed_factor);
     }
     {
         var node = root_node.start("this is a really long name designed to activate the truncation code. let's find out if it works", 0);
         node.activate();
-        std.time.sleep(10 * std.time.ns_per_ms);
+        std.time.sleep(10 * speed_factor);
         progress.refresh();
-        std.time.sleep(10 * std.time.ns_per_ms);
+        std.time.sleep(10 * speed_factor);
         node.end();
     }
 }
