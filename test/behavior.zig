@@ -26,10 +26,15 @@ test {
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/error.zig");
+    _ = @import("behavior/fn_in_struct_in_comptime.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/import.zig");
+    _ = @import("behavior/incomplete_struct_param_tld.zig");
+    _ = @import("behavior/inttoptr.zig");
+    _ = @import("behavior/ptrcast.zig");
     _ = @import("behavior/pub_enum.zig");
+    _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/type.zig");
@@ -57,19 +62,14 @@ test {
         _ = @import("behavior/for.zig");
         _ = @import("behavior/generics.zig");
         _ = @import("behavior/if.zig");
-        _ = @import("behavior/incomplete_struct_param_tld.zig");
         _ = @import("behavior/int128.zig");
-        _ = @import("behavior/inttoptr.zig");
         _ = @import("behavior/member_func.zig");
         _ = @import("behavior/null.zig");
         _ = @import("behavior/optional.zig");
         _ = @import("behavior/pointers.zig");
-        _ = @import("behavior/ptrcast.zig");
-        _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
         _ = @import("behavior/struct.zig");
         _ = @import("behavior/this.zig");
         _ = @import("behavior/translate_c_macros.zig");
-        _ = @import("behavior/underscore.zig");
         _ = @import("behavior/while.zig");
         _ = @import("behavior/void.zig");
 

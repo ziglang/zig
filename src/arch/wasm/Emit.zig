@@ -284,10 +284,12 @@ fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
 }
 
 fn emitCallIndirect(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const label = emit.mir.instructions.items(.data)[inst].label;
+    const type_index = emit.mir.instructions.items(.data)[inst].label;
     try emit.code.append(std.wasm.opcode(.call_indirect));
+    // NOTE: If we remove unused function types in the future for incremental
+    // linking, we must also emit a relocation for this `type_index`
+    try leb128.writeULEB128(emit.code.writer(), type_index);
     try leb128.writeULEB128(emit.code.writer(), @as(u32, 0)); // TODO: Emit relocation for table index
-    try leb128.writeULEB128(emit.code.writer(), label);
 }
 
 fn emitFunctionIndex(emit: *Emit, inst: Mir.Inst.Index) !void {

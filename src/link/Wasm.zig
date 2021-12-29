@@ -646,7 +646,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                 .kind = .{
                     .table = .{
                         .limits = .{
-                            .min = @intCast(u32, self.imports.count()),
+                            .min = @intCast(u32, self.function_table.count()),
                             .max = null,
                         },
                         .reftype = .funcref,
@@ -678,7 +678,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             header_offset,
             .import,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @intCast(u32, self.imports.count() + @boolToInt(import_memory)),
+            @intCast(u32, self.imports.count() + @boolToInt(import_memory) + @boolToInt(import_table)),
         );
     }
 

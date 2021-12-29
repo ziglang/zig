@@ -1200,6 +1200,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .optional_payload => self.airOptionalPayload(inst),
         .optional_payload_ptr => self.airOptionalPayload(inst),
         .optional_payload_ptr_set => self.airOptionalPayloadPtrSet(inst),
+        .ptrtoint => self.airPtrToInt(inst),
         .ret => self.airRet(inst),
         .ret_ptr => self.airRetPtr(inst),
         .ret_load => self.airRetLoad(inst),
@@ -1729,6 +1730,8 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 } else {
                     try self.addLabel(.memory_address, decl.link.wasm.sym_index);
                 }
+            } else if (val.castTag(.int_u64)) |int_ptr| {
+                try self.addImm32(@bitCast(i32, @intCast(u32, int_ptr.data)));
             } else return self.fail("Wasm TODO: emitConstant for other const pointer tag {s}", .{val.tag()});
         },
         .Void => {},
@@ -2600,4 +2603,10 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     try self.store(slice_local, len_local, ty, ptr_width);
 
     return slice_local;
+}
+
+fn airPtrToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    return self.resolveInst(un_op);
 }
