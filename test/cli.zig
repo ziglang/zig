@@ -56,7 +56,7 @@ fn printCmd(cwd: []const u8, argv: []const []const u8) void {
 
 fn exec(cwd: []const u8, expect_0: bool, argv: []const []const u8) !ChildProcess.ExecResult {
     const max_output_size = 100 * 1024;
-    const result = ChildProcess.exec(.{
+    const result = ChildProcess.initAndExec(.{
         .allocator = a,
         .argv = argv,
         .cwd = cwd,

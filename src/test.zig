@@ -764,7 +764,7 @@ pub const TestContext = struct {
             try zig_args.append("-O");
             try zig_args.append(@tagName(case.optimize_mode));
 
-            const result = try std.ChildProcess.exec(.{
+            const result = try std.ChildProcess.initAndExec(.{
                 .allocator = arena,
                 .argv = zig_args.items,
             });
@@ -1195,7 +1195,7 @@ pub const TestContext = struct {
 
                         try comp.makeBinFileExecutable();
 
-                        break :x std.ChildProcess.exec(.{
+                        break :x std.ChildProcess.initAndExec(.{
                             .allocator = allocator,
                             .argv = argv.items,
                             .cwd_dir = tmp.dir,

@@ -1326,7 +1326,7 @@ fn genHtml(
                         try shell_out.print("\n", .{});
 
                         if (expected_outcome == .BuildFail) {
-                            const result = try ChildProcess.exec(.{
+                            const result = try ChildProcess.initAndExec(.{
                                 .allocator = allocator,
                                 .argv = build_args.items,
                                 .env_map = &env_map,
@@ -1386,7 +1386,7 @@ fn genHtml(
                         var exited_with_signal = false;
 
                         const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
-                            const result = try ChildProcess.exec(.{
+                            const result = try ChildProcess.initAndExec(.{
                                 .allocator = allocator,
                                 .argv = run_args,
                                 .env_map = &env_map,
@@ -1490,7 +1490,7 @@ fn genHtml(
                                 try shell_out.print("-O {s} ", .{@tagName(code.mode)});
                             },
                         }
-                        const result = try ChildProcess.exec(.{
+                        const result = try ChildProcess.initAndExec(.{
                             .allocator = allocator,
                             .argv = test_args.items,
                             .env_map = &env_map,
@@ -1546,7 +1546,7 @@ fn genHtml(
                             },
                         }
 
-                        const result = try ChildProcess.exec(.{
+                        const result = try ChildProcess.initAndExec(.{
                             .allocator = allocator,
                             .argv = test_args.items,
                             .env_map = &env_map,
@@ -1615,7 +1615,7 @@ fn genHtml(
                         }
 
                         if (maybe_error_match) |error_match| {
-                            const result = try ChildProcess.exec(.{
+                            const result = try ChildProcess.initAndExec(.{
                                 .allocator = allocator,
                                 .argv = build_args.items,
                                 .env_map = &env_map,
@@ -1709,7 +1709,7 @@ fn genHtml(
 }
 
 fn exec(allocator: Allocator, env_map: *std.BufMap, args: []const []const u8) !ChildProcess.ExecResult {
-    const result = try ChildProcess.exec(.{
+    const result = try ChildProcess.initAndExec(.{
         .allocator = allocator,
         .argv = args,
         .env_map = env_map,
