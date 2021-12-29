@@ -307,15 +307,9 @@ fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: any
         error.NoSpaceLeft => {
             self.columns_written += self.output_buffer.len - end.*;
             end.* = self.output_buffer.len;
+            const suffix = "... ";
+            std.mem.copy(u8, self.output_buffer[self.output_buffer.len - suffix.len ..], suffix);
         },
-    }
-    const bytes_needed_for_esc_codes_at_end: u8 = if (self.is_windows_terminal) 0 else 11;
-    const max_end = self.output_buffer.len - bytes_needed_for_esc_codes_at_end;
-    if (end.* > max_end) {
-        const suffix = "... ";
-        self.columns_written = self.columns_written - (end.* - max_end) + suffix.len;
-        std.mem.copy(u8, self.output_buffer[max_end..], suffix);
-        end.* = max_end + suffix.len;
     }
 }
 
