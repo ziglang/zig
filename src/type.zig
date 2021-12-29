@@ -2868,7 +2868,11 @@ pub const Type = extern union {
     /// Otherwise, returns `null`.
     pub fn unionTagType(ty: Type) ?Type {
         return switch (ty.tag()) {
-            .union_tagged => ty.castTag(.union_tagged).?.data.tag_ty,
+            .union_tagged => {
+                const union_obj = ty.castTag(.union_tagged).?.data;
+                assert(union_obj.haveFieldTypes());
+                return union_obj.tag_ty;
+            },
 
             .atomic_order,
             .atomic_rmw_op,

@@ -35,19 +35,6 @@ test "capture value of switch with all unreachable prongs" {
     try expect(x == 1);
 }
 
-test "anon enum literal used in switch on union enum" {
-    const Foo = union(enum) {
-        a: i32,
-    };
-
-    var foo = Foo{ .a = 1234 };
-    switch (foo) {
-        .a => |x| {
-            try expect(x == 1234);
-        },
-    }
-}
-
 test "else prong of switch on error set excludes other cases" {
     const S = struct {
         fn doTheTest() !void {

@@ -5799,8 +5799,12 @@ fn zirSwitchCond(
 ) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
+    const operand_src = src; // TODO make this point at the switch operand
     const operand_ptr = sema.resolveInst(inst_data.operand);
-    const operand = if (is_ref) try sema.analyzeLoad(block, src, operand_ptr, src) else operand_ptr;
+    const operand = if (is_ref)
+        try sema.analyzeLoad(block, src, operand_ptr, operand_src)
+    else
+        operand_ptr;
     const operand_ty = sema.typeOf(operand);
 
     switch (operand_ty.zigTypeTag()) {
@@ -5817,18 +5821,19 @@ fn zirSwitchCond(
         .ErrorSet,
         .Enum,
         => {
-            if ((try sema.typeHasOnePossibleValue(block, src, operand_ty))) |opv| {
+            if ((try sema.typeHasOnePossibleValue(block, operand_src, operand_ty))) |opv| {
                 return sema.addConstant(operand_ty, opv);
             }
             return operand;
         },
 
         .Union => {
-            const enum_ty = operand_ty.unionTagType() orelse {
+            const union_ty = try sema.resolveTypeFields(block, operand_src, operand_ty);
+            const enum_ty = union_ty.unionTagType() orelse {
                 const msg = msg: {
                     const msg = try sema.errMsg(block, src, "switch on untagged union", .{});
                     errdefer msg.destroy(sema.gpa);
-                    try sema.addDeclaredHereNote(msg, operand_ty);
+                    try sema.addDeclaredHereNote(msg, union_ty);
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(msg);
@@ -9154,9 +9159,107 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 }),
             );
         },
+        .Union => {
+            // TODO: look into memoizing this result.
+
+            var fields_anon_decl = try block.startAnonDecl();
+            defer fields_anon_decl.deinit();
+
+            const union_field_ty = t: {
+                const union_field_ty_decl = (try sema.namespaceLookup(
+                    block,
+                    src,
+                    type_info_ty.getNamespace().?,
+                    "UnionField",
+                )).?;
+                try sema.mod.declareDeclDependency(sema.owner_decl, union_field_ty_decl);
+                try sema.ensureDeclAnalyzed(union_field_ty_decl);
+                var buffer: Value.ToTypeBuffer = undefined;
+                break :t try union_field_ty_decl.val.toType(&buffer).copy(fields_anon_decl.arena());
+            };
+
+            const union_ty = try sema.resolveTypeFields(block, src, ty);
+            const union_fields = union_ty.unionFields();
+            const union_field_vals = try fields_anon_decl.arena().alloc(Value, union_fields.count());
+
+            for (union_field_vals) |*field_val, i| {
+                const field = union_fields.values()[i];
+                const name = union_fields.keys()[i];
+                const name_val = v: {
+                    var anon_decl = try block.startAnonDecl();
+                    defer anon_decl.deinit();
+                    const bytes = try anon_decl.arena().dupeZ(u8, name);
+                    const new_decl = try anon_decl.finish(
+                        try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
+                        try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                    );
+                    break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
+                };
+
+                const union_field_fields = try fields_anon_decl.arena().create([3]Value);
+                union_field_fields.* = .{
+                    // name: []const u8,
+                    name_val,
+                    // field_type: type,
+                    try Value.Tag.ty.create(fields_anon_decl.arena(), field.ty),
+                    // alignment: comptime_int,
+                    try field.abi_align.copy(fields_anon_decl.arena()),
+                };
+                field_val.* = try Value.Tag.@"struct".create(fields_anon_decl.arena(), union_field_fields);
+            }
+
+            const fields_val = v: {
+                const new_decl = try fields_anon_decl.finish(
+                    try Type.Tag.array.create(fields_anon_decl.arena(), .{
+                        .len = union_field_vals.len,
+                        .elem_type = union_field_ty,
+                    }),
+                    try Value.Tag.array.create(
+                        fields_anon_decl.arena(),
+                        try fields_anon_decl.arena().dupe(Value, union_field_vals),
+                    ),
+                );
+                break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
+            };
+
+            if (ty.getNamespace()) |namespace| {
+                if (namespace.decls.count() != 0) {
+                    return sema.fail(block, src, "TODO: implement zirTypeInfo for Union which has declarations", .{});
+                }
+            }
+            const decls_val = Value.initTag(.empty_array);
+
+            const enum_tag_ty_val = if (union_ty.unionTagType()) |tag_ty| v: {
+                const ty_val = try Value.Tag.ty.create(sema.arena, tag_ty);
+                break :v try Value.Tag.opt_payload.create(sema.arena, ty_val);
+            } else Value.@"null";
+
+            const field_values = try sema.arena.create([4]Value);
+            field_values.* = .{
+                // layout: ContainerLayout,
+                try Value.Tag.enum_field_index.create(
+                    sema.arena,
+                    @enumToInt(std.builtin.TypeInfo.ContainerLayout.Auto),
+                ),
+
+                // tag_type: ?type,
+                enum_tag_ty_val,
+                // fields: []const UnionField,
+                fields_val,
+                // decls: []const Declaration,
+                decls_val,
+            };
+
+            return sema.addConstant(
+                type_info_ty,
+                try Value.Tag.@"union".create(sema.arena, .{
+                    .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Union)),
+                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                }),
+            );
+        },
         .Struct => return sema.fail(block, src, "TODO: implement zirTypeInfo for Struct", .{}),
         .ErrorSet => return sema.fail(block, src, "TODO: implement zirTypeInfo for ErrorSet", .{}),
-        .Union => return sema.fail(block, src, "TODO: implement zirTypeInfo for Union", .{}),
         .BoundFn => @panic("TODO remove this type from the language and compiler"),
         .Opaque => return sema.fail(block, src, "TODO: implement zirTypeInfo for Opaque", .{}),
         .Frame => return sema.fail(block, src, "TODO: implement zirTypeInfo for Frame", .{}),
@@ -11847,12 +11950,14 @@ fn fieldVal(
                     );
                 },
                 .Union => {
-                    if (child_type.getNamespace()) |namespace| {
+                    const union_ty = try sema.resolveTypeFields(block, src, child_type);
+
+                    if (union_ty.getNamespace()) |namespace| {
                         if (try sema.namespaceLookupVal(block, src, namespace, field_name)) |inst| {
                             return inst;
                         }
                     }
-                    if (child_type.unionTagType()) |enum_ty| {
+                    if (union_ty.unionTagType()) |enum_ty| {
                         if (enum_ty.enumFieldIndex(field_name)) |field_index_usize| {
                             const field_index = @intCast(u32, field_index_usize);
                             return sema.addConstant(
@@ -11861,7 +11966,7 @@ fn fieldVal(
                             );
                         }
                     }
-                    return sema.failWithBadMemberAccess(block, child_type, field_name_src, field_name);
+                    return sema.failWithBadMemberAccess(block, union_ty, field_name_src, field_name);
                 },
                 .Enum => {
                     if (child_type.getNamespace()) |namespace| {
@@ -15185,8 +15290,9 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             // The provided type is an integer type and we must construct the enum tag type here.
             int_tag_ty = provided_ty;
             union_obj.tag_ty = try sema.generateUnionTagTypeNumbered(&block_scope, fields_len, provided_ty);
-            enum_field_names = &union_obj.tag_ty.castTag(.enum_numbered).?.data.fields;
-            enum_value_map = &union_obj.tag_ty.castTag(.enum_numbered).?.data.values;
+            const enum_obj = union_obj.tag_ty.castTag(.enum_numbered).?.data;
+            enum_field_names = &enum_obj.fields;
+            enum_value_map = &enum_obj.values;
         } else {
             // The provided type is the enum tag type.
             union_obj.tag_ty = try provided_ty.copy(decl_arena_allocator);
@@ -15239,14 +15345,19 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         const tag_ref: Zir.Inst.Ref = if (has_tag) blk: {
             const tag_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
             extra_index += 1;
-            break :blk tag_ref;
+            break :blk sema.resolveInst(tag_ref);
         } else .none;
 
         if (enum_value_map) |map| {
             const tag_src = src; // TODO better source location
             const coerced = try sema.coerce(&block_scope, int_tag_ty, tag_ref, tag_src);
             const val = try sema.resolveConstValue(&block_scope, tag_src, coerced);
-            map.putAssumeCapacityContext(val, {}, .{ .ty = int_tag_ty });
+
+            // This puts the memory into the union arena, not the enum arena, but
+            // it is OK since they share the same lifetime.
+            const copied_val = try val.copy(decl_arena_allocator);
+
+            map.putAssumeCapacityContext(copied_val, {}, .{ .ty = int_tag_ty });
         }
 
         // This string needs to outlive the ZIR code.

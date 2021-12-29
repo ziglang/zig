@@ -1104,9 +1104,9 @@ pub const Union = struct {
 
     pub fn getLayout(u: Union, target: Target, have_tag: bool) Layout {
         assert(u.status == .have_layout);
-        var most_aligned_field: usize = undefined;
+        var most_aligned_field: u32 = undefined;
         var most_aligned_field_size: u64 = undefined;
-        var biggest_field: usize = undefined;
+        var biggest_field: u32 = undefined;
         var payload_size: u64 = 0;
         var payload_align: u32 = 0;
         for (u.fields.values()) |field, i| {
@@ -1122,20 +1122,21 @@ pub const Union = struct {
             const field_size = field.ty.abiSize(target);
             if (field_size > payload_size) {
                 payload_size = field_size;
-                biggest_field = i;
+                biggest_field = @intCast(u32, i);
             }
             if (field_align > payload_align) {
                 payload_align = field_align;
-                most_aligned_field = i;
+                most_aligned_field = @intCast(u32, i);
                 most_aligned_field_size = field_size;
             }
         }
+        payload_align = @maximum(payload_align, 1);
         if (!have_tag) return .{
             .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
             .abi_align = payload_align,
-            .most_aligned_field = @intCast(u32, most_aligned_field),
+            .most_aligned_field = most_aligned_field,
             .most_aligned_field_size = most_aligned_field_size,
-            .biggest_field = @intCast(u32, biggest_field),
+            .biggest_field = biggest_field,
             .payload_size = payload_size,
             .payload_align = payload_align,
             .tag_align = 0,
@@ -1144,7 +1145,7 @@ pub const Union = struct {
         // Put the tag before or after the payload depending on which one's
         // alignment is greater.
         const tag_size = u.tag_ty.abiSize(target);
-        const tag_align = u.tag_ty.abiAlignment(target);
+        const tag_align = @maximum(1, u.tag_ty.abiAlignment(target));
         var size: u64 = 0;
         if (tag_align >= payload_align) {
             // {Tag, Payload}
@@ -1162,9 +1163,9 @@ pub const Union = struct {
         return .{
             .abi_size = size,
             .abi_align = @maximum(tag_align, payload_align),
-            .most_aligned_field = @intCast(u32, most_aligned_field),
+            .most_aligned_field = most_aligned_field,
             .most_aligned_field_size = most_aligned_field_size,
-            .biggest_field = @intCast(u32, biggest_field),
+            .biggest_field = biggest_field,
             .payload_size = payload_size,
             .payload_align = payload_align,
             .tag_align = tag_align,
