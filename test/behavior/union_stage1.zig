@@ -3,38 +3,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const Tag = std.meta.Tag;
 
-const Letter = enum { A, B, C };
-const Payload = union(Letter) {
-    A: i32,
-    B: f64,
-    C: bool,
-};
-
-fn doTest() error{TestUnexpectedResult}!void {
-    try expect((try bar(Payload{ .A = 1234 })) == -10);
-}
-
-fn bar(value: Payload) error{TestUnexpectedResult}!i32 {
-    try expect(@as(Letter, value) == Letter.A);
-    return switch (value) {
-        Payload.A => |x| return x - 1244,
-        Payload.B => |x| if (x == 12.34) @as(i32, 20) else 21,
-        Payload.C => |x| if (x) @as(i32, 30) else 31,
-    };
-}
-
-test "packed union generates correctly aligned LLVM type" {
-    const U = packed union {
-        f1: fn () error{TestUnexpectedResult}!void,
-        f2: u32,
-    };
-    var foo = [_]U{
-        U{ .f1 = doTest },
-        U{ .f2 = 0 },
-    };
-    try foo[0].f1();
-}
-
 const MultipleChoice = union(enum(u32)) {
     A = 20,
     B = 40,

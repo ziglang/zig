@@ -12152,34 +12152,16 @@ fn fieldCallBind(
                 const field_index = @intCast(u32, field_index_usize);
                 const field = struct_obj.fields.values()[field_index];
 
-                const ptr_field_ty = try Type.ptr(arena, .{
-                    .pointee_type = field.ty,
-                    .mutable = ptr_ty.ptrIsMutable(),
-                    .@"addrspace" = ptr_ty.ptrAddressSpace(),
-                });
-
-                if (try sema.resolveDefinedValue(block, src, object_ptr)) |struct_ptr_val| {
-                    const pointer = try sema.addConstant(
-                        ptr_field_ty,
-                        try Value.Tag.field_ptr.create(arena, .{
-                            .container_ptr = struct_ptr_val,
-                            .field_index = field_index,
-                        }),
-                    );
-                    return sema.analyzeLoad(block, src, pointer, src);
-                }
-
-                try sema.requireRuntimeBlock(block, src);
-                const ptr_inst = try block.addStructFieldPtr(object_ptr, field_index, ptr_field_ty);
-                return sema.analyzeLoad(block, src, ptr_inst, src);
+                return finishFieldCallBind(sema, block, src, ptr_ty, field.ty, field_index, object_ptr);
             },
             .Union => {
                 const union_ty = try sema.resolveTypeFields(block, src, concrete_ty);
                 const fields = union_ty.unionFields();
                 const field_index_usize = fields.getIndex(field_name) orelse break :find_field;
+                const field_index = @intCast(u32, field_index_usize);
+                const field = fields.values()[field_index];
 
-                _ = field_index_usize;
-                return sema.fail(block, src, "TODO implement field calls on unions", .{});
+                return finishFieldCallBind(sema, block, src, ptr_ty, field.ty, field_index, object_ptr);
             },
             .Type => {
                 const namespace = try sema.analyzeLoad(block, src, object_ptr, src);
@@ -12234,6 +12216,38 @@ fn fieldCallBind(
     }
 
     return sema.fail(block, src, "type '{}' has no field or member function named '{s}'", .{ concrete_ty, field_name });
+}
+
+fn finishFieldCallBind(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ptr_ty: Type,
+    field_ty: Type,
+    field_index: u32,
+    object_ptr: Air.Inst.Ref,
+) CompileError!Air.Inst.Ref {
+    const arena = sema.arena;
+    const ptr_field_ty = try Type.ptr(arena, .{
+        .pointee_type = field_ty,
+        .mutable = ptr_ty.ptrIsMutable(),
+        .@"addrspace" = ptr_ty.ptrAddressSpace(),
+    });
+
+    if (try sema.resolveDefinedValue(block, src, object_ptr)) |struct_ptr_val| {
+        const pointer = try sema.addConstant(
+            ptr_field_ty,
+            try Value.Tag.field_ptr.create(arena, .{
+                .container_ptr = struct_ptr_val,
+                .field_index = field_index,
+            }),
+        );
+        return sema.analyzeLoad(block, src, pointer, src);
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    const ptr_inst = try block.addStructFieldPtr(object_ptr, field_index, ptr_field_ty);
+    return sema.analyzeLoad(block, src, ptr_inst, src);
 }
 
 fn namespaceLookup(

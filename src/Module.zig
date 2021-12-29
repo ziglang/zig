@@ -1104,9 +1104,6 @@ pub const Union = struct {
 
     pub fn getLayout(u: Union, target: Target, have_tag: bool) Layout {
         assert(u.status == .have_layout);
-        const is_packed = u.layout == .Packed;
-        if (is_packed) @panic("TODO packed unions");
-
         var most_aligned_field: usize = undefined;
         var most_aligned_field_size: u64 = undefined;
         var biggest_field: usize = undefined;

@@ -165,6 +165,18 @@ test "union with specified enum tag" {
     comptime try doTest();
 }
 
+test "packed union generates correctly aligned LLVM type" {
+    const U = packed union {
+        f1: fn () error{TestUnexpectedResult}!void,
+        f2: u32,
+    };
+    var foo = [_]U{
+        U{ .f1 = doTest },
+        U{ .f2 = 0 },
+    };
+    try foo[0].f1();
+}
+
 fn doTest() error{TestUnexpectedResult}!void {
     try expect((try bar(Payload{ .A = 1234 })) == -10);
 }
