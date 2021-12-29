@@ -673,7 +673,7 @@ pub fn formatIntValue(
         if (@typeInfo(@TypeOf(int_value)).Int.bits <= 8) {
             return formatAsciiChar(@as(u8, int_value), options, writer);
         } else {
-            @compileError("Cannot print integer that is larger than 8 bits as a ascii");
+            @compileError("Cannot print integer that is larger than 8 bits as an ASCII character");
         }
     } else if (comptime std.mem.eql(u8, fmt, "u")) {
         if (@typeInfo(@TypeOf(int_value)).Int.bits <= 21) {
