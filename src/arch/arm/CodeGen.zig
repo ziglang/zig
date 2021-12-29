@@ -1202,7 +1202,6 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else result: {
         const slice_mcv = try self.resolveInst(bin_op.lhs);
-        const index_mcv = try self.resolveInst(bin_op.rhs);
 
         const slice_ty = self.air.typeOf(bin_op.lhs);
         const elem_ty = slice_ty.childType();
@@ -1261,14 +1260,14 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
 
             break :result MCValue{ .register = dst_reg };
         } else {
-            // const dst_mcv = try self.allocRegOrMem(inst, false);
-            return self.fail("TODO implement slice_elem_val for elem_size >= 4", .{});
-        }
+            const dst_mcv = try self.allocRegOrMem(inst, false);
+            const addr_reg = try self.register_manager.allocReg(inst, &.{ base_mcv.register, offset_mcv.register });
 
-        _ = offset_mcv;
-        _ = slice_mcv;
-        _ = index_mcv;
-        _ = offset_mcv;
+            try self.genArmBinOpCode(addr_reg, base_mcv, offset_mcv, false, .add, .unsigned);
+            try self.load(dst_mcv, .{ .register = addr_reg }, slice_ptr_field_type);
+
+            break :result dst_mcv;
+        }
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
