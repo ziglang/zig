@@ -15,16 +15,6 @@ fn testCastIntToErr(err: anyerror) !void {
     try expect(error.ItBroke == y);
 }
 
-test "peer resolve arrays of different size to const slice" {
-    try expect(mem.eql(u8, boolToStr(true), "true"));
-    try expect(mem.eql(u8, boolToStr(false), "false"));
-    comptime try expect(mem.eql(u8, boolToStr(true), "true"));
-    comptime try expect(mem.eql(u8, boolToStr(false), "false"));
-}
-fn boolToStr(b: bool) []const u8 {
-    return if (b) "true" else "false";
-}
-
 test "peer resolve array and const slice" {
     try testPeerResolveArrayConstSlice(true);
     comptime try testPeerResolveArrayConstSlice(true);
@@ -174,32 +164,6 @@ test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     try expect(mem.eql(u8, std.mem.sliceTo(@ptrCast([*:0]const u8, x[0].?), 0), "window name"));
 }
 
-test "cast f16 to wider types" {
-    const S = struct {
-        fn doTheTest() !void {
-            var x: f16 = 1234.0;
-            try std.testing.expectEqual(@as(f32, 1234.0), x);
-            try std.testing.expectEqual(@as(f64, 1234.0), x);
-            try std.testing.expectEqual(@as(f128, 1234.0), x);
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
-}
-
-test "cast f128 to narrower types" {
-    const S = struct {
-        fn doTheTest() !void {
-            var x: f128 = 1234.0;
-            try std.testing.expectEqual(@as(f16, 1234.0), @floatCast(f16, x));
-            try std.testing.expectEqual(@as(f32, 1234.0), @floatCast(f32, x));
-            try std.testing.expectEqual(@as(f64, 1234.0), @floatCast(f64, x));
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
-}
-
 test "vector casts" {
     const S = struct {
         fn doTheTest() !void {
@@ -248,20 +212,6 @@ test "@floatCast cast down" {
         const single = @floatCast(f32, double);
         try expect(single == 0.001534);
     }
-}
-
-test "peer type resolution: unreachable, null, slice" {
-    const S = struct {
-        fn doTheTest(num: usize, word: []const u8) !void {
-            const result = switch (num) {
-                0 => null,
-                1 => word,
-                else => unreachable,
-            };
-            try expect(mem.eql(u8, result.?, "hi"));
-        }
-    };
-    try S.doTheTest(1, "hi");
 }
 
 test "peer type resolution: unreachable, error set, unreachable" {
@@ -368,24 +318,6 @@ test "type coercion related to sentinel-termination" {
                 try expect(dest[3] == 4);
                 try expect(dest[4] == 0);
             }
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
-}
-
-test "cast i8 fn call peers to i32 result" {
-    const S = struct {
-        fn doTheTest() !void {
-            var cond = true;
-            const value: i32 = if (cond) smallBoi() else bigBoi();
-            try expect(value == 123);
-        }
-        fn smallBoi() i8 {
-            return 123;
-        }
-        fn bigBoi() i16 {
-            return 1234;
         }
     };
     try S.doTheTest();

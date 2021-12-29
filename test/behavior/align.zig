@@ -120,3 +120,18 @@ test "size of extern struct with 128-bit field" {
         }) == 32);
     }
 }
+
+test "@ptrCast preserves alignment of bigger source" {
+    var x: u32 align(16) = 1234;
+    const ptr = @ptrCast(*u8, &x);
+    try expect(@TypeOf(ptr) == *align(16) u8);
+}
+
+test "alignstack" {
+    try expect(fnWithAlignedStack() == 1234);
+}
+
+fn fnWithAlignedStack() i32 {
+    @setAlignStack(256);
+    return 1234;
+}

@@ -18,6 +18,8 @@ test {
     _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
     _ = @import("behavior/truncate.zig");
+    _ = @import("behavior/type.zig");
+    _ = @import("behavior/type_info.zig");
     _ = @import("behavior/usingnamespace.zig");
 
     // Tests that pass for stage1, stage2 and the C backend, but not for the wasm backend
@@ -124,7 +126,6 @@ test {
                 _ = @import("behavior/bugs/1025.zig");
                 _ = @import("behavior/bugs/1076.zig");
                 _ = @import("behavior/bugs/1120.zig");
-                _ = @import("behavior/bugs/1322.zig");
                 _ = @import("behavior/bugs/1421.zig");
                 _ = @import("behavior/bugs/1442.zig");
                 _ = @import("behavior/bugs/1607.zig");
@@ -186,8 +187,8 @@ test {
                 _ = @import("behavior/truncate_stage1.zig");
                 _ = @import("behavior/try.zig");
                 _ = @import("behavior/tuple.zig");
-                _ = @import("behavior/type.zig");
-                _ = @import("behavior/type_info.zig");
+                _ = @import("behavior/type_stage1.zig");
+                _ = @import("behavior/type_info_stage1.zig");
                 _ = @import("behavior/typename.zig");
                 _ = @import("behavior/union_stage1.zig");
                 _ = @import("behavior/union_with_members.zig");

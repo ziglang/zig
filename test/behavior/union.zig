@@ -460,3 +460,28 @@ test "tagged union as return value" {
 fn returnAnInt(x: i32) TaggedFoo {
     return TaggedFoo{ .One = x };
 }
+
+test "tagged union with all void fields but a meaningful tag" {
+    const S = struct {
+        const B = union(enum) {
+            c: C,
+            None,
+        };
+
+        const A = struct {
+            b: B,
+        };
+
+        const C = struct {};
+
+        fn doTheTest() !void {
+            var a: A = A{ .b = B{ .c = C{} } };
+            try expect(@as(Tag(B), a.b) == Tag(B).c);
+            a = A{ .b = B.None };
+            try expect(@as(Tag(B), a.b) == Tag(B).None);
+        }
+    };
+    try S.doTheTest();
+    // TODO enable the test at comptime too
+    //comptime try S.doTheTest();
+}

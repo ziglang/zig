@@ -159,6 +159,18 @@ comptime {
         @export(__umodti3, .{ .name = "__umodti3", .linkage = linkage });
     }
 
+    const __truncdfhf2 = @import("compiler_rt/truncXfYf2.zig").__truncdfhf2;
+    @export(__truncdfhf2, .{ .name = "__truncdfhf2", .linkage = linkage });
+    const __trunctfhf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfhf2;
+    @export(__trunctfhf2, .{ .name = "__trunctfhf2", .linkage = linkage });
+    const __trunctfdf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfdf2;
+    @export(__trunctfdf2, .{ .name = "__trunctfdf2", .linkage = linkage });
+    const __trunctfsf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfsf2;
+    @export(__trunctfsf2, .{ .name = "__trunctfsf2", .linkage = linkage });
+
+    const __truncdfsf2 = @import("compiler_rt/truncXfYf2.zig").__truncdfsf2;
+    @export(__truncdfsf2, .{ .name = "__truncdfsf2", .linkage = linkage });
+
     if (!builtin.zig_is_stage2) {
         if (!long_double_is_f128) {
             // TODO implement these
@@ -318,18 +330,6 @@ comptime {
         if (!is_test) {
             @export(__truncsfhf2, .{ .name = "__gnu_f2h_ieee", .linkage = linkage });
         }
-        const __truncdfhf2 = @import("compiler_rt/truncXfYf2.zig").__truncdfhf2;
-        @export(__truncdfhf2, .{ .name = "__truncdfhf2", .linkage = linkage });
-        const __trunctfhf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfhf2;
-        @export(__trunctfhf2, .{ .name = "__trunctfhf2", .linkage = linkage });
-        const __trunctfdf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfdf2;
-        @export(__trunctfdf2, .{ .name = "__trunctfdf2", .linkage = linkage });
-        const __trunctfsf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfsf2;
-        @export(__trunctfsf2, .{ .name = "__trunctfsf2", .linkage = linkage });
-
-        const __truncdfsf2 = @import("compiler_rt/truncXfYf2.zig").__truncdfsf2;
-        @export(__truncdfsf2, .{ .name = "__truncdfsf2", .linkage = linkage });
-
         const __extendsfdf2 = @import("compiler_rt/extendXfYf2.zig").__extendsfdf2;
         @export(__extendsfdf2, .{ .name = "__extendsfdf2", .linkage = linkage });
 

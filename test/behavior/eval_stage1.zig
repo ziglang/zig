@@ -86,19 +86,6 @@ fn testCompTimeUIntComparisons(x: u32) void {
     }
 }
 
-test "const ptr to variable data changes at runtime" {
-    try expect(foo_ref.name[0] == 'a');
-    foo_ref.name = "b";
-    try expect(foo_ref.name[0] == 'b');
-}
-
-const Foo = struct {
-    name: []const u8,
-};
-
-var foo_contents = Foo{ .name = "a" };
-const foo_ref = &foo_contents;
-
 const hi1 = "hi";
 const hi2 = hi1;
 test "const global shares pointer with other same one" {
@@ -162,13 +149,6 @@ test "const ptr to comptime mutable data is not memoized" {
     }
 }
 
-test "runtime 128 bit integer division" {
-    var a: u128 = 152313999999999991610955792383;
-    var b: u128 = 10000000000000000000;
-    var c = a / b;
-    try expect(c == 15231399999);
-}
-
 const Wrapper = struct {
     T: type,
 };
@@ -194,11 +174,6 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
     const s = S{ .a = 2 };
     var b = s.b();
     try expect(b == 2);
-}
-
-test "@tagName of @typeInfo" {
-    const str = @tagName(@typeInfo(u8));
-    try expect(std.mem.eql(u8, str, "Int"));
 }
 
 test "setting backward branch quota just before a generic fn call" {

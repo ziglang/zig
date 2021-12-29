@@ -467,3 +467,28 @@ test "comptime shlWithOverflow" {
 
     try expect(ct_shifted == rt_shifted);
 }
+
+test "const ptr to variable data changes at runtime" {
+    try expect(foo_ref.name[0] == 'a');
+    foo_ref.name = "b";
+    try expect(foo_ref.name[0] == 'b');
+}
+
+const Foo = struct {
+    name: []const u8,
+};
+
+var foo_contents = Foo{ .name = "a" };
+const foo_ref = &foo_contents;
+
+test "runtime 128 bit integer division" {
+    var a: u128 = 152313999999999991610955792383;
+    var b: u128 = 10000000000000000000;
+    var c = a / b;
+    try expect(c == 15231399999);
+}
+
+test "@tagName of @typeInfo" {
+    const str = @tagName(@typeInfo(u8));
+    try expect(std.mem.eql(u8, str, "Int"));
+}
