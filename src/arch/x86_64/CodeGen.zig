@@ -329,7 +329,11 @@ pub fn generate(
     if (builtin.mode == .Debug and bin_file.options.module.?.comp.verbose_mir) {
         const w = std.io.getStdErr().writer();
         w.print("# Begin Function MIR: {s}:\n", .{module_fn.owner_decl.name}) catch {};
-        const print = @import("./PrintMir.zig"){ .mir = mir };
+        const PrintMir = @import("PrintMir.zig");
+        const print = PrintMir{
+            .mir = mir,
+            .bin_file = bin_file,
+        };
         print.printMir(w, function.mir_to_air_map, air) catch {}; // we don't care if the debug printing fails
         w.print("# End Function MIR: {s}\n\n", .{module_fn.owner_decl.name}) catch {};
     }
