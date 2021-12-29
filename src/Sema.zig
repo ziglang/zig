@@ -8523,28 +8523,27 @@ fn zirCmpEq(
             return Air.Inst.Ref.bool_false;
         }
     }
-    if (((lhs_ty_tag == .Null and rhs_ty_tag == .Optional) or
-        rhs_ty_tag == .Null and lhs_ty_tag == .Optional))
-    {
-        // comparing null with optionals
-        const opt_operand = if (lhs_ty_tag == .Null) rhs else lhs;
-        return sema.analyzeIsNull(block, src, opt_operand, op == .neq);
+
+    // comparing null with optionals
+    if (lhs_ty_tag == .Null and (rhs_ty_tag == .Optional or rhs_ty.isCPtr())) {
+        return sema.analyzeIsNull(block, src, rhs, op == .neq);
     }
-    if (((lhs_ty_tag == .Null and rhs_ty.isCPtr()) or (rhs_ty_tag == .Null and lhs_ty.isCPtr()))) {
-        // comparing null with C pointers
-        const opt_operand = if (lhs_ty_tag == .Null) rhs else lhs;
-        return sema.analyzeIsNull(block, src, opt_operand, op == .neq);
+    if (rhs_ty_tag == .Null and (lhs_ty_tag == .Optional or lhs_ty.isCPtr())) {
+        return sema.analyzeIsNull(block, src, lhs, op == .neq);
     }
+
     if (lhs_ty_tag == .Null or rhs_ty_tag == .Null) {
         const non_null_type = if (lhs_ty_tag == .Null) rhs_ty else lhs_ty;
         return sema.fail(block, src, "comparison of '{}' with null", .{non_null_type});
     }
-    if (lhs_ty_tag == .EnumLiteral and rhs_ty_tag == .Union) {
-        return sema.analyzeCmpUnionTag(block, rhs, rhs_src, lhs, lhs_src, op);
-    }
-    if (rhs_ty_tag == .EnumLiteral and lhs_ty_tag == .Union) {
+
+    if (lhs_ty_tag == .Union and (rhs_ty_tag == .EnumLiteral or rhs_ty_tag == .Enum)) {
         return sema.analyzeCmpUnionTag(block, lhs, lhs_src, rhs, rhs_src, op);
     }
+    if (rhs_ty_tag == .Union and (lhs_ty_tag == .EnumLiteral or lhs_ty_tag == .Enum)) {
+        return sema.analyzeCmpUnionTag(block, rhs, rhs_src, lhs, lhs_src, op);
+    }
+
     if (lhs_ty_tag == .ErrorSet and rhs_ty_tag == .ErrorSet) {
         const runtime_src: LazySrcLoc = src: {
             if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lval| {
@@ -12174,7 +12173,14 @@ fn fieldCallBind(
                 const ptr_inst = try block.addStructFieldPtr(object_ptr, field_index, ptr_field_ty);
                 return sema.analyzeLoad(block, src, ptr_inst, src);
             },
-            .Union => return sema.fail(block, src, "TODO implement field calls on unions", .{}),
+            .Union => {
+                const union_ty = try sema.resolveTypeFields(block, src, concrete_ty);
+                const fields = union_ty.unionFields();
+                const field_index_usize = fields.getIndex(field_name) orelse break :find_field;
+
+                _ = field_index_usize;
+                return sema.fail(block, src, "TODO implement field calls on unions", .{});
+            },
             .Type => {
                 const namespace = try sema.analyzeLoad(block, src, object_ptr, src);
                 return sema.fieldVal(block, src, namespace, field_name, field_name_src);
@@ -12922,7 +12928,7 @@ fn coerce(
                 // union to its own tag type
                 const union_tag_ty = inst_ty.unionTagType() orelse break :blk;
                 if (union_tag_ty.eql(dest_ty)) {
-                    return sema.unionToTag(block, inst_ty, inst, inst_src);
+                    return sema.unionToTag(block, dest_ty, inst, inst_src);
                 }
             },
             else => {},
@@ -14589,10 +14595,19 @@ fn resolvePeerTypes(
                     chosen_i = candidate_i + 1;
                     continue;
                 },
+                .Union => continue,
                 else => {},
             },
             .EnumLiteral => switch (chosen_ty_tag) {
-                .Enum => continue,
+                .Enum, .Union => continue,
+                else => {},
+            },
+            .Union => switch (chosen_ty_tag) {
+                .Enum, .EnumLiteral => {
+                    chosen = candidate;
+                    chosen_i = candidate_i + 1;
+                    continue;
+                },
                 else => {},
             },
             .Pointer => {
@@ -15160,7 +15175,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             enum_value_map = &union_obj.tag_ty.castTag(.enum_numbered).?.data.values;
         } else {
             // The provided type is the enum tag type.
-            union_obj.tag_ty = provided_ty;
+            union_obj.tag_ty = try provided_ty.copy(decl_arena_allocator);
         }
     } else {
         // If auto_enum_tag is false, this is an untagged union. However, for semantic analysis

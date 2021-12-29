@@ -1781,7 +1781,7 @@ pub const Value = extern union {
 
     pub fn unionTag(val: Value) Value {
         switch (val.tag()) {
-            .undef => return val,
+            .undef, .enum_field_index => return val,
             .@"union" => return val.castTag(.@"union").?.data.tag,
             else => unreachable,
         }

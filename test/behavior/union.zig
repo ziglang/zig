@@ -152,3 +152,94 @@ const AlignTestTaggedUnion = union(enum) {
     A: [9]u8,
     B: u64,
 };
+
+const Letter = enum { A, B, C };
+const Payload = union(Letter) {
+    A: i32,
+    B: f64,
+    C: bool,
+};
+
+test "union with specified enum tag" {
+    try doTest();
+    comptime try doTest();
+}
+
+fn doTest() error{TestUnexpectedResult}!void {
+    try expect((try bar(Payload{ .A = 1234 })) == -10);
+}
+
+fn bar(value: Payload) error{TestUnexpectedResult}!i32 {
+    try expect(@as(Letter, value) == Letter.A);
+    return switch (value) {
+        Payload.A => |x| return x - 1244,
+        Payload.B => |x| if (x == 12.34) @as(i32, 20) else 21,
+        Payload.C => |x| if (x) @as(i32, 30) else 31,
+    };
+}
+
+fn testComparison() !void {
+    var x = Payload{ .A = 42 };
+    try expect(x == .A);
+    try expect(x != .B);
+    try expect(x != .C);
+    try expect((x == .B) == false);
+    try expect((x == .C) == false);
+    try expect((x != .A) == false);
+}
+
+test "comparison between union and enum literal" {
+    try testComparison();
+    comptime try testComparison();
+}
+
+const TheTag = enum { A, B, C };
+const TheUnion = union(TheTag) {
+    A: i32,
+    B: i32,
+    C: i32,
+};
+test "cast union to tag type of union" {
+    try testCastUnionToTag();
+    comptime try testCastUnionToTag();
+}
+
+fn testCastUnionToTag() !void {
+    var u = TheUnion{ .B = 1234 };
+    try expect(@as(TheTag, u) == TheTag.B);
+}
+
+test "cast tag type of union to union" {
+    var x: Value2 = Letter2.B;
+    try expect(@as(Letter2, x) == Letter2.B);
+}
+const Letter2 = enum { A, B, C };
+const Value2 = union(Letter2) {
+    A: i32,
+    B,
+    C,
+};
+
+test "implicit cast union to its tag type" {
+    var x: Value2 = Letter2.B;
+    try expect(x == Letter2.B);
+    try giveMeLetterB(x);
+}
+fn giveMeLetterB(x: Letter2) !void {
+    try expect(x == Value2.B);
+}
+
+// TODO it looks like this test intended to test packed unions, but this is not a packed
+// union. go through git history and find out what happened.
+pub const PackThis = union(enum) {
+    Invalid: bool,
+    StringLiteral: u2,
+};
+
+test "constant packed union" {
+    try testConstPackedUnion(&[_]PackThis{PackThis{ .StringLiteral = 1 }});
+}
+
+fn testConstPackedUnion(expected_tokens: []const PackThis) !void {
+    try expect(expected_tokens[0].StringLiteral == 1);
+}

@@ -10,11 +10,6 @@ const Payload = union(Letter) {
     C: bool,
 };
 
-test "union with specified enum tag" {
-    try doTest();
-    comptime try doTest();
-}
-
 fn doTest() error{TestUnexpectedResult}!void {
     try expect((try bar(Payload{ .A = 1234 })) == -10);
 }
@@ -26,6 +21,18 @@ fn bar(value: Payload) error{TestUnexpectedResult}!i32 {
         Payload.B => |x| if (x == 12.34) @as(i32, 20) else 21,
         Payload.C => |x| if (x) @as(i32, 30) else 31,
     };
+}
+
+test "packed union generates correctly aligned LLVM type" {
+    const U = packed union {
+        f1: fn () error{TestUnexpectedResult}!void,
+        f2: u32,
+    };
+    var foo = [_]U{
+        U{ .f1 = doTest },
+        U{ .f2 = 0 },
+    };
+    try foo[0].f1();
 }
 
 const MultipleChoice = union(enum(u32)) {
@@ -98,51 +105,6 @@ test "union field access gives the enum values" {
     try expect(TheUnion.A == TheTag.A);
     try expect(TheUnion.B == TheTag.B);
     try expect(TheUnion.C == TheTag.C);
-}
-
-test "cast union to tag type of union" {
-    try testCastUnionToTag();
-    comptime try testCastUnionToTag();
-}
-
-fn testCastUnionToTag() !void {
-    var u = TheUnion{ .B = 1234 };
-    try expect(@as(TheTag, u) == TheTag.B);
-}
-
-test "cast tag type of union to union" {
-    var x: Value2 = Letter2.B;
-    try expect(@as(Letter2, x) == Letter2.B);
-}
-const Letter2 = enum { A, B, C };
-const Value2 = union(Letter2) {
-    A: i32,
-    B,
-    C,
-};
-
-test "implicit cast union to its tag type" {
-    var x: Value2 = Letter2.B;
-    try expect(x == Letter2.B);
-    try giveMeLetterB(x);
-}
-fn giveMeLetterB(x: Letter2) !void {
-    try expect(x == Value2.B);
-}
-
-// TODO it looks like this test intended to test packed unions, but this is not a packed
-// union. go through git history and find out what happened.
-pub const PackThis = union(enum) {
-    Invalid: bool,
-    StringLiteral: u2,
-};
-
-test "constant packed union" {
-    try testConstPackedUnion(&[_]PackThis{PackThis{ .StringLiteral = 1 }});
-}
-
-fn testConstPackedUnion(expected_tokens: []const PackThis) !void {
-    try expect(expected_tokens[0].StringLiteral == 1);
 }
 
 test "switch on union with only 1 field" {
@@ -353,33 +315,6 @@ test "union no tag with struct member" {
     };
     var u = Union{ .s = Struct{} };
     u.foo();
-}
-
-fn testComparison() !void {
-    var x = Payload{ .A = 42 };
-    try expect(x == .A);
-    try expect(x != .B);
-    try expect(x != .C);
-    try expect((x == .B) == false);
-    try expect((x == .C) == false);
-    try expect((x != .A) == false);
-}
-
-test "comparison between union and enum literal" {
-    try testComparison();
-    comptime try testComparison();
-}
-
-test "packed union generates correctly aligned LLVM type" {
-    const U = packed union {
-        f1: fn () error{TestUnexpectedResult}!void,
-        f2: u32,
-    };
-    var foo = [_]U{
-        U{ .f1 = doTest },
-        U{ .f2 = 0 },
-    };
-    try foo[0].f1();
 }
 
 test "union with one member defaults to u0 tag type" {
