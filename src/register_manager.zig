@@ -129,7 +129,7 @@ pub fn RegisterManager(
             comptime assert(count > 0 and count <= callee_preserved_regs.len);
             assert(count + exceptions.len <= callee_preserved_regs.len);
 
-            return self.tryAllocRegs(count, insts, exceptions) orelse blk: {
+            const result = self.tryAllocRegs(count, insts, exceptions) orelse blk: {
                 // We'll take over the first count registers. Spill
                 // the instructions that were previously there to a
                 // stack allocations.
@@ -164,6 +164,9 @@ pub fn RegisterManager(
 
                 break :blk regs;
             };
+
+            log.debug("allocated registers {any} for insts {any}", .{ result, insts });
+            return result;
         }
 
         /// Allocates a register and optionally tracks it with a
@@ -213,6 +216,7 @@ pub fn RegisterManager(
         /// Marks the specified register as free
         pub fn freeReg(self: *Self, reg: Register) void {
             const index = reg.allocIndex() orelse return;
+            log.debug("freeing register {}", .{reg});
 
             self.registers[index] = null;
             self.markRegFree(reg);

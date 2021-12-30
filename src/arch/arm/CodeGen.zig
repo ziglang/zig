@@ -783,7 +783,7 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
 
 pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
     const stack_mcv = try self.allocRegOrMem(inst, false);
-    log.debug("spilling {d} to stack mcv {any}", .{ inst, stack_mcv });
+    log.debug("spilling {} (%{d}) to stack mcv {any}", .{ reg, inst, stack_mcv });
     const reg_mcv = self.getResolvedInstValue(inst);
     assert(reg == reg_mcv.register);
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -1591,28 +1591,54 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
 fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-    return self.structFieldPtr(extra.struct_operand, ty_pl.ty, extra.field_index);
+    const result = try self.structFieldPtr(inst, extra.struct_operand, extra.field_index);
+    return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
 fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    return self.structFieldPtr(ty_op.operand, ty_op.ty, index);
+    const result = try self.structFieldPtr(inst, ty_op.operand, index);
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
-fn structFieldPtr(self: *Self, operand: Air.Inst.Ref, ty: Air.Inst.Ref, index: u32) !void {
-    _ = self;
-    _ = operand;
-    _ = ty;
-    _ = index;
-    return self.fail("TODO implement codegen struct_field_ptr", .{});
-    //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+
+fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
+    return if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(operand);
+        const struct_ty = self.air.typeOf(operand).childType();
+        const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
+        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+        const struct_field_ty = struct_ty.structFieldType(index);
+        const struct_field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
+        switch (mcv) {
+            .ptr_stack_offset => |off| {
+                break :result MCValue{ .ptr_stack_offset = off + struct_size - struct_field_offset - struct_field_size };
+            },
+            else => return self.fail("TODO implement codegen struct_field_ptr for {}", .{mcv}),
+        }
+    };
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-    _ = extra;
-    return self.fail("TODO implement codegen struct_field_val", .{});
-    //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+    const operand = extra.struct_operand;
+    const index = extra.field_index;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(operand);
+        const struct_ty = self.air.typeOf(operand);
+        const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
+        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+        const struct_field_ty = struct_ty.structFieldType(index);
+        const struct_field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
+        switch (mcv) {
+            .stack_offset => |off| {
+                break :result MCValue{ .stack_offset = off + struct_size - struct_field_offset - struct_field_size };
+            },
+            else => return self.fail("TODO implement codegen struct_field_val for {}", .{mcv}),
+        }
+    };
+
+    return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
 fn armOperandShouldBeRegister(self: *Self, mcv: MCValue) !bool {
@@ -1985,11 +2011,11 @@ fn genArmMulConstant(self: *Self, inst: Air.Inst.Index, op: Air.Inst.Ref, op_ind
         // Allocate 1 or 2 registers
         if (lhs_is_register) {
             // Move RHS to register
-            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{mcv.register}) };
+            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(null, &.{mcv.register}) };
             rhs_mcv = dst_mcv;
         } else {
             // Move LHS and RHS to register
-            const regs = try self.register_manager.allocRegs(2, .{ inst, null }, &.{});
+            const regs = try self.register_manager.allocRegs(2, .{ null, null }, &.{});
             lhs_mcv = MCValue{ .register = regs[0] };
             rhs_mcv = MCValue{ .register = regs[1] };
             dst_mcv = lhs_mcv;
@@ -2401,16 +2427,22 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         if (rhs_should_be_register) {
             if (!lhs_is_register and !rhs_is_register) {
                 const regs = try self.register_manager.allocRegs(2, .{
-                    Air.refToIndex(bin_op.rhs).?, Air.refToIndex(bin_op.lhs).?,
+                    Air.refToIndex(bin_op.lhs).?, Air.refToIndex(bin_op.rhs).?,
                 }, &.{});
                 lhs_mcv = MCValue{ .register = regs[0] };
                 rhs_mcv = MCValue{ .register = regs[1] };
             } else if (!rhs_is_register) {
-                rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.rhs).?, &.{}) };
+                const track_inst = if (self.liveness.operandDies(inst, 1)) null else Air.refToIndex(bin_op.rhs).?;
+                rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(track_inst, &.{}) };
+            } else if (!lhs_is_register) {
+                const track_inst = if (self.liveness.operandDies(inst, 0)) null else Air.refToIndex(bin_op.lhs).?;
+                lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(track_inst, &.{}) };
             }
-        }
-        if (!lhs_is_register) {
-            lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(bin_op.lhs).?, &.{}) };
+        } else {
+            if (!lhs_is_register) {
+                const track_inst = if (self.liveness.operandDies(inst, 0)) null else Air.refToIndex(bin_op.lhs).?;
+                lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(track_inst, &.{}) };
+            }
         }
 
         // Move the operands to the newly allocated registers
