@@ -186,3 +186,19 @@ test "lazy typeInfo value as generic parameter" {
     };
     S.foo(@typeInfo(@TypeOf(.{})));
 }
+
+test "variable name containing underscores does not shadow int primitive" {
+    const _u0 = 0;
+    const i_8 = 0;
+    const u16_ = 0;
+    const i3_2 = 0;
+    const u6__4 = 0;
+    const i2_04_8 = 0;
+
+    _ = _u0;
+    _ = i_8;
+    _ = u16_;
+    _ = i3_2;
+    _ = u6__4;
+    _ = i2_04_8;
+}

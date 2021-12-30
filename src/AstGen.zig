@@ -6017,6 +6017,27 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
     }
 }
 
+/// Parses the string `buf` as a base 10 integer of type `u16`.
+///
+/// Unlike std.fmt.parseInt, does not allow the '_' character in `buf`.
+fn parseBitCount(buf: []const u8) std.fmt.ParseIntError!u16 {
+    if (buf.len == 0) return error.InvalidCharacter;
+
+    var x: u16 = 0;
+
+    for (buf) |c| {
+        const digit = switch (c) {
+            '0'...'9' => c - '0',
+            else => return error.InvalidCharacter,
+        };
+
+        if (x != 0) x = try std.math.mul(u16, x, 10);
+        x = try std.math.add(u16, x, @as(u16, digit));
+    }
+
+    return x;
+}
+
 fn identifier(
     gz: *GenZir,
     scope: *Scope,
@@ -6050,7 +6071,7 @@ fn identifier(
                     true => .signed,
                     false => .unsigned,
                 };
-                const bit_count = std.fmt.parseInt(u16, ident_name_raw[1..], 10) catch |err| switch (err) {
+                const bit_count = parseBitCount(ident_name_raw[1..]) catch |err| switch (err) {
                     error.Overflow => return astgen.failNode(
                         ident,
                         "primitive integer type '{s}' exceeds maximum bit width of 65535",
@@ -8864,7 +8885,7 @@ const GenZir = struct {
     parent: *Scope,
     /// All `GenZir` scopes for the same ZIR share this.
     astgen: *AstGen,
-    /// Keeps track of the list of instructions in this scope. Possibly shared. 
+    /// Keeps track of the list of instructions in this scope. Possibly shared.
     /// Indexes to instructions in `astgen`.
     instructions: *ArrayListUnmanaged(Zir.Inst.Index),
     /// A sub-block may share its instructions ArrayList with containing GenZir,
@@ -10098,7 +10119,7 @@ pub fn isPrimitive(name: []const u8) bool {
     if (name.len < 2) return false;
     const first_c = name[0];
     if (first_c != 'i' and first_c != 'u') return false;
-    if (std.fmt.parseInt(u16, name[1..], 10)) |_| {
+    if (parseBitCount(name[1..])) |_| {
         return true;
     } else |err| switch (err) {
         error.Overflow => return true,
