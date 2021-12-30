@@ -81,6 +81,7 @@ pub const sort = @import("sort.zig");
 pub const ascii = @import("ascii.zig");
 pub const testing = @import("testing.zig");
 pub const time = @import("time.zig");
+pub const tz = @import("tz.zig");
 pub const unicode = @import("unicode.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const wasm = @import("wasm.zig");
