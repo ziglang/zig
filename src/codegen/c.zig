@@ -385,11 +385,6 @@ pub const DeclGen = struct {
                 // First try specific tag representations for more efficiency.
                 switch (val.tag()) {
                     .undef, .empty_struct_value, .empty_array => try writer.writeAll("{}"),
-                    .bytes => {
-                        const bytes = val.castTag(.bytes).?.data;
-                        // TODO: make our own C string escape instead of using std.zig.fmtEscapes
-                        try writer.print("\"{}\"", .{std.zig.fmtEscapes(bytes)});
-                    },
                     else => {
                         // Fall back to generic implementation.
                         var arena = std.heap.ArenaAllocator.init(dg.module.gpa);
@@ -1449,14 +1444,18 @@ fn airArg(f: *Function) CValue {
 fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const is_volatile = f.air.typeOf(ty_op.operand).isVolatilePtr();
+
     if (!is_volatile and f.liveness.isUnused(inst))
         return CValue.none;
+
     const inst_ty = f.air.typeOfIndex(inst);
-    if (inst_ty.zigTypeTag() == .Array)
-        return f.fail("TODO: C backend: implement airLoad for arrays", .{});
+    const is_array = inst_ty.zigTypeTag() == .Array;
     const operand = try f.resolveInst(ty_op.operand);
     const writer = f.object.writer();
-    const local = try f.allocLocal(inst_ty, .Const);
+
+    // We need to separately initialize arrays with a memcpy so they must be mutable.
+    const local = try f.allocLocal(inst_ty, if (is_array) .Mut else .Const);
+
     switch (operand) {
         .local_ref => |i| {
             const wrapped: CValue = .{ .local = i };
@@ -1471,9 +1470,23 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
             try writer.writeAll(";\n");
         },
         else => {
-            try writer.writeAll(" = *");
-            try f.writeCValue(writer, operand);
-            try writer.writeAll(";\n");
+            if (is_array) {
+                // Insert a memcpy to initialize this array. The source operand is always a pointer
+                // and thus we only need to know size/type information from the local type/dest.
+                try writer.writeAll(";");
+                try f.object.indent_writer.insertNewline();
+                try writer.writeAll("memcpy(");
+                try f.writeCValue(writer, local);
+                try writer.writeAll(", ");
+                try f.writeCValue(writer, operand);
+                try writer.writeAll(", sizeof(");
+                try f.writeCValue(writer, local);
+                try writer.writeAll("));\n");
+            } else {
+                try writer.writeAll(" = *");
+                try f.writeCValue(writer, operand);
+                try writer.writeAll(";\n");
+            }
         },
     }
     return local;
@@ -1580,7 +1593,7 @@ fn airBoolToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airStoreUndefined(f: *Function, dest_ptr: CValue, dest_type: Type) !CValue {
+fn airStoreUndefined(f: *Function, dest_ptr: CValue, dest_child_type: Type) !CValue {
     const is_debug_build = f.object.dg.module.optimizeMode() == .Debug;
     if (!is_debug_build)
         return CValue.none;
@@ -1604,7 +1617,7 @@ fn airStoreUndefined(f: *Function, dest_ptr: CValue, dest_type: Type) !CValue {
             try writer.writeAll("));\n");
         },
         else => {
-            const indirection = if (dest_type.childType().zigTypeTag() == .Array) "" else "*";
+            const indirection = if (dest_child_type.zigTypeTag() == .Array) "" else "*";
 
             try writer.writeAll("memset(");
             try f.writeCValue(writer, dest_ptr);
@@ -1621,18 +1634,14 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
     const dest_ptr = try f.resolveInst(bin_op.lhs);
     const src_val = try f.resolveInst(bin_op.rhs);
-    const lhs_type = f.air.typeOf(bin_op.lhs);
+    const lhs_child_type = f.air.typeOf(bin_op.lhs).childType();
 
     // TODO Sema should emit a different instruction when the store should
     // possibly do the safety 0xaa bytes for undefined.
     const src_val_is_undefined =
         if (f.air.value(bin_op.rhs)) |v| v.isUndefDeep() else false;
     if (src_val_is_undefined)
-        return try airStoreUndefined(f, dest_ptr, lhs_type);
-
-    // Don't check this for airStoreUndefined as that will work for arrays already
-    if (lhs_type.childType().zigTypeTag() == .Array)
-        return f.fail("TODO: C backend: implement airStore for arrays", .{});
+        return try airStoreUndefined(f, dest_ptr, lhs_child_type);
 
     const writer = f.object.writer();
     switch (dest_ptr) {
@@ -1651,11 +1660,39 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
             try writer.writeAll(";\n");
         },
         else => {
-            try writer.writeAll("*");
-            try f.writeCValue(writer, dest_ptr);
-            try writer.writeAll(" = ");
-            try f.writeCValue(writer, src_val);
-            try writer.writeAll(";\n");
+            if (lhs_child_type.zigTypeTag() == .Array) {
+                // For this memcpy to safely work we need the rhs to have the same
+                // underlying type as the lhs (i.e. they must both be arrays of the same underlying type).
+                const rhs_type = f.air.typeOf(bin_op.rhs);
+                assert(rhs_type.eql(lhs_child_type));
+
+                // If the source is a constant, writeCValue will emit a brace initialization
+                // so work around this by initializing into new local.
+                // TODO this should be done by manually initializing elements of the dest array
+                const array_src = if (src_val == .constant) blk: {
+                    const new_local = try f.allocLocal(rhs_type, .Const);
+                    try writer.writeAll(" = ");
+                    try f.writeCValue(writer, src_val);
+                    try writer.writeAll(";");
+                    try f.object.indent_writer.insertNewline();
+
+                    break :blk new_local;
+                } else src_val;
+
+                try writer.writeAll("memcpy(");
+                try f.writeCValue(writer, dest_ptr);
+                try writer.writeAll(", ");
+                try f.writeCValue(writer, array_src);
+                try writer.writeAll(", sizeof(");
+                try f.writeCValue(writer, array_src);
+                try writer.writeAll("));\n");
+            } else {
+                try writer.writeAll("*");
+                try f.writeCValue(writer, dest_ptr);
+                try writer.writeAll(" = ");
+                try f.writeCValue(writer, src_val);
+                try writer.writeAll(";\n");
+            }
         },
     }
     return CValue.none;
