@@ -1662,7 +1662,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
 
-    if (comp.bin_file.options.emit != null and !comp.bin_file.options.skip_linker_dependencies) {
+    const have_bin_emit = comp.bin_file.options.emit != null or comp.whole_bin_basename != null;
+
+    if (have_bin_emit and !comp.bin_file.options.skip_linker_dependencies) {
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
         if (comp.wantBuildGLibCFromSource()) {
@@ -1767,8 +1769,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         if (comp.bin_file.options.include_compiler_rt and capable_of_building_compiler_rt) {
             if (is_exe_or_dyn_lib) {
+                log.debug("queuing a job to build compiler_rt_lib", .{});
                 try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
             } else if (options.output_mode != .Obj) {
+                log.debug("queuing a job to build compiler_rt_obj", .{});
                 // If build-obj with -fcompiler-rt is requested, that is handled specially
                 // elsewhere. In this case we are making a static library, so we ask
                 // for a compiler-rt object to put in it.
@@ -1930,6 +1934,7 @@ pub fn update(comp: *Compilation) !void {
             return err;
         };
         if (is_hit) {
+            log.debug("CacheMode.whole cache hit for {s}", .{comp.bin_file.options.root_name});
             const digest = man.final();
 
             // Communicate the output binary location to parent Compilations.
@@ -1952,6 +1957,8 @@ pub fn update(comp: *Compilation) !void {
             comp.bin_file.lock = man.toOwnedLock();
             return;
         }
+        log.debug("CacheMode.whole cache miss for {s}", .{comp.bin_file.options.root_name});
+
         comp.whole_cache_manifest = &man;
 
         // Initialize `bin_file.emit` with a temporary Directory so that compilation can
@@ -2187,6 +2194,8 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
             try addPackageTableToCacheHash(&man.hash, &arena_allocator, mod.main_pkg.table, &seen_table, .{ .files = man });
         }
+
+        man.hash.add(mod.emit_h != null);
     }
 
     try man.addOptionalFile(comp.bin_file.options.linker_script);

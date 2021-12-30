@@ -2564,9 +2564,7 @@ fn buildOutputType(
 
         switch (emit_bin) {
             .no => break :blk .none,
-            .yes_default_path => break :blk .{
-                .print = comp.bin_file.options.emit.?.directory.path orelse ".",
-            },
+            .yes_default_path => break :blk .print_emit_bin_dir_path,
             .yes => |full_path| break :blk .{ .update = full_path },
             .yes_a_out => break :blk .{ .update = a_out_basename },
         }
@@ -2598,7 +2596,6 @@ fn buildOutputType(
             comp,
             gpa,
             arena,
-            emit_bin_loc,
             test_exec_args.items,
             self_exe_path,
             arg_mode,
@@ -2671,7 +2668,6 @@ fn buildOutputType(
                         comp,
                         gpa,
                         arena,
-                        emit_bin_loc,
                         test_exec_args.items,
                         self_exe_path,
                         arg_mode,
@@ -2697,7 +2693,6 @@ fn buildOutputType(
                         comp,
                         gpa,
                         arena,
-                        emit_bin_loc,
                         test_exec_args.items,
                         self_exe_path,
                         arg_mode,
@@ -2762,7 +2757,6 @@ fn runOrTest(
     comp: *Compilation,
     gpa: Allocator,
     arena: Allocator,
-    emit_bin_loc: ?Compilation.EmitLoc,
     test_exec_args: []const ?[]const u8,
     self_exe_path: []const u8,
     arg_mode: ArgMode,
@@ -2773,10 +2767,11 @@ fn runOrTest(
     runtime_args_start: ?usize,
     link_libc: bool,
 ) !void {
-    const exe_loc = emit_bin_loc orelse return;
-    const exe_directory = exe_loc.directory orelse comp.bin_file.options.emit.?.directory;
+    const exe_emit = comp.bin_file.options.emit orelse return;
+    // A naive `directory.join` here will indeed get the correct path to the binary,
+    // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
     const exe_path = try fs.path.join(arena, &[_][]const u8{
-        exe_directory.path orelse ".", exe_loc.basename,
+        exe_emit.directory.path orelse ".", exe_emit.sub_path,
     });
 
     var argv = std.ArrayList([]const u8).init(gpa);
@@ -2880,7 +2875,7 @@ fn runOrTest(
 
 const AfterUpdateHook = union(enum) {
     none,
-    print: []const u8,
+    print_emit_bin_dir_path,
     update: []const u8,
 };
 
@@ -2906,7 +2901,13 @@ fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void
         return error.SemanticAnalyzeFail;
     } else switch (hook) {
         .none => {},
-        .print => |bin_path| try io.getStdOut().writer().print("{s}\n", .{bin_path}),
+        .print_emit_bin_dir_path => {
+            const emit = comp.bin_file.options.emit.?;
+            const full_path = try emit.directory.join(gpa, &.{emit.sub_path});
+            defer gpa.free(full_path);
+            const dir_path = fs.path.dirname(full_path).?;
+            try io.getStdOut().writer().print("{s}\n", .{dir_path});
+        },
         .update => |full_path| {
             const bin_sub_path = comp.bin_file.options.emit.?.sub_path;
             const cwd = fs.cwd();
@@ -3469,9 +3470,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         };
         try comp.makeBinFileExecutable();
 
-        child_argv.items[argv_index_exe] = try comp.bin_file.options.emit.?.directory.join(
+        const emit = comp.bin_file.options.emit.?;
+        child_argv.items[argv_index_exe] = try emit.directory.join(
             arena,
-            &[_][]const u8{exe_basename},
+            &[_][]const u8{emit.sub_path},
         );
 
         break :argv child_argv.items;
