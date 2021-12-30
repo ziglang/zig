@@ -329,7 +329,11 @@ pub fn generate(
     if (builtin.mode == .Debug and bin_file.options.module.?.comp.verbose_mir) {
         const w = std.io.getStdErr().writer();
         w.print("# Begin Function MIR: {s}:\n", .{module_fn.owner_decl.name}) catch {};
-        const print = @import("./PrintMir.zig"){ .mir = mir };
+        const PrintMir = @import("PrintMir.zig");
+        const print = PrintMir{
+            .mir = mir,
+            .bin_file = bin_file,
+        };
         print.printMir(w, function.mir_to_air_map, air) catch {}; // we don't care if the debug printing fails
         w.print("# End Function MIR: {s}\n\n", .{module_fn.owner_decl.name}) catch {};
     }
@@ -1642,11 +1646,11 @@ fn genBinMathOpMir(
                     });
                 },
                 .immediate => |imm| {
-                    // TODO I am not quite sure why we need to set the size of the register here...
+                    const abi_size = dst_ty.abiSize(self.target.*);
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = registerAlias(dst_reg, 4),
+                            .reg1 = registerAlias(dst_reg, @intCast(u32, abi_size)),
                         }).encode(),
                         .data = .{ .imm = @intCast(i32, imm) },
                     });
@@ -1751,13 +1755,14 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                     });
                 },
                 .immediate => |imm| {
+                    // TODO take into account the type's ABI size when selecting the register alias
                     // register, immediate
                     if (imm <= math.maxInt(i32)) {
                         _ = try self.addInst(.{
                             .tag = .imul_complex,
                             .ops = (Mir.Ops{
-                                .reg1 = dst_reg,
-                                .reg2 = dst_reg,
+                                .reg1 = dst_reg.to32(),
+                                .reg2 = dst_reg.to32(),
                                 .flags = 0b10,
                             }).encode(),
                             .data = .{ .imm = @intCast(i32, imm) },
@@ -2147,7 +2152,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         // This instruction supports only signed 32-bit immediates at most.
         const src_mcv = try self.limitImmediateType(bin_op.rhs, i32);
 
-        try self.genBinMathOpMir(.cmp, Type.initTag(.bool), dst_mcv, src_mcv);
+        try self.genBinMathOpMir(.cmp, ty, dst_mcv, src_mcv);
         break :result switch (ty.isSignedInt()) {
             true => MCValue{ .compare_flags_signed = op },
             false => MCValue{ .compare_flags_unsigned = op },
@@ -2792,25 +2797,24 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 return self.fail("TODO implement set stack variable with large stack offset", .{});
             }
             switch (abi_size) {
-                1 => {
-                    return self.fail("TODO implement set abi_size=1 stack variable with immediate", .{});
-                },
-                2 => {
-                    return self.fail("TODO implement set abi_size=2 stack variable with immediate", .{});
-                },
-                4 => {
+                1, 2, 4 => {
                     // We have a positive stack offset value but we want a twos complement negative
                     // offset from rbp, which is at the top of the stack frame.
-                    // mov    DWORD PTR [rbp+offset], immediate
+                    // mov [rbp+offset], immediate
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = -@intCast(i32, adj_off),
                         .operand = @bitCast(i32, @intCast(u32, x_big)),
                     });
                     _ = try self.addInst(.{
-                        .tag = .mov,
+                        .tag = .mov_mem_imm,
                         .ops = (Mir.Ops{
                             .reg1 = .rbp,
-                            .flags = 0b11,
+                            .flags = switch (abi_size) {
+                                1 => 0b00,
+                                2 => 0b01,
+                                4 => 0b10,
+                                else => unreachable,
+                            },
                         }).encode(),
                         .data = .{ .payload = payload },
                     });
@@ -2828,10 +2832,10 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             .operand = @bitCast(i32, @truncate(u32, x_big >> 32)),
                         });
                         _ = try self.addInst(.{
-                            .tag = .mov,
+                            .tag = .mov_mem_imm,
                             .ops = (Mir.Ops{
                                 .reg1 = .rbp,
-                                .flags = 0b11,
+                                .flags = 0b10,
                             }).encode(),
                             .data = .{ .payload = payload },
                         });
@@ -2842,10 +2846,10 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             .operand = @bitCast(i32, @truncate(u32, x_big)),
                         });
                         _ = try self.addInst(.{
-                            .tag = .mov,
+                            .tag = .mov_mem_imm,
                             .ops = (Mir.Ops{
                                 .reg1 = .rbp,
-                                .flags = 0b11,
+                                .flags = 0b10,
                             }).encode(),
                             .data = .{ .payload = payload },
                         });
@@ -2954,12 +2958,12 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 return;
             }
             if (x <= math.maxInt(i32)) {
+                const abi_size = ty.abiSize(self.target.*);
                 // Next best case: if we set the lower four bytes, the upper four will be zeroed.
-                // TODO I am not quite sure why we need to set the size of the register here...
                 _ = try self.addInst(.{
                     .tag = .mov,
                     .ops = (Mir.Ops{
-                        .reg1 = registerAlias(reg, 4),
+                        .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
                     }).encode(),
                     .data = .{ .imm = @intCast(i32, x) },
                 });
@@ -2985,9 +2989,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // We need the offset from RIP in a signed i32 twos complement.
             const payload = try self.addExtra(Mir.Imm64.encode(code_offset));
             _ = try self.addInst(.{
-                .tag = .lea_rip,
+                .tag = .lea,
                 .ops = (Mir.Ops{
                     .reg1 = reg,
+                    .flags = 0b01,
                 }).encode(),
                 .data = .{ .payload = payload },
             });
@@ -3011,10 +3016,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             if (self.bin_file.options.pie) {
                 // TODO we should flag up `x` as GOT symbol entry explicitly rather than as a hack.
                 _ = try self.addInst(.{
-                    .tag = .lea_rip,
+                    .tag = .lea,
                     .ops = (Mir.Ops{
                         .reg1 = reg,
-                        .flags = 0b01,
+                        .flags = 0b10,
                     }).encode(),
                     .data = .{ .got_entry = @intCast(u32, x) },
                 });
