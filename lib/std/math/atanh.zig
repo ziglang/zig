@@ -107,15 +107,15 @@ test "math.atanh_64" {
 test "math.atanh32.special" {
     try expect(math.isPositiveInf(atanh_32(1)));
     try expect(math.isNegativeInf(atanh_32(-1)));
-    try expect(math.isSignalNan(atanh_32(1.5)));
-    try expect(math.isSignalNan(atanh_32(-1.5)));
+    try expect(math.isNan(atanh_32(1.5)));
+    try expect(math.isNan(atanh_32(-1.5)));
     try expect(math.isNan(atanh_32(math.nan(f32))));
 }
 
 test "math.atanh64.special" {
     try expect(math.isPositiveInf(atanh_64(1)));
     try expect(math.isNegativeInf(atanh_64(-1)));
-    try expect(math.isSignalNan(atanh_64(1.5)));
-    try expect(math.isSignalNan(atanh_64(-1.5)));
+    try expect(math.isNan(atanh_64(1.5)));
+    try expect(math.isNan(atanh_64(-1.5)));
     try expect(math.isNan(atanh_64(math.nan(f64))));
 }
