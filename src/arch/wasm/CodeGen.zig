@@ -973,6 +973,41 @@ fn genTypedValue(self: *Self, ty: Type, val: Value) InnerError!Result {
             },
             else => return self.fail("TODO: Implement zig decl gen for pointer type value: '{s}'", .{@tagName(val.tag())}),
         },
+        .ErrorUnion => {
+            const error_ty = ty.errorUnionSet();
+            const payload_ty = ty.errorUnionPayload();
+            const is_pl = val.errorUnionIsPayload();
+
+            const err_val = if (!is_pl) val else Value.initTag(.zero);
+            switch (try self.genTypedValue(error_ty, err_val)) {
+                .externally_managed => |data| try self.code.appendSlice(data),
+                .appended => {},
+            }
+
+            if (payload_ty.hasCodeGenBits()) {
+                const pl_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef);
+                switch (try self.genTypedValue(payload_ty, pl_val)) {
+                    .externally_managed => |data| try self.code.appendSlice(data),
+                    .appended => {},
+                }
+            }
+
+            return Result.appended;
+        },
+        .ErrorSet => {
+            switch (val.tag()) {
+                .@"error" => {
+                    const name = val.castTag(.@"error").?.data.name;
+                    const value = self.global_error_set.get(name).?;
+                    try self.code.writer().writeIntLittle(u32, value);
+                },
+                else => {
+                    const abi_size = @intCast(usize, ty.abiSize(self.target));
+                    try self.code.appendNTimes(0, abi_size);
+                },
+            }
+            return Result.appended;
+        },
         else => |tag| return self.fail("TODO: Implement zig type codegen for type: '{s}'", .{tag}),
     }
 }
@@ -1147,6 +1182,26 @@ fn toWasmIntBits(bits: u16) ?u16 {
     return for ([_]u16{ 32, 64 }) |wasm_bits| {
         if (bits <= wasm_bits) return wasm_bits;
     } else null;
+}
+
+/// Performs a copy of bytes for a given type. Copying all bytes
+/// from rhs to lhs.
+/// Asserts `lhs` and `rhs` have their active tag set to `local`
+///
+/// TODO: Perform feature detection and when bulk_memory is available,
+/// use wasm's mem.copy instruction.
+fn memCopy(self: *Self, ty: Type, lhs: WValue, rhs: WValue) !void {
+    const abi_size = ty.abiSize(self.target);
+    var offset: u32 = 0;
+    while (offset < abi_size) : (offset += 1) {
+        // get lhs' address to store the result
+        try self.addLabel(.local_get, lhs.local);
+        // load byte from rhs' adress
+        try self.addLabel(.local_get, rhs.local);
+        try self.addMemArg(.i32_load8_u, .{ .offset = offset, .alignment = 1 });
+        // store the result in lhs (we already have its address on the stack)
+        try self.addMemArg(.i32_store8, .{ .offset = offset, .alignment = 1 });
+    }
 }
 
 fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
@@ -1482,20 +1537,12 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
             }
         },
         .Struct => {
-            // we are copying a struct with its fields.
-            // Replace this with a wasm memcpy instruction once we support that feature.
-            const fields_len = ty.structFieldCount();
-            var index: usize = 0;
-            while (index < fields_len) : (index += 1) {
-                const field_ty = ty.structFieldType(index);
-                if (!field_ty.hasCodeGenBits()) continue;
-                const field_offset = std.math.cast(u32, ty.structFieldOffset(index, self.target)) catch {
-                    return self.fail("Field type '{}' too big to fit into stack frame", .{field_ty});
-                };
-                const field_local = try self.load(rhs, field_ty, field_offset);
-                try self.store(lhs, field_local, field_ty, field_offset);
+            if (rhs == .constant) {
+                try self.emitWValue(rhs);
+                try self.addLabel(.local_set, lhs.local);
+                return;
             }
-            return;
+            return try self.memCopy(ty, lhs, rhs);
         },
         .Pointer => {
             if (ty.isSlice() and rhs == .constant) {
@@ -2086,19 +2133,20 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u32) InnerEr
             field_ty,
         });
     };
-    // field points to another struct, so retrieve that struct first
-    switch (struct_ptr) {
-        .local => return structFieldPtr(struct_ptr, offset),
-        .local_with_offset => |with_offset| {
-            const result = try self.load(struct_ptr, field_ty, with_offset.offset);
-            return structFieldPtr(result, offset);
-        },
-        else => unreachable,
-    }
+    return structFieldPtr(struct_ptr, offset);
 }
 
 fn structFieldPtr(struct_ptr: WValue, offset: u32) InnerError!WValue {
-    return WValue{ .local_with_offset = .{ .local = struct_ptr.local, .offset = offset } };
+    var final_offset = offset;
+    const local = switch (struct_ptr) {
+        .local => |local| local,
+        .local_with_offset => |with_offset| blk: {
+            final_offset += with_offset.offset;
+            break :blk with_offset.local;
+        },
+        else => unreachable,
+    };
+    return WValue{ .local_with_offset = .{ .local = local, .offset = final_offset } };
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2114,7 +2162,19 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, self.target)) catch {
         return self.fail("Field type '{}' too big to fit into stack frame", .{field_ty});
     };
-    return try self.load(operand, field_ty, offset);
+
+    // TODO: Replace this check with some 'isByRef' function to de-duplicate logic
+    if (field_ty.zigTypeTag() == .Struct) {
+        return WValue{ .local_with_offset = .{
+            .local = operand.local,
+            .offset = offset,
+        } };
+    }
+
+    switch (operand) {
+        .local_with_offset => |with_offset| return try self.load(operand, field_ty, offset + with_offset.offset),
+        else => return try self.load(operand, field_ty, offset),
+    }
 }
 
 fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
