@@ -41,6 +41,7 @@ test {
         _ = @import("behavior/defer.zig");
         _ = @import("behavior/error.zig");
         _ = @import("behavior/fn_in_struct_in_comptime.zig");
+        _ = @import("behavior/for.zig");
         _ = @import("behavior/generics.zig");
         _ = @import("behavior/if.zig");
         _ = @import("behavior/incomplete_struct_param_tld.zig");
@@ -85,7 +86,6 @@ test {
             _ = @import("behavior/eval.zig");
             _ = @import("behavior/floatop.zig");
             _ = @import("behavior/fn.zig");
-            _ = @import("behavior/for.zig");
             _ = @import("behavior/generics_llvm.zig");
             _ = @import("behavior/math.zig");
             _ = @import("behavior/maximum_minimum.zig");

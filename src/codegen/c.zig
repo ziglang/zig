@@ -1449,14 +1449,18 @@ fn airArg(f: *Function) CValue {
 fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const is_volatile = f.air.typeOf(ty_op.operand).isVolatilePtr();
+
     if (!is_volatile and f.liveness.isUnused(inst))
         return CValue.none;
+
     const inst_ty = f.air.typeOfIndex(inst);
-    if (inst_ty.zigTypeTag() == .Array)
-        return f.fail("TODO: C backend: implement airLoad for arrays", .{});
+    const is_array = inst_ty.zigTypeTag() == .Array;
     const operand = try f.resolveInst(ty_op.operand);
     const writer = f.object.writer();
-    const local = try f.allocLocal(inst_ty, .Const);
+
+    // We need to separately initialize arrays with a memcpy so they must be mutable.
+    const local = try f.allocLocal(inst_ty, if (is_array) .Mut else .Const);
+
     switch (operand) {
         .local_ref => |i| {
             const wrapped: CValue = .{ .local = i };
@@ -1471,9 +1475,23 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
             try writer.writeAll(";\n");
         },
         else => {
-            try writer.writeAll(" = *");
-            try f.writeCValue(writer, operand);
-            try writer.writeAll(";\n");
+            if (is_array) {
+                // Insert a memcpy to initialize this array. The source operand is always a pointer
+                // and thus we only need to know size/type information from the local type/dest.
+                try writer.writeAll(";");
+                try f.object.indent_writer.insertNewline();
+                try writer.writeAll("memcpy(");
+                try f.writeCValue(writer, local);
+                try writer.writeAll(", ");
+                try f.writeCValue(writer, operand);
+                try writer.writeAll(", sizeof(");
+                try f.writeCValue(writer, local);
+                try writer.writeAll("));\n");
+            } else {
+                try writer.writeAll(" = *");
+                try f.writeCValue(writer, operand);
+                try writer.writeAll(";\n");
+            }
         },
     }
     return local;
