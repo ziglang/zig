@@ -3380,6 +3380,19 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {},
         }
+
+        if (mod.comp.whole_cache_manifest) |man| {
+            assert(file.source_loaded);
+            const resolved_path = try file.pkg.root_src_directory.join(gpa, &.{
+                file.sub_file_path,
+            });
+            errdefer gpa.free(resolved_path);
+            try man.addFilePostContents(resolved_path, file.source, .{
+                .size = file.stat_size,
+                .inode = file.stat_inode,
+                .mtime = file.stat_mtime,
+            });
+        }
     } else {
         new_decl.analysis = .file_failure;
     }
@@ -3835,6 +3848,16 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     log.debug("new embedFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, rel_file_path={s}", .{
         resolved_root_path, resolved_path, sub_file_path, rel_file_path,
     });
+
+    if (mod.comp.whole_cache_manifest) |man| {
+        const copied_resolved_path = try gpa.dupe(u8, resolved_path);
+        errdefer gpa.free(copied_resolved_path);
+        try man.addFilePostContents(copied_resolved_path, bytes, .{
+            .size = stat.size,
+            .inode = stat.inode,
+            .mtime = stat.mtime,
+        });
+    }
 
     keep_resolved_path = true; // It's now owned by embed_table.
     gop.value_ptr.* = new_file;
