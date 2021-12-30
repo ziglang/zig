@@ -5042,6 +5042,17 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:12: note: control flow is diverted here",
     });
 
+    ctx.objErrStage1("unreachable code - double break",
+        \\export fn a() void {
+        \\    const b = blk: {
+        \\        break :blk break :blk @as(u32, 1);
+        \\    };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:9: error: unreachable code",
+        "tmp.zig:3:20: note: control flow is diverted here",
+    });
+
     ctx.objErrStage1("chained comparison operators",
         \\export fn a(value: u32) bool {
         \\    return 1 < value < 1000;

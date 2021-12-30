@@ -1,6 +1,7 @@
-const expect = @import("std").testing.expect;
-const mem = @import("std").mem;
-const fmt = @import("std").fmt;
+const std = @import("std");
+const expect = std.testing.expect;
+const mem = std.mem;
+const fmt = std.fmt;
 
 const ET = union(enum) {
     SINT: i32,

@@ -4,29 +4,6 @@ const mem = std.mem;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "single-item pointer to array indexing and slicing" {
-    try testSingleItemPtrArrayIndexSlice();
-    comptime try testSingleItemPtrArrayIndexSlice();
-}
-
-fn testSingleItemPtrArrayIndexSlice() !void {
-    {
-        var array: [4]u8 = "aaaa".*;
-        doSomeMangling(&array);
-        try expect(mem.eql(u8, "azya", &array));
-    }
-    {
-        var array = "aaaa".*;
-        doSomeMangling(&array);
-        try expect(mem.eql(u8, "azya", &array));
-    }
-}
-
-fn doSomeMangling(array: *[4]u8) void {
-    array[1] = 'z';
-    array[2..3][0] = 'y';
-}
-
 test "implicit cast single-item pointer" {
     try testImplicitCastSingleItemPtr();
     comptime try testImplicitCastSingleItemPtr();
@@ -134,33 +111,6 @@ test "double nested array to const slice cast in array literal" {
     };
     try S.entry(2);
     comptime try S.entry(2);
-}
-
-test "implicit cast zero sized array ptr to slice" {
-    {
-        var b = "".*;
-        const c: []const u8 = &b;
-        try expect(c.len == 0);
-    }
-    {
-        var b: [0]u8 = "".*;
-        const c: []const u8 = &b;
-        try expect(c.len == 0);
-    }
-}
-
-test "anonymous list literal syntax" {
-    const S = struct {
-        fn doTheTest() !void {
-            var array: [4]u8 = .{ 1, 2, 3, 4 };
-            try expect(array[0] == 1);
-            try expect(array[1] == 2);
-            try expect(array[2] == 3);
-            try expect(array[3] == 4);
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
 }
 
 test "anonymous literal in array" {

@@ -496,6 +496,11 @@ pub const Inst = struct {
         /// Uses the `pl_op` field with payload `AtomicRmw`. Operand is `ptr`.
         atomic_rmw,
 
+        /// Given an enum tag value, returns the tag name. The enum type may be non-exhaustive.
+        /// Result type is always `[:0]const u8`.
+        /// Uses the `un_op` field.
+        tag_name,
+
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
                 .lt => .cmp_lt,
@@ -810,6 +815,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         => return Type.initTag(.usize),
 
         .bool_to_int => return Type.initTag(.u1),
+
+        .tag_name => return Type.initTag(.const_slice_u8_sentinel_0),
 
         .call => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand);

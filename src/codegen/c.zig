@@ -302,7 +302,11 @@ pub const DeclGen = struct {
                         else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
                     }
                 },
-
+                .Pointer => switch (dg.module.getTarget().cpu.arch.ptrBitWidth()) {
+                    32 => return writer.writeAll("(void *)0xaaaaaaaa"),
+                    64 => return writer.writeAll("(void *)0xaaaaaaaaaaaaaaaa"),
+                    else => unreachable,
+                },
                 else => {
                     // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
                     // lower to leaving variables uninitialized (that might need to be implemented
@@ -685,6 +689,7 @@ pub const DeclGen = struct {
             var it = struct_obj.fields.iterator();
             while (it.next()) |entry| {
                 const field_ty = entry.value_ptr.ty;
+                if (!field_ty.hasCodeGenBits()) continue;
                 const name: CValue = .{ .bytes = entry.key_ptr.* };
                 try buffer.append(' ');
                 try dg.renderTypeAndName(buffer.writer(), field_ty, name, .Mut);
@@ -1230,6 +1235,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .clz              => try airBuiltinCall(f, inst, "clz"),
             .ctz              => try airBuiltinCall(f, inst, "ctz"),
             .popcount         => try airBuiltinCall(f, inst, "popcount"),
+            .tag_name         => try airTagName(f, inst),
 
             .int_to_float,
             .float_to_int,
@@ -1399,9 +1405,19 @@ fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
     const inst_ty = f.air.typeOfIndex(inst);
 
-    // First line: the variable used as data storage.
     const elem_type = inst_ty.elemType();
     const mutability: Mutability = if (inst_ty.isConstPtr()) .Const else .Mut;
+    if (!elem_type.hasCodeGenBits()) {
+        const target = f.object.dg.module.getTarget();
+        const literal = switch (target.cpu.arch.ptrBitWidth()) {
+            32 => "(void *)0xaaaaaaaa",
+            64 => "(void *)0xaaaaaaaaaaaaaaaa",
+            else => unreachable,
+        };
+        return CValue{ .bytes = literal };
+    }
+
+    // First line: the variable used as data storage.
     const local = try f.allocLocal(elem_type, mutability);
     try writer.writeAll(";\n");
 
@@ -2912,6 +2928,24 @@ fn airGetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, operand);
     try writer.writeAll(");\n");
     return local;
+}
+
+fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const operand = try f.resolveInst(un_op);
+    const local = try f.allocLocal(inst_ty, .Const);
+
+    try writer.writeAll(" = ");
+
+    _ = operand;
+    _ = local;
+    return f.fail("TODO: C backend: implement airTagName", .{});
+    //try writer.writeAll(";\n");
+    //return local;
 }
 
 fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {

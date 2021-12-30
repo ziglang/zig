@@ -605,3 +605,268 @@ test "enum with specified tag values" {
     try testEnumWithSpecifiedTagValues(MultipleChoice.C);
     comptime try testEnumWithSpecifiedTagValues(MultipleChoice.C);
 }
+
+test "non-exhaustive enum" {
+    const S = struct {
+        const E = enum(u8) { a, b, _ };
+
+        fn doTheTest(y: u8) !void {
+            var e: E = .b;
+            try expect(switch (e) {
+                .a => false,
+                .b => true,
+                _ => false,
+            });
+            e = @intToEnum(E, 12);
+            try expect(switch (e) {
+                .a => false,
+                .b => false,
+                _ => true,
+            });
+
+            try expect(switch (e) {
+                .a => false,
+                .b => false,
+                else => true,
+            });
+            e = .b;
+            try expect(switch (e) {
+                .a => false,
+                else => true,
+            });
+
+            try expect(@typeInfo(E).Enum.fields.len == 2);
+            e = @intToEnum(E, 12);
+            try expect(@enumToInt(e) == 12);
+            e = @intToEnum(E, y);
+            try expect(@enumToInt(e) == 52);
+            try expect(@typeInfo(E).Enum.is_exhaustive == false);
+        }
+    };
+    try S.doTheTest(52);
+    comptime try S.doTheTest(52);
+}
+
+test "empty non-exhaustive enum" {
+    const S = struct {
+        const E = enum(u8) { _ };
+
+        fn doTheTest(y: u8) !void {
+            var e = @intToEnum(E, y);
+            try expect(switch (e) {
+                _ => true,
+            });
+            try expect(@enumToInt(e) == y);
+
+            try expect(@typeInfo(E).Enum.fields.len == 0);
+            try expect(@typeInfo(E).Enum.is_exhaustive == false);
+        }
+    };
+    try S.doTheTest(42);
+    comptime try S.doTheTest(42);
+}
+
+test "single field non-exhaustive enum" {
+    const S = struct {
+        const E = enum(u8) { a, _ };
+        fn doTheTest(y: u8) !void {
+            var e: E = .a;
+            try expect(switch (e) {
+                .a => true,
+                _ => false,
+            });
+            e = @intToEnum(E, 12);
+            try expect(switch (e) {
+                .a => false,
+                _ => true,
+            });
+
+            try expect(switch (e) {
+                .a => false,
+                else => true,
+            });
+            e = .a;
+            try expect(switch (e) {
+                .a => true,
+                else => false,
+            });
+
+            try expect(@enumToInt(@intToEnum(E, y)) == y);
+            try expect(@typeInfo(E).Enum.fields.len == 1);
+            try expect(@typeInfo(E).Enum.is_exhaustive == false);
+        }
+    };
+    try S.doTheTest(23);
+    comptime try S.doTheTest(23);
+}
+
+const EnumWithTagValues = enum(u4) {
+    A = 1 << 0,
+    B = 1 << 1,
+    C = 1 << 2,
+    D = 1 << 3,
+};
+test "enum with tag values don't require parens" {
+    try expect(@enumToInt(EnumWithTagValues.C) == 0b0100);
+}
+
+const MultipleChoice2 = enum(u32) {
+    Unspecified1,
+    A = 20,
+    Unspecified2,
+    B = 40,
+    Unspecified3,
+    C = 60,
+    Unspecified4,
+    D = 1000,
+    Unspecified5,
+};
+
+test "cast integer literal to enum" {
+    try expect(@intToEnum(MultipleChoice2, 0) == MultipleChoice2.Unspecified1);
+    try expect(@intToEnum(MultipleChoice2, 40) == MultipleChoice2.B);
+}
+
+test "enum with specified and unspecified tag values" {
+    try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
+    comptime try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
+}
+
+fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
+    try expect(@enumToInt(x) == 1000);
+    try expect(1234 == switch (x) {
+        MultipleChoice2.A => 1,
+        MultipleChoice2.B => 2,
+        MultipleChoice2.C => 3,
+        MultipleChoice2.D => @as(u32, 1234),
+        MultipleChoice2.Unspecified1 => 5,
+        MultipleChoice2.Unspecified2 => 6,
+        MultipleChoice2.Unspecified3 => 7,
+        MultipleChoice2.Unspecified4 => 8,
+        MultipleChoice2.Unspecified5 => 9,
+    });
+}
+
+const Small2 = enum(u2) { One, Two };
+const Small = enum(u2) { One, Two, Three, Four };
+
+test "set enum tag type" {
+    {
+        var x = Small.One;
+        x = Small.Two;
+        comptime try expect(Tag(Small) == u2);
+    }
+    {
+        var x = Small2.One;
+        x = Small2.Two;
+        comptime try expect(Tag(Small2) == u2);
+    }
+}
+
+test "casting enum to its tag type" {
+    try testCastEnumTag(Small2.Two);
+    comptime try testCastEnumTag(Small2.Two);
+}
+
+fn testCastEnumTag(value: Small2) !void {
+    try expect(@enumToInt(value) == 1);
+}
+
+test "enum with 1 field but explicit tag type should still have the tag type" {
+    const Enum = enum(u8) {
+        B = 2,
+    };
+    comptime try expect(@sizeOf(Enum) == @sizeOf(u8));
+}
+
+test "signed integer as enum tag" {
+    const SignedEnum = enum(i2) {
+        A0 = -1,
+        A1 = 0,
+        A2 = 1,
+    };
+
+    try expect(@enumToInt(SignedEnum.A0) == -1);
+    try expect(@enumToInt(SignedEnum.A1) == 0);
+    try expect(@enumToInt(SignedEnum.A2) == 1);
+}
+
+test "enum with one member and custom tag type" {
+    const E = enum(u2) {
+        One,
+    };
+    try expect(@enumToInt(E.One) == 0);
+    const E2 = enum(u2) {
+        One = 2,
+    };
+    try expect(@enumToInt(E2.One) == 2);
+}
+
+test "enum with one member and u1 tag type @enumToInt" {
+    const Enum = enum(u1) {
+        Test,
+    };
+    try expect(@enumToInt(Enum.Test) == 0);
+}
+
+test "enum with comptime_int tag type" {
+    const Enum = enum(comptime_int) {
+        One = 3,
+        Two = 2,
+        Three = 1,
+    };
+    comptime try expect(Tag(Enum) == comptime_int);
+}
+
+test "enum with one member default to u0 tag type" {
+    const E0 = enum { X };
+    comptime try expect(Tag(E0) == u0);
+}
+
+const EnumWithOneMember = enum { Eof };
+
+fn doALoopThing(id: EnumWithOneMember) void {
+    while (true) {
+        if (id == EnumWithOneMember.Eof) {
+            break;
+        }
+        @compileError("above if condition should be comptime");
+    }
+}
+
+test "comparison operator on enum with one member is comptime known" {
+    doALoopThing(EnumWithOneMember.Eof);
+}
+
+const State = enum { Start };
+test "switch on enum with one member is comptime known" {
+    var state = State.Start;
+    switch (state) {
+        State.Start => return,
+    }
+    @compileError("analysis should not reach here");
+}
+
+test "method call on an enum" {
+    const S = struct {
+        const E = enum {
+            one,
+            two,
+
+            fn method(self: *E) bool {
+                return self.* == .two;
+            }
+
+            fn generic_method(self: *E, foo: anytype) bool {
+                return self.* == .two and foo == bool;
+            }
+        };
+        fn doTheTest() !void {
+            var e = E.two;
+            try expect(e.method());
+            try expect(e.generic_method(bool));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}

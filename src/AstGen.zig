@@ -1709,23 +1709,42 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     return Zir.Inst.Ref.unreachable_value;
                 }
                 block_gz.break_count += 1;
-                const operand = try expr(parent_gz, parent_scope, block_gz.break_result_loc, rhs);
-                // if list grew as much as rvalue_rl_count, then a break inside operand already saved the store_to_block_ptr
-                const have_store_to_block = block_gz.rvalue_rl_count > block_gz.labeled_store_to_block_ptr_list.items.len;
 
-                const br = try parent_gz.addBreak(.@"break", block_inst, operand);
+                // The loop scope has a mechanism to prevent rvalue() from emitting a
+                // store to the result location for the loop body (since it is continues
+                // rather than returning a result from the loop) but here is a `break`
+                // which needs to override this behavior.
+                const prev_rvalue_noresult = parent_gz.rvalue_noresult;
+                parent_gz.rvalue_noresult = .none;
+                const operand = try reachableExpr(parent_gz, parent_scope, block_gz.break_result_loc, rhs, node);
+                parent_gz.rvalue_noresult = prev_rvalue_noresult;
 
-                if (block_gz.break_result_loc == .block_ptr) {
-                    try block_gz.labeled_breaks.append(astgen.gpa, br);
+                switch (block_gz.break_result_loc) {
+                    .block_ptr => {
+                        const br = try parent_gz.addBreak(.@"break", block_inst, operand);
+                        try block_gz.labeled_breaks.append(astgen.gpa, br);
 
-                    if (have_store_to_block) {
-                        const zir_tags = parent_gz.astgen.instructions.items(.tag);
-                        const zir_datas = parent_gz.astgen.instructions.items(.data);
-                        const store_inst = @intCast(u32, zir_tags.len - 2);
-                        assert(zir_tags[store_inst] == .store_to_block_ptr);
-                        assert(zir_datas[store_inst].bin.lhs == block_gz.rl_ptr);
-                        try block_gz.labeled_store_to_block_ptr_list.append(astgen.gpa, store_inst);
-                    }
+                        // if list grew as much as rvalue_rl_count, then a break
+                        // inside operand already saved the store_to_block_ptr
+                        const have_store_to_block = block_gz.rvalue_rl_count >
+                            block_gz.labeled_store_to_block_ptr_list.items.len;
+                        if (have_store_to_block) {
+                            const zir_tags = parent_gz.astgen.instructions.items(.tag);
+                            const zir_datas = parent_gz.astgen.instructions.items(.data);
+                            const store_inst = @intCast(u32, zir_tags.len - 2);
+                            assert(zir_tags[store_inst] == .store_to_block_ptr);
+                            assert(zir_datas[store_inst].bin.lhs == block_gz.rl_ptr);
+                            try block_gz.labeled_store_to_block_ptr_list.append(astgen.gpa, store_inst);
+                        }
+                    },
+                    .ptr => {
+                        // In this case we don't have any mechanism to intercept it;
+                        // we assume the result location is written, and we break with void.
+                        _ = try parent_gz.addBreak(.@"break", block_inst, .void_value);
+                    },
+                    else => {
+                        _ = try parent_gz.addBreak(.@"break", block_inst, operand);
+                    },
                 }
                 return Zir.Inst.Ref.unreachable_value;
             },
@@ -4776,7 +4795,7 @@ fn arrayAccess(
         else => return rvalue(gz, rl, try gz.addBin(
             .elem_val,
             try expr(gz, scope, .none, node_datas[node].lhs),
-            try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
+            try expr(gz, scope, .{ .coerced_ty = .usize_type }, node_datas[node].rhs),
         ), node),
     }
 }
@@ -5183,6 +5202,7 @@ fn whileExpr(
     // make scope now but don't stack on parent_gz until loop_scope
     // gets unstacked after cont_expr is emitted and added below
     var then_scope = parent_gz.makeSubBlock(&continue_scope.base);
+    then_scope.markAsLoopBody(loop_scope);
     then_scope.instructions_top = GenZir.unstacked_top;
     defer then_scope.unstack();
 
@@ -5267,9 +5287,6 @@ fn whileExpr(
     then_scope.instructions_top = then_scope.instructions.items.len;
     if (payload_inst != 0) try then_scope.instructions.append(astgen.gpa, payload_inst);
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
-    if (!then_scope.endsWithNoReturn()) {
-        loop_scope.break_count += 1;
-    }
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
 
     var else_scope = parent_gz.makeSubBlock(&continue_scope.base);
@@ -5426,6 +5443,7 @@ fn forExpr(
     }
 
     var then_scope = parent_gz.makeSubBlock(&cond_scope.base);
+    then_scope.markAsLoopBody(loop_scope);
     defer then_scope.unstack();
 
     var payload_val_scope: Scope.LocalVal = undefined;
@@ -5482,9 +5500,6 @@ fn forExpr(
     };
 
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, for_full.ast.then_expr);
-    if (!then_scope.endsWithNoReturn()) {
-        loop_scope.break_count += 1;
-    }
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
 
     var else_scope = parent_gz.makeSubBlock(&cond_scope.base);
@@ -8369,19 +8384,25 @@ fn rvalue(
             }
         },
         .ptr => |ptr_inst| {
-            _ = try gz.addPlNode(.store_node, src_node, Zir.Inst.Bin{
-                .lhs = ptr_inst,
-                .rhs = result,
-            });
+            if (gz.rvalue_noresult != ptr_inst) {
+                _ = try gz.addPlNode(.store_node, src_node, Zir.Inst.Bin{
+                    .lhs = ptr_inst,
+                    .rhs = result,
+                });
+            }
             return result;
         },
         .inferred_ptr => |alloc| {
-            _ = try gz.addBin(.store_to_inferred_ptr, alloc, result);
+            if (gz.rvalue_noresult != alloc) {
+                _ = try gz.addBin(.store_to_inferred_ptr, alloc, result);
+            }
             return result;
         },
         .block_ptr => |block_scope| {
-            block_scope.rvalue_rl_count += 1;
-            _ = try gz.addBin(.store_to_block_ptr, block_scope.rl_ptr, result);
+            if (gz.rvalue_noresult != block_scope.rl_ptr) {
+                block_scope.rvalue_rl_count += 1;
+                _ = try gz.addBin(.store_to_block_ptr, block_scope.rl_ptr, result);
+            }
             return result;
         },
     }
@@ -8890,6 +8911,7 @@ const GenZir = struct {
     rl_ptr: Zir.Inst.Ref = .none,
     /// When a block has a type result location, here it is.
     rl_ty_inst: Zir.Inst.Ref = .none,
+    rvalue_noresult: Zir.Inst.Ref = .none,
     /// Keeps track of how many branches of a block did not actually
     /// consume the result location. astgen uses this to figure out
     /// whether to rely on break instructions or writing to the result
@@ -10095,6 +10117,17 @@ const GenZir = struct {
                 gz.instructions.appendAssumeCapacity(capture);
             }
         }
+    }
+
+    /// Control flow does not fall through the "then" block of a loop; it continues
+    /// back to the while condition. This prevents `rvalue` from
+    /// adding an invalid store to the result location of `then_scope`.
+    fn markAsLoopBody(gz: *GenZir, loop_scope: GenZir) void {
+        gz.rvalue_noresult = switch (loop_scope.break_result_loc) {
+            .ptr, .inferred_ptr => |ptr| ptr,
+            .block_ptr => |block| block.rl_ptr,
+            else => .none,
+        };
     }
 };
 

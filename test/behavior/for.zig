@@ -116,3 +116,20 @@ test "for with null and T peer types and inferred result location type" {
     try S.doTheTest(&[_]u8{ 1, 2 });
     comptime try S.doTheTest(&[_]u8{ 1, 2 });
 }
+
+test "2 break statements and an else" {
+    const S = struct {
+        fn entry(t: bool, f: bool) !void {
+            var buf: [10]u8 = undefined;
+            var ok = false;
+            ok = for (buf) |item| {
+                _ = item;
+                if (f) break false;
+                if (t) break true;
+            } else false;
+            try expect(ok);
+        }
+    };
+    try S.entry(true, false);
+    comptime try S.entry(true, false);
+}

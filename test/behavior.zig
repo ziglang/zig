@@ -18,10 +18,12 @@ test {
     _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
     _ = @import("behavior/truncate.zig");
+    _ = @import("behavior/type.zig");
+    _ = @import("behavior/type_info.zig");
     _ = @import("behavior/usingnamespace.zig");
 
     // Tests that pass for stage1, stage2 and the C backend, but not for the wasm backend
-    if (!builtin.zig_is_stage2 or (builtin.zig_is_stage2 and builtin.stage2_arch != .wasm32)) {
+    if (!builtin.zig_is_stage2 or builtin.stage2_arch != .wasm32) {
         _ = @import("behavior/align.zig");
         _ = @import("behavior/bool.zig");
         _ = @import("behavior/bugs/704.zig");
@@ -55,6 +57,7 @@ test {
         _ = @import("behavior/translate_c_macros.zig");
         _ = @import("behavior/underscore.zig");
         _ = @import("behavior/while.zig");
+        _ = @import("behavior/void.zig");
 
         if (builtin.object_format != .c) {
             // Tests that pass for stage1 and stage2 but not the C backend and wasm backend.
@@ -66,6 +69,7 @@ test {
             _ = @import("behavior/bugs/394.zig");
             _ = @import("behavior/bugs/656.zig");
             _ = @import("behavior/bugs/1277.zig");
+            _ = @import("behavior/bugs/1310.zig");
             _ = @import("behavior/bugs/1381.zig");
             _ = @import("behavior/bugs/1500.zig");
             _ = @import("behavior/bugs/1741.zig");
@@ -73,8 +77,11 @@ test {
             _ = @import("behavior/bugs/2578.zig");
             _ = @import("behavior/bugs/3007.zig");
             _ = @import("behavior/bugs/3112.zig");
+            _ = @import("behavior/bugs/3367.zig");
             _ = @import("behavior/bugs/7250.zig");
+            _ = @import("behavior/bugs/9584.zig");
             _ = @import("behavior/cast_llvm.zig");
+            _ = @import("behavior/enum_llvm.zig");
             _ = @import("behavior/eval.zig");
             _ = @import("behavior/floatop.zig");
             _ = @import("behavior/fn.zig");
@@ -93,7 +100,6 @@ test {
             _ = @import("behavior/switch.zig");
             _ = @import("behavior/undefined.zig");
             _ = @import("behavior/union.zig");
-            _ = @import("behavior/void.zig");
             _ = @import("behavior/widening.zig");
 
             if (builtin.zig_is_stage2) {
@@ -120,8 +126,6 @@ test {
                 _ = @import("behavior/bugs/1025.zig");
                 _ = @import("behavior/bugs/1076.zig");
                 _ = @import("behavior/bugs/1120.zig");
-                _ = @import("behavior/bugs/1310.zig");
-                _ = @import("behavior/bugs/1322.zig");
                 _ = @import("behavior/bugs/1421.zig");
                 _ = @import("behavior/bugs/1442.zig");
                 _ = @import("behavior/bugs/1607.zig");
@@ -129,7 +133,6 @@ test {
                 _ = @import("behavior/bugs/1851.zig");
                 _ = @import("behavior/bugs/1914.zig");
                 _ = @import("behavior/bugs/2114.zig");
-                _ = @import("behavior/bugs/3367.zig");
                 _ = @import("behavior/bugs/3384.zig");
                 _ = @import("behavior/bugs/3742.zig");
                 _ = @import("behavior/bugs/3779.zig");
@@ -143,8 +146,6 @@ test {
                 _ = @import("behavior/bugs/7003.zig");
                 _ = @import("behavior/bugs/7027.zig");
                 _ = @import("behavior/bugs/7047.zig");
-                _ = @import("behavior/bugs/9584.zig");
-                _ = @import("behavior/bugs/9967.zig");
                 _ = @import("behavior/bugs/10147.zig");
                 _ = @import("behavior/byteswap.zig");
                 _ = @import("behavior/call_stage1.zig");
@@ -186,8 +187,8 @@ test {
                 _ = @import("behavior/truncate_stage1.zig");
                 _ = @import("behavior/try.zig");
                 _ = @import("behavior/tuple.zig");
-                _ = @import("behavior/type.zig");
-                _ = @import("behavior/type_info.zig");
+                _ = @import("behavior/type_stage1.zig");
+                _ = @import("behavior/type_info_stage1.zig");
                 _ = @import("behavior/typename.zig");
                 _ = @import("behavior/union_stage1.zig");
                 _ = @import("behavior/union_with_members.zig");

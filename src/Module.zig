@@ -1104,12 +1104,9 @@ pub const Union = struct {
 
     pub fn getLayout(u: Union, target: Target, have_tag: bool) Layout {
         assert(u.status == .have_layout);
-        const is_packed = u.layout == .Packed;
-        if (is_packed) @panic("TODO packed unions");
-
-        var most_aligned_field: usize = undefined;
+        var most_aligned_field: u32 = undefined;
         var most_aligned_field_size: u64 = undefined;
-        var biggest_field: usize = undefined;
+        var biggest_field: u32 = undefined;
         var payload_size: u64 = 0;
         var payload_align: u32 = 0;
         for (u.fields.values()) |field, i| {
@@ -1125,20 +1122,21 @@ pub const Union = struct {
             const field_size = field.ty.abiSize(target);
             if (field_size > payload_size) {
                 payload_size = field_size;
-                biggest_field = i;
+                biggest_field = @intCast(u32, i);
             }
             if (field_align > payload_align) {
                 payload_align = field_align;
-                most_aligned_field = i;
+                most_aligned_field = @intCast(u32, i);
                 most_aligned_field_size = field_size;
             }
         }
+        payload_align = @maximum(payload_align, 1);
         if (!have_tag) return .{
             .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
             .abi_align = payload_align,
-            .most_aligned_field = @intCast(u32, most_aligned_field),
+            .most_aligned_field = most_aligned_field,
             .most_aligned_field_size = most_aligned_field_size,
-            .biggest_field = @intCast(u32, biggest_field),
+            .biggest_field = biggest_field,
             .payload_size = payload_size,
             .payload_align = payload_align,
             .tag_align = 0,
@@ -1147,7 +1145,7 @@ pub const Union = struct {
         // Put the tag before or after the payload depending on which one's
         // alignment is greater.
         const tag_size = u.tag_ty.abiSize(target);
-        const tag_align = u.tag_ty.abiAlignment(target);
+        const tag_align = @maximum(1, u.tag_ty.abiAlignment(target));
         var size: u64 = 0;
         if (tag_align >= payload_align) {
             // {Tag, Payload}
@@ -1165,9 +1163,9 @@ pub const Union = struct {
         return .{
             .abi_size = size,
             .abi_align = @maximum(tag_align, payload_align),
-            .most_aligned_field = @intCast(u32, most_aligned_field),
+            .most_aligned_field = most_aligned_field,
             .most_aligned_field_size = most_aligned_field_size,
-            .biggest_field = @intCast(u32, biggest_field),
+            .biggest_field = biggest_field,
             .payload_size = payload_size,
             .payload_align = payload_align,
             .tag_align = tag_align,
@@ -4327,16 +4325,16 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
     var runtime_param_index: usize = 0;
     var total_param_index: usize = 0;
     for (fn_info.param_body) |inst| {
-        const name = switch (zir_tags[inst]) {
+        const param: struct { name: u32, src: LazySrcLoc } = switch (zir_tags[inst]) {
             .param, .param_comptime => blk: {
-                const inst_data = sema.code.instructions.items(.data)[inst].pl_tok;
-                const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index).data;
-                break :blk extra.name;
+                const pl_tok = sema.code.instructions.items(.data)[inst].pl_tok;
+                const extra = sema.code.extraData(Zir.Inst.Param, pl_tok.payload_index).data;
+                break :blk .{ .name = extra.name, .src = pl_tok.src() };
             },
 
             .param_anytype, .param_anytype_comptime => blk: {
                 const str_tok = sema.code.instructions.items(.data)[inst].str_tok;
-                break :blk str_tok.start;
+                break :blk .{ .name = str_tok.start, .src = str_tok.src() };
             },
 
             else => continue,
@@ -4352,6 +4350,18 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
             }
         }
         const param_type = fn_ty.fnParamType(runtime_param_index);
+        const opt_opv = sema.typeHasOnePossibleValue(&inner_block, param.src, param_type) catch |err| switch (err) {
+            error.NeededSourceLocation => unreachable,
+            error.GenericPoison => unreachable,
+            error.ComptimeReturn => unreachable,
+            else => |e| return e,
+        };
+        if (opt_opv) |opv| {
+            const arg = try sema.addConstant(param_type, opv);
+            sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
+            total_param_index += 1;
+            continue;
+        }
         const ty_ref = try sema.addType(param_type);
         const arg_index = @intCast(u32, sema.air_instructions.len);
         inner_block.instructions.appendAssumeCapacity(arg_index);
@@ -4359,7 +4369,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
             .tag = .arg,
             .data = .{ .ty_str = .{
                 .ty = ty_ref,
-                .str = name,
+                .str = param.name,
             } },
         });
         sema.inst_map.putAssumeCapacityNoClobber(inst, Air.indexToRef(arg_index));

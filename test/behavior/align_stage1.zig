@@ -20,25 +20,6 @@ test "function alignment" {
     noop4();
 }
 
-var baz: packed struct {
-    a: u32,
-    b: u32,
-} = undefined;
-
-test "packed struct alignment" {
-    try expect(@TypeOf(&baz.b) == *align(1) u32);
-}
-
-const blah: packed struct {
-    a: u3,
-    b: u3,
-    c: u2,
-} = undefined;
-
-test "bit field alignment" {
-    try expect(@TypeOf(&blah.b) == *align(1:3:1) const u3);
-}
-
 test "implicitly decreasing fn alignment" {
     // function alignment is a compile error on wasm32/wasm64
     if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
@@ -90,12 +71,6 @@ fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) u8 {
     return 0x1;
 }
 
-test "@ptrCast preserves alignment of bigger source" {
-    var x: u32 align(16) = 1234;
-    const ptr = @ptrCast(*u8, &x);
-    try expect(@TypeOf(ptr) == *align(16) u8);
-}
-
 test "runtime known array index has best alignment possible" {
     // take full advantage of over-alignment
     var array align(4) = [_]u8{ 1, 2, 3, 4 };
@@ -132,15 +107,6 @@ fn testIndex(smaller: [*]align(2) u32, index: usize, comptime T: type) !void {
 }
 fn testIndex2(ptr: [*]align(4) u8, index: usize, comptime T: type) !void {
     comptime try expect(@TypeOf(&ptr[index]) == T);
-}
-
-test "alignstack" {
-    try expect(fnWithAlignedStack() == 1234);
-}
-
-fn fnWithAlignedStack() i32 {
-    @setAlignStack(256);
-    return 1234;
 }
 
 test "alignment of function with c calling convention" {

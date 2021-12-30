@@ -333,6 +333,7 @@ fn analyzeInst(
         .bool_to_int,
         .ret,
         .ret_load,
+        .tag_name,
         => {
             const operand = inst_datas[inst].un_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ operand, .none, .none });
