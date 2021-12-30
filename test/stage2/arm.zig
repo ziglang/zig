@@ -658,4 +658,50 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
+
+    {
+        var case = ctx.exe("structs", linux_arm);
+        case.addCompareOutput(
+            \\var array = [_]SomeStruct{
+            \\    .{ .a = 0, .b = 42, .c = 69 },
+            \\    .{ .a = 1, .b = 2, .c = 3 },
+            \\    .{ .a = 123, .b = 456, .c = 789 },
+            \\};
+            \\var s: []const SomeStruct = &array;
+            \\
+            \\var some_struct: SomeStruct = .{
+            \\    .a = 0,
+            \\    .b = 42,
+            \\    .c = 69,
+            \\};
+            \\
+            \\const SomeStruct = struct {
+            \\    a: u32,
+            \\    b: u32,
+            \\    c: u32,
+            \\};
+            \\
+            \\pub fn main() void {
+            \\    assert(some_struct.a == 0);
+            \\    assert(some_struct.b == 42);
+            \\    assert(some_struct.c == 69);
+            \\
+            \\    assert(s[0].a == 0);
+            \\    assert(s[0].b == 42);
+            \\    assert(s[0].c == 69);
+            \\    assert(s[1].a == 1);
+            \\    assert(s[1].b == 2);
+            \\    assert(s[1].c == 3);
+            \\    assert(s[2].a == 123);
+            \\    assert(s[2].b == 456);
+            \\    assert(s[2].c == 789);
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }

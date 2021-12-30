@@ -372,11 +372,32 @@ pub fn generateSymbol(
             return Result{ .appended = {} };
         },
         .Struct => {
+            // TODO debug info
+            // TODO padding of struct members
             const field_vals = typed_value.val.castTag(.@"struct").?.data;
-            _ = field_vals; // TODO write the fields for real
+            for (field_vals) |field_val, index| {
+                const field_ty = typed_value.ty.structFieldType(index);
+                if (!field_ty.hasCodeGenBits()) continue;
+                switch (try generateSymbol(bin_file, src_loc, .{
+                    .ty = field_ty,
+                    .val = field_val,
+                }, code, debug_output)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+            }
+
+            return Result{ .appended = {} };
+        },
+        .Union => {
+            // TODO generateSymbol for unions
             const target = bin_file.options.target;
             const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
             try code.writer().writeByteNTimes(0xaa, abi_size);
+
             return Result{ .appended = {} };
         },
         else => |t| {
