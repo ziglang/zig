@@ -1663,6 +1663,27 @@ pub fn addCases(ctx: *TestContext) !void {
             );
         }
     }
+
+    {
+        var case = ctx.exe("issue 7187: miscompilation with bool return type", linux_x64);
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    var x: usize = 1;
+            \\    var y: bool = getFalse();
+            \\    _ = y;
+            \\
+            \\    assert(x == 1);
+            \\}
+            \\
+            \\fn getFalse() bool {
+            \\    return false;
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+        , "");
+    }
 }
 
 fn addLinuxTestCases(ctx: *TestContext) !void {
