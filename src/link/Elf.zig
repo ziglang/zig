@@ -1357,6 +1357,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
+        comptime assert(Compilation.link_hash_implementation_version == 1);
+
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
         try man.addListOfFiles(self.base.options.objects);

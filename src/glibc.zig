@@ -1062,6 +1062,7 @@ fn buildSharedLib(
         .local_cache_directory = zig_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
+        .cache_mode = .whole,
         .target = comp.getTarget(),
         .root_name = lib.name,
         .main_pkg = null,

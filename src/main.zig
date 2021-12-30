@@ -2578,10 +2578,6 @@ fn buildOutputType(
     };
     try comp.makeBinFileExecutable();
 
-    if (build_options.is_stage1 and comp.stage1_lock != null and watch) {
-        warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});
-    }
-
     if (test_exec_args.items.len == 0 and object_format == .c) default_exec_args: {
         // Default to using `zig run` to execute the produced .c code from `zig test`.
         const c_code_loc = emit_bin_loc orelse break :default_exec_args;

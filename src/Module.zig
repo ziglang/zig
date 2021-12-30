@@ -33,7 +33,7 @@ const build_options = @import("build_options");
 gpa: Allocator,
 comp: *Compilation,
 
-/// Where our incremental compilation metadata serialization will go.
+/// Where build artifacts and incremental compilation metadata serialization go.
 zig_cache_artifact_directory: Compilation.Directory,
 /// Pointer to externally managed resource.
 root_pkg: *Package,

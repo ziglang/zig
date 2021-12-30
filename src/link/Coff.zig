@@ -920,6 +920,8 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
+        comptime assert(Compilation.link_hash_implementation_version == 1);
+
         try man.addListOfFiles(self.base.options.objects);
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);

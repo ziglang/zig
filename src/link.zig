@@ -22,6 +22,8 @@ pub const SystemLib = struct {
     needed: bool = false,
 };
 
+pub const CacheMode = enum { incremental, whole };
+
 pub fn hashAddSystemLibs(
     hh: *Cache.HashHelper,
     hm: std.StringArrayHashMapUnmanaged(SystemLib),
@@ -44,10 +46,9 @@ pub const Emit = struct {
 };
 
 pub const Options = struct {
-    /// This is `null` when -fno-emit-bin is used. When `openPath` or `flush` is called,
-    /// it will have already been null-checked.
+    /// This is `null` when `-fno-emit-bin` is used.
     emit: ?Emit,
-    /// This is `null` not building a Windows DLL, or when -fno-emit-implib is used.
+    /// This is `null` not building a Windows DLL, or when `-fno-emit-implib` is used.
     implib_emit: ?Emit,
     target: std.Target,
     output_mode: std.builtin.OutputMode,
@@ -70,6 +71,7 @@ pub const Options = struct {
     entry_addr: ?u64 = null,
     stack_size_override: ?u64,
     image_base_override: ?u64,
+    cache_mode: CacheMode,
     include_compiler_rt: bool,
     /// Set to `true` to omit debug info.
     strip: bool,

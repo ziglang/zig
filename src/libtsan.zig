@@ -199,6 +199,7 @@ pub fn buildTsan(comp: *Compilation) !void {
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
+        .cache_mode = .whole,
         .target = target,
         .root_name = root_name,
         .main_pkg = null,

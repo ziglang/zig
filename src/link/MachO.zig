@@ -466,6 +466,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
+        comptime assert(Compilation.link_hash_implementation_version == 1);
+
         try man.addListOfFiles(self.base.options.objects);
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
