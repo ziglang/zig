@@ -385,11 +385,6 @@ pub const DeclGen = struct {
                 // First try specific tag representations for more efficiency.
                 switch (val.tag()) {
                     .undef, .empty_struct_value, .empty_array => try writer.writeAll("{}"),
-                    .bytes => {
-                        const bytes = val.castTag(.bytes).?.data;
-                        // TODO: make our own C string escape instead of using std.zig.fmtEscapes
-                        try writer.print("\"{}\"", .{std.zig.fmtEscapes(bytes)});
-                    },
                     else => {
                         // Fall back to generic implementation.
                         var arena = std.heap.ArenaAllocator.init(dg.module.gpa);
@@ -1668,16 +1663,14 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
             if (lhs_child_type.zigTypeTag() == .Array) {
                 // For this memcpy to safely work we need the rhs to have the same
                 // underlying type as the lhs (i.e. they must both be arrays of the same underlying type).
-                assert(f.air.typeOf(bin_op.rhs).eql(lhs_child_type));
+                const rhs_type = f.air.typeOf(bin_op.rhs);
+                assert(rhs_type.eql(lhs_child_type));
 
-                // If the source is a constant we can either emulate writeCValue or just
-                // make another array initialized to that constant and hope that the compiler
-                // is smart enough to optimize this out; this is needed because
-                // an array cannot be reinitialized using the same syntax that writeCValue prefers to use.
-                // TODO: if this is a problem this should be replaced with an iterative initialization
-                // where each element is addressed instead.
+                // If the source is a constant, writeCValue will emit a brace initialization
+                // so work around this by initializing into new local.
+                // TODO this should be done by manually initializing elements of the dest array
                 const array_src = if (src_val == .constant) blk: {
-                    const new_local = try f.allocLocal(lhs_child_type, .Const);
+                    const new_local = try f.allocLocal(rhs_type, .Const);
                     try writer.writeAll(" = ");
                     try f.writeCValue(writer, src_val);
                     try writer.writeAll(";");
