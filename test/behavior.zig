@@ -25,6 +25,7 @@ test {
     // Tests that pass for stage1, stage2 and the C backend, but not for the wasm backend
     if (!builtin.zig_is_stage2 or builtin.stage2_arch != .wasm32) {
         _ = @import("behavior/align.zig");
+        _ = @import("behavior/array.zig");
         _ = @import("behavior/bool.zig");
         _ = @import("behavior/bugs/704.zig");
         _ = @import("behavior/bugs/2692.zig");
@@ -64,7 +65,7 @@ test {
             // Tests that pass for stage1 and stage2 but not the C backend and wasm backend.
             _ = @import("behavior/align_llvm.zig");
             _ = @import("behavior/alignof.zig");
-            _ = @import("behavior/array.zig");
+            _ = @import("behavior/array_llvm.zig");
             _ = @import("behavior/atomics.zig");
             _ = @import("behavior/basic_llvm.zig");
             _ = @import("behavior/bugs/394.zig");
