@@ -159,6 +159,18 @@ comptime {
         @export(__umodti3, .{ .name = "__umodti3", .linkage = linkage });
     }
 
+    const __truncdfhf2 = @import("compiler_rt/truncXfYf2.zig").__truncdfhf2;
+    @export(__truncdfhf2, .{ .name = "__truncdfhf2", .linkage = linkage });
+    const __trunctfhf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfhf2;
+    @export(__trunctfhf2, .{ .name = "__trunctfhf2", .linkage = linkage });
+    const __trunctfdf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfdf2;
+    @export(__trunctfdf2, .{ .name = "__trunctfdf2", .linkage = linkage });
+    const __trunctfsf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfsf2;
+    @export(__trunctfsf2, .{ .name = "__trunctfsf2", .linkage = linkage });
+
+    const __truncdfsf2 = @import("compiler_rt/truncXfYf2.zig").__truncdfsf2;
+    @export(__truncdfsf2, .{ .name = "__truncdfsf2", .linkage = linkage });
+
     if (!builtin.zig_is_stage2) {
         if (!long_double_is_f128) {
             // TODO implement these
@@ -318,18 +330,6 @@ comptime {
         if (!is_test) {
             @export(__truncsfhf2, .{ .name = "__gnu_f2h_ieee", .linkage = linkage });
         }
-        const __truncdfhf2 = @import("compiler_rt/truncXfYf2.zig").__truncdfhf2;
-        @export(__truncdfhf2, .{ .name = "__truncdfhf2", .linkage = linkage });
-        const __trunctfhf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfhf2;
-        @export(__trunctfhf2, .{ .name = "__trunctfhf2", .linkage = linkage });
-        const __trunctfdf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfdf2;
-        @export(__trunctfdf2, .{ .name = "__trunctfdf2", .linkage = linkage });
-        const __trunctfsf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfsf2;
-        @export(__trunctfsf2, .{ .name = "__trunctfsf2", .linkage = linkage });
-
-        const __truncdfsf2 = @import("compiler_rt/truncXfYf2.zig").__truncdfsf2;
-        @export(__truncdfsf2, .{ .name = "__truncdfsf2", .linkage = linkage });
-
         const __extendsfdf2 = @import("compiler_rt/extendXfYf2.zig").__extendsfdf2;
         @export(__extendsfdf2, .{ .name = "__extendsfdf2", .linkage = linkage });
 
@@ -416,7 +416,19 @@ comptime {
         const __udivmodsi4 = @import("compiler_rt/int.zig").__udivmodsi4;
         @export(__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = linkage });
 
-        // missing: Integral arithmetic with trapping overflow
+        // Integral arithmetic with trapping overflow
+        const __absvsi2 = @import("compiler_rt/absv.zig").__absvsi2;
+        @export(__absvsi2, .{ .name = "__absvsi2", .linkage = linkage });
+        const __absvdi2 = @import("compiler_rt/absv.zig").__absvdi2;
+        @export(__absvdi2, .{ .name = "__absvdi2", .linkage = linkage });
+        const __absvti2 = @import("compiler_rt/absv.zig").__absvti2;
+        @export(__absvti2, .{ .name = "__absvti2", .linkage = linkage });
+        const __negvsi2 = @import("compiler_rt/negv.zig").__negvsi2;
+        @export(__negvsi2, .{ .name = "__negvsi2", .linkage = linkage });
+        const __negvdi2 = @import("compiler_rt/negv.zig").__negvdi2;
+        @export(__negvdi2, .{ .name = "__negvdi2", .linkage = linkage });
+        const __negvti2 = @import("compiler_rt/negv.zig").__negvti2;
+        @export(__negvti2, .{ .name = "__negvti2", .linkage = linkage });
 
         // missing: Integral arithmetic which returns if overflow
 

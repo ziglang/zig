@@ -2350,7 +2350,12 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
 
                 var air = module.analyzeFnBody(decl, func, sema_arena) catch |err| switch (err) {
                     error.AnalysisFail => {
-                        assert(func.state != .in_progress);
+                        if (func.state == .in_progress) {
+                            // If this decl caused the compile error, the analysis field would
+                            // be changed to indicate it was this Decl's fault. Because this
+                            // did not happen, we infer here that it was a dependency failure.
+                            func.state = .dependency_failure;
+                        }
                         return;
                     },
                     error.OutOfMemory => return error.OutOfMemory,

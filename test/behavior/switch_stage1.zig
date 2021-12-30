@@ -3,24 +3,6 @@ const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
 
-const Number = union(enum) {
-    One: u64,
-    Two: u8,
-    Three: f32,
-};
-
-const number = Number{ .Three = 1.23 };
-
-fn returnsFalse() bool {
-    switch (number) {
-        Number.One => |x| return x > 1234,
-        Number.Two => |x| return x == 'a',
-        Number.Three => |x| return x > 12.34,
-    }
-}
-test "switch on const enum with var" {
-    try expect(!returnsFalse());
-}
 test "switch all prongs unreachable" {
     try testAllProngsUnreachable();
     comptime try testAllProngsUnreachable();
@@ -51,19 +33,6 @@ test "capture value of switch with all unreachable prongs" {
         else => unreachable,
     };
     try expect(x == 1);
-}
-
-test "anon enum literal used in switch on union enum" {
-    const Foo = union(enum) {
-        a: i32,
-    };
-
-    var foo = Foo{ .a = 1234 };
-    switch (foo) {
-        .a => |x| {
-            try expect(x == 1234);
-        },
-    }
 }
 
 test "else prong of switch on error set excludes other cases" {

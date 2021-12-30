@@ -246,3 +246,42 @@ test "packed struct with non-ABI-aligned field" {
     try expect(s.x == 1);
     try expect(s.y == 42);
 }
+
+const BitField1 = packed struct {
+    a: u3,
+    b: u3,
+    c: u2,
+};
+
+const bit_field_1 = BitField1{
+    .a = 1,
+    .b = 2,
+    .c = 3,
+};
+
+test "bit field access" {
+    var data = bit_field_1;
+    try expect(getA(&data) == 1);
+    try expect(getB(&data) == 2);
+    try expect(getC(&data) == 3);
+    comptime try expect(@sizeOf(BitField1) == 1);
+
+    data.b += 1;
+    try expect(data.b == 3);
+
+    data.a += 1;
+    try expect(data.a == 2);
+    try expect(data.b == 3);
+}
+
+fn getA(data: *const BitField1) u3 {
+    return data.a;
+}
+
+fn getB(data: *const BitField1) u3 {
+    return data.b;
+}
+
+fn getC(data: *const BitField1) u2 {
+    return data.c;
+}

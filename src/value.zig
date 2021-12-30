@@ -73,12 +73,14 @@ pub const Value = extern union {
         type_info_type,
         manyptr_u8_type,
         manyptr_const_u8_type,
+        manyptr_const_u8_sentinel_0_type,
         fn_noreturn_no_args_type,
         fn_void_no_args_type,
         fn_naked_noreturn_no_args_type,
         fn_ccc_void_no_args_type,
         single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
+        const_slice_u8_sentinel_0_type,
         anyerror_void_error_union_type,
         generic_poison_type,
 
@@ -221,6 +223,7 @@ pub const Value = extern union {
                 .single_const_pointer_to_comptime_int_type,
                 .anyframe_type,
                 .const_slice_u8_type,
+                .const_slice_u8_sentinel_0_type,
                 .anyerror_void_error_union_type,
                 .generic_poison_type,
                 .enum_literal_type,
@@ -238,6 +241,7 @@ pub const Value = extern union {
                 .abi_align_default,
                 .manyptr_u8_type,
                 .manyptr_const_u8_type,
+                .manyptr_const_u8_sentinel_0_type,
                 .atomic_order_type,
                 .atomic_rmw_op_type,
                 .calling_convention_type,
@@ -412,6 +416,7 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .anyframe_type,
             .const_slice_u8_type,
+            .const_slice_u8_sentinel_0_type,
             .anyerror_void_error_union_type,
             .generic_poison_type,
             .enum_literal_type,
@@ -429,6 +434,7 @@ pub const Value = extern union {
             .abi_align_default,
             .manyptr_u8_type,
             .manyptr_const_u8_type,
+            .manyptr_const_u8_sentinel_0_type,
             .atomic_order_type,
             .atomic_rmw_op_type,
             .calling_convention_type,
@@ -642,12 +648,14 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
             .anyframe_type => return out_stream.writeAll("anyframe"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
+            .const_slice_u8_sentinel_0_type => return out_stream.writeAll("[:0]const u8"),
             .anyerror_void_error_union_type => return out_stream.writeAll("anyerror!void"),
             .generic_poison_type => return out_stream.writeAll("(generic poison type)"),
             .generic_poison => return out_stream.writeAll("(generic poison)"),
             .enum_literal_type => return out_stream.writeAll("@Type(.EnumLiteral)"),
             .manyptr_u8_type => return out_stream.writeAll("[*]u8"),
             .manyptr_const_u8_type => return out_stream.writeAll("[*]const u8"),
+            .manyptr_const_u8_sentinel_0_type => return out_stream.writeAll("[*:0]const u8"),
             .atomic_order_type => return out_stream.writeAll("std.builtin.AtomicOrder"),
             .atomic_rmw_op_type => return out_stream.writeAll("std.builtin.AtomicRmwOp"),
             .calling_convention_type => return out_stream.writeAll("std.builtin.CallingConvention"),
@@ -821,11 +829,13 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
             .anyframe_type => Type.initTag(.@"anyframe"),
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
+            .const_slice_u8_sentinel_0_type => Type.initTag(.const_slice_u8_sentinel_0),
             .anyerror_void_error_union_type => Type.initTag(.anyerror_void_error_union),
             .generic_poison_type => Type.initTag(.generic_poison),
             .enum_literal_type => Type.initTag(.enum_literal),
             .manyptr_u8_type => Type.initTag(.manyptr_u8),
             .manyptr_const_u8_type => Type.initTag(.manyptr_const_u8),
+            .manyptr_const_u8_sentinel_0_type => Type.initTag(.manyptr_const_u8_sentinel_0),
             .atomic_order_type => Type.initTag(.atomic_order),
             .atomic_rmw_op_type => Type.initTag(.atomic_rmw_op),
             .calling_convention_type => Type.initTag(.calling_convention),
@@ -1461,14 +1471,25 @@ pub const Value = extern union {
             return false;
         }
 
-        if (ty.zigTypeTag() == .Type) {
-            var buf_a: ToTypeBuffer = undefined;
-            var buf_b: ToTypeBuffer = undefined;
-            const a_type = a.toType(&buf_a);
-            const b_type = b.toType(&buf_b);
-            return a_type.eql(b_type);
+        switch (ty.zigTypeTag()) {
+            .Type => {
+                var buf_a: ToTypeBuffer = undefined;
+                var buf_b: ToTypeBuffer = undefined;
+                const a_type = a.toType(&buf_a);
+                const b_type = b.toType(&buf_b);
+                return a_type.eql(b_type);
+            },
+            .Enum => {
+                var buf_a: Payload.U64 = undefined;
+                var buf_b: Payload.U64 = undefined;
+                const a_val = a.enumToInt(ty, &buf_a);
+                const b_val = b.enumToInt(ty, &buf_b);
+                var buf_ty: Type.Payload.Bits = undefined;
+                const int_ty = ty.intTagType(&buf_ty);
+                return eql(a_val, b_val, int_ty);
+            },
+            else => return order(a, b).compare(.eq),
         }
-        return order(a, b).compare(.eq);
     }
 
     pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash) void {
@@ -1522,6 +1543,8 @@ pub const Value = extern union {
                     hash(slice.len, Type.usize, hasher);
                 },
 
+                // For these, hash them as hash of a pointer to the decl,
+                // combined with a hash of the byte offset from the decl.
                 .elem_ptr => @panic("TODO: Implement more pointer hashing cases"),
                 .field_ptr => @panic("TODO: Implement more pointer hashing cases"),
                 .eu_payload_ptr => @panic("TODO: Implement more pointer hashing cases"),
@@ -1758,7 +1781,7 @@ pub const Value = extern union {
 
     pub fn unionTag(val: Value) Value {
         switch (val.tag()) {
-            .undef => return val,
+            .undef, .enum_field_index => return val,
             .@"union" => return val.castTag(.@"union").?.data.tag,
             else => unreachable,
         }
@@ -3037,6 +3060,8 @@ pub const Value = extern union {
     pub const undef = initTag(.undef);
     pub const @"void" = initTag(.void_value);
     pub const @"null" = initTag(.null_value);
+    pub const @"false" = initTag(.bool_false);
+    pub const @"true" = initTag(.bool_true);
 };
 
 var negative_one_payload: Value.Payload.I64 = .{

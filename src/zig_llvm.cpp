@@ -1319,6 +1319,10 @@ LLVMValueRef ZigLLVMBuildFPMulReduce(LLVMBuilderRef B, LLVMValueRef Acc, LLVMVal
     return wrap(unwrap(B)->CreateFMulReduce(unwrap(Acc), unwrap(Val)));
 }
 
+void ZigLLVMTakeName(LLVMValueRef new_owner, LLVMValueRef victim) {
+    unwrap(new_owner)->takeName(unwrap(victim));
+}
+
 static_assert((Triple::ArchType)ZigLLVM_UnknownArch == Triple::UnknownArch, "");
 static_assert((Triple::ArchType)ZigLLVM_arm == Triple::arm, "");
 static_assert((Triple::ArchType)ZigLLVM_armeb == Triple::armeb, "");

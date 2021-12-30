@@ -896,7 +896,7 @@ pub fn formatText(
     } else if (comptime (std.mem.eql(u8, fmt, "e"))) {
         @compileError("specifier 'e' has been deprecated, wrap your argument in std.fmt.fmtSliceEscapeLower instead");
     } else if (comptime (std.mem.eql(u8, fmt, "E"))) {
-        @compileError("specifier 'X' has been deprecated, wrap your argument in std.fmt.fmtSliceEscapeUpper instead");
+        @compileError("specifier 'E' has been deprecated, wrap your argument in std.fmt.fmtSliceEscapeUpper instead");
     } else if (comptime std.mem.eql(u8, fmt, "z")) {
         @compileError("specifier 'z' has been deprecated, wrap your argument in std.zig.fmtId instead");
     } else if (comptime std.mem.eql(u8, fmt, "Z")) {
