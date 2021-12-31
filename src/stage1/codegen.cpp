@@ -8193,7 +8193,7 @@ static void generate_error_name_table(CodeGen *g) {
 
         g->largest_err_name_len = max(g->largest_err_name_len, buf_len(name));
 
-        LLVMValueRef str_init = LLVMConstString(buf_ptr(name), (unsigned)buf_len(name), true);
+        LLVMValueRef str_init = LLVMConstString(buf_ptr(name), (unsigned)buf_len(name), false);
         LLVMValueRef str_global = LLVMAddGlobal(g->module, LLVMTypeOf(str_init), "");
         LLVMSetInitializer(str_global, str_init);
         LLVMSetLinkage(str_global, LLVMPrivateLinkage);
