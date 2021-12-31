@@ -98,9 +98,11 @@ clang_argv: []const []const u8,
 cache_parent: *Cache,
 /// Path to own executable for invoking `zig clang`.
 self_exe_path: ?[]const u8,
-/// null means -fno-emit-bin. Contains the basename of the
-/// outputted binary file in case we don't know the directory yet.
-whole_bin_basename: ?[]const u8,
+/// null means -fno-emit-bin.
+/// This is mutable memory allocated into the Compilation-lifetime arena (`arena_state`)
+/// of exactly the correct size for "o/[digest]/[basename]".
+/// The basename is of the outputted binary file in case we don't know the directory yet.
+whole_bin_sub_path: ?[]u8,
 zig_lib_directory: Directory,
 local_cache_directory: Directory,
 global_cache_directory: Directory,
@@ -1487,9 +1489,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // can use it for communicating the result directory via `bin_file.emit`.
         // This is used to distinguish between -fno-emit-bin and -femit-bin
         // for `CacheMode.whole`.
-        const whole_bin_basename: ?[]const u8 = if (options.emit_bin) |x|
+        // This memory will be overwritten with the real digest in update() but
+        // the basename will be preserved.
+        const whole_bin_sub_path: ?[]u8 = if (options.emit_bin) |x|
             if (x.directory == null)
-                x.basename
+                try std.fmt.allocPrint(arena, "o" ++ std.fs.path.sep_str ++
+                    ("x" ** Cache.hex_digest_len) ++ std.fs.path.sep_str ++ "{s}", .{x.basename})
             else
                 null
         else
@@ -1600,7 +1605,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .local_cache_directory = options.local_cache_directory,
             .global_cache_directory = options.global_cache_directory,
             .bin_file = bin_file,
-            .whole_bin_basename = whole_bin_basename,
+            .whole_bin_sub_path = whole_bin_sub_path,
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
@@ -1665,7 +1670,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
 
-    const have_bin_emit = comp.bin_file.options.emit != null or comp.whole_bin_basename != null;
+    const have_bin_emit = comp.bin_file.options.emit != null or comp.whole_bin_sub_path != null;
 
     if (have_bin_emit and !comp.bin_file.options.skip_linker_dependencies) {
         // If we need to build glibc for the target, add work items for it.
@@ -1941,19 +1946,7 @@ pub fn update(comp: *Compilation) !void {
             log.debug("CacheMode.whole cache hit for {s}", .{comp.bin_file.options.root_name});
             const digest = man.final();
 
-            // Communicate the output binary location to parent Compilations.
-            if (comp.whole_bin_basename) |basename| {
-                const new_sub_path = try std.fs.path.join(comp.gpa, &.{
-                    "o", &digest, basename,
-                });
-                if (comp.bin_file.options.emit) |emit| {
-                    comp.gpa.free(emit.sub_path);
-                }
-                comp.bin_file.options.emit = .{
-                    .directory = comp.local_cache_directory,
-                    .sub_path = new_sub_path,
-                };
-            }
+            comp.wholeCacheModeSetBinFilePath(&digest);
 
             assert(comp.bin_file.lock == null);
             comp.bin_file.lock = man.toOwnedLock();
@@ -1989,13 +1982,10 @@ pub fn update(comp: *Compilation) !void {
         // This resets the link.File to operate as if we called openPath() in create()
         // instead of simulating -fno-emit-bin.
         var options = comp.bin_file.options;
-        if (comp.whole_bin_basename) |basename| {
-            if (options.emit) |emit| {
-                comp.gpa.free(emit.sub_path);
-            }
+        if (comp.whole_bin_sub_path) |sub_path| {
             options.emit = .{
                 .directory = tmp_artifact_directory.?,
-                .sub_path = basename,
+                .sub_path = std.fs.path.basename(sub_path),
             };
         }
         comp.bin_file.destroy();
@@ -2149,18 +2139,24 @@ pub fn update(comp: *Compilation) !void {
             log.warn("failed to write cache manifest: {s}", .{@errorName(err)});
         };
 
-        // Communicate the output binary location to parent Compilations.
-        if (comp.whole_bin_basename) |basename| {
-            comp.bin_file.options.emit = .{
-                .directory = comp.local_cache_directory,
-                .sub_path = try std.fs.path.join(comp.gpa, &.{ "o", &digest, basename }),
-            };
-        }
+        comp.wholeCacheModeSetBinFilePath(&digest);
 
         assert(comp.bin_file.lock == null);
         comp.bin_file.lock = man.toOwnedLock();
         return;
     }
+}
+
+/// Communicate the output binary location to parent Compilations.
+fn wholeCacheModeSetBinFilePath(comp: *Compilation, digest: *const [Cache.hex_digest_len]u8) void {
+    const sub_path = comp.whole_bin_sub_path orelse return;
+    const digest_start = 2; // "o/[digest]/[basename]"
+    mem.copy(u8, sub_path[digest_start..], digest);
+
+    comp.bin_file.options.emit = .{
+        .directory = comp.local_cache_directory,
+        .sub_path = sub_path,
+    };
 }
 
 /// This is only observed at compile-time and used to emit a compile error
