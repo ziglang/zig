@@ -1463,11 +1463,7 @@ pub const File = struct {
     /// Whether this is populated depends on `source_loaded`.
     source: [:0]const u8,
     /// Whether this is populated depends on `status`.
-    stat_size: u64,
-    /// Whether this is populated depends on `status`.
-    stat_inode: std.fs.File.INode,
-    /// Whether this is populated depends on `status`.
-    stat_mtime: i128,
+    stat: Cache.File.Stat,
     /// Whether this is populated or not depends on `tree_loaded`.
     tree: Ast,
     /// Whether this is populated or not depends on `zir_loaded`.
@@ -1535,8 +1531,16 @@ pub const File = struct {
         file.* = undefined;
     }
 
-    pub fn getSource(file: *File, gpa: Allocator) ![:0]const u8 {
-        if (file.source_loaded) return file.source;
+    pub const Source = struct {
+        bytes: [:0]const u8,
+        stat: Cache.File.Stat,
+    };
+
+    pub fn getSource(file: *File, gpa: Allocator) !Source {
+        if (file.source_loaded) return Source{
+            .bytes = file.source,
+            .stat = file.stat,
+        };
 
         const root_dir_path = file.pkg.root_src_directory.path orelse ".";
         log.debug("File.getSource, not cached. pkgdir={s} sub_file_path={s}", .{
@@ -1565,14 +1569,21 @@ pub const File = struct {
 
         file.source = source;
         file.source_loaded = true;
-        return source;
+        return Source{
+            .bytes = source,
+            .stat = .{
+                .size = stat.size,
+                .inode = stat.inode,
+                .mtime = stat.mtime,
+            },
+        };
     }
 
     pub fn getTree(file: *File, gpa: Allocator) !*const Ast {
         if (file.tree_loaded) return &file.tree;
 
         const source = try file.getSource(gpa);
-        file.tree = try std.zig.parse(gpa, source);
+        file.tree = try std.zig.parse(gpa, source.bytes);
         file.tree_loaded = true;
         return &file.tree;
     }
@@ -1631,9 +1642,7 @@ pub const EmbedFile = struct {
     /// Memory is stored in gpa, owned by EmbedFile.
     sub_file_path: []const u8,
     bytes: [:0]const u8,
-    stat_size: u64,
-    stat_inode: std.fs.File.INode,
-    stat_mtime: i128,
+    stat: Cache.File.Stat,
     /// Package that this file is a part of, managed externally.
     pkg: *Package,
     /// The Decl that was created from the `@embedFile` to own this resource.
@@ -2704,9 +2713,11 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             keep_zir = true;
             file.zir = zir;
             file.zir_loaded = true;
-            file.stat_size = header.stat_size;
-            file.stat_inode = header.stat_inode;
-            file.stat_mtime = header.stat_mtime;
+            file.stat = .{
+                .size = header.stat_size,
+                .inode = header.stat_inode,
+                .mtime = header.stat_mtime,
+            };
             file.status = .success_zir;
             log.debug("AstGen cached success: {s}", .{file.sub_file_path});
 
@@ -2724,9 +2735,9 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         },
         .parse_failure, .astgen_failure, .success_zir => {
             const unchanged_metadata =
-                stat.size == file.stat_size and
-                stat.mtime == file.stat_mtime and
-                stat.inode == file.stat_inode;
+                stat.size == file.stat.size and
+                stat.mtime == file.stat.mtime and
+                stat.inode == file.stat.inode;
 
             if (unchanged_metadata) {
                 log.debug("unmodified metadata of file: {s}", .{file.sub_file_path});
@@ -2787,9 +2798,11 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     if (amt != stat.size)
         return error.UnexpectedEndOfFile;
 
-    file.stat_size = stat.size;
-    file.stat_inode = stat.inode;
-    file.stat_mtime = stat.mtime;
+    file.stat = .{
+        .size = stat.size,
+        .inode = stat.inode,
+        .mtime = stat.mtime,
+    };
     file.source = source;
     file.source_loaded = true;
 
@@ -3069,9 +3082,11 @@ pub fn populateBuiltinFile(mod: *Module) !void {
 
             try writeBuiltinFile(file, builtin_pkg);
         } else {
-            file.stat_size = stat.size;
-            file.stat_inode = stat.inode;
-            file.stat_mtime = stat.mtime;
+            file.stat = .{
+                .size = stat.size,
+                .inode = stat.inode,
+                .mtime = stat.mtime,
+            };
         }
     } else |err| switch (err) {
         error.BadPathName => unreachable, // it's always "builtin.zig"
@@ -3099,9 +3114,11 @@ pub fn writeBuiltinFile(file: *File, builtin_pkg: *Package) !void {
     try af.file.writeAll(file.source);
     try af.finish();
 
-    file.stat_size = file.source.len;
-    file.stat_inode = 0; // dummy value
-    file.stat_mtime = 0; // dummy value
+    file.stat = .{
+        .size = file.source.len,
+        .inode = 0, // dummy value
+        .mtime = 0, // dummy value
+    };
 }
 
 pub fn mapOldZirToNew(
@@ -3382,16 +3399,16 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         }
 
         if (mod.comp.whole_cache_manifest) |man| {
-            assert(file.source_loaded);
+            const source = file.getSource(gpa) catch |err| {
+                try reportRetryableFileError(mod, file, "unable to load source: {s}", .{@errorName(err)});
+                return error.AnalysisFail;
+            };
             const resolved_path = try file.pkg.root_src_directory.join(gpa, &.{
                 file.sub_file_path,
             });
             errdefer gpa.free(resolved_path);
-            try man.addFilePostContents(resolved_path, file.source, .{
-                .size = file.stat_size,
-                .inode = file.stat_inode,
-                .mtime = file.stat_mtime,
-            });
+
+            try man.addFilePostContents(resolved_path, source.bytes, source.stat);
         }
     } else {
         new_decl.analysis = .file_failure;
@@ -3723,9 +3740,7 @@ pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
         .source_loaded = false,
         .tree_loaded = false,
         .zir_loaded = false,
-        .stat_size = undefined,
-        .stat_inode = undefined,
-        .stat_mtime = undefined,
+        .stat = undefined,
         .tree = undefined,
         .zir = undefined,
         .status = .never_loaded,
@@ -3793,9 +3808,7 @@ pub fn importFile(
         .source_loaded = false,
         .tree_loaded = false,
         .zir_loaded = false,
-        .stat_size = undefined,
-        .stat_inode = undefined,
-        .stat_mtime = undefined,
+        .stat = undefined,
         .tree = undefined,
         .zir = undefined,
         .status = .never_loaded,
@@ -3840,8 +3853,13 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     var file = try cur_file.pkg.root_src_directory.handle.openFile(sub_file_path, .{});
     defer file.close();
 
-    const stat = try file.stat();
-    const size_usize = try std.math.cast(usize, stat.size);
+    const actual_stat = try file.stat();
+    const stat: Cache.File.Stat = .{
+        .size = actual_stat.size,
+        .inode = actual_stat.inode,
+        .mtime = actual_stat.mtime,
+    };
+    const size_usize = try std.math.cast(usize, actual_stat.size);
     const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
     errdefer gpa.free(bytes);
 
@@ -3852,11 +3870,7 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     if (mod.comp.whole_cache_manifest) |man| {
         const copied_resolved_path = try gpa.dupe(u8, resolved_path);
         errdefer gpa.free(copied_resolved_path);
-        try man.addFilePostContents(copied_resolved_path, bytes, .{
-            .size = stat.size,
-            .inode = stat.inode,
-            .mtime = stat.mtime,
-        });
+        try man.addFilePostContents(copied_resolved_path, bytes, stat);
     }
 
     keep_resolved_path = true; // It's now owned by embed_table.
@@ -3864,9 +3878,7 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     new_file.* = .{
         .sub_file_path = sub_file_path,
         .bytes = bytes,
-        .stat_size = stat.size,
-        .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat = stat,
         .pkg = cur_file.pkg,
         .owner_decl = undefined, // Set by Sema immediately after this function returns.
     };
@@ -3880,9 +3892,9 @@ pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
     const stat = try file.stat();
 
     const unchanged_metadata =
-        stat.size == embed_file.stat_size and
-        stat.mtime == embed_file.stat_mtime and
-        stat.inode == embed_file.stat_inode;
+        stat.size == embed_file.stat.size and
+        stat.mtime == embed_file.stat.mtime and
+        stat.inode == embed_file.stat.inode;
 
     if (unchanged_metadata) return;
 
@@ -3891,9 +3903,11 @@ pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
     const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
     gpa.free(embed_file.bytes);
     embed_file.bytes = bytes;
-    embed_file.stat_size = stat.size;
-    embed_file.stat_mtime = stat.mtime;
-    embed_file.stat_inode = stat.inode;
+    embed_file.stat = .{
+        .size = stat.size,
+        .mtime = stat.mtime,
+        .inode = stat.inode,
+    };
 
     mod.comp.mutex.lock();
     defer mod.comp.mutex.unlock();
@@ -5023,4 +5037,36 @@ pub fn linkerUpdateDecl(mod: *Module, decl: *Decl) !void {
             return;
         },
     };
+}
+
+fn reportRetryableFileError(
+    mod: *Module,
+    file: *File,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
+    file.status = .retryable_failure;
+
+    const err_msg = try ErrorMsg.create(
+        mod.gpa,
+        .{
+            .file_scope = file,
+            .parent_decl_node = 0,
+            .lazy = .entire_file,
+        },
+        format,
+        args,
+    );
+    errdefer err_msg.destroy(mod.gpa);
+
+    mod.comp.mutex.lock();
+    defer mod.comp.mutex.unlock();
+
+    const gop = try mod.failed_files.getOrPut(mod.gpa, file);
+    if (gop.found_existing) {
+        if (gop.value_ptr.*) |old_err_msg| {
+            old_err_msg.destroy(mod.gpa);
+        }
+    }
+    gop.value_ptr.* = err_msg;
 }

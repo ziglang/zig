@@ -421,7 +421,7 @@ pub const AllErrors = struct {
             const module_note = module_err_msg.notes[i];
             const source = try module_note.src_loc.file_scope.getSource(module.gpa);
             const byte_offset = try module_note.src_loc.byteOffset(module.gpa);
-            const loc = std.zig.findLineColumn(source, byte_offset);
+            const loc = std.zig.findLineColumn(source.bytes, byte_offset);
             const file_path = try module_note.src_loc.file_scope.fullPath(allocator);
             note.* = .{
                 .src = .{
@@ -444,7 +444,7 @@ pub const AllErrors = struct {
         }
         const source = try module_err_msg.src_loc.file_scope.getSource(module.gpa);
         const byte_offset = try module_err_msg.src_loc.byteOffset(module.gpa);
-        const loc = std.zig.findLineColumn(source, byte_offset);
+        const loc = std.zig.findLineColumn(source.bytes, byte_offset);
         const file_path = try module_err_msg.src_loc.file_scope.fullPath(allocator);
         try errors.append(.{
             .src = .{

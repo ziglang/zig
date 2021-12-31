@@ -3664,9 +3664,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                 .zir_loaded = false,
                 .sub_file_path = "<stdin>",
                 .source = source_code,
-                .stat_size = undefined,
-                .stat_inode = undefined,
-                .stat_mtime = undefined,
+                .stat = undefined,
                 .tree = tree,
                 .tree_loaded = true,
                 .zir = undefined,
@@ -3860,9 +3858,11 @@ fn fmtPathFile(
             .zir_loaded = false,
             .sub_file_path = file_path,
             .source = source_code,
-            .stat_size = stat.size,
-            .stat_inode = stat.inode,
-            .stat_mtime = stat.mtime,
+            .stat = .{
+                .size = stat.size,
+                .inode = stat.inode,
+                .mtime = stat.mtime,
+            },
             .tree = tree,
             .tree_loaded = true,
             .zir = undefined,
@@ -4458,9 +4458,7 @@ pub fn cmdAstCheck(
         .zir_loaded = false,
         .sub_file_path = undefined,
         .source = undefined,
-        .stat_size = undefined,
-        .stat_inode = undefined,
-        .stat_mtime = undefined,
+        .stat = undefined,
         .tree = undefined,
         .zir = undefined,
         .pkg = undefined,
@@ -4485,9 +4483,11 @@ pub fn cmdAstCheck(
         file.sub_file_path = file_name;
         file.source = source;
         file.source_loaded = true;
-        file.stat_size = stat.size;
-        file.stat_inode = stat.inode;
-        file.stat_mtime = stat.mtime;
+        file.stat = .{
+            .size = stat.size,
+            .inode = stat.inode,
+            .mtime = stat.mtime,
+        };
     } else {
         const stdin = io.getStdIn();
         const source = readSourceFileToEndAlloc(arena, &stdin, null) catch |err| {
@@ -4496,7 +4496,7 @@ pub fn cmdAstCheck(
         file.sub_file_path = "<stdin>";
         file.source = source;
         file.source_loaded = true;
-        file.stat_size = source.len;
+        file.stat.size = source.len;
     }
 
     file.pkg = try Package.create(gpa, null, file.sub_file_path);
@@ -4609,9 +4609,11 @@ pub fn cmdChangelist(
         .zir_loaded = false,
         .sub_file_path = old_source_file,
         .source = undefined,
-        .stat_size = stat.size,
-        .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat = .{
+            .size = stat.size,
+            .inode = stat.inode,
+            .mtime = stat.mtime,
+        },
         .tree = undefined,
         .zir = undefined,
         .pkg = undefined,
