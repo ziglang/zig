@@ -1662,27 +1662,80 @@ pub fn addCases(ctx: *TestContext) !void {
                 "",
             );
         }
-    }
+        {
+            var case = ctx.exe("issue 7187: miscompilation with bool return type", target);
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    var x: usize = 1;
+                \\    var y: bool = getFalse();
+                \\    _ = y;
+                \\
+                \\    assert(x == 1);
+                \\}
+                \\
+                \\fn getFalse() bool {
+                \\    return false;
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+        }
 
-    {
-        var case = ctx.exe("issue 7187: miscompilation with bool return type", linux_x64);
-        case.addCompareOutput(
-            \\pub fn main() void {
-            \\    var x: usize = 1;
-            \\    var y: bool = getFalse();
-            \\    _ = y;
-            \\
-            \\    assert(x == 1);
-            \\}
-            \\
-            \\fn getFalse() bool {
-            \\    return false;
-            \\}
-            \\
-            \\fn assert(ok: bool) void {
-            \\    if (!ok) unreachable;
-            \\}
-        , "");
+        {
+            var case = ctx.exe("load-store via pointer deref", target);
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    var x: u32 = undefined;
+                \\    set(&x);
+                \\    assert(x == 123);
+                \\}
+                \\
+                \\fn set(x: *u32) void {
+                \\    x.* = 123;
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+        }
+
+        {
+            var case = ctx.exe("optional payload", target);
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    var x: u32 = undefined;
+                \\    const maybe_x = byPtr(&x);
+                \\    assert(maybe_x != null);
+                \\}
+                \\
+                \\fn byPtr(x: *u32) ?*u32 {
+                \\    return x;
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    var x: u32 = undefined;
+                \\    const maybe_x = byPtr(&x);
+                \\    assert(maybe_x == null);
+                \\}
+                \\
+                \\fn byPtr(x: *u32) ?*u32 {
+                \\    _ = x;
+                \\    return null;
+                \\}
+                \\
+                \\fn assert(ok: bool) void {
+                \\    if (!ok) unreachable;
+                \\}
+            , "");
+        }
     }
 }
 

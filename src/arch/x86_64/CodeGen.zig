@@ -1143,10 +1143,24 @@ fn airShr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement .optional_payload for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(ty_op.operand);
+        if (self.wantSafety()) {
+            // TODO check for null
+            return self.fail("TODO implement check for null in .optional_payload", .{});
+        }
+        const dst_mcv: MCValue = blk: {
+            if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                break :blk operand;
+            } else {
+                break :blk try self.allocRegOrMem(inst, true);
+            }
+        };
+        const ty = self.air.typeOf(ty_op.operand);
+        var buf: Type.Payload.ElemType = undefined;
+        try self.load(dst_mcv, operand, ty.optionalChild(&buf));
+        break :result dst_mcv;
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1408,16 +1422,16 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .compare_flags_unsigned => unreachable,
         .compare_flags_signed => unreachable,
         .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
-        .ptr_stack_offset => |off| try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off }),
+        .ptr_stack_offset => |off| {
+            try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off });
+        },
         .ptr_embedded_in_code => |off| {
             try self.setRegOrMem(elem_ty, dst_mcv, .{ .embedded_in_code = off });
         },
         .embedded_in_code => {
             return self.fail("TODO implement loading from MCValue.embedded_in_code", .{});
         },
-        .register => {
-            return self.fail("TODO implement loading from MCValue.register for {}", .{self.target.cpu.arch});
-        },
+        .register => |reg| try self.setRegOrMem(elem_ty, dst_mcv, .{ .register = reg }),
         .memory => |addr| {
             const reg = try self.register_manager.allocReg(null, &.{});
             try self.genSetReg(ptr_ty, reg, .{ .memory = addr });
@@ -1479,8 +1493,8 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
         .embedded_in_code => {
             return self.fail("TODO implement storing to MCValue.embedded_in_code", .{});
         },
-        .register => {
-            return self.fail("TODO implement storing to MCValue.register", .{});
+        .register => |reg| {
+            try self.genSetPtrReg(elem_ty, reg, value);
         },
         .memory => {
             return self.fail("TODO implement storing to MCValue.memory", .{});
@@ -2371,31 +2385,30 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
 }
 
-fn isNull(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNonNull and invert the result.
-    return self.fail("TODO call isNonNull and invert the result", .{});
+fn isNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    try self.genBinMathOpMir(.cmp, ty, operand, MCValue{ .immediate = 0 });
+    return MCValue{ .compare_flags_unsigned = .eq };
 }
 
-fn isNonNull(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNull and invert the result.
-    return self.fail("TODO call isNull and invert the result", .{});
+fn isNonNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    const is_null_res = try self.isNull(ty, operand);
+    assert(is_null_res.compare_flags_unsigned == .eq);
+    return MCValue{ .compare_flags_unsigned = .neq };
 }
 
-fn isErr(self: *Self, operand: MCValue) !MCValue {
+fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    _ = ty;
     _ = operand;
     // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNonNull and invert the result.
+    // will call isNonErr and invert the result.
     return self.fail("TODO call isNonErr and invert the result", .{});
 }
 
-fn isNonErr(self: *Self, operand: MCValue) !MCValue {
+fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    _ = ty;
     _ = operand;
     // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNull and invert the result.
+    // will call isErr and invert the result.
     return self.fail("TODO call isErr and invert the result", .{});
 }
 
@@ -2403,7 +2416,8 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNull(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNull(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2420,8 +2434,9 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isNull(operand);
+        const ptr_ty = self.air.typeOf(un_op);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isNull(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2430,7 +2445,8 @@ fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNonNull(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNonNull(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2447,8 +2463,9 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isNonNull(operand);
+        const ptr_ty = self.air.typeOf(un_op);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isNonNull(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2457,7 +2474,8 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isErr(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isErr(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2474,8 +2492,9 @@ fn airIsErrPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isErr(operand);
+        const ptr_ty = self.air.typeOf(un_op);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isErr(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2484,7 +2503,8 @@ fn airIsNonErr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNonErr(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNonErr(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2501,8 +2521,9 @@ fn airIsNonErrPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isNonErr(operand);
+        const ptr_ty = self.air.typeOf(un_op);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isNonErr(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2899,10 +2920,67 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
     }
 }
 
+/// Set pointee via pointer stored in a register.
+/// mov [reg], value
+fn genSetPtrReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
+    switch (mcv) {
+        .dead => unreachable,
+        .unreach, .none => return, // Nothing to do.
+        .immediate => |imm| {
+            const abi_size = ty.abiSize(self.target.*);
+            switch (abi_size) {
+                1, 2, 4 => {
+                    // TODO this is wasteful!
+                    // introduce new MIR tag specifically for mov [reg + 0], imm
+                    const payload = try self.addExtra(Mir.ImmPair{
+                        .dest_off = 0,
+                        .operand = @bitCast(i32, @intCast(u32, imm)),
+                    });
+                    _ = try self.addInst(.{
+                        .tag = .mov_mem_imm,
+                        .ops = (Mir.Ops{
+                            .reg1 = reg.to64(),
+                            .flags = switch (abi_size) {
+                                1 => 0b00,
+                                2 => 0b01,
+                                4 => 0b10,
+                                else => unreachable,
+                            },
+                        }).encode(),
+                        .data = .{ .payload = payload },
+                    });
+                },
+                else => {
+                    return self.fail("TODO implement set pointee with immediate of ABI size {d}", .{abi_size});
+                },
+            }
+        },
+        else => |other| {
+            return self.fail("TODO implement set pointee with {}", .{other});
+        },
+    }
+}
+
 fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
     switch (mcv) {
         .dead => unreachable,
-        .ptr_stack_offset => unreachable,
+        .ptr_stack_offset => |unadjusted_off| {
+            const ptr_abi_size = ty.abiSize(self.target.*);
+            const elem_ty = ty.childType();
+            const elem_abi_size = elem_ty.abiSize(self.target.*);
+            const off = unadjusted_off + elem_abi_size;
+            if (off < std.math.minInt(i32) or off > std.math.maxInt(i32)) {
+                return self.fail("stack offset too large", .{});
+            }
+            _ = try self.addInst(.{
+                .tag = .lea,
+                .ops = (Mir.Ops{
+                    .reg1 = registerAlias(reg, @intCast(u32, ptr_abi_size)),
+                    .reg2 = .rbp,
+                }).encode(),
+                .data = .{ .imm = -@intCast(i32, off) },
+            });
+        },
         .ptr_embedded_in_code => unreachable,
         .unreach, .none => return, // Nothing to do.
         .undef => {
