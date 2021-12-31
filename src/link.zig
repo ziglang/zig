@@ -167,6 +167,12 @@ pub const Options = struct {
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }
+
+    pub fn move(self: *Options) Options {
+        const copied_state = self.*;
+        self.system_libs = .{};
+        return copied_state;
+    }
 };
 
 pub const File = struct {

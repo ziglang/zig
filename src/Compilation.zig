@@ -1985,7 +1985,7 @@ pub fn update(comp: *Compilation) !void {
 
         // This resets the link.File to operate as if we called openPath() in create()
         // instead of simulating -fno-emit-bin.
-        var options = comp.bin_file.options;
+        var options = comp.bin_file.options.move();
         if (comp.whole_bin_sub_path) |sub_path| {
             options.emit = .{
                 .directory = tmp_artifact_directory.?,
