@@ -14,6 +14,17 @@ test "@errorName" {
     try expect(mem.eql(u8, @errorName(gimmeItBroke()), "ItBroke"));
 }
 
+test "@errorName sentinel length matches slice length" {
+    const name = testBuiltinErrorName(error.FooBar);
+    const length: usize = 6;
+    try expectEqual(length, std.mem.indexOfSentinel(u8, 0, name.ptr));
+    try expectEqual(length, name.len);
+}
+
+pub fn testBuiltinErrorName(err: anyerror) [:0]const u8 {
+    return @errorName(err);
+}
+
 test "error union type " {
     try testErrorUnionType();
     comptime try testErrorUnionType();
