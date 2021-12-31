@@ -103,6 +103,8 @@ self_exe_path: ?[]const u8,
 /// of exactly the correct size for "o/[digest]/[basename]".
 /// The basename is of the outputted binary file in case we don't know the directory yet.
 whole_bin_sub_path: ?[]u8,
+/// Same as `whole_bin_sub_path` but for implibs.
+whole_implib_sub_path: ?[]u8,
 zig_lib_directory: Directory,
 local_cache_directory: Directory,
 global_cache_directory: Directory,
@@ -1477,6 +1479,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 };
             }
 
+            // This is here for the same reason as in `bin_file_emit` above.
+            switch (cache_mode) {
+                .whole => break :blk null,
+                .incremental => {},
+            }
+
             // Use the same directory as the bin. The CLI already emits an
             // error if -fno-emit-bin is combined with -femit-implib.
             break :blk link.Emit{
@@ -1491,14 +1499,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // for `CacheMode.whole`.
         // This memory will be overwritten with the real digest in update() but
         // the basename will be preserved.
-        const whole_bin_sub_path: ?[]u8 = if (options.emit_bin) |x|
-            if (x.directory == null)
-                try std.fmt.allocPrint(arena, "o" ++ std.fs.path.sep_str ++
-                    ("x" ** Cache.hex_digest_len) ++ std.fs.path.sep_str ++ "{s}", .{x.basename})
-            else
-                null
-        else
-            null;
+        const whole_bin_sub_path: ?[]u8 = try prepareWholeEmitSubPath(arena, options.emit_bin);
+        // Same thing but for implibs.
+        const whole_implib_sub_path: ?[]u8 = try prepareWholeEmitSubPath(arena, options.emit_implib);
 
         var system_libs: std.StringArrayHashMapUnmanaged(SystemLib) = .{};
         errdefer system_libs.deinit(gpa);
@@ -1606,6 +1609,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .global_cache_directory = options.global_cache_directory,
             .bin_file = bin_file,
             .whole_bin_sub_path = whole_bin_sub_path,
+            .whole_implib_sub_path = whole_implib_sub_path,
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
@@ -1988,6 +1992,12 @@ pub fn update(comp: *Compilation) !void {
                 .sub_path = std.fs.path.basename(sub_path),
             };
         }
+        if (comp.whole_implib_sub_path) |sub_path| {
+            options.implib_emit = .{
+                .directory = tmp_artifact_directory.?,
+                .sub_path = std.fs.path.basename(sub_path),
+            };
+        }
         comp.bin_file.destroy();
         comp.bin_file = try link.File.openPath(comp.gpa, options);
     }
@@ -2149,14 +2159,33 @@ pub fn update(comp: *Compilation) !void {
 
 /// Communicate the output binary location to parent Compilations.
 fn wholeCacheModeSetBinFilePath(comp: *Compilation, digest: *const [Cache.hex_digest_len]u8) void {
-    const sub_path = comp.whole_bin_sub_path orelse return;
     const digest_start = 2; // "o/[digest]/[basename]"
-    mem.copy(u8, sub_path[digest_start..], digest);
 
-    comp.bin_file.options.emit = .{
-        .directory = comp.local_cache_directory,
-        .sub_path = sub_path,
-    };
+    if (comp.whole_bin_sub_path) |sub_path| {
+        mem.copy(u8, sub_path[digest_start..], digest);
+
+        comp.bin_file.options.emit = .{
+            .directory = comp.local_cache_directory,
+            .sub_path = sub_path,
+        };
+    }
+
+    if (comp.whole_implib_sub_path) |sub_path| {
+        mem.copy(u8, sub_path[digest_start..], digest);
+
+        comp.bin_file.options.implib_emit = .{
+            .directory = comp.local_cache_directory,
+            .sub_path = sub_path,
+        };
+    }
+}
+
+fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemory}!?[]u8 {
+    const emit = opt_emit orelse return null;
+    if (emit.directory != null) return null;
+    const s = std.fs.path.sep_str;
+    const format = "o" ++ s ++ ("x" ** Cache.hex_digest_len) ++ s ++ "{s}";
+    return try std.fmt.allocPrint(arena, format, .{emit.basename});
 }
 
 /// This is only observed at compile-time and used to emit a compile error
