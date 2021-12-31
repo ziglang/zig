@@ -2170,7 +2170,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     const target = comp.getTarget();
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    errdefer arena_allocator.deinit();
+    defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
     comptime assert(link_hash_implementation_version == 1);
