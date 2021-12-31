@@ -319,7 +319,7 @@ fn reachableExpr(
 ) InnerError!Zir.Inst.Ref {
     const result_inst = try expr(gz, scope, rl, node);
     if (gz.refIsNoReturn(result_inst)) {
-        return gz.astgen.failNodeNotes(reachable_node, "unreachable code", .{}, &[_]u32{
+        try gz.astgen.appendErrorNodeNotes(reachable_node, "unreachable code", .{}, &[_]u32{
             try gz.astgen.errNoteNode(node, "control flow is diverted here", .{}),
         });
     }
@@ -1011,7 +1011,7 @@ fn nosuspendExpr(
     const body_node = node_datas[node].lhs;
     assert(body_node != 0);
     if (gz.nosuspend_node != 0) {
-        return astgen.failNodeNotes(node, "redundant nosuspend block", .{}, &[_]u32{
+        try astgen.appendErrorNodeNotes(node, "redundant nosuspend block", .{}, &[_]u32{
             try astgen.errNoteNode(gz.nosuspend_node, "other nosuspend block here", .{}),
         });
     }
@@ -1923,7 +1923,7 @@ fn labeledBlockExpr(
     try blockExprStmts(&block_scope, &block_scope.base, statements);
 
     if (!block_scope.label.?.used) {
-        return astgen.failTok(label_token, "unused block label", .{});
+        try astgen.appendErrorTok(label_token, "unused block label", .{});
     }
 
     const zir_tags = gz.astgen.instructions.items(.tag);
@@ -1975,7 +1975,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
     var scope = parent_scope;
     for (statements) |statement| {
         if (noreturn_src_node != 0) {
-            return astgen.failNodeNotes(
+            try astgen.appendErrorNodeNotes(
                 statement,
                 "unreachable code",
                 .{},
@@ -2469,14 +2469,14 @@ fn checkUsed(
             .local_val => {
                 const s = scope.cast(Scope.LocalVal).?;
                 if (!s.used) {
-                    return astgen.failTok(s.token_src, "unused {s}", .{@tagName(s.id_cat)});
+                    try astgen.appendErrorTok(s.token_src, "unused {s}", .{@tagName(s.id_cat)});
                 }
                 scope = s.parent;
             },
             .local_ptr => {
                 const s = scope.cast(Scope.LocalPtr).?;
                 if (!s.used) {
-                    return astgen.failTok(s.token_src, "unused {s}", .{@tagName(s.id_cat)});
+                    try astgen.appendErrorTok(s.token_src, "unused {s}", .{@tagName(s.id_cat)});
                 }
                 scope = s.parent;
             },
@@ -2555,7 +2555,7 @@ fn varDecl(
     switch (token_tags[var_decl.ast.mut_token]) {
         .keyword_const => {
             if (var_decl.comptime_token) |comptime_token| {
-                return astgen.failTok(comptime_token, "'comptime const' is redundant; instead wrap the initialization expression with 'comptime'", .{});
+                try astgen.appendErrorTok(comptime_token, "'comptime const' is redundant; instead wrap the initialization expression with 'comptime'", .{});
             }
 
             // Depending on the type of AST the initialization expression is, we may need an lvalue
@@ -4183,10 +4183,10 @@ fn containerDecl(
                 // One can construct an enum with no tags, and it functions the same as `noreturn`. But
                 // this is only useful for generic code; when explicitly using `enum {}` syntax, there
                 // must be at least one tag.
-                return astgen.failNode(node, "enum declarations must have at least one tag", .{});
+                try astgen.appendErrorNode(node, "enum declarations must have at least one tag", .{});
             }
             if (counts.nonexhaustive_node != 0 and container_decl.ast.arg == 0) {
-                return astgen.failNodeNotes(
+                try astgen.appendErrorNodeNotes(
                     node,
                     "non-exhaustive enum missing integer tag type",
                     .{},
@@ -5338,7 +5338,7 @@ fn whileExpr(
 
     if (loop_scope.label) |some| {
         if (!some.used) {
-            return astgen.failTok(some.token, "unused while loop label", .{});
+            try astgen.appendErrorTok(some.token, "unused while loop label", .{});
         }
     }
     const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
@@ -5526,7 +5526,7 @@ fn forExpr(
 
     if (loop_scope.label) |some| {
         if (!some.used) {
-            return astgen.failTok(some.token, "unused for loop label", .{});
+            try astgen.appendErrorTok(some.token, "unused for loop label", .{});
         }
     }
     const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
@@ -8521,13 +8521,22 @@ fn failNode(
     return astgen.failNodeNotes(node, format, args, &[0]u32{});
 }
 
-fn failNodeNotes(
+fn appendErrorNode(
+    astgen: *AstGen,
+    node: Ast.Node.Index,
+    comptime format: []const u8,
+    args: anytype,
+) Allocator.Error!void {
+    try astgen.appendErrorNodeNotes(node, format, args, &[0]u32{});
+}
+
+fn appendErrorNodeNotes(
     astgen: *AstGen,
     node: Ast.Node.Index,
     comptime format: []const u8,
     args: anytype,
     notes: []const u32,
-) InnerError {
+) Allocator.Error!void {
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
@@ -8546,6 +8555,16 @@ fn failNodeNotes(
         .byte_offset = 0,
         .notes = notes_index,
     });
+}
+
+fn failNodeNotes(
+    astgen: *AstGen,
+    node: Ast.Node.Index,
+    comptime format: []const u8,
+    args: anytype,
+    notes: []const u32,
+) InnerError {
+    try appendErrorNodeNotes(astgen, node, format, args, notes);
     return error.AnalysisFail;
 }
 
@@ -8558,6 +8577,15 @@ fn failTok(
     return astgen.failTokNotes(token, format, args, &[0]u32{});
 }
 
+fn appendErrorTok(
+    astgen: *AstGen,
+    token: Ast.TokenIndex,
+    comptime format: []const u8,
+    args: anytype,
+) !void {
+    try astgen.appendErrorTokNotes(token, format, args, &[0]u32{});
+}
+
 fn failTokNotes(
     astgen: *AstGen,
     token: Ast.TokenIndex,
@@ -8565,6 +8593,17 @@ fn failTokNotes(
     args: anytype,
     notes: []const u32,
 ) InnerError {
+    try appendErrorTokNotes(astgen, token, format, args, notes);
+    return error.AnalysisFail;
+}
+
+fn appendErrorTokNotes(
+    astgen: *AstGen,
+    token: Ast.TokenIndex,
+    comptime format: []const u8,
+    args: anytype,
+    notes: []const u32,
+) !void {
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
@@ -8583,7 +8622,6 @@ fn failTokNotes(
         .byte_offset = 0,
         .notes = notes_index,
     });
-    return error.AnalysisFail;
 }
 
 /// Same as `fail`, except given an absolute byte offset.
@@ -8594,6 +8632,17 @@ fn failOff(
     comptime format: []const u8,
     args: anytype,
 ) InnerError {
+    try appendErrorOff(astgen, token, byte_offset, format, args);
+    return error.AnalysisFail;
+}
+
+fn appendErrorOff(
+    astgen: *AstGen,
+    token: Ast.TokenIndex,
+    byte_offset: u32,
+    comptime format: []const u8,
+    args: anytype,
+) Allocator.Error!void {
     @setCold(true);
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
@@ -8605,7 +8654,6 @@ fn failOff(
         .byte_offset = byte_offset,
         .notes = 0,
     });
-    return error.AnalysisFail;
 }
 
 fn errNoteTok(
