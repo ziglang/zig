@@ -14,10 +14,10 @@ const Allocator = mem.Allocator;
 const Compilation = @import("../../Compilation.zig");
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const DW = std.dwarf;
-const Emit = @import("Emit.zig");
 const ErrorMsg = Module.ErrorMsg;
 const FnResult = @import("../../codegen.zig").FnResult;
 const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
+const Isel = @import("Isel.zig");
 const Liveness = @import("../../Liveness.zig");
 const Mir = @import("Mir.zig");
 const Module = @import("../../Module.zig");
@@ -309,7 +309,7 @@ pub fn generate(
     };
     defer mir.deinit(bin_file.allocator);
 
-    var emit = Emit{
+    var isel = Isel{
         .mir = mir,
         .bin_file = bin_file,
         .debug_output = debug_output,
@@ -320,9 +320,9 @@ pub fn generate(
         .prev_di_line = module_fn.lbrace_line,
         .prev_di_column = module_fn.lbrace_column,
     };
-    defer emit.deinit();
-    emit.emitMir() catch |err| switch (err) {
-        error.EmitFail => return FnResult{ .fail = emit.err_msg.? },
+    defer isel.deinit();
+    isel.lowerMir() catch |err| switch (err) {
+        error.IselFail => return FnResult{ .fail = isel.err_msg.? },
         else => |e| return e,
     };
 

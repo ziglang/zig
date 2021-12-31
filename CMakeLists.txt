@@ -578,7 +578,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/arch/wasm/Emit.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/wasm/Mir.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/CodeGen.zig"
-    "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Emit.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Isel.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Mir.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/bits.zig"
     "${CMAKE_SOURCE_DIR}/src/clang.zig"

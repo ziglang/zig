@@ -1,7 +1,7 @@
 //! This file contains the functionality for lowering x86_64 MIR into
 //! machine code
 
-const Emit = @This();
+const Isel = @This();
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -45,7 +45,7 @@ relocs: std.ArrayListUnmanaged(Reloc) = .{},
 const InnerError = error{
     OutOfMemory,
     Overflow,
-    EmitFail,
+    IselFail,
 };
 
 const Reloc = struct {
@@ -59,195 +59,195 @@ const Reloc = struct {
     length: u5,
 };
 
-pub fn emitMir(emit: *Emit) InnerError!void {
-    const mir_tags = emit.mir.instructions.items(.tag);
+pub fn lowerMir(isel: *Isel) InnerError!void {
+    const mir_tags = isel.mir.instructions.items(.tag);
 
     for (mir_tags) |tag, index| {
         const inst = @intCast(u32, index);
-        try emit.code_offset_mapping.putNoClobber(emit.bin_file.allocator, inst, emit.code.items.len);
+        try isel.code_offset_mapping.putNoClobber(isel.bin_file.allocator, inst, isel.code.items.len);
         switch (tag) {
-            .adc => try emit.mirArith(.adc, inst),
-            .add => try emit.mirArith(.add, inst),
-            .sub => try emit.mirArith(.sub, inst),
-            .xor => try emit.mirArith(.xor, inst),
-            .@"and" => try emit.mirArith(.@"and", inst),
-            .@"or" => try emit.mirArith(.@"or", inst),
-            .sbb => try emit.mirArith(.sbb, inst),
-            .cmp => try emit.mirArith(.cmp, inst),
-            .mov => try emit.mirArith(.mov, inst),
+            .adc => try isel.mirArith(.adc, inst),
+            .add => try isel.mirArith(.add, inst),
+            .sub => try isel.mirArith(.sub, inst),
+            .xor => try isel.mirArith(.xor, inst),
+            .@"and" => try isel.mirArith(.@"and", inst),
+            .@"or" => try isel.mirArith(.@"or", inst),
+            .sbb => try isel.mirArith(.sbb, inst),
+            .cmp => try isel.mirArith(.cmp, inst),
+            .mov => try isel.mirArith(.mov, inst),
 
-            .adc_mem_imm => try emit.mirArithMemImm(.adc, inst),
-            .add_mem_imm => try emit.mirArithMemImm(.add, inst),
-            .sub_mem_imm => try emit.mirArithMemImm(.sub, inst),
-            .xor_mem_imm => try emit.mirArithMemImm(.xor, inst),
-            .and_mem_imm => try emit.mirArithMemImm(.@"and", inst),
-            .or_mem_imm => try emit.mirArithMemImm(.@"or", inst),
-            .sbb_mem_imm => try emit.mirArithMemImm(.sbb, inst),
-            .cmp_mem_imm => try emit.mirArithMemImm(.cmp, inst),
-            .mov_mem_imm => try emit.mirArithMemImm(.mov, inst),
+            .adc_mem_imm => try isel.mirArithMemImm(.adc, inst),
+            .add_mem_imm => try isel.mirArithMemImm(.add, inst),
+            .sub_mem_imm => try isel.mirArithMemImm(.sub, inst),
+            .xor_mem_imm => try isel.mirArithMemImm(.xor, inst),
+            .and_mem_imm => try isel.mirArithMemImm(.@"and", inst),
+            .or_mem_imm => try isel.mirArithMemImm(.@"or", inst),
+            .sbb_mem_imm => try isel.mirArithMemImm(.sbb, inst),
+            .cmp_mem_imm => try isel.mirArithMemImm(.cmp, inst),
+            .mov_mem_imm => try isel.mirArithMemImm(.mov, inst),
 
-            .adc_scale_src => try emit.mirArithScaleSrc(.adc, inst),
-            .add_scale_src => try emit.mirArithScaleSrc(.add, inst),
-            .sub_scale_src => try emit.mirArithScaleSrc(.sub, inst),
-            .xor_scale_src => try emit.mirArithScaleSrc(.xor, inst),
-            .and_scale_src => try emit.mirArithScaleSrc(.@"and", inst),
-            .or_scale_src => try emit.mirArithScaleSrc(.@"or", inst),
-            .sbb_scale_src => try emit.mirArithScaleSrc(.sbb, inst),
-            .cmp_scale_src => try emit.mirArithScaleSrc(.cmp, inst),
-            .mov_scale_src => try emit.mirArithScaleSrc(.mov, inst),
+            .adc_scale_src => try isel.mirArithScaleSrc(.adc, inst),
+            .add_scale_src => try isel.mirArithScaleSrc(.add, inst),
+            .sub_scale_src => try isel.mirArithScaleSrc(.sub, inst),
+            .xor_scale_src => try isel.mirArithScaleSrc(.xor, inst),
+            .and_scale_src => try isel.mirArithScaleSrc(.@"and", inst),
+            .or_scale_src => try isel.mirArithScaleSrc(.@"or", inst),
+            .sbb_scale_src => try isel.mirArithScaleSrc(.sbb, inst),
+            .cmp_scale_src => try isel.mirArithScaleSrc(.cmp, inst),
+            .mov_scale_src => try isel.mirArithScaleSrc(.mov, inst),
 
-            .adc_scale_dst => try emit.mirArithScaleDst(.adc, inst),
-            .add_scale_dst => try emit.mirArithScaleDst(.add, inst),
-            .sub_scale_dst => try emit.mirArithScaleDst(.sub, inst),
-            .xor_scale_dst => try emit.mirArithScaleDst(.xor, inst),
-            .and_scale_dst => try emit.mirArithScaleDst(.@"and", inst),
-            .or_scale_dst => try emit.mirArithScaleDst(.@"or", inst),
-            .sbb_scale_dst => try emit.mirArithScaleDst(.sbb, inst),
-            .cmp_scale_dst => try emit.mirArithScaleDst(.cmp, inst),
-            .mov_scale_dst => try emit.mirArithScaleDst(.mov, inst),
+            .adc_scale_dst => try isel.mirArithScaleDst(.adc, inst),
+            .add_scale_dst => try isel.mirArithScaleDst(.add, inst),
+            .sub_scale_dst => try isel.mirArithScaleDst(.sub, inst),
+            .xor_scale_dst => try isel.mirArithScaleDst(.xor, inst),
+            .and_scale_dst => try isel.mirArithScaleDst(.@"and", inst),
+            .or_scale_dst => try isel.mirArithScaleDst(.@"or", inst),
+            .sbb_scale_dst => try isel.mirArithScaleDst(.sbb, inst),
+            .cmp_scale_dst => try isel.mirArithScaleDst(.cmp, inst),
+            .mov_scale_dst => try isel.mirArithScaleDst(.mov, inst),
 
-            .adc_scale_imm => try emit.mirArithScaleImm(.adc, inst),
-            .add_scale_imm => try emit.mirArithScaleImm(.add, inst),
-            .sub_scale_imm => try emit.mirArithScaleImm(.sub, inst),
-            .xor_scale_imm => try emit.mirArithScaleImm(.xor, inst),
-            .and_scale_imm => try emit.mirArithScaleImm(.@"and", inst),
-            .or_scale_imm => try emit.mirArithScaleImm(.@"or", inst),
-            .sbb_scale_imm => try emit.mirArithScaleImm(.sbb, inst),
-            .cmp_scale_imm => try emit.mirArithScaleImm(.cmp, inst),
-            .mov_scale_imm => try emit.mirArithScaleImm(.mov, inst),
+            .adc_scale_imm => try isel.mirArithScaleImm(.adc, inst),
+            .add_scale_imm => try isel.mirArithScaleImm(.add, inst),
+            .sub_scale_imm => try isel.mirArithScaleImm(.sub, inst),
+            .xor_scale_imm => try isel.mirArithScaleImm(.xor, inst),
+            .and_scale_imm => try isel.mirArithScaleImm(.@"and", inst),
+            .or_scale_imm => try isel.mirArithScaleImm(.@"or", inst),
+            .sbb_scale_imm => try isel.mirArithScaleImm(.sbb, inst),
+            .cmp_scale_imm => try isel.mirArithScaleImm(.cmp, inst),
+            .mov_scale_imm => try isel.mirArithScaleImm(.mov, inst),
 
-            .movabs => try emit.mirMovabs(inst),
+            .movabs => try isel.mirMovabs(inst),
 
-            .lea => try emit.mirLea(inst),
+            .lea => try isel.mirLea(inst),
 
-            .imul_complex => try emit.mirIMulComplex(inst),
+            .imul_complex => try isel.mirIMulComplex(inst),
 
-            .push => try emit.mirPushPop(.push, inst),
-            .pop => try emit.mirPushPop(.pop, inst),
+            .push => try isel.mirPushPop(.push, inst),
+            .pop => try isel.mirPushPop(.pop, inst),
 
-            .jmp => try emit.mirJmpCall(.jmp_near, inst),
-            .call => try emit.mirJmpCall(.call_near, inst),
+            .jmp => try isel.mirJmpCall(.jmp_near, inst),
+            .call => try isel.mirJmpCall(.call_near, inst),
 
             .cond_jmp_greater_less,
             .cond_jmp_above_below,
             .cond_jmp_eq_ne,
-            => try emit.mirCondJmp(tag, inst),
+            => try isel.mirCondJmp(tag, inst),
 
             .cond_set_byte_greater_less,
             .cond_set_byte_above_below,
             .cond_set_byte_eq_ne,
-            => try emit.mirCondSetByte(tag, inst),
+            => try isel.mirCondSetByte(tag, inst),
 
-            .ret => try emit.mirRet(inst),
+            .ret => try isel.mirRet(inst),
 
-            .syscall => try emit.mirSyscall(),
+            .syscall => try isel.mirSyscall(),
 
-            .@"test" => try emit.mirTest(inst),
+            .@"test" => try isel.mirTest(inst),
 
-            .brk => try emit.mirBrk(),
-            .nop => try emit.mirNop(),
+            .brk => try isel.mirBrk(),
+            .nop => try isel.mirNop(),
 
-            .call_extern => try emit.mirCallExtern(inst),
+            .call_extern => try isel.mirCallExtern(inst),
 
-            .dbg_line => try emit.mirDbgLine(inst),
-            .dbg_prologue_end => try emit.mirDbgPrologueEnd(inst),
-            .dbg_epilogue_begin => try emit.mirDbgEpilogueBegin(inst),
-            .arg_dbg_info => try emit.mirArgDbgInfo(inst),
+            .dbg_line => try isel.mirDbgLine(inst),
+            .dbg_prologue_end => try isel.mirDbgPrologueEnd(inst),
+            .dbg_epilogue_begin => try isel.mirDbgEpilogueBegin(inst),
+            .arg_dbg_info => try isel.mirArgDbgInfo(inst),
 
-            .push_regs_from_callee_preserved_regs => try emit.mirPushPopRegsFromCalleePreservedRegs(.push, inst),
-            .pop_regs_from_callee_preserved_regs => try emit.mirPushPopRegsFromCalleePreservedRegs(.pop, inst),
+            .push_regs_from_callee_preserved_regs => try isel.mirPushPopRegsFromCalleePreservedRegs(.push, inst),
+            .pop_regs_from_callee_preserved_regs => try isel.mirPushPopRegsFromCalleePreservedRegs(.pop, inst),
 
             else => {
-                return emit.fail("Implement MIR->Isel lowering for x86_64 for pseudo-inst: {s}", .{tag});
+                return isel.fail("Implement MIR->Isel lowering for x86_64 for pseudo-inst: {s}", .{tag});
             },
         }
     }
 
-    try emit.fixupRelocs();
+    try isel.fixupRelocs();
 }
 
-pub fn deinit(emit: *Emit) void {
-    emit.relocs.deinit(emit.bin_file.allocator);
-    emit.code_offset_mapping.deinit(emit.bin_file.allocator);
-    emit.* = undefined;
+pub fn deinit(isel: *Isel) void {
+    isel.relocs.deinit(isel.bin_file.allocator);
+    isel.code_offset_mapping.deinit(isel.bin_file.allocator);
+    isel.* = undefined;
 }
 
-fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
+fn fail(isel: *Isel, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
-    assert(emit.err_msg == null);
-    emit.err_msg = try ErrorMsg.create(emit.bin_file.allocator, emit.src_loc, format, args);
-    return error.EmitFail;
+    assert(isel.err_msg == null);
+    isel.err_msg = try ErrorMsg.create(isel.bin_file.allocator, isel.src_loc, format, args);
+    return error.IselFail;
 }
 
-fn failWithLoweringError(emit: *Emit, err: LoweringError) InnerError {
+fn failWithLoweringError(isel: *Isel, err: LoweringError) InnerError {
     return switch (err) {
-        error.RaxOperandExpected => emit.fail("Register.rax expected as destination operand", .{}),
-        error.OperandSizeMismatch => emit.fail("operand size mismatch", .{}),
+        error.RaxOperandExpected => isel.fail("Register.rax expected as destination operand", .{}),
+        error.OperandSizeMismatch => isel.fail("operand size mismatch", .{}),
         else => |e| e,
     };
 }
 
-fn fixupRelocs(emit: *Emit) InnerError!void {
+fn fixupRelocs(isel: *Isel) InnerError!void {
     // TODO this function currently assumes all relocs via JMP/CALL instructions are 32bit in size.
     // This should be reversed like it is done in aarch64 MIR emit code: start with the smallest
     // possible resolution, i.e., 8bit, and iteratively converge on the minimum required resolution
     // until the entire decl is correctly emitted with all JMP/CALL instructions within range.
-    for (emit.relocs.items) |reloc| {
+    for (isel.relocs.items) |reloc| {
         const offset = try math.cast(usize, reloc.offset);
-        const target = emit.code_offset_mapping.get(reloc.target) orelse
-            return emit.fail("JMP/CALL relocation target not found!", .{});
+        const target = isel.code_offset_mapping.get(reloc.target) orelse
+            return isel.fail("JMP/CALL relocation target not found!", .{});
         const disp = @intCast(i32, @intCast(i64, target) - @intCast(i64, reloc.source + reloc.length));
-        mem.writeIntLittle(i32, emit.code.items[offset..][0..4], disp);
+        mem.writeIntLittle(i32, isel.code.items[offset..][0..4], disp);
     }
 }
 
-fn mirBrk(emit: *Emit) InnerError!void {
-    return lowerToZoEnc(.brk, emit.code) catch |err| emit.failWithLoweringError(err);
+fn mirBrk(isel: *Isel) InnerError!void {
+    return lowerToZoEnc(.brk, isel.code) catch |err| isel.failWithLoweringError(err);
 }
 
-fn mirNop(emit: *Emit) InnerError!void {
-    return lowerToZoEnc(.nop, emit.code) catch |err| emit.failWithLoweringError(err);
+fn mirNop(isel: *Isel) InnerError!void {
+    return lowerToZoEnc(.nop, isel.code) catch |err| isel.failWithLoweringError(err);
 }
 
-fn mirSyscall(emit: *Emit) InnerError!void {
-    return lowerToZoEnc(.syscall, emit.code) catch |err| emit.failWithLoweringError(err);
+fn mirSyscall(isel: *Isel) InnerError!void {
+    return lowerToZoEnc(.syscall, isel.code) catch |err| isel.failWithLoweringError(err);
 }
 
-fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+fn mirPushPop(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             // PUSH/POP reg
-            return lowerToOEnc(tag, ops.reg1, emit.code) catch |err| emit.failWithLoweringError(err);
+            return lowerToOEnc(tag, ops.reg1, isel.code) catch |err| isel.failWithLoweringError(err);
         },
         0b01 => {
             // PUSH/POP r/m64
-            const imm = emit.mir.instructions.items(.data)[inst].imm;
+            const imm = isel.mir.instructions.items(.data)[inst].imm;
             const ptr_size: Memory.PtrSize = switch (immOpSize(imm)) {
                 16 => .word_ptr,
                 else => .qword_ptr,
             };
-            return lowerToMEnc(tag, RegisterOrMemory.mem(ops.reg1, imm, ptr_size), emit.code) catch |err|
-                emit.failWithLoweringError(err);
+            return lowerToMEnc(tag, RegisterOrMemory.mem(ops.reg1, imm, ptr_size), isel.code) catch |err|
+                isel.failWithLoweringError(err);
         },
         0b10 => {
             // PUSH imm32
             assert(tag == .push);
-            const imm = emit.mir.instructions.items(.data)[inst].imm;
-            return lowerToIEnc(.push, imm, emit.code) catch |err|
-                emit.failWithLoweringError(err);
+            const imm = isel.mir.instructions.items(.data)[inst].imm;
+            return lowerToIEnc(.push, imm, isel.code) catch |err|
+                isel.failWithLoweringError(err);
         },
         0b11 => unreachable,
     }
 }
-fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+fn mirPushPopRegsFromCalleePreservedRegs(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const callee_preserved_regs = bits.callee_preserved_regs;
-    const regs = emit.mir.instructions.items(.data)[inst].regs_to_push_or_pop;
+    const regs = isel.mir.instructions.items(.data)[inst].regs_to_push_or_pop;
     if (tag == .push) {
         for (callee_preserved_regs) |reg, i| {
             if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
-            lowerToOEnc(.push, reg, emit.code) catch |err|
-                return emit.failWithLoweringError(err);
+            lowerToOEnc(.push, reg, isel.code) catch |err|
+                return isel.failWithLoweringError(err);
         }
     } else {
         // pop in the reverse direction
@@ -255,45 +255,45 @@ fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.I
         while (i > 0) : (i -= 1) {
             const reg = callee_preserved_regs[i - 1];
             if ((regs >> @intCast(u5, i - 1)) & 1 == 0) continue;
-            lowerToOEnc(.pop, reg, emit.code) catch |err|
-                return emit.failWithLoweringError(err);
+            lowerToOEnc(.pop, reg, isel.code) catch |err|
+                return isel.failWithLoweringError(err);
         }
     }
 }
 
-fn mirJmpCall(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+fn mirJmpCall(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     const flag = @truncate(u1, ops.flags);
     if (flag == 0) {
-        const target = emit.mir.instructions.items(.data)[inst].inst;
-        const source = emit.code.items.len;
-        lowerToDEnc(tag, 0, emit.code) catch |err|
-            return emit.failWithLoweringError(err);
-        try emit.relocs.append(emit.bin_file.allocator, .{
+        const target = isel.mir.instructions.items(.data)[inst].inst;
+        const source = isel.code.items.len;
+        lowerToDEnc(tag, 0, isel.code) catch |err|
+            return isel.failWithLoweringError(err);
+        try isel.relocs.append(isel.bin_file.allocator, .{
             .source = source,
             .target = target,
-            .offset = emit.code.items.len - 4,
+            .offset = isel.code.items.len - 4,
             .length = 5,
         });
         return;
     }
     if (ops.reg1 == .none) {
         // JMP/CALL [imm]
-        const imm = emit.mir.instructions.items(.data)[inst].imm;
+        const imm = isel.mir.instructions.items(.data)[inst].imm;
         const ptr_size: Memory.PtrSize = switch (immOpSize(imm)) {
             16 => .word_ptr,
             else => .qword_ptr,
         };
-        return lowerToMEnc(tag, RegisterOrMemory.mem(null, imm, ptr_size), emit.code) catch |err|
-            emit.failWithLoweringError(err);
+        return lowerToMEnc(tag, RegisterOrMemory.mem(null, imm, ptr_size), isel.code) catch |err|
+            isel.failWithLoweringError(err);
     }
     // JMP/CALL reg
-    return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1), emit.code) catch |err| emit.failWithLoweringError(err);
+    return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1), isel.code) catch |err| isel.failWithLoweringError(err);
 }
 
-fn mirCondJmp(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
-    const target = emit.mir.instructions.items(.data)[inst].inst;
+fn mirCondJmp(isel: *Isel, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
+    const target = isel.mir.instructions.items(.data)[inst].inst;
     const tag = switch (mir_tag) {
         .cond_jmp_greater_less => switch (ops.flags) {
             0b00 => Tag.jge,
@@ -313,19 +313,19 @@ fn mirCondJmp(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerErr
         },
         else => unreachable,
     };
-    const source = emit.code.items.len;
-    lowerToDEnc(tag, 0, emit.code) catch |err|
-        return emit.failWithLoweringError(err);
-    try emit.relocs.append(emit.bin_file.allocator, .{
+    const source = isel.code.items.len;
+    lowerToDEnc(tag, 0, isel.code) catch |err|
+        return isel.failWithLoweringError(err);
+    try isel.relocs.append(isel.bin_file.allocator, .{
         .source = source,
         .target = target,
-        .offset = emit.code.items.len - 4,
+        .offset = isel.code.items.len - 4,
         .length = 6,
     });
 }
 
-fn mirCondSetByte(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+fn mirCondSetByte(isel: *Isel, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     const tag = switch (mir_tag) {
         .cond_set_byte_greater_less => switch (ops.flags) {
             0b00 => Tag.setge,
@@ -345,115 +345,115 @@ fn mirCondSetByte(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) Inne
         },
         else => unreachable,
     };
-    return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1.to8()), emit.code) catch |err|
-        emit.failWithLoweringError(err);
+    return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1.to8()), isel.code) catch |err|
+        isel.failWithLoweringError(err);
 }
 
-fn mirTest(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
+fn mirTest(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
+    const tag = isel.mir.instructions.items(.tag)[inst];
     assert(tag == .@"test");
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             if (ops.reg2 == .none) {
                 // TEST r/m64, imm32
                 // MI
-                const imm = emit.mir.instructions.items(.data)[inst].imm;
+                const imm = isel.mir.instructions.items(.data)[inst].imm;
                 if (ops.reg1.to64() == .rax) {
                     // TEST rax, imm32
                     // I
-                    return lowerToIEnc(.@"test", imm, emit.code) catch |err|
-                        emit.failWithLoweringError(err);
+                    return lowerToIEnc(.@"test", imm, isel.code) catch |err|
+                        isel.failWithLoweringError(err);
                 }
-                return lowerToMiEnc(.@"test", RegisterOrMemory.reg(ops.reg1), imm, emit.code) catch |err|
-                    emit.failWithLoweringError(err);
+                return lowerToMiEnc(.@"test", RegisterOrMemory.reg(ops.reg1), imm, isel.code) catch |err|
+                    isel.failWithLoweringError(err);
             }
             // TEST r/m64, r64
-            return emit.fail("TODO TEST r/m64, r64", .{});
+            return isel.fail("TODO TEST r/m64, r64", .{});
         },
-        else => return emit.fail("TODO more TEST alternatives", .{}),
+        else => return isel.fail("TODO more TEST alternatives", .{}),
     }
 }
 
-fn mirRet(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
+fn mirRet(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
+    const tag = isel.mir.instructions.items(.tag)[inst];
     assert(tag == .ret);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             // RETF imm16
             // I
-            const imm = emit.mir.instructions.items(.data)[inst].imm;
-            return lowerToIEnc(.ret_far, imm, emit.code) catch |err| emit.failWithLoweringError(err);
+            const imm = isel.mir.instructions.items(.data)[inst].imm;
+            return lowerToIEnc(.ret_far, imm, isel.code) catch |err| isel.failWithLoweringError(err);
         },
         0b01 => {
-            return lowerToZoEnc(.ret_far, emit.code) catch |err| emit.failWithLoweringError(err);
+            return lowerToZoEnc(.ret_far, isel.code) catch |err| isel.failWithLoweringError(err);
         },
         0b10 => {
             // RET imm16
             // I
-            const imm = emit.mir.instructions.items(.data)[inst].imm;
-            return lowerToIEnc(.ret_near, imm, emit.code) catch |err| emit.failWithLoweringError(err);
+            const imm = isel.mir.instructions.items(.data)[inst].imm;
+            return lowerToIEnc(.ret_near, imm, isel.code) catch |err| isel.failWithLoweringError(err);
         },
         0b11 => {
-            return lowerToZoEnc(.ret_near, emit.code) catch |err| emit.failWithLoweringError(err);
+            return lowerToZoEnc(.ret_near, isel.code) catch |err| isel.failWithLoweringError(err);
         },
     }
 }
 
-fn mirArith(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+fn mirArith(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             if (ops.reg2 == .none) {
                 // mov reg1, imm32
                 // MI
-                const imm = emit.mir.instructions.items(.data)[inst].imm;
-                return lowerToMiEnc(tag, RegisterOrMemory.reg(ops.reg1), imm, emit.code) catch |err|
-                    emit.failWithLoweringError(err);
+                const imm = isel.mir.instructions.items(.data)[inst].imm;
+                return lowerToMiEnc(tag, RegisterOrMemory.reg(ops.reg1), imm, isel.code) catch |err|
+                    isel.failWithLoweringError(err);
             }
             // mov reg1, reg2
             // RM
-            return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code) catch |err|
-                emit.failWithLoweringError(err);
+            return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.reg(ops.reg2), isel.code) catch |err|
+                isel.failWithLoweringError(err);
         },
         0b01 => {
             // mov reg1, [reg2 + imm32]
             // RM
-            const imm = emit.mir.instructions.items(.data)[inst].imm;
+            const imm = isel.mir.instructions.items(.data)[inst].imm;
             const src_reg: ?Register = if (ops.reg2 == .none) null else ops.reg2;
             return lowerToRmEnc(
                 tag,
                 ops.reg1,
                 RegisterOrMemory.mem(src_reg, imm, Memory.PtrSize.fromBits(ops.reg1.size())),
-                emit.code,
-            ) catch |err| emit.failWithLoweringError(err);
+                isel.code,
+            ) catch |err| isel.failWithLoweringError(err);
         },
         0b10 => {
             if (ops.reg2 == .none) {
-                return emit.fail("TODO unused variant: mov reg1, none, 0b10", .{});
+                return isel.fail("TODO unused variant: mov reg1, none, 0b10", .{});
             }
             // mov [reg1 + imm32], reg2
             // MR
-            const imm = emit.mir.instructions.items(.data)[inst].imm;
+            const imm = isel.mir.instructions.items(.data)[inst].imm;
             return lowerToMrEnc(
                 tag,
                 RegisterOrMemory.mem(ops.reg1, imm, Memory.PtrSize.fromBits(ops.reg2.size())),
                 ops.reg2,
-                emit.code,
-            ) catch |err| emit.failWithLoweringError(err);
+                isel.code,
+            ) catch |err| isel.failWithLoweringError(err);
         },
         0b11 => {
-            return emit.fail("TODO unused variant: mov reg1, reg2, 0b11", .{});
+            return isel.fail("TODO unused variant: mov reg1, reg2, 0b11", .{});
         },
     }
 }
 
-fn mirArithMemImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+fn mirArithMemImm(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     assert(ops.reg2 == .none);
-    const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
+    const payload = isel.mir.instructions.items(.data)[inst].payload;
+    const imm_pair = isel.mir.extraData(Mir.ImmPair, payload).data;
     const ptr_size: Memory.PtrSize = switch (ops.flags) {
         0b00 => .byte_ptr,
         0b01 => .word_ptr,
@@ -464,8 +464,8 @@ fn mirArithMemImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
         tag,
         RegisterOrMemory.mem(ops.reg1, imm_pair.dest_off, ptr_size),
         imm_pair.operand,
-        emit.code,
-    ) catch |err| emit.failWithLoweringError(err);
+        isel.code,
+    ) catch |err| isel.failWithLoweringError(err);
 }
 
 inline fn setRexWRegister(reg: Register) bool {
@@ -493,13 +493,13 @@ inline fn immOpSize(imm: i64) u8 {
 }
 
 // TODO
-fn mirArithScaleSrc(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+fn mirArithScaleSrc(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     // OP reg1, [reg2 + scale*rcx + imm32]
     const opc = getOpCode(tag, .rm, ops.reg1.size() == 8).?;
-    const imm = emit.mir.instructions.items(.data)[inst].imm;
-    const encoder = try Encoder.init(emit.code, 8);
+    const imm = isel.mir.instructions.items(.data)[inst].imm;
+    const encoder = try Encoder.init(isel.code, 8);
     encoder.rex(.{
         .w = ops.reg1.size() == 64,
         .r = ops.reg1.isExtended(),
@@ -518,16 +518,16 @@ fn mirArithScaleSrc(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
 }
 
 // TODO
-fn mirArithScaleDst(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+fn mirArithScaleDst(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
-    const imm = emit.mir.instructions.items(.data)[inst].imm;
+    const imm = isel.mir.instructions.items(.data)[inst].imm;
 
     if (ops.reg2 == .none) {
         // OP [reg1 + scale*rax + 0], imm32
         const opc = getOpCode(tag, .mi, ops.reg1.size() == 8).?;
         const modrm_ext = getModRmExt(tag).?;
-        const encoder = try Encoder.init(emit.code, 8);
+        const encoder = try Encoder.init(isel.code, 8);
         encoder.rex(.{
             .w = ops.reg1.size() == 64,
             .b = ops.reg1.isExtended(),
@@ -547,7 +547,7 @@ fn mirArithScaleDst(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
 
     // OP [reg1 + scale*rax + imm32], reg2
     const opc = getOpCode(tag, .mr, ops.reg1.size() == 8).?;
-    const encoder = try Encoder.init(emit.code, 8);
+    const encoder = try Encoder.init(isel.code, 8);
     encoder.rex(.{
         .w = ops.reg1.size() == 64,
         .r = ops.reg2.isExtended(),
@@ -566,14 +566,14 @@ fn mirArithScaleDst(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
 }
 
 // TODO
-fn mirArithScaleImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+fn mirArithScaleImm(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
-    const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
+    const payload = isel.mir.instructions.items(.data)[inst].payload;
+    const imm_pair = isel.mir.extraData(Mir.ImmPair, payload).data;
     const opc = getOpCode(tag, .mi, ops.reg1.size() == 8).?;
     const modrm_ext = getModRmExt(tag).?;
-    const encoder = try Encoder.init(emit.code, 2);
+    const encoder = try Encoder.init(isel.code, 2);
     encoder.rex(.{
         .w = ops.reg1.size() == 64,
         .b = ops.reg1.isExtended(),
@@ -591,81 +591,81 @@ fn mirArithScaleImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
     encoder.imm32(imm_pair.operand);
 }
 
-fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
+fn mirMovabs(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
+    const tag = isel.mir.instructions.items(.tag)[inst];
     assert(tag == .movabs);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     const imm: i64 = if (ops.reg1.size() == 64) blk: {
-        const payload = emit.mir.instructions.items(.data)[inst].payload;
-        const imm = emit.mir.extraData(Mir.Imm64, payload).data;
+        const payload = isel.mir.instructions.items(.data)[inst].payload;
+        const imm = isel.mir.extraData(Mir.Imm64, payload).data;
         break :blk @bitCast(i64, imm.decode());
-    } else emit.mir.instructions.items(.data)[inst].imm;
+    } else isel.mir.instructions.items(.data)[inst].imm;
     if (ops.flags == 0b00) {
         // movabs reg, imm64
         // OI
-        return lowerToOiEnc(.mov, ops.reg1, imm, emit.code) catch |err| emit.failWithLoweringError(err);
+        return lowerToOiEnc(.mov, ops.reg1, imm, isel.code) catch |err| isel.failWithLoweringError(err);
     }
     if (ops.reg1 == .none) {
         // movabs moffs64, rax
         // TD
-        return lowerToTdEnc(.mov, imm, ops.reg2, emit.code) catch |err| emit.failWithLoweringError(err);
+        return lowerToTdEnc(.mov, imm, ops.reg2, isel.code) catch |err| isel.failWithLoweringError(err);
     }
     // movabs rax, moffs64
     // FD
-    return lowerToFdEnc(.mov, ops.reg1, imm, emit.code) catch |err| emit.failWithLoweringError(err);
+    return lowerToFdEnc(.mov, ops.reg1, imm, isel.code) catch |err| isel.failWithLoweringError(err);
 }
 
-fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
+fn mirIMulComplex(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
+    const tag = isel.mir.instructions.items(.tag)[inst];
     assert(tag == .imul_complex);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
-            return lowerToRmEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code) catch |err|
-                emit.failWithLoweringError(err);
+            return lowerToRmEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), isel.code) catch |err|
+                isel.failWithLoweringError(err);
         },
         0b10 => {
-            const imm = emit.mir.instructions.items(.data)[inst].imm;
-            return lowerToRmiEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), imm, emit.code) catch |err|
-                emit.failWithLoweringError(err);
+            const imm = isel.mir.instructions.items(.data)[inst].imm;
+            return lowerToRmiEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), imm, isel.code) catch |err|
+                isel.failWithLoweringError(err);
         },
-        else => return emit.fail("TODO implement imul", .{}),
+        else => return isel.fail("TODO implement imul", .{}),
     }
 }
 
-fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
+fn mirLea(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
+    const tag = isel.mir.instructions.items(.tag)[inst];
     assert(tag == .lea);
-    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
             // lea reg1, [reg2 + imm32]
             // RM
-            const imm = emit.mir.instructions.items(.data)[inst].imm;
+            const imm = isel.mir.instructions.items(.data)[inst].imm;
             const src_reg: ?Register = if (ops.reg2 == .none) null else ops.reg2;
             return lowerToRmEnc(
                 .lea,
                 ops.reg1,
                 RegisterOrMemory.mem(src_reg, imm, Memory.PtrSize.fromBits(ops.reg1.size())),
-                emit.code,
-            ) catch |err| emit.failWithLoweringError(err);
+                isel.code,
+            ) catch |err| isel.failWithLoweringError(err);
         },
         0b01 => {
             // lea reg1, [rip + imm32]
             // RM
-            const start_offset = emit.code.items.len;
+            const start_offset = isel.code.items.len;
             lowerToRmEnc(
                 .lea,
                 ops.reg1,
                 RegisterOrMemory.rip(0, Memory.PtrSize.fromBits(ops.reg1.size())),
-                emit.code,
-            ) catch |err| return emit.failWithLoweringError(err);
-            const end_offset = emit.code.items.len;
+                isel.code,
+            ) catch |err| return isel.failWithLoweringError(err);
+            const end_offset = isel.code.items.len;
             // Backpatch the displacement
-            const payload = emit.mir.instructions.items(.data)[inst].payload;
-            const imm = emit.mir.extraData(Mir.Imm64, payload).data.decode();
+            const payload = isel.mir.instructions.items(.data)[inst].payload;
+            const imm = isel.mir.extraData(Mir.Imm64, payload).data.decode();
             const disp = @intCast(i32, @intCast(i64, imm) - @intCast(i64, end_offset - start_offset));
-            mem.writeIntLittle(i32, emit.code.items[end_offset - 4 ..][0..4], disp);
+            mem.writeIntLittle(i32, isel.code.items[end_offset - 4 ..][0..4], disp);
         },
         0b10 => {
             // lea reg1, [rip + reloc]
@@ -674,14 +674,14 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                 .lea,
                 ops.reg1,
                 RegisterOrMemory.rip(0, Memory.PtrSize.fromBits(ops.reg1.size())),
-                emit.code,
-            ) catch |err| return emit.failWithLoweringError(err);
-            const end_offset = emit.code.items.len;
-            const got_entry = emit.mir.instructions.items(.data)[inst].got_entry;
-            if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+                isel.code,
+            ) catch |err| return isel.failWithLoweringError(err);
+            const end_offset = isel.code.items.len;
+            const got_entry = isel.mir.instructions.items(.data)[inst].got_entry;
+            if (isel.bin_file.cast(link.File.MachO)) |macho_file| {
                 // TODO I think the reloc might be in the wrong place.
                 const decl = macho_file.active_decl.?;
-                try decl.link.macho.relocs.append(emit.bin_file.allocator, .{
+                try decl.link.macho.relocs.append(isel.bin_file.allocator, .{
                     .offset = @intCast(u32, end_offset - 4),
                     .target = .{ .local = got_entry },
                     .addend = 0,
@@ -691,29 +691,29 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                     .@"type" = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_GOT),
                 });
             } else {
-                return emit.fail(
+                return isel.fail(
                     "TODO implement lea reg, [rip + reloc] for linking backends different than MachO",
                     .{},
                 );
             }
         },
-        0b11 => return emit.fail("TODO unused variant lea reg1, reg2, 0b11", .{}),
+        0b11 => return isel.fail("TODO unused variant lea reg1, reg2, 0b11", .{}),
     }
 }
 
-fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
+fn mirCallExtern(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
+    const tag = isel.mir.instructions.items(.tag)[inst];
     assert(tag == .call_extern);
-    const n_strx = emit.mir.instructions.items(.data)[inst].extern_fn;
+    const n_strx = isel.mir.instructions.items(.data)[inst].extern_fn;
     const offset = blk: {
         // callq
-        lowerToDEnc(.call_near, 0, emit.code) catch |err|
-            return emit.failWithLoweringError(err);
-        break :blk @intCast(u32, emit.code.items.len) - 4;
+        lowerToDEnc(.call_near, 0, isel.code) catch |err|
+            return isel.failWithLoweringError(err);
+        break :blk @intCast(u32, isel.code.items.len) - 4;
     };
-    if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+    if (isel.bin_file.cast(link.File.MachO)) |macho_file| {
         // Add relocation to the decl.
-        try macho_file.active_decl.?.link.macho.relocs.append(emit.bin_file.allocator, .{
+        try macho_file.active_decl.?.link.macho.relocs.append(isel.bin_file.allocator, .{
             .offset = offset,
             .target = .{ .global = n_strx },
             .addend = 0,
@@ -723,22 +723,22 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             .@"type" = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
         });
     } else {
-        return emit.fail("TODO implement call_extern for linking backends different than MachO", .{});
+        return isel.fail("TODO implement call_extern for linking backends different than MachO", .{});
     }
 }
 
-fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
+fn mirDbgLine(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
+    const tag = isel.mir.instructions.items(.tag)[inst];
     assert(tag == .dbg_line);
-    const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const dbg_line_column = emit.mir.extraData(Mir.DbgLineColumn, payload).data;
-    try emit.dbgAdvancePCAndLine(dbg_line_column.line, dbg_line_column.column);
+    const payload = isel.mir.instructions.items(.data)[inst].payload;
+    const dbg_line_column = isel.mir.extraData(Mir.DbgLineColumn, payload).data;
+    try isel.dbgAdvancePCAndLine(dbg_line_column.line, dbg_line_column.column);
 }
 
-fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) InnerError!void {
-    const delta_line = @intCast(i32, line) - @intCast(i32, emit.prev_di_line);
-    const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
-    switch (emit.debug_output) {
+fn dbgAdvancePCAndLine(isel: *Isel, line: u32, column: u32) InnerError!void {
+    const delta_line = @intCast(i32, line) - @intCast(i32, isel.prev_di_line);
+    const delta_pc: usize = isel.code.items.len - isel.prev_di_pc;
+    switch (isel.debug_output) {
         .dwarf => |dbg_out| {
             // TODO Look into using the DWARF special opcodes to compress this data.
             // It lets you emit single-byte opcodes that add different numbers to
@@ -751,15 +751,15 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) InnerError!void {
                 leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
             }
             dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
-            emit.prev_di_pc = emit.code.items.len;
-            emit.prev_di_line = line;
-            emit.prev_di_column = column;
-            emit.prev_di_pc = emit.code.items.len;
+            isel.prev_di_pc = isel.code.items.len;
+            isel.prev_di_line = line;
+            isel.prev_di_column = column;
+            isel.prev_di_pc = isel.code.items.len;
         },
         .plan9 => |dbg_out| {
             if (delta_pc <= 0) return; // only do this when the pc changes
             // we have already checked the target in the linker to make sure it is compatable
-            const quant = @import("../../link/Plan9/aout.zig").getPCQuant(emit.target.cpu.arch) catch unreachable;
+            const quant = @import("../../link/Plan9/aout.zig").getPCQuant(isel.target.cpu.arch) catch unreachable;
 
             // increasing the line number
             try @import("../../link/Plan9.zig").changeLine(dbg_out.dbg_line, delta_line);
@@ -775,62 +775,62 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) InnerError!void {
                 // we don't need to do anything, because adding the quant does it for us
             } else unreachable;
             if (dbg_out.start_line.* == null)
-                dbg_out.start_line.* = emit.prev_di_line;
+                dbg_out.start_line.* = isel.prev_di_line;
             dbg_out.end_line.* = line;
             // only do this if the pc changed
-            emit.prev_di_line = line;
-            emit.prev_di_column = column;
-            emit.prev_di_pc = emit.code.items.len;
+            isel.prev_di_line = line;
+            isel.prev_di_column = column;
+            isel.prev_di_pc = isel.code.items.len;
         },
         .none => {},
     }
 }
 
-fn mirDbgPrologueEnd(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
+fn mirDbgPrologueEnd(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
+    const tag = isel.mir.instructions.items(.tag)[inst];
     assert(tag == .dbg_prologue_end);
-    switch (emit.debug_output) {
+    switch (isel.debug_output) {
         .dwarf => |dbg_out| {
             try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
-            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+            try isel.dbgAdvancePCAndLine(isel.prev_di_line, isel.prev_di_column);
         },
         .plan9 => {},
         .none => {},
     }
 }
 
-fn mirDbgEpilogueBegin(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
+fn mirDbgEpilogueBegin(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
+    const tag = isel.mir.instructions.items(.tag)[inst];
     assert(tag == .dbg_epilogue_begin);
-    switch (emit.debug_output) {
+    switch (isel.debug_output) {
         .dwarf => |dbg_out| {
             try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
-            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+            try isel.dbgAdvancePCAndLine(isel.prev_di_line, isel.prev_di_column);
         },
         .plan9 => {},
         .none => {},
     }
 }
 
-fn mirArgDbgInfo(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
+fn mirArgDbgInfo(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
+    const tag = isel.mir.instructions.items(.tag)[inst];
     assert(tag == .arg_dbg_info);
-    const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const arg_dbg_info = emit.mir.extraData(Mir.ArgDbgInfo, payload).data;
-    const mcv = emit.mir.function.args[arg_dbg_info.arg_index];
-    try emit.genArgDbgInfo(arg_dbg_info.air_inst, mcv);
+    const payload = isel.mir.instructions.items(.data)[inst].payload;
+    const arg_dbg_info = isel.mir.extraData(Mir.ArgDbgInfo, payload).data;
+    const mcv = isel.mir.function.args[arg_dbg_info.arg_index];
+    try isel.genArgDbgInfo(arg_dbg_info.air_inst, mcv);
 }
 
-fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const ty_str = emit.mir.function.air.instructions.items(.data)[inst].ty_str;
-    const zir = &emit.mir.function.mod_fn.owner_decl.getFileScope().zir;
+fn genArgDbgInfo(isel: *Isel, inst: Air.Inst.Index, mcv: MCValue) !void {
+    const ty_str = isel.mir.function.air.instructions.items(.data)[inst].ty_str;
+    const zir = &isel.mir.function.mod_fn.owner_decl.getFileScope().zir;
     const name = zir.nullTerminatedString(ty_str.str);
     const name_with_null = name.ptr[0 .. name.len + 1];
-    const ty = emit.mir.function.air.getRefType(ty_str.ty);
+    const ty = isel.mir.function.air.getRefType(ty_str.ty);
 
     switch (mcv) {
         .register => |reg| {
-            switch (emit.debug_output) {
+            switch (isel.debug_output) {
                 .dwarf => |dbg_out| {
                     try dbg_out.dbg_info.ensureUnusedCapacity(3);
                     dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
@@ -839,7 +839,7 @@ fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue) !void {
                         reg.dwarfLocOp(),
                     });
                     try dbg_out.dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try emit.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+                    try isel.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
                     dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
                 },
                 .plan9 => {},
@@ -847,7 +847,7 @@ fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue) !void {
             }
         },
         .stack_offset => {
-            switch (emit.debug_output) {
+            switch (isel.debug_output) {
                 .dwarf => {},
                 .plan9 => {},
                 .none => {},
@@ -859,21 +859,21 @@ fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue) !void {
 
 /// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
 /// after codegen for this symbol is done.
-fn addDbgInfoTypeReloc(emit: *Emit, ty: Type) !void {
-    switch (emit.debug_output) {
+fn addDbgInfoTypeReloc(isel: *Isel, ty: Type) !void {
+    switch (isel.debug_output) {
         .dwarf => |dbg_out| {
             assert(ty.hasCodeGenBits());
             const index = dbg_out.dbg_info.items.len;
             try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
 
-            const gop = try dbg_out.dbg_info_type_relocs.getOrPut(emit.bin_file.allocator, ty);
+            const gop = try dbg_out.dbg_info_type_relocs.getOrPut(isel.bin_file.allocator, ty);
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
                     .off = undefined,
                     .relocs = .{},
                 };
             }
-            try gop.value_ptr.relocs.append(emit.bin_file.allocator, @intCast(u32, index));
+            try gop.value_ptr.relocs.append(isel.bin_file.allocator, @intCast(u32, index));
         },
         .plan9 => {},
         .none => {},
@@ -1900,233 +1900,233 @@ fn expectEqualHexStrings(expected: []const u8, given: []const u8, assembly: []co
     return error.TestFailed;
 }
 
-const TestEmitCode = struct {
-    buf: std.ArrayList(u8),
+const TestIsel = struct {
+    code_buffer: std.ArrayList(u8),
     next: usize = 0,
 
-    fn init() TestEmitCode {
+    fn init() TestIsel {
         return .{
-            .buf = std.ArrayList(u8).init(testing.allocator),
+            .code_buffer = std.ArrayList(u8).init(testing.allocator),
         };
     }
 
-    fn deinit(emit: *TestEmitCode) void {
-        emit.buf.deinit();
-        emit.next = undefined;
+    fn deinit(isel: *TestIsel) void {
+        isel.code_buffer.deinit();
+        isel.next = undefined;
     }
 
-    fn buffer(emit: *TestEmitCode) *std.ArrayList(u8) {
-        emit.next = emit.buf.items.len;
-        return &emit.buf;
+    fn code(isel: *TestIsel) *std.ArrayList(u8) {
+        isel.next = isel.code_buffer.items.len;
+        return &isel.code_buffer;
     }
 
-    fn emitted(emit: TestEmitCode) []const u8 {
-        return emit.buf.items[emit.next..];
+    fn lowered(isel: TestIsel) []const u8 {
+        return isel.code_buffer.items[isel.next..];
     }
 };
 
 test "lower MI encoding" {
-    var code = TestEmitCode.init();
-    defer code.deinit();
-    try lowerToMiEnc(.mov, RegisterOrMemory.reg(.rax), 0x10, code.buffer());
-    try expectEqualHexStrings("\x48\xc7\xc0\x10\x00\x00\x00", code.emitted(), "mov rax, 0x10");
-    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.r11, 0, .dword_ptr), 0x10, code.buffer());
-    try expectEqualHexStrings("\x41\xc7\x03\x10\x00\x00\x00", code.emitted(), "mov dword ptr [r11 + 0], 0x10");
-    try lowerToMiEnc(.add, RegisterOrMemory.mem(.rdx, -8, .dword_ptr), 0x10, code.buffer());
-    try expectEqualHexStrings("\x81\x42\xF8\x10\x00\x00\x00", code.emitted(), "add dword ptr [rdx - 8], 0x10");
-    try lowerToMiEnc(.sub, RegisterOrMemory.mem(.r11, 0x10000000, .dword_ptr), 0x10, code.buffer());
+    var isel = TestIsel.init();
+    defer isel.deinit();
+    try lowerToMiEnc(.mov, RegisterOrMemory.reg(.rax), 0x10, isel.code());
+    try expectEqualHexStrings("\x48\xc7\xc0\x10\x00\x00\x00", isel.lowered(), "mov rax, 0x10");
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.r11, 0, .dword_ptr), 0x10, isel.code());
+    try expectEqualHexStrings("\x41\xc7\x03\x10\x00\x00\x00", isel.lowered(), "mov dword ptr [r11 + 0], 0x10");
+    try lowerToMiEnc(.add, RegisterOrMemory.mem(.rdx, -8, .dword_ptr), 0x10, isel.code());
+    try expectEqualHexStrings("\x81\x42\xF8\x10\x00\x00\x00", isel.lowered(), "add dword ptr [rdx - 8], 0x10");
+    try lowerToMiEnc(.sub, RegisterOrMemory.mem(.r11, 0x10000000, .dword_ptr), 0x10, isel.code());
     try expectEqualHexStrings(
         "\x41\x81\xab\x00\x00\x00\x10\x10\x00\x00\x00",
-        code.emitted(),
+        isel.lowered(),
         "sub dword ptr [r11 + 0x10000000], 0x10",
     );
-    try lowerToMiEnc(.@"and", RegisterOrMemory.mem(null, 0x10000000, .dword_ptr), 0x10, code.buffer());
+    try lowerToMiEnc(.@"and", RegisterOrMemory.mem(null, 0x10000000, .dword_ptr), 0x10, isel.code());
     try expectEqualHexStrings(
         "\x81\x24\x25\x00\x00\x00\x10\x10\x00\x00\x00",
-        code.emitted(),
+        isel.lowered(),
         "and dword ptr [ds:0x10000000], 0x10",
     );
-    try lowerToMiEnc(.@"and", RegisterOrMemory.mem(.r12, 0x10000000, .dword_ptr), 0x10, code.buffer());
+    try lowerToMiEnc(.@"and", RegisterOrMemory.mem(.r12, 0x10000000, .dword_ptr), 0x10, isel.code());
     try expectEqualHexStrings(
         "\x41\x81\xA4\x24\x00\x00\x00\x10\x10\x00\x00\x00",
-        code.emitted(),
+        isel.lowered(),
         "and dword ptr [r12 + 0x10000000], 0x10",
     );
-    try lowerToMiEnc(.mov, RegisterOrMemory.rip(0x10, .qword_ptr), 0x10, code.buffer());
+    try lowerToMiEnc(.mov, RegisterOrMemory.rip(0x10, .qword_ptr), 0x10, isel.code());
     try expectEqualHexStrings(
         "\xC7\x05\x10\x00\x00\x00\x10\x00\x00\x00",
-        code.emitted(),
+        isel.lowered(),
         "mov qword ptr [rip + 0x10], 0x10",
     );
-    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.rbp, -8, .qword_ptr), 0x10, code.buffer());
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.rbp, -8, .qword_ptr), 0x10, isel.code());
     try expectEqualHexStrings(
         "\x48\xc7\x45\xf8\x10\x00\x00\x00",
-        code.emitted(),
+        isel.lowered(),
         "mov qword ptr [rbp - 8], 0x10",
     );
-    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.rbp, -2, .word_ptr), 0x10, code.buffer());
-    try expectEqualHexStrings("\x66\xC7\x45\xFE\x10\x00", code.emitted(), "mov word ptr [rbp - 2], 0x10");
-    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.rbp, -1, .byte_ptr), 0x10, code.buffer());
-    try expectEqualHexStrings("\xC6\x45\xFF\x10", code.emitted(), "mov byte ptr [rbp - 1], 0x10");
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.rbp, -2, .word_ptr), 0x10, isel.code());
+    try expectEqualHexStrings("\x66\xC7\x45\xFE\x10\x00", isel.lowered(), "mov word ptr [rbp - 2], 0x10");
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.rbp, -1, .byte_ptr), 0x10, isel.code());
+    try expectEqualHexStrings("\xC6\x45\xFF\x10", isel.lowered(), "mov byte ptr [rbp - 1], 0x10");
 }
 
 test "lower RM encoding" {
-    var code = TestEmitCode.init();
-    defer code.deinit();
-    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.reg(.rbx), code.buffer());
-    try expectEqualHexStrings("\x48\x8b\xc3", code.emitted(), "mov rax, rbx");
-    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.r11, 0, .qword_ptr), code.buffer());
-    try expectEqualHexStrings("\x49\x8b\x03", code.emitted(), "mov rax, qword ptr [r11 + 0]");
-    try lowerToRmEnc(.add, .r11, RegisterOrMemory.mem(null, 0x10000000, .qword_ptr), code.buffer());
+    var isel = TestIsel.init();
+    defer isel.deinit();
+    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.reg(.rbx), isel.code());
+    try expectEqualHexStrings("\x48\x8b\xc3", isel.lowered(), "mov rax, rbx");
+    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.r11, 0, .qword_ptr), isel.code());
+    try expectEqualHexStrings("\x49\x8b\x03", isel.lowered(), "mov rax, qword ptr [r11 + 0]");
+    try lowerToRmEnc(.add, .r11, RegisterOrMemory.mem(null, 0x10000000, .qword_ptr), isel.code());
     try expectEqualHexStrings(
         "\x4C\x03\x1C\x25\x00\x00\x00\x10",
-        code.emitted(),
+        isel.lowered(),
         "add r11, qword ptr [ds:0x10000000]",
     );
-    try lowerToRmEnc(.add, .r12b, RegisterOrMemory.mem(null, 0x10000000, .byte_ptr), code.buffer());
+    try lowerToRmEnc(.add, .r12b, RegisterOrMemory.mem(null, 0x10000000, .byte_ptr), isel.code());
     try expectEqualHexStrings(
         "\x44\x02\x24\x25\x00\x00\x00\x10",
-        code.emitted(),
+        isel.lowered(),
         "add r11b, byte ptr [ds:0x10000000]",
     );
-    try lowerToRmEnc(.sub, .r11, RegisterOrMemory.mem(.r13, 0x10000000, .qword_ptr), code.buffer());
+    try lowerToRmEnc(.sub, .r11, RegisterOrMemory.mem(.r13, 0x10000000, .qword_ptr), isel.code());
     try expectEqualHexStrings(
         "\x4D\x2B\x9D\x00\x00\x00\x10",
-        code.emitted(),
+        isel.lowered(),
         "sub r11, qword ptr [r13 + 0x10000000]",
     );
-    try lowerToRmEnc(.sub, .r11, RegisterOrMemory.mem(.r12, 0x10000000, .qword_ptr), code.buffer());
+    try lowerToRmEnc(.sub, .r11, RegisterOrMemory.mem(.r12, 0x10000000, .qword_ptr), isel.code());
     try expectEqualHexStrings(
         "\x4D\x2B\x9C\x24\x00\x00\x00\x10",
-        code.emitted(),
+        isel.lowered(),
         "sub r11, qword ptr [r12 + 0x10000000]",
     );
-    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.rbp, -4, .qword_ptr), code.buffer());
-    try expectEqualHexStrings("\x48\x8B\x45\xFC", code.emitted(), "mov rax, qword ptr [rbp - 4]");
-    try lowerToRmEnc(.lea, .rax, RegisterOrMemory.rip(0x10, .qword_ptr), code.buffer());
-    try expectEqualHexStrings("\x48\x8D\x05\x10\x00\x00\x00", code.emitted(), "lea rax, [rip + 0x10]");
+    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.rbp, -4, .qword_ptr), isel.code());
+    try expectEqualHexStrings("\x48\x8B\x45\xFC", isel.lowered(), "mov rax, qword ptr [rbp - 4]");
+    try lowerToRmEnc(.lea, .rax, RegisterOrMemory.rip(0x10, .qword_ptr), isel.code());
+    try expectEqualHexStrings("\x48\x8D\x05\x10\x00\x00\x00", isel.lowered(), "lea rax, [rip + 0x10]");
 }
 
 test "lower MR encoding" {
-    var code = TestEmitCode.init();
-    defer code.deinit();
-    try lowerToMrEnc(.mov, RegisterOrMemory.reg(.rax), .rbx, code.buffer());
-    try expectEqualHexStrings("\x48\x89\xd8", code.emitted(), "mov rax, rbx");
-    try lowerToMrEnc(.mov, RegisterOrMemory.mem(.rbp, -4, .qword_ptr), .r11, code.buffer());
-    try expectEqualHexStrings("\x4c\x89\x5d\xfc", code.emitted(), "mov qword ptr [rbp - 4], r11");
-    try lowerToMrEnc(.add, RegisterOrMemory.mem(null, 0x10000000, .byte_ptr), .r12b, code.buffer());
+    var isel = TestIsel.init();
+    defer isel.deinit();
+    try lowerToMrEnc(.mov, RegisterOrMemory.reg(.rax), .rbx, isel.code());
+    try expectEqualHexStrings("\x48\x89\xd8", isel.lowered(), "mov rax, rbx");
+    try lowerToMrEnc(.mov, RegisterOrMemory.mem(.rbp, -4, .qword_ptr), .r11, isel.code());
+    try expectEqualHexStrings("\x4c\x89\x5d\xfc", isel.lowered(), "mov qword ptr [rbp - 4], r11");
+    try lowerToMrEnc(.add, RegisterOrMemory.mem(null, 0x10000000, .byte_ptr), .r12b, isel.code());
     try expectEqualHexStrings(
         "\x44\x00\x24\x25\x00\x00\x00\x10",
-        code.emitted(),
+        isel.lowered(),
         "add byte ptr [ds:0x10000000], r12b",
     );
-    try lowerToMrEnc(.add, RegisterOrMemory.mem(null, 0x10000000, .dword_ptr), .r12d, code.buffer());
+    try lowerToMrEnc(.add, RegisterOrMemory.mem(null, 0x10000000, .dword_ptr), .r12d, isel.code());
     try expectEqualHexStrings(
         "\x44\x01\x24\x25\x00\x00\x00\x10",
-        code.emitted(),
+        isel.lowered(),
         "add dword ptr [ds:0x10000000], r12d",
     );
-    try lowerToMrEnc(.sub, RegisterOrMemory.mem(.r11, 0x10000000, .qword_ptr), .r12, code.buffer());
+    try lowerToMrEnc(.sub, RegisterOrMemory.mem(.r11, 0x10000000, .qword_ptr), .r12, isel.code());
     try expectEqualHexStrings(
         "\x4D\x29\xA3\x00\x00\x00\x10",
-        code.emitted(),
+        isel.lowered(),
         "sub qword ptr [r11 + 0x10000000], r12",
     );
-    try lowerToMrEnc(.mov, RegisterOrMemory.rip(0x10, .qword_ptr), .r12, code.buffer());
-    try expectEqualHexStrings("\x4C\x89\x25\x10\x00\x00\x00", code.emitted(), "mov qword ptr [rip + 0x10], r12");
+    try lowerToMrEnc(.mov, RegisterOrMemory.rip(0x10, .qword_ptr), .r12, isel.code());
+    try expectEqualHexStrings("\x4C\x89\x25\x10\x00\x00\x00", isel.lowered(), "mov qword ptr [rip + 0x10], r12");
 }
 
 test "lower OI encoding" {
-    var code = TestEmitCode.init();
-    defer code.deinit();
-    try lowerToOiEnc(.mov, .rax, 0x1000000000000000, code.buffer());
+    var isel = TestIsel.init();
+    defer isel.deinit();
+    try lowerToOiEnc(.mov, .rax, 0x1000000000000000, isel.code());
     try expectEqualHexStrings(
         "\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x10",
-        code.emitted(),
+        isel.lowered(),
         "movabs rax, 0x1000000000000000",
     );
-    try lowerToOiEnc(.mov, .r11, 0x1000000000000000, code.buffer());
+    try lowerToOiEnc(.mov, .r11, 0x1000000000000000, isel.code());
     try expectEqualHexStrings(
         "\x49\xBB\x00\x00\x00\x00\x00\x00\x00\x10",
-        code.emitted(),
+        isel.lowered(),
         "movabs r11, 0x1000000000000000",
     );
-    try lowerToOiEnc(.mov, .r11d, 0x10000000, code.buffer());
-    try expectEqualHexStrings("\x41\xBB\x00\x00\x00\x10", code.emitted(), "mov r11d, 0x10000000");
-    try lowerToOiEnc(.mov, .r11w, 0x1000, code.buffer());
-    try expectEqualHexStrings("\x66\x41\xBB\x00\x10", code.emitted(), "mov r11w, 0x1000");
-    try lowerToOiEnc(.mov, .r11b, 0x10, code.buffer());
-    try expectEqualHexStrings("\x41\xB3\x10", code.emitted(), "mov r11b, 0x10");
+    try lowerToOiEnc(.mov, .r11d, 0x10000000, isel.code());
+    try expectEqualHexStrings("\x41\xBB\x00\x00\x00\x10", isel.lowered(), "mov r11d, 0x10000000");
+    try lowerToOiEnc(.mov, .r11w, 0x1000, isel.code());
+    try expectEqualHexStrings("\x66\x41\xBB\x00\x10", isel.lowered(), "mov r11w, 0x1000");
+    try lowerToOiEnc(.mov, .r11b, 0x10, isel.code());
+    try expectEqualHexStrings("\x41\xB3\x10", isel.lowered(), "mov r11b, 0x10");
 }
 
 test "lower FD/TD encoding" {
-    var code = TestEmitCode.init();
-    defer code.deinit();
-    try lowerToFdEnc(.mov, .rax, 0x1000000000000000, code.buffer());
+    var isel = TestIsel.init();
+    defer isel.deinit();
+    try lowerToFdEnc(.mov, .rax, 0x1000000000000000, isel.code());
     try expectEqualHexStrings(
         "\x48\xa1\x00\x00\x00\x00\x00\x00\x00\x10",
-        code.emitted(),
+        isel.lowered(),
         "mov rax, ds:0x1000000000000000",
     );
-    try lowerToFdEnc(.mov, .eax, 0x10000000, code.buffer());
-    try expectEqualHexStrings("\xa1\x00\x00\x00\x10", code.emitted(), "mov eax, ds:0x10000000");
-    try lowerToFdEnc(.mov, .ax, 0x1000, code.buffer());
-    try expectEqualHexStrings("\x66\xa1\x00\x10", code.emitted(), "mov ax, ds:0x1000");
-    try lowerToFdEnc(.mov, .al, 0x10, code.buffer());
-    try expectEqualHexStrings("\xa0\x10", code.emitted(), "mov al, ds:0x10");
+    try lowerToFdEnc(.mov, .eax, 0x10000000, isel.code());
+    try expectEqualHexStrings("\xa1\x00\x00\x00\x10", isel.lowered(), "mov eax, ds:0x10000000");
+    try lowerToFdEnc(.mov, .ax, 0x1000, isel.code());
+    try expectEqualHexStrings("\x66\xa1\x00\x10", isel.lowered(), "mov ax, ds:0x1000");
+    try lowerToFdEnc(.mov, .al, 0x10, isel.code());
+    try expectEqualHexStrings("\xa0\x10", isel.lowered(), "mov al, ds:0x10");
 }
 
 test "lower M encoding" {
-    var code = TestEmitCode.init();
-    defer code.deinit();
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.reg(.r12), code.buffer());
-    try expectEqualHexStrings("\x41\xFF\xE4", code.emitted(), "jmp r12");
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.reg(.r12w), code.buffer());
-    try expectEqualHexStrings("\x66\x41\xFF\xE4", code.emitted(), "jmp r12w");
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.r12, 0, .qword_ptr), code.buffer());
-    try expectEqualHexStrings("\x41\xFF\x24\x24", code.emitted(), "jmp qword ptr [r12]");
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.r12, 0, .word_ptr), code.buffer());
-    try expectEqualHexStrings("\x66\x41\xFF\x24\x24", code.emitted(), "jmp word ptr [r12]");
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.r12, 0x10, .qword_ptr), code.buffer());
-    try expectEqualHexStrings("\x41\xFF\x64\x24\x10", code.emitted(), "jmp qword ptr [r12 + 0x10]");
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.r12, 0x1000, .qword_ptr), code.buffer());
+    var isel = TestIsel.init();
+    defer isel.deinit();
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.reg(.r12), isel.code());
+    try expectEqualHexStrings("\x41\xFF\xE4", isel.lowered(), "jmp r12");
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.reg(.r12w), isel.code());
+    try expectEqualHexStrings("\x66\x41\xFF\xE4", isel.lowered(), "jmp r12w");
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.r12, 0, .qword_ptr), isel.code());
+    try expectEqualHexStrings("\x41\xFF\x24\x24", isel.lowered(), "jmp qword ptr [r12]");
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.r12, 0, .word_ptr), isel.code());
+    try expectEqualHexStrings("\x66\x41\xFF\x24\x24", isel.lowered(), "jmp word ptr [r12]");
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.r12, 0x10, .qword_ptr), isel.code());
+    try expectEqualHexStrings("\x41\xFF\x64\x24\x10", isel.lowered(), "jmp qword ptr [r12 + 0x10]");
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.r12, 0x1000, .qword_ptr), isel.code());
     try expectEqualHexStrings(
         "\x41\xFF\xA4\x24\x00\x10\x00\x00",
-        code.emitted(),
+        isel.lowered(),
         "jmp qword ptr [r12 + 0x1000]",
     );
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.rip(0x10, .qword_ptr), code.buffer());
-    try expectEqualHexStrings("\xFF\x25\x10\x00\x00\x00", code.emitted(), "jmp qword ptr [rip + 0x10]");
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(null, 0x10, .qword_ptr), code.buffer());
-    try expectEqualHexStrings("\xFF\x24\x25\x10\x00\x00\x00", code.emitted(), "jmp qword ptr [ds:0x10]");
-    try lowerToMEnc(.seta, RegisterOrMemory.reg(.r11b), code.buffer());
-    try expectEqualHexStrings("\x41\x0F\x97\xC3", code.emitted(), "seta r11b");
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.rip(0x10, .qword_ptr), isel.code());
+    try expectEqualHexStrings("\xFF\x25\x10\x00\x00\x00", isel.lowered(), "jmp qword ptr [rip + 0x10]");
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(null, 0x10, .qword_ptr), isel.code());
+    try expectEqualHexStrings("\xFF\x24\x25\x10\x00\x00\x00", isel.lowered(), "jmp qword ptr [ds:0x10]");
+    try lowerToMEnc(.seta, RegisterOrMemory.reg(.r11b), isel.code());
+    try expectEqualHexStrings("\x41\x0F\x97\xC3", isel.lowered(), "seta r11b");
 }
 
 test "lower O encoding" {
-    var code = TestEmitCode.init();
-    defer code.deinit();
-    try lowerToOEnc(.pop, .r12, code.buffer());
-    try expectEqualHexStrings("\x41\x5c", code.emitted(), "pop r12");
-    try lowerToOEnc(.push, .r12w, code.buffer());
-    try expectEqualHexStrings("\x66\x41\x54", code.emitted(), "push r12w");
+    var isel = TestIsel.init();
+    defer isel.deinit();
+    try lowerToOEnc(.pop, .r12, isel.code());
+    try expectEqualHexStrings("\x41\x5c", isel.lowered(), "pop r12");
+    try lowerToOEnc(.push, .r12w, isel.code());
+    try expectEqualHexStrings("\x66\x41\x54", isel.lowered(), "push r12w");
 }
 
 test "lower RMI encoding" {
-    var code = TestEmitCode.init();
-    defer code.deinit();
-    try lowerToRmiEnc(.imul, .rax, RegisterOrMemory.mem(.rbp, -8, .qword_ptr), 0x10, code.buffer());
+    var isel = TestIsel.init();
+    defer isel.deinit();
+    try lowerToRmiEnc(.imul, .rax, RegisterOrMemory.mem(.rbp, -8, .qword_ptr), 0x10, isel.code());
     try expectEqualHexStrings(
         "\x48\x69\x45\xF8\x10\x00\x00\x00",
-        code.emitted(),
+        isel.lowered(),
         "imul rax, qword ptr [rbp - 8], 0x10",
     );
-    try lowerToRmiEnc(.imul, .eax, RegisterOrMemory.mem(.rbp, -4, .dword_ptr), 0x10, code.buffer());
-    try expectEqualHexStrings("\x69\x45\xFC\x10\x00\x00\x00", code.emitted(), "imul eax, dword ptr [rbp - 4], 0x10");
-    try lowerToRmiEnc(.imul, .ax, RegisterOrMemory.mem(.rbp, -2, .word_ptr), 0x10, code.buffer());
-    try expectEqualHexStrings("\x66\x69\x45\xFE\x10\x00", code.emitted(), "imul ax, word ptr [rbp - 2], 0x10");
-    try lowerToRmiEnc(.imul, .r12, RegisterOrMemory.reg(.r12), 0x10, code.buffer());
-    try expectEqualHexStrings("\x4D\x69\xE4\x10\x00\x00\x00", code.emitted(), "imul r12, r12, 0x10");
-    try lowerToRmiEnc(.imul, .r12w, RegisterOrMemory.reg(.r12w), 0x10, code.buffer());
-    try expectEqualHexStrings("\x66\x45\x69\xE4\x10\x00", code.emitted(), "imul r12w, r12w, 0x10");
+    try lowerToRmiEnc(.imul, .eax, RegisterOrMemory.mem(.rbp, -4, .dword_ptr), 0x10, isel.code());
+    try expectEqualHexStrings("\x69\x45\xFC\x10\x00\x00\x00", isel.lowered(), "imul eax, dword ptr [rbp - 4], 0x10");
+    try lowerToRmiEnc(.imul, .ax, RegisterOrMemory.mem(.rbp, -2, .word_ptr), 0x10, isel.code());
+    try expectEqualHexStrings("\x66\x69\x45\xFE\x10\x00", isel.lowered(), "imul ax, word ptr [rbp - 2], 0x10");
+    try lowerToRmiEnc(.imul, .r12, RegisterOrMemory.reg(.r12), 0x10, isel.code());
+    try expectEqualHexStrings("\x4D\x69\xE4\x10\x00\x00\x00", isel.lowered(), "imul r12, r12, 0x10");
+    try lowerToRmiEnc(.imul, .r12w, RegisterOrMemory.reg(.r12w), 0x10, isel.code());
+    try expectEqualHexStrings("\x66\x45\x69\xE4\x10\x00", isel.lowered(), "imul r12w, r12w, 0x10");
 }
