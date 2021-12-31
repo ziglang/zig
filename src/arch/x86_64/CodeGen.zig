@@ -1143,10 +1143,24 @@ fn airShr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement .optional_payload for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(ty_op.operand);
+        if (self.wantSafety()) {
+            // TODO check for null
+            return self.fail("TODO implement check for null in .optional_payload", .{});
+        }
+        const dst_mcv: MCValue = blk: {
+            if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                break :blk operand;
+            } else {
+                break :blk try self.allocRegOrMem(inst, true);
+            }
+        };
+        const ty = self.air.typeOf(ty_op.operand);
+        var buf: Type.Payload.ElemType = undefined;
+        try self.load(dst_mcv, operand, ty.optionalChild(&buf));
+        break :result dst_mcv;
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1408,16 +1422,16 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .compare_flags_unsigned => unreachable,
         .compare_flags_signed => unreachable,
         .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
-        .ptr_stack_offset => |off| try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off }),
+        .ptr_stack_offset => |off| {
+            try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off });
+        },
         .ptr_embedded_in_code => |off| {
             try self.setRegOrMem(elem_ty, dst_mcv, .{ .embedded_in_code = off });
         },
         .embedded_in_code => {
             return self.fail("TODO implement loading from MCValue.embedded_in_code", .{});
         },
-        .register => {
-            return self.fail("TODO implement loading from MCValue.register for {}", .{self.target.cpu.arch});
-        },
+        .register => |reg| try self.setRegOrMem(elem_ty, dst_mcv, .{ .register = reg }),
         .memory => |addr| {
             const reg = try self.register_manager.allocReg(null, &.{});
             try self.genSetReg(ptr_ty, reg, .{ .memory = addr });
@@ -1479,8 +1493,8 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
         .embedded_in_code => {
             return self.fail("TODO implement storing to MCValue.embedded_in_code", .{});
         },
-        .register => {
-            return self.fail("TODO implement storing to MCValue.register", .{});
+        .register => |reg| {
+            try self.genSetPtrReg(elem_ty, reg, value);
         },
         .memory => {
             return self.fail("TODO implement storing to MCValue.memory", .{});
@@ -2906,11 +2920,66 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
     }
 }
 
+/// Set pointee via pointer stored in a register.
+/// mov [reg], value
+fn genSetPtrReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
+    switch (mcv) {
+        .dead => unreachable,
+        .unreach, .none => return, // Nothing to do.
+        .immediate => |imm| {
+            const abi_size = ty.abiSize(self.target.*);
+            switch (abi_size) {
+                1, 2, 4 => {
+                    // TODO this is wasteful!
+                    // introduce new MIR tag specifically for mov [reg + 0], imm
+                    const payload = try self.addExtra(Mir.ImmPair{
+                        .dest_off = 0,
+                        .operand = @bitCast(i32, @intCast(u32, imm)),
+                    });
+                    _ = try self.addInst(.{
+                        .tag = .mov_mem_imm,
+                        .ops = (Mir.Ops{
+                            .reg1 = reg.to64(),
+                            .flags = switch (abi_size) {
+                                1 => 0b00,
+                                2 => 0b01,
+                                4 => 0b10,
+                                else => unreachable,
+                            },
+                        }).encode(),
+                        .data = .{ .payload = payload },
+                    });
+                },
+                else => {
+                    return self.fail("TODO implement set pointee with immediate of ABI size {d}", .{abi_size});
+                },
+            }
+        },
+        else => |other| {
+            return self.fail("TODO implement set pointee with {}", .{other});
+        },
+    }
+}
+
 fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
     switch (mcv) {
         .dead => unreachable,
-        .ptr_stack_offset => |off| {
-            return self.genSetReg(ty.elemType(), reg, .{ .stack_offset = off });
+        .ptr_stack_offset => |unadjusted_off| {
+            const ptr_abi_size = ty.abiSize(self.target.*);
+            const elem_ty = ty.childType();
+            const elem_abi_size = elem_ty.abiSize(self.target.*);
+            const off = unadjusted_off + elem_abi_size;
+            if (off < std.math.minInt(i32) or off > std.math.maxInt(i32)) {
+                return self.fail("stack offset too large", .{});
+            }
+            _ = try self.addInst(.{
+                .tag = .lea,
+                .ops = (Mir.Ops{
+                    .reg1 = registerAlias(reg, @intCast(u32, ptr_abi_size)),
+                    .reg2 = .rbp,
+                }).encode(),
+                .data = .{ .imm = -@intCast(i32, off) },
+            });
         },
         .ptr_embedded_in_code => unreachable,
         .unreach, .none => return, // Nothing to do.
