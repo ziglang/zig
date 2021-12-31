@@ -899,7 +899,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             break :blk build_options.is_stage1;
         };
 
-        const cache_mode = if (use_stage1) CacheMode.whole else options.cache_mode;
+        const cache_mode = if (use_stage1 and !options.disable_lld_caching)
+            CacheMode.whole
+        else
+            options.cache_mode;
 
         // Make a decision on whether to use LLVM or our own backend.
         const use_llvm = build_options.have_llvm and blk: {
@@ -1950,8 +1953,6 @@ pub fn update(comp: *Compilation) !void {
                     .sub_path = new_sub_path,
                 };
             }
-
-            comp.emitOthers();
 
             assert(comp.bin_file.lock == null);
             comp.bin_file.lock = man.toOwnedLock();
