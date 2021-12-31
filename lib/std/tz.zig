@@ -41,7 +41,6 @@ pub const Tz = struct {
     footer: []const u8,
 
     pub fn parse(allocator: std.mem.Allocator, reader: anytype) !Tz {
-        _ = allocator;
         const Header = extern struct {
             magic: [4]u8,
             version: u8,
