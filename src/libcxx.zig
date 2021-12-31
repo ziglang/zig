@@ -219,10 +219,9 @@ pub fn buildLibCXX(comp: *Compilation) !void {
 
     assert(comp.libcxx_static_lib == null);
     comp.libcxx_static_lib = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(
-            comp.gpa,
-            &[_][]const u8{basename},
-        ),
+        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{
+            sub_compilation.bin_file.options.emit.?.sub_path,
+        }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
 }
@@ -352,10 +351,9 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
 
     assert(comp.libcxxabi_static_lib == null);
     comp.libcxxabi_static_lib = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(
-            comp.gpa,
-            &[_][]const u8{basename},
-        ),
+        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{
+            sub_compilation.bin_file.options.emit.?.sub_path,
+        }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
 }
