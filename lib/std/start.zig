@@ -324,7 +324,7 @@ fn _start() callconv(.Naked) noreturn {
 
 fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
     @setAlignStack(16);
-    if (!builtin.single_threaded) {
+    if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("start_windows_tls.zig");
     }
 
@@ -335,7 +335,7 @@ fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
 
 fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     @setAlignStack(16);
-    if (!builtin.single_threaded) {
+    if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("start_windows_tls.zig");
     }
 
