@@ -2471,7 +2471,7 @@ test "renameat" {
     switch (cqe.err()) {
         .SUCCESS => {},
         // This kernel's io_uring does not yet implement renameat (kernel version < 5.11)
-        .INVAL => return error.SkipZigTest,
+        .BADF, .INVAL => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
@@ -2533,7 +2533,7 @@ test "unlinkat" {
     switch (cqe.err()) {
         .SUCCESS => {},
         // This kernel's io_uring does not yet implement unlinkat (kernel version < 5.11)
-        .INVAL => return error.SkipZigTest,
+        .BADF, .INVAL => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
@@ -2579,7 +2579,7 @@ test "mkdirat" {
     switch (cqe.err()) {
         .SUCCESS => {},
         // This kernel's io_uring does not yet implement mkdirat (kernel version < 5.15)
-        .INVAL => return error.SkipZigTest,
+        .BADF, .INVAL => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
@@ -2628,7 +2628,7 @@ test "symlinkat" {
     switch (cqe.err()) {
         .SUCCESS => {},
         // This kernel's io_uring does not yet implement symlinkat (kernel version < 5.15)
-        .INVAL => return error.SkipZigTest,
+        .BADF, .INVAL => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
@@ -2683,7 +2683,7 @@ test "linkat" {
     switch (cqe.err()) {
         .SUCCESS => {},
         // This kernel's io_uring does not yet implement linkat (kernel version < 5.15)
-        .INVAL => return error.SkipZigTest,
+        .BADF, .INVAL => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
