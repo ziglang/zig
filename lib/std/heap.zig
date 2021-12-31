@@ -745,8 +745,8 @@ pub const FixedBufferAllocator = struct {
         return Allocator.init(
             self,
             threadSafeAlloc,
-            Allocator.NoResize(FixedBufferAllocator).noResize,
-            Allocator.NoOpFree(FixedBufferAllocator).noOpFree,
+            Allocator.noResize(FixedBufferAllocator),
+            Allocator.noOpFree(FixedBufferAllocator),
         );
     }
 

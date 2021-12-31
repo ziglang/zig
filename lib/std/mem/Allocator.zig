@@ -106,8 +106,8 @@ pub fn init(
     };
 }
 
-/// Set resizeFn to `NoResize(AllocatorType)` if in-place resize is not supported.
-pub fn NoResize(comptime AllocatorType: type) ResizeFnType(*AllocatorType) {
+/// Set resizeFn to `noResize(AllocatorType)` if in-place resize is not supported.
+pub fn noResize(comptime AllocatorType: type) ResizeFnType(*AllocatorType) {
     const erased = struct {
         pub fn f(
             self: *AllocatorType,
@@ -127,8 +127,8 @@ pub fn NoResize(comptime AllocatorType: type) ResizeFnType(*AllocatorType) {
     return erased.f;
 }
 
-/// Set freeFn to `NoOpFree(AllocatorType)` if free is a no-op.
-pub fn NoOpFree(comptime AllocatorType: type) FreeFnType(*AllocatorType) {
+/// Set freeFn to `noOpFree(AllocatorType)` if free is a no-op.
+pub fn noOpFree(comptime AllocatorType: type) FreeFnType(*AllocatorType) {
     const erased = struct {
         fn f(
             self: *AllocatorType,
@@ -145,8 +145,8 @@ pub fn NoOpFree(comptime AllocatorType: type) FreeFnType(*AllocatorType) {
     return erased.f;
 }
 
-/// Set freeFn to `PanicFree(AllocatorType)` if free is not a supported operation.
-pub fn PanicFree(comptime AllocatorType: type) FreeFnType(*AllocatorType) {
+/// Set freeFn to `panicFree(AllocatorType)` if free is not a supported operation.
+pub fn panicFree(comptime AllocatorType: type) FreeFnType(*AllocatorType) {
     const erased = struct {
         pub fn f(
             self: *AllocatorType,
@@ -166,9 +166,9 @@ pub fn PanicFree(comptime AllocatorType: type) FreeFnType(*AllocatorType) {
 
 test {
     const Foo = struct {};
-    _ = NoResize(Foo);
-    _ = NoOpFree(Foo);
-    _ = PanicFree(Foo);
+    _ = noResize(Foo);
+    _ = noOpFree(Foo);
+    _ = panicFree(Foo);
 }
 
 /// This function is not intended to be called except from within the implementation of an Allocator
