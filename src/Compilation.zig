@@ -1926,6 +1926,7 @@ pub fn update(comp: *Compilation) !void {
         // We are about to obtain this lock, so here we give other processes a chance first.
         comp.bin_file.releaseLock();
 
+        comp.whole_cache_manifest = &man;
         man = comp.cache_parent.obtain();
         try comp.addNonIncrementalStuffToCacheManifest(&man);
 
@@ -1959,8 +1960,6 @@ pub fn update(comp: *Compilation) !void {
             return;
         }
         log.debug("CacheMode.whole cache miss for {s}", .{comp.bin_file.options.root_name});
-
-        comp.whole_cache_manifest = &man;
 
         // Initialize `bin_file.emit` with a temporary Directory so that compilation can
         // continue on the same path as incremental, using the temporary Directory.
