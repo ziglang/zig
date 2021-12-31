@@ -400,6 +400,7 @@ const usage_build_generic =
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
+    \\  --entry [name]                 Set the entrypoint symbol name
     \\  -fsoname[=name]                Override the default SONAME value
     \\  -fno-soname                    Disable emitting a SONAME
     \\  -fLLD                          Force using LLD as the linker
@@ -647,6 +648,7 @@ fn buildOutputType(
     var linker_optimization: ?u8 = null;
     var test_evented_io = false;
     var test_no_exec = false;
+    var entry: ?[]const u8 = null;
     var stack_size_override: ?u64 = null;
     var image_base_override: ?u64 = null;
     var use_llvm: ?bool = null;
@@ -847,6 +849,10 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
                         optimize_mode_string = args[i];
+                    } else if (mem.eql(u8, arg, "--entry")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
+                        i += 1;
+                        entry = args[i];
                     } else if (mem.eql(u8, arg, "--stack")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
@@ -1624,6 +1630,12 @@ fn buildOutputType(
                         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     };
                     have_version = true;
+                } else if (mem.eql(u8, arg, "-e") or mem.eql(u8, arg, "--entry")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    entry = linker_args.items[i];
                 } else if (mem.eql(u8, arg, "--stack")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
@@ -2500,6 +2512,7 @@ fn buildOutputType(
         .minor_subsystem_version = minor_subsystem_version,
         .link_eh_frame_hdr = link_eh_frame_hdr,
         .link_emit_relocs = link_emit_relocs,
+        .entry = entry,
         .stack_size_override = stack_size_override,
         .image_base_override = image_base_override,
         .strip = strip,

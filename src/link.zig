@@ -84,6 +84,7 @@ pub const Options = struct {
     /// the binary file does not already have such a section.
     program_code_size_hint: u64 = 256 * 1024,
     entry_addr: ?u64 = null,
+    entry: ?[]const u8,
     stack_size_override: ?u64,
     image_base_override: ?u64,
     cache_mode: CacheMode,

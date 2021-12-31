@@ -509,6 +509,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         try man.addOptionalFile(module_obj_path);
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
+        man.hash.addOptionalBytes(self.base.options.entry);
         man.hash.add(stack_size);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.framework_dirs);
