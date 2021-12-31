@@ -1088,10 +1088,8 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
             }
 
             const ret_ty = fn_ty.fnReturnType();
-            switch (ret_ty.zigTypeTag()) {
-                .ErrorUnion, .Optional, .Pointer => result.return_value = try self.allocLocal(Type.initTag(.i32)),
-                .Int, .Float, .Bool, .Void, .NoReturn => {},
-                else => return self.fail("TODO: Implement function return type {}", .{ret_ty}),
+            if (isByRef(ret_ty)) {
+                result.return_value = try self.allocLocal(Type.initTag(.i32));
             }
 
             // Check if we store the result as a pointer to the stack rather than
@@ -1204,6 +1202,60 @@ fn memCopy(self: *Self, ty: Type, lhs: WValue, rhs: WValue) !void {
     }
 }
 
+fn ptrSize(self: *const Self) u16 {
+    return @divExact(self.target.cpu.arch.ptrBitWidth(), 8);
+}
+
+/// For a given `Type`, will return true when the type will be passed
+/// by reference, rather than by value.
+fn isByRef(ty: Type) bool {
+    switch (ty.zigTypeTag()) {
+        .Type,
+        .ComptimeInt,
+        .ComptimeFloat,
+        .EnumLiteral,
+        .Undefined,
+        .Null,
+        .BoundFn,
+        .Opaque,
+        => unreachable,
+
+        .NoReturn,
+        .Void,
+        .Bool,
+        .Int,
+        .Float,
+        .ErrorSet,
+        .Fn,
+        .Enum,
+        .Vector,
+        .AnyFrame,
+        => return false,
+
+        .Array,
+        .Struct,
+        .Frame,
+        .Union,
+        => return ty.hasCodeGenBits(),
+        .ErrorUnion => {
+            const has_tag = ty.errorUnionSet().hasCodeGenBits();
+            const has_pl = ty.errorUnionPayload().hasCodeGenBits();
+            if (!has_tag or !has_pl) return false;
+            return ty.hasCodeGenBits();
+        },
+        .Optional => {
+            if (ty.isPtrLikeOptional()) return false;
+            var buf: Type.Payload.ElemType = undefined;
+            return ty.optionalChild(&buf).hasCodeGenBits();
+        },
+        .Pointer => {
+            // Slices act like struct and will be passed by reference
+            if (ty.isSlice()) return ty.hasCodeGenBits();
+            return false;
+        },
+    }
+}
+
 fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
     const air_tags = self.air.instructions.items(.tag);
     return switch (air_tags[inst]) {
@@ -1255,6 +1307,10 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .optional_payload => self.airOptionalPayload(inst),
         .optional_payload_ptr => self.airOptionalPayload(inst),
         .optional_payload_ptr_set => self.airOptionalPayloadPtrSet(inst),
+        .ptr_add => self.airPtrBinOp(inst, .add),
+        .ptr_sub => self.airPtrBinOp(inst, .sub),
+        .ptr_elem_ptr => self.airPtrElemPtr(inst),
+        .ptr_elem_val => self.airPtrElemVal(inst),
         .ptrtoint => self.airPtrToInt(inst),
         .ret => self.airRet(inst),
         .ret_ptr => self.airRetPtr(inst),
@@ -1366,38 +1422,19 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
         const arg_ty = self.air.typeOf(arg_ref);
         if (!arg_ty.hasCodeGenBits()) continue;
-        // Passing constant function pointers must be turned into a stack pointer first.
-        // This is because function pointers are stored as function table indexes,
-        // Which means we would try to attempt to load a function pointer's value by reading
-        // from the table index, rather than an address.
-        var is_fn_ptr = false;
-        if (arg_val == .constant) {
-            if (arg_val.constant.val.castTag(.decl_ref)) |decl| {
-                if (decl.data.ty.zigTypeTag() == .Fn) {
-                    is_fn_ptr = true;
-                }
-            }
-        }
-        switch (arg_ty.zigTypeTag()) {
-            .Struct, .Pointer, .Optional, .ErrorUnion => {
-                // single pointer can be passed directly
-                if ((arg_ty.isSinglePointer() and !is_fn_ptr) or arg_val != .constant) {
-                    if (arg_val == .none) {
-                        // when the argument is a 0-sized value, but the function
-                        // expects a non-zero typed value (such as a slice), we must emit an argument
-                        // as function calls are verified with the function signature in wasm.
-                        // In those cases we will emit a '0xaa' as address, meaning invalid memory.
-                        try self.addImm32(@bitCast(i32, @as(u32, 0xaaaaaaaa)));
-                        continue;
-                    }
-                    try self.emitWValue(arg_val);
-                    continue;
-                }
-                const arg_local = try self.allocStack(arg_ty);
-                try self.store(arg_local, arg_val, arg_ty, 0);
-                try self.emitWValue(arg_local);
-            },
-            else => try self.emitWValue(arg_val),
+
+        // If we need to pass by reference, but the argument is a constant,
+        // we must first lower it before passing it.
+        if (isByRef(arg_ty) and arg_val == .constant) {
+            const arg_local = try self.allocStack(arg_ty);
+            try self.store(arg_local, arg_val, arg_ty, 0);
+            try self.emitWValue(arg_local);
+        } else if (arg_val == .none) {
+            // TODO: Remove this branch when zero-sized pointers do not generate
+            // an argument.
+            try self.addImm32(0);
+        } else {
+            try self.emitWValue(arg_val);
         }
     }
 
@@ -1408,12 +1445,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         // so load its value onto the stack
         std.debug.assert(ty.zigTypeTag() == .Pointer);
         const operand = self.resolveInst(pl_op.operand);
-        const offset = switch (operand) {
-            .local_with_offset => |with_offset| with_offset.offset,
-            else => @as(u32, 0),
-        };
-        const result = try self.load(operand, fn_ty, offset);
-        try self.addLabel(.local_get, result.local);
+        try self.emitWValue(operand);
 
         var fn_type = try self.genFunctype(fn_ty);
         defer fn_type.deinit(self.gpa);
@@ -1425,8 +1457,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ret_ty = fn_ty.fnReturnType();
     if (!ret_ty.hasCodeGenBits()) return WValue.none;
 
-    // slices are stored on the virtual stack, so we must pull out both ptr and len
-    // to not overwrite the stack
+    // TODO: Implement this for all aggregate types
     if (ret_ty.isSlice()) {
         // first load the values onto the regular stack, before we move the stack pointer
         // to prevent overwriting the return value.
@@ -1551,7 +1582,7 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                 const val = rhs.constant.val;
                 const len_local = try self.allocLocal(Type.usize);
                 const ptr_local = try self.allocLocal(Type.usize);
-                const len_offset = self.target.cpu.arch.ptrBitWidth() / 8;
+                const len_offset = self.ptrSize();
                 if (val.castTag(.decl_ref)) |decl| {
                     // for decl references we also need to retrieve the length and the original decl's pointer
                     try self.addMemArg(.i32_load, .{ .offset = 0, .alignment = Type.@"usize".abiAlignment(self.target) });
@@ -1611,12 +1642,13 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     if (!ty.hasCodeGenBits()) return WValue{ .none = {} };
 
-    return switch (ty.zigTypeTag()) {
-        .Struct, .ErrorUnion, .Optional, .Pointer => operand, // pass as pointer
-        else => switch (operand) {
-            .local_with_offset => |with_offset| try self.load(operand, ty, with_offset.offset),
-            else => try self.load(operand, ty, 0),
-        },
+    if (isByRef(ty)) {
+        return operand;
+    }
+
+    return switch (operand) {
+        .local_with_offset => |with_offset| try self.load(operand, ty, with_offset.offset),
+        else => try self.load(operand, ty, 0),
     };
 }
 
@@ -1628,7 +1660,6 @@ fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
         .unsigned
     else
         .signed;
-    // check if we should pass by pointer or value based on ABI size
     // TODO: Implement a way to get ABI values from a given type,
     // that is portable across the backend, rather than copying logic.
     const abi_size = if ((ty.isInt() or ty.isAnyFloat()) and ty.abiSize(self.target) <= 8)
@@ -1779,6 +1810,10 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 }
             } else if (val.castTag(.int_u64)) |int_ptr| {
                 try self.addImm32(@bitCast(i32, @intCast(u32, int_ptr.data)));
+            } else if (val.tag() == .zero) {
+                try self.addImm32(0);
+            } else if (val.tag() == .one) {
+                try self.addImm32(1);
             } else return self.fail("Wasm TODO: emitConstant for other const pointer tag {s}", .{val.tag()});
         },
         .Void => {},
@@ -2163,12 +2198,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return self.fail("Field type '{}' too big to fit into stack frame", .{field_ty});
     };
 
-    // TODO: Replace this check with some 'isByRef' function to de-duplicate logic
-    if (field_ty.zigTypeTag() == .Struct) {
-        return WValue{ .local_with_offset = .{
-            .local = operand.local,
-            .offset = offset,
-        } };
+    if (isByRef(field_ty)) {
+        return WValue{ .local_with_offset = .{ .local = operand.local, .offset = offset } };
     }
 
     switch (operand) {
@@ -2328,20 +2359,23 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
-    const err_ty = self.air.typeOf(un_op).errorUnionSet();
+    const err_ty = self.air.typeOf(un_op);
+    const pl_ty = err_ty.errorUnionPayload();
 
     // load the error tag value
     try self.emitWValue(operand);
-    try self.addMemArg(
-        .i32_load16_u,
-        .{ .offset = 0, .alignment = err_ty.abiAlignment(self.target) },
-    );
+    if (pl_ty.hasCodeGenBits()) {
+        try self.addMemArg(.i32_load16_u, .{
+            .offset = 0,
+            .alignment = err_ty.errorUnionSet().abiAlignment(self.target),
+        });
+    }
 
     // Compare the error value with '0'
     try self.addImm32(0);
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
 
-    const is_err_tmp = try self.allocLocal(err_ty);
+    const is_err_tmp = try self.allocLocal(Type.initTag(.i32)); // result is always an i32
     try self.addLabel(.local_set, is_err_tmp.local);
     return is_err_tmp;
 }
@@ -2363,6 +2397,11 @@ fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = self.resolveInst(ty_op.operand);
     const err_ty = self.air.typeOf(ty_op.operand);
+    const payload_ty = err_ty.errorUnionPayload();
+    if (!payload_ty.hasCodeGenBits()) {
+        return operand;
+    }
+
     return try self.load(operand, err_ty.errorUnionSet(), 0);
 }
 
@@ -2507,9 +2546,8 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = self.resolveInst(ty_op.operand);
-    const pointer_width = self.target.cpu.arch.ptrBitWidth() / 8;
 
-    return try self.load(operand, Type.usize, pointer_width);
+    return try self.load(operand, Type.usize, self.ptrSize());
 }
 
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2534,12 +2572,11 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const result = try self.allocLocal(elem_ty);
     try self.addLabel(.local_set, result.local);
-    return switch (elem_ty.zigTypeTag()) {
-        // pass as pointer
-        .Pointer, .Struct, .Optional => result,
-        // pass by value
-        else => try self.load(result, elem_ty, 0),
-    };
+
+    if (isByRef(elem_ty)) {
+        return result;
+    }
+    return try self.load(result, elem_ty, 0);
 }
 
 fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2669,4 +2706,88 @@ fn airPtrToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     return self.resolveInst(un_op);
+}
+
+fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ptr_ty = self.air.typeOf(bin_op.lhs);
+    const pointer = self.resolveInst(bin_op.lhs);
+    const index = self.resolveInst(bin_op.rhs);
+    const elem_ty = ptr_ty.childType();
+    const elem_size = elem_ty.abiSize(self.target);
+
+    // load pointer onto the stack
+    if (ptr_ty.isSlice()) {
+        const ptr_local = try self.load(pointer, ptr_ty, 0);
+        try self.addLabel(.local_get, ptr_local.local);
+    } else {
+        try self.emitWValue(pointer);
+    }
+
+    // calculate index into slice
+    try self.emitWValue(index);
+    try self.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
+    try self.addTag(.i32_mul);
+    try self.addTag(.i32_add);
+
+    const result = try self.allocLocal(elem_ty);
+    try self.addLabel(.local_set, result.local);
+    if (isByRef(elem_ty)) {
+        return result;
+    }
+    return try self.load(result, elem_ty, 0);
+}
+
+fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const ptr_ty = self.air.typeOf(bin_op.lhs);
+    const elem_ty = self.air.getRefType(ty_pl.ty).childType();
+    const elem_size = elem_ty.abiSize(self.target);
+
+    const ptr = self.resolveInst(bin_op.lhs);
+    const index = self.resolveInst(bin_op.rhs);
+
+    // load pointer onto the stack
+    if (ptr_ty.isSlice()) {
+        const ptr_local = try self.load(ptr, ptr_ty, 0);
+        try self.addLabel(.local_get, ptr_local.local);
+    } else {
+        try self.emitWValue(ptr);
+    }
+
+    // calculate index into ptr
+    try self.emitWValue(index);
+    try self.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
+    try self.addTag(.i32_mul);
+    try self.addTag(.i32_add);
+
+    const result = try self.allocLocal(Type.initTag(.i32));
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn airPtrBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ptr = self.resolveInst(bin_op.lhs);
+    const offset = self.resolveInst(bin_op.rhs);
+    const pointee_ty = self.air.typeOf(bin_op.lhs).childType();
+
+    const valtype = try self.typeToValtype(Type.usize);
+    const mul_opcode = buildOpcode(.{ .valtype1 = valtype, .op = .mul });
+    const bin_opcode = buildOpcode(.{ .valtype1 = valtype, .op = op });
+
+    try self.emitWValue(ptr);
+    try self.emitWValue(offset);
+    try self.addImm32(@bitCast(i32, @intCast(u32, pointee_ty.abiSize(self.target))));
+    try self.addTag(Mir.Inst.Tag.fromOpcode(mul_opcode));
+    try self.addTag(Mir.Inst.Tag.fromOpcode(bin_opcode));
+
+    const result = try self.allocLocal(Type.usize);
+    try self.addLabel(.local_set, result.local);
+    return result;
 }

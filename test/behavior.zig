@@ -33,6 +33,7 @@ test {
     _ = @import("behavior/import.zig");
     _ = @import("behavior/incomplete_struct_param_tld.zig");
     _ = @import("behavior/inttoptr.zig");
+    _ = @import("behavior/pointers.zig");
     _ = @import("behavior/ptrcast.zig");
     _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
@@ -66,7 +67,6 @@ test {
         _ = @import("behavior/member_func.zig");
         _ = @import("behavior/null.zig");
         _ = @import("behavior/optional.zig");
-        _ = @import("behavior/pointers.zig");
         _ = @import("behavior/struct.zig");
         _ = @import("behavior/this.zig");
         _ = @import("behavior/translate_c_macros.zig");
