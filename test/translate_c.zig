@@ -3607,6 +3607,30 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn deref(arg_s: ?*struct_my_struct) void;
     });
 
+    cases.add("Demote function that dereference types that contain opaque type",
+        \\struct inner {
+        \\    _Atomic int a;            
+        \\};
+        \\struct outer {
+        \\    int thing;
+        \\    struct inner sub_struct;
+        \\};
+        \\void deref(struct outer *s) {
+        \\    *s;
+        \\}
+    , &[_][]const u8{
+        \\pub const struct_inner = opaque {};
+        ,
+        \\pub const struct_outer = extern struct {
+        \\    thing: c_int,
+        \\    sub_struct: struct_inner,
+        \\};
+        ,
+        \\warning: unable to translate function, demoted to extern
+        ,
+        \\pub extern fn deref(arg_s: ?*struct_outer) void;
+    });
+
     cases.add("Function prototype declared within function",
         \\int foo(void) {
         \\    extern int bar(int, int);
