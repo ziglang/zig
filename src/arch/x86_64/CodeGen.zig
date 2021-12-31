@@ -2909,7 +2909,9 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
 fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
     switch (mcv) {
         .dead => unreachable,
-        .ptr_stack_offset => unreachable,
+        .ptr_stack_offset => |off| {
+            return self.genSetReg(ty.elemType(), reg, .{ .stack_offset = off });
+        },
         .ptr_embedded_in_code => unreachable,
         .unreach, .none => return, // Nothing to do.
         .undef => {
