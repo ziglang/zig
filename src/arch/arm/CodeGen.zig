@@ -2238,10 +2238,16 @@ fn airFence(self: *Self) !void {
 
 fn airCall(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const fn_ty = self.air.typeOf(pl_op.operand);
     const callee = pl_op.operand;
     const extra = self.air.extraData(Air.Call, pl_op.payload);
     const args = @bitCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
+    const ty = self.air.typeOf(callee);
+
+    const fn_ty = switch (ty.zigTypeTag()) {
+        .Fn => ty,
+        .Pointer => ty.childType(),
+        else => unreachable,
+    };
 
     var info = try self.resolveCallingConventionValues(fn_ty);
     defer info.deinit(self);
@@ -2310,39 +2316,42 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                     unreachable;
 
                 try self.genSetReg(Type.initTag(.usize), .lr, .{ .memory = got_addr });
-
-                // TODO: add Instruction.supportedOn
-                // function for ARM
-                if (Target.arm.featureSetHas(self.target.cpu.features, .has_v5t)) {
-                    _ = try self.addInst(.{
-                        .tag = .blx,
-                        .cond = .al,
-                        .data = .{ .reg = .lr },
-                    });
-                } else {
-                    return self.fail("TODO fix blx emulatio for ARM <v5", .{});
-                    // _ = try self.addInst(.{
-                    //     .tag = .mov,
-                    //     .cond = .al,
-                    //     .data = .{ .rr_op = .{
-                    //         .rd = .lr,
-                    //         .rn = .r0,
-                    //         .op = Instruction.Operand.reg(.pc, Instruction.Operand.Shift.none),
-                    //     } },
-                    // });
-                    // _ = try self.addInst(.{
-                    //     .tag = .bx,
-                    //     .cond = .al,
-                    //     .data = .{ .reg = .lr },
-                    // });
-                }
             } else if (func_value.castTag(.extern_fn)) |_| {
                 return self.fail("TODO implement calling extern functions", .{});
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }
         } else {
-            return self.fail("TODO implement calling runtime known function pointer", .{});
+            assert(ty.zigTypeTag() == .Pointer);
+            const mcv = try self.resolveInst(callee);
+
+            try self.genSetReg(Type.initTag(.usize), .lr, mcv);
+        }
+
+        // TODO: add Instruction.supportedOn
+        // function for ARM
+        if (Target.arm.featureSetHas(self.target.cpu.features, .has_v5t)) {
+            _ = try self.addInst(.{
+                .tag = .blx,
+                .cond = .al,
+                .data = .{ .reg = .lr },
+            });
+        } else {
+            return self.fail("TODO fix blx emulation for ARM <v5", .{});
+            // _ = try self.addInst(.{
+            //     .tag = .mov,
+            //     .cond = .al,
+            //     .data = .{ .rr_op = .{
+            //         .rd = .lr,
+            //         .rn = .r0,
+            //         .op = Instruction.Operand.reg(.pc, Instruction.Operand.Shift.none),
+            //     } },
+            // });
+            // _ = try self.addInst(.{
+            //     .tag = .bx,
+            //     .cond = .al,
+            //     .data = .{ .reg = .lr },
+            // });
         }
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         unreachable; // unsupported architecture for MachO
