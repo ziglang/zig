@@ -2371,31 +2371,30 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
 }
 
-fn isNull(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNonNull and invert the result.
-    return self.fail("TODO call isNonNull and invert the result", .{});
+fn isNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    try self.genBinMathOpMir(.cmp, ty, operand, MCValue{ .immediate = 0 });
+    return MCValue{ .compare_flags_unsigned = .eq };
 }
 
-fn isNonNull(self: *Self, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNull and invert the result.
-    return self.fail("TODO call isNull and invert the result", .{});
+fn isNonNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    const is_null_res = try self.isNull(ty, operand);
+    assert(is_null_res.compare_flags_unsigned == .eq);
+    return MCValue{ .compare_flags_unsigned = .neq };
 }
 
-fn isErr(self: *Self, operand: MCValue) !MCValue {
+fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    _ = ty;
     _ = operand;
     // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNonNull and invert the result.
+    // will call isNonErr and invert the result.
     return self.fail("TODO call isNonErr and invert the result", .{});
 }
 
-fn isNonErr(self: *Self, operand: MCValue) !MCValue {
+fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
+    _ = ty;
     _ = operand;
     // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNull and invert the result.
+    // will call isErr and invert the result.
     return self.fail("TODO call isErr and invert the result", .{});
 }
 
@@ -2403,7 +2402,8 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNull(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNull(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2420,8 +2420,9 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isNull(operand);
+        const ptr_ty = self.air.typeOf(un_op);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isNull(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2430,7 +2431,8 @@ fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNonNull(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNonNull(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2447,8 +2449,9 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isNonNull(operand);
+        const ptr_ty = self.air.typeOf(un_op);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isNonNull(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2457,7 +2460,8 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isErr(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isErr(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2474,8 +2478,9 @@ fn airIsErrPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isErr(operand);
+        const ptr_ty = self.air.typeOf(un_op);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isErr(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2484,7 +2489,8 @@ fn airIsNonErr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
-        break :result try self.isNonErr(operand);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNonErr(ty, operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -2501,8 +2507,9 @@ fn airIsNonErrPtr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
-        try self.load(operand, operand_ptr, self.air.typeOf(un_op));
-        break :result try self.isNonErr(operand);
+        const ptr_ty = self.air.typeOf(un_op);
+        try self.load(operand, operand_ptr, ptr_ty);
+        break :result try self.isNonErr(ptr_ty.elemType(), operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
