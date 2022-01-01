@@ -1381,7 +1381,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ret_ty = self.air.typeOf(un_op).childType();
     if (!ret_ty.hasCodeGenBits()) return WValue.none;
 
-    if (ret_ty.isSlice() or ret_ty.zigTypeTag() == .ErrorUnion) {
+    if (isByRef(ret_ty)) {
         try self.emitWValue(operand);
     } else {
         const result = try self.load(operand, ret_ty, 0);
@@ -1521,6 +1521,14 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
 
             switch (rhs) {
                 .constant => {
+                    if (rhs.constant.val.castTag(.decl_ref)) |_| {
+                        // retrieve values from memory instead
+                        const mem_local = try self.allocLocal(Type.usize);
+                        try self.emitWValue(rhs);
+                        try self.addLabel(.local_set, mem_local.local);
+                        try self.store(lhs, mem_local, ty, 0);
+                        return;
+                    }
                     // constant will contain both tag and payload,
                     // so save those in 2 temporary locals before storing them
                     // in memory
@@ -1616,12 +1624,16 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
     // check if we should pass by pointer or value based on ABI size
     // TODO: Implement a way to get ABI values from a given type,
     // that is portable across the backend, rather than copying logic.
-    const abi_size = if ((ty.isInt() or ty.isAnyFloat()) and ty.abiSize(self.target) <= 8)
-        @intCast(u8, ty.abiSize(self.target))
-    else if (ty.zigTypeTag() == .ErrorSet or ty.zigTypeTag() == .Enum or ty.zigTypeTag() == .Bool)
-        @intCast(u8, ty.abiSize(self.target))
-    else
-        @as(u8, 4);
+    const abi_size = switch (ty.zigTypeTag()) {
+        .Int,
+        .Float,
+        .ErrorSet,
+        .Enum,
+        .Bool,
+        .ErrorUnion,
+        => @intCast(u8, ty.abiSize(self.target)),
+        else => @as(u8, 4),
+    };
     const opcode = buildOpcode(.{
         .valtype1 = valtype,
         .width = abi_size * 8, // use bitsize instead of byte size
@@ -1643,7 +1655,9 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (!ty.hasCodeGenBits()) return WValue{ .none = {} };
 
     if (isByRef(ty)) {
-        return operand;
+        const new_local = try self.allocStack(ty);
+        try self.store(new_local, operand, ty, 0);
+        return new_local;
     }
 
     return switch (operand) {
@@ -1662,12 +1676,16 @@ fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
         .signed;
     // TODO: Implement a way to get ABI values from a given type,
     // that is portable across the backend, rather than copying logic.
-    const abi_size = if ((ty.isInt() or ty.isAnyFloat()) and ty.abiSize(self.target) <= 8)
-        @intCast(u8, ty.abiSize(self.target))
-    else if (ty.zigTypeTag() == .ErrorSet or ty.zigTypeTag() == .Enum or ty.zigTypeTag() == .Bool)
-        @intCast(u8, ty.abiSize(self.target))
-    else
-        @as(u8, 4);
+    const abi_size = switch (ty.zigTypeTag()) {
+        .Int,
+        .Float,
+        .ErrorSet,
+        .Enum,
+        .Bool,
+        .ErrorUnion,
+        => @intCast(u8, ty.abiSize(self.target)),
+        else => @as(u8, 4),
+    };
 
     const opcode = buildOpcode(.{
         .valtype1 = try self.typeToValtype(ty),

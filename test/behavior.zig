@@ -39,28 +39,16 @@ test {
     _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
     _ = @import("behavior/truncate.zig");
-    _ = @import("behavior/type.zig");
     _ = @import("behavior/type_info.zig");
+    _ = @import("behavior/type.zig");
     _ = @import("behavior/usingnamespace.zig");
+    _ = @import("behavior/underscore.zig");
 
     // Tests that pass for stage1, stage2 and the C backend, but not for the wasm backend
     if (!builtin.zig_is_stage2 or builtin.stage2_arch != .wasm32) {
         _ = @import("behavior/align.zig");
         _ = @import("behavior/array.zig");
-        _ = @import("behavior/bool.zig");
-        _ = @import("behavior/bugs/704.zig");
-        _ = @import("behavior/bugs/2692.zig");
-        _ = @import("behavior/bugs/2889.zig");
-        _ = @import("behavior/bugs/3046.zig");
-        _ = @import("behavior/bugs/3586.zig");
-        _ = @import("behavior/bugs/4560.zig");
-        _ = @import("behavior/bugs/4769_a.zig");
-        _ = @import("behavior/bugs/4769_b.zig");
-        _ = @import("behavior/bugs/4954.zig");
-        _ = @import("behavior/byval_arg_var.zig");
-        _ = @import("behavior/call.zig");
         _ = @import("behavior/cast.zig");
-        _ = @import("behavior/fn_in_struct_in_comptime.zig");
         _ = @import("behavior/for.zig");
         _ = @import("behavior/generics.zig");
         _ = @import("behavior/int128.zig");
