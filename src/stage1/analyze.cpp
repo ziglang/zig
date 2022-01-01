@@ -5876,49 +5876,7 @@ static bool can_mutate_comptime_var_state(ZigValue *value) {
     zig_unreachable();
 }
 
-static bool return_type_is_cacheable(ZigType *return_type) {
-    switch (return_type->id) {
-        case ZigTypeIdInvalid:
-            zig_unreachable();
-        case ZigTypeIdMetaType:
-        case ZigTypeIdVoid:
-        case ZigTypeIdBool:
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdInt:
-        case ZigTypeIdFloat:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdEnumLiteral:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdFn:
-        case ZigTypeIdOpaque:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdEnum:
-        case ZigTypeIdPointer:
-        case ZigTypeIdVector:
-        case ZigTypeIdFnFrame:
-        case ZigTypeIdAnyFrame:
-            return true;
-
-        case ZigTypeIdArray:
-        case ZigTypeIdStruct:
-        case ZigTypeIdUnion:
-            return false;
-
-        case ZigTypeIdOptional:
-            return return_type_is_cacheable(return_type->data.maybe.child_type);
-
-        case ZigTypeIdErrorUnion:
-            return return_type_is_cacheable(return_type->data.error_union.payload_type);
-    }
-    zig_unreachable();
-}
-
 bool fn_eval_cacheable(Scope *scope, ZigType *return_type) {
-    if (!return_type_is_cacheable(return_type))
-        return false;
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
