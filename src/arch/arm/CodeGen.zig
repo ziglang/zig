@@ -3180,17 +3180,18 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 // TODO optimize the register allocation
                 const regs = try self.register_manager.allocRegs(5, .{ null, null, null, null, null }, &.{});
                 const src_reg = regs[0];
-                const dst_reg = regs[2];
+                const dst_reg = regs[1];
                 const len_reg = regs[2];
                 const count_reg = regs[3];
                 const tmp_reg = regs[4];
 
-                // add src_reg, fp, #off
-                const src_offset_op: Instruction.Operand = if (Instruction.Operand.fromU32(off)) |x| x else {
+                // sub src_reg, fp, #off
+                const adj_src_offset = off + @intCast(u32, ty.abiSize(self.target.*));
+                const src_offset_op: Instruction.Operand = if (Instruction.Operand.fromU32(adj_src_offset)) |x| x else {
                     return self.fail("TODO load: set reg to stack offset with all possible offsets", .{});
                 };
                 _ = try self.addInst(.{
-                    .tag = .add,
+                    .tag = .sub,
                     .cond = .al,
                     .data = .{ .rr_op = .{
                         .rd = src_reg,
@@ -3200,8 +3201,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 });
 
                 // sub dst_reg, fp, #stack_offset
-                const adj_stack_offset = stack_offset + @intCast(u32, ty.abiSize(self.target.*));
-                const dst_offset_op: Instruction.Operand = if (Instruction.Operand.fromU32(adj_stack_offset)) |x| x else {
+                const adj_dst_offset = stack_offset + @intCast(u32, ty.abiSize(self.target.*));
+                const dst_offset_op: Instruction.Operand = if (Instruction.Operand.fromU32(adj_dst_offset)) |x| x else {
                     return self.fail("TODO load: set reg to stack offset with all possible offsets", .{});
                 };
                 _ = try self.addInst(.{
