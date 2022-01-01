@@ -300,9 +300,10 @@ pub const IO_Uring = struct {
     /// A convenience method for `copy_cqes()` for when you don't need to batch or peek.
     pub fn copy_cqe(ring: *IO_Uring) !io_uring_cqe {
         var cqes: [1]io_uring_cqe = undefined;
-        const count = try ring.copy_cqes(&cqes, 1);
-        assert(count == 1);
-        return cqes[0];
+        while (true) {
+            const count = try ring.copy_cqes(&cqes, 1);
+            if (count > 0) return cqes[0];
+        }
     }
 
     /// Matches the implementation of cq_ring_needs_flush() in liburing.
