@@ -400,6 +400,14 @@ pub fn generateSymbol(
 
             return Result{ .appended = {} };
         },
+        .Optional => {
+            // TODO generateSymbol for optionals
+            const target = bin_file.options.target;
+            const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
+            try code.writer().writeByteNTimes(0xaa, abi_size);
+
+            return Result{ .appended = {} };
+        },
         else => |t| {
             return Result{
                 .fail = try ErrorMsg.create(

@@ -636,6 +636,35 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "Hello, World!\n",
         );
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    foo() catch |err| {
+            \\        assert(err == error.Foo);
+            \\        assert(err != error.Bar);
+            \\        assert(err != error.Baz);
+            \\    };
+            \\    bar() catch |err| {
+            \\        assert(err != error.Foo);
+            \\        assert(err == error.Bar);
+            \\        assert(err != error.Baz);
+            \\    };
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\fn foo() anyerror!void {
+            \\    return error.Foo;
+            \\}
+            \\
+            \\fn bar() anyerror!void {
+            \\    return error.Bar;
+            \\}
+        ,
+            "",
+        );
     }
 
     {
@@ -702,6 +731,54 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         ,
             "",
+        );
+    }
+
+    {
+        var case = ctx.exe("function pointers", linux_arm);
+        case.addCompareOutput(
+            \\const PrintFn = fn () void;
+            \\
+            \\pub fn main() void {
+            \\    var printFn: PrintFn = stopSayingThat;
+            \\    var i: u32 = 0;
+            \\    while (i < 4) : (i += 1) printFn();
+            \\
+            \\    printFn = moveEveryZig;
+            \\    printFn();
+            \\}
+            \\
+            \\fn stopSayingThat() void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("Hello, my name is Inigo Montoya; you killed my father, prepare to die.\n")),
+            \\          [arg3] "{r2}" ("Hello, my name is Inigo Montoya; you killed my father, prepare to die.\n".len),
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn moveEveryZig() void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("All your codebase are belong to us\n")),
+            \\          [arg3] "{r2}" ("All your codebase are belong to us\n".len),
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+        ,
+            \\Hello, my name is Inigo Montoya; you killed my father, prepare to die.
+            \\Hello, my name is Inigo Montoya; you killed my father, prepare to die.
+            \\Hello, my name is Inigo Montoya; you killed my father, prepare to die.
+            \\Hello, my name is Inigo Montoya; you killed my father, prepare to die.
+            \\All your codebase are belong to us
+            \\
+            ,
         );
     }
 }
