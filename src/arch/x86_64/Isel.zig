@@ -1352,7 +1352,7 @@ fn lowerToIEnc(tag: Tag, imm: i32, code: *std.ArrayList(u8)) LoweringError!void 
     const opc = getOpCode(tag, .i, immOpSize(imm) == 8).?;
     const encoder = try Encoder.init(code, 5);
     if (immOpSize(imm) == 16) {
-        encoder.opcode_1byte(0x66);
+        encoder.prefix16BitMode();
     }
     opc.encode(encoder);
     if (immOpSize(imm) == 8) {
@@ -1371,7 +1371,7 @@ fn lowerToOEnc(tag: Tag, reg: Register, code: *std.ArrayList(u8)) LoweringError!
     const opc = getOpCode(tag, .o, false).?;
     const encoder = try Encoder.init(code, 3);
     if (reg.size() == 16) {
-        encoder.opcode_1byte(0x66);
+        encoder.prefix16BitMode();
     }
     encoder.rex(.{
         .w = false,
@@ -1402,7 +1402,7 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
             }
             const encoder = try Encoder.init(code, 4);
             if (reg.size() == 16) {
-                encoder.opcode_1byte(0x66);
+                encoder.prefix16BitMode();
             }
             encoder.rex(.{
                 .w = switch (reg) {
@@ -1420,7 +1420,7 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
             }
             const encoder = try Encoder.init(code, 8);
             if (mem_op.ptr_size == .word_ptr) {
-                encoder.opcode_1byte(0x66);
+                encoder.prefix16BitMode();
             }
             if (mem_op.reg) |reg| {
                 if (reg.size() != 64) {
@@ -1467,7 +1467,7 @@ fn lowerToTdFdEnc(tag: Tag, reg: Register, moffs: i64, code: *std.ArrayList(u8),
         getOpCode(tag, .fd, reg.size() == 8).?;
     const encoder = try Encoder.init(code, 10);
     if (reg.size() == 16) {
-        encoder.opcode_1byte(0x66);
+        encoder.prefix16BitMode();
     }
     encoder.rex(.{
         .w = setRexWRegister(reg),
@@ -1500,7 +1500,7 @@ fn lowerToOiEnc(tag: Tag, reg: Register, imm: i64, code: *std.ArrayList(u8)) Low
     const opc = getOpCode(tag, .oi, reg.size() == 8).?;
     const encoder = try Encoder.init(code, 10);
     if (reg.size() == 16) {
-        encoder.opcode_1byte(0x66);
+        encoder.prefix16BitMode();
     }
     encoder.rex(.{
         .w = setRexWRegister(reg),
@@ -1537,7 +1537,7 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: i32, code: *std.Arr
                 // 0x66 prefix switches to the non-default size; here we assume a switch from
                 // the default 32bits to 16bits operand-size.
                 // More info: https://www.cs.uni-potsdam.de/desn/lehre/ss15/64-ia-32-architectures-software-developer-instruction-set-reference-manual-325383.pdf#page=32&zoom=auto,-159,773
-                encoder.opcode_1byte(0x66);
+                encoder.prefix16BitMode();
             }
             encoder.rex(.{
                 .w = setRexWRegister(dst_reg),
@@ -1562,7 +1562,7 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: i32, code: *std.Arr
             const opc = getOpCode(tag, .mi, dst_mem.ptr_size == .byte_ptr).?;
             const encoder = try Encoder.init(code, 12);
             if (dst_mem.ptr_size == .word_ptr) {
-                encoder.opcode_1byte(0x66);
+                encoder.prefix16BitMode();
             }
             if (dst_mem.reg) |dst_reg| {
                 if (dst_reg.size() != 64) {
@@ -1628,7 +1628,7 @@ fn lowerToRmEnc(
             }
             const encoder = try Encoder.init(code, 9);
             if (reg.size() == 16) {
-                encoder.opcode_1byte(0x66);
+                encoder.prefix16BitMode();
             }
             if (src_mem.reg) |src_reg| {
                 // TODO handle 32-bit base register - requires prefix 0x67
@@ -1688,7 +1688,7 @@ fn lowerToMrEnc(
             }
             const encoder = try Encoder.init(code, 9);
             if (reg.size() == 16) {
-                encoder.opcode_1byte(0x66);
+                encoder.prefix16BitMode();
             }
             if (dst_mem.reg) |dst_reg| {
                 if (dst_reg.size() != 64) {
@@ -1732,7 +1732,7 @@ fn lowerToRmiEnc(
     const opc = getOpCode(tag, .rmi, false).?;
     const encoder = try Encoder.init(code, 13);
     if (reg.size() == 16) {
-        encoder.opcode_1byte(0x66);
+        encoder.prefix16BitMode();
     }
     switch (reg_or_mem) {
         .register => |src_reg| {
