@@ -53,17 +53,26 @@ pub const OpenFileOptions = struct {
     io_mode: std.io.ModeOverride,
     /// If true, tries to open path as a directory.
     /// Defaults to false.
-    open_dir: bool = false,
+    filter: Filter = .file_only,
     /// If false, tries to open path as a reparse point without dereferencing it.
     /// Defaults to true.
     follow_symlinks: bool = true,
+
+    pub const Filter = enum {
+        /// Causes `OpenFile` to return `error.IsDir` if the opened handle would be a directory.
+        file_only,
+        /// Causes `OpenFile` to return `error.NotDir` if the opened handle would be a file.
+        dir_only,
+        /// `OpenFile` does not discriminate between opening files and directories.
+        any,
+    };
 };
 
 pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HANDLE {
-    if (mem.eql(u16, sub_path_w, &[_]u16{'.'}) and !options.open_dir) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{'.'}) and options.filter == .file_only) {
         return error.IsDir;
     }
-    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' }) and !options.open_dir) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' }) and options.filter == .file_only) {
         return error.IsDir;
     }
 
@@ -87,7 +96,11 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     };
     var io: IO_STATUS_BLOCK = undefined;
     const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
-    const file_or_dir_flag: ULONG = if (options.open_dir) FILE_DIRECTORY_FILE else FILE_NON_DIRECTORY_FILE;
+    const file_or_dir_flag: ULONG = switch (options.filter) {
+        .file_only => FILE_NON_DIRECTORY_FILE,
+        .dir_only => FILE_DIRECTORY_FILE,
+        .any => 0,
+    };
     // If we're not following symlinks, we need to ensure we don't pass in any synchronization flags such as FILE_SYNCHRONOUS_IO_NONALERT.
     const flags: ULONG = if (options.follow_symlinks) file_or_dir_flag | blocking_flag else file_or_dir_flag | FILE_OPEN_REPARSE_POINT;
 
@@ -695,7 +708,7 @@ pub fn CreateSymbolicLink(
         .dir = dir,
         .creation = FILE_CREATE,
         .io_mode = .blocking,
-        .open_dir = is_directory,
+        .filter = if (is_directory) .dir_only else .file_only,
     }) catch |err| switch (err) {
         error.IsDir => return error.PathAlreadyExists,
         error.NotDir => unreachable,
