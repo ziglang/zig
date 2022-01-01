@@ -1269,6 +1269,33 @@ const Memory = struct {
             };
         }
     };
+
+    fn encodeWithReg(encoder: Encoder, dst: u3, src: u3, disp: i32) void {
+        if (dst == 4) {
+            if (disp == 0) {
+                encoder.modRm_SIBDisp0(src);
+                encoder.sib_base(dst);
+            } else if (immOpSize(disp) == 8) {
+                encoder.modRm_SIBDisp8(src);
+                encoder.sib_baseDisp8(dst);
+                encoder.disp8(@intCast(i8, disp));
+            } else {
+                encoder.modRm_SIBDisp32(src);
+                encoder.sib_baseDisp32(dst);
+                encoder.disp32(disp);
+            }
+        } else {
+            if (disp == 0) {
+                encoder.modRm_indirectDisp0(src, dst);
+            } else if (immOpSize(disp) == 8) {
+                encoder.modRm_indirectDisp8(src, dst);
+                encoder.disp8(@intCast(i8, disp));
+            } else {
+                encoder.modRm_indirectDisp32(src, dst);
+                encoder.disp32(disp);
+            }
+        }
+    }
 };
 
 const RegisterOrMemory = union(enum) {
@@ -1404,30 +1431,7 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
                     .b = reg.isExtended(),
                 });
                 opc.encode(encoder);
-                if (reg.lowId() == 4) {
-                    if (mem_op.disp == 0) {
-                        encoder.modRm_SIBDisp0(modrm_ext);
-                        encoder.sib_base(reg.lowId());
-                    } else if (immOpSize(mem_op.disp) == 8) {
-                        encoder.modRm_SIBDisp8(modrm_ext);
-                        encoder.sib_baseDisp8(reg.lowId());
-                        encoder.disp8(@intCast(i8, mem_op.disp));
-                    } else {
-                        encoder.modRm_SIBDisp32(modrm_ext);
-                        encoder.sib_baseDisp32(reg.lowId());
-                        encoder.disp32(mem_op.disp);
-                    }
-                } else {
-                    if (mem_op.disp == 0) {
-                        encoder.modRm_indirectDisp0(modrm_ext, reg.lowId());
-                    } else if (immOpSize(mem_op.disp) == 8) {
-                        encoder.modRm_indirectDisp8(modrm_ext, reg.lowId());
-                        encoder.disp8(@intCast(i8, mem_op.disp));
-                    } else {
-                        encoder.modRm_indirectDisp32(modrm_ext, reg.lowId());
-                        encoder.disp32(mem_op.disp);
-                    }
-                }
+                Memory.encodeWithReg(encoder, reg.lowId(), modrm_ext, mem_op.disp);
             } else {
                 opc.encode(encoder);
                 if (mem_op.rip) {
@@ -1569,30 +1573,7 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: i32, code: *std.Arr
                     .b = dst_reg.isExtended(),
                 });
                 opc.encode(encoder);
-                if (dst_reg.lowId() == 4) {
-                    if (dst_mem.disp == 0) {
-                        encoder.modRm_SIBDisp0(modrm_ext);
-                        encoder.sib_base(dst_reg.lowId());
-                    } else if (immOpSize(dst_mem.disp) == 8) {
-                        encoder.modRm_SIBDisp8(modrm_ext);
-                        encoder.sib_baseDisp8(dst_reg.lowId());
-                        encoder.disp8(@intCast(i8, dst_mem.disp));
-                    } else {
-                        encoder.modRm_SIBDisp32(modrm_ext);
-                        encoder.sib_baseDisp32(dst_reg.lowId());
-                        encoder.disp32(dst_mem.disp);
-                    }
-                } else {
-                    if (dst_mem.disp == 0) {
-                        encoder.modRm_indirectDisp0(modrm_ext, dst_reg.lowId());
-                    } else if (immOpSize(dst_mem.disp) == 8) {
-                        encoder.modRm_indirectDisp8(modrm_ext, dst_reg.lowId());
-                        encoder.disp8(@intCast(i8, dst_mem.disp));
-                    } else {
-                        encoder.modRm_indirectDisp32(modrm_ext, dst_reg.lowId());
-                        encoder.disp32(dst_mem.disp);
-                    }
-                }
+                Memory.encodeWithReg(encoder, dst_reg.lowId(), modrm_ext, dst_mem.disp);
             } else {
                 opc.encode(encoder);
                 if (dst_mem.rip) {
@@ -1661,30 +1642,7 @@ fn lowerToRmEnc(
                     .b = src_reg.isExtended(),
                 });
                 opc.encode(encoder);
-                if (src_reg.lowId() == 4) {
-                    if (src_mem.disp == 0) {
-                        encoder.modRm_SIBDisp0(reg.lowId());
-                        encoder.sib_base(src_reg.lowId());
-                    } else if (immOpSize(src_mem.disp) == 8) {
-                        encoder.modRm_SIBDisp8(reg.lowId());
-                        encoder.sib_baseDisp8(src_reg.lowId());
-                        encoder.disp8(@intCast(i8, src_mem.disp));
-                    } else {
-                        encoder.modRm_SIBDisp32(reg.lowId());
-                        encoder.sib_baseDisp32(src_reg.lowId());
-                        encoder.disp32(src_mem.disp);
-                    }
-                } else {
-                    if (src_mem.disp == 0) {
-                        encoder.modRm_indirectDisp0(reg.lowId(), src_reg.lowId());
-                    } else if (immOpSize(src_mem.disp) == 8) {
-                        encoder.modRm_indirectDisp8(reg.lowId(), src_reg.lowId());
-                        encoder.disp8(@intCast(i8, src_mem.disp));
-                    } else {
-                        encoder.modRm_indirectDisp32(reg.lowId(), src_reg.lowId());
-                        encoder.disp32(src_mem.disp);
-                    }
-                }
+                Memory.encodeWithReg(encoder, src_reg.lowId(), reg.lowId(), src_mem.disp);
             } else {
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
@@ -1742,30 +1700,7 @@ fn lowerToMrEnc(
                     .b = dst_reg.isExtended(),
                 });
                 opc.encode(encoder);
-                if (dst_reg.lowId() == 4) {
-                    if (dst_mem.disp == 0) {
-                        encoder.modRm_SIBDisp0(reg.lowId());
-                        encoder.sib_base(dst_reg.lowId());
-                    } else if (immOpSize(dst_mem.disp) == 8) {
-                        encoder.modRm_SIBDisp8(reg.lowId());
-                        encoder.sib_baseDisp8(dst_reg.lowId());
-                        encoder.disp8(@intCast(i8, dst_mem.disp));
-                    } else {
-                        encoder.modRm_SIBDisp32(reg.lowId());
-                        encoder.sib_baseDisp32(dst_reg.lowId());
-                        encoder.disp32(dst_mem.disp);
-                    }
-                } else {
-                    if (dst_mem.disp == 0) {
-                        encoder.modRm_indirectDisp0(reg.lowId(), dst_reg.lowId());
-                    } else if (immOpSize(dst_mem.disp) == 8) {
-                        encoder.modRm_indirectDisp8(reg.lowId(), dst_reg.lowId());
-                        encoder.disp8(@intCast(i8, dst_mem.disp));
-                    } else {
-                        encoder.modRm_indirectDisp32(reg.lowId(), dst_reg.lowId());
-                        encoder.disp32(dst_mem.disp);
-                    }
-                }
+                Memory.encodeWithReg(encoder, dst_reg.lowId(), reg.lowId(), dst_mem.disp);
             } else {
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
@@ -1828,30 +1763,7 @@ fn lowerToRmiEnc(
                     .b = src_reg.isExtended(),
                 });
                 opc.encode(encoder);
-                if (src_reg.lowId() == 4) {
-                    if (src_mem.disp == 0) {
-                        encoder.modRm_SIBDisp0(reg.lowId());
-                        encoder.sib_base(src_reg.lowId());
-                    } else if (immOpSize(src_mem.disp) == 8) {
-                        encoder.modRm_SIBDisp8(reg.lowId());
-                        encoder.sib_baseDisp8(src_reg.lowId());
-                        encoder.disp8(@intCast(i8, src_mem.disp));
-                    } else {
-                        encoder.modRm_SIBDisp32(reg.lowId());
-                        encoder.sib_baseDisp32(src_reg.lowId());
-                        encoder.disp32(src_mem.disp);
-                    }
-                } else {
-                    if (src_mem.disp == 0) {
-                        encoder.modRm_indirectDisp0(reg.lowId(), src_reg.lowId());
-                    } else if (immOpSize(src_mem.disp) == 8) {
-                        encoder.modRm_indirectDisp8(reg.lowId(), src_reg.lowId());
-                        encoder.disp8(@intCast(i8, src_mem.disp));
-                    } else {
-                        encoder.modRm_indirectDisp32(reg.lowId(), src_reg.lowId());
-                        encoder.disp32(src_mem.disp);
-                    }
-                }
+                Memory.encodeWithReg(encoder, src_reg.lowId(), reg.lowId(), src_mem.disp);
             } else {
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
