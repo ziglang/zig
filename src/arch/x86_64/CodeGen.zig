@@ -1427,7 +1427,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .embedded_in_code => {
             return self.fail("TODO implement loading from MCValue.embedded_in_code", .{});
         },
-        .register => |reg| try self.setRegOrMem(elem_ty, dst_mcv, .{ .register = reg }),
+        .register => |reg| try self.setRegOrMem(ptr_ty, dst_mcv, .{ .register = reg }),
         .memory => |addr| {
             const reg = try self.register_manager.allocReg(null, &.{});
             try self.genSetReg(ptr_ty, reg, .{ .memory = addr });
