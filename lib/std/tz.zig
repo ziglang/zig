@@ -38,70 +38,71 @@ pub const Tz = struct {
     transitions: []const Transition,
     timetypes: []const Timetype,
     leapseconds: []const Leapsecond,
-    footer: []const u8,
+    footer: ?[]const u8,
 
-    pub fn parse(allocator: std.mem.Allocator, reader: anytype) !Tz {
-        const Header = extern struct {
-            magic: [4]u8,
-            version: u8,
-            reserved: [15]u8,
-        };
-
-        const Counts = extern struct {
+    const Header = extern struct {
+        magic: [4]u8,
+        version: u8,
+        reserved: [15]u8,
+        counts: extern struct {
             isutcnt: u32,
             isstdcnt: u32,
             leapcnt: u32,
             timecnt: u32,
             typecnt: u32,
             charcnt: u32,
-        };
+        },
+    };
 
-        // Parse and skip the legacy header and data
-        {
-            const header = try reader.readStruct(Header);
+    pub fn parse(allocator: std.mem.Allocator, reader: anytype) !Tz {
+        var legacy_header = try reader.readStruct(Header);
+        if (!std.mem.eql(u8, &legacy_header.magic, "TZif")) return error.BadHeader;
+        if (legacy_header.version != 0 and legacy_header.version != '2' and legacy_header.version != '3') return error.BadVersion;
+
+        if (builtin.target.cpu.arch.endian() != std.builtin.Endian.Big) {
+            std.mem.bswapAllFields(@TypeOf(legacy_header.counts), &legacy_header.counts);
+        }
+
+        if (legacy_header.version == 0) {
+            return parseBlock(allocator, reader, legacy_header, true);
+        } else {
+            // If the format is modern, just skip over the legacy data
+            const skipv = legacy_header.counts.timecnt * 5 + legacy_header.counts.typecnt * 6 + legacy_header.counts.charcnt + legacy_header.counts.leapcnt * 8 + legacy_header.counts.isstdcnt + legacy_header.counts.isutcnt;
+            try reader.skipBytes(skipv, .{});
+
+            var header = try reader.readStruct(Header);
             if (!std.mem.eql(u8, &header.magic, "TZif")) return error.BadHeader;
-            if (header.version == 0) return error.UnsupportedLegacyFormat;
             if (header.version != '2' and header.version != '3') return error.BadVersion;
-
-            var counts = try reader.readStruct(Counts);
             if (builtin.target.cpu.arch.endian() != std.builtin.Endian.Big) {
-                std.mem.bswapAllFields(Counts, &counts);
+                std.mem.bswapAllFields(@TypeOf(header.counts), &header.counts);
             }
 
-            const skipv = counts.timecnt * 5 + counts.typecnt * 6 + counts.charcnt + counts.leapcnt * 8 + counts.isstdcnt + counts.isutcnt;
-            try reader.skipBytes(skipv, .{});
+            return parseBlock(allocator, reader, header, false);
         }
+    }
 
-        const header = try reader.readStruct(Header);
-        if (!std.mem.eql(u8, &header.magic, "TZif")) return error.BadHeader;
-        if (header.version != '2' and header.version != '3') return error.BadVersion;
+    fn parseBlock(allocator: std.mem.Allocator, reader: anytype, header: Header, legacy: bool) !Tz {
+        if (header.counts.isstdcnt != 0 and header.counts.isstdcnt != header.counts.typecnt) return error.Malformed; // rfc8536: isstdcnt [...] MUST either be zero or equal to "typecnt"
+        if (header.counts.isutcnt != 0 and header.counts.isutcnt != header.counts.typecnt) return error.Malformed; // rfc8536: isutcnt [...] MUST either be zero or equal to "typecnt"
+        if (header.counts.typecnt == 0) return error.Malformed; // rfc8536: typecnt [...] MUST NOT be zero
+        if (header.counts.charcnt == 0) return error.Malformed; // rfc8536: charcnt [...] MUST NOT be zero
+        if (header.counts.charcnt > 256 + 6) return error.Malformed; // Not explicitly banned by rfc8536 but nonsensical
 
-        var counts = try reader.readStruct(Counts);
-        if (builtin.target.cpu.arch.endian() != std.builtin.Endian.Big) {
-            std.mem.bswapAllFields(Counts, &counts);
-        }
-
-        if (counts.isstdcnt != 0 and counts.isstdcnt != counts.typecnt) return error.Malformed; // rfc8536: isstdcnt [...] MUST either be zero or equal to "typecnt"
-        if (counts.isutcnt != 0 and counts.isutcnt != counts.typecnt) return error.Malformed; // rfc8536: isutcnt [...] MUST either be zero or equal to "typecnt"
-        if (counts.typecnt == 0) return error.Malformed; // rfc8536: typecnt [...] MUST NOT be zero
-        if (counts.charcnt == 0) return error.Malformed; // rfc8536: charcnt [...] MUST NOT be zero
-        if (counts.charcnt > 256 + 6) return error.Malformed; // Not explicitly banned by rfc8536 but nonsensical
-
-        var leapseconds = try allocator.alloc(Leapsecond, counts.leapcnt);
+        var leapseconds = try allocator.alloc(Leapsecond, header.counts.leapcnt);
         errdefer allocator.free(leapseconds);
-        var transitions = try allocator.alloc(Transition, counts.timecnt);
+        var transitions = try allocator.alloc(Transition, header.counts.timecnt);
         errdefer allocator.free(transitions);
-        var timetypes = try allocator.alloc(Timetype, counts.typecnt);
+        var timetypes = try allocator.alloc(Timetype, header.counts.typecnt);
         errdefer allocator.free(timetypes);
 
         // Parse transition types
         var i: usize = 0;
-        while (i < counts.timecnt) : (i += 1) {
-            transitions[i].ts = try reader.readIntBig(i64);
+        while (i < header.counts.timecnt) : (i += 1) {
+            transitions[i].ts = if (legacy) try reader.readIntBig(i32) else try reader.readIntBig(i64);
         }
 
         i = 0;
-        while (i < counts.timecnt) : (i += 1) {
+        while (i < header.counts.timecnt) : (i += 1) {
             const tt = try reader.readByte();
             if (tt >= timetypes.len) return error.Malformed; // rfc8536: Each type index MUST be in the range [0, "typecnt" - 1]
             transitions[i].timetype = &timetypes[tt];
@@ -109,13 +110,13 @@ pub const Tz = struct {
 
         // Parse time types
         i = 0;
-        while (i < counts.typecnt) : (i += 1) {
+        while (i < header.counts.typecnt) : (i += 1) {
             const offset = try reader.readIntBig(i32);
             if (offset < -2147483648) return error.Malformed; // rfc8536: utoff [...] MUST NOT be -2**31
             const dst = try reader.readByte();
             if (dst != 0 and dst != 1) return error.Malformed; // rfc8536: (is)dst [...] The value MUST be 0 or 1.
             const idx = try reader.readByte();
-            if (idx > counts.charcnt - 1) return error.Malformed; // rfc8536: (desig)idx [...] Each index MUST be in the range [0, "charcnt" - 1]
+            if (idx > header.counts.charcnt - 1) return error.Malformed; // rfc8536: (desig)idx [...] Each index MUST be in the range [0, "charcnt" - 1]
             timetypes[i] = .{
                 .offset = offset,
                 .flags = dst,
@@ -127,8 +128,8 @@ pub const Tz = struct {
         }
 
         var designators_data: [256 + 6]u8 = undefined;
-        try reader.readNoEof(designators_data[0..counts.charcnt]);
-        const designators = designators_data[0..counts.charcnt];
+        try reader.readNoEof(designators_data[0..header.counts.charcnt]);
+        const designators = designators_data[0..header.counts.charcnt];
         if (designators[designators.len - 1] != 0) return error.Malformed; // rfc8536: charcnt [...] includes the trailing NUL (0x00) octet
 
         // Iterate through the timetypes again, setting the designator names
@@ -142,8 +143,8 @@ pub const Tz = struct {
 
         // Parse leap seconds
         i = 0;
-        while (i < counts.leapcnt) : (i += 1) {
-            const occur = try reader.readIntBig(i64);
+        while (i < header.counts.leapcnt) : (i += 1) {
+            const occur: i64 = if (legacy) try reader.readIntBig(i32) else try reader.readIntBig(i64);
             if (occur < 0) return error.Malformed; // rfc8536: occur [...] MUST be nonnegative
             if (i > 0 and leapseconds[i - 1].occurrence + 2419199 > occur) return error.Malformed; // rfc8536: occur [...] each later value MUST be at least 2419199 greater than the previous value
             if (occur > std.math.maxInt(i48)) return error.Malformed; // Unreasonably far into the future
@@ -161,7 +162,7 @@ pub const Tz = struct {
 
         // Parse standard/wall indicators
         i = 0;
-        while (i < counts.isstdcnt) : (i += 1) {
+        while (i < header.counts.isstdcnt) : (i += 1) {
             const stdtime = try reader.readByte();
             if (stdtime == 1) {
                 timetypes[i].flags |= 0x02;
@@ -170,7 +171,7 @@ pub const Tz = struct {
 
         // Parse UT/local indicators
         i = 0;
-        while (i < counts.isutcnt) : (i += 1) {
+        while (i < header.counts.isutcnt) : (i += 1) {
             const ut = try reader.readByte();
             if (ut == 1) {
                 timetypes[i].flags |= 0x04;
@@ -178,29 +179,34 @@ pub const Tz = struct {
             }
         }
 
-        if ((try reader.readByte()) != '\n') return error.Malformed; // An rfc8536 footer must start with a newline
-
         // Footer
-        var footerdata_buf: [128]u8 = undefined;
-        const footer = reader.readUntilDelimiter(&footerdata_buf, '\n') catch |err| switch (err) {
-            error.StreamTooLong => return error.OverlargeFooter, // Read more than 128 bytes, much larger than any reasonable POSIX TZ string
-            else => return err,
-        };
-
-        const footer_dup = try allocator.dupe(u8, footer);
-        errdefer allocator.free(footer_dup);
+        var footer: ?[]u8 = null;
+        if (!legacy) {
+            if ((try reader.readByte()) != '\n') return error.Malformed; // An rfc8536 footer must start with a newline
+            var footerdata_buf: [128]u8 = undefined;
+            const footer_mem = reader.readUntilDelimiter(&footerdata_buf, '\n') catch |err| switch (err) {
+                error.StreamTooLong => return error.OverlargeFooter, // Read more than 128 bytes, much larger than any reasonable POSIX TZ string
+                else => return err,
+            };
+            if (footer_mem.len != 0) {
+                footer = try allocator.dupe(u8, footer_mem);
+            }
+        }
+        errdefer if (footer) |ft| allocator.free(ft);
 
         return Tz{
             .allocator = allocator,
             .transitions = transitions,
             .timetypes = timetypes,
             .leapseconds = leapseconds,
-            .footer = footer_dup,
+            .footer = footer,
         };
     }
 
     pub fn deinit(self: *Tz) void {
-        self.allocator.free(self.footer);
+        if (self.footer) |footer| {
+            self.allocator.free(footer);
+        }
         self.allocator.free(self.leapseconds);
         self.allocator.free(self.transitions);
         self.allocator.free(self.timetypes);
@@ -230,4 +236,17 @@ test "fat" {
     try std.testing.expectEqual(tz.transitions.len, 8);
     try std.testing.expect(std.mem.eql(u8, tz.transitions[3].timetype.name(), "+05"));
     try std.testing.expectEqual(tz.transitions[4].ts, 1268251224); // 2010-03-10 20:00:00 UTC
+}
+
+test "legacy" {
+    // Taken from Slackware 8.0, from 2001
+    const data = @embedFile("tz/europe_vatican.tzif");
+    var in_stream = std.io.fixedBufferStream(data);
+
+    var tz = try std.Tz.parse(std.testing.allocator, in_stream.reader());
+    defer tz.deinit();
+
+    try std.testing.expectEqual(tz.transitions.len, 170);
+    try std.testing.expect(std.mem.eql(u8, tz.transitions[69].timetype.name(), "CET"));
+    try std.testing.expectEqual(tz.transitions[123].ts, 1414285200); // 2014-10-26 01:00:00 UTC
 }
