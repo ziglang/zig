@@ -1145,10 +1145,6 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(ty_op.operand);
-        if (self.wantSafety()) {
-            // TODO check for null
-            return self.fail("TODO implement check for null in .optional_payload", .{});
-        }
         const dst_mcv: MCValue = blk: {
             if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
                 break :blk operand;
