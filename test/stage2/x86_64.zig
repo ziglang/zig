@@ -1709,6 +1709,8 @@ pub fn addCases(ctx: *TestContext) !void {
                 \\    var x: u32 = undefined;
                 \\    const maybe_x = byPtr(&x);
                 \\    assert(maybe_x != null);
+                \\    maybe_x.?.* = 123;
+                \\    assert(x == 123);
                 \\}
                 \\
                 \\fn byPtr(x: *u32) ?*u32 {
