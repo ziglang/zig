@@ -4,7 +4,7 @@ const maxInt = std.math.maxInt;
 
 const FLT_MANT_DIG = 24;
 
-fn __floatXisf(comptime T: type, arg: T) f32 {
+inline fn floatXisf(comptime T: type, arg: T) f32 {
     @setRuntimeSafety(builtin.is_test);
 
     const bits = @typeInfo(T).Int.bits;
@@ -71,18 +71,15 @@ fn __floatXisf(comptime T: type, arg: T) f32 {
 }
 
 pub fn __floatdisf(arg: i64) callconv(.C) f32 {
-    @setRuntimeSafety(builtin.is_test);
-    return @call(.{ .modifier = .always_inline }, __floatXisf, .{ i64, arg });
+    return floatXisf(i64, arg);
 }
 
 pub fn __floattisf(arg: i128) callconv(.C) f32 {
-    @setRuntimeSafety(builtin.is_test);
-    return @call(.{ .modifier = .always_inline }, __floatXisf, .{ i128, arg });
+    return floatXisf(i128, arg);
 }
 
 pub fn __aeabi_l2f(arg: i64) callconv(.AAPCS) f32 {
-    @setRuntimeSafety(false);
-    return @call(.{ .modifier = .always_inline }, __floatdisf, .{arg});
+    return floatXisf(i64, arg);
 }
 
 test {

@@ -19,7 +19,7 @@ fn Dwords(comptime T: type, comptime signed_half: bool) type {
 
 // Arithmetic shift left
 // Precondition: 0 <= b < bits_in_dword
-pub fn ashlXi3(comptime T: type, a: T, b: i32) T {
+pub inline fn ashlXi3(comptime T: type, a: T, b: i32) T {
     const dwords = Dwords(T, false);
     const S = Log2Int(dwords.HalfT);
 
@@ -42,7 +42,7 @@ pub fn ashlXi3(comptime T: type, a: T, b: i32) T {
 
 // Arithmetic shift right
 // Precondition: 0 <= b < T.bit_count
-pub fn ashrXi3(comptime T: type, a: T, b: i32) T {
+pub inline fn ashrXi3(comptime T: type, a: T, b: i32) T {
     const dwords = Dwords(T, true);
     const S = Log2Int(dwords.HalfT);
 
@@ -69,7 +69,7 @@ pub fn ashrXi3(comptime T: type, a: T, b: i32) T {
 
 // Logical shift right
 // Precondition: 0 <= b < T.bit_count
-pub fn lshrXi3(comptime T: type, a: T, b: i32) T {
+pub inline fn lshrXi3(comptime T: type, a: T, b: i32) T {
     const dwords = Dwords(T, false);
     const S = Log2Int(dwords.HalfT);
 
@@ -91,32 +91,32 @@ pub fn lshrXi3(comptime T: type, a: T, b: i32) T {
 }
 
 pub fn __ashldi3(a: i64, b: i32) callconv(.C) i64 {
-    return @call(.{ .modifier = .always_inline }, ashlXi3, .{ i64, a, b });
+    return ashlXi3(i64, a, b);
 }
 pub fn __ashlti3(a: i128, b: i32) callconv(.C) i128 {
-    return @call(.{ .modifier = .always_inline }, ashlXi3, .{ i128, a, b });
+    return ashlXi3(i128, a, b);
 }
 pub fn __ashrdi3(a: i64, b: i32) callconv(.C) i64 {
-    return @call(.{ .modifier = .always_inline }, ashrXi3, .{ i64, a, b });
+    return ashrXi3(i64, a, b);
 }
 pub fn __ashrti3(a: i128, b: i32) callconv(.C) i128 {
-    return @call(.{ .modifier = .always_inline }, ashrXi3, .{ i128, a, b });
+    return ashrXi3(i128, a, b);
 }
 pub fn __lshrdi3(a: i64, b: i32) callconv(.C) i64 {
-    return @call(.{ .modifier = .always_inline }, lshrXi3, .{ i64, a, b });
+    return lshrXi3(i64, a, b);
 }
 pub fn __lshrti3(a: i128, b: i32) callconv(.C) i128 {
-    return @call(.{ .modifier = .always_inline }, lshrXi3, .{ i128, a, b });
+    return lshrXi3(i128, a, b);
 }
 
 pub fn __aeabi_llsl(a: i64, b: i32) callconv(.AAPCS) i64 {
-    return __ashldi3(a, b);
+    return ashlXi3(i64, a, b);
 }
 pub fn __aeabi_lasr(a: i64, b: i32) callconv(.AAPCS) i64 {
-    return __ashrdi3(a, b);
+    return ashrXi3(i64, a, b);
 }
 pub fn __aeabi_llsr(a: i64, b: i32) callconv(.AAPCS) i64 {
-    return __lshrdi3(a, b);
+    return lshrXi3(i64, a, b);
 }
 
 test {

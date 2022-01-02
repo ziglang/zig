@@ -4,7 +4,7 @@ const maxInt = std.math.maxInt;
 
 const FLT_MANT_DIG = 24;
 
-pub fn __floatundisf(arg: u64) callconv(.C) f32 {
+inline fn floatundisf(arg: u64) f32 {
     @setRuntimeSafety(builtin.is_test);
 
     if (arg == 0) return 0;
@@ -56,9 +56,12 @@ pub fn __floatundisf(arg: u64) callconv(.C) f32 {
     return @bitCast(f32, result);
 }
 
+pub fn __floatundisf(arg: u64) callconv(.C) f32 {
+    return floatundisf(arg);
+}
+
 pub fn __aeabi_ul2f(arg: u64) callconv(.AAPCS) f32 {
-    @setRuntimeSafety(false);
-    return @call(.{ .modifier = .always_inline }, __floatundisf, .{arg});
+    return floatundisf(arg);
 }
 
 fn test__floatundisf(a: u64, expected: f32) !void {

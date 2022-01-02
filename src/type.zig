@@ -4603,7 +4603,18 @@ pub const CType = enum {
                 .longlong,
                 .ulonglong,
                 => return 64,
-                .longdouble => @panic("TODO figure out what kind of float `long double` is on this target"),
+                .longdouble => switch (target.cpu.arch) {
+                    .riscv64,
+                    .aarch64,
+                    .aarch64_be,
+                    .aarch64_32,
+                    .s390x,
+                    .mips64,
+                    .mips64el,
+                    => return 128,
+
+                    else => return 80,
+                },
             },
 
             .windows, .uefi => switch (self) {
