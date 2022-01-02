@@ -173,6 +173,7 @@ fn putFn(self: *Plan9, decl: *Module.Decl, out: FnDeclOutput) !void {
         fn_map_res.value_ptr.* = .{
             .sym_index = blk: {
                 try self.syms.append(gpa, undefined);
+                try self.syms.append(gpa, undefined);
                 break :blk @intCast(u32, self.syms.items.len - 1);
             },
         };
@@ -194,10 +195,16 @@ fn putFn(self: *Plan9, decl: *Module.Decl, out: FnDeclOutput) !void {
         // null terminate
         try a.append(0);
         const final = a.toOwnedSlice();
-        self.syms.items[fn_map_res.value_ptr.sym_index] = .{
+        self.syms.items[fn_map_res.value_ptr.sym_index - 1] = .{
             .type = .z,
             .value = 1,
             .name = final,
+        };
+        self.syms.items[fn_map_res.value_ptr.sym_index] = .{
+            .type = .z,
+            // just put a giant number, no source file will have this many newlines
+            .value = std.math.maxInt(u32),
+            .name = &.{ 0, 0 },
         };
     }
 }
@@ -705,7 +712,8 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
         var it_file = self.fn_decl_table.iterator();
         while (it_file.next()) |fentry| {
             var symidx_and_submap = fentry.value_ptr;
-            // write the z symbol
+            // write the z symbols
+            try self.writeSym(writer, self.syms.items[symidx_and_submap.sym_index - 1]);
             try self.writeSym(writer, self.syms.items[symidx_and_submap.sym_index]);
 
             // write all the decls come from the file of the z symbol
