@@ -98,6 +98,7 @@ pub fn build(b: *Builder) !void {
                 ".z.9",
                 ".gz",
                 "rfc1951.txt",
+                ".tzif",
             },
             .blank_extensions = &[_][]const u8{
                 "test.zig",
