@@ -221,21 +221,19 @@ comptime {
     const __subtf3 = @import("compiler_rt/addXf3.zig").__subtf3;
     @export(__subtf3, .{ .name = "__subtf3", .linkage = linkage });
 
-    if (!builtin.zig_is_stage2) {
-        const __mulsf3 = @import("compiler_rt/mulXf3.zig").__mulsf3;
-        @export(__mulsf3, .{ .name = "__mulsf3", .linkage = linkage });
-        const __muldf3 = @import("compiler_rt/mulXf3.zig").__muldf3;
-        @export(__muldf3, .{ .name = "__muldf3", .linkage = linkage });
-        const __multf3 = @import("compiler_rt/mulXf3.zig").__multf3;
-        @export(__multf3, .{ .name = "__multf3", .linkage = linkage });
+    const __mulsf3 = @import("compiler_rt/mulXf3.zig").__mulsf3;
+    @export(__mulsf3, .{ .name = "__mulsf3", .linkage = linkage });
+    const __muldf3 = @import("compiler_rt/mulXf3.zig").__muldf3;
+    @export(__muldf3, .{ .name = "__muldf3", .linkage = linkage });
+    const __multf3 = @import("compiler_rt/mulXf3.zig").__multf3;
+    @export(__multf3, .{ .name = "__multf3", .linkage = linkage });
 
-        const __divsf3 = @import("compiler_rt/divsf3.zig").__divsf3;
-        @export(__divsf3, .{ .name = "__divsf3", .linkage = linkage });
-        const __divdf3 = @import("compiler_rt/divdf3.zig").__divdf3;
-        @export(__divdf3, .{ .name = "__divdf3", .linkage = linkage });
-        const __divtf3 = @import("compiler_rt/divtf3.zig").__divtf3;
-        @export(__divtf3, .{ .name = "__divtf3", .linkage = linkage });
-    }
+    const __divsf3 = @import("compiler_rt/divsf3.zig").__divsf3;
+    @export(__divsf3, .{ .name = "__divsf3", .linkage = linkage });
+    const __divdf3 = @import("compiler_rt/divdf3.zig").__divdf3;
+    @export(__divdf3, .{ .name = "__divdf3", .linkage = linkage });
+    const __divtf3 = @import("compiler_rt/divtf3.zig").__divtf3;
+    @export(__divtf3, .{ .name = "__divtf3", .linkage = linkage });
 
     // Integral bit manipulation
     const __ashldi3 = @import("compiler_rt/shift.zig").__ashldi3;
@@ -251,26 +249,24 @@ comptime {
     const __lshrti3 = @import("compiler_rt/shift.zig").__lshrti3;
     @export(__lshrti3, .{ .name = "__lshrti3", .linkage = linkage });
 
-    if (!builtin.zig_is_stage2) {
-        const __clzsi2 = @import("compiler_rt/count0bits.zig").__clzsi2;
-        @export(__clzsi2, .{ .name = "__clzsi2", .linkage = linkage });
-        const __clzdi2 = @import("compiler_rt/count0bits.zig").__clzdi2;
-        @export(__clzdi2, .{ .name = "__clzdi2", .linkage = linkage });
-        const __clzti2 = @import("compiler_rt/count0bits.zig").__clzti2;
-        @export(__clzti2, .{ .name = "__clzti2", .linkage = linkage });
-        const __ctzsi2 = @import("compiler_rt/count0bits.zig").__ctzsi2;
-        @export(__ctzsi2, .{ .name = "__ctzsi2", .linkage = linkage });
-        const __ctzdi2 = @import("compiler_rt/count0bits.zig").__ctzdi2;
-        @export(__ctzdi2, .{ .name = "__ctzdi2", .linkage = linkage });
-        const __ctzti2 = @import("compiler_rt/count0bits.zig").__ctzti2;
-        @export(__ctzti2, .{ .name = "__ctzti2", .linkage = linkage });
-        const __ffssi2 = @import("compiler_rt/count0bits.zig").__ffssi2;
-        @export(__ffssi2, .{ .name = "__ffssi2", .linkage = linkage });
-        const __ffsdi2 = @import("compiler_rt/count0bits.zig").__ffsdi2;
-        @export(__ffsdi2, .{ .name = "__ffsdi2", .linkage = linkage });
-        const __ffsti2 = @import("compiler_rt/count0bits.zig").__ffsti2;
-        @export(__ffsti2, .{ .name = "__ffsti2", .linkage = linkage });
-    }
+    const __clzsi2 = @import("compiler_rt/count0bits.zig").__clzsi2;
+    @export(__clzsi2, .{ .name = "__clzsi2", .linkage = linkage });
+    const __clzdi2 = @import("compiler_rt/count0bits.zig").__clzdi2;
+    @export(__clzdi2, .{ .name = "__clzdi2", .linkage = linkage });
+    const __clzti2 = @import("compiler_rt/count0bits.zig").__clzti2;
+    @export(__clzti2, .{ .name = "__clzti2", .linkage = linkage });
+    const __ctzsi2 = @import("compiler_rt/count0bits.zig").__ctzsi2;
+    @export(__ctzsi2, .{ .name = "__ctzsi2", .linkage = linkage });
+    const __ctzdi2 = @import("compiler_rt/count0bits.zig").__ctzdi2;
+    @export(__ctzdi2, .{ .name = "__ctzdi2", .linkage = linkage });
+    const __ctzti2 = @import("compiler_rt/count0bits.zig").__ctzti2;
+    @export(__ctzti2, .{ .name = "__ctzti2", .linkage = linkage });
+    const __ffssi2 = @import("compiler_rt/count0bits.zig").__ffssi2;
+    @export(__ffssi2, .{ .name = "__ffssi2", .linkage = linkage });
+    const __ffsdi2 = @import("compiler_rt/count0bits.zig").__ffsdi2;
+    @export(__ffsdi2, .{ .name = "__ffsdi2", .linkage = linkage });
+    const __ffsti2 = @import("compiler_rt/count0bits.zig").__ffsti2;
+    @export(__ffsti2, .{ .name = "__ffsti2", .linkage = linkage });
 
     const __paritysi2 = @import("compiler_rt/parity.zig").__paritysi2;
     @export(__paritysi2, .{ .name = "__paritysi2", .linkage = linkage });

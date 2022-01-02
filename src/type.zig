@@ -3106,9 +3106,9 @@ pub const Type = extern union {
             .c_ulonglong => return .{ .signedness = .unsigned, .bits = CType.ulonglong.sizeInBits(target) },
 
             .enum_full, .enum_nonexhaustive => ty = ty.cast(Payload.EnumFull).?.data.tag_ty,
-            .enum_numbered => ty = self.castTag(.enum_numbered).?.data.tag_ty,
+            .enum_numbered => ty = ty.castTag(.enum_numbered).?.data.tag_ty,
             .enum_simple => {
-                const enum_obj = self.castTag(.enum_simple).?.data;
+                const enum_obj = ty.castTag(.enum_simple).?.data;
                 const field_count = enum_obj.fields.count();
                 if (field_count == 0) return .{ .signedness = .unsigned, .bits = 0 };
                 return .{ .signedness = .unsigned, .bits = smallestUnsignedBits(field_count - 1) };

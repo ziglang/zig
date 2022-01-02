@@ -14634,11 +14634,11 @@ fn resolvePeerTypes(
     instructions: []Air.Inst.Ref,
     candidate_srcs: Module.PeerTypeCandidateSrc,
 ) !Type {
-    if (instructions.len == 0)
-        return Type.initTag(.noreturn);
-
-    if (instructions.len == 1)
-        return sema.typeOf(instructions[0]);
+    switch (instructions.len) {
+        0 => return Type.initTag(.noreturn),
+        1 => return sema.typeOf(instructions[0]),
+        else => {},
+    }
 
     const target = sema.mod.getTarget();
 
@@ -14668,13 +14668,14 @@ fn resolvePeerTypes(
                     continue;
                 },
                 .Int => {
-                    if (chosen_ty.isSignedInt() == candidate_ty.isSignedInt()) {
-                        if (chosen_ty.intInfo(target).bits < candidate_ty.intInfo(target).bits) {
-                            chosen = candidate;
-                            chosen_i = candidate_i + 1;
-                        }
-                        continue;
+                    const chosen_info = chosen_ty.intInfo(target);
+                    const candidate_info = candidate_ty.intInfo(target);
+
+                    if (chosen_info.bits < candidate_info.bits) {
+                        chosen = candidate;
+                        chosen_i = candidate_i + 1;
                     }
+                    continue;
                 },
                 .Pointer => if (chosen_ty.ptrSize() == .C) continue,
                 else => {},
