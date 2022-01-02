@@ -2,10 +2,19 @@ const builtin = @import("builtin");
 
 test {
     // Tests that pass for stage1, llvm backend, C backend, wasm backend, and arm backend.
+    _ = @import("behavior/bugs/679.zig");
     _ = @import("behavior/bugs/1111.zig");
     _ = @import("behavior/bugs/2346.zig");
     _ = @import("behavior/bugs/3586.zig");
+    _ = @import("behavior/bugs/4560.zig");
+    _ = @import("behavior/bugs/6850.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
+    _ = @import("behavior/fn_in_struct_in_comptime.zig");
+    _ = @import("behavior/hasfield.zig");
+    _ = @import("behavior/hasdecl.zig");
+    _ = @import("behavior/pub_enum.zig");
+    _ = @import("behavior/type_info.zig");
+    _ = @import("behavior/type.zig");
 
     if (!builtin.zig_is_stage2 or builtin.stage2_arch != .arm) {
         // Tests that pass for stage1, llvm backend, C backend, wasm backend.
@@ -14,36 +23,27 @@ test {
         _ = @import("behavior/bool.zig");
         _ = @import("behavior/bugs/624.zig");
         _ = @import("behavior/bugs/655.zig");
-        _ = @import("behavior/bugs/679.zig");
         _ = @import("behavior/bugs/704.zig");
         _ = @import("behavior/bugs/1486.zig");
         _ = @import("behavior/bugs/2692.zig");
         _ = @import("behavior/bugs/2889.zig");
         _ = @import("behavior/bugs/3046.zig");
-        _ = @import("behavior/bugs/4560.zig");
         _ = @import("behavior/bugs/4769_a.zig");
         _ = @import("behavior/bugs/4769_b.zig");
         _ = @import("behavior/bugs/4954.zig");
-        _ = @import("behavior/bugs/6850.zig");
         _ = @import("behavior/byval_arg_var.zig");
         _ = @import("behavior/call.zig");
         _ = @import("behavior/defer.zig");
         _ = @import("behavior/enum.zig");
         _ = @import("behavior/error.zig");
-        _ = @import("behavior/fn_in_struct_in_comptime.zig");
-        _ = @import("behavior/hasdecl.zig");
-        _ = @import("behavior/hasfield.zig");
         _ = @import("behavior/if.zig");
         _ = @import("behavior/import.zig");
         _ = @import("behavior/incomplete_struct_param_tld.zig");
         _ = @import("behavior/inttoptr.zig");
         _ = @import("behavior/pointers.zig");
         _ = @import("behavior/ptrcast.zig");
-        _ = @import("behavior/pub_enum.zig");
         _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
         _ = @import("behavior/truncate.zig");
-        _ = @import("behavior/type_info.zig");
-        _ = @import("behavior/type.zig");
         _ = @import("behavior/usingnamespace.zig");
         _ = @import("behavior/underscore.zig");
 
