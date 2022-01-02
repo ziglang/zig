@@ -1308,6 +1308,15 @@ const Memory = struct {
     }
 };
 
+fn encodeImm(encoder: Encoder, imm: i32, size: u64) void {
+    switch (size) {
+        8 => encoder.imm8(@intCast(i8, imm)),
+        16 => encoder.imm16(@intCast(i16, imm)),
+        32, 64 => encoder.imm32(imm),
+        else => unreachable,
+    }
+}
+
 const RegisterOrMemory = union(enum) {
     register: Register,
     memory: Memory,
@@ -1365,13 +1374,7 @@ fn lowerToIEnc(tag: Tag, imm: i32, code: *std.ArrayList(u8)) LoweringError!void 
         encoder.prefix16BitMode();
     }
     opc.encode(encoder);
-    if (immOpSize(imm) == 8) {
-        encoder.imm8(@intCast(i8, imm));
-    } else if (immOpSize(imm) == 16) {
-        encoder.imm16(@intCast(i16, imm));
-    } else {
-        encoder.imm32(imm);
-    }
+    encodeImm(encoder, imm, immOpSize(imm));
 }
 
 fn lowerToOEnc(tag: Tag, reg: Register, code: *std.ArrayList(u8)) LoweringError!void {
@@ -1549,18 +1552,7 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: i32, code: *std.Arr
             });
             opc.encode(encoder);
             encoder.modRm_direct(modrm_ext, dst_reg.lowId());
-            switch (dst_reg.size()) {
-                8 => {
-                    const imm8 = try math.cast(i8, imm);
-                    encoder.imm8(imm8);
-                },
-                16 => {
-                    const imm16 = try math.cast(i16, imm);
-                    encoder.imm16(imm16);
-                },
-                32, 64 => encoder.imm32(imm),
-                else => unreachable,
-            }
+            encodeImm(encoder, imm, dst_reg.size());
         },
         .memory => |dst_mem| {
             const opc = getOpCode(tag, .mi, dst_mem.ptr_size == .byte_ptr).?;
@@ -1582,19 +1574,7 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: i32, code: *std.Arr
                 opc.encode(encoder);
                 Memory.encodeDsOrRip(encoder, modrm_ext, dst_mem.disp, dst_mem.rip);
             }
-            switch (dst_mem.ptr_size) {
-                .byte_ptr => {
-                    const imm8 = try math.cast(i8, imm);
-                    encoder.imm8(imm8);
-                },
-                .word_ptr => {
-                    const imm16 = try math.cast(i16, imm);
-                    encoder.imm16(imm16);
-                },
-                .dword_ptr, .qword_ptr => {
-                    encoder.imm32(imm);
-                },
-            }
+            encodeImm(encoder, imm, dst_mem.ptr_size.size());
         },
     }
 }
@@ -1760,16 +1740,7 @@ fn lowerToRmiEnc(
             }
         },
     }
-    switch (reg.size()) {
-        // TODO 8bit immediate
-        8 => unreachable,
-        16 => {
-            const imm16 = try math.cast(i16, imm);
-            encoder.imm16(imm16);
-        },
-        32, 64 => encoder.imm32(imm),
-        else => unreachable,
-    }
+    encodeImm(encoder, imm, reg.size());
 }
 
 fn expectEqualHexStrings(expected: []const u8, given: []const u8, assembly: []const u8) !void {
