@@ -1230,18 +1230,17 @@ inline fn getModRmExt(tag: Tag) ?u3 {
     };
 }
 
-const ScaleIndexBase = struct {
+const ScaleIndex = struct {
     scale: u2,
-    index_reg: ?Register,
-    base_reg: ?Register,
+    index: Register,
 };
 
 const Memory = struct {
-    reg: ?Register,
+    base: ?Register,
     rip: bool = false,
     disp: i32,
     ptr_size: PtrSize,
-    sib: ?ScaleIndexBase = null,
+    scale_index: ?ScaleIndex = null,
 
     const PtrSize = enum {
         byte_ptr,
@@ -1270,41 +1269,43 @@ const Memory = struct {
         }
     };
 
-    fn encodeWithReg(encoder: Encoder, dst: u3, src: u3, disp: i32) void {
-        if (dst == 4) {
-            if (disp == 0) {
-                encoder.modRm_SIBDisp0(src);
-                encoder.sib_base(dst);
-            } else if (immOpSize(disp) == 8) {
-                encoder.modRm_SIBDisp8(src);
-                encoder.sib_baseDisp8(dst);
-                encoder.disp8(@intCast(i8, disp));
+    fn encode(mem_op: Memory, encoder: Encoder, operand: u3) void {
+        if (mem_op.base) |base| {
+            const dst = base.lowId();
+            const src = operand;
+            if (dst == 4) {
+                if (mem_op.disp == 0) {
+                    encoder.modRm_SIBDisp0(src);
+                    encoder.sib_base(dst);
+                } else if (immOpSize(mem_op.disp) == 8) {
+                    encoder.modRm_SIBDisp8(src);
+                    encoder.sib_baseDisp8(dst);
+                    encoder.disp8(@intCast(i8, mem_op.disp));
+                } else {
+                    encoder.modRm_SIBDisp32(src);
+                    encoder.sib_baseDisp32(dst);
+                    encoder.disp32(mem_op.disp);
+                }
             } else {
-                encoder.modRm_SIBDisp32(src);
-                encoder.sib_baseDisp32(dst);
-                encoder.disp32(disp);
+                if (mem_op.disp == 0) {
+                    encoder.modRm_indirectDisp0(src, dst);
+                } else if (immOpSize(mem_op.disp) == 8) {
+                    encoder.modRm_indirectDisp8(src, dst);
+                    encoder.disp8(@intCast(i8, mem_op.disp));
+                } else {
+                    encoder.modRm_indirectDisp32(src, dst);
+                    encoder.disp32(mem_op.disp);
+                }
             }
         } else {
-            if (disp == 0) {
-                encoder.modRm_indirectDisp0(src, dst);
-            } else if (immOpSize(disp) == 8) {
-                encoder.modRm_indirectDisp8(src, dst);
-                encoder.disp8(@intCast(i8, disp));
+            if (mem_op.rip) {
+                encoder.modRm_RIPDisp32(operand);
             } else {
-                encoder.modRm_indirectDisp32(src, dst);
-                encoder.disp32(disp);
+                encoder.modRm_SIBDisp0(operand);
+                encoder.sib_disp32();
             }
+            encoder.disp32(mem_op.disp);
         }
-    }
-
-    fn encodeDsOrRip(encoder: Encoder, op: u3, disp: i32, rip: bool) void {
-        if (rip) {
-            encoder.modRm_RIPDisp32(op);
-        } else {
-            encoder.modRm_SIBDisp0(op);
-            encoder.sib_disp32();
-        }
-        encoder.disp32(disp);
     }
 };
 
@@ -1325,10 +1326,10 @@ const RegisterOrMemory = union(enum) {
         return .{ .register = register };
     }
 
-    fn mem(register: ?Register, disp: i32, ptr_size: Memory.PtrSize) RegisterOrMemory {
+    fn mem(base: ?Register, disp: i32, ptr_size: Memory.PtrSize) RegisterOrMemory {
         return .{
             .memory = .{
-                .reg = register,
+                .base = base,
                 .disp = disp,
                 .ptr_size = ptr_size,
             },
@@ -1338,7 +1339,7 @@ const RegisterOrMemory = union(enum) {
     fn rip(disp: i32, ptr_size: Memory.PtrSize) RegisterOrMemory {
         return .{
             .memory = .{
-                .reg = null,
+                .base = null,
                 .rip = true,
                 .disp = disp,
                 .ptr_size = ptr_size,
@@ -1435,20 +1436,17 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
             if (mem_op.ptr_size == .word_ptr) {
                 encoder.prefix16BitMode();
             }
-            if (mem_op.reg) |reg| {
-                if (reg.size() != 64) {
+            if (mem_op.base) |base| {
+                if (base.size() != 64) {
                     return error.OperandSizeMismatch;
                 }
                 encoder.rex(.{
                     .w = false,
-                    .b = reg.isExtended(),
+                    .b = base.isExtended(),
                 });
-                opc.encode(encoder);
-                Memory.encodeWithReg(encoder, reg.lowId(), modrm_ext, mem_op.disp);
-            } else {
-                opc.encode(encoder);
-                Memory.encodeDsOrRip(encoder, modrm_ext, mem_op.disp, mem_op.rip);
             }
+            opc.encode(encoder);
+            mem_op.encode(encoder, modrm_ext);
         },
     }
 }
@@ -1560,20 +1558,17 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: i32, code: *std.Arr
             if (dst_mem.ptr_size == .word_ptr) {
                 encoder.prefix16BitMode();
             }
-            if (dst_mem.reg) |dst_reg| {
-                if (dst_reg.size() != 64) {
+            if (dst_mem.base) |base| {
+                if (base.size() != 64) {
                     return error.OperandSizeMismatch;
                 }
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr,
-                    .b = dst_reg.isExtended(),
+                    .b = base.isExtended(),
                 });
-                opc.encode(encoder);
-                Memory.encodeWithReg(encoder, dst_reg.lowId(), modrm_ext, dst_mem.disp);
-            } else {
-                opc.encode(encoder);
-                Memory.encodeDsOrRip(encoder, modrm_ext, dst_mem.disp, dst_mem.rip);
             }
+            opc.encode(encoder);
+            dst_mem.encode(encoder, modrm_ext);
             encodeImm(encoder, imm, dst_mem.ptr_size.size());
         },
     }
@@ -1608,27 +1603,25 @@ fn lowerToRmEnc(
             if (reg.size() == 16) {
                 encoder.prefix16BitMode();
             }
-            if (src_mem.reg) |src_reg| {
+            if (src_mem.base) |base| {
                 // TODO handle 32-bit base register - requires prefix 0x67
                 // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
-                if (src_reg.size() != 64) {
+                if (base.size() != 64) {
                     return error.OperandSizeMismatch;
                 }
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
-                    .b = src_reg.isExtended(),
+                    .b = base.isExtended(),
                 });
-                opc.encode(encoder);
-                Memory.encodeWithReg(encoder, src_reg.lowId(), reg.lowId(), src_mem.disp);
             } else {
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
                 });
-                opc.encode(encoder);
-                Memory.encodeDsOrRip(encoder, reg.lowId(), src_mem.disp, src_mem.rip);
             }
+            opc.encode(encoder);
+            src_mem.encode(encoder, reg.lowId());
         },
     }
 }
@@ -1662,25 +1655,23 @@ fn lowerToMrEnc(
             if (reg.size() == 16) {
                 encoder.prefix16BitMode();
             }
-            if (dst_mem.reg) |dst_reg| {
-                if (dst_reg.size() != 64) {
+            if (dst_mem.base) |base| {
+                if (base.size() != 64) {
                     return error.OperandSizeMismatch;
                 }
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
                     .r = reg.isExtended(),
-                    .b = dst_reg.isExtended(),
+                    .b = base.isExtended(),
                 });
-                opc.encode(encoder);
-                Memory.encodeWithReg(encoder, dst_reg.lowId(), reg.lowId(), dst_mem.disp);
             } else {
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
                     .r = reg.isExtended(),
                 });
-                opc.encode(encoder);
-                Memory.encodeDsOrRip(encoder, reg.lowId(), dst_mem.disp, dst_mem.rip);
             }
+            opc.encode(encoder);
+            dst_mem.encode(encoder, reg.lowId());
         },
     }
 }
@@ -1714,10 +1705,10 @@ fn lowerToRmiEnc(
             encoder.modRm_direct(reg.lowId(), src_reg.lowId());
         },
         .memory => |src_mem| {
-            if (src_mem.reg) |src_reg| {
+            if (src_mem.base) |base| {
                 // TODO handle 32-bit base register - requires prefix 0x67
                 // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
-                if (src_reg.size() != 64) {
+                if (base.size() != 64) {
                     return error.OperandSizeMismatch;
                 }
                 if (src_mem.ptr_size == .byte_ptr) {
@@ -1726,18 +1717,16 @@ fn lowerToRmiEnc(
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
-                    .b = src_reg.isExtended(),
+                    .b = base.isExtended(),
                 });
-                opc.encode(encoder);
-                Memory.encodeWithReg(encoder, src_reg.lowId(), reg.lowId(), src_mem.disp);
             } else {
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
                 });
-                opc.encode(encoder);
-                Memory.encodeDsOrRip(encoder, reg.lowId(), src_mem.disp, src_mem.rip);
             }
+            opc.encode(encoder);
+            src_mem.encode(encoder, reg.lowId());
         },
     }
     encodeImm(encoder, imm, reg.size());
