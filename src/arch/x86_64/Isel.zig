@@ -1296,6 +1296,16 @@ const Memory = struct {
             }
         }
     }
+
+    fn encodeDsOrRip(encoder: Encoder, op: u3, disp: i32, rip: bool) void {
+        if (rip) {
+            encoder.modRm_RIPDisp32(op);
+        } else {
+            encoder.modRm_SIBDisp0(op);
+            encoder.sib_disp32();
+        }
+        encoder.disp32(disp);
+    }
 };
 
 const RegisterOrMemory = union(enum) {
@@ -1434,13 +1444,7 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
                 Memory.encodeWithReg(encoder, reg.lowId(), modrm_ext, mem_op.disp);
             } else {
                 opc.encode(encoder);
-                if (mem_op.rip) {
-                    encoder.modRm_RIPDisp32(modrm_ext);
-                } else {
-                    encoder.modRm_SIBDisp0(modrm_ext);
-                    encoder.sib_disp32();
-                }
-                encoder.disp32(mem_op.disp);
+                Memory.encodeDsOrRip(encoder, modrm_ext, mem_op.disp, mem_op.rip);
             }
         },
     }
@@ -1576,13 +1580,7 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: i32, code: *std.Arr
                 Memory.encodeWithReg(encoder, dst_reg.lowId(), modrm_ext, dst_mem.disp);
             } else {
                 opc.encode(encoder);
-                if (dst_mem.rip) {
-                    encoder.modRm_RIPDisp32(modrm_ext);
-                } else {
-                    encoder.modRm_SIBDisp0(modrm_ext);
-                    encoder.sib_disp32();
-                }
-                encoder.disp32(dst_mem.disp);
+                Memory.encodeDsOrRip(encoder, modrm_ext, dst_mem.disp, dst_mem.rip);
             }
             switch (dst_mem.ptr_size) {
                 .byte_ptr => {
@@ -1649,13 +1647,7 @@ fn lowerToRmEnc(
                     .r = reg.isExtended(),
                 });
                 opc.encode(encoder);
-                if (src_mem.rip) {
-                    encoder.modRm_RIPDisp32(reg.lowId());
-                } else {
-                    encoder.modRm_SIBDisp0(reg.lowId());
-                    encoder.sib_disp32();
-                }
-                encoder.disp32(src_mem.disp);
+                Memory.encodeDsOrRip(encoder, reg.lowId(), src_mem.disp, src_mem.rip);
             }
         },
     }
@@ -1707,13 +1699,7 @@ fn lowerToMrEnc(
                     .r = reg.isExtended(),
                 });
                 opc.encode(encoder);
-                if (dst_mem.rip) {
-                    encoder.modRm_RIPDisp32(reg.lowId());
-                } else {
-                    encoder.modRm_SIBDisp0(reg.lowId());
-                    encoder.sib_disp32();
-                }
-                encoder.disp32(dst_mem.disp);
+                Memory.encodeDsOrRip(encoder, reg.lowId(), dst_mem.disp, dst_mem.rip);
             }
         },
     }
@@ -1770,13 +1756,7 @@ fn lowerToRmiEnc(
                     .r = reg.isExtended(),
                 });
                 opc.encode(encoder);
-                if (src_mem.rip) {
-                    encoder.modRm_RIPDisp32(reg.lowId());
-                } else {
-                    encoder.modRm_SIBDisp0(reg.lowId());
-                    encoder.sib_disp32();
-                }
-                encoder.disp32(src_mem.disp);
+                Memory.encodeDsOrRip(encoder, reg.lowId(), src_mem.disp, src_mem.rip);
             }
         },
     }
