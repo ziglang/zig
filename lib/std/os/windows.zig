@@ -900,6 +900,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .FILE_IS_A_DIRECTORY => return error.IsDir,
         .NOT_A_DIRECTORY => return error.NotDir,
         .SHARING_VIOLATION => return error.FileBusy,
+        .CANNOT_DELETE => return error.AccessDenied,
         else => return unexpectedStatus(rc),
     }
 }
