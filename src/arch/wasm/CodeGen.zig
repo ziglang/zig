@@ -1589,8 +1589,14 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                     // Load values from `rhs` stack position and store in `lhs` instead
                     const tag_local = try self.load(rhs, tag_ty, 0);
                     if (payload_ty.hasCodeGenBits()) {
-                        const payload_local = try self.load(rhs, payload_ty, payload_offset);
-                        try self.store(lhs, payload_local, payload_ty, payload_offset);
+                        if (isByRef(payload_ty)) {
+                            const payload_ptr = try self.buildPointerOffset(rhs, payload_offset);
+                            const lhs_payload_ptr = try self.buildPointerOffset(lhs, payload_offset);
+                            try self.store(lhs_payload_ptr, payload_ptr, payload_ty, 0);
+                        } else {
+                            const payload_local = try self.load(rhs, payload_ty, payload_offset);
+                            try self.store(lhs, payload_local, payload_ty, payload_offset);
+                        }
                     }
                     return try self.store(lhs, tag_local, tag_ty, 0);
                 },
@@ -1633,12 +1639,9 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                 const len_offset = self.ptrSize();
                 if (val.castTag(.decl_ref)) |decl| {
                     // for decl references we also need to retrieve the length and the original decl's pointer
-                    try self.addMemArg(.i32_load, .{ .offset = 0, .alignment = Type.@"usize".abiAlignment(self.target) });
+                    try self.addMemArg(.i32_load, .{ .offset = 0, .alignment = self.ptrSize() });
                     try self.addLabel(.memory_address, decl.data.link.wasm.sym_index);
-                    try self.addMemArg(
-                        .i32_load,
-                        .{ .offset = len_offset, .alignment = Type.@"usize".abiAlignment(self.target) },
-                    );
+                    try self.addMemArg(.i32_load, .{ .offset = len_offset, .alignment = self.ptrSize() });
                 }
                 try self.addLabel(.local_set, len_local.local);
                 try self.addLabel(.local_set, ptr_local.local);
@@ -1709,7 +1712,9 @@ fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
     // load local's value from memory by its stack position
     try self.emitWValue(operand);
     // Build the opcode with the right bitsize
-    const signedness: std.builtin.Signedness = if (ty.isUnsignedInt() or ty.zigTypeTag() == .ErrorSet)
+    const signedness: std.builtin.Signedness = if (ty.isUnsignedInt() or
+        ty.zigTypeTag() == .ErrorSet or
+        ty.zigTypeTag() == .Bool)
         .unsigned
     else
         .signed;
@@ -1952,11 +1957,16 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             const result = try self.allocStack(ty);
 
             const fields = ty.structFields();
+            var offset: u32 = 0;
             for (fields.values()) |field, index| {
+                if (isByRef(field.ty)) {
+                    return self.fail("TODO: emitConstant for struct field type {}\n", .{field.ty});
+                }
                 const tmp = try self.allocLocal(field.ty);
                 try self.emitConstant(struct_data.data[index], field.ty);
                 try self.addLabel(.local_set, tmp.local);
-                try self.store(result, tmp, field.ty, field.offset);
+                try self.store(result, tmp, field.ty, offset);
+                offset += @intCast(u32, field.ty.abiSize(self.target));
             }
             try self.addLabel(.local_get, result.local);
         },
@@ -2187,7 +2197,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     try self.addTag(.i32_eq);
 
     // save the result in the local
-    const not_tmp = try self.allocLocal(self.air.getRefType(ty_op.ty));
+    const not_tmp = try self.allocLocal(Type.initTag(.i32));
     try self.addLabel(.local_set, not_tmp.local);
     return not_tmp;
 }
@@ -2656,7 +2666,9 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     try self.addLabel(.local_get, result.local);
     try self.addImm32(1);
     try self.addMemArg(.i32_store8, .{ .offset = 0, .alignment = 1 });
-    try self.store(result, operand, payload_ty, offset);
+
+    const payload_ptr = try self.buildPointerOffset(result, offset);
+    try self.store(payload_ptr, operand, payload_ty, 0);
 
     return result;
 }
