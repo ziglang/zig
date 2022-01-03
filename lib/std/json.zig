@@ -1795,6 +1795,8 @@ fn parseInternal(
                         if (!field.is_comptime) {
                             @field(r, field.name) = default;
                         }
+                    } else if (@typeInfo(field.field_type) == .Optional) {
+                        @field(r, field.name) = null;
                     } else {
                         return error.MissingField;
                     }
@@ -2153,6 +2155,7 @@ test "parse into struct with misc fields" {
         @"withąunicode😂": bool,
         language: []const u8,
         optional: ?bool,
+        optional2: ?bool,
         default_field: i32 = 42,
         static_array: [3]f64,
         dynamic_array: []f64,
@@ -2202,6 +2205,7 @@ test "parse into struct with misc fields" {
     try testing.expectEqual(false, r.@"withąunicode😂");
     try testing.expectEqualSlices(u8, "zig", r.language);
     try testing.expectEqual(@as(?bool, null), r.optional);
+    try testing.expectEqual(@as(?bool, null), r.optional2);
     try testing.expectEqual(@as(i32, 42), r.default_field);
     try testing.expectEqual(@as(f64, 66.6), r.static_array[0]);
     try testing.expectEqual(@as(f64, 420.420), r.static_array[1]);
