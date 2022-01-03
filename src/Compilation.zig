@@ -1263,6 +1263,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                     // track it and packages as files.
                 },
             }
+
+            // Synchronize with other matching comments: ZigOnlyHashStuff
             hash.add(valgrind);
             hash.add(single_threaded);
             hash.add(use_stage1);
@@ -1304,11 +1306,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             errdefer artifact_dir.close();
             const zig_cache_artifact_directory: Directory = .{
                 .handle = artifact_dir,
-                .path = if (options.local_cache_directory.path) |p|
-                    try std.fs.path.join(arena, &[_][]const u8{ p, artifact_sub_dir })
-                else
-                    artifact_sub_dir,
+                .path = try options.local_cache_directory.join(arena, &[_][]const u8{artifact_sub_dir}),
             };
+            log.debug("zig_cache_artifact_directory='{s}' use_stage1={}", .{
+                zig_cache_artifact_directory.path, use_stage1,
+            });
 
             const builtin_pkg = try Package.createWithDir(
                 gpa,
@@ -2220,6 +2222,18 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
             try addPackageTableToCacheHash(&man.hash, &arena_allocator, mod.main_pkg.table, &seen_table, .{ .files = man });
         }
 
+        // Synchronize with other matching comments: ZigOnlyHashStuff
+        man.hash.add(comp.bin_file.options.valgrind);
+        man.hash.add(comp.bin_file.options.single_threaded);
+        man.hash.add(comp.bin_file.options.use_stage1);
+        man.hash.add(comp.bin_file.options.use_llvm);
+        man.hash.add(comp.bin_file.options.dll_export_fns);
+        man.hash.add(comp.bin_file.options.is_test);
+        man.hash.add(comp.test_evented_io);
+        man.hash.addOptionalBytes(comp.test_filter);
+        man.hash.addOptionalBytes(comp.test_name_prefix);
+        man.hash.add(comp.bin_file.options.skip_linker_dependencies);
+        man.hash.add(comp.bin_file.options.parent_compilation_link_libc);
         man.hash.add(mod.emit_h != null);
     }
 
