@@ -34,3 +34,26 @@ fn testOptional() !void {
     try expect(null_info == .Optional);
     try expect(null_info.Optional.child == void);
 }
+
+test "type info: C pointer type info" {
+    try testCPtr();
+    comptime try testCPtr();
+}
+
+fn testCPtr() !void {
+    const ptr_info = @typeInfo([*c]align(4) const i8);
+    try expect(ptr_info == .Pointer);
+    try expect(ptr_info.Pointer.size == .C);
+    try expect(ptr_info.Pointer.is_const);
+    try expect(!ptr_info.Pointer.is_volatile);
+    try expect(ptr_info.Pointer.alignment == 4);
+    try expect(ptr_info.Pointer.child == i8);
+}
+
+test "type info: value is correctly copied" {
+    comptime {
+        var ptrInfo = @typeInfo([]u32);
+        ptrInfo.Pointer.size = .One;
+        try expect(@typeInfo([]u32).Pointer.size == .Slice);
+    }
+}

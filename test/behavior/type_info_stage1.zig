@@ -68,21 +68,6 @@ fn testNullTerminatedPtr() !void {
     try expect(@typeInfo([:0]u8).Pointer.sentinel != null);
 }
 
-test "type info: C pointer type info" {
-    try testCPtr();
-    comptime try testCPtr();
-}
-
-fn testCPtr() !void {
-    const ptr_info = @typeInfo([*c]align(4) const i8);
-    try expect(ptr_info == .Pointer);
-    try expect(ptr_info.Pointer.size == .C);
-    try expect(ptr_info.Pointer.is_const);
-    try expect(!ptr_info.Pointer.is_volatile);
-    try expect(ptr_info.Pointer.alignment == 4);
-    try expect(ptr_info.Pointer.child == i8);
-}
-
 test "type info: slice type info" {
     try testSlice();
     comptime try testSlice();
@@ -395,7 +380,7 @@ test "@typeInfo does not force declarations into existence" {
     comptime try expect(@typeInfo(S).Struct.fields.len == 1);
 }
 
-test "defaut value for a var-typed field" {
+test "default value for a var-typed field" {
     const S = struct { x: anytype };
     try expect(@typeInfo(S).Struct.fields[0].default_value == null);
 }
@@ -410,14 +395,6 @@ test "type info for async frames" {
             try expect(frame.function == add);
         },
         else => unreachable,
-    }
-}
-
-test "type info: value is correctly copied" {
-    comptime {
-        var ptrInfo = @typeInfo([]u32);
-        ptrInfo.Pointer.size = .One;
-        try expect(@typeInfo([]u32).Pointer.size == .Slice);
     }
 }
 

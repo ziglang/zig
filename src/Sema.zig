@@ -3888,6 +3888,14 @@ fn analyzeCall(
 
                 if (is_comptime_call) {
                     const arg_val = try sema.resolveConstMaybeUndefVal(&child_block, arg_src, casted_arg);
+                    switch (arg_val.tag()) {
+                        .generic_poison, .generic_poison_type => {
+                            // This function is currently evaluated as part of an as-of-yet unresolvable
+                            // parameter or return type.
+                            return error.GenericPoison;
+                        },
+                        else => {},
+                    }
                     memoized_call_key.args[arg_i] = .{
                         .ty = param_ty,
                         .val = arg_val,
@@ -3905,6 +3913,14 @@ fn analyzeCall(
                 if (is_comptime_call) {
                     const arg_src = call_src; // TODO: better source location
                     const arg_val = try sema.resolveConstMaybeUndefVal(&child_block, arg_src, uncasted_arg);
+                    switch (arg_val.tag()) {
+                        .generic_poison, .generic_poison_type => {
+                            // This function is currently evaluated as part of an as-of-yet unresolvable
+                            // parameter or return type.
+                            return error.GenericPoison;
+                        },
+                        else => {},
+                    }
                     memoized_call_key.args[arg_i] = .{
                         .ty = sema.typeOf(uncasted_arg),
                         .val = arg_val,
@@ -10253,11 +10269,41 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             var buffer: Value.ToTypeBuffer = undefined;
             const child_ty = child_val.toType(&buffer);
 
-            const ty = try Type.vector(sema.arena, len, child_ty);
+            const ty = try Type.vector(sema.arena, len, try child_ty.copy(sema.arena));
             return sema.addType(ty);
         },
         .Float => return sema.fail(block, src, "TODO: Sema.zirReify for Float", .{}),
-        .Pointer => return sema.fail(block, src, "TODO: Sema.zirReify for Pointer", .{}),
+        .Pointer => {
+            const struct_val = union_val.val.castTag(.@"struct").?.data;
+            // TODO use reflection instead of magic numbers here
+            const size_val = struct_val[0];
+            const is_const_val = struct_val[1];
+            const is_volatile_val = struct_val[2];
+            const alignment_val = struct_val[3];
+            const address_space_val = struct_val[4];
+            const child_val = struct_val[5];
+            const is_allowzero_val = struct_val[6];
+            const sentinel_val = struct_val[7];
+
+            var buffer: Value.ToTypeBuffer = undefined;
+            const child_ty = child_val.toType(&buffer);
+
+            if (!sentinel_val.isNull()) {
+                return sema.fail(block, src, "TODO: implement zirReify for pointer with non-null sentinel", .{});
+            }
+
+            const ty = try Type.ptr(sema.arena, .{
+                .size = size_val.toEnum(std.builtin.TypeInfo.Pointer.Size),
+                .mutable = !is_const_val.toBool(),
+                .@"volatile" = is_volatile_val.toBool(),
+                .@"align" = @intCast(u8, alignment_val.toUnsignedInt()), // TODO: Validate this value.
+                .@"addrspace" = address_space_val.toEnum(std.builtin.AddressSpace),
+                .pointee_type = try child_ty.copy(sema.arena),
+                .@"allowzero" = is_allowzero_val.toBool(),
+                .sentinel = null,
+            });
+            return sema.addType(ty);
+        },
         .Array => return sema.fail(block, src, "TODO: Sema.zirReify for Array", .{}),
         .Struct => return sema.fail(block, src, "TODO: Sema.zirReify for Struct", .{}),
         .Optional => return sema.fail(block, src, "TODO: Sema.zirReify for Optional", .{}),
