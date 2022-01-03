@@ -165,6 +165,9 @@ test "slicing zero length array" {
     try expect(mem.eql(u8, s1, ""));
 
     if (builtin.object_format == .c) {
+        // Zero-sized array cannot be codegen-ed in CBE,
+        // so we need to use sentinel array, who has at least
+        // one element.
         const s2 = ([_:0xde]u32{})[0..];
         try expect(s2.len == 0);
         try expect(mem.eql(u32, s2, &[_:0xde]u32{}));

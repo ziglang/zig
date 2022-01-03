@@ -694,8 +694,8 @@ pub const Type = extern union {
             => {}, // The zig type tag is all that is needed to distinguish.
 
             .Pointer => {
+                // Basic hashing for simple types.
                 // TODO implement more pointer type hashing
-                // Basic hashing for small types.
                 std.hash.autoHash(hasher, self.tag());
             },
             .Int => {

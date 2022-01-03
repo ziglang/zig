@@ -1049,6 +1049,7 @@ pub fn genDecl(o: *Object) !void {
             try fwd_decl_writer.writeAll(mem.span(o.dg.decl.name));
             var render_ty = tv.ty;
             while (render_ty.zigTypeTag() == .Array) {
+                // Extern global array in C doesn't care about the size.
                 try fwd_decl_writer.writeAll("[]");
                 render_ty = render_ty.elemType();
             }

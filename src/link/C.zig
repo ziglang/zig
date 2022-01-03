@@ -336,6 +336,9 @@ const Flush = struct {
         Type.HashContext64,
         std.hash_map.default_max_load_percentage,
     );
+    /// In addition to Typedefs, who indexing by Type, we also need
+    /// a map to avoid identical typedef statements created from
+    /// different Type-s.
     const RenderedTypedefs = std.StringHashMapUnmanaged(void);
 
     fn deinit(f: *Flush, gpa: Allocator) void {
