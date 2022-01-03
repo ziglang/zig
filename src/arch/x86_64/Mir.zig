@@ -167,6 +167,7 @@ pub const Inst = struct {
         ///      0b00  reg1, [ds:imm32]
         ///      0b01  reg1, [rip + imm32]
         ///      0b10  reg1, [rip + reloc]
+        ///      0b11  reg1, [reg2 + rcx + imm32]
         /// Notes:
         /// * if flags are 0b10, `Data` contains `got_entry` for the linker to generate
         /// a valid relocation for.

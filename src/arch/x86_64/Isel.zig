@@ -654,7 +654,24 @@ fn mirLea(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
                 );
             }
         },
-        0b11 => return isel.fail("TODO unused variant lea reg1, reg2, 0b11", .{}),
+        0b11 => {
+            // lea reg, [rbp + rcx + imm32]
+            const imm = isel.mir.instructions.items(.data)[inst].imm;
+            const src_reg: ?Register = if (ops.reg2 == .none) null else ops.reg2;
+            return lowerToRmEnc(
+                .lea,
+                ops.reg1,
+                RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
+                    .disp = imm,
+                    .base = src_reg,
+                    .scale_index = .{
+                        .scale = 0,
+                        .index = .rcx,
+                    },
+                }),
+                isel.code,
+            ) catch |err| isel.failWithLoweringError(err);
+        },
     }
 }
 

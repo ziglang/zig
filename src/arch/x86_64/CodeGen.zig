@@ -1274,7 +1274,7 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(ty_op.operand);
         const dst_mcv: MCValue = switch (operand) {
-            .stack_offset => |off| MCValue{ .stack_offset = off + 4 },
+            .stack_offset => |off| MCValue{ .stack_offset = off + 8 },
             else => return self.fail("TODO implement slice_len for {}", .{operand}),
         };
         break :result dst_mcv;
@@ -1303,10 +1303,57 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const is_volatile = false; // TODO
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement slice_elem_val for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else result: {
+        const slice_mcv = try self.resolveInst(bin_op.lhs);
+        const slice_ty = self.air.typeOf(bin_op.lhs);
+
+        const elem_ty = slice_ty.childType();
+        const elem_size = elem_ty.abiSize(self.target.*);
+
+        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+        const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf);
+
+        const index_ty = self.air.typeOf(bin_op.rhs);
+        const index_mcv: MCValue = blk: {
+            switch (try self.resolveInst(bin_op.rhs)) {
+                .register => |reg| {
+                    if (reg.to64() != .rcx) {
+                        try self.register_manager.getReg(.rcx, inst);
+                    }
+                    break :blk MCValue{ .register = .rcx };
+                },
+                else => return self.fail("TODO move index mcv into a register", .{}),
+            }
+        };
+
+        try self.genIMulOpMir(index_ty, index_mcv, .{ .immediate = elem_size });
+
+        const dst_mcv = blk: {
+            switch (slice_mcv) {
+                .stack_offset => |unadjusted_off| {
+                    const dst_mcv = try self.allocRegOrMem(inst, false);
+                    const addr_reg = try self.register_manager.allocReg(null, &.{index_mcv.register});
+                    const slice_ptr_abi_size = @intCast(u32, slice_ptr_field_type.abiSize(self.target.*));
+                    const off = unadjusted_off + elem_size;
+                    // lea reg, [rbp - 8 + rcx*1]
+                    _ = try self.addInst(.{
+                        .tag = .lea,
+                        .ops = (Mir.Ops{
+                            .reg1 = registerAlias(addr_reg, slice_ptr_abi_size),
+                            .reg2 = .rbp,
+                            .flags = 0b11,
+                        }).encode(),
+                        .data = .{ .imm = -@intCast(i32, off) },
+                    });
+                    try self.load(dst_mcv, .{ .register = addr_reg }, slice_ptr_field_type);
+                    break :blk dst_mcv;
+                },
+                else => return self.fail("TODO implement slice_elem_val when slice is {}", .{slice_mcv}),
+            }
+        };
+
+        break :result dst_mcv;
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1791,6 +1838,7 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                             .data = .{ .imm = @intCast(i32, imm) },
                         });
                     } else {
+                        // TODO verify we don't spill and assign to the same register as dst_mcv
                         const src_reg = try self.copyToTmpRegister(dst_ty, src_mcv);
                         return self.genIMulOpMir(dst_ty, dst_mcv, MCValue{ .register = src_reg });
                     }
@@ -2906,12 +2954,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 },
             }
         },
-        .embedded_in_code, .memory => {
-            // TODO this and `.stack_offset` below need to get improved to support types greater than
-            // register size, and do general memcpy
-            const reg = try self.copyToTmpRegister(ty, mcv);
-            return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
-        },
         .register => |reg| {
             if (stack_offset > math.maxInt(i32)) {
                 return self.fail("stack offset too large", .{});
@@ -2928,15 +2970,23 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 .data = .{ .imm = -@intCast(i32, adj_off) },
             });
         },
-        .stack_offset => |off| {
-            // TODO this and `.embedded_in_code` above need to get improved to support types greater than
+        .stack_offset,
+        .embedded_in_code,
+        .memory,
+        => {
+            // TODO this needs to get improved to support types greater than
             // register size, and do general memcpy
+            if (mcv == .stack_offset and mcv.stack_offset == stack_offset) {
+                // Copy stack variable to itself; nothing to do.
+                return;
+            }
 
-            if (stack_offset == off)
-                return; // Copy stack variable to itself; nothing to do.
+            if (ty.abiSize(self.target.*) <= 8) {
+                const reg = try self.copyToTmpRegister(ty, mcv);
+                return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
+            }
 
-            const reg = try self.copyToTmpRegister(ty, mcv);
-            return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
+            return self.fail("TODO implement memcpy for ABI size {} > 8", .{ty.abiSize(self.target.*)});
         },
     }
 }
