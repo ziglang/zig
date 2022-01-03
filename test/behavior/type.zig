@@ -57,3 +57,48 @@ test "Type.EnumLiteral" {
         @TypeOf(.Dummy),
     });
 }
+
+test "Type.Pointer" {
+    try testTypes(&[_]type{
+        // One Value Pointer Types
+        *u8,                               *const u8,
+        *volatile u8,                      *const volatile u8,
+        *align(4) u8,                      *align(4) const u8,
+        *align(4) volatile u8,             *align(4) const volatile u8,
+        *align(8) u8,                      *align(8) const u8,
+        *align(8) volatile u8,             *align(8) const volatile u8,
+        *allowzero u8,                     *allowzero const u8,
+        *allowzero volatile u8,            *allowzero const volatile u8,
+        *allowzero align(4) u8,            *allowzero align(4) const u8,
+        *allowzero align(4) volatile u8,   *allowzero align(4) const volatile u8,
+        // Many Values Pointer Types
+        [*]u8,                             [*]const u8,
+        [*]volatile u8,                    [*]const volatile u8,
+        [*]align(4) u8,                    [*]align(4) const u8,
+        [*]align(4) volatile u8,           [*]align(4) const volatile u8,
+        [*]align(8) u8,                    [*]align(8) const u8,
+        [*]align(8) volatile u8,           [*]align(8) const volatile u8,
+        [*]allowzero u8,                   [*]allowzero const u8,
+        [*]allowzero volatile u8,          [*]allowzero const volatile u8,
+        [*]allowzero align(4) u8,          [*]allowzero align(4) const u8,
+        [*]allowzero align(4) volatile u8, [*]allowzero align(4) const volatile u8,
+        // Slice Types
+        []u8,                              []const u8,
+        []volatile u8,                     []const volatile u8,
+        []align(4) u8,                     []align(4) const u8,
+        []align(4) volatile u8,            []align(4) const volatile u8,
+        []align(8) u8,                     []align(8) const u8,
+        []align(8) volatile u8,            []align(8) const volatile u8,
+        []allowzero u8,                    []allowzero const u8,
+        []allowzero volatile u8,           []allowzero const volatile u8,
+        []allowzero align(4) u8,           []allowzero align(4) const u8,
+        []allowzero align(4) volatile u8,  []allowzero align(4) const volatile u8,
+        // C Pointer Types
+        [*c]u8,                            [*c]const u8,
+        [*c]volatile u8,                   [*c]const volatile u8,
+        [*c]align(4) u8,                   [*c]align(4) const u8,
+        [*c]align(4) volatile u8,          [*c]align(4) const volatile u8,
+        [*c]align(8) u8,                   [*c]align(8) const u8,
+        [*c]align(8) volatile u8,          [*c]align(8) const volatile u8,
+    });
+}
