@@ -2093,38 +2093,14 @@ pub fn update(comp: *Compilation) !void {
     }
 
     if (comp.totalErrorCount() != 0) {
-        // Skip flushing.
+        // Skip flushing and keep source files loaded for error reporting.
         comp.link_error_flags = .{};
         return;
-    }
-
-    // This is needed before reading the error flags.
-    try comp.bin_file.flush(comp);
-    comp.link_error_flags = comp.bin_file.errorFlags();
-
-    if (!use_stage1) {
-        if (comp.bin_file.options.module) |module| {
-            try link.File.C.flushEmitH(module);
-        }
     }
 
     // Flush takes care of -femit-bin, but we still have -femit-llvm-ir, -femit-llvm-bc, and
     // -femit-asm to handle, in the case of C objects.
     comp.emitOthers();
-
-    // If there are any errors, we anticipate the source files being loaded
-    // to report error messages. Otherwise we unload all source files to save memory.
-    // The ZIR needs to stay loaded in memory because (1) Decl objects contain references
-    // to it, and (2) generic instantiations, comptime calls, inline calls will need
-    // to reference the ZIR.
-    if (!comp.keep_source_files_loaded) {
-        if (comp.bin_file.options.module) |module| {
-            for (module.import_table.values()) |file| {
-                file.unloadTree(comp.gpa);
-                file.unloadSource(comp.gpa);
-            }
-        }
-    }
 
     if (comp.whole_cache_manifest != null) {
         const digest = man.final();
@@ -2139,23 +2115,63 @@ pub fn update(comp: *Compilation) !void {
         const o_sub_path = try std.fs.path.join(comp.gpa, &[_][]const u8{ "o", &digest });
         defer comp.gpa.free(o_sub_path);
 
-        try std.fs.rename(
-            comp.local_cache_directory.handle,
-            tmp_dir_sub_path,
-            comp.local_cache_directory.handle,
-            o_sub_path,
-        );
+        try comp.bin_file.renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path);
+        comp.wholeCacheModeSetBinFilePath(&digest);
+
+        // This is intentionally sandwiched between renameTmpIntoCache() and writeManifest().
+        if (comp.bin_file.options.module) |module| {
+            // We need to set the zig_cache_artifact_directory for -femit-asm, -femit-llvm-ir,
+            // etc to know where to output to.
+            var artifact_dir = try comp.local_cache_directory.handle.openDir(o_sub_path, .{});
+            defer artifact_dir.close();
+
+            var dir_path = try comp.local_cache_directory.join(comp.gpa, &.{o_sub_path});
+            defer comp.gpa.free(dir_path);
+
+            module.zig_cache_artifact_directory = .{
+                .handle = artifact_dir,
+                .path = dir_path,
+            };
+
+            try comp.flush();
+        } else {
+            try comp.flush();
+        }
 
         // Failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
             log.warn("failed to write cache manifest: {s}", .{@errorName(err)});
         };
 
-        comp.wholeCacheModeSetBinFilePath(&digest);
-
         assert(comp.bin_file.lock == null);
         comp.bin_file.lock = man.toOwnedLock();
-        return;
+    } else {
+        try comp.flush();
+    }
+
+    // Unload all source files to save memory.
+    // The ZIR needs to stay loaded in memory because (1) Decl objects contain references
+    // to it, and (2) generic instantiations, comptime calls, inline calls will need
+    // to reference the ZIR.
+    if (!comp.keep_source_files_loaded) {
+        if (comp.bin_file.options.module) |module| {
+            for (module.import_table.values()) |file| {
+                file.unloadTree(comp.gpa);
+                file.unloadSource(comp.gpa);
+            }
+        }
+    }
+}
+
+fn flush(comp: *Compilation) !void {
+    try comp.bin_file.flush(comp); // This is needed before reading the error flags.
+    comp.link_error_flags = comp.bin_file.errorFlags();
+
+    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
+    if (!use_stage1) {
+        if (comp.bin_file.options.module) |module| {
+            try link.File.C.flushEmitH(module);
+        }
     }
 }
 

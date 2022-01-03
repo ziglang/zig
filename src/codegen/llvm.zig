@@ -324,10 +324,12 @@ pub const Object = struct {
         const mod = comp.bin_file.options.module.?;
         const cache_dir = mod.zig_cache_artifact_directory;
 
-        const emit_bin_path: ?[*:0]const u8 = if (comp.bin_file.options.emit) |emit|
-            try emit.directory.joinZ(arena, &[_][]const u8{self.sub_path})
-        else
-            null;
+        const emit_bin_path: ?[*:0]const u8 = if (comp.bin_file.options.emit) |emit| blk: {
+            const full_out_path = try emit.directory.join(arena, &[_][]const u8{emit.sub_path});
+            break :blk try std.fs.path.joinZ(arena, &.{
+                std.fs.path.dirname(full_out_path).?, self.sub_path,
+            });
+        } else null;
 
         const emit_asm_path = try locPath(arena, comp.emit_asm, cache_dir);
         const emit_llvm_ir_path = try locPath(arena, comp.emit_llvm_ir, cache_dir);
