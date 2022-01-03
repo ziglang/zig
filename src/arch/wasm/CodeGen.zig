@@ -1256,6 +1256,28 @@ fn isByRef(ty: Type) bool {
     }
 }
 
+/// Creates a new local for a pointer that points to memory with given offset.
+/// This can be used to get a pointer to a struct field, error payload, etc.
+fn buildPointerOffset(self: *Self, ptr_value: WValue, offset: u64) InnerError!WValue {
+    // do not perform arithmetic when offset is 0.
+    if (offset == 0) return ptr_value;
+    const result_ptr = try self.allocLocal(Type.usize);
+    try self.emitWValue(ptr_value);
+    switch (self.target.cpu.arch.ptrBitWidth()) {
+        32 => {
+            try self.addImm32(@bitCast(i32, @intCast(u32, offset)));
+            try self.addTag(.i32_add);
+        },
+        64 => {
+            try self.addImm64(offset);
+            try self.addTag(.i64_add);
+        },
+        else => unreachable,
+    }
+    try self.addLabel(.local_set, result_ptr.local);
+    return result_ptr;
+}
+
 fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
     const air_tags = self.air.instructions.items(.tag);
     return switch (air_tags[inst]) {
@@ -1296,16 +1318,16 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .is_err => self.airIsErr(inst, .i32_ne),
         .is_non_err => self.airIsErr(inst, .i32_eq),
 
-        .is_null => self.airIsNull(inst, .i32_ne),
-        .is_non_null => self.airIsNull(inst, .i32_eq),
-        .is_null_ptr => self.airIsNull(inst, .i32_ne),
-        .is_non_null_ptr => self.airIsNull(inst, .i32_eq),
+        .is_null => self.airIsNull(inst, .i32_eq, .value),
+        .is_non_null => self.airIsNull(inst, .i32_ne, .value),
+        .is_null_ptr => self.airIsNull(inst, .i32_eq, .ptr),
+        .is_non_null_ptr => self.airIsNull(inst, .i32_ne, .ptr),
 
         .load => self.airLoad(inst),
         .loop => self.airLoop(inst),
         .not => self.airNot(inst),
         .optional_payload => self.airOptionalPayload(inst),
-        .optional_payload_ptr => self.airOptionalPayload(inst),
+        .optional_payload_ptr => self.airOptionalPayloadPtr(inst),
         .optional_payload_ptr_set => self.airOptionalPayloadPtrSet(inst),
         .ptr_add => self.airPtrBinOp(inst, .add),
         .ptr_sub => self.airPtrBinOp(inst, .sub),
@@ -1482,14 +1504,20 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 }
 
 fn airAlloc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
-    const child_type = self.air.typeOfIndex(inst).childType();
+    const pointee_type = self.air.typeOfIndex(inst).childType();
 
     // Initialize the stack
     if (self.initial_stack_value == .none) {
         try self.initializeStack();
     }
-    if (child_type.abiSize(self.target) == 0) return WValue{ .none = {} };
-    return self.allocStack(child_type);
+
+    if (!pointee_type.hasCodeGenBits()) {
+        // when the pointee is zero-sized, we still want to create a pointer.
+        // but instead use a default pointer type as storage.
+        const zero_ptr = try self.allocStack(Type.usize);
+        return zero_ptr;
+    }
+    return self.allocStack(pointee_type);
 }
 
 fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1516,6 +1544,8 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
             const tag_ty = if (ty.zigTypeTag() == .ErrorUnion) ty.errorUnionSet() else Type.initTag(.u8);
             const payload_offset = if (ty.zigTypeTag() == .ErrorUnion)
                 @intCast(u32, tag_ty.abiSize(self.target))
+            else if (ty.isPtrLikeOptional())
+                @as(u32, 0)
             else
                 @intCast(u32, ty.abiSize(self.target) - payload_ty.abiSize(self.target));
 
@@ -1527,6 +1557,10 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                         try self.emitWValue(rhs);
                         try self.addLabel(.local_set, mem_local.local);
                         try self.store(lhs, mem_local, ty, 0);
+                        return;
+                    } else if (ty.isPtrLikeOptional()) {
+                        // set the address of rhs to lhs
+                        try self.store(lhs, rhs, Type.usize, 0);
                         return;
                     }
                     // constant will contain both tag and payload,
@@ -1546,6 +1580,12 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                     return;
                 },
                 .local => {
+                    // When the optional is pointer-like, we simply store the pointer
+                    // instead.
+                    if (ty.isPtrLikeOptional()) {
+                        try self.store(lhs, rhs, Type.usize, 0);
+                        return;
+                    }
                     // Load values from `rhs` stack position and store in `lhs` instead
                     const tag_local = try self.load(rhs, tag_ty, 0);
                     if (payload_ty.hasCodeGenBits()) {
@@ -1630,7 +1670,6 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
         .ErrorSet,
         .Enum,
         .Bool,
-        .ErrorUnion,
         => @intCast(u8, ty.abiSize(self.target)),
         else => @as(u8, 4),
     };
@@ -1684,6 +1723,10 @@ fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
         .Bool,
         .ErrorUnion,
         => @intCast(u8, ty.abiSize(self.target)),
+        .Optional => blk: {
+            if (ty.isPtrLikeOptional()) break :blk @intCast(u8, self.ptrSize());
+            break :blk @intCast(u8, ty.abiSize(self.target));
+        },
         else => @as(u8, 4),
     };
 
@@ -1828,7 +1871,7 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 }
             } else if (val.castTag(.int_u64)) |int_ptr| {
                 try self.addImm32(@bitCast(i32, @intCast(u32, int_ptr.data)));
-            } else if (val.tag() == .zero) {
+            } else if (val.tag() == .zero or val.tag() == .null_value) {
                 try self.addImm32(0);
             } else if (val.tag() == .one) {
                 try self.addImm32(1);
@@ -1886,18 +1929,19 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             var buf: Type.Payload.ElemType = undefined;
             const payload_type = ty.optionalChild(&buf);
             if (ty.isPtrLikeOptional()) {
-                return self.fail("Wasm TODO: emitConstant for optional pointer", .{});
+                try self.emitConstant(val, payload_type);
+                return;
             }
 
             // When constant has value 'null', set is_null local to '1'
             // and payload to '0'
             if (val.castTag(.opt_payload)) |payload| {
-                try self.addImm32(0);
+                try self.addImm32(1);
                 if (payload_type.hasCodeGenBits())
                     try self.emitConstant(payload.data, payload_type);
             } else {
                 // set null-tag
-                try self.addImm32(1);
+                try self.addImm32(0);
                 // null-tag is set, so write a '0' const
                 try self.addImm32(0);
             }
@@ -2065,23 +2109,34 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 }
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) InnerError!WValue {
-    const data: Air.Inst.Data = self.air.instructions.items(.data)[inst];
-    const lhs = self.resolveInst(data.bin_op.lhs);
-    const rhs = self.resolveInst(data.bin_op.rhs);
-    const lhs_ty = self.air.typeOf(data.bin_op.lhs);
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const lhs = self.resolveInst(bin_op.lhs);
+    const rhs = self.resolveInst(bin_op.rhs);
+    const operand_ty = self.air.typeOf(bin_op.lhs);
 
     try self.emitWValue(lhs);
     try self.emitWValue(rhs);
 
+    if (operand_ty.zigTypeTag() == .Optional and !operand_ty.isPtrLikeOptional()) {
+        var buf: Type.Payload.ElemType = undefined;
+        const payload_ty = operand_ty.optionalChild(&buf);
+        if (payload_ty.hasCodeGenBits()) {
+            // When we hit this case, we must check the value of optionals
+            // that are not pointers. This means first checking against non-null for
+            // both lhs and rhs, as well as checking the payload are matching of lhs and rhs
+            return self.fail("TODO: Implement airCmp for comparing optionals", .{});
+        }
+    }
+
     const signedness: std.builtin.Signedness = blk: {
         // by default we tell the operand type is unsigned (i.e. bools and enum values)
-        if (lhs_ty.zigTypeTag() != .Int) break :blk .unsigned;
+        if (operand_ty.zigTypeTag() != .Int) break :blk .unsigned;
 
         // incase of an actual integer, we emit the correct signedness
-        break :blk lhs_ty.intInfo(self.target).signedness;
+        break :blk operand_ty.intInfo(self.target).signedness;
     };
     const opcode: wasm.Opcode = buildOpcode(.{
-        .valtype1 = try self.typeToValtype(lhs_ty),
+        .valtype1 = try self.typeToValtype(operand_ty),
         .op = switch (op) {
             .lt => .lt,
             .lte => .le,
@@ -2173,7 +2228,7 @@ fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             struct_ty.structFieldType(extra.data.field_index),
         });
     };
-    return structFieldPtr(struct_ptr, offset);
+    return self.structFieldPtr(struct_ptr, offset);
 }
 
 fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u32) InnerError!WValue {
@@ -2186,10 +2241,10 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u32) InnerEr
             field_ty,
         });
     };
-    return structFieldPtr(struct_ptr, offset);
+    return self.structFieldPtr(struct_ptr, offset);
 }
 
-fn structFieldPtr(struct_ptr: WValue, offset: u32) InnerError!WValue {
+fn structFieldPtr(self: *Self, struct_ptr: WValue, offset: u32) InnerError!WValue {
     var final_offset = offset;
     const local = switch (struct_ptr) {
         .local => |local| local,
@@ -2199,7 +2254,7 @@ fn structFieldPtr(struct_ptr: WValue, offset: u32) InnerError!WValue {
         },
         else => unreachable,
     };
-    return WValue{ .local_with_offset = .{ .local = local, .offset = final_offset } };
+    return self.buildPointerOffset(.{ .local = local }, final_offset);
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2434,24 +2489,13 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const offset = err_ty.errorUnionSet().abiSize(self.target);
 
     const err_union = try self.allocStack(err_ty);
-    const to_store = switch (op_ty.zigTypeTag()) {
-        // for those types we must load the pointer and then store
-        // its value
-        .Pointer, .Optional => blk: {
-            if (!op_ty.isPtrLikeOptional()) {
-                return self.fail("TODO: airWrapErrUnionPayload for optional type {}", .{op_ty});
-            }
-            break :blk try self.load(operand, op_ty, 0);
-        },
-        .Int => operand,
-        else => return self.fail("TODO: airWrapErrUnionPayload for type {}", .{op_ty}),
-    };
-
-    try self.store(err_union, to_store, op_ty, @intCast(u32, offset));
+    const payload_ptr = try self.buildPointerOffset(err_union, offset);
+    try self.store(payload_ptr, operand, op_ty, 0);
 
     // ensure we also write '0' to the error part, so any present stack value gets overwritten by it.
-    const tmp_local = try self.allocLocal(err_ty.errorUnionSet()); // locals are '0' by default.
-    try self.store(err_union, tmp_local, err_ty.errorUnionSet(), 0);
+    try self.addLabel(.local_get, err_union.local);
+    try self.addImm32(0);
+    try self.addMemArg(.i32_store16, .{ .offset = 0, .alignment = 2 });
 
     return err_union;
 }
@@ -2499,64 +2543,122 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     return result;
 }
 
-fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
+fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode, op_kind: enum { value, ptr }) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = self.resolveInst(un_op);
 
     const op_ty = self.air.typeOf(un_op);
+    const optional_ty = if (op_kind == .ptr) op_ty.childType() else op_ty;
     try self.emitWValue(operand);
-    if (!op_ty.isPtrLikeOptional()) {
-        try self.addMemArg(.i32_load8_u, .{ .offset = 0, .alignment = 1 });
+    if (!optional_ty.isPtrLikeOptional()) {
+        var buf: Type.Payload.ElemType = undefined;
+        const payload_ty = optional_ty.optionalChild(&buf);
+        // When payload is zero-bits, we can treat operand as a value, rather than a
+        // stack value
+        if (payload_ty.hasCodeGenBits()) {
+            try self.addMemArg(.i32_load8_u, .{ .offset = 0, .alignment = 1 });
+        }
     }
 
-    // Compare the error value with '0'
+    // Compare the null value with '0'
     try self.addImm32(0);
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
 
-    const is_null_tmp = try self.allocLocal(Type.initTag(.u8));
+    const is_null_tmp = try self.allocLocal(Type.initTag(.i32));
     try self.addLabel(.local_set, is_null_tmp.local);
     return is_null_tmp;
 }
 
 fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = self.resolveInst(ty_op.operand);
     const opt_ty = self.air.typeOf(ty_op.operand);
-
-    // For pointers we simply return its stack address, rather than
-    // loading its value
-    if (opt_ty.zigTypeTag() == .Pointer) {
-        return WValue{ .local_with_offset = .{ .local = operand.local, .offset = 1 } };
-    }
-
+    const payload_ty = self.air.typeOfIndex(inst);
+    if (!payload_ty.hasCodeGenBits()) return WValue{ .none = {} };
     if (opt_ty.isPtrLikeOptional()) return operand;
 
-    var buf: Type.Payload.ElemType = undefined;
-    const child_ty = opt_ty.optionalChild(&buf);
-    const offset = opt_ty.abiSize(self.target) - child_ty.abiSize(self.target);
+    const offset = opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target);
 
-    return self.load(operand, child_ty, @intCast(u32, offset));
+    if (isByRef(payload_ty)) {
+        return self.buildPointerOffset(operand, offset);
+    }
+
+    return self.load(operand, payload_ty, @intCast(u32, offset));
+}
+
+fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const operand = self.resolveInst(ty_op.operand);
+    const opt_ty = self.air.typeOf(ty_op.operand).childType();
+
+    var buf: Type.Payload.ElemType = undefined;
+    const payload_ty = opt_ty.optionalChild(&buf);
+    if (!payload_ty.hasCodeGenBits() or opt_ty.isPtrLikeOptional()) {
+        return operand;
+    }
+
+    const offset = opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target);
+    return self.buildPointerOffset(operand, offset);
 }
 
 fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = self.resolveInst(ty_op.operand);
-    _ = operand;
-    return self.fail("TODO - wasm codegen for optional_payload_ptr_set", .{});
+    const opt_ty = self.air.typeOf(ty_op.operand).childType();
+    var buf: Type.Payload.ElemType = undefined;
+    const payload_ty = opt_ty.optionalChild(&buf);
+    if (!payload_ty.hasCodeGenBits()) {
+        return self.fail("TODO: Implement OptionalPayloadPtrSet for optional with zero-sized type {}", .{payload_ty});
+    }
+
+    if (opt_ty.isPtrLikeOptional()) {
+        return operand;
+    }
+
+    const offset = std.math.cast(u32, opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target)) catch {
+        return self.fail("Optional type {} too big to fit into stack frame", .{opt_ty});
+    };
+
+    try self.emitWValue(operand);
+    try self.addImm32(1);
+    try self.addMemArg(.i32_store8, .{ .offset = 0, .alignment = 1 });
+
+    return self.buildPointerOffset(operand, offset);
 }
 
 fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const payload_ty = self.air.typeOf(ty_op.operand);
+    if (!payload_ty.hasCodeGenBits()) {
+        const non_null_bit = try self.allocStack(Type.initTag(.u1));
+        try self.addLabel(.local_get, non_null_bit.local);
+        try self.addImm32(1);
+        try self.addMemArg(.i32_store8, .{ .offset = 0, .alignment = 1 });
+        return non_null_bit;
+    }
+
     const operand = self.resolveInst(ty_op.operand);
+    const op_ty = self.air.typeOfIndex(inst);
+    if (op_ty.isPtrLikeOptional()) {
+        return operand;
+    }
+    const offset = std.math.cast(u32, op_ty.abiSize(self.target) - payload_ty.abiSize(self.target)) catch {
+        return self.fail("Optional type {} too big to fit into stack frame", .{op_ty});
+    };
 
-    const op_ty = self.air.typeOf(ty_op.operand);
-    const optional_ty = self.air.getRefType(ty_op.ty);
-    const offset = optional_ty.abiSize(self.target) - op_ty.abiSize(self.target);
+    // Create optional type, set the non-null bit, and store the operand inside the optional type
+    const result = try self.allocStack(op_ty);
+    try self.addLabel(.local_get, result.local);
+    try self.addImm32(1);
+    try self.addMemArg(.i32_store8, .{ .offset = 0, .alignment = 1 });
+    try self.store(result, operand, payload_ty, offset);
 
-    return WValue{ .local_with_offset = .{
-        .local = operand.local,
-        .offset = @intCast(u32, offset),
-    } };
+    return result;
 }
 
 fn airSliceLen(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
