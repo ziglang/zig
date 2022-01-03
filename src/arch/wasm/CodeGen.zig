@@ -1088,19 +1088,11 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
             }
 
             const ret_ty = fn_ty.fnReturnType();
-            if (isByRef(ret_ty)) {
-                result.return_value = try self.allocLocal(Type.initTag(.i32));
-            }
-
             // Check if we store the result as a pointer to the stack rather than
             // by value
-            if (result.return_value != .none) {
+            if (isByRef(ret_ty)) {
                 if (self.initial_stack_value == .none) try self.initializeStack();
-                const offset = std.math.cast(u32, ret_ty.abiSize(self.target)) catch {
-                    return self.fail("Return type '{}' too big for stack frame", .{ret_ty});
-                };
-
-                try self.moveStack(offset, result.return_value.local);
+                result.return_value = try self.allocStack(ret_ty);
 
                 // We want to make sure the return value's stack value doesn't get overwritten,
                 // so set initial stack value to current's position instead.
@@ -1165,9 +1157,15 @@ fn allocStack(self: *Self, ty: Type) !WValue {
     assert(ty.hasCodeGenBits());
 
     // calculate needed stack space
-    const abi_size = std.math.cast(u32, ty.abiSize(self.target)) catch {
+    var abi_size = std.math.cast(u32, ty.abiSize(self.target)) catch {
         return self.fail("Given type '{}' too big to fit into stack frame", .{ty});
     };
+
+    // We store slices as a struct with a pointer field and a length field
+    // both being 'usize' size.
+    if (ty.isSlice()) {
+        abi_size = self.ptrSize() * 2;
+    }
 
     // allocate a local using wasm's pointer size
     const local = try self.allocLocal(Type.@"usize");
@@ -1337,6 +1335,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .ret => self.airRet(inst),
         .ret_ptr => self.airRetPtr(inst),
         .ret_load => self.airRetLoad(inst),
+        .slice => self.airSlice(inst),
         .slice_len => self.airSliceLen(inst),
         .slice_elem_val => self.airSliceElemVal(inst),
         .slice_elem_ptr => self.airSliceElemPtr(inst),
@@ -1993,6 +1992,11 @@ fn emitUndefined(self: *Self, ty: Type) InnerError!void {
             // TODO: Write 0xaa to each field
             const result = try self.allocStack(ty);
             try self.addLabel(.local_get, result.local);
+        },
+        .Pointer => switch (self.ptrSize()) {
+            4 => try self.addImm32(@bitCast(i32, @as(u32, 0xaaaaaaaa))),
+            8 => try self.addImm64(0xaaaaaaaaaaaaaaaa),
+            else => unreachable,
         },
         else => return self.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty}),
     }
@@ -2671,6 +2675,22 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     try self.store(payload_ptr, operand, payload_ty, 0);
 
     return result;
+}
+
+fn airSlice(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const lhs = self.resolveInst(bin_op.lhs);
+    const rhs = self.resolveInst(bin_op.rhs);
+    const slice_ty = self.air.typeOfIndex(inst);
+
+    const slice = try self.allocStack(slice_ty);
+    try self.store(slice, lhs, Type.usize, 0);
+    try self.store(slice, rhs, Type.usize, self.ptrSize());
+
+    return slice;
 }
 
 fn airSliceLen(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
