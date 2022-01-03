@@ -2970,25 +2970,135 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 .data = .{ .imm = -@intCast(i32, adj_off) },
             });
         },
-        .stack_offset,
-        .embedded_in_code,
-        .memory,
-        => {
-            // TODO this needs to get improved to support types greater than
-            // register size, and do general memcpy
-            if (mcv == .stack_offset and mcv.stack_offset == stack_offset) {
-                // Copy stack variable to itself; nothing to do.
-                return;
-            }
-
+        .memory, .embedded_in_code => {
             if (ty.abiSize(self.target.*) <= 8) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
             }
+            return self.fail("TODO implement memcpy for setting stack from {}", .{mcv});
+        },
+        .stack_offset => |unadjusted_off| {
+            if (stack_offset == unadjusted_off) {
+                // Copy stack variable to itself; nothing to do.
+                return;
+            }
 
-            return self.fail("TODO implement memcpy for ABI size {} > 8", .{ty.abiSize(self.target.*)});
+            const abi_size = ty.abiSize(self.target.*);
+            if (abi_size <= 8) {
+                const reg = try self.copyToTmpRegister(ty, mcv);
+                return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
+            }
+
+            const regs = try self.register_manager.allocRegs(2, .{ null, null }, &.{});
+            const addr_reg = regs[0];
+            const len_reg = regs[1];
+
+            const off = unadjusted_off + abi_size;
+            _ = try self.addInst(.{
+                .tag = .lea,
+                .ops = (Mir.Ops{
+                    .reg1 = addr_reg.to64(),
+                    .reg2 = .rbp,
+                }).encode(),
+                .data = .{ .imm = -@intCast(i32, off) },
+            });
+
+            // TODO allow for abi_size to be u64
+            try self.genSetReg(Type.initTag(.u32), len_reg, .{ .immediate = @intCast(u32, abi_size) });
+
+            return self.genInlineMemcpy(-@intCast(i32, off), addr_reg.to64(), len_reg.to64());
         },
     }
+}
+
+fn genInlineMemcpy(self: *Self, stack_offset: i32, addr_reg: Register, len_reg: Register) InnerError!void {
+    try self.register_manager.getReg(.rax, null);
+    try self.register_manager.getReg(.rcx, null);
+    const tmp_reg = try self.register_manager.allocReg(null, &.{ addr_reg, len_reg, .rax, .rcx });
+
+    // mov rcx, 0
+    _ = try self.addInst(.{
+        .tag = .mov,
+        .ops = (Mir.Ops{
+            .reg1 = .rcx,
+        }).encode(),
+        .data = .{ .imm = 0 },
+    });
+
+    // mov rax, 0
+    _ = try self.addInst(.{
+        .tag = .mov,
+        .ops = (Mir.Ops{
+            .reg1 = .rax,
+        }).encode(),
+        .data = .{ .imm = 0 },
+    });
+
+    // loop:
+    // cmp rcx, len
+    const loop_start = try self.addInst(.{
+        .tag = .cmp,
+        .ops = (Mir.Ops{
+            .reg1 = .rcx,
+            .reg2 = len_reg,
+        }).encode(),
+        .data = undefined,
+    });
+
+    // jge end
+    const loop_reloc = try self.addInst(.{
+        .tag = .cond_jmp_above_below,
+        .ops = (Mir.Ops{ .flags = 0b00 }).encode(),
+        .data = .{ .inst = undefined },
+    });
+
+    // mov tmp, [addr + rcx]
+    _ = try self.addInst(.{
+        .tag = .mov_scale_src,
+        .ops = (Mir.Ops{
+            .reg1 = tmp_reg.to8(),
+            .reg2 = addr_reg,
+        }).encode(),
+        .data = .{ .imm = 0 },
+    });
+
+    // mov [stack_offset + rax], tmp
+    _ = try self.addInst(.{
+        .tag = .mov_scale_dst,
+        .ops = (Mir.Ops{
+            .reg1 = .rbp,
+            .reg2 = tmp_reg.to8(),
+        }).encode(),
+        .data = .{ .imm = stack_offset },
+    });
+
+    // add rcx, 1
+    _ = try self.addInst(.{
+        .tag = .add,
+        .ops = (Mir.Ops{
+            .reg1 = .rcx,
+        }).encode(),
+        .data = .{ .imm = 1 },
+    });
+
+    // add rax, 1
+    _ = try self.addInst(.{
+        .tag = .add,
+        .ops = (Mir.Ops{
+            .reg1 = .rax,
+        }).encode(),
+        .data = .{ .imm = 1 },
+    });
+
+    // jmp loop
+    _ = try self.addInst(.{
+        .tag = .jmp,
+        .ops = (Mir.Ops{ .flags = 0b00 }).encode(),
+        .data = .{ .inst = loop_start },
+    });
+
+    // end:
+    try self.performReloc(loop_reloc);
 }
 
 /// Set pointee via pointer stored in a register.
