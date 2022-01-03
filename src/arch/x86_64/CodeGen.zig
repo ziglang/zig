@@ -1433,8 +1433,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         },
         .register => |reg| try self.setRegOrMem(ptr_ty, dst_mcv, .{ .register = reg }),
         .memory => |addr| {
-            const reg = try self.register_manager.allocReg(null, &.{});
-            try self.genSetReg(ptr_ty, reg, .{ .memory = addr });
+            const reg = try self.copyToTmpRegister(ptr_ty, .{ .memory = addr });
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
         },
         .stack_offset => {
