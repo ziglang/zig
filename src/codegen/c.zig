@@ -379,6 +379,11 @@ pub const DeclGen = struct {
                     try dg.renderType(writer, ty);
                     try writer.print(")0x{x}u)", .{val.toUnsignedInt()});
                 },
+                .elem_ptr => {
+                    const elem_ptr = val.castTag(.elem_ptr).?.data;
+                    try dg.renderValue(writer, ty, elem_ptr.array_ptr);
+                    try writer.print("[{}]", .{elem_ptr.index});
+                },
                 else => unreachable,
             },
             .Array => {
@@ -653,7 +658,11 @@ pub const DeclGen = struct {
         try bw.writeAll("ptr; size_t len; } ");
         const name_index = buffer.items.len;
         if (t.isConstPtr()) {
-            try bw.print("zig_L_{s};\n", .{typeToCIdentifier(elem_type)});
+            if (t.tag() == .const_slice_u8_sentinel_0) {
+                try bw.print("zig_LS_{s};\n", .{typeToCIdentifier(elem_type)});
+            } else {
+                try bw.print("zig_L_{s};\n", .{typeToCIdentifier(elem_type)});
+            }
         } else {
             try bw.print("zig_M_{s};\n", .{typeToCIdentifier(elem_type)});
         }
@@ -1038,12 +1047,18 @@ pub fn genDecl(o: *Object) !void {
         if (variable.is_threadlocal) {
             try fwd_decl_writer.writeAll("zig_threadlocal ");
         }
-        try o.dg.renderType(fwd_decl_writer, o.dg.decl.ty);
-        try fwd_decl_writer.writeAll(" ");
         if (is_global) {
+            try o.dg.renderType(fwd_decl_writer, o.dg.decl.ty);
+            try fwd_decl_writer.writeAll(" ");
             try fwd_decl_writer.writeAll(mem.span(o.dg.decl.name));
+            var render_ty = tv.ty;
+            while (render_ty.zigTypeTag() == .Array) {
+                try fwd_decl_writer.writeAll("[]");
+                render_ty = render_ty.elemType();
+            }
         } else {
-            try o.dg.renderDeclName(o.dg.decl, fwd_decl_writer);
+            const decl_c_value: CValue = .{ .decl = o.dg.decl };
+            try o.dg.renderTypeAndName(fwd_decl_writer, tv.ty, decl_c_value, .Mut);
         }
         try fwd_decl_writer.writeAll(";\n");
 

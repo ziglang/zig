@@ -695,6 +695,8 @@ pub const Type = extern union {
 
             .Pointer => {
                 // TODO implement more pointer type hashing
+                // Basic hashing for small types.
+                std.hash.autoHash(hasher, self.tag());
             },
             .Int => {
                 // Detect that e.g. u64 != usize, even if the bits match on a particular target.
