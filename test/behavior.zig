@@ -58,6 +58,7 @@ test {
             _ = @import("behavior/member_func.zig");
             _ = @import("behavior/null.zig");
             _ = @import("behavior/optional.zig");
+            _ = @import("behavior/slice.zig");
             _ = @import("behavior/struct.zig");
             _ = @import("behavior/this.zig");
             _ = @import("behavior/translate_c_macros.zig");
@@ -99,7 +100,6 @@ test {
                 _ = @import("behavior/popcount.zig");
                 _ = @import("behavior/saturating_arithmetic.zig");
                 _ = @import("behavior/sizeof_and_typeof.zig");
-                _ = @import("behavior/slice.zig");
                 _ = @import("behavior/struct_llvm.zig");
                 _ = @import("behavior/switch.zig");
                 _ = @import("behavior/undefined.zig");

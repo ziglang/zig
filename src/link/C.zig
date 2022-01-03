@@ -322,6 +322,7 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
 const Flush = struct {
     remaining_decls: std.AutoArrayHashMapUnmanaged(*const Module.Decl, void) = .{},
     typedefs: Typedefs = .{},
+    rendered_typedefs: RenderedTypedefs = .{},
     err_typedef_buf: std.ArrayListUnmanaged(u8) = .{},
     /// We collect a list of buffers to write, and write them all at once with pwritev 😎
     all_buffers: std.ArrayListUnmanaged(std.os.iovec_const) = .{},
@@ -335,10 +336,12 @@ const Flush = struct {
         Type.HashContext64,
         std.hash_map.default_max_load_percentage,
     );
+    const RenderedTypedefs = std.StringHashMapUnmanaged(void);
 
     fn deinit(f: *Flush, gpa: Allocator) void {
         f.all_buffers.deinit(gpa);
         f.err_typedef_buf.deinit(gpa);
+        f.rendered_typedefs.deinit(gpa);
         f.typedefs.deinit(gpa);
         f.remaining_decls.deinit(gpa);
     }
@@ -363,12 +366,17 @@ fn flushDecl(self: *C, f: *Flush, decl: *const Module.Decl) FlushDeclError!void 
     const gpa = self.base.allocator;
 
     if (decl_block.typedefs.count() != 0) {
-        try f.typedefs.ensureUnusedCapacity(gpa, @intCast(u32, decl_block.typedefs.count()));
+        const capacity = @intCast(u32, decl_block.typedefs.count());
+        try f.typedefs.ensureUnusedCapacity(gpa, capacity);
+        try f.rendered_typedefs.ensureUnusedCapacity(gpa, capacity);
         var it = decl_block.typedefs.iterator();
         while (it.next()) |new| {
             const gop = f.typedefs.getOrPutAssumeCapacity(new.key_ptr.*);
             if (!gop.found_existing) {
-                try f.err_typedef_buf.appendSlice(gpa, new.value_ptr.rendered);
+                const rendered_gop = f.rendered_typedefs.getOrPutAssumeCapacity(new.value_ptr.rendered);
+                if (!rendered_gop.found_existing) {
+                    try f.err_typedef_buf.appendSlice(gpa, new.value_ptr.rendered);
+                }
             }
         }
     }

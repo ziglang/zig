@@ -658,11 +658,7 @@ pub const DeclGen = struct {
         try bw.writeAll("ptr; size_t len; } ");
         const name_index = buffer.items.len;
         if (t.isConstPtr()) {
-            if (t.tag() == .const_slice_u8_sentinel_0) {
-                try bw.print("zig_LS_{s};\n", .{typeToCIdentifier(elem_type)});
-            } else {
-                try bw.print("zig_L_{s};\n", .{typeToCIdentifier(elem_type)});
-            }
+            try bw.print("zig_L_{s};\n", .{typeToCIdentifier(elem_type)});
         } else {
             try bw.print("zig_M_{s};\n", .{typeToCIdentifier(elem_type)});
         }

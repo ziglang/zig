@@ -164,7 +164,7 @@ test "slicing zero length array" {
     try expect(s1.len == 0);
     try expect(mem.eql(u8, s1, ""));
 
-    if (builtin.zig_is_stage2) {
+    if (builtin.object_format == .c) {
         const s2 = ([_:0xde]u32{})[0..];
         try expect(s2.len == 0);
         try expect(mem.eql(u32, s2, &[_:0xde]u32{}));
