@@ -2880,7 +2880,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 },
             }
         },
-        .embedded_in_code => {
+        .embedded_in_code, .memory => {
             // TODO this and `.stack_offset` below need to get improved to support types greater than
             // register size, and do general memcpy
             const reg = try self.copyToTmpRegister(ty, mcv);
@@ -2901,10 +2901,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 }).encode(),
                 .data = .{ .imm = -@intCast(i32, adj_off) },
             });
-        },
-        .memory => |vaddr| {
-            _ = vaddr;
-            return self.fail("TODO implement set stack variable from memory vaddr", .{});
         },
         .stack_offset => |off| {
             // TODO this and `.embedded_in_code` above need to get improved to support types greater than
