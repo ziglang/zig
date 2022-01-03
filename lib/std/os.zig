@@ -1353,7 +1353,7 @@ fn openOptionsFromFlags(flags: u32) windows.OpenFileOptions {
         access_mask |= w.GENERIC_READ | w.GENERIC_WRITE;
     }
 
-    const open_dir: bool = flags & O.DIRECTORY != 0;
+    const filter: windows.OpenFileOptions.Filter = if (flags & O.DIRECTORY != 0) .dir_only else .file_only;
     const follow_symlinks: bool = flags & O.NOFOLLOW == 0;
 
     const creation: w.ULONG = blk: {
@@ -1369,7 +1369,7 @@ fn openOptionsFromFlags(flags: u32) windows.OpenFileOptions {
         .access_mask = access_mask,
         .io_mode = .blocking,
         .creation = creation,
-        .open_dir = open_dir,
+        .filter = filter,
         .follow_symlinks = follow_symlinks,
     };
 }
@@ -2324,6 +2324,7 @@ pub fn renameatW(
         .access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE,
         .creation = windows.FILE_OPEN,
         .io_mode = .blocking,
+        .filter = .any, // This function is supposed to rename both files and directories.
     }) catch |err| switch (err) {
         error.WouldBlock => unreachable, // Not possible without `.share_access_nonblocking = true`.
         else => |e| return e,
@@ -2435,7 +2436,7 @@ pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: u32) MakeDirError!v
         .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
         .creation = windows.FILE_CREATE,
         .io_mode = .blocking,
-        .open_dir = true,
+        .filter = .dir_only,
     }) catch |err| switch (err) {
         error.IsDir => unreachable,
         error.PipeBusy => unreachable,
@@ -2511,7 +2512,7 @@ pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
         .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
         .creation = windows.FILE_CREATE,
         .io_mode = .blocking,
-        .open_dir = true,
+        .filter = .dir_only,
     }) catch |err| switch (err) {
         error.IsDir => unreachable,
         error.PipeBusy => unreachable,
@@ -4693,7 +4694,7 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
                 .share_access = share_access,
                 .creation = creation,
                 .io_mode = .blocking,
-                .open_dir = true,
+                .filter = .dir_only,
             }) catch |er| switch (er) {
                 error.WouldBlock => unreachable,
                 else => |e2| return e2,

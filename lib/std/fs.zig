@@ -1361,7 +1361,7 @@ pub const Dir = struct {
                     .share_access = share_access,
                     .creation = creation,
                     .io_mode = .blocking,
-                    .open_dir = true,
+                    .filter = .dir_only,
                 }) catch |er| switch (er) {
                     error.WouldBlock => unreachable,
                     else => |e2| return e2,

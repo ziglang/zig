@@ -56,7 +56,7 @@ fn mulXf3(comptime T: type, a: T, b: T) T {
     var scale: i32 = 0;
 
     // Detect if a or b is zero, denormal, infinity, or NaN.
-    if (aExponent -% 1 >= maxExponent -% 1 or bExponent -% 1 >= maxExponent -% 1) {
+    if (aExponent -% 1 >= maxExponent - 1 or bExponent -% 1 >= maxExponent - 1) {
         const aAbs: Z = @bitCast(Z, a) & absMask;
         const bAbs: Z = @bitCast(Z, b) & absMask;
 

@@ -22,6 +22,8 @@ pub const SystemLib = struct {
     needed: bool = false,
 };
 
+pub const CacheMode = enum { incremental, whole };
+
 pub fn hashAddSystemLibs(
     hh: *Cache.HashHelper,
     hm: std.StringArrayHashMapUnmanaged(SystemLib),
@@ -44,10 +46,9 @@ pub const Emit = struct {
 };
 
 pub const Options = struct {
-    /// This is `null` when -fno-emit-bin is used. When `openPath` or `flush` is called,
-    /// it will have already been null-checked.
+    /// This is `null` when `-fno-emit-bin` is used.
     emit: ?Emit,
-    /// This is `null` not building a Windows DLL, or when -fno-emit-implib is used.
+    /// This is `null` not building a Windows DLL, or when `-fno-emit-implib` is used.
     implib_emit: ?Emit,
     target: std.Target,
     output_mode: std.builtin.OutputMode,
@@ -70,6 +71,7 @@ pub const Options = struct {
     entry_addr: ?u64 = null,
     stack_size_override: ?u64,
     image_base_override: ?u64,
+    cache_mode: CacheMode,
     include_compiler_rt: bool,
     /// Set to `true` to omit debug info.
     strip: bool,
@@ -164,6 +166,12 @@ pub const Options = struct {
 
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
+    }
+
+    pub fn move(self: *Options) Options {
+        const copied_state = self.*;
+        self.system_libs = .{};
+        return copied_state;
     }
 };
 
@@ -628,6 +636,36 @@ pub const File = struct {
         }
     }
 
+    /// This function is called by the frontend before flush(). It communicates that
+    /// `options.bin_file.emit` directory needs to be renamed from
+    /// `[zig-cache]/tmp/[random]` to `[zig-cache]/o/[digest]`.
+    /// The frontend would like to simply perform a file system rename, however,
+    /// some linker backends care about the file paths of the objects they are linking.
+    /// So this function call tells linker backends to rename the paths of object files
+    /// to observe the new directory path.
+    /// Linker backends which do not have this requirement can fall back to the simple
+    /// implementation at the bottom of this function.
+    /// This function is only called when CacheMode is `whole`.
+    pub fn renameTmpIntoCache(
+        base: *File,
+        cache_directory: Compilation.Directory,
+        tmp_dir_sub_path: []const u8,
+        o_sub_path: []const u8,
+    ) !void {
+        // So far, none of the linker backends need to respond to this event, however,
+        // it makes sense that they might want to. So we leave this mechanism here
+        // for now. Once the linker backends get more mature, if it turns out this
+        // is not needed we can refactor this into having the frontend do the rename
+        // directly, and remove this function from link.zig.
+        _ = base;
+        try std.fs.rename(
+            cache_directory.handle,
+            tmp_dir_sub_path,
+            cache_directory.handle,
+            o_sub_path,
+        );
+    }
+
     pub fn linkAsArchive(base: *File, comp: *Compilation) !void {
         const tracy = trace(@src());
         defer tracy.end();
@@ -637,9 +675,11 @@ pub const File = struct {
         const arena = arena_allocator.allocator();
 
         const directory = base.options.emit.?.directory; // Just an alias to make it shorter to type.
+        const full_out_path = try directory.join(arena, &[_][]const u8{base.options.emit.?.sub_path});
+        const full_out_path_z = try arena.dupeZ(u8, full_out_path);
 
-        // If there is no Zig code to compile, then we should skip flushing the output file because it
-        // will not be part of the linker line anyway.
+        // If there is no Zig code to compile, then we should skip flushing the output file
+        // because it will not be part of the linker line anyway.
         const module_obj_path: ?[]const u8 = if (base.options.module) |module| blk: {
             const use_stage1 = build_options.is_stage1 and base.options.use_stage1;
             if (use_stage1) {
@@ -648,19 +688,27 @@ pub const File = struct {
                     .target = base.options.target,
                     .output_mode = .Obj,
                 });
-                const o_directory = module.zig_cache_artifact_directory;
-                const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
-                break :blk full_obj_path;
+                switch (base.options.cache_mode) {
+                    .incremental => break :blk try module.zig_cache_artifact_directory.join(
+                        arena,
+                        &[_][]const u8{obj_basename},
+                    ),
+                    .whole => break :blk try fs.path.join(arena, &.{
+                        fs.path.dirname(full_out_path_z).?, obj_basename,
+                    }),
+                }
             }
             if (base.options.object_format == .macho) {
                 try base.cast(MachO).?.flushObject(comp);
             } else {
                 try base.flushModule(comp);
             }
-            const obj_basename = base.intermediary_basename.?;
-            const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
-            break :blk full_obj_path;
+            break :blk try fs.path.join(arena, &.{
+                fs.path.dirname(full_out_path_z).?, base.intermediary_basename.?,
+            });
         } else null;
+
+        log.debug("module_obj_path={s}", .{if (module_obj_path) |s| s else "(null)"});
 
         const compiler_rt_path: ?[]const u8 = if (base.options.include_compiler_rt)
             comp.compiler_rt_obj.?.full_object_path
@@ -733,9 +781,6 @@ pub const File = struct {
         if (compiler_rt_path) |p| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
         }
-
-        const full_out_path = try directory.join(arena, &[_][]const u8{base.options.emit.?.sub_path});
-        const full_out_path_z = try arena.dupeZ(u8, full_out_path);
 
         if (base.options.verbose_link) {
             std.debug.print("ar rcs {s}", .{full_out_path_z});

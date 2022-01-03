@@ -401,7 +401,7 @@ pub fn Watch(comptime V: type) type {
                     .access_mask = windows.FILE_LIST_DIRECTORY,
                     .creation = windows.FILE_OPEN,
                     .io_mode = .evented,
-                    .open_dir = true,
+                    .filter = .dir_only,
                 });
                 errdefer windows.CloseHandle(dir_handle);
 

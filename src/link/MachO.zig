@@ -423,6 +423,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     const arena = arena_allocator.allocator();
 
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
@@ -433,15 +434,24 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 .target = self.base.options.target,
                 .output_mode = .Obj,
             });
-            const o_directory = module.zig_cache_artifact_directory;
-            const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
-            break :blk full_obj_path;
+            switch (self.base.options.cache_mode) {
+                .incremental => break :blk try module.zig_cache_artifact_directory.join(
+                    arena,
+                    &[_][]const u8{obj_basename},
+                ),
+                .whole => break :blk try fs.path.join(arena, &.{
+                    fs.path.dirname(full_out_path).?, obj_basename,
+                }),
+            }
         }
 
         const obj_basename = self.base.intermediary_basename orelse break :blk null;
+
         try self.flushObject(comp);
-        const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
-        break :blk full_obj_path;
+
+        break :blk try fs.path.join(arena, &.{
+            fs.path.dirname(full_out_path).?, obj_basename,
+        });
     } else null;
 
     const is_lib = self.base.options.output_mode == .Lib;
@@ -465,6 +475,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
+
+        comptime assert(Compilation.link_hash_implementation_version == 1);
 
         try man.addListOfFiles(self.base.options.objects);
         for (comp.c_object_table.keys()) |key| {
@@ -532,7 +544,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             else => |e| return e,
         };
     }
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     if (self.base.options.output_mode == .Obj) {
         // LLD's MachO driver does not support the equivalent of `-r` so we do a simple file copy
@@ -1267,7 +1278,7 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
     for (files) |file_name| {
         const full_path = full_path: {
             var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
-            const path = try std.fs.realpath(file_name, &buffer);
+            const path = try fs.realpath(file_name, &buffer);
             break :full_path try self.base.allocator.dupe(u8, path);
         };
         defer self.base.allocator.free(full_path);

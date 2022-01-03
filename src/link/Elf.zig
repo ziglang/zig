@@ -297,6 +297,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         else => return error.UnsupportedELFArchitecture,
     };
     const self = try gpa.create(Elf);
+    errdefer gpa.destroy(self);
     self.* = .{
         .base = .{
             .tag = .elf,
@@ -306,6 +307,9 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         },
         .ptr_width = ptr_width,
     };
+    // TODO get rid of the sub_path parameter to LlvmObject.create
+    // and create the llvm_object here. Also openPath needs to
+    // not override this field or there will be a memory leak.
     return self;
 }
 
@@ -1298,6 +1302,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const arena = arena_allocator.allocator();
 
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
@@ -1309,15 +1314,22 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 .target = self.base.options.target,
                 .output_mode = .Obj,
             });
-            const o_directory = module.zig_cache_artifact_directory;
-            const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
-            break :blk full_obj_path;
+            switch (self.base.options.cache_mode) {
+                .incremental => break :blk try module.zig_cache_artifact_directory.join(
+                    arena,
+                    &[_][]const u8{obj_basename},
+                ),
+                .whole => break :blk try fs.path.join(arena, &.{
+                    fs.path.dirname(full_out_path).?, obj_basename,
+                }),
+            }
         }
 
         try self.flushModule(comp);
-        const obj_basename = self.base.intermediary_basename.?;
-        const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
-        break :blk full_obj_path;
+
+        break :blk try fs.path.join(arena, &.{
+            fs.path.dirname(full_out_path).?, self.base.intermediary_basename.?,
+        });
     } else null;
 
     const is_obj = self.base.options.output_mode == .Obj;
@@ -1356,6 +1368,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
+
+        comptime assert(Compilation.link_hash_implementation_version == 1);
 
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
@@ -1431,8 +1445,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             else => |e| return e,
         };
     }
-
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     // Due to a deficiency in LLD, we need to special-case BPF to a simple file copy when generating
     // relocatables. Normally, we would expect `lld -r` to work. However, because LLD wants to resolve

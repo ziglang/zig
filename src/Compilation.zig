@@ -41,8 +41,8 @@ gpa: Allocator,
 arena_state: std.heap.ArenaAllocator.State,
 bin_file: *link.File,
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
-stage1_lock: ?Cache.Lock = null,
-stage1_cache_manifest: *Cache.Manifest = undefined,
+/// This is a pointer to a local variable inside `update()`.
+whole_cache_manifest: ?*Cache.Manifest = null,
 
 link_error_flags: link.File.ErrorFlags = .{},
 
@@ -98,6 +98,13 @@ clang_argv: []const []const u8,
 cache_parent: *Cache,
 /// Path to own executable for invoking `zig clang`.
 self_exe_path: ?[]const u8,
+/// null means -fno-emit-bin.
+/// This is mutable memory allocated into the Compilation-lifetime arena (`arena_state`)
+/// of exactly the correct size for "o/[digest]/[basename]".
+/// The basename is of the outputted binary file in case we don't know the directory yet.
+whole_bin_sub_path: ?[]u8,
+/// Same as `whole_bin_sub_path` but for implibs.
+whole_implib_sub_path: ?[]u8,
 zig_lib_directory: Directory,
 local_cache_directory: Directory,
 global_cache_directory: Directory,
@@ -418,7 +425,7 @@ pub const AllErrors = struct {
             const module_note = module_err_msg.notes[i];
             const source = try module_note.src_loc.file_scope.getSource(module.gpa);
             const byte_offset = try module_note.src_loc.byteOffset(module.gpa);
-            const loc = std.zig.findLineColumn(source, byte_offset);
+            const loc = std.zig.findLineColumn(source.bytes, byte_offset);
             const file_path = try module_note.src_loc.file_scope.fullPath(allocator);
             note.* = .{
                 .src = .{
@@ -441,7 +448,7 @@ pub const AllErrors = struct {
         }
         const source = try module_err_msg.src_loc.file_scope.getSource(module.gpa);
         const byte_offset = try module_err_msg.src_loc.byteOffset(module.gpa);
-        const loc = std.zig.findLineColumn(source, byte_offset);
+        const loc = std.zig.findLineColumn(source.bytes, byte_offset);
         const file_path = try module_err_msg.src_loc.file_scope.fullPath(allocator);
         try errors.append(.{
             .src = .{
@@ -612,6 +619,15 @@ pub const Directory = struct {
             return std.fs.path.joinZ(allocator, paths);
         }
     }
+
+    /// Whether or not the handle should be closed, or the path should be freed
+    /// is determined by usage, however this function is provided for convenience
+    /// if it happens to be what the caller needs.
+    pub fn closeAndFree(self: *Directory, gpa: Allocator) void {
+        self.handle.close();
+        if (self.path) |p| gpa.free(p);
+        self.* = undefined;
+    }
 };
 
 pub const EmitLoc = struct {
@@ -631,6 +647,7 @@ pub const ClangPreprocessorMode = enum {
 };
 
 pub const SystemLib = link.SystemLib;
+pub const CacheMode = link.CacheMode;
 
 pub const InitOptions = struct {
     zig_lib_directory: Directory,
@@ -668,6 +685,7 @@ pub const InitOptions = struct {
     /// is externally modified - essentially anything other than zig-cache - then
     /// this flag would be set to disable this machinery to avoid false positives.
     disable_lld_caching: bool = false,
+    cache_mode: CacheMode = .incremental,
     object_format: ?std.Target.ObjectFormat = null,
     optimize_mode: std.builtin.Mode = .Debug,
     keep_source_files_loaded: bool = false,
@@ -884,6 +902,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             break :blk build_options.is_stage1;
         };
+
+        const cache_mode = if (use_stage1 and !options.disable_lld_caching)
+            CacheMode.whole
+        else
+            options.cache_mode;
 
         // Make a decision on whether to use LLVM or our own backend.
         const use_llvm = build_options.have_llvm and blk: {
@@ -1219,27 +1242,63 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // modified between incremental updates.
             var hash = cache.hash;
 
-            // Here we put the root source file path name, but *not* with addFile. We want the
-            // hash to be the same regardless of the contents of the source file, because
-            // incremental compilation will handle it, but we do want to namespace different
-            // source file names because they are likely different compilations and therefore this
-            // would be likely to cause cache hits.
-            hash.addBytes(main_pkg.root_src_path);
-            hash.addOptionalBytes(main_pkg.root_src_directory.path);
-            {
-                var local_arena = std.heap.ArenaAllocator.init(gpa);
-                defer local_arena.deinit();
-                var seen_table = std.AutoHashMap(*Package, void).init(local_arena.allocator());
-                try addPackageTableToCacheHash(&hash, &local_arena, main_pkg.table, &seen_table, .path_bytes);
+            switch (cache_mode) {
+                .incremental => {
+                    // Here we put the root source file path name, but *not* with addFile.
+                    // We want the hash to be the same regardless of the contents of the
+                    // source file, because incremental compilation will handle it, but we
+                    // do want to namespace different source file names because they are
+                    // likely different compilations and therefore this would be likely to
+                    // cause cache hits.
+                    hash.addBytes(main_pkg.root_src_path);
+                    hash.addOptionalBytes(main_pkg.root_src_directory.path);
+                    {
+                        var seen_table = std.AutoHashMap(*Package, void).init(arena);
+                        try addPackageTableToCacheHash(&hash, &arena_allocator, main_pkg.table, &seen_table, .path_bytes);
+                    }
+                },
+                .whole => {
+                    // In this case, we postpone adding the input source file until
+                    // we create the cache manifest, in update(), because we want to
+                    // track it and packages as files.
+                },
             }
+
+            // Synchronize with other matching comments: ZigOnlyHashStuff
             hash.add(valgrind);
             hash.add(single_threaded);
             hash.add(use_stage1);
             hash.add(use_llvm);
             hash.add(dll_export_fns);
             hash.add(options.is_test);
+            hash.add(options.test_evented_io);
+            hash.addOptionalBytes(options.test_filter);
+            hash.addOptionalBytes(options.test_name_prefix);
             hash.add(options.skip_linker_dependencies);
             hash.add(options.parent_compilation_link_libc);
+
+            // In the case of incremental cache mode, this `zig_cache_artifact_directory`
+            // is computed based on a hash of non-linker inputs, and it is where all
+            // build artifacts are stored (even while in-progress).
+            //
+            // For whole cache mode, it is still used for builtin.zig so that the file
+            // path to builtin.zig can remain consistent during a debugging session at
+            // runtime. However, we don't know where to put outputs from the linker
+            // or stage1 backend object files until the final cache hash, which is available
+            // after the compilation is complete.
+            //
+            // Therefore, in whole cache mode, we additionally create a temporary cache
+            // directory for these two kinds of build artifacts, and then rename it
+            // into place after the final hash is known. However, we don't want
+            // to create the temporary directory here, because in the case of a cache hit,
+            // this would have been wasted syscalls to make the directory and then not
+            // use it (or delete it).
+            //
+            // In summary, for whole cache mode, we simulate `-fno-emit-bin` in this
+            // function, and `zig_cache_artifact_directory` is *wrong* except for builtin.zig,
+            // and then at the beginning of `update()` when we find out whether we need
+            // a temporary directory, we patch up all the places that the incorrect
+            // `zig_cache_artifact_directory` was passed to various components of the compiler.
 
             const digest = hash.final();
             const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
@@ -1247,11 +1306,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             errdefer artifact_dir.close();
             const zig_cache_artifact_directory: Directory = .{
                 .handle = artifact_dir,
-                .path = if (options.local_cache_directory.path) |p|
-                    try std.fs.path.join(arena, &[_][]const u8{ p, artifact_sub_dir })
-                else
-                    artifact_sub_dir,
+                .path = try options.local_cache_directory.join(arena, &[_][]const u8{artifact_sub_dir}),
             };
+            log.debug("zig_cache_artifact_directory='{s}' use_stage1={}", .{
+                zig_cache_artifact_directory.path, use_stage1,
+            });
 
             const builtin_pkg = try Package.createWithDir(
                 gpa,
@@ -1374,6 +1433,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 };
             }
 
+            switch (cache_mode) {
+                .whole => break :blk null,
+                .incremental => {},
+            }
+
             if (module) |zm| {
                 break :blk link.Emit{
                     .directory = zm.zig_cache_artifact_directory,
@@ -1417,6 +1481,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 };
             }
 
+            // This is here for the same reason as in `bin_file_emit` above.
+            switch (cache_mode) {
+                .whole => break :blk null,
+                .incremental => {},
+            }
+
             // Use the same directory as the bin. The CLI already emits an
             // error if -fno-emit-bin is combined with -femit-implib.
             break :blk link.Emit{
@@ -1424,6 +1494,16 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .sub_path = emit_implib.basename,
             };
         };
+
+        // This is so that when doing `CacheMode.whole`, the mechanism in update()
+        // can use it for communicating the result directory via `bin_file.emit`.
+        // This is used to distinguish between -fno-emit-bin and -femit-bin
+        // for `CacheMode.whole`.
+        // This memory will be overwritten with the real digest in update() but
+        // the basename will be preserved.
+        const whole_bin_sub_path: ?[]u8 = try prepareWholeEmitSubPath(arena, options.emit_bin);
+        // Same thing but for implibs.
+        const whole_implib_sub_path: ?[]u8 = try prepareWholeEmitSubPath(arena, options.emit_implib);
 
         var system_libs: std.StringArrayHashMapUnmanaged(SystemLib) = .{};
         errdefer system_libs.deinit(gpa);
@@ -1512,7 +1592,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .skip_linker_dependencies = options.skip_linker_dependencies,
             .parent_compilation_link_libc = options.parent_compilation_link_libc,
             .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
-            .disable_lld_caching = options.disable_lld_caching,
+            .cache_mode = cache_mode,
+            .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
             .subsystem = options.subsystem,
             .is_test = options.is_test,
             .wasi_exec_model = wasi_exec_model,
@@ -1529,6 +1610,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .local_cache_directory = options.local_cache_directory,
             .global_cache_directory = options.global_cache_directory,
             .bin_file = bin_file,
+            .whole_bin_sub_path = whole_bin_sub_path,
+            .whole_implib_sub_path = whole_implib_sub_path,
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
@@ -1593,7 +1676,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
 
-    if (comp.bin_file.options.emit != null and !comp.bin_file.options.skip_linker_dependencies) {
+    const have_bin_emit = comp.bin_file.options.emit != null or comp.whole_bin_sub_path != null;
+
+    if (have_bin_emit and !comp.bin_file.options.skip_linker_dependencies) {
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
         if (comp.wantBuildGLibCFromSource()) {
@@ -1698,8 +1783,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         if (comp.bin_file.options.include_compiler_rt and capable_of_building_compiler_rt) {
             if (is_exe_or_dyn_lib) {
+                log.debug("queuing a job to build compiler_rt_lib", .{});
                 try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
             } else if (options.output_mode != .Obj) {
+                log.debug("queuing a job to build compiler_rt_obj", .{});
                 // If build-obj with -fcompiler-rt is requested, that is handled specially
                 // elsewhere. In this case we are making a static library, so we ask
                 // for a compiler-rt object to put in it.
@@ -1725,19 +1812,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
     return comp;
 }
 
-fn releaseStage1Lock(comp: *Compilation) void {
-    if (comp.stage1_lock) |*lock| {
-        lock.release();
-        comp.stage1_lock = null;
-    }
-}
-
 pub fn destroy(self: *Compilation) void {
     const optional_module = self.bin_file.options.module;
     self.bin_file.destroy();
     if (optional_module) |module| module.deinit();
-
-    self.releaseStage1Lock();
 
     const gpa = self.gpa;
     self.work_queue.deinit();
@@ -1815,22 +1893,126 @@ pub fn getTarget(self: Compilation) Target {
     return self.bin_file.options.target;
 }
 
+fn restorePrevZigCacheArtifactDirectory(comp: *Compilation, directory: *Directory) void {
+    if (directory.path) |p| comp.gpa.free(p);
+
+    // Restore the Module's previous zig_cache_artifact_directory
+    // This is only for cleanup purposes; Module.deinit calls close
+    // on the handle of zig_cache_artifact_directory.
+    if (comp.bin_file.options.module) |module| {
+        const builtin_pkg = module.main_pkg.table.get("builtin").?;
+        module.zig_cache_artifact_directory = builtin_pkg.root_src_directory;
+    }
+}
+
+fn cleanupTmpArtifactDirectory(
+    comp: *Compilation,
+    tmp_artifact_directory: *?Directory,
+    tmp_dir_sub_path: []const u8,
+) void {
+    comp.gpa.free(tmp_dir_sub_path);
+    if (tmp_artifact_directory.*) |*directory| {
+        directory.handle.close();
+        restorePrevZigCacheArtifactDirectory(comp, directory);
+    }
+}
+
 /// Detect changes to source files, perform semantic analysis, and update the output files.
-pub fn update(self: *Compilation) !void {
+pub fn update(comp: *Compilation) !void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
-    self.clearMiscFailures();
+    comp.clearMiscFailures();
+
+    var man: Cache.Manifest = undefined;
+    defer if (comp.whole_cache_manifest != null) man.deinit();
+
+    var tmp_dir_sub_path: []const u8 = &.{};
+    var tmp_artifact_directory: ?Directory = null;
+    defer cleanupTmpArtifactDirectory(comp, &tmp_artifact_directory, tmp_dir_sub_path);
+
+    // If using the whole caching strategy, we check for *everything* up front, including
+    // C source files.
+    if (comp.bin_file.options.cache_mode == .whole) {
+        // We are about to obtain this lock, so here we give other processes a chance first.
+        comp.bin_file.releaseLock();
+
+        comp.whole_cache_manifest = &man;
+        man = comp.cache_parent.obtain();
+        try comp.addNonIncrementalStuffToCacheManifest(&man);
+
+        const is_hit = man.hit() catch |err| {
+            // TODO properly bubble these up instead of emitting a warning
+            const i = man.failed_file_index orelse return err;
+            const file_path = man.files.items[i].path orelse return err;
+            std.log.warn("{s}: {s}", .{ @errorName(err), file_path });
+            return err;
+        };
+        if (is_hit) {
+            log.debug("CacheMode.whole cache hit for {s}", .{comp.bin_file.options.root_name});
+            const digest = man.final();
+
+            comp.wholeCacheModeSetBinFilePath(&digest);
+
+            assert(comp.bin_file.lock == null);
+            comp.bin_file.lock = man.toOwnedLock();
+            return;
+        }
+        log.debug("CacheMode.whole cache miss for {s}", .{comp.bin_file.options.root_name});
+
+        // Initialize `bin_file.emit` with a temporary Directory so that compilation can
+        // continue on the same path as incremental, using the temporary Directory.
+        tmp_artifact_directory = d: {
+            const s = std.fs.path.sep_str;
+            const rand_int = std.crypto.random.int(u64);
+
+            tmp_dir_sub_path = try std.fmt.allocPrint(comp.gpa, "tmp" ++ s ++ "{x}", .{rand_int});
+
+            const path = try comp.local_cache_directory.join(comp.gpa, &.{tmp_dir_sub_path});
+            errdefer comp.gpa.free(path);
+
+            const handle = try comp.local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
+            errdefer handle.close();
+
+            break :d .{
+                .path = path,
+                .handle = handle,
+            };
+        };
+
+        // This updates the output directory for stage1 backend and linker outputs.
+        if (comp.bin_file.options.module) |module| {
+            module.zig_cache_artifact_directory = tmp_artifact_directory.?;
+        }
+
+        // This resets the link.File to operate as if we called openPath() in create()
+        // instead of simulating -fno-emit-bin.
+        var options = comp.bin_file.options.move();
+        if (comp.whole_bin_sub_path) |sub_path| {
+            options.emit = .{
+                .directory = tmp_artifact_directory.?,
+                .sub_path = std.fs.path.basename(sub_path),
+            };
+        }
+        if (comp.whole_implib_sub_path) |sub_path| {
+            options.implib_emit = .{
+                .directory = tmp_artifact_directory.?,
+                .sub_path = std.fs.path.basename(sub_path),
+            };
+        }
+        comp.bin_file.destroy();
+        comp.bin_file = try link.File.openPath(comp.gpa, options);
+    }
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
     // Add a Job for each C object.
-    try self.c_object_work_queue.ensureUnusedCapacity(self.c_object_table.count());
-    for (self.c_object_table.keys()) |key| {
-        self.c_object_work_queue.writeItemAssumeCapacity(key);
+    try comp.c_object_work_queue.ensureUnusedCapacity(comp.c_object_table.count());
+    for (comp.c_object_table.keys()) |key| {
+        comp.c_object_work_queue.writeItemAssumeCapacity(key);
     }
 
-    const use_stage1 = build_options.is_stage1 and self.bin_file.options.use_stage1;
-    if (self.bin_file.options.module) |module| {
+    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
+    if (comp.bin_file.options.module) |module| {
         module.compile_log_text.shrinkAndFree(module.gpa, 0);
         module.generation += 1;
 
@@ -1845,7 +2027,7 @@ pub fn update(self: *Compilation) !void {
         // import_table here.
         // Likewise, in the case of `zig test`, the test runner is the root source file,
         // and so there is nothing to import the main file.
-        if (use_stage1 or self.bin_file.options.is_test) {
+        if (use_stage1 or comp.bin_file.options.is_test) {
             _ = try module.importPkg(module.main_pkg);
         }
 
@@ -1854,34 +2036,34 @@ pub fn update(self: *Compilation) !void {
         // to update it.
         // We still want AstGen work items for stage1 so that we expose compile errors
         // that are implemented in stage2 but not stage1.
-        try self.astgen_work_queue.ensureUnusedCapacity(module.import_table.count());
+        try comp.astgen_work_queue.ensureUnusedCapacity(module.import_table.count());
         for (module.import_table.values()) |value| {
-            self.astgen_work_queue.writeItemAssumeCapacity(value);
+            comp.astgen_work_queue.writeItemAssumeCapacity(value);
         }
 
         if (!use_stage1) {
             // Put a work item in for checking if any files used with `@embedFile` changed.
             {
-                try self.embed_file_work_queue.ensureUnusedCapacity(module.embed_table.count());
+                try comp.embed_file_work_queue.ensureUnusedCapacity(module.embed_table.count());
                 var it = module.embed_table.iterator();
                 while (it.next()) |entry| {
                     const embed_file = entry.value_ptr.*;
-                    self.embed_file_work_queue.writeItemAssumeCapacity(embed_file);
+                    comp.embed_file_work_queue.writeItemAssumeCapacity(embed_file);
                 }
             }
 
-            try self.work_queue.writeItem(.{ .analyze_pkg = std_pkg });
-            if (self.bin_file.options.is_test) {
-                try self.work_queue.writeItem(.{ .analyze_pkg = module.main_pkg });
+            try comp.work_queue.writeItem(.{ .analyze_pkg = std_pkg });
+            if (comp.bin_file.options.is_test) {
+                try comp.work_queue.writeItem(.{ .analyze_pkg = module.main_pkg });
             }
         }
     }
 
-    try self.performAllTheWork();
+    try comp.performAllTheWork();
 
     if (!use_stage1) {
-        if (self.bin_file.options.module) |module| {
-            if (self.bin_file.options.is_test and self.totalErrorCount() == 0) {
+        if (comp.bin_file.options.module) |module| {
+            if (comp.bin_file.options.is_test and comp.totalErrorCount() == 0) {
                 // The `test_functions` decl has been intentionally postponed until now,
                 // at which point we must populate it with the list of test functions that
                 // have been discovered and not filtered out.
@@ -1910,39 +2092,239 @@ pub fn update(self: *Compilation) !void {
         }
     }
 
-    if (self.totalErrorCount() != 0) {
-        // Skip flushing.
-        self.link_error_flags = .{};
+    if (comp.totalErrorCount() != 0) {
+        // Skip flushing and keep source files loaded for error reporting.
+        comp.link_error_flags = .{};
         return;
-    }
-
-    // This is needed before reading the error flags.
-    try self.bin_file.flush(self);
-    self.link_error_flags = self.bin_file.errorFlags();
-
-    if (!use_stage1) {
-        if (self.bin_file.options.module) |module| {
-            try link.File.C.flushEmitH(module);
-        }
     }
 
     // Flush takes care of -femit-bin, but we still have -femit-llvm-ir, -femit-llvm-bc, and
     // -femit-asm to handle, in the case of C objects.
-    self.emitOthers();
+    comp.emitOthers();
 
-    // If there are any errors, we anticipate the source files being loaded
-    // to report error messages. Otherwise we unload all source files to save memory.
+    if (comp.whole_cache_manifest != null) {
+        const digest = man.final();
+
+        // Rename the temporary directory into place.
+        var directory = tmp_artifact_directory.?;
+        tmp_artifact_directory = null;
+
+        directory.handle.close();
+        defer restorePrevZigCacheArtifactDirectory(comp, &directory);
+
+        const o_sub_path = try std.fs.path.join(comp.gpa, &[_][]const u8{ "o", &digest });
+        defer comp.gpa.free(o_sub_path);
+
+        try comp.bin_file.renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path);
+        comp.wholeCacheModeSetBinFilePath(&digest);
+
+        // This is intentionally sandwiched between renameTmpIntoCache() and writeManifest().
+        if (comp.bin_file.options.module) |module| {
+            // We need to set the zig_cache_artifact_directory for -femit-asm, -femit-llvm-ir,
+            // etc to know where to output to.
+            var artifact_dir = try comp.local_cache_directory.handle.openDir(o_sub_path, .{});
+            defer artifact_dir.close();
+
+            var dir_path = try comp.local_cache_directory.join(comp.gpa, &.{o_sub_path});
+            defer comp.gpa.free(dir_path);
+
+            module.zig_cache_artifact_directory = .{
+                .handle = artifact_dir,
+                .path = dir_path,
+            };
+
+            try comp.flush();
+        } else {
+            try comp.flush();
+        }
+
+        // Failure here only means an unnecessary cache miss.
+        man.writeManifest() catch |err| {
+            log.warn("failed to write cache manifest: {s}", .{@errorName(err)});
+        };
+
+        assert(comp.bin_file.lock == null);
+        comp.bin_file.lock = man.toOwnedLock();
+    } else {
+        try comp.flush();
+    }
+
+    // Unload all source files to save memory.
     // The ZIR needs to stay loaded in memory because (1) Decl objects contain references
     // to it, and (2) generic instantiations, comptime calls, inline calls will need
     // to reference the ZIR.
-    if (self.totalErrorCount() == 0 and !self.keep_source_files_loaded) {
-        if (self.bin_file.options.module) |module| {
+    if (!comp.keep_source_files_loaded) {
+        if (comp.bin_file.options.module) |module| {
             for (module.import_table.values()) |file| {
-                file.unloadTree(self.gpa);
-                file.unloadSource(self.gpa);
+                file.unloadTree(comp.gpa);
+                file.unloadSource(comp.gpa);
             }
         }
     }
+}
+
+fn flush(comp: *Compilation) !void {
+    try comp.bin_file.flush(comp); // This is needed before reading the error flags.
+    comp.link_error_flags = comp.bin_file.errorFlags();
+
+    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
+    if (!use_stage1) {
+        if (comp.bin_file.options.module) |module| {
+            try link.File.C.flushEmitH(module);
+        }
+    }
+}
+
+/// Communicate the output binary location to parent Compilations.
+fn wholeCacheModeSetBinFilePath(comp: *Compilation, digest: *const [Cache.hex_digest_len]u8) void {
+    const digest_start = 2; // "o/[digest]/[basename]"
+
+    if (comp.whole_bin_sub_path) |sub_path| {
+        mem.copy(u8, sub_path[digest_start..], digest);
+
+        comp.bin_file.options.emit = .{
+            .directory = comp.local_cache_directory,
+            .sub_path = sub_path,
+        };
+    }
+
+    if (comp.whole_implib_sub_path) |sub_path| {
+        mem.copy(u8, sub_path[digest_start..], digest);
+
+        comp.bin_file.options.implib_emit = .{
+            .directory = comp.local_cache_directory,
+            .sub_path = sub_path,
+        };
+    }
+}
+
+fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemory}!?[]u8 {
+    const emit = opt_emit orelse return null;
+    if (emit.directory != null) return null;
+    const s = std.fs.path.sep_str;
+    const format = "o" ++ s ++ ("x" ** Cache.hex_digest_len) ++ s ++ "{s}";
+    return try std.fmt.allocPrint(arena, format, .{emit.basename});
+}
+
+/// This is only observed at compile-time and used to emit a compile error
+/// to remind the programmer to update multiple related pieces of code that
+/// are in different locations. Bump this number when adding or deleting
+/// anything from the link cache manifest.
+pub const link_hash_implementation_version = 1;
+
+fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
+    const gpa = comp.gpa;
+    const target = comp.getTarget();
+
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    comptime assert(link_hash_implementation_version == 1);
+
+    if (comp.bin_file.options.module) |mod| {
+        const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
+            mod.main_pkg.root_src_path,
+        });
+        _ = try man.addFile(main_zig_file, null);
+        {
+            var seen_table = std.AutoHashMap(*Package, void).init(arena);
+
+            // Skip builtin.zig; it is useless as an input, and we don't want to have to
+            // write it before checking for a cache hit.
+            const builtin_pkg = mod.main_pkg.table.get("builtin").?;
+            try seen_table.put(builtin_pkg, {});
+
+            try addPackageTableToCacheHash(&man.hash, &arena_allocator, mod.main_pkg.table, &seen_table, .{ .files = man });
+        }
+
+        // Synchronize with other matching comments: ZigOnlyHashStuff
+        man.hash.add(comp.bin_file.options.valgrind);
+        man.hash.add(comp.bin_file.options.single_threaded);
+        man.hash.add(comp.bin_file.options.use_stage1);
+        man.hash.add(comp.bin_file.options.use_llvm);
+        man.hash.add(comp.bin_file.options.dll_export_fns);
+        man.hash.add(comp.bin_file.options.is_test);
+        man.hash.add(comp.test_evented_io);
+        man.hash.addOptionalBytes(comp.test_filter);
+        man.hash.addOptionalBytes(comp.test_name_prefix);
+        man.hash.add(comp.bin_file.options.skip_linker_dependencies);
+        man.hash.add(comp.bin_file.options.parent_compilation_link_libc);
+        man.hash.add(mod.emit_h != null);
+    }
+
+    try man.addOptionalFile(comp.bin_file.options.linker_script);
+    try man.addOptionalFile(comp.bin_file.options.version_script);
+    try man.addListOfFiles(comp.bin_file.options.objects);
+
+    for (comp.c_object_table.keys()) |key| {
+        _ = try man.addFile(key.src.src_path, null);
+        man.hash.addListOfBytes(key.src.extra_flags);
+    }
+
+    man.hash.addOptionalEmitLoc(comp.emit_asm);
+    man.hash.addOptionalEmitLoc(comp.emit_llvm_ir);
+    man.hash.addOptionalEmitLoc(comp.emit_llvm_bc);
+    man.hash.addOptionalEmitLoc(comp.emit_analysis);
+    man.hash.addOptionalEmitLoc(comp.emit_docs);
+
+    man.hash.addListOfBytes(comp.clang_argv);
+
+    man.hash.addOptional(comp.bin_file.options.stack_size_override);
+    man.hash.addOptional(comp.bin_file.options.image_base_override);
+    man.hash.addOptional(comp.bin_file.options.gc_sections);
+    man.hash.add(comp.bin_file.options.eh_frame_hdr);
+    man.hash.add(comp.bin_file.options.emit_relocs);
+    man.hash.add(comp.bin_file.options.rdynamic);
+    man.hash.addListOfBytes(comp.bin_file.options.lib_dirs);
+    man.hash.addListOfBytes(comp.bin_file.options.rpath_list);
+    man.hash.add(comp.bin_file.options.each_lib_rpath);
+    man.hash.add(comp.bin_file.options.skip_linker_dependencies);
+    man.hash.add(comp.bin_file.options.z_nodelete);
+    man.hash.add(comp.bin_file.options.z_notext);
+    man.hash.add(comp.bin_file.options.z_defs);
+    man.hash.add(comp.bin_file.options.z_origin);
+    man.hash.add(comp.bin_file.options.z_noexecstack);
+    man.hash.add(comp.bin_file.options.z_now);
+    man.hash.add(comp.bin_file.options.z_relro);
+    man.hash.add(comp.bin_file.options.include_compiler_rt);
+    if (comp.bin_file.options.link_libc) {
+        man.hash.add(comp.bin_file.options.libc_installation != null);
+        if (comp.bin_file.options.libc_installation) |libc_installation| {
+            man.hash.addBytes(libc_installation.crt_dir.?);
+            if (target.abi == .msvc) {
+                man.hash.addBytes(libc_installation.msvc_lib_dir.?);
+                man.hash.addBytes(libc_installation.kernel32_lib_dir.?);
+            }
+        }
+        man.hash.addOptionalBytes(comp.bin_file.options.dynamic_linker);
+    }
+    man.hash.addOptionalBytes(comp.bin_file.options.soname);
+    man.hash.addOptional(comp.bin_file.options.version);
+    link.hashAddSystemLibs(&man.hash, comp.bin_file.options.system_libs);
+    man.hash.addOptional(comp.bin_file.options.allow_shlib_undefined);
+    man.hash.add(comp.bin_file.options.bind_global_refs_locally);
+    man.hash.add(comp.bin_file.options.tsan);
+    man.hash.addOptionalBytes(comp.bin_file.options.sysroot);
+    man.hash.add(comp.bin_file.options.linker_optimization);
+
+    // WASM specific stuff
+    man.hash.add(comp.bin_file.options.import_memory);
+    man.hash.addOptional(comp.bin_file.options.initial_memory);
+    man.hash.addOptional(comp.bin_file.options.max_memory);
+    man.hash.addOptional(comp.bin_file.options.global_base);
+
+    // Mach-O specific stuff
+    man.hash.addListOfBytes(comp.bin_file.options.framework_dirs);
+    man.hash.addListOfBytes(comp.bin_file.options.frameworks);
+
+    // COFF specific stuff
+    man.hash.addOptional(comp.bin_file.options.subsystem);
+    man.hash.add(comp.bin_file.options.tsaware);
+    man.hash.add(comp.bin_file.options.nxcompat);
+    man.hash.add(comp.bin_file.options.dynamicbase);
+    man.hash.addOptional(comp.bin_file.options.major_subsystem_version);
+    man.hash.addOptional(comp.bin_file.options.minor_subsystem_version);
 }
 
 fn emitOthers(comp: *Compilation) void {
@@ -2988,7 +3370,9 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
 
         const dep_basename = std.fs.path.basename(out_dep_path);
         try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
-        if (build_options.is_stage1 and comp.bin_file.options.use_stage1) try comp.stage1_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+        if (comp.whole_cache_manifest) |whole_cache_manifest| {
+            try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+        }
 
         const digest = man.final();
         const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
@@ -3351,13 +3735,13 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     };
 }
 
-pub fn tmpFilePath(comp: *Compilation, arena: Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
+pub fn tmpFilePath(comp: *Compilation, ally: Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
     const s = std.fs.path.sep_str;
     const rand_int = std.crypto.random.int(u64);
     if (comp.local_cache_directory.path) |p| {
-        return std.fmt.allocPrint(arena, "{s}" ++ s ++ "tmp" ++ s ++ "{x}-{s}", .{ p, rand_int, suffix });
+        return std.fmt.allocPrint(ally, "{s}" ++ s ++ "tmp" ++ s ++ "{x}-{s}", .{ p, rand_int, suffix });
     } else {
-        return std.fmt.allocPrint(arena, "tmp" ++ s ++ "{x}-{s}", .{ rand_int, suffix });
+        return std.fmt.allocPrint(ally, "tmp" ++ s ++ "{x}-{s}", .{ rand_int, suffix });
     }
 }
 
@@ -4424,6 +4808,7 @@ fn buildOutputFromZig(
         .global_cache_directory = comp.global_cache_directory,
         .local_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
+        .cache_mode = .whole,
         .target = target,
         .root_name = root_name,
         .main_pkg = &main_pkg,
@@ -4501,10 +4886,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         mod.main_pkg.root_src_path,
     });
     const zig_lib_dir = comp.zig_lib_directory.path.?;
-    const builtin_zig_path = try directory.join(arena, &[_][]const u8{"builtin.zig"});
     const target = comp.getTarget();
-    const id_symlink_basename = "stage1.id";
-    const libs_txt_basename = "libs.txt";
 
     // The include_compiler_rt stored in the bin file options here means that we need
     // compiler-rt symbols *somehow*. However, in the context of using the stage1 backend
@@ -4515,115 +4897,6 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     // for stage1 if we are using build-obj.
     const include_compiler_rt = comp.bin_file.options.output_mode == .Obj and
         comp.bin_file.options.include_compiler_rt;
-
-    // We are about to obtain this lock, so here we give other processes a chance first.
-    comp.releaseStage1Lock();
-
-    // Unlike with the self-hosted Zig module, stage1 does not support incremental compilation,
-    // so we input all the zig source files into the cache hash system. We're going to keep
-    // the artifact directory the same, however, so we take the same strategy as linking
-    // does where we have a file which specifies the hash of the output directory so that we can
-    // skip the expensive compilation step if the hash matches.
-    var man = comp.cache_parent.obtain();
-    defer man.deinit();
-
-    _ = try man.addFile(main_zig_file, null);
-    {
-        var seen_table = std.AutoHashMap(*Package, void).init(arena_allocator.allocator());
-        try addPackageTableToCacheHash(&man.hash, &arena_allocator, mod.main_pkg.table, &seen_table, .{ .files = &man });
-    }
-    man.hash.add(comp.bin_file.options.valgrind);
-    man.hash.add(comp.bin_file.options.single_threaded);
-    man.hash.add(target.os.getVersionRange());
-    man.hash.add(comp.bin_file.options.dll_export_fns);
-    man.hash.add(comp.bin_file.options.function_sections);
-    man.hash.add(include_compiler_rt);
-    man.hash.add(comp.bin_file.options.is_test);
-    man.hash.add(comp.bin_file.options.emit != null);
-    man.hash.add(mod.emit_h != null);
-    if (mod.emit_h) |emit_h| {
-        man.hash.addEmitLoc(emit_h.loc);
-    }
-    man.hash.addOptionalEmitLoc(comp.emit_asm);
-    man.hash.addOptionalEmitLoc(comp.emit_llvm_ir);
-    man.hash.addOptionalEmitLoc(comp.emit_llvm_bc);
-    man.hash.addOptionalEmitLoc(comp.emit_analysis);
-    man.hash.addOptionalEmitLoc(comp.emit_docs);
-    man.hash.add(comp.test_evented_io);
-    man.hash.addOptionalBytes(comp.test_filter);
-    man.hash.addOptionalBytes(comp.test_name_prefix);
-    man.hash.addListOfBytes(comp.clang_argv);
-
-    // Capture the state in case we come back from this branch where the hash doesn't match.
-    const prev_hash_state = man.hash.peekBin();
-    const input_file_count = man.files.items.len;
-
-    const hit = man.hit() catch |err| {
-        const i = man.failed_file_index orelse return err;
-        const file_path = man.files.items[i].path orelse return err;
-        fatal("unable to build stage1 zig object: {s}: {s}", .{ @errorName(err), file_path });
-    };
-    if (hit) {
-        const digest = man.final();
-
-        // We use an extra hex-encoded byte here to store some flags.
-        var prev_digest_buf: [digest.len + 2]u8 = undefined;
-        const prev_digest: []u8 = Cache.readSmallFile(
-            directory.handle,
-            id_symlink_basename,
-            &prev_digest_buf,
-        ) catch |err| blk: {
-            log.debug("stage1 {s} new_digest={s} error: {s}", .{
-                mod.main_pkg.root_src_path,
-                std.fmt.fmtSliceHexLower(&digest),
-                @errorName(err),
-            });
-            // Handle this as a cache miss.
-            break :blk prev_digest_buf[0..0];
-        };
-        if (prev_digest.len >= digest.len + 2) hit: {
-            if (!mem.eql(u8, prev_digest[0..digest.len], &digest))
-                break :hit;
-
-            log.debug("stage1 {s} digest={s} match - skipping invocation", .{
-                mod.main_pkg.root_src_path,
-                std.fmt.fmtSliceHexLower(&digest),
-            });
-            var flags_bytes: [1]u8 = undefined;
-            _ = std.fmt.hexToBytes(&flags_bytes, prev_digest[digest.len..]) catch {
-                log.warn("bad cache stage1 digest: '{s}'", .{std.fmt.fmtSliceHexLower(prev_digest)});
-                break :hit;
-            };
-
-            if (directory.handle.readFileAlloc(comp.gpa, libs_txt_basename, 10 * 1024 * 1024)) |libs_txt| {
-                var it = mem.tokenize(u8, libs_txt, "\n");
-                while (it.next()) |lib_name| {
-                    try comp.stage1AddLinkLib(lib_name);
-                }
-            } else |err| switch (err) {
-                error.FileNotFound => {}, // That's OK, it just means 0 libs.
-                else => {
-                    log.warn("unable to read cached list of link libs: {s}", .{@errorName(err)});
-                    break :hit;
-                },
-            }
-            comp.stage1_lock = man.toOwnedLock();
-            mod.stage1_flags = @bitCast(@TypeOf(mod.stage1_flags), flags_bytes[0]);
-            return;
-        }
-        log.debug("stage1 {s} prev_digest={s} new_digest={s}", .{
-            mod.main_pkg.root_src_path,
-            std.fmt.fmtSliceHexLower(prev_digest),
-            std.fmt.fmtSliceHexLower(&digest),
-        });
-        man.unhit(prev_hash_state, input_file_count);
-    }
-
-    // We are about to change the output file to be different, so we invalidate the build hash now.
-    directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
-        error.FileNotFound => {},
-        else => |e| return e,
-    };
 
     const stage2_target = try arena.create(stage1.Stage2Target);
     stage2_target.* = .{
@@ -4637,9 +4910,9 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .llvm_target_abi = if (target_util.llvmMachineAbi(target)) |s| s.ptr else null,
     };
 
-    comp.stage1_cache_manifest = &man;
-
     const main_pkg_path = mod.main_pkg.root_src_directory.path orelse "";
+    const builtin_pkg = mod.main_pkg.table.get("builtin").?;
+    const builtin_zig_path = try builtin_pkg.root_src_directory.join(arena, &.{builtin_pkg.root_src_path});
 
     const stage1_module = stage1.create(
         @enumToInt(comp.bin_file.options.optimize_mode),
@@ -4740,18 +5013,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .have_dllmain_crt_startup = false,
     };
 
-    const inferred_lib_start_index = comp.bin_file.options.system_libs.count();
     stage1_module.build_object();
-
-    if (comp.bin_file.options.system_libs.count() > inferred_lib_start_index) {
-        // We need to save the inferred link libs to the cache, otherwise if we get a cache hit
-        // next time we will be missing these libs.
-        var libs_txt = std.ArrayList(u8).init(arena);
-        for (comp.bin_file.options.system_libs.keys()[inferred_lib_start_index..]) |key| {
-            try libs_txt.writer().print("{s}\n", .{key});
-        }
-        try directory.handle.writeFile(libs_txt_basename, libs_txt.items);
-    }
 
     mod.stage1_flags = .{
         .have_c_main = stage1_module.have_c_main,
@@ -4763,34 +5025,6 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     };
 
     stage1_module.destroy();
-
-    const digest = man.final();
-
-    // Update the small file with the digest. If it fails we can continue; it only
-    // means that the next invocation will have an unnecessary cache miss.
-    const stage1_flags_byte = @bitCast(u8, mod.stage1_flags);
-    log.debug("stage1 {s} final digest={s} flags={x}", .{
-        mod.main_pkg.root_src_path, std.fmt.fmtSliceHexLower(&digest), stage1_flags_byte,
-    });
-    var digest_plus_flags: [digest.len + 2]u8 = undefined;
-    digest_plus_flags[0..digest.len].* = digest;
-    assert(std.fmt.formatIntBuf(digest_plus_flags[digest.len..], stage1_flags_byte, 16, .lower, .{
-        .width = 2,
-        .fill = '0',
-    }) == 2);
-    log.debug("saved digest + flags: '{s}' (byte = {}) have_winmain_crt_startup={}", .{
-        digest_plus_flags, stage1_flags_byte, mod.stage1_flags.have_winmain_crt_startup,
-    });
-    Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest_plus_flags) catch |err| {
-        log.warn("failed to save stage1 hash digest file: {s}", .{@errorName(err)});
-    };
-    // Failure here only means an unnecessary cache miss.
-    man.writeManifest() catch |err| {
-        log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
-    };
-    // We hang on to this lock so that the output file path can be used without
-    // other processes clobbering it.
-    comp.stage1_lock = man.toOwnedLock();
 }
 
 fn stage1LocPath(arena: Allocator, opt_loc: ?EmitLoc, cache_directory: Directory) ![]const u8 {
@@ -4862,6 +5096,7 @@ pub fn build_crt_file(
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
+        .cache_mode = .whole,
         .target = target,
         .root_name = root_name,
         .main_pkg = null,

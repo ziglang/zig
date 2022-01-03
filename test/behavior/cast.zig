@@ -295,3 +295,12 @@ test "cast from ?[*]T to ??[*]T" {
     const a: ??[*]u8 = @as(?[*]u8, null);
     try expect(a != null and a.? == null);
 }
+
+test "peer type unsigned int to signed" {
+    var w: u31 = 5;
+    var x: u8 = 7;
+    var y: i32 = -5;
+    var a = w + y + x;
+    comptime try expect(@TypeOf(a) == i32);
+    try expect(a == 7);
+}
