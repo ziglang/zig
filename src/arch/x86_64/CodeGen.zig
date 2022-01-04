@@ -1255,10 +1255,18 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement slice_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(ty_op.operand);
+        const dst_mcv: MCValue = blk: {
+            switch (operand) {
+                .stack_offset => |off| {
+                    break :blk MCValue{ .stack_offset = off };
+                },
+                else => return self.fail("TODO implement slice_ptr for {}", .{operand}),
+            }
+        };
+        break :result dst_mcv;
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1266,9 +1274,13 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(ty_op.operand);
-        const dst_mcv: MCValue = switch (operand) {
-            .stack_offset => |off| MCValue{ .stack_offset = off + 8 },
-            else => return self.fail("TODO implement slice_len for {}", .{operand}),
+        const dst_mcv: MCValue = blk: {
+            switch (operand) {
+                .stack_offset => |off| {
+                    break :blk MCValue{ .stack_offset = off + 8 };
+                },
+                else => return self.fail("TODO implement slice_len for {}", .{operand}),
+            }
         };
         break :result dst_mcv;
     };
