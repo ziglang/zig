@@ -181,8 +181,6 @@ pub const Object = struct {
     /// The backing memory for `type_map`. Periodically garbage collected after flush().
     /// The code for doing the periodical GC is not yet implemented.
     type_map_arena: std.heap.ArenaAllocator,
-    /// Where to put the output object file, relative to bin_file.options.emit directory.
-    sub_path: []const u8,
 
     pub const TypeMap = std.HashMapUnmanaged(
         Type,
@@ -191,14 +189,14 @@ pub const Object = struct {
         std.hash_map.default_max_load_percentage,
     );
 
-    pub fn create(gpa: Allocator, sub_path: []const u8, options: link.Options) !*Object {
+    pub fn create(gpa: Allocator, options: link.Options) !*Object {
         const obj = try gpa.create(Object);
         errdefer gpa.destroy(obj);
-        obj.* = try Object.init(gpa, sub_path, options);
+        obj.* = try Object.init(gpa, options);
         return obj;
     }
 
-    pub fn init(gpa: Allocator, sub_path: []const u8, options: link.Options) !Object {
+    pub fn init(gpa: Allocator, options: link.Options) !Object {
         const context = llvm.Context.create();
         errdefer context.dispose();
 
@@ -271,7 +269,6 @@ pub const Object = struct {
             .decl_map = .{},
             .type_map = .{},
             .type_map_arena = std.heap.ArenaAllocator.init(gpa),
-            .sub_path = sub_path,
         };
     }
 
@@ -324,19 +321,22 @@ pub const Object = struct {
         const mod = comp.bin_file.options.module.?;
         const cache_dir = mod.zig_cache_artifact_directory;
 
-        const emit_bin_path: ?[*:0]const u8 = if (comp.bin_file.options.emit) |emit| blk: {
-            const full_out_path = try emit.directory.join(arena, &[_][]const u8{emit.sub_path});
-            break :blk try std.fs.path.joinZ(arena, &.{
-                std.fs.path.dirname(full_out_path).?, self.sub_path,
-            });
-        } else null;
+        const emit_bin_path: ?[*:0]const u8 = if (comp.bin_file.options.emit) |emit|
+            try emit.basenamePath(arena, try arena.dupeZ(u8, comp.bin_file.intermediary_basename.?))
+        else
+            null;
 
         const emit_asm_path = try locPath(arena, comp.emit_asm, cache_dir);
         const emit_llvm_ir_path = try locPath(arena, comp.emit_llvm_ir, cache_dir);
         const emit_llvm_bc_path = try locPath(arena, comp.emit_llvm_bc, cache_dir);
 
-        const debug_emit_path = emit_bin_path orelse "(none)";
-        log.debug("emit LLVM object to {s}", .{debug_emit_path});
+        const emit_asm_msg = emit_asm_path orelse "(none)";
+        const emit_bin_msg = emit_bin_path orelse "(none)";
+        const emit_llvm_ir_msg = emit_llvm_ir_path orelse "(none)";
+        const emit_llvm_bc_msg = emit_llvm_bc_path orelse "(none)";
+        log.debug("emit LLVM object asm={s} bin={s} ir={s} bc={s}", .{
+            emit_asm_msg, emit_bin_msg, emit_llvm_ir_msg, emit_llvm_bc_msg,
+        });
 
         var error_message: [*:0]const u8 = undefined;
         if (self.target_machine.emitToFile(
@@ -354,10 +354,6 @@ pub const Object = struct {
         )) {
             defer llvm.disposeMessage(error_message);
 
-            const emit_asm_msg = emit_asm_path orelse "(none)";
-            const emit_bin_msg = emit_bin_path orelse "(none)";
-            const emit_llvm_ir_msg = emit_llvm_ir_path orelse "(none)";
-            const emit_llvm_bc_msg = emit_llvm_bc_path orelse "(none)";
             log.err("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{
                 emit_asm_msg,  emit_bin_msg, emit_llvm_ir_msg, emit_llvm_bc_msg,
                 error_message,

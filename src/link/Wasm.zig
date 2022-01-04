@@ -101,11 +101,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     assert(options.object_format == .wasm);
 
     if (build_options.have_llvm and options.use_llvm) {
-        const self = try createEmpty(allocator, options);
-        errdefer self.base.destroy();
-
-        self.llvm_object = try LlvmObject.create(allocator, sub_path, options);
-        return self;
+        return createEmpty(allocator, options);
     }
 
     // TODO: read the file and keep valid parts instead of truncating
@@ -139,8 +135,9 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 }
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
-    const wasm_bin = try gpa.create(Wasm);
-    wasm_bin.* = .{
+    const self = try gpa.create(Wasm);
+    errdefer gpa.destroy(self);
+    self.* = .{
         .base = .{
             .tag = .wasm,
             .options = options,
@@ -148,7 +145,10 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
             .allocator = gpa,
         },
     };
-    return wasm_bin;
+    if (build_options.have_llvm and options.use_llvm) {
+        self.llvm_object = try LlvmObject.create(gpa, options);
+    }
+    return self;
 }
 
 pub fn deinit(self: *Wasm) void {
@@ -576,6 +576,14 @@ fn resetState(self: *Wasm) void {
 }
 
 pub fn flush(self: *Wasm, comp: *Compilation) !void {
+    if (self.base.options.emit == null) {
+        if (build_options.have_llvm) {
+            if (self.llvm_object) |llvm_object| {
+                return try llvm_object.flushModule(comp);
+            }
+        }
+        return;
+    }
     if (build_options.have_llvm and self.base.options.use_lld) {
         return self.linkWithLLD(comp);
     } else {
@@ -1075,9 +1083,11 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 
         try self.flushModule(comp);
 
-        break :blk try fs.path.join(arena, &.{
-            fs.path.dirname(full_out_path).?, self.base.intermediary_basename.?,
-        });
+        if (fs.path.dirname(full_out_path)) |dirname| {
+            break :blk try fs.path.join(arena, &.{ dirname, self.base.intermediary_basename.? });
+        } else {
+            break :blk self.base.intermediary_basename.?;
+        }
     } else null;
 
     const is_obj = self.base.options.output_mode == .Obj;
