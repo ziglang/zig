@@ -1150,17 +1150,10 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(ty_op.operand);
-        const dst_mcv: MCValue = blk: {
-            if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
-                break :blk operand;
-            } else {
-                break :blk try self.allocRegOrMem(inst, true);
-            }
-        };
-        const ty = self.air.typeOf(ty_op.operand);
-        var buf: Type.Payload.ElemType = undefined;
-        try self.load(dst_mcv, operand, ty.optionalChild(&buf));
-        break :result dst_mcv;
+        if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+            break :result operand;
+        }
+        break :result try self.copyToNewRegister(inst, operand);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -1471,6 +1464,7 @@ fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_ind
 
 fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
     const elem_ty = ptr_ty.elemType();
+    const abi_size = elem_ty.abiSize(self.target.*);
     switch (ptr) {
         .none => unreachable,
         .undef => unreachable,
@@ -1478,7 +1472,9 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .dead => unreachable,
         .compare_flags_unsigned => unreachable,
         .compare_flags_signed => unreachable,
-        .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
+        .immediate => |imm| {
+            try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm });
+        },
         .ptr_stack_offset => |off| {
             try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off });
         },
@@ -1488,7 +1484,58 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .embedded_in_code => {
             return self.fail("TODO implement loading from MCValue.embedded_in_code", .{});
         },
-        .register => |reg| try self.setRegOrMem(ptr_ty, dst_mcv, .{ .register = reg }),
+        .register => |reg| {
+            switch (dst_mcv) {
+                .dead => unreachable,
+                .undef => unreachable,
+                .compare_flags_unsigned => unreachable,
+                .compare_flags_signed => unreachable,
+                .embedded_in_code => unreachable,
+                .register => |dst_reg| {
+                    // mov dst_reg, [reg]
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .ops = (Mir.Ops{
+                            .reg1 = registerAlias(dst_reg, @intCast(u32, abi_size)),
+                            .reg2 = reg,
+                            .flags = 0b01,
+                        }).encode(),
+                        .data = .{ .imm = 0 },
+                    });
+                },
+                .stack_offset => |unadjusted_off| {
+                    if (abi_size <= 8) {
+                        const tmp_reg = try self.register_manager.allocReg(null, &.{reg});
+                        try self.load(.{ .register = tmp_reg }, ptr, ptr_ty);
+                        return self.genSetStack(elem_ty, unadjusted_off, MCValue{ .register = tmp_reg });
+                    }
+
+                    const regs = try self.register_manager.allocRegs(2, .{ null, null }, &.{ reg, .rax, .rcx });
+                    const addr_reg = regs[0];
+                    const len_reg = regs[1];
+
+                    const off = unadjusted_off + abi_size;
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .ops = (Mir.Ops{
+                            .reg1 = registerAlias(addr_reg, @divExact(reg.size(), 8)),
+                            .reg2 = reg,
+                        }).encode(),
+                        .data = undefined,
+                    });
+
+                    // TODO allow for abi size to be u64
+                    try self.genSetReg(Type.initTag(.u32), len_reg, .{ .immediate = @intCast(u32, abi_size) });
+
+                    return self.genInlineMemcpy(
+                        -@intCast(i32, off),
+                        registerAlias(addr_reg, @divExact(reg.size(), 8)),
+                        len_reg.to64(),
+                    );
+                },
+                else => return self.fail("TODO implement loading from register into {}", .{dst_mcv}),
+            }
+        },
         .memory => |addr| {
             const reg = try self.copyToTmpRegister(ptr_ty, .{ .memory = addr });
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
@@ -3071,7 +3118,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
             }
 
-            const regs = try self.register_manager.allocRegs(2, .{ null, null }, &.{});
+            const regs = try self.register_manager.allocRegs(2, .{ null, null }, &.{ .rax, .rcx });
             const addr_reg = regs[0];
             const len_reg = regs[1];
 

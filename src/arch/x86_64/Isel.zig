@@ -493,13 +493,14 @@ fn mirArithScaleSrc(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void
     const scale = ops.flags;
     const imm = isel.mir.instructions.items(.data)[inst].imm;
     // OP reg1, [reg2 + scale*rcx + imm32]
+    const scale_index = ScaleIndex{
+        .scale = scale,
+        .index = .rcx,
+    };
     return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
         .disp = imm,
         .base = ops.reg2,
-        .scale_index = .{
-            .scale = scale,
-            .index = .rcx,
-        },
+        .scale_index = scale_index,
     }), isel.code) catch |err| isel.failWithLoweringError(err);
 }
 
@@ -507,25 +508,23 @@ fn mirArithScaleDst(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void
     const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     const imm = isel.mir.instructions.items(.data)[inst].imm;
+    const scale_index = ScaleIndex{
+        .scale = scale,
+        .index = .rax,
+    };
     if (ops.reg2 == .none) {
         // OP qword ptr [reg1 + scale*rax + 0], imm32
         return lowerToMiEnc(tag, RegisterOrMemory.mem(.qword_ptr, .{
             .disp = 0,
             .base = ops.reg1,
-            .scale_index = .{
-                .scale = scale,
-                .index = .rax,
-            },
+            .scale_index = scale_index,
         }), imm, isel.code) catch |err| isel.failWithLoweringError(err);
     }
     // OP [reg1 + scale*rax + imm32], reg2
     return lowerToMrEnc(tag, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg2.size()), .{
         .disp = imm,
         .base = ops.reg1,
-        .scale_index = .{
-            .scale = scale,
-            .index = .rax,
-        },
+        .scale_index = scale_index,
     }), ops.reg2, isel.code) catch |err| isel.failWithLoweringError(err);
 }
 
@@ -534,14 +533,15 @@ fn mirArithScaleImm(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void
     const scale = ops.flags;
     const payload = isel.mir.instructions.items(.data)[inst].payload;
     const imm_pair = isel.mir.extraData(Mir.ImmPair, payload).data;
+    const scale_index = ScaleIndex{
+        .scale = scale,
+        .index = .rax,
+    };
     // OP qword ptr [reg1 + scale*rax + imm32], imm32
     return lowerToMiEnc(tag, RegisterOrMemory.mem(.qword_ptr, .{
         .disp = imm_pair.dest_off,
         .base = ops.reg1,
-        .scale_index = .{
-            .scale = scale,
-            .index = .rax,
-        },
+        .scale_index = scale_index,
     }), imm_pair.operand, isel.code) catch |err| isel.failWithLoweringError(err);
 }
 
@@ -1907,6 +1907,15 @@ test "lower RM encoding" {
         },
     }), isel.code());
     try expectEqualHexStrings("\x48\x8B\x44\xCD\xF8", isel.lowered(), "mov rax, qword ptr [rbp + rcx*8 - 8]");
+    try lowerToRmEnc(.mov, .r8b, RegisterOrMemory.mem(.byte_ptr, .{
+        .disp = -24,
+        .base = .rsi,
+        .scale_index = .{
+            .scale = 0,
+            .index = .rcx,
+        },
+    }), isel.code());
+    try expectEqualHexStrings("\x44\x8A\x44\x0E\xE8", isel.lowered(), "mov r8b, byte ptr [rsi + rcx*1 - 24]");
 }
 
 test "lower MR encoding" {
