@@ -2056,7 +2056,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }
         } else {
-            return self.fail("TODO implement calling runtime known function pointer", .{});
+            assert(ty.zigTypeTag() == .Pointer);
+            const mcv = try self.resolveInst(callee);
+            try self.genSetReg(Type.initTag(.usize), .rax, mcv);
         }
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
         for (info.args) |mc_arg, arg_i| {
@@ -2099,7 +2101,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 const func = func_payload.data;
                 // TODO I'm hacking my way through here by repurposing .memory for storing
                 // index to the GOT target symbol index.
-                try self.genSetReg(Type.initTag(.u64), .rax, .{
+                try self.genSetReg(Type.initTag(.usize), .rax, .{
                     .memory = func.owner_decl.link.macho.local_sym_index,
                 });
                 // callq *%rax
@@ -2123,7 +2125,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }
         } else {
-            return self.fail("TODO implement calling runtime known function pointer", .{});
+            assert(ty.zigTypeTag() == .Pointer);
+            const mcv = try self.resolveInst(callee);
+            try self.genSetReg(Type.initTag(.usize), .rax, mcv);
         }
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
         for (info.args) |mc_arg, arg_i| {
@@ -2241,12 +2245,19 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    if (self.liveness.isUnused(inst))
+
+    if (self.liveness.isUnused(inst)) {
         return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+    }
+
     const ty = self.air.typeOf(bin_op.lhs);
-    assert(ty.eql(self.air.typeOf(bin_op.rhs)));
-    if (ty.zigTypeTag() == .ErrorSet)
-        return self.fail("TODO implement cmp for errors", .{});
+    const signedness: std.builtin.Signedness = blk: {
+        // For non-int types, we treat the values as unsigned
+        if (ty.zigTypeTag() != .Int) break :blk .unsigned;
+
+        // Otherwise, we take the signedness of the actual int
+        break :blk ty.intInfo(self.target.*).signedness;
+    };
 
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
@@ -2262,9 +2273,9 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         const src_mcv = try self.limitImmediateType(bin_op.rhs, i32);
 
         try self.genBinMathOpMir(.cmp, ty, dst_mcv, src_mcv);
-        break :result switch (ty.isSignedInt()) {
-            true => MCValue{ .compare_flags_signed = op },
-            false => MCValue{ .compare_flags_unsigned = op },
+        break :result switch (signedness) {
+            .signed => MCValue{ .compare_flags_signed = op },
+            .unsigned => MCValue{ .compare_flags_unsigned = op },
         };
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
