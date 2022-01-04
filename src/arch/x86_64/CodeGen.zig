@@ -2384,6 +2384,9 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const parent_registers = self.register_manager.registers;
 
     try self.branch_stack.append(.{});
+    errdefer {
+        _ = self.branch_stack.pop();
+    }
 
     try self.ensureProcessDeathCapacity(liveness_condbr.then_deaths.len);
     for (liveness_condbr.then_deaths) |operand| {
@@ -3792,8 +3795,12 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
         .Naked => unreachable,
         .Unspecified, .C => {
             const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
-            const aliased_reg = registerAlias(c_abi_int_return_regs[0], ret_ty_size);
-            result.return_value = .{ .register = aliased_reg };
+            if (ret_ty_size <= 8) {
+                const aliased_reg = registerAlias(c_abi_int_return_regs[0], ret_ty_size);
+                result.return_value = .{ .register = aliased_reg };
+            } else {
+                return self.fail("TODO support more return types for x86_64 backend", .{});
+            }
         },
         else => return self.fail("TODO implement function return values for {}", .{cc}),
     }
