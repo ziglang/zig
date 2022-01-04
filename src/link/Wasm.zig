@@ -145,7 +145,9 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
             .allocator = gpa,
         },
     };
-    if (build_options.have_llvm and options.use_llvm) {
+    const use_llvm = build_options.have_llvm and options.use_llvm;
+    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    if (use_llvm and !use_stage1) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
     return self;
