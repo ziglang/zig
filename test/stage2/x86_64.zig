@@ -1738,6 +1738,29 @@ pub fn addCases(ctx: *TestContext) !void {
                 \\}
             , "");
         }
+
+        {
+            var case = ctx.exe("unwrap error union - simple errors", target);
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    maybeErr() catch unreachable;
+                \\}
+                \\
+                \\fn maybeErr() !void {
+                \\    return;
+                \\}
+            , "");
+            case.addCompareOutput(
+                \\pub fn main() void {
+                \\    maybeErr() catch return;
+                \\    unreachable;
+                \\}
+                \\
+                \\fn maybeErr() !void {
+                \\    return error.NoWay;
+                \\}
+            , "");
+        }
     }
 }
 

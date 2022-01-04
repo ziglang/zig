@@ -227,8 +227,10 @@ fn mirPushPop(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
                 16 => .word_ptr,
                 else => .qword_ptr,
             };
-            return lowerToMEnc(tag, RegisterOrMemory.mem(ops.reg1, imm, ptr_size), isel.code) catch |err|
-                isel.failWithLoweringError(err);
+            return lowerToMEnc(tag, RegisterOrMemory.mem(ptr_size, .{
+                .disp = imm,
+                .base = ops.reg1,
+            }), isel.code) catch |err| isel.failWithLoweringError(err);
         },
         0b10 => {
             // PUSH imm32
@@ -284,7 +286,7 @@ fn mirJmpCall(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
             16 => .word_ptr,
             else => .qword_ptr,
         };
-        return lowerToMEnc(tag, RegisterOrMemory.mem(null, imm, ptr_size), isel.code) catch |err|
+        return lowerToMEnc(tag, RegisterOrMemory.mem(ptr_size, .{ .disp = imm }), isel.code) catch |err|
             isel.failWithLoweringError(err);
     }
     // JMP/CALL reg
@@ -422,12 +424,10 @@ fn mirArith(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
             // RM
             const imm = isel.mir.instructions.items(.data)[inst].imm;
             const src_reg: ?Register = if (ops.reg2 == .none) null else ops.reg2;
-            return lowerToRmEnc(
-                tag,
-                ops.reg1,
-                RegisterOrMemory.mem(src_reg, imm, Memory.PtrSize.fromBits(ops.reg1.size())),
-                isel.code,
-            ) catch |err| isel.failWithLoweringError(err);
+            return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
+                .disp = imm,
+                .base = src_reg,
+            }), isel.code) catch |err| isel.failWithLoweringError(err);
         },
         0b10 => {
             if (ops.reg2 == .none) {
@@ -436,12 +436,10 @@ fn mirArith(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
             // mov [reg1 + imm32], reg2
             // MR
             const imm = isel.mir.instructions.items(.data)[inst].imm;
-            return lowerToMrEnc(
-                tag,
-                RegisterOrMemory.mem(ops.reg1, imm, Memory.PtrSize.fromBits(ops.reg2.size())),
-                ops.reg2,
-                isel.code,
-            ) catch |err| isel.failWithLoweringError(err);
+            return lowerToMrEnc(tag, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg2.size()), .{
+                .disp = imm,
+                .base = ops.reg1,
+            }), ops.reg2, isel.code) catch |err| isel.failWithLoweringError(err);
         },
         0b11 => {
             return isel.fail("TODO unused variant: mov reg1, reg2, 0b11", .{});
@@ -460,12 +458,10 @@ fn mirArithMemImm(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
         0b10 => .dword_ptr,
         0b11 => .qword_ptr,
     };
-    return lowerToMiEnc(
-        tag,
-        RegisterOrMemory.mem(ops.reg1, imm_pair.dest_off, ptr_size),
-        imm_pair.operand,
-        isel.code,
-    ) catch |err| isel.failWithLoweringError(err);
+    return lowerToMiEnc(tag, RegisterOrMemory.mem(ptr_size, .{
+        .disp = imm_pair.dest_off,
+        .base = ops.reg1,
+    }), imm_pair.operand, isel.code) catch |err| isel.failWithLoweringError(err);
 }
 
 inline fn setRexWRegister(reg: Register) bool {
@@ -492,103 +488,61 @@ inline fn immOpSize(imm: i64) u8 {
     return 64;
 }
 
-// TODO
 fn mirArithScaleSrc(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
-    // OP reg1, [reg2 + scale*rcx + imm32]
-    const opc = getOpCode(tag, .rm, ops.reg1.size() == 8).?;
     const imm = isel.mir.instructions.items(.data)[inst].imm;
-    const encoder = try Encoder.init(isel.code, 8);
-    encoder.rex(.{
-        .w = ops.reg1.size() == 64,
-        .r = ops.reg1.isExtended(),
-        .b = ops.reg2.isExtended(),
-    });
-    opc.encode(encoder);
-    if (imm <= math.maxInt(i8)) {
-        encoder.modRm_SIBDisp8(ops.reg1.lowId());
-        encoder.sib_scaleIndexBaseDisp8(scale, Register.rcx.lowId(), ops.reg2.lowId());
-        encoder.disp8(@intCast(i8, imm));
-    } else {
-        encoder.modRm_SIBDisp32(ops.reg1.lowId());
-        encoder.sib_scaleIndexBaseDisp32(scale, Register.rcx.lowId(), ops.reg2.lowId());
-        encoder.disp32(imm);
-    }
+    // OP reg1, [reg2 + scale*rcx + imm32]
+    return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
+        .disp = imm,
+        .base = ops.reg2,
+        .scale_index = .{
+            .scale = scale,
+            .index = .rcx,
+        },
+    }), isel.code) catch |err| isel.failWithLoweringError(err);
 }
 
-// TODO
 fn mirArithScaleDst(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     const imm = isel.mir.instructions.items(.data)[inst].imm;
-
     if (ops.reg2 == .none) {
-        // OP [reg1 + scale*rax + 0], imm32
-        const opc = getOpCode(tag, .mi, ops.reg1.size() == 8).?;
-        const modrm_ext = getModRmExt(tag).?;
-        const encoder = try Encoder.init(isel.code, 8);
-        encoder.rex(.{
-            .w = ops.reg1.size() == 64,
-            .b = ops.reg1.isExtended(),
-        });
-        opc.encode(encoder);
-        encoder.modRm_SIBDisp0(modrm_ext);
-        encoder.sib_scaleIndexBase(scale, Register.rax.lowId(), ops.reg1.lowId());
-        if (imm <= math.maxInt(i8)) {
-            encoder.imm8(@intCast(i8, imm));
-        } else if (imm <= math.maxInt(i16)) {
-            encoder.imm16(@intCast(i16, imm));
-        } else {
-            encoder.imm32(imm);
-        }
-        return;
+        // OP qword ptr [reg1 + scale*rax + 0], imm32
+        return lowerToMiEnc(tag, RegisterOrMemory.mem(.qword_ptr, .{
+            .disp = 0,
+            .base = ops.reg1,
+            .scale_index = .{
+                .scale = scale,
+                .index = .rax,
+            },
+        }), imm, isel.code) catch |err| isel.failWithLoweringError(err);
     }
-
     // OP [reg1 + scale*rax + imm32], reg2
-    const opc = getOpCode(tag, .mr, ops.reg1.size() == 8).?;
-    const encoder = try Encoder.init(isel.code, 8);
-    encoder.rex(.{
-        .w = ops.reg1.size() == 64,
-        .r = ops.reg2.isExtended(),
-        .b = ops.reg1.isExtended(),
-    });
-    opc.encode(encoder);
-    if (imm <= math.maxInt(i8)) {
-        encoder.modRm_SIBDisp8(ops.reg2.lowId());
-        encoder.sib_scaleIndexBaseDisp8(scale, Register.rax.lowId(), ops.reg1.lowId());
-        encoder.disp8(@intCast(i8, imm));
-    } else {
-        encoder.modRm_SIBDisp32(ops.reg2.lowId());
-        encoder.sib_scaleIndexBaseDisp32(scale, Register.rax.lowId(), ops.reg1.lowId());
-        encoder.disp32(imm);
-    }
+    return lowerToMrEnc(tag, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg2.size()), .{
+        .disp = imm,
+        .base = ops.reg1,
+        .scale_index = .{
+            .scale = scale,
+            .index = .rax,
+        },
+    }), ops.reg2, isel.code) catch |err| isel.failWithLoweringError(err);
 }
 
-// TODO
 fn mirArithScaleImm(isel: *Isel, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
     const payload = isel.mir.instructions.items(.data)[inst].payload;
     const imm_pair = isel.mir.extraData(Mir.ImmPair, payload).data;
-    const opc = getOpCode(tag, .mi, ops.reg1.size() == 8).?;
-    const modrm_ext = getModRmExt(tag).?;
-    const encoder = try Encoder.init(isel.code, 2);
-    encoder.rex(.{
-        .w = ops.reg1.size() == 64,
-        .b = ops.reg1.isExtended(),
-    });
-    opc.encode(encoder);
-    if (imm_pair.dest_off <= math.maxInt(i8)) {
-        encoder.modRm_SIBDisp8(modrm_ext);
-        encoder.sib_scaleIndexBaseDisp8(scale, Register.rax.lowId(), ops.reg1.lowId());
-        encoder.disp8(@intCast(i8, imm_pair.dest_off));
-    } else {
-        encoder.modRm_SIBDisp32(modrm_ext);
-        encoder.sib_scaleIndexBaseDisp32(scale, Register.rax.lowId(), ops.reg1.lowId());
-        encoder.disp32(imm_pair.dest_off);
-    }
-    encoder.imm32(imm_pair.operand);
+    // OP qword ptr [reg1 + scale*rax + imm32], imm32
+    return lowerToMiEnc(tag, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = imm_pair.dest_off,
+        .base = ops.reg1,
+        .scale_index = .{
+            .scale = scale,
+            .index = .rax,
+        },
+    }), imm_pair.operand, isel.code) catch |err| isel.failWithLoweringError(err);
 }
 
 fn mirMovabs(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
@@ -646,7 +600,10 @@ fn mirLea(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
             return lowerToRmEnc(
                 .lea,
                 ops.reg1,
-                RegisterOrMemory.mem(src_reg, imm, Memory.PtrSize.fromBits(ops.reg1.size())),
+                RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
+                    .disp = imm,
+                    .base = src_reg,
+                }),
                 isel.code,
             ) catch |err| isel.failWithLoweringError(err);
         },
@@ -657,7 +614,7 @@ fn mirLea(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
             lowerToRmEnc(
                 .lea,
                 ops.reg1,
-                RegisterOrMemory.rip(0, Memory.PtrSize.fromBits(ops.reg1.size())),
+                RegisterOrMemory.rip(Memory.PtrSize.fromBits(ops.reg1.size()), 0),
                 isel.code,
             ) catch |err| return isel.failWithLoweringError(err);
             const end_offset = isel.code.items.len;
@@ -673,7 +630,7 @@ fn mirLea(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
             lowerToRmEnc(
                 .lea,
                 ops.reg1,
-                RegisterOrMemory.rip(0, Memory.PtrSize.fromBits(ops.reg1.size())),
+                RegisterOrMemory.rip(Memory.PtrSize.fromBits(ops.reg1.size()), 0),
                 isel.code,
             ) catch |err| return isel.failWithLoweringError(err);
             const end_offset = isel.code.items.len;
@@ -697,7 +654,24 @@ fn mirLea(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
                 );
             }
         },
-        0b11 => return isel.fail("TODO unused variant lea reg1, reg2, 0b11", .{}),
+        0b11 => {
+            // lea reg, [rbp + rcx + imm32]
+            const imm = isel.mir.instructions.items(.data)[inst].imm;
+            const src_reg: ?Register = if (ops.reg2 == .none) null else ops.reg2;
+            return lowerToRmEnc(
+                .lea,
+                ops.reg1,
+                RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
+                    .disp = imm,
+                    .base = src_reg,
+                    .scale_index = .{
+                        .scale = 0,
+                        .index = .rcx,
+                    },
+                }),
+                isel.code,
+            ) catch |err| isel.failWithLoweringError(err);
+        },
     }
 }
 
@@ -1230,18 +1204,17 @@ inline fn getModRmExt(tag: Tag) ?u3 {
     };
 }
 
-const ScaleIndexBase = struct {
+const ScaleIndex = struct {
     scale: u2,
-    index_reg: ?Register,
-    base_reg: ?Register,
+    index: Register,
 };
 
 const Memory = struct {
-    reg: ?Register,
+    base: ?Register,
     rip: bool = false,
     disp: i32,
     ptr_size: PtrSize,
-    sib: ?ScaleIndexBase = null,
+    scale_index: ?ScaleIndex = null,
 
     const PtrSize = enum {
         byte_ptr,
@@ -1269,7 +1242,71 @@ const Memory = struct {
             };
         }
     };
+
+    fn encode(mem_op: Memory, encoder: Encoder, operand: u3) void {
+        if (mem_op.base) |base| {
+            const dst = base.lowId();
+            const src = operand;
+            if (dst == 4 or mem_op.scale_index != null) {
+                if (mem_op.disp == 0) {
+                    encoder.modRm_SIBDisp0(src);
+                    if (mem_op.scale_index) |si| {
+                        encoder.sib_scaleIndexBase(si.scale, si.index.lowId(), dst);
+                    } else {
+                        encoder.sib_base(dst);
+                    }
+                } else if (immOpSize(mem_op.disp) == 8) {
+                    encoder.modRm_SIBDisp8(src);
+                    if (mem_op.scale_index) |si| {
+                        encoder.sib_scaleIndexBaseDisp8(si.scale, si.index.lowId(), dst);
+                    } else {
+                        encoder.sib_baseDisp8(dst);
+                    }
+                    encoder.disp8(@intCast(i8, mem_op.disp));
+                } else {
+                    encoder.modRm_SIBDisp32(src);
+                    if (mem_op.scale_index) |si| {
+                        encoder.sib_scaleIndexBaseDisp32(si.scale, si.index.lowId(), dst);
+                    } else {
+                        encoder.sib_baseDisp32(dst);
+                    }
+                    encoder.disp32(mem_op.disp);
+                }
+            } else {
+                if (mem_op.disp == 0) {
+                    encoder.modRm_indirectDisp0(src, dst);
+                } else if (immOpSize(mem_op.disp) == 8) {
+                    encoder.modRm_indirectDisp8(src, dst);
+                    encoder.disp8(@intCast(i8, mem_op.disp));
+                } else {
+                    encoder.modRm_indirectDisp32(src, dst);
+                    encoder.disp32(mem_op.disp);
+                }
+            }
+        } else {
+            if (mem_op.rip) {
+                encoder.modRm_RIPDisp32(operand);
+            } else {
+                encoder.modRm_SIBDisp0(operand);
+                if (mem_op.scale_index) |si| {
+                    encoder.sib_scaleIndexDisp32(si.scale, si.index.lowId());
+                } else {
+                    encoder.sib_disp32();
+                }
+            }
+            encoder.disp32(mem_op.disp);
+        }
+    }
 };
+
+fn encodeImm(encoder: Encoder, imm: i32, size: u64) void {
+    switch (size) {
+        8 => encoder.imm8(@intCast(i8, imm)),
+        16 => encoder.imm16(@intCast(i16, imm)),
+        32, 64 => encoder.imm32(imm),
+        else => unreachable,
+    }
+}
 
 const RegisterOrMemory = union(enum) {
     register: Register,
@@ -1279,20 +1316,25 @@ const RegisterOrMemory = union(enum) {
         return .{ .register = register };
     }
 
-    fn mem(register: ?Register, disp: i32, ptr_size: Memory.PtrSize) RegisterOrMemory {
+    fn mem(ptr_size: Memory.PtrSize, args: struct {
+        disp: i32,
+        base: ?Register = null,
+        scale_index: ?ScaleIndex = null,
+    }) RegisterOrMemory {
         return .{
             .memory = .{
-                .reg = register,
-                .disp = disp,
+                .base = args.base,
+                .disp = args.disp,
                 .ptr_size = ptr_size,
+                .scale_index = args.scale_index,
             },
         };
     }
 
-    fn rip(disp: i32, ptr_size: Memory.PtrSize) RegisterOrMemory {
+    fn rip(ptr_size: Memory.PtrSize, disp: i32) RegisterOrMemory {
         return .{
             .memory = .{
-                .reg = null,
+                .base = null,
                 .rip = true,
                 .disp = disp,
                 .ptr_size = ptr_size,
@@ -1325,16 +1367,10 @@ fn lowerToIEnc(tag: Tag, imm: i32, code: *std.ArrayList(u8)) LoweringError!void 
     const opc = getOpCode(tag, .i, immOpSize(imm) == 8).?;
     const encoder = try Encoder.init(code, 5);
     if (immOpSize(imm) == 16) {
-        encoder.opcode_1byte(0x66);
+        encoder.prefix16BitMode();
     }
     opc.encode(encoder);
-    if (immOpSize(imm) == 8) {
-        encoder.imm8(@intCast(i8, imm));
-    } else if (immOpSize(imm) == 16) {
-        encoder.imm16(@intCast(i16, imm));
-    } else {
-        encoder.imm32(imm);
-    }
+    encodeImm(encoder, imm, immOpSize(imm));
 }
 
 fn lowerToOEnc(tag: Tag, reg: Register, code: *std.ArrayList(u8)) LoweringError!void {
@@ -1344,7 +1380,7 @@ fn lowerToOEnc(tag: Tag, reg: Register, code: *std.ArrayList(u8)) LoweringError!
     const opc = getOpCode(tag, .o, false).?;
     const encoder = try Encoder.init(code, 3);
     if (reg.size() == 16) {
-        encoder.opcode_1byte(0x66);
+        encoder.prefix16BitMode();
     }
     encoder.rex(.{
         .w = false,
@@ -1375,7 +1411,7 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
             }
             const encoder = try Encoder.init(code, 4);
             if (reg.size() == 16) {
-                encoder.opcode_1byte(0x66);
+                encoder.prefix16BitMode();
             }
             encoder.rex(.{
                 .w = switch (reg) {
@@ -1393,51 +1429,19 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
             }
             const encoder = try Encoder.init(code, 8);
             if (mem_op.ptr_size == .word_ptr) {
-                encoder.opcode_1byte(0x66);
+                encoder.prefix16BitMode();
             }
-            if (mem_op.reg) |reg| {
-                if (reg.size() != 64) {
+            if (mem_op.base) |base| {
+                if (base.size() != 64) {
                     return error.OperandSizeMismatch;
                 }
                 encoder.rex(.{
                     .w = false,
-                    .b = reg.isExtended(),
+                    .b = base.isExtended(),
                 });
-                opc.encode(encoder);
-                if (reg.lowId() == 4) {
-                    if (mem_op.disp == 0) {
-                        encoder.modRm_SIBDisp0(modrm_ext);
-                        encoder.sib_base(reg.lowId());
-                    } else if (immOpSize(mem_op.disp) == 8) {
-                        encoder.modRm_SIBDisp8(modrm_ext);
-                        encoder.sib_baseDisp8(reg.lowId());
-                        encoder.disp8(@intCast(i8, mem_op.disp));
-                    } else {
-                        encoder.modRm_SIBDisp32(modrm_ext);
-                        encoder.sib_baseDisp32(reg.lowId());
-                        encoder.disp32(mem_op.disp);
-                    }
-                } else {
-                    if (mem_op.disp == 0) {
-                        encoder.modRm_indirectDisp0(modrm_ext, reg.lowId());
-                    } else if (immOpSize(mem_op.disp) == 8) {
-                        encoder.modRm_indirectDisp8(modrm_ext, reg.lowId());
-                        encoder.disp8(@intCast(i8, mem_op.disp));
-                    } else {
-                        encoder.modRm_indirectDisp32(modrm_ext, reg.lowId());
-                        encoder.disp32(mem_op.disp);
-                    }
-                }
-            } else {
-                opc.encode(encoder);
-                if (mem_op.rip) {
-                    encoder.modRm_RIPDisp32(modrm_ext);
-                } else {
-                    encoder.modRm_SIBDisp0(modrm_ext);
-                    encoder.sib_disp32();
-                }
-                encoder.disp32(mem_op.disp);
             }
+            opc.encode(encoder);
+            mem_op.encode(encoder, modrm_ext);
         },
     }
 }
@@ -1463,7 +1467,7 @@ fn lowerToTdFdEnc(tag: Tag, reg: Register, moffs: i64, code: *std.ArrayList(u8),
         getOpCode(tag, .fd, reg.size() == 8).?;
     const encoder = try Encoder.init(code, 10);
     if (reg.size() == 16) {
-        encoder.opcode_1byte(0x66);
+        encoder.prefix16BitMode();
     }
     encoder.rex(.{
         .w = setRexWRegister(reg),
@@ -1496,7 +1500,7 @@ fn lowerToOiEnc(tag: Tag, reg: Register, imm: i64, code: *std.ArrayList(u8)) Low
     const opc = getOpCode(tag, .oi, reg.size() == 8).?;
     const encoder = try Encoder.init(code, 10);
     if (reg.size() == 16) {
-        encoder.opcode_1byte(0x66);
+        encoder.prefix16BitMode();
     }
     encoder.rex(.{
         .w = setRexWRegister(reg),
@@ -1533,7 +1537,7 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: i32, code: *std.Arr
                 // 0x66 prefix switches to the non-default size; here we assume a switch from
                 // the default 32bits to 16bits operand-size.
                 // More info: https://www.cs.uni-potsdam.de/desn/lehre/ss15/64-ia-32-architectures-software-developer-instruction-set-reference-manual-325383.pdf#page=32&zoom=auto,-159,773
-                encoder.opcode_1byte(0x66);
+                encoder.prefix16BitMode();
             }
             encoder.rex(.{
                 .w = setRexWRegister(dst_reg),
@@ -1541,81 +1545,30 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: i32, code: *std.Arr
             });
             opc.encode(encoder);
             encoder.modRm_direct(modrm_ext, dst_reg.lowId());
-            switch (dst_reg.size()) {
-                8 => {
-                    const imm8 = try math.cast(i8, imm);
-                    encoder.imm8(imm8);
-                },
-                16 => {
-                    const imm16 = try math.cast(i16, imm);
-                    encoder.imm16(imm16);
-                },
-                32, 64 => encoder.imm32(imm),
-                else => unreachable,
-            }
+            encodeImm(encoder, imm, dst_reg.size());
         },
         .memory => |dst_mem| {
             const opc = getOpCode(tag, .mi, dst_mem.ptr_size == .byte_ptr).?;
             const encoder = try Encoder.init(code, 12);
             if (dst_mem.ptr_size == .word_ptr) {
-                encoder.opcode_1byte(0x66);
+                encoder.prefix16BitMode();
             }
-            if (dst_mem.reg) |dst_reg| {
-                if (dst_reg.size() != 64) {
+            if (dst_mem.base) |base| {
+                if (base.size() != 64) {
                     return error.OperandSizeMismatch;
                 }
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr,
-                    .b = dst_reg.isExtended(),
+                    .b = base.isExtended(),
                 });
-                opc.encode(encoder);
-                if (dst_reg.lowId() == 4) {
-                    if (dst_mem.disp == 0) {
-                        encoder.modRm_SIBDisp0(modrm_ext);
-                        encoder.sib_base(dst_reg.lowId());
-                    } else if (immOpSize(dst_mem.disp) == 8) {
-                        encoder.modRm_SIBDisp8(modrm_ext);
-                        encoder.sib_baseDisp8(dst_reg.lowId());
-                        encoder.disp8(@intCast(i8, dst_mem.disp));
-                    } else {
-                        encoder.modRm_SIBDisp32(modrm_ext);
-                        encoder.sib_baseDisp32(dst_reg.lowId());
-                        encoder.disp32(dst_mem.disp);
-                    }
-                } else {
-                    if (dst_mem.disp == 0) {
-                        encoder.modRm_indirectDisp0(modrm_ext, dst_reg.lowId());
-                    } else if (immOpSize(dst_mem.disp) == 8) {
-                        encoder.modRm_indirectDisp8(modrm_ext, dst_reg.lowId());
-                        encoder.disp8(@intCast(i8, dst_mem.disp));
-                    } else {
-                        encoder.modRm_indirectDisp32(modrm_ext, dst_reg.lowId());
-                        encoder.disp32(dst_mem.disp);
-                    }
-                }
             } else {
-                opc.encode(encoder);
-                if (dst_mem.rip) {
-                    encoder.modRm_RIPDisp32(modrm_ext);
-                } else {
-                    encoder.modRm_SIBDisp0(modrm_ext);
-                    encoder.sib_disp32();
-                }
-                encoder.disp32(dst_mem.disp);
+                encoder.rex(.{
+                    .w = dst_mem.ptr_size == .qword_ptr,
+                });
             }
-            switch (dst_mem.ptr_size) {
-                .byte_ptr => {
-                    const imm8 = try math.cast(i8, imm);
-                    encoder.imm8(imm8);
-                },
-                .word_ptr => {
-                    const imm16 = try math.cast(i16, imm);
-                    encoder.imm16(imm16);
-                },
-                .dword_ptr, .qword_ptr => {
-                    encoder.imm32(imm);
-                },
-            }
+            opc.encode(encoder);
+            dst_mem.encode(encoder, modrm_ext);
+            encodeImm(encoder, imm, dst_mem.ptr_size.size());
         },
     }
 }
@@ -1647,58 +1600,27 @@ fn lowerToRmEnc(
             }
             const encoder = try Encoder.init(code, 9);
             if (reg.size() == 16) {
-                encoder.opcode_1byte(0x66);
+                encoder.prefix16BitMode();
             }
-            if (src_mem.reg) |src_reg| {
+            if (src_mem.base) |base| {
                 // TODO handle 32-bit base register - requires prefix 0x67
                 // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
-                if (src_reg.size() != 64) {
+                if (base.size() != 64) {
                     return error.OperandSizeMismatch;
                 }
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
-                    .b = src_reg.isExtended(),
+                    .b = base.isExtended(),
                 });
-                opc.encode(encoder);
-                if (src_reg.lowId() == 4) {
-                    if (src_mem.disp == 0) {
-                        encoder.modRm_SIBDisp0(reg.lowId());
-                        encoder.sib_base(src_reg.lowId());
-                    } else if (immOpSize(src_mem.disp) == 8) {
-                        encoder.modRm_SIBDisp8(reg.lowId());
-                        encoder.sib_baseDisp8(src_reg.lowId());
-                        encoder.disp8(@intCast(i8, src_mem.disp));
-                    } else {
-                        encoder.modRm_SIBDisp32(reg.lowId());
-                        encoder.sib_baseDisp32(src_reg.lowId());
-                        encoder.disp32(src_mem.disp);
-                    }
-                } else {
-                    if (src_mem.disp == 0) {
-                        encoder.modRm_indirectDisp0(reg.lowId(), src_reg.lowId());
-                    } else if (immOpSize(src_mem.disp) == 8) {
-                        encoder.modRm_indirectDisp8(reg.lowId(), src_reg.lowId());
-                        encoder.disp8(@intCast(i8, src_mem.disp));
-                    } else {
-                        encoder.modRm_indirectDisp32(reg.lowId(), src_reg.lowId());
-                        encoder.disp32(src_mem.disp);
-                    }
-                }
             } else {
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
                 });
-                opc.encode(encoder);
-                if (src_mem.rip) {
-                    encoder.modRm_RIPDisp32(reg.lowId());
-                } else {
-                    encoder.modRm_SIBDisp0(reg.lowId());
-                    encoder.sib_disp32();
-                }
-                encoder.disp32(src_mem.disp);
             }
+            opc.encode(encoder);
+            src_mem.encode(encoder, reg.lowId());
         },
     }
 }
@@ -1730,56 +1652,25 @@ fn lowerToMrEnc(
             }
             const encoder = try Encoder.init(code, 9);
             if (reg.size() == 16) {
-                encoder.opcode_1byte(0x66);
+                encoder.prefix16BitMode();
             }
-            if (dst_mem.reg) |dst_reg| {
-                if (dst_reg.size() != 64) {
+            if (dst_mem.base) |base| {
+                if (base.size() != 64) {
                     return error.OperandSizeMismatch;
                 }
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
                     .r = reg.isExtended(),
-                    .b = dst_reg.isExtended(),
+                    .b = base.isExtended(),
                 });
-                opc.encode(encoder);
-                if (dst_reg.lowId() == 4) {
-                    if (dst_mem.disp == 0) {
-                        encoder.modRm_SIBDisp0(reg.lowId());
-                        encoder.sib_base(dst_reg.lowId());
-                    } else if (immOpSize(dst_mem.disp) == 8) {
-                        encoder.modRm_SIBDisp8(reg.lowId());
-                        encoder.sib_baseDisp8(dst_reg.lowId());
-                        encoder.disp8(@intCast(i8, dst_mem.disp));
-                    } else {
-                        encoder.modRm_SIBDisp32(reg.lowId());
-                        encoder.sib_baseDisp32(dst_reg.lowId());
-                        encoder.disp32(dst_mem.disp);
-                    }
-                } else {
-                    if (dst_mem.disp == 0) {
-                        encoder.modRm_indirectDisp0(reg.lowId(), dst_reg.lowId());
-                    } else if (immOpSize(dst_mem.disp) == 8) {
-                        encoder.modRm_indirectDisp8(reg.lowId(), dst_reg.lowId());
-                        encoder.disp8(@intCast(i8, dst_mem.disp));
-                    } else {
-                        encoder.modRm_indirectDisp32(reg.lowId(), dst_reg.lowId());
-                        encoder.disp32(dst_mem.disp);
-                    }
-                }
             } else {
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
                     .r = reg.isExtended(),
                 });
-                opc.encode(encoder);
-                if (dst_mem.rip) {
-                    encoder.modRm_RIPDisp32(reg.lowId());
-                } else {
-                    encoder.modRm_SIBDisp0(reg.lowId());
-                    encoder.sib_disp32();
-                }
-                encoder.disp32(dst_mem.disp);
             }
+            opc.encode(encoder);
+            dst_mem.encode(encoder, reg.lowId());
         },
     }
 }
@@ -1797,7 +1688,7 @@ fn lowerToRmiEnc(
     const opc = getOpCode(tag, .rmi, false).?;
     const encoder = try Encoder.init(code, 13);
     if (reg.size() == 16) {
-        encoder.opcode_1byte(0x66);
+        encoder.prefix16BitMode();
     }
     switch (reg_or_mem) {
         .register => |src_reg| {
@@ -1813,10 +1704,10 @@ fn lowerToRmiEnc(
             encoder.modRm_direct(reg.lowId(), src_reg.lowId());
         },
         .memory => |src_mem| {
-            if (src_mem.reg) |src_reg| {
+            if (src_mem.base) |base| {
                 // TODO handle 32-bit base register - requires prefix 0x67
                 // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
-                if (src_reg.size() != 64) {
+                if (base.size() != 64) {
                     return error.OperandSizeMismatch;
                 }
                 if (src_mem.ptr_size == .byte_ptr) {
@@ -1825,59 +1716,19 @@ fn lowerToRmiEnc(
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
-                    .b = src_reg.isExtended(),
+                    .b = base.isExtended(),
                 });
-                opc.encode(encoder);
-                if (src_reg.lowId() == 4) {
-                    if (src_mem.disp == 0) {
-                        encoder.modRm_SIBDisp0(reg.lowId());
-                        encoder.sib_base(src_reg.lowId());
-                    } else if (immOpSize(src_mem.disp) == 8) {
-                        encoder.modRm_SIBDisp8(reg.lowId());
-                        encoder.sib_baseDisp8(src_reg.lowId());
-                        encoder.disp8(@intCast(i8, src_mem.disp));
-                    } else {
-                        encoder.modRm_SIBDisp32(reg.lowId());
-                        encoder.sib_baseDisp32(src_reg.lowId());
-                        encoder.disp32(src_mem.disp);
-                    }
-                } else {
-                    if (src_mem.disp == 0) {
-                        encoder.modRm_indirectDisp0(reg.lowId(), src_reg.lowId());
-                    } else if (immOpSize(src_mem.disp) == 8) {
-                        encoder.modRm_indirectDisp8(reg.lowId(), src_reg.lowId());
-                        encoder.disp8(@intCast(i8, src_mem.disp));
-                    } else {
-                        encoder.modRm_indirectDisp32(reg.lowId(), src_reg.lowId());
-                        encoder.disp32(src_mem.disp);
-                    }
-                }
             } else {
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
                 });
-                opc.encode(encoder);
-                if (src_mem.rip) {
-                    encoder.modRm_RIPDisp32(reg.lowId());
-                } else {
-                    encoder.modRm_SIBDisp0(reg.lowId());
-                    encoder.sib_disp32();
-                }
-                encoder.disp32(src_mem.disp);
             }
+            opc.encode(encoder);
+            src_mem.encode(encoder, reg.lowId());
         },
     }
-    switch (reg.size()) {
-        // TODO 8bit immediate
-        8 => unreachable,
-        16 => {
-            const imm16 = try math.cast(i16, imm);
-            encoder.imm16(imm16);
-        },
-        32, 64 => encoder.imm32(imm),
-        else => unreachable,
-    }
+    encodeImm(encoder, imm, reg.size());
 }
 
 fn expectEqualHexStrings(expected: []const u8, given: []const u8, assembly: []const u8) !void {
@@ -1930,44 +1781,62 @@ test "lower MI encoding" {
     defer isel.deinit();
     try lowerToMiEnc(.mov, RegisterOrMemory.reg(.rax), 0x10, isel.code());
     try expectEqualHexStrings("\x48\xc7\xc0\x10\x00\x00\x00", isel.lowered(), "mov rax, 0x10");
-    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.r11, 0, .dword_ptr), 0x10, isel.code());
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.dword_ptr, .{ .disp = 0, .base = .r11 }), 0x10, isel.code());
     try expectEqualHexStrings("\x41\xc7\x03\x10\x00\x00\x00", isel.lowered(), "mov dword ptr [r11 + 0], 0x10");
-    try lowerToMiEnc(.add, RegisterOrMemory.mem(.rdx, -8, .dword_ptr), 0x10, isel.code());
+    try lowerToMiEnc(.add, RegisterOrMemory.mem(.dword_ptr, .{ .disp = -8, .base = .rdx }), 0x10, isel.code());
     try expectEqualHexStrings("\x81\x42\xF8\x10\x00\x00\x00", isel.lowered(), "add dword ptr [rdx - 8], 0x10");
-    try lowerToMiEnc(.sub, RegisterOrMemory.mem(.r11, 0x10000000, .dword_ptr), 0x10, isel.code());
+    try lowerToMiEnc(.sub, RegisterOrMemory.mem(.dword_ptr, .{
+        .disp = 0x10000000,
+        .base = .r11,
+    }), 0x10, isel.code());
     try expectEqualHexStrings(
         "\x41\x81\xab\x00\x00\x00\x10\x10\x00\x00\x00",
         isel.lowered(),
         "sub dword ptr [r11 + 0x10000000], 0x10",
     );
-    try lowerToMiEnc(.@"and", RegisterOrMemory.mem(null, 0x10000000, .dword_ptr), 0x10, isel.code());
+    try lowerToMiEnc(.@"and", RegisterOrMemory.mem(.dword_ptr, .{ .disp = 0x10000000 }), 0x10, isel.code());
     try expectEqualHexStrings(
         "\x81\x24\x25\x00\x00\x00\x10\x10\x00\x00\x00",
         isel.lowered(),
         "and dword ptr [ds:0x10000000], 0x10",
     );
-    try lowerToMiEnc(.@"and", RegisterOrMemory.mem(.r12, 0x10000000, .dword_ptr), 0x10, isel.code());
+    try lowerToMiEnc(.@"and", RegisterOrMemory.mem(.dword_ptr, .{
+        .disp = 0x10000000,
+        .base = .r12,
+    }), 0x10, isel.code());
     try expectEqualHexStrings(
         "\x41\x81\xA4\x24\x00\x00\x00\x10\x10\x00\x00\x00",
         isel.lowered(),
         "and dword ptr [r12 + 0x10000000], 0x10",
     );
-    try lowerToMiEnc(.mov, RegisterOrMemory.rip(0x10, .qword_ptr), 0x10, isel.code());
+    try lowerToMiEnc(.mov, RegisterOrMemory.rip(.qword_ptr, 0x10), 0x10, isel.code());
     try expectEqualHexStrings(
-        "\xC7\x05\x10\x00\x00\x00\x10\x00\x00\x00",
+        "\x48\xC7\x05\x10\x00\x00\x00\x10\x00\x00\x00",
         isel.lowered(),
         "mov qword ptr [rip + 0x10], 0x10",
     );
-    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.rbp, -8, .qword_ptr), 0x10, isel.code());
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{ .disp = -8, .base = .rbp }), 0x10, isel.code());
     try expectEqualHexStrings(
         "\x48\xc7\x45\xf8\x10\x00\x00\x00",
         isel.lowered(),
         "mov qword ptr [rbp - 8], 0x10",
     );
-    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.rbp, -2, .word_ptr), 0x10, isel.code());
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.word_ptr, .{ .disp = -2, .base = .rbp }), 0x10, isel.code());
     try expectEqualHexStrings("\x66\xC7\x45\xFE\x10\x00", isel.lowered(), "mov word ptr [rbp - 2], 0x10");
-    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.rbp, -1, .byte_ptr), 0x10, isel.code());
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.byte_ptr, .{ .disp = -1, .base = .rbp }), 0x10, isel.code());
     try expectEqualHexStrings("\xC6\x45\xFF\x10", isel.lowered(), "mov byte ptr [rbp - 1], 0x10");
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = 0x10000000,
+        .scale_index = .{
+            .scale = 1,
+            .index = .rcx,
+        },
+    }), 0x10, isel.code());
+    try expectEqualHexStrings(
+        "\x48\xC7\x04\x4D\x00\x00\x00\x10\x10\x00\x00\x00",
+        isel.lowered(),
+        "mov qword ptr [rcx*2 + 0x10000000], 0x10",
+    );
 }
 
 test "lower RM encoding" {
@@ -1975,36 +1844,69 @@ test "lower RM encoding" {
     defer isel.deinit();
     try lowerToRmEnc(.mov, .rax, RegisterOrMemory.reg(.rbx), isel.code());
     try expectEqualHexStrings("\x48\x8b\xc3", isel.lowered(), "mov rax, rbx");
-    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.r11, 0, .qword_ptr), isel.code());
+    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.qword_ptr, .{ .disp = 0, .base = .r11 }), isel.code());
     try expectEqualHexStrings("\x49\x8b\x03", isel.lowered(), "mov rax, qword ptr [r11 + 0]");
-    try lowerToRmEnc(.add, .r11, RegisterOrMemory.mem(null, 0x10000000, .qword_ptr), isel.code());
+    try lowerToRmEnc(.add, .r11, RegisterOrMemory.mem(.qword_ptr, .{ .disp = 0x10000000 }), isel.code());
     try expectEqualHexStrings(
         "\x4C\x03\x1C\x25\x00\x00\x00\x10",
         isel.lowered(),
         "add r11, qword ptr [ds:0x10000000]",
     );
-    try lowerToRmEnc(.add, .r12b, RegisterOrMemory.mem(null, 0x10000000, .byte_ptr), isel.code());
+    try lowerToRmEnc(.add, .r12b, RegisterOrMemory.mem(.byte_ptr, .{ .disp = 0x10000000 }), isel.code());
     try expectEqualHexStrings(
         "\x44\x02\x24\x25\x00\x00\x00\x10",
         isel.lowered(),
         "add r11b, byte ptr [ds:0x10000000]",
     );
-    try lowerToRmEnc(.sub, .r11, RegisterOrMemory.mem(.r13, 0x10000000, .qword_ptr), isel.code());
+    try lowerToRmEnc(.sub, .r11, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = 0x10000000,
+        .base = .r13,
+    }), isel.code());
     try expectEqualHexStrings(
         "\x4D\x2B\x9D\x00\x00\x00\x10",
         isel.lowered(),
         "sub r11, qword ptr [r13 + 0x10000000]",
     );
-    try lowerToRmEnc(.sub, .r11, RegisterOrMemory.mem(.r12, 0x10000000, .qword_ptr), isel.code());
+    try lowerToRmEnc(.sub, .r11, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = 0x10000000,
+        .base = .r12,
+    }), isel.code());
     try expectEqualHexStrings(
         "\x4D\x2B\x9C\x24\x00\x00\x00\x10",
         isel.lowered(),
         "sub r11, qword ptr [r12 + 0x10000000]",
     );
-    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.rbp, -4, .qword_ptr), isel.code());
+    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.qword_ptr, .{ .disp = -4, .base = .rbp }), isel.code());
     try expectEqualHexStrings("\x48\x8B\x45\xFC", isel.lowered(), "mov rax, qword ptr [rbp - 4]");
-    try lowerToRmEnc(.lea, .rax, RegisterOrMemory.rip(0x10, .qword_ptr), isel.code());
+    try lowerToRmEnc(.lea, .rax, RegisterOrMemory.rip(.qword_ptr, 0x10), isel.code());
     try expectEqualHexStrings("\x48\x8D\x05\x10\x00\x00\x00", isel.lowered(), "lea rax, [rip + 0x10]");
+    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = -8,
+        .base = .rbp,
+        .scale_index = .{
+            .scale = 0,
+            .index = .rcx,
+        },
+    }), isel.code());
+    try expectEqualHexStrings("\x48\x8B\x44\x0D\xF8", isel.lowered(), "mov rax, qword ptr [rbp + rcx*1 - 8]");
+    try lowerToRmEnc(.mov, .eax, RegisterOrMemory.mem(.dword_ptr, .{
+        .disp = -4,
+        .base = .rbp,
+        .scale_index = .{
+            .scale = 2,
+            .index = .rdx,
+        },
+    }), isel.code());
+    try expectEqualHexStrings("\x8B\x44\x95\xFC", isel.lowered(), "mov eax, dword ptr [rbp + rdx*4 - 4]");
+    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = -8,
+        .base = .rbp,
+        .scale_index = .{
+            .scale = 3,
+            .index = .rcx,
+        },
+    }), isel.code());
+    try expectEqualHexStrings("\x48\x8B\x44\xCD\xF8", isel.lowered(), "mov rax, qword ptr [rbp + rcx*8 - 8]");
 }
 
 test "lower MR encoding" {
@@ -2012,27 +1914,30 @@ test "lower MR encoding" {
     defer isel.deinit();
     try lowerToMrEnc(.mov, RegisterOrMemory.reg(.rax), .rbx, isel.code());
     try expectEqualHexStrings("\x48\x89\xd8", isel.lowered(), "mov rax, rbx");
-    try lowerToMrEnc(.mov, RegisterOrMemory.mem(.rbp, -4, .qword_ptr), .r11, isel.code());
+    try lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{ .disp = -4, .base = .rbp }), .r11, isel.code());
     try expectEqualHexStrings("\x4c\x89\x5d\xfc", isel.lowered(), "mov qword ptr [rbp - 4], r11");
-    try lowerToMrEnc(.add, RegisterOrMemory.mem(null, 0x10000000, .byte_ptr), .r12b, isel.code());
+    try lowerToMrEnc(.add, RegisterOrMemory.mem(.byte_ptr, .{ .disp = 0x10000000 }), .r12b, isel.code());
     try expectEqualHexStrings(
         "\x44\x00\x24\x25\x00\x00\x00\x10",
         isel.lowered(),
         "add byte ptr [ds:0x10000000], r12b",
     );
-    try lowerToMrEnc(.add, RegisterOrMemory.mem(null, 0x10000000, .dword_ptr), .r12d, isel.code());
+    try lowerToMrEnc(.add, RegisterOrMemory.mem(.dword_ptr, .{ .disp = 0x10000000 }), .r12d, isel.code());
     try expectEqualHexStrings(
         "\x44\x01\x24\x25\x00\x00\x00\x10",
         isel.lowered(),
         "add dword ptr [ds:0x10000000], r12d",
     );
-    try lowerToMrEnc(.sub, RegisterOrMemory.mem(.r11, 0x10000000, .qword_ptr), .r12, isel.code());
+    try lowerToMrEnc(.sub, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = 0x10000000,
+        .base = .r11,
+    }), .r12, isel.code());
     try expectEqualHexStrings(
         "\x4D\x29\xA3\x00\x00\x00\x10",
         isel.lowered(),
         "sub qword ptr [r11 + 0x10000000], r12",
     );
-    try lowerToMrEnc(.mov, RegisterOrMemory.rip(0x10, .qword_ptr), .r12, isel.code());
+    try lowerToMrEnc(.mov, RegisterOrMemory.rip(.qword_ptr, 0x10), .r12, isel.code());
     try expectEqualHexStrings("\x4C\x89\x25\x10\x00\x00\x00", isel.lowered(), "mov qword ptr [rip + 0x10], r12");
 }
 
@@ -2083,21 +1988,24 @@ test "lower M encoding" {
     try expectEqualHexStrings("\x41\xFF\xE4", isel.lowered(), "jmp r12");
     try lowerToMEnc(.jmp_near, RegisterOrMemory.reg(.r12w), isel.code());
     try expectEqualHexStrings("\x66\x41\xFF\xE4", isel.lowered(), "jmp r12w");
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.r12, 0, .qword_ptr), isel.code());
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.qword_ptr, .{ .disp = 0, .base = .r12 }), isel.code());
     try expectEqualHexStrings("\x41\xFF\x24\x24", isel.lowered(), "jmp qword ptr [r12]");
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.r12, 0, .word_ptr), isel.code());
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.word_ptr, .{ .disp = 0, .base = .r12 }), isel.code());
     try expectEqualHexStrings("\x66\x41\xFF\x24\x24", isel.lowered(), "jmp word ptr [r12]");
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.r12, 0x10, .qword_ptr), isel.code());
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.qword_ptr, .{ .disp = 0x10, .base = .r12 }), isel.code());
     try expectEqualHexStrings("\x41\xFF\x64\x24\x10", isel.lowered(), "jmp qword ptr [r12 + 0x10]");
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.r12, 0x1000, .qword_ptr), isel.code());
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = 0x1000,
+        .base = .r12,
+    }), isel.code());
     try expectEqualHexStrings(
         "\x41\xFF\xA4\x24\x00\x10\x00\x00",
         isel.lowered(),
         "jmp qword ptr [r12 + 0x1000]",
     );
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.rip(0x10, .qword_ptr), isel.code());
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.rip(.qword_ptr, 0x10), isel.code());
     try expectEqualHexStrings("\xFF\x25\x10\x00\x00\x00", isel.lowered(), "jmp qword ptr [rip + 0x10]");
-    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(null, 0x10, .qword_ptr), isel.code());
+    try lowerToMEnc(.jmp_near, RegisterOrMemory.mem(.qword_ptr, .{ .disp = 0x10 }), isel.code());
     try expectEqualHexStrings("\xFF\x24\x25\x10\x00\x00\x00", isel.lowered(), "jmp qword ptr [ds:0x10]");
     try lowerToMEnc(.seta, RegisterOrMemory.reg(.r11b), isel.code());
     try expectEqualHexStrings("\x41\x0F\x97\xC3", isel.lowered(), "seta r11b");
@@ -2115,15 +2023,24 @@ test "lower O encoding" {
 test "lower RMI encoding" {
     var isel = TestIsel.init();
     defer isel.deinit();
-    try lowerToRmiEnc(.imul, .rax, RegisterOrMemory.mem(.rbp, -8, .qword_ptr), 0x10, isel.code());
+    try lowerToRmiEnc(.imul, .rax, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = -8,
+        .base = .rbp,
+    }), 0x10, isel.code());
     try expectEqualHexStrings(
         "\x48\x69\x45\xF8\x10\x00\x00\x00",
         isel.lowered(),
         "imul rax, qword ptr [rbp - 8], 0x10",
     );
-    try lowerToRmiEnc(.imul, .eax, RegisterOrMemory.mem(.rbp, -4, .dword_ptr), 0x10, isel.code());
+    try lowerToRmiEnc(.imul, .eax, RegisterOrMemory.mem(.dword_ptr, .{
+        .disp = -4,
+        .base = .rbp,
+    }), 0x10, isel.code());
     try expectEqualHexStrings("\x69\x45\xFC\x10\x00\x00\x00", isel.lowered(), "imul eax, dword ptr [rbp - 4], 0x10");
-    try lowerToRmiEnc(.imul, .ax, RegisterOrMemory.mem(.rbp, -2, .word_ptr), 0x10, isel.code());
+    try lowerToRmiEnc(.imul, .ax, RegisterOrMemory.mem(.word_ptr, .{
+        .disp = -2,
+        .base = .rbp,
+    }), 0x10, isel.code());
     try expectEqualHexStrings("\x66\x69\x45\xFE\x10\x00", isel.lowered(), "imul ax, word ptr [rbp - 2], 0x10");
     try lowerToRmiEnc(.imul, .r12, RegisterOrMemory.reg(.r12), 0x10, isel.code());
     try expectEqualHexStrings("\x4D\x69\xE4\x10\x00\x00\x00", isel.lowered(), "imul r12, r12, 0x10");
