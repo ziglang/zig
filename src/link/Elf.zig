@@ -241,11 +241,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     assert(options.object_format == .elf);
 
     if (build_options.have_llvm and options.use_llvm) {
-        const self = try createEmpty(allocator, options);
-        errdefer self.base.destroy();
-
-        self.llvm_object = try LlvmObject.create(allocator, sub_path, options);
-        return self;
+        return createEmpty(allocator, options);
     }
 
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{
@@ -298,6 +294,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
     };
     const self = try gpa.create(Elf);
     errdefer gpa.destroy(self);
+
     self.* = .{
         .base = .{
             .tag = .elf,
@@ -307,9 +304,11 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         },
         .ptr_width = ptr_width,
     };
-    // TODO get rid of the sub_path parameter to LlvmObject.create
-    // and create the llvm_object here. Also openPath needs to
-    // not override this field or there will be a memory leak.
+    const use_llvm = build_options.have_llvm and options.use_llvm;
+    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    if (use_llvm and !use_stage1) {
+        self.llvm_object = try LlvmObject.create(gpa, options);
+    }
     return self;
 }
 
@@ -788,14 +787,21 @@ pub const abbrev_pad1 = 5;
 pub const abbrev_parameter = 6;
 
 pub fn flush(self: *Elf, comp: *Compilation) !void {
-    if (build_options.have_llvm and self.base.options.use_lld) {
-        return self.linkWithLLD(comp);
-    } else {
-        switch (self.base.options.effectiveOutputMode()) {
-            .Exe, .Obj => {},
-            .Lib => return error.TODOImplementWritingLibFiles,
+    if (self.base.options.emit == null) {
+        if (build_options.have_llvm) {
+            if (self.llvm_object) |llvm_object| {
+                return try llvm_object.flushModule(comp);
+            }
         }
-        return self.flushModule(comp);
+        return;
+    }
+    const use_lld = build_options.have_llvm and self.base.options.use_lld;
+    if (use_lld) {
+        return self.linkWithLLD(comp);
+    }
+    switch (self.base.options.output_mode) {
+        .Exe, .Obj => return self.flushModule(comp),
+        .Lib => return error.TODOImplementWritingLibFiles,
     }
 }
 
@@ -803,8 +809,11 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (build_options.have_llvm)
-        if (self.llvm_object) |llvm_object| return try llvm_object.flushModule(comp);
+    if (build_options.have_llvm) {
+        if (self.llvm_object) |llvm_object| {
+            return try llvm_object.flushModule(comp);
+        }
+    }
 
     // TODO This linker code currently assumes there is only 1 compilation unit and it
     // corresponds to the Zig source code.
@@ -1327,9 +1336,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
         try self.flushModule(comp);
 
-        break :blk try fs.path.join(arena, &.{
-            fs.path.dirname(full_out_path).?, self.base.intermediary_basename.?,
-        });
+        if (fs.path.dirname(full_out_path)) |dirname| {
+            break :blk try fs.path.join(arena, &.{ dirname, self.base.intermediary_basename.? });
+        } else {
+            break :blk self.base.intermediary_basename.?;
+        }
     } else null;
 
     const is_obj = self.base.options.output_mode == .Obj;
@@ -1446,10 +1457,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         };
     }
 
-    // Due to a deficiency in LLD, we need to special-case BPF to a simple file copy when generating
-    // relocatables. Normally, we would expect `lld -r` to work. However, because LLD wants to resolve
-    // BPF relocations which it shouldn't, it fails before even generating the relocatable.
-    if (self.base.options.output_mode == .Obj and (self.base.options.lto or target.isBpfFreestanding())) {
+    // Due to a deficiency in LLD, we need to special-case BPF to a simple file
+    // copy when generating relocatables. Normally, we would expect `lld -r` to work.
+    // However, because LLD wants to resolve BPF relocations which it shouldn't, it fails
+    // before even generating the relocatable.
+    if (self.base.options.output_mode == .Obj and
+        (self.base.options.lto or target.isBpfFreestanding()))
+    {
         // In this case we must do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
@@ -1473,7 +1487,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
     } else {
-
         // Create an LLD command line and invoke it.
         var argv = std.ArrayList([]const u8).init(self.base.allocator);
         defer argv.deinit();

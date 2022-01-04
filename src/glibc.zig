@@ -225,7 +225,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             });
         },
         .scrt1_o => {
-            const start_os: Compilation.CSourceFile = blk: {
+            const start_o: Compilation.CSourceFile = blk: {
                 var args = std.ArrayList([]const u8).init(arena);
                 try add_include_dirs(comp, arena, &args);
                 try args.appendSlice(&[_][]const u8{
@@ -266,7 +266,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = args.items,
                 };
             };
-            return comp.build_crt_file("Scrt1", .Obj, &[_]Compilation.CSourceFile{ start_os, abi_note_o });
+            return comp.build_crt_file("Scrt1", .Obj, &[_]Compilation.CSourceFile{ start_o, abi_note_o });
         },
         .libc_nonshared_a => {
             const target = comp.getTarget();

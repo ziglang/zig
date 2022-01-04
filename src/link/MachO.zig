@@ -313,11 +313,10 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
         // TODO this intermediary_basename isn't enough; in the case of `zig build-exe`,
         // we also want to put the intermediary object file in the cache while the
         // main emit directory is the cwd.
-        const sub_path = try std.fmt.allocPrint(allocator, "{s}{s}", .{
+        self.llvm_object = try LlvmObject.create(allocator, options);
+        self.base.intermediary_basename = try std.fmt.allocPrint(allocator, "{s}{s}", .{
             emit.sub_path, options.object_format.fileExt(options.target.cpu.arch),
         });
-        self.llvm_object = try LlvmObject.create(allocator, sub_path, options);
-        self.base.intermediary_basename = sub_path;
     }
 
     if (options.output_mode == .Lib and
@@ -373,7 +372,6 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 }
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
-    const self = try gpa.create(MachO);
     const cpu_arch = options.target.cpu.arch;
     const os_tag = options.target.os.tag;
     const abi = options.target.abi;
@@ -382,6 +380,9 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     // ABI such as aarch64-ios-simulator, etc.
     const requires_adhoc_codesig = cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator);
     const needs_prealloc = !(build_options.is_stage1 and options.use_stage1);
+
+    const self = try gpa.create(MachO);
+    errdefer gpa.destroy(self);
 
     self.* = .{
         .base = .{
@@ -395,10 +396,24 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
         .needs_prealloc = needs_prealloc,
     };
 
+    const use_llvm = build_options.have_llvm and options.use_llvm;
+    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    if (use_llvm and !use_stage1) {
+        self.llvm_object = try LlvmObject.create(gpa, options);
+    }
+
     return self;
 }
 
 pub fn flush(self: *MachO, comp: *Compilation) !void {
+    if (self.base.options.emit == null) {
+        if (build_options.have_llvm) {
+            if (self.llvm_object) |llvm_object| {
+                return try llvm_object.flushModule(comp);
+            }
+        }
+        return;
+    }
     if (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Static) {
         if (build_options.have_llvm) {
             return self.base.linkAsArchive(comp);
@@ -449,9 +464,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
         try self.flushObject(comp);
 
-        break :blk try fs.path.join(arena, &.{
-            fs.path.dirname(full_out_path).?, obj_basename,
-        });
+        if (fs.path.dirname(full_out_path)) |dirname| {
+            break :blk try fs.path.join(arena, &.{ dirname, obj_basename });
+        } else {
+            break :blk obj_basename;
+        }
     } else null;
 
     const is_lib = self.base.options.output_mode == .Lib;

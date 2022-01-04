@@ -43,6 +43,21 @@ pub const Emit = struct {
     directory: Compilation.Directory,
     /// Path to the output file, relative to `directory`.
     sub_path: []const u8,
+
+    /// Returns the full path to `basename` if it were in the same directory as the
+    /// `Emit` sub_path.
+    pub fn basenamePath(emit: Emit, arena: Allocator, basename: [:0]const u8) ![:0]const u8 {
+        const full_path = if (emit.directory.path) |p|
+            try fs.path.join(arena, &[_][]const u8{ p, emit.sub_path })
+        else
+            emit.sub_path;
+
+        if (fs.path.dirname(full_path)) |dirname| {
+            return try fs.path.joinZ(arena, &.{ dirname, basename });
+        } else {
+            return basename;
+        }
+    }
 };
 
 pub const Options = struct {
@@ -533,9 +548,8 @@ pub const File = struct {
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
     pub fn flush(base: *File, comp: *Compilation) !void {
-        const emit = base.options.emit orelse return; // -fno-emit-bin
-
         if (comp.clang_preprocessor_mode == .yes) {
+            const emit = base.options.emit orelse return; // -fno-emit-bin
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
             // Until then, we do `lld -r -o output.o input.o` even though the output is the same
             // as the input. For the preprocessing case (`zig cc -E -o foo`) we copy the file
