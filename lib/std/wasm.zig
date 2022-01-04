@@ -212,6 +212,28 @@ test "Wasm - opcodes" {
     try testing.expectEqual(@as(u16, 0xC4), i64_extend32_s);
 }
 
+/// Opcodes that require a prefix `0xFC`
+pub const PrefixedOpcode = enum(u8) {
+    i32_trunc_sat_f32_s = 0x00,
+    i32_trunc_sat_f32_u = 0x01,
+    i32_trunc_sat_f64_s = 0x02,
+    i32_trunc_sat_f64_u = 0x03,
+    i64_trunc_sat_f32_s = 0x04,
+    i64_trunc_sat_f32_u = 0x05,
+    i64_trunc_sat_f64_s = 0x06,
+    i64_trunc_sat_f64_u = 0x07,
+    memory_init = 0x08,
+    data_drop = 0x09,
+    memory_copy = 0x0A,
+    memory_fill = 0x0B,
+    table_init = 0x0C,
+    elem_drop = 0x0D,
+    table_copy = 0x0E,
+    table_grow = 0x0F,
+    table_size = 0x10,
+    table_fill = 0x11,
+};
+
 /// Enum representing all Wasm value types as per spec:
 /// https://webassembly.github.io/spec/core/binary/types.html
 pub const Valtype = enum(u8) {
@@ -266,7 +288,7 @@ pub const InitExpression = union(enum) {
     global_get: u32,
 };
 
-///
+/// Represents a function entry, holding the index to its type
 pub const Func = struct {
     type_index: u32,
 };
