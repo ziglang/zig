@@ -62,6 +62,7 @@ test {
             _ = @import("behavior/this.zig");
             _ = @import("behavior/translate_c_macros.zig");
             _ = @import("behavior/while.zig");
+            _ = @import("behavior/undefined.zig");
             _ = @import("behavior/void.zig");
 
             if (builtin.object_format != .c) {
@@ -102,7 +103,6 @@ test {
                 _ = @import("behavior/slice.zig");
                 _ = @import("behavior/struct_llvm.zig");
                 _ = @import("behavior/switch.zig");
-                _ = @import("behavior/undefined.zig");
                 _ = @import("behavior/union.zig");
                 _ = @import("behavior/widening.zig");
 
