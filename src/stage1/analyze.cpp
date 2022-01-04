@@ -8962,7 +8962,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         struct_type->data.structure.llvm_full_type_queue_index = SIZE_MAX;
     }
 
-    if (struct_type->abi_size <= 16 && struct_type->data.structure.layout == ContainerLayoutExtern)
+    if (struct_type->abi_size <= 16 && (struct_type->data.structure.layout == ContainerLayoutExtern || struct_type->data.structure.layout == ContainerLayoutPacked))
         resolve_llvm_c_abi_type(g, struct_type);
 }
 
