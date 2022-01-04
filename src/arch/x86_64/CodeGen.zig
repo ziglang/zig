@@ -1565,28 +1565,60 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
 fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-    return self.structFieldPtr(extra.struct_operand, ty_pl.ty, extra.field_index);
+    const result = try self.structFieldPtr(inst, extra.struct_operand, extra.field_index);
+    return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
 fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    return self.structFieldPtr(ty_op.operand, ty_op.ty, index);
+    const result = try self.structFieldPtr(inst, ty_op.operand, index);
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
-fn structFieldPtr(self: *Self, operand: Air.Inst.Ref, ty: Air.Inst.Ref, index: u32) !void {
-    _ = self;
-    _ = operand;
-    _ = ty;
-    _ = index;
-    return self.fail("TODO implement codegen struct_field_ptr", .{});
-    //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+
+fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
+    return if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(operand);
+        const struct_ty = self.air.typeOf(operand).childType();
+        const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
+        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+        const struct_field_ty = struct_ty.structFieldType(index);
+        const struct_field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
+
+        switch (mcv) {
+            .ptr_stack_offset => |off| {
+                break :result MCValue{
+                    .ptr_stack_offset = off + struct_size - struct_field_offset - struct_field_size,
+                };
+            },
+            else => return self.fail("TODO implement codegen struct_field_ptr for {}", .{mcv}),
+        }
+    };
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-    _ = extra;
-    return self.fail("TODO implement codegen struct_field_val", .{});
-    //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+    const operand = extra.struct_operand;
+    const index = extra.field_index;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(operand);
+        const struct_ty = self.air.typeOf(operand);
+        const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
+        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+        const struct_field_ty = struct_ty.structFieldType(index);
+        const struct_field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
+
+        switch (mcv) {
+            .stack_offset => |off| {
+                break :result MCValue{
+                    .stack_offset = off + struct_size - struct_field_offset - struct_field_size,
+                };
+            },
+            else => return self.fail("TODO implement codegen struct_field_val for {}", .{mcv}),
+        }
+    };
+
+    return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
 /// Perform "binary" operators, excluding comparisons.
@@ -1948,10 +1980,16 @@ fn airFence(self: *Self) !void {
 
 fn airCall(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const fn_ty = self.air.typeOf(pl_op.operand);
     const callee = pl_op.operand;
     const extra = self.air.extraData(Air.Call, pl_op.payload);
     const args = @bitCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
+    const ty = self.air.typeOf(callee);
+
+    const fn_ty = switch (ty.zigTypeTag()) {
+        .Fn => ty,
+        .Pointer => ty.childType(),
+        else => unreachable,
+    };
 
     var info = try self.resolveCallingConventionValues(fn_ty);
     defer info.deinit(self);
