@@ -1785,6 +1785,15 @@ fn genBinMathOpMir(
             }
         },
         .stack_offset => |off| {
+            if (off > math.maxInt(i32)) {
+                return self.fail("stack offset too large", .{});
+            }
+            const abi_size = dst_ty.abiSize(self.target.*);
+            if (abi_size > 8) {
+                return self.fail("TODO implement ADD/SUB/CMP for stack dst with large ABI", .{});
+            }
+            const adj_off = off + abi_size;
+
             switch (src_mcv) {
                 .none => unreachable,
                 .undef => return self.genSetStack(dst_ty, off, .undef),
@@ -1792,11 +1801,6 @@ fn genBinMathOpMir(
                 .ptr_stack_offset => unreachable,
                 .ptr_embedded_in_code => unreachable,
                 .register => |src_reg| {
-                    if (off > math.maxInt(i32)) {
-                        return self.fail("stack offset too large", .{});
-                    }
-                    const abi_size = dst_ty.abiSize(self.target.*);
-                    const adj_off = off + abi_size;
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
@@ -1808,8 +1812,34 @@ fn genBinMathOpMir(
                     });
                 },
                 .immediate => |imm| {
-                    _ = imm;
-                    return self.fail("TODO implement x86 ADD/SUB/CMP source immediate", .{});
+                    const tag: Mir.Inst.Tag = switch (mir_tag) {
+                        .add => .add_mem_imm,
+                        .@"or" => .or_mem_imm,
+                        .@"and" => .and_mem_imm,
+                        .sub => .sub_mem_imm,
+                        .xor => .xor_mem_imm,
+                        .cmp => .cmp_mem_imm,
+                        else => unreachable,
+                    };
+                    const flags: u2 = switch (abi_size) {
+                        1 => 0b00,
+                        2 => 0b01,
+                        4 => 0b10,
+                        8 => 0b11,
+                        else => unreachable,
+                    };
+                    const payload = try self.addExtra(Mir.ImmPair{
+                        .dest_off = -@intCast(i32, adj_off),
+                        .operand = @bitCast(i32, @intCast(u32, imm)),
+                    });
+                    _ = try self.addInst(.{
+                        .tag = tag,
+                        .ops = (Mir.Ops{
+                            .reg1 = .rbp,
+                            .flags = flags,
+                        }).encode(),
+                        .data = .{ .payload = payload },
+                    });
                 },
                 .embedded_in_code, .memory, .stack_offset => {
                     return self.fail("TODO implement x86 ADD/SUB/CMP source memory", .{});
