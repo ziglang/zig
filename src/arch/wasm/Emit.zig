@@ -161,6 +161,8 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .i64_extend8_s => try emit.emitTag(tag),
             .i64_extend16_s => try emit.emitTag(tag),
             .i64_extend32_s => try emit.emitTag(tag),
+
+            .extended => try emit.emitExtended(inst),
         }
     }
 }
@@ -320,4 +322,21 @@ fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
         .index = symbol_index,
         .relocation_type = .R_WASM_MEMORY_ADDR_LEB,
     });
+}
+
+fn emitExtended(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const opcode = emit.mir.instructions.items(.secondary)[inst];
+    switch (@intToEnum(std.wasm.PrefixedOpcode, opcode)) {
+        .memory_fill => try emit.emitMemFill(),
+        else => |tag| return emit.fail("TODO: Implement extension instruction: {s}\n", .{@tagName(tag)}),
+    }
+}
+
+fn emitMemFill(emit: *Emit) !void {
+    try emit.code.append(0xFC);
+    try emit.code.append(0x0B);
+    // When multi-memory proposal reaches phase 4, we
+    // can emit a different memory index here.
+    // For now we will always emit index 0.
+    try leb128.writeULEB128(emit.code.writer(), @as(u32, 0));
 }

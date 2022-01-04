@@ -19,6 +19,9 @@ extra: []const u32,
 pub const Inst = struct {
     /// The opcode that represents this instruction
     tag: Tag,
+    /// This opcode will be set when `tag` represents an extended
+    /// instruction with prefix 0xFC, or a simd instruction with prefix 0xFD.
+    secondary: u8 = 0,
     /// Data is determined by the set `tag`.
     /// For example, `data` will be an i32 for when `tag` is 'i32_const'.
     data: Data,
@@ -373,6 +376,11 @@ pub const Inst = struct {
         i64_extend16_s = 0xC3,
         /// Uses `tag`
         i64_extend32_s = 0xC4,
+        /// The instruction consists of an extension opcode
+        /// set in `secondary`
+        ///
+        /// The `data` field depends on the extension instruction
+        extended = 0xFC,
         /// Contains a symbol to a function pointer
         /// uses `label`
         ///
