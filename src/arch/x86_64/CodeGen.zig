@@ -1260,7 +1260,7 @@ fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
         const dst_mcv: MCValue = blk: {
             switch (operand) {
                 .stack_offset => |off| {
-                    break :blk MCValue{ .stack_offset = off };
+                    break :blk MCValue{ .stack_offset = off + 8 };
                 },
                 else => return self.fail("TODO implement slice_ptr for {}", .{operand}),
             }
@@ -1277,7 +1277,7 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
         const dst_mcv: MCValue = blk: {
             switch (operand) {
                 .stack_offset => |off| {
-                    break :blk MCValue{ .stack_offset = off + 8 };
+                    break :blk MCValue{ .stack_offset = off };
                 },
                 else => return self.fail("TODO implement slice_len for {}", .{operand}),
             }
@@ -1515,18 +1515,22 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         .data = .{ .imm = 0 },
                     });
                 },
-                .stack_offset => |unadjusted_off| {
+                .stack_offset => |off| {
                     if (abi_size <= 8) {
                         const tmp_reg = try self.register_manager.allocReg(null, &.{reg});
                         try self.load(.{ .register = tmp_reg }, ptr, ptr_ty);
-                        return self.genSetStack(elem_ty, unadjusted_off, MCValue{ .register = tmp_reg });
+                        return self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg });
                     }
 
-                    const regs = try self.register_manager.allocRegs(2, .{ null, null }, &.{ reg, .rax, .rcx });
+                    const regs = try self.register_manager.allocRegs(
+                        3,
+                        .{ null, null, null },
+                        &.{ reg, .rax, .rcx },
+                    );
                     const addr_reg = regs[0];
                     const len_reg = regs[1];
+                    const tmp_reg = regs[2];
 
-                    const off = unadjusted_off + abi_size;
                     _ = try self.addInst(.{
                         .tag = .mov,
                         .ops = (Mir.Ops{
@@ -1536,13 +1540,17 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         .data = undefined,
                     });
 
+                    try self.register_manager.getReg(.rax, null);
+                    try self.register_manager.getReg(.rcx, null);
+
                     // TODO allow for abi size to be u64
                     try self.genSetReg(Type.initTag(.u32), len_reg, .{ .immediate = @intCast(u32, abi_size) });
 
                     return self.genInlineMemcpy(
-                        -@intCast(i32, off),
+                        -@intCast(i32, off + abi_size),
                         registerAlias(addr_reg, @divExact(reg.size(), 8)),
                         len_reg.to64(),
+                        tmp_reg.to8(),
                     );
                 },
                 else => return self.fail("TODO implement loading from register into {}", .{dst_mcv}),
@@ -2148,6 +2156,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
             assert(ty.zigTypeTag() == .Pointer);
             const mcv = try self.resolveInst(callee);
             try self.genSetReg(Type.initTag(.usize), .rax, mcv);
+            _ = try self.addInst(.{
+                .tag = .call,
+                .ops = (Mir.Ops{
+                    .reg1 = .rax,
+                    .flags = 0b01,
+                }).encode(),
+                .data = undefined,
+            });
         }
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
         for (info.args) |mc_arg, arg_i| {
@@ -2217,6 +2233,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
             assert(ty.zigTypeTag() == .Pointer);
             const mcv = try self.resolveInst(callee);
             try self.genSetReg(Type.initTag(.usize), .rax, mcv);
+            _ = try self.addInst(.{
+                .tag = .call,
+                .ops = (Mir.Ops{
+                    .reg1 = .rax,
+                    .flags = 0b01,
+                }).encode(),
+                .data = undefined,
+            });
         }
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
         for (info.args) |mc_arg, arg_i| {
@@ -2269,7 +2293,17 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 });
             } else return self.fail("TODO implement calling extern fn on plan9", .{});
         } else {
-            return self.fail("TODO implement calling runtime known function pointer", .{});
+            assert(ty.zigTypeTag() == .Pointer);
+            const mcv = try self.resolveInst(callee);
+            try self.genSetReg(Type.initTag(.usize), .rax, mcv);
+            _ = try self.addInst(.{
+                .tag = .call,
+                .ops = (Mir.Ops{
+                    .reg1 = .rax,
+                    .flags = 0b01,
+                }).encode(),
+                .data = undefined,
+            });
         }
     } else unreachable;
 
@@ -3118,8 +3152,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             }
             return self.fail("TODO implement memcpy for setting stack from {}", .{mcv});
         },
-        .stack_offset => |unadjusted_off| {
-            if (stack_offset == unadjusted_off) {
+        .stack_offset => |off| {
+            if (stack_offset == off) {
                 // Copy stack variable to itself; nothing to do.
                 return;
             }
@@ -3130,33 +3164,43 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
             }
 
-            const regs = try self.register_manager.allocRegs(2, .{ null, null }, &.{ .rax, .rcx });
+            const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{ .rax, .rcx });
             const addr_reg = regs[0];
             const len_reg = regs[1];
+            const tmp_reg = regs[2];
 
-            const off = unadjusted_off + abi_size;
+            try self.register_manager.getReg(.rax, null);
+            try self.register_manager.getReg(.rcx, null);
+
             _ = try self.addInst(.{
                 .tag = .lea,
                 .ops = (Mir.Ops{
                     .reg1 = addr_reg.to64(),
                     .reg2 = .rbp,
                 }).encode(),
-                .data = .{ .imm = -@intCast(i32, off) },
+                .data = .{ .imm = -@intCast(i32, off + abi_size) },
             });
 
             // TODO allow for abi_size to be u64
             try self.genSetReg(Type.initTag(.u32), len_reg, .{ .immediate = @intCast(u32, abi_size) });
 
-            return self.genInlineMemcpy(-@intCast(i32, off), addr_reg.to64(), len_reg.to64());
+            return self.genInlineMemcpy(
+                -@intCast(i32, stack_offset + abi_size),
+                addr_reg.to64(),
+                len_reg.to64(),
+                tmp_reg.to8(),
+            );
         },
     }
 }
 
-fn genInlineMemcpy(self: *Self, stack_offset: i32, addr_reg: Register, len_reg: Register) InnerError!void {
-    try self.register_manager.getReg(.rax, null);
-    try self.register_manager.getReg(.rcx, null);
-    const tmp_reg = try self.register_manager.allocReg(null, &.{ addr_reg, len_reg, .rax, .rcx });
-
+fn genInlineMemcpy(
+    self: *Self,
+    stack_offset: i32,
+    addr_reg: Register,
+    len_reg: Register,
+    tmp_reg: Register,
+) InnerError!void {
     // mov rcx, 0
     _ = try self.addInst(.{
         .tag = .mov,
