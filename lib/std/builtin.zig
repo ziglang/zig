@@ -694,6 +694,61 @@ pub const ExternOptions = struct {
     is_thread_local: bool = false,
 };
 
+/// This enum is set by the compiler and communicates which compiler backend is
+/// used to produce machine code.
+/// Think carefully before deciding to observe this value. Nearly all code should
+/// be agnostic to the backend that implements the language. The use case
+/// to use this value is to **work around problems with compiler implementations.**
+///
+/// Avoid failing the compilation if the compiler backend does not match a
+/// whitelist of backends; rather one should detect that a known problem would
+/// occur in a blacklist of backends.
+///
+/// The enum is nonexhaustive so that alternate Zig language implementations may
+/// choose a number as their tag (please use a random number generator rather
+/// than a "cute" number) and codebases can interact with these values even if
+/// this upstream enum does not have a name for the number. Of course, upstream
+/// is happy to accept pull requests to add Zig implementations to this enum.
+///
+/// This data structure is part of the Zig language specification.
+pub const CompilerBackend = enum(u64) {
+    /// It is allowed for a compiler implementation to not reveal its identity,
+    /// in which case this value is appropriate. Be cool and make sure your
+    /// code supports `other` Zig compilers!
+    other = 0,
+    /// The original Zig compiler created in 2015 by Andrew Kelley.
+    /// Implemented in C++. Uses LLVM.
+    stage1 = 1,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// LLVM backend.
+    stage2_llvm = 2,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// backend that generates C source code.
+    /// Note that one can observe whether the compilation will output C code
+    /// directly with `object_format` value rather than the `compiler_backend` value.
+    stage2_c = 3,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// WebAssembly backend.
+    stage2_wasm = 4,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// arm backend.
+    stage2_arm = 5,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// x86_64 backend.
+    stage2_x86_64 = 6,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// aarch64 backend.
+    stage2_aarch64 = 7,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// x86 backend.
+    stage2_x86 = 8,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// riscv64 backend.
+    stage2_riscv64 = 9,
+
+    _,
+};
+
 /// This function type is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const TestFn = struct {

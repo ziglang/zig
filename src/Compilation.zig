@@ -4538,12 +4538,28 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
     const stage2_x86_cx16 = target.cpu.arch == .x86_64 and
         std.Target.x86.featureSetHas(target.cpu.features, .cx16);
 
+    const zig_backend: std.builtin.CompilerBackend = blk: {
+        if (use_stage1) break :blk .stage1;
+        if (build_options.have_llvm and comp.bin_file.options.use_llvm) break :blk .stage2_llvm;
+        if (comp.bin_file.options.object_format == .c) break :blk .stage2_c;
+        break :blk switch (target.cpu.arch) {
+            .wasm32, .wasm64 => std.builtin.CompilerBackend.stage2_wasm,
+            .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
+            .x86_64 => .stage2_x86_64,
+            .i386 => .stage2_x86,
+            .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
+            .riscv64 => .stage2_riscv64,
+            else => .other,
+        };
+    };
+
     @setEvalBranchQuota(4000);
     try buffer.writer().print(
         \\const std = @import("std");
         \\/// Zig version. When writing code that supports multiple versions of Zig, prefer
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
         \\pub const zig_version = std.SemanticVersion.parse("{s}") catch unreachable;
+        \\pub const zig_backend = std.builtin.CompilerBackend.{};
         \\/// Temporary until self-hosted is feature complete.
         \\pub const zig_is_stage2 = {};
         \\/// Temporary until self-hosted supports the `cpu.arch` value.
@@ -4563,6 +4579,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\
     , .{
         build_options.version,
+        std.zig.fmtId(@tagName(zig_backend)),
         !use_stage1,
         std.zig.fmtId(@tagName(target.cpu.arch)),
         stage2_x86_cx16,

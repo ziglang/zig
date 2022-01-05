@@ -7,7 +7,7 @@ test {
     _ = @import("behavior/bugs/3586.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
 
-    if (!builtin.zig_is_stage2 or builtin.stage2_arch != .x86_64) {
+    if (builtin.zig_backend != .stage2_x86_64) {
         // Tests that pass for stage1, llvm backend, C backend, wasm backend, and arm backend.
         _ = @import("behavior/bugs/679.zig");
         _ = @import("behavior/bugs/4560.zig");
@@ -19,7 +19,7 @@ test {
         _ = @import("behavior/type_info.zig");
         _ = @import("behavior/type.zig");
 
-        if (!builtin.zig_is_stage2 or builtin.stage2_arch != .arm) {
+        if (builtin.zig_backend != .stage2_arm) {
             // Tests that pass for stage1, llvm backend, C backend, wasm backend.
             _ = @import("behavior/basic.zig");
             _ = @import("behavior/bitcast.zig");
@@ -57,7 +57,7 @@ test {
             _ = @import("behavior/void.zig");
             _ = @import("behavior/while.zig");
 
-            if (!builtin.zig_is_stage2 or builtin.stage2_arch != .wasm32) {
+            if (builtin.zig_backend != .stage2_wasm) {
                 // Tests that pass for stage1, llvm backend, C backend
                 _ = @import("behavior/align.zig");
                 _ = @import("behavior/array.zig");
@@ -67,7 +67,7 @@ test {
                 _ = @import("behavior/optional.zig");
                 _ = @import("behavior/translate_c_macros.zig");
 
-                if (builtin.object_format != .c) {
+                if (builtin.zig_backend != .stage2_c) {
                     // Tests that pass for stage1 and the llvm backend.
                     _ = @import("behavior/align_llvm.zig");
                     _ = @import("behavior/alignof.zig");
@@ -109,7 +109,7 @@ test {
                     _ = @import("behavior/union.zig");
                     _ = @import("behavior/widening.zig");
 
-                    if (builtin.zig_is_stage2) {
+                    if (builtin.zig_backend != .stage1) {
                         // When all comptime_memory.zig tests pass, #9646 can be closed.
                         // _ = @import("behavior/comptime_memory.zig");
                         _ = @import("behavior/slice_stage2.zig");
