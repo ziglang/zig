@@ -155,11 +155,11 @@ pub fn build(b: *Builder) !void {
         const cmake_cfg = if (static_llvm) null else findAndParseConfigH(b, config_h_path_option);
 
         if (is_stage1) {
-            exe.addIncludeDir("src");
-            exe.addIncludeDir("deps/SoftFloat-3e/source/include");
+            exe.addIncludePath("src");
+            exe.addIncludePath("deps/SoftFloat-3e/source/include");
 
-            test_stage2.addIncludeDir("src");
-            test_stage2.addIncludeDir("deps/SoftFloat-3e/source/include");
+            test_stage2.addIncludePath("src");
+            test_stage2.addIncludePath("deps/SoftFloat-3e/source/include");
             // This is intentionally a dummy path. stage1.zig tries to @import("compiler_rt") in case
             // of being built by cmake. But when built by zig it's gonna get a compiler_rt so that
             // is pointless.
@@ -170,9 +170,9 @@ pub fn build(b: *Builder) !void {
             const softfloat = b.addStaticLibrary("softfloat", null);
             softfloat.setBuildMode(.ReleaseFast);
             softfloat.setTarget(target);
-            softfloat.addIncludeDir("deps/SoftFloat-3e-prebuilt");
-            softfloat.addIncludeDir("deps/SoftFloat-3e/source/8086");
-            softfloat.addIncludeDir("deps/SoftFloat-3e/source/include");
+            softfloat.addIncludePath("deps/SoftFloat-3e-prebuilt");
+            softfloat.addIncludePath("deps/SoftFloat-3e/source/8086");
+            softfloat.addIncludePath("deps/SoftFloat-3e/source/include");
             softfloat.addCSourceFiles(&softfloat_sources, &[_][]const u8{ "-std=c99", "-O3" });
             softfloat.single_threaded = single_threaded;
 
@@ -282,7 +282,7 @@ pub fn build(b: *Builder) !void {
         else
             &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
 
-        exe.addIncludeDir(tracy_path);
+        exe.addIncludePath(tracy_path);
         exe.addCSourceFile(client_cpp, tracy_c_flags);
         if (!enable_llvm) {
             exe.linkSystemLibraryName("c++");
@@ -445,7 +445,7 @@ fn addCmakeCfgOptionsToExe(
         b.fmt("{s}{s}{s}", .{ exe.target.libPrefix(), "zigcpp", exe.target.staticLibSuffix() }),
     }) catch unreachable);
     assert(cfg.lld_include_dir.len != 0);
-    exe.addIncludeDir(cfg.lld_include_dir);
+    exe.addIncludePath(cfg.lld_include_dir);
     addCMakeLibraryList(exe, cfg.clang_libraries);
     addCMakeLibraryList(exe, cfg.lld_libraries);
     addCMakeLibraryList(exe, cfg.llvm_libraries);
@@ -546,9 +546,9 @@ fn addCxxKnownPath(
     if (need_cpp_includes) {
         // I used these temporarily for testing something but we obviously need a
         // more general purpose solution here.
-        //exe.addIncludeDir("/nix/store/fvf3qjqa5qpcjjkq37pb6ypnk1mzhf5h-gcc-9.3.0/lib/gcc/x86_64-unknown-linux-gnu/9.3.0/../../../../include/c++/9.3.0");
-        //exe.addIncludeDir("/nix/store/fvf3qjqa5qpcjjkq37pb6ypnk1mzhf5h-gcc-9.3.0/lib/gcc/x86_64-unknown-linux-gnu/9.3.0/../../../../include/c++/9.3.0/x86_64-unknown-linux-gnu");
-        //exe.addIncludeDir("/nix/store/fvf3qjqa5qpcjjkq37pb6ypnk1mzhf5h-gcc-9.3.0/lib/gcc/x86_64-unknown-linux-gnu/9.3.0/../../../../include/c++/9.3.0/backward");
+        //exe.addIncludePath("/nix/store/fvf3qjqa5qpcjjkq37pb6ypnk1mzhf5h-gcc-9.3.0/lib/gcc/x86_64-unknown-linux-gnu/9.3.0/../../../../include/c++/9.3.0");
+        //exe.addIncludePath("/nix/store/fvf3qjqa5qpcjjkq37pb6ypnk1mzhf5h-gcc-9.3.0/lib/gcc/x86_64-unknown-linux-gnu/9.3.0/../../../../include/c++/9.3.0/x86_64-unknown-linux-gnu");
+        //exe.addIncludePath("/nix/store/fvf3qjqa5qpcjjkq37pb6ypnk1mzhf5h-gcc-9.3.0/lib/gcc/x86_64-unknown-linux-gnu/9.3.0/../../../../include/c++/9.3.0/backward");
     }
 }
 

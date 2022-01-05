@@ -578,7 +578,7 @@ pub fn addPkgTests(
             these_tests.linkSystemLibrary("c");
         }
         these_tests.overrideZigLibDir("lib");
-        these_tests.addIncludeDir("test");
+        these_tests.addIncludePath("test");
 
         step.dependOn(&these_tests.step);
     }

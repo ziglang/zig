@@ -1947,14 +1947,14 @@ pub const LibExeObjStep = struct {
         while (it.next()) |tok| {
             if (mem.eql(u8, tok, "-I")) {
                 const dir = it.next() orelse return error.PkgConfigInvalidOutput;
-                self.addIncludeDir(dir);
+                self.addIncludePath(dir);
             } else if (mem.startsWith(u8, tok, "-I")) {
-                self.addIncludeDir(tok["-I".len..]);
+                self.addIncludePath(tok["-I".len..]);
             } else if (mem.eql(u8, tok, "-L")) {
                 const dir = it.next() orelse return error.PkgConfigInvalidOutput;
-                self.addLibPath(dir);
+                self.addLibraryPath(dir);
             } else if (mem.startsWith(u8, tok, "-L")) {
-                self.addLibPath(tok["-L".len..]);
+                self.addLibraryPath(tok["-L".len..]);
             } else if (mem.eql(u8, tok, "-l")) {
                 const lib = it.next() orelse return error.PkgConfigInvalidOutput;
                 self.linkSystemLibraryName(lib);
