@@ -1,37 +1,14 @@
 const builtin = @import("builtin");
 
-// TODO delete these after releasing 0.9.0
-
-pub const zig_version = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const zig_is_stage2 = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const output_mode = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const link_mode = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const is_test = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const single_threaded = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const abi = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const cpu = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const os = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const target = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const object_format = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const mode = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const link_libc = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const link_libcpp = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const have_error_return_tracing = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const valgrind_support = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const position_independent_code = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const position_independent_executable = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const strip_debug_info = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-pub const code_model = @compileError("get this from @import(\"builtin\") instead of std.builtin");
-
 /// `explicit_subsystem` is missing when the subsystem is automatically detected,
 /// so Zig standard library has the subsystem detection logic here. This should generally be
 /// used rather than `explicit_subsystem`.
 /// On non-Windows targets, this is `null`.
 pub const subsystem: ?std.Target.SubSystem = blk: {
     if (@hasDecl(builtin, "explicit_subsystem")) break :blk builtin.explicit_subsystem;
-    switch (os.tag) {
+    switch (builtin.os.tag) {
         .windows => {
-            if (is_test) {
+            if (builtin.is_test) {
                 break :blk std.Target.SubSystem.Console;
             }
             if (@hasDecl(root, "main") or
