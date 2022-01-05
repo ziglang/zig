@@ -1600,7 +1600,12 @@ fn structInitExprRlPtrInner(
         _ = try expr(gz, scope, .{ .ptr = field_ptr }, field_init);
     }
 
-    _ = try gz.addPlNodePayloadIndex(.validate_struct_init, node, payload_index);
+    const tag: Zir.Inst.Tag = if (gz.force_comptime)
+        .validate_struct_init_comptime
+    else
+        .validate_struct_init;
+
+    _ = try gz.addPlNodePayloadIndex(tag, node, payload_index);
     return Zir.Inst.Ref.void_value;
 }
 
@@ -2310,6 +2315,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .store_to_inferred_ptr,
             .resolve_inferred_alloc,
             .validate_struct_init,
+            .validate_struct_init_comptime,
             .validate_array_init,
             .set_align_stack,
             .set_cold,

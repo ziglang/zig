@@ -367,6 +367,7 @@ const Writer = struct {
             .suspend_block,
             .loop,
             .validate_struct_init,
+            .validate_struct_init_comptime,
             .validate_array_init,
             .c_import,
             => try self.writePlNodeBlock(stream, inst),

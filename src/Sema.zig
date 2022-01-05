@@ -805,7 +805,12 @@ pub fn analyzeBody(
                 continue;
             },
             .validate_struct_init => {
-                try sema.zirValidateStructInit(block, inst);
+                try sema.zirValidateStructInit(block, inst, false);
+                i += 1;
+                continue;
+            },
+            .validate_struct_init_comptime => {
+                try sema.zirValidateStructInit(block, inst, true);
                 i += 1;
                 continue;
             },
@@ -2438,7 +2443,12 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     }
 }
 
-fn zirValidateStructInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+fn zirValidateStructInit(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    is_comptime: bool,
+) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2456,6 +2466,7 @@ fn zirValidateStructInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
             agg_ty.castTag(.@"struct").?.data,
             init_src,
             instrs,
+            is_comptime,
         ),
         .Union => return sema.validateUnionInit(
             block,
@@ -2529,6 +2540,7 @@ fn validateStructInit(
     struct_obj: *Module.Struct,
     init_src: LazySrcLoc,
     instrs: []const Zir.Inst.Index,
+    is_comptime: bool,
 ) CompileError!void {
     const gpa = sema.gpa;
 
@@ -2537,10 +2549,13 @@ fn validateStructInit(
     defer gpa.free(found_fields);
     mem.set(Zir.Inst.Index, found_fields, 0);
 
+    var struct_ptr_zir_ref: Zir.Inst.Ref = undefined;
+
     for (instrs) |field_ptr| {
         const field_ptr_data = sema.code.instructions.items(.data)[field_ptr].pl_node;
         const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_ptr_data.src_node };
         const field_ptr_extra = sema.code.extraData(Zir.Inst.Field, field_ptr_data.payload_index).data;
+        struct_ptr_zir_ref = field_ptr_extra.lhs;
         const field_name = sema.code.nullTerminatedString(field_ptr_extra.field_name_start);
         const field_index = struct_obj.fields.getIndex(field_name) orelse
             return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
@@ -2561,19 +2576,127 @@ fn validateStructInit(
 
     var root_msg: ?*Module.ErrorMsg = null;
 
-    // TODO handle default struct field values
+    const fields = struct_obj.fields.values();
+    const struct_ptr = sema.resolveInst(struct_ptr_zir_ref);
+    const struct_ty = sema.typeOf(struct_ptr).childType();
+
+    if (is_comptime or block.is_comptime) {
+        // In this case the only thing we need to do is evaluate the implicit
+        // store instructions for default field values, and report any missing fields.
+        // Avoid the cost of the extra machinery for detecting a comptime struct init value.
+        for (found_fields) |field_ptr, i| {
+            if (field_ptr != 0) continue;
+
+            const field = fields[i];
+            const field_name = struct_obj.fields.keys()[i];
+
+            if (field.default_val.tag() == .unreachable_value) {
+                const template = "missing struct field: {s}";
+                const args = .{field_name};
+                if (root_msg) |msg| {
+                    try sema.errNote(block, init_src, msg, template, args);
+                } else {
+                    root_msg = try sema.errMsg(block, init_src, template, args);
+                }
+                continue;
+            }
+
+            const default_field_ptr = try sema.structFieldPtr(block, init_src, struct_ptr, field_name, init_src, struct_ty);
+            const init = try sema.addConstant(field.ty, field.default_val);
+            const field_src = init_src; // TODO better source location
+            try sema.storePtr2(block, init_src, default_field_ptr, init_src, init, field_src, .store);
+        }
+
+        if (root_msg) |msg| {
+            const fqn = try struct_obj.getFullyQualifiedName(gpa);
+            defer gpa.free(fqn);
+            try sema.mod.errNoteNonLazy(
+                struct_obj.srcLoc(),
+                msg,
+                "struct '{s}' declared here",
+                .{fqn},
+            );
+            return sema.failWithOwnedErrorMsg(msg);
+        }
+
+        return;
+    }
+
+    var struct_is_comptime = true;
+    var first_block_index: usize = std.math.maxInt(u32);
+
+    const air_tags = sema.air_instructions.items(.tag);
+    const air_datas = sema.air_instructions.items(.data);
+
+    // We collect the comptime field values in case the struct initialization
+    // ends up being comptime-known.
+    const field_values = try sema.arena.alloc(Value, fields.len);
+
     for (found_fields) |field_ptr, i| {
-        if (field_ptr != 0) continue;
+        const field = fields[i];
+
+        if (field_ptr != 0) {
+            const field_ptr_data = sema.code.instructions.items(.data)[field_ptr].pl_node;
+            const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_ptr_data.src_node };
+
+            // Determine whether the value stored to this pointer is comptime-known.
+            if (try sema.typeHasOnePossibleValue(block, field_src, field.ty)) |opv| {
+                field_values[i] = opv;
+                continue;
+            }
+
+            const field_ptr_air_ref = sema.inst_map.get(field_ptr).?;
+            const field_ptr_air_inst = Air.refToIndex(field_ptr_air_ref).?;
+            // Find the block index of the field_ptr so that we can look at the next
+            // instruction after it within the same block.
+            // Possible performance enhancement: save the `block_index` between iterations
+            // of the for loop.
+            const next_air_inst = inst: {
+                var block_index = block.instructions.items.len - 1;
+                while (block.instructions.items[block_index] != field_ptr_air_inst) {
+                    block_index -= 1;
+                }
+                first_block_index = @minimum(first_block_index, block_index);
+                break :inst block.instructions.items[block_index + 1];
+            };
+
+            // If the next instructon is a store with a comptime operand, this field
+            // is comptime.
+            switch (air_tags[next_air_inst]) {
+                .store => {
+                    const bin_op = air_datas[next_air_inst].bin_op;
+                    if (bin_op.lhs != field_ptr_air_ref) {
+                        struct_is_comptime = false;
+                        continue;
+                    }
+                    if (try sema.resolveMaybeUndefValAllowVariables(block, field_src, bin_op.rhs)) |val| {
+                        field_values[i] = val;
+                    } else {
+                        struct_is_comptime = false;
+                    }
+                    continue;
+                },
+                else => {
+                    struct_is_comptime = false;
+                    continue;
+                },
+            }
+        }
 
         const field_name = struct_obj.fields.keys()[i];
-        const template = "missing struct field: {s}";
-        const args = .{field_name};
-        if (root_msg) |msg| {
-            try sema.errNote(block, init_src, msg, template, args);
-        } else {
-            root_msg = try sema.errMsg(block, init_src, template, args);
+
+        if (field.default_val.tag() == .unreachable_value) {
+            const template = "missing struct field: {s}";
+            const args = .{field_name};
+            if (root_msg) |msg| {
+                try sema.errNote(block, init_src, msg, template, args);
+            } else {
+                root_msg = try sema.errMsg(block, init_src, template, args);
+            }
+            continue;
         }
     }
+
     if (root_msg) |msg| {
         const fqn = try struct_obj.getFullyQualifiedName(gpa);
         defer gpa.free(fqn);
@@ -2584,6 +2707,40 @@ fn validateStructInit(
             .{fqn},
         );
         return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    if (struct_is_comptime) {
+        // Our task is to delete all the `field_ptr` and `store` instructions, and insert
+        // instead a single `store` to the struct_ptr with a comptime struct value.
+
+        block.instructions.shrinkRetainingCapacity(first_block_index);
+
+        // The `field_values` array has been populated for all the non-default struct
+        // fields. Here we fill in the default field values.
+        for (found_fields) |field_ptr, i| {
+            if (field_ptr != 0) continue;
+
+            field_values[i] = fields[i].default_val;
+        }
+
+        const struct_val = try Value.Tag.@"struct".create(sema.arena, field_values);
+        const struct_init = try sema.addConstant(struct_ty, struct_val);
+        try sema.storePtr2(block, init_src, struct_ptr, init_src, struct_init, init_src, .store);
+        return;
+    }
+
+    // Our task is to insert `store` instructions for all the default field values.
+
+    for (found_fields) |field_ptr, i| {
+        if (field_ptr != 0) continue;
+
+        const field = fields[i];
+        const field_name = struct_obj.fields.keys()[i];
+        const default_field_ptr = try sema.structFieldPtr(block, init_src, struct_ptr, field_name, init_src, struct_ty);
+
+        const init = try sema.addConstant(field.ty, field.default_val);
+        const field_src = init_src; // TODO better source location
+        try sema.storePtr2(block, init_src, default_field_ptr, init_src, init, field_src, .store);
     }
 }
 

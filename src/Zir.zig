@@ -653,6 +653,9 @@ pub const Inst = struct {
         /// because it must use one of them to find out the struct type.
         /// Uses the `pl_node` field. Payload is `Block`.
         validate_struct_init,
+        /// Same as `validate_struct_init` but additionally communicates that the
+        /// resulting struct initialization value is within a comptime scope.
+        validate_struct_init_comptime,
         /// Given a set of `elem_ptr_imm` instructions, assumes they are all part of an
         /// array initialization expression, and emits a compile error if the number of
         /// elements does not match the array type.
@@ -1082,6 +1085,7 @@ pub const Inst = struct {
                 .switch_cond,
                 .switch_cond_ref,
                 .validate_struct_init,
+                .validate_struct_init_comptime,
                 .validate_array_init,
                 .struct_init_empty,
                 .struct_init,
@@ -1335,6 +1339,7 @@ pub const Inst = struct {
                 .switch_capture_else = .switch_capture,
                 .switch_capture_else_ref = .switch_capture,
                 .validate_struct_init = .pl_node,
+                .validate_struct_init_comptime = .pl_node,
                 .validate_array_init = .pl_node,
                 .struct_init_empty = .un_node,
                 .field_type = .pl_node,
