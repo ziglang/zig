@@ -1246,10 +1246,14 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
 /// E to E!T
 fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement wrap errunion error for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const error_union_ty = self.air.getRefType(ty_op.ty);
+        const payload_ty = error_union_ty.errorUnionPayload();
+        const mcv = try self.resolveInst(ty_op.operand);
+        if (!payload_ty.hasCodeGenBits()) break :result mcv;
+
+        return self.fail("TODO implement wrap errunion error for non-empty payloads", .{});
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
