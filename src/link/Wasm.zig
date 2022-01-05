@@ -1163,7 +1163,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         };
     }
 
-    if (self.base.options.output_mode == .Obj) {
+    if (is_obj) {
         // LLD's WASM driver does not support the equivalent of `-r` so we do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
@@ -1233,14 +1233,38 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             try argv.append(arg);
         }
 
+        var auto_export_symbols = true;
         // Users are allowed to specify which symbols they want to export to the wasm host.
         for (self.base.options.export_symbol_names) |symbol_name| {
             const arg = try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name});
             try argv.append(arg);
+            auto_export_symbols = false;
         }
 
         if (self.base.options.rdynamic) {
             try argv.append("--export-dynamic");
+            auto_export_symbols = false;
+        }
+
+        if (auto_export_symbols) {
+            if (self.base.options.module) |module| {
+                // when we use stage1, we use the exports that stage1 provided us.
+                // For stage2, we can directly retrieve them from the module.
+                const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
+                if (use_stage1) {
+                    for (comp.export_symbol_names.items) |symbol_name| {
+                        try argv.append(try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name}));
+                    }
+                } else {
+                    for (module.decl_exports.values()) |exports| {
+                        for (exports) |exprt| {
+                            const symbol_name = exprt.exported_decl.name;
+                            const arg = try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name});
+                            try argv.append(arg);
+                        }
+                    }
+                }
+            }
         }
 
         if (self.base.options.output_mode == .Exe) {
@@ -1258,24 +1282,12 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             if (self.base.options.wasi_exec_model == .reactor) {
                 // Reactor execution model does not have _start so lld doesn't look for it.
                 try argv.append("--no-entry");
-                // Make sure "_initialize" and other used-defined functions are exported if this is WASI reactor.
-                // If rdynamic is true, it will already be appended, so only verify if the user did not specify
-                // the flag in which case, we ensure `--export-dynamic` is called.
-                if (!self.base.options.rdynamic) {
-                    try argv.append("--export-dynamic");
-                }
             }
         } else {
             if (self.base.options.stack_size_override) |stack_size| {
                 try argv.append("-z");
                 const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
                 try argv.append(arg);
-            }
-
-            // Only when the user has not specified how they want to export the symbols, do we want
-            // to export all symbols.
-            if (self.base.options.export_symbol_names.len == 0 and !self.base.options.rdynamic) {
-                try argv.append("--export-all");
             }
             try argv.append("--no-entry"); // So lld doesn't look for _start.
         }
