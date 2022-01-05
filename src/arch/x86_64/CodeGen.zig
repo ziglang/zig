@@ -1699,7 +1699,7 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
 
         switch (mcv) {
             .ptr_stack_offset => |off| {
-                const ptr_stack_offset = off - struct_size + struct_field_offset + struct_field_size;
+                const ptr_stack_offset = off + struct_size - struct_field_offset - struct_field_size;
                 break :result MCValue{ .ptr_stack_offset = ptr_stack_offset };
             },
             else => return self.fail("TODO implement codegen struct_field_ptr for {}", .{mcv}),
@@ -1722,7 +1722,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 
         switch (mcv) {
             .stack_offset => |off| {
-                const stack_offset = off - struct_size + struct_field_offset + struct_field_size;
+                const stack_offset = off + struct_size - struct_field_offset - struct_field_size;
                 break :result MCValue{ .stack_offset = stack_offset };
             },
             else => return self.fail("TODO implement codegen struct_field_val for {}", .{mcv}),
