@@ -34,6 +34,7 @@ const ThreadPool = @import("ThreadPool.zig");
 const WaitGroup = @import("WaitGroup.zig");
 const libtsan = @import("libtsan.zig");
 const Zir = @import("Zir.zig");
+const Color = @import("main.zig").Color;
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
@@ -141,7 +142,7 @@ owned_link_dir: ?std.fs.Dir,
 
 /// This is for stage1 and should be deleted upon completion of self-hosting.
 /// Don't use this for anything other than stage1 compatibility.
-color: @import("main.zig").Color = .auto,
+color: Color = .auto,
 
 /// This mutex guards all `Compilation` mutable state.
 mutex: std.Thread.Mutex = .{},
@@ -772,7 +773,7 @@ pub const InitOptions = struct {
     machine_code_model: std.builtin.CodeModel = .default,
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
     /// This is for stage1 and should be deleted upon completion of self-hosting.
-    color: @import("main.zig").Color = .auto,
+    color: Color = .auto,
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,

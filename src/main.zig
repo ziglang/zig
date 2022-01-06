@@ -23,6 +23,10 @@ const Cache = @import("Cache.zig");
 const target_util = @import("target.zig");
 const ThreadPool = @import("ThreadPool.zig");
 const crash_report = @import("crash_report.zig");
+const Module = @import("Module.zig");
+const AstGen = @import("AstGen.zig");
+const Zir = @import("Zir.zig");
+const llvm = @import("codegen/llvm/bindings.zig");
 
 // Crash report needs to override the panic handler and other root decls
 pub usingnamespace crash_report.root_decls;
@@ -2395,7 +2399,7 @@ fn buildOutputType(
     if (build_options.have_llvm and emit_asm != .no) {
         // LLVM has no way to set this non-globally.
         const argv = [_][*:0]const u8{ "zig (LLVM option parsing)", "--x86-asm-syntax=intel" };
-        @import("codegen/llvm/bindings.zig").ParseCommandLineOptions(argv.len, &argv);
+        llvm.ParseCommandLineOptions(argv.len, &argv);
     }
 
     const clang_passthrough_mode = switch (arg_mode) {
@@ -3657,9 +3661,6 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
         }
         var has_ast_error = false;
         if (check_ast_flag) {
-            const Module = @import("Module.zig");
-            const AstGen = @import("AstGen.zig");
-
             var file: Module.File = .{
                 .status = .never_loaded,
                 .source_loaded = true,
@@ -3853,9 +3854,6 @@ fn fmtPathFile(
     }
 
     if (fmt.check_ast) {
-        const Module = @import("Module.zig");
-        const AstGen = @import("AstGen.zig");
-
         var file: Module.File = .{
             .status = .never_loaded,
             .source_loaded = true,
@@ -4053,7 +4051,6 @@ pub fn punt_to_lld(arena: Allocator, args: []const []const u8) error{OutOfMemory
         argv[i] = try arena.dupeZ(u8, arg); // TODO If there was an argsAllocZ we could avoid this allocation.
     }
     const exit_code = rc: {
-        const llvm = @import("codegen/llvm/bindings.zig");
         const argc = @intCast(c_int, argv.len);
         if (mem.eql(u8, args[1], "ld.lld")) {
             break :rc llvm.LinkELF(argc, argv.ptr, true);
@@ -4417,10 +4414,6 @@ pub fn cmdAstCheck(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
-    const Module = @import("Module.zig");
-    const AstGen = @import("AstGen.zig");
-    const Zir = @import("Zir.zig");
-
     var color: Color = .auto;
     var want_output_text = false;
     var zig_source_file: ?[]const u8 = null;
@@ -4587,10 +4580,6 @@ pub fn cmdChangelist(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
-    const Module = @import("Module.zig");
-    const AstGen = @import("AstGen.zig");
-    const Zir = @import("Zir.zig");
-
     const old_source_file = args[0];
     const new_source_file = args[1];
 
