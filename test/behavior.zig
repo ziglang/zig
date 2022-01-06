@@ -8,8 +8,8 @@ test {
     _ = @import("behavior/bugs/679.zig");
     _ = @import("behavior/bugs/6850.zig");
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
-    _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/hasdecl.zig");
+    _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/type_info.zig");
     _ = @import("behavior/type.zig");
