@@ -1,6 +1,7 @@
-const expect = @import("std").testing.expect;
-const mem = @import("std").mem;
-const Tag = @import("std").meta.Tag;
+const std = @import("std");
+const expect = std.testing.expect;
+const mem = std.mem;
+const Tag = std.meta.Tag;
 
 test "enum value allocation" {
     const LargeEnum = enum(u32) {

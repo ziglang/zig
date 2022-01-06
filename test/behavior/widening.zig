@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const mem = std.mem;
+const builtin = @import("builtin");
 
 test "integer widening" {
     var a: u8 = 250;
@@ -30,8 +31,8 @@ test "float widening" {
 
 test "float widening f16 to f128" {
     // TODO https://github.com/ziglang/zig/issues/3282
-    if (@import("builtin").cpu.arch == .aarch64) return error.SkipZigTest;
-    if (@import("builtin").cpu.arch == .powerpc64le) return error.SkipZigTest;
+    if (builtin.cpu.arch == .aarch64) return error.SkipZigTest;
+    if (builtin.cpu.arch == .powerpc64le) return error.SkipZigTest;
 
     var x: f16 = 12.34;
     var y: f128 = x;
