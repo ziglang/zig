@@ -3617,6 +3617,20 @@ pub const Type = extern union {
         };
     }
 
+    // Asserts that `ty` is an error set and not `anyerror`.
+    pub fn errorSetNames(ty: Type) []const []const u8 {
+        return switch (ty.tag()) {
+            .error_set_single => blk: {
+                // Work around coercion problems
+                const tmp: *const [1][]const u8 = &ty.castTag(.error_set_single).?.data;
+                break :blk tmp;
+            },
+            .error_set_merged => ty.castTag(.error_set_merged).?.data.keys(),
+            .error_set => ty.castTag(.error_set).?.data.names.keys(),
+            else => unreachable,
+        };
+    }
+
     pub fn enumFields(ty: Type) Module.EnumFull.NameMap {
         return switch (ty.tag()) {
             .enum_full, .enum_nonexhaustive => ty.cast(Payload.EnumFull).?.data.fields,

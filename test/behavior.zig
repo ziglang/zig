@@ -63,6 +63,7 @@ test {
             _ = @import("behavior/int128.zig");
             _ = @import("behavior/optional.zig");
             _ = @import("behavior/translate_c_macros.zig");
+            _ = @import("behavior/try.zig");
             _ = @import("behavior/undefined.zig");
 
             if (builtin.zig_backend != .stage2_c) {
@@ -190,7 +191,6 @@ test {
                     _ = @import("behavior/switch_prong_implicit_cast.zig");
                     _ = @import("behavior/switch_stage1.zig");
                     _ = @import("behavior/truncate_stage1.zig");
-                    _ = @import("behavior/try.zig");
                     _ = @import("behavior/tuple.zig");
                     _ = @import("behavior/type_stage1.zig");
                     _ = @import("behavior/type_info_stage1.zig");

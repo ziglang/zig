@@ -4826,26 +4826,8 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         return Air.Inst.Ref.anyerror_type;
     }
     // Resolve both error sets now.
-    const lhs_names = switch (lhs_ty.tag()) {
-        .error_set_single => blk: {
-            // Work around coercion problems
-            const tmp: *const [1][]const u8 = &lhs_ty.castTag(.error_set_single).?.data;
-            break :blk tmp;
-        },
-        .error_set_merged => lhs_ty.castTag(.error_set_merged).?.data.keys(),
-        .error_set => lhs_ty.castTag(.error_set).?.data.names.keys(),
-        else => unreachable,
-    };
-
-    const rhs_names = switch (rhs_ty.tag()) {
-        .error_set_single => blk: {
-            const tmp: *const [1][]const u8 = &rhs_ty.castTag(.error_set_single).?.data;
-            break :blk tmp;
-        },
-        .error_set_merged => rhs_ty.castTag(.error_set_merged).?.data.keys(),
-        .error_set => rhs_ty.castTag(.error_set).?.data.names.keys(),
-        else => unreachable,
-    };
+    const lhs_names = lhs_ty.errorSetNames();
+    const rhs_names = rhs_ty.errorSetNames();
 
     // TODO do we really want to create a Decl for this?
     // The reason we do it right now is for memory management.
@@ -6080,6 +6062,8 @@ fn zirSwitchCond(
     }
 }
 
+const SwitchErrorSet = std.StringHashMap(Module.SwitchProngSrc);
+
 fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -6250,8 +6234,110 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 },
             }
         },
+        .ErrorSet => {
+            var seen_errors = SwitchErrorSet.init(gpa);
+            defer seen_errors.deinit();
 
-        .ErrorSet => return sema.fail(block, src, "TODO validate switch .ErrorSet", .{}),
+            var extra_index: usize = special.end;
+            {
+                var scalar_i: u32 = 0;
+                while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+                    const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+                    extra_index += 1;
+                    const body_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    extra_index += body_len;
+
+                    try sema.validateSwitchItemError(
+                        block,
+                        &seen_errors,
+                        item_ref,
+                        src_node_offset,
+                        .{ .scalar = scalar_i },
+                    );
+                }
+            }
+            {
+                var multi_i: u32 = 0;
+                while (multi_i < multi_cases_len) : (multi_i += 1) {
+                    const items_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const ranges_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const body_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const items = sema.code.refSlice(extra_index, items_len);
+                    extra_index += items_len + body_len;
+
+                    for (items) |item_ref, item_i| {
+                        try sema.validateSwitchItemError(
+                            block,
+                            &seen_errors,
+                            item_ref,
+                            src_node_offset,
+                            .{ .multi = .{ .prong = multi_i, .item = @intCast(u32, item_i) } },
+                        );
+                    }
+
+                    try sema.validateSwitchNoRange(block, ranges_len, operand_ty, src_node_offset);
+                }
+            }
+
+            if (operand_ty.isAnyError()) {
+                if (special_prong != .@"else") {
+                    return sema.fail(
+                        block,
+                        src,
+                        "switch must handle all possibilities",
+                        .{},
+                    );
+                }
+            } else {
+                var maybe_msg: ?*Module.ErrorMsg = null;
+                errdefer if (maybe_msg) |msg| msg.destroy(sema.gpa);
+
+                for (operand_ty.errorSetNames()) |error_name| {
+                    if (!seen_errors.contains(error_name) and special_prong != .@"else") {
+                        const msg = maybe_msg orelse blk: {
+                            maybe_msg = try sema.errMsg(
+                                block,
+                                src,
+                                "switch must handle all possibilities",
+                                .{},
+                            );
+                            break :blk maybe_msg.?;
+                        };
+
+                        try sema.errNote(
+                            block,
+                            src,
+                            msg,
+                            "unhandled error value: error.{s}",
+                            .{error_name},
+                        );
+                    }
+                }
+
+                if (maybe_msg) |msg| {
+                    try sema.mod.errNoteNonLazy(
+                        operand_ty.declSrcLoc(),
+                        msg,
+                        "error set '{}' declared here",
+                        .{operand_ty},
+                    );
+                    return sema.failWithOwnedErrorMsg(msg);
+                }
+
+                if (special_prong == .@"else") {
+                    return sema.fail(
+                        block,
+                        special_prong_src,
+                        "unreachable else prong; all cases already handled",
+                        .{},
+                    );
+                }
+            }
+        },
         .Union => return sema.fail(block, src, "TODO validate switch .Union", .{}),
         .Int, .ComptimeInt => {
             var range_set = RangeSet.init(gpa);
@@ -6921,6 +7007,24 @@ fn validateSwitchItemEnum(
     };
     const maybe_prev_src = seen_fields[field_index];
     seen_fields[field_index] = switch_prong_src;
+    return sema.validateSwitchDupe(block, maybe_prev_src, switch_prong_src, src_node_offset);
+}
+
+fn validateSwitchItemError(
+    sema: *Sema,
+    block: *Block,
+    seen_errors: *SwitchErrorSet,
+    item_ref: Zir.Inst.Ref,
+    src_node_offset: i32,
+    switch_prong_src: Module.SwitchProngSrc,
+) CompileError!void {
+    const item_tv = try sema.resolveSwitchItemVal(block, item_ref, src_node_offset, switch_prong_src, .none);
+    // TODO: Do i need to typecheck here?
+    const error_name = item_tv.val.castTag(.@"error").?.data.name;
+    const maybe_prev_src = if (try seen_errors.fetchPut(error_name, switch_prong_src)) |prev|
+        prev.value
+    else
+        null;
     return sema.validateSwitchDupe(block, maybe_prev_src, switch_prong_src, src_node_offset);
 }
 
