@@ -1722,7 +1722,7 @@ pub const DeclGen = struct {
         decl.alive = true;
 
         log.debug("{*} ({s}) marked alive by {*} ({s})", .{
-            decl, decl.name,
+            decl,    decl.name,
             dg.decl, dg.decl.name,
         });
 
