@@ -244,6 +244,9 @@ pub extern "c" fn sem_trywait(sem: *c.sem_t) c_int;
 pub extern "c" fn sem_timedwait(sem: *c.sem_t, abs_timeout: *const c.timespec) c_int;
 pub extern "c" fn sem_getvalue(sem: *c.sem_t, sval: *c_int) c_int;
 
+pub extern "c" fn shm_open(name: [*:0]const u8, flag: c_int, mode: c.mode_t) c_int;
+pub extern "c" fn shm_unlink(name: [*:0]const u8) c_int;
+
 pub extern "c" fn kqueue() c_int;
 pub extern "c" fn kevent(
     kq: c_int,
