@@ -1,7 +1,8 @@
+const std = @import("std");
 const neg = @import("negXi2.zig");
-const testing = @import("std").testing;
+const testing = std.testing;
 
-const print = @import("std").debug.print;
+const print = std.debug.print;
 
 fn test__negsi2(a: i32, expected: i32) !void {
     var result = neg.__negsi2(a);

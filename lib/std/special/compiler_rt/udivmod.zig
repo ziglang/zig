@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 const native_endian = builtin.cpu.arch.endian();
+const std = @import("std");
 
 const low = switch (native_endian) {
     .Big => 1,
@@ -13,9 +14,9 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
 
     const double_int_bits = @typeInfo(DoubleInt).Int.bits;
     const single_int_bits = @divExact(double_int_bits, 2);
-    const SingleInt = @import("std").meta.Int(.unsigned, single_int_bits);
-    const SignedDoubleInt = @import("std").meta.Int(.signed, double_int_bits);
-    const Log2SingleInt = @import("std").math.Log2Int(SingleInt);
+    const SingleInt = std.meta.Int(.unsigned, single_int_bits);
+    const SignedDoubleInt = std.meta.Int(.signed, double_int_bits);
+    const Log2SingleInt = std.math.Log2Int(SingleInt);
 
     const n = @ptrCast(*const [2]SingleInt, &a).*; // TODO issue #421
     const d = @ptrCast(*const [2]SingleInt, &b).*; // TODO issue #421
