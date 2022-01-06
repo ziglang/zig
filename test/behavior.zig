@@ -63,6 +63,7 @@ test {
             _ = @import("behavior/int128.zig");
             _ = @import("behavior/optional.zig");
             _ = @import("behavior/translate_c_macros.zig");
+            _ = @import("behavior/undefined.zig");
 
             if (builtin.zig_backend != .stage2_c) {
                 // Tests that pass for stage1 and the llvm backend.
@@ -102,7 +103,6 @@ test {
                 _ = @import("behavior/slice.zig");
                 _ = @import("behavior/struct_llvm.zig");
                 _ = @import("behavior/switch.zig");
-                _ = @import("behavior/undefined.zig");
                 _ = @import("behavior/union.zig");
                 _ = @import("behavior/widening.zig");
 
