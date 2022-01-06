@@ -9912,7 +9912,7 @@ void codegen_build_object(CodeGen *g) {
         auto export_it = g->exported_symbol_names.entry_iterator();
         decltype(g->exported_symbol_names)::Entry *curr_entry = nullptr;
         while ((curr_entry = export_it.next()) != nullptr) {
-            if ((err = stage2_append_symbol(&g->stage1, buf_ptr(curr_entry->key)))) {
+            if ((err = stage2_append_symbol(&g->stage1, buf_ptr(curr_entry->key), buf_len(curr_entry->key)))) {
                 fprintf(stderr, "Unable to export symbol '%s': %s\n", buf_ptr(curr_entry->key), err_str(err));
             }
         }

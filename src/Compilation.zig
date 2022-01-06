@@ -1882,9 +1882,9 @@ pub fn destroy(self: *Compilation) void {
     self.astgen_wait_group.deinit();
 
     for (self.export_symbol_names.items) |symbol_name| {
-        self.gpa.free(symbol_name);
+        gpa.free(symbol_name);
     }
-    self.export_symbol_names.deinit(self.gpa);
+    self.export_symbol_names.deinit(gpa);
 
     // This destroys `self`.
     self.arena_state.promote(gpa).deinit();

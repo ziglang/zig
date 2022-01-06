@@ -468,13 +468,9 @@ export fn stage2_fetch_file(
     return contents.ptr;
 }
 
-export fn stage2_append_symbol(stage1: *Module, name_ptr: ?[*:0]const u8) Error {
+export fn stage2_append_symbol(stage1: *Module, name_ptr: [*c]const u8, name_len: usize) Error {
+    if (name_len == 0) return Error.None;
     const comp = @intToPtr(*Compilation, stage1.userdata);
-
-    if (name_ptr) |unwrapped_name| {
-        const symbol_name = std.mem.sliceTo(unwrapped_name, 0);
-        if (symbol_name.len == 0) return Error.None;
-        comp.export_symbol_names.append(comp.gpa, symbol_name) catch return Error.OutOfMemory;
-    }
+    comp.export_symbol_names.append(comp.gpa, name_ptr[0..name_len]) catch return Error.OutOfMemory;
     return Error.None;
 }

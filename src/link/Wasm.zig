@@ -1256,8 +1256,15 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                         try argv.append(try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name}));
                     }
                 } else {
+                    const skip_export_non_fn = target.os.tag == .wasi and
+                        self.base.options.wasi_exec_model == .command;
                     for (module.decl_exports.values()) |exports| {
                         for (exports) |exprt| {
+                            if (skip_export_non_fn and exprt.exported_decl.ty.zigTypeTag() != .Fn) {
+                                // skip exporting symbols when we're building a WASI command
+                                // and the symbol is not a function
+                                continue;
+                            }
                             const symbol_name = exprt.exported_decl.name;
                             const arg = try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name});
                             try argv.append(arg);
