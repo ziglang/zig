@@ -749,7 +749,6 @@ pub const DeclGen = struct {
 
     fn llvmType(dg: *DeclGen, t: Type) Error!*const llvm.Type {
         const gpa = dg.gpa;
-        log.debug("llvmType for {}", .{t});
         switch (t.zigTypeTag()) {
             .Void, .NoReturn => return dg.context.voidType(),
             .Int => {
@@ -1168,7 +1167,7 @@ pub const DeclGen = struct {
                 .decl_ref => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref).?.data),
                 .variable => {
                     const decl = tv.val.castTag(.variable).?.data.owner_decl;
-                    decl.alive = true;
+                    dg.markDeclAlive(decl);
                     const val = try dg.resolveGlobalDecl(decl);
                     const llvm_var_type = try dg.llvmType(tv.ty);
                     const llvm_addrspace = dg.llvmAddressSpace(decl.@"addrspace");
@@ -1317,7 +1316,7 @@ pub const DeclGen = struct {
                     .function => tv.val.castTag(.function).?.data.owner_decl,
                     else => unreachable,
                 };
-                fn_decl.alive = true;
+                dg.markDeclAlive(fn_decl);
                 return dg.resolveLlvmFunction(fn_decl);
             },
             .ErrorSet => {
@@ -1625,7 +1624,7 @@ pub const DeclGen = struct {
         ptr_val: Value,
         decl: *Module.Decl,
     ) Error!ParentPtr {
-        decl.alive = true;
+        dg.markDeclAlive(decl);
         var ptr_ty_payload: Type.Payload.ElemType = .{
             .base = .{ .tag = .single_mut_pointer },
             .data = decl.ty,
@@ -1707,7 +1706,7 @@ pub const DeclGen = struct {
             return self.lowerPtrToVoid(tv.ty);
         }
 
-        decl.alive = true;
+        self.markDeclAlive(decl);
 
         const llvm_val = if (decl.ty.zigTypeTag() == .Fn)
             try self.resolveLlvmFunction(decl)
@@ -1716,6 +1715,24 @@ pub const DeclGen = struct {
 
         const llvm_type = try self.llvmType(tv.ty);
         return llvm_val.constBitCast(llvm_type);
+    }
+
+    fn markDeclAlive(dg: *DeclGen, decl: *Module.Decl) void {
+        if (decl.alive) return;
+        decl.alive = true;
+
+        log.debug("{*} ({s}) marked alive by {*} ({s})", .{
+            decl, decl.name,
+            dg.decl, dg.decl.name,
+        });
+
+        // This is the first time we are marking this Decl alive. We must
+        // therefore recurse into its value and mark any Decl it references
+        // as also alive, so that any Decl referenced does not get garbage collected.
+
+        if (decl.val.pointerDecl()) |pointee| {
+            return dg.markDeclAlive(pointee);
+        }
     }
 
     fn lowerPtrToVoid(dg: *DeclGen, ptr_ty: Type) !*const llvm.Value {

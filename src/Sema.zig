@@ -2427,7 +2427,57 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
             if (var_is_mut) {
                 try sema.validateVarType(block, ty_src, final_elem_ty, false);
+            } else ct: {
+                // Detect if the value is comptime known. In such case, the
+                // last 3 AIR instructions of the block will look like this:
+                //
+                //   %a = constant
+                //   %b = bitcast(%a)
+                //   %c = store(%b, %d)
+                //
+                // If `%d` is comptime-known, then we want to store the value
+                // inside an anonymous Decl and then erase these three AIR
+                // instructions from the block, replacing the inst_map entry
+                // corresponding to the ZIR alloc instruction with a constant
+                // decl_ref pointing at our new Decl.
+                if (block.instructions.items.len < 3) break :ct;
+                // zig fmt: off
+                const const_inst   = block.instructions.items[block.instructions.items.len - 3];
+                const bitcast_inst = block.instructions.items[block.instructions.items.len - 2];
+                const store_inst   = block.instructions.items[block.instructions.items.len - 1];
+                const air_tags  = sema.air_instructions.items(.tag);
+                const air_datas = sema.air_instructions.items(.data);
+                if (air_tags[const_inst]   != .constant) break :ct;
+                if (air_tags[bitcast_inst] != .bitcast ) break :ct;
+                if (air_tags[store_inst]   != .store   ) break :ct;
+                // zig fmt: on
+                const store_op = air_datas[store_inst].bin_op;
+                const store_val = (try sema.resolveMaybeUndefVal(block, src, store_op.rhs)) orelse break :ct;
+                if (store_op.lhs != Air.indexToRef(bitcast_inst)) break :ct;
+                if (air_datas[bitcast_inst].ty_op.operand != Air.indexToRef(const_inst)) break :ct;
+
+                const bitcast_ty_ref = air_datas[bitcast_inst].ty_op.ty;
+
+                const new_decl = d: {
+                    var anon_decl = try block.startAnonDecl();
+                    defer anon_decl.deinit();
+                    const new_decl = try anon_decl.finish(
+                        try final_elem_ty.copy(anon_decl.arena()),
+                        try store_val.copy(anon_decl.arena()),
+                    );
+                    break :d new_decl;
+                };
+                try sema.mod.declareDeclDependency(sema.owner_decl, new_decl);
+
+                // Even though we reuse the constant instruction, we still remove it from the
+                // block so that codegen does not see it.
+                block.instructions.shrinkRetainingCapacity(block.instructions.items.len - 3);
+                sema.air_values.items[value_index] = try Value.Tag.decl_ref.create(sema.arena, new_decl);
+                air_datas[ptr_inst].ty_pl.ty = bitcast_ty_ref;
+
+                return;
             }
+
             // Change it to a normal alloc.
             const final_ptr_ty = try Type.ptr(sema.arena, .{
                 .pointee_type = final_elem_ty,

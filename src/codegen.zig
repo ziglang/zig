@@ -464,7 +464,7 @@ fn lowerDeclRef(
     }
 
     if (decl.analysis != .complete) return error.AnalysisFail;
-    decl.alive = true;
+    markDeclAlive(decl);
     // TODO handle the dependency of this symbol on the decl's vaddr.
     // If the decl changes vaddr, then this symbol needs to get regenerated.
     const vaddr = bin_file.getDeclVAddr(decl);
@@ -477,4 +477,17 @@ fn lowerDeclRef(
     }
 
     return Result{ .appended = {} };
+}
+
+fn markDeclAlive(decl: *Module.Decl) void {
+    if (decl.alive) return;
+    decl.alive = true;
+
+    // This is the first time we are marking this Decl alive. We must
+    // therefore recurse into its value and mark any Decl it references
+    // as also alive, so that any Decl referenced does not get garbage collected.
+
+    if (decl.val.pointerDecl()) |pointee| {
+        return markDeclAlive(pointee);
+    }
 }

@@ -285,3 +285,23 @@ fn getB(data: *const BitField1) u3 {
 fn getC(data: *const BitField1) u2 {
     return data.c;
 }
+
+test "default struct initialization fields" {
+    const S = struct {
+        a: i32 = 1234,
+        b: i32,
+    };
+    const x = S{
+        .b = 5,
+    };
+    var five: i32 = 5;
+    const y = S{
+        .b = five,
+    };
+    if (x.a + x.b != 1239) {
+        @compileError("it should be comptime known");
+    }
+    try expect(y.a == x.a);
+    try expect(y.b == x.b);
+    try expect(1239 == x.a + x.b);
+}

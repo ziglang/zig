@@ -166,25 +166,6 @@ test "packed struct with fp fields" {
     try expectEqual(@as(f32, 20.0), s.data[2]);
 }
 
-test "default struct initialization fields" {
-    const S = struct {
-        a: i32 = 1234,
-        b: i32,
-    };
-    const x = S{
-        .b = 5,
-    };
-    var five: i32 = 5;
-    const y = S{
-        .b = five,
-    };
-    if (x.a + x.b != 1239) {
-        @compileError("it should be comptime known");
-    }
-    try expectEqual(y, x);
-    try expectEqual(1239, x.a + x.b);
-}
-
 test "fn with C calling convention returns struct by value" {
     const S = struct {
         fn entry() !void {
