@@ -199,12 +199,11 @@ pub const Inst = struct {
         /// TODO handle scaling
         movabs,
 
-        /// ops flags: 0bX0:
-        /// - Uses the `inst` Data tag as the jump target.
-        /// - reg1 and reg2 are ignored.
-        /// ops flags: 0bX1:
-        /// - reg1 is the jump target, reg2 and data are ignored.
-        /// - if reg1 is none, [imm]
+        /// ops flags:  form:
+        ///      0b00    inst
+        ///      0b01    reg1
+        ///      0b01    [imm32] if reg1 is none
+        ///      0b10    [reg1 + imm32]
         jmp,
         call,
 
