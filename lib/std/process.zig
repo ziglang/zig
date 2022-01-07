@@ -453,7 +453,7 @@ pub const ArgIterator = struct {
 
     /// Initialize the args iterator.
     pub fn init() ArgIterator {
-        if (builtin.os.tag == .wasi) {
+        if (InnerType == ArgIteratorWasi) {
             @compileError("In WASI, use initWithAllocator instead.");
         }
 
@@ -508,7 +508,12 @@ pub const ArgIterator = struct {
     }
 };
 
+/// Create an ArgIterator on Windows or Posix.  If you are targeting wasi and
+/// not linking libc, you must use argsWithAllocator instead.
 pub fn args() ArgIterator {
+    if (ArgIterator.InnerType == ArgIteratorWasi) {
+        @compileError("In WASI, use argsWithAllocator instead.");
+    }
     return ArgIterator.init();
 }
 

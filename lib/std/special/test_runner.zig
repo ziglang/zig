@@ -16,7 +16,11 @@ fn nextArg(args: *std.process.ArgIterator) ?[]const u8 {
 }
 
 fn processArgs() void {
-    var args = std.process.args();
+    var args = std.process.argsWithAllocator(args_allocator.allocator()) catch |err| {
+        std.debug.panic("Error creating os args iterator: {}", .{err});
+    };
+    defer args.deinit();
+
     const test_exe_path = nextArg(&args) orelse @panic("No self executable in arguments");
 
     while (nextArg(&args)) |arg| {
