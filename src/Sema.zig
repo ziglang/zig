@@ -4503,14 +4503,14 @@ fn analyzeCall(
             const arg_src = call_src; // TODO: better source location
             if (i < fn_params_len) {
                 const param_ty = func_ty.fnParamType(i);
-                try sema.resolveTypeForCodegen(block, arg_src, param_ty);
+                try sema.resolveTypeFully(block, arg_src, param_ty);
                 args[i] = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
             } else {
                 args[i] = uncasted_arg;
             }
         }
 
-        try sema.resolveTypeForCodegen(block, call_src, func_ty_info.return_type);
+        try sema.resolveTypeFully(block, call_src, func_ty_info.return_type);
 
         try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
             args.len);
@@ -4580,7 +4580,7 @@ fn finishGenericCall(
                 const param_ty = new_fn_ty.fnParamType(runtime_i);
                 const arg_src = call_src; // TODO: better source location
                 const uncasted_arg = uncasted_args[total_i];
-                try sema.resolveTypeForCodegen(block, arg_src, param_ty);
+                try sema.resolveTypeFully(block, arg_src, param_ty);
                 const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
                 runtime_args[runtime_i] = casted_arg;
                 runtime_i += 1;
@@ -4588,7 +4588,7 @@ fn finishGenericCall(
             total_i += 1;
         }
 
-        try sema.resolveTypeForCodegen(block, call_src, new_fn_ty.fnReturnType());
+        try sema.resolveTypeFully(block, call_src, new_fn_ty.fnReturnType());
     }
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len +
         runtime_args_len);
@@ -15228,7 +15228,7 @@ fn resolveStructLayout(
         .field_types_wip, .layout_wip => {
             return sema.fail(block, src, "struct {} depends on itself", .{ty});
         },
-        .have_layout => return,
+        .have_layout, .fully_resolved_wip, .fully_resolved => return,
     }
     struct_obj.status = .layout_wip;
     for (struct_obj.fields.values()) |field| {
@@ -15250,7 +15250,7 @@ fn resolveUnionLayout(
         .field_types_wip, .layout_wip => {
             return sema.fail(block, src, "union {} depends on itself", .{ty});
         },
-        .have_layout => return,
+        .have_layout, .fully_resolved_wip, .fully_resolved => return,
     }
     union_obj.status = .layout_wip;
     for (union_obj.fields.values()) |field| {
@@ -15259,7 +15259,7 @@ fn resolveUnionLayout(
     union_obj.status = .have_layout;
 }
 
-fn resolveTypeForCodegen(
+fn resolveTypeFully(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -15268,18 +15268,65 @@ fn resolveTypeForCodegen(
     switch (ty.zigTypeTag()) {
         .Pointer => {
             const child_ty = try sema.resolveTypeFields(block, src, ty.childType());
-            return resolveTypeForCodegen(sema, block, src, child_ty);
+            return resolveTypeFully(sema, block, src, child_ty);
         },
-        .Struct => return resolveStructLayout(sema, block, src, ty),
-        .Union => return resolveUnionLayout(sema, block, src, ty),
-        .Array => return resolveTypeForCodegen(sema, block, src, ty.childType()),
+        .Struct => return resolveStructFully(sema, block, src, ty),
+        .Union => return resolveUnionFully(sema, block, src, ty),
+        .Array => return resolveTypeFully(sema, block, src, ty.childType()),
         .Optional => {
             var buf: Type.Payload.ElemType = undefined;
-            return resolveTypeForCodegen(sema, block, src, ty.optionalChild(&buf));
+            return resolveTypeFully(sema, block, src, ty.optionalChild(&buf));
         },
-        .ErrorUnion => return resolveTypeForCodegen(sema, block, src, ty.errorUnionPayload()),
+        .ErrorUnion => return resolveTypeFully(sema, block, src, ty.errorUnionPayload()),
         else => {},
     }
+}
+
+fn resolveStructFully(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ty: Type,
+) CompileError!void {
+    try resolveStructLayout(sema, block, src, ty);
+
+    const resolved_ty = try sema.resolveTypeFields(block, src, ty);
+    const struct_obj = resolved_ty.castTag(.@"struct").?.data;
+    switch (struct_obj.status) {
+        .none, .have_field_types, .field_types_wip, .layout_wip, .have_layout => {},
+        .fully_resolved_wip, .fully_resolved => return,
+    }
+
+    // After we have resolve struct layout we have to go over the fields again to
+    // make sure pointer fields get their child types resolved as well
+    struct_obj.status = .fully_resolved_wip;
+    for (struct_obj.fields.values()) |field| {
+        try sema.resolveTypeFully(block, src, field.ty);
+    }
+    struct_obj.status = .fully_resolved;
+}
+
+fn resolveUnionFully(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ty: Type,
+) CompileError!void {
+    try resolveUnionLayout(sema, block, src, ty);
+
+    const resolved_ty = try sema.resolveTypeFields(block, src, ty);
+    const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
+    switch (union_obj.status) {
+        .none, .have_field_types, .field_types_wip, .layout_wip, .have_layout => {},
+        .fully_resolved_wip, .fully_resolved => return,
+    }
+
+    // Same goes for unions (see comment about structs)
+    union_obj.status = .fully_resolved_wip;
+    for (union_obj.fields.values()) |field| {
+        try sema.resolveTypeFully(block, src, field.ty);
+    }
+    union_obj.status = .fully_resolved;
 }
 
 fn resolveTypeFields(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!Type {
@@ -15291,7 +15338,12 @@ fn resolveTypeFields(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) Comp
                 .field_types_wip => {
                     return sema.fail(block, src, "struct {} depends on itself", .{ty});
                 },
-                .have_field_types, .have_layout, .layout_wip => return ty,
+                .have_field_types,
+                .have_layout,
+                .layout_wip,
+                .fully_resolved_wip,
+                .fully_resolved,
+                => return ty,
             }
 
             struct_obj.status = .field_types_wip;
@@ -15324,7 +15376,12 @@ fn resolveTypeFields(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) Comp
                 .field_types_wip => {
                     return sema.fail(block, src, "union {} depends on itself", .{ty});
                 },
-                .have_field_types, .have_layout, .layout_wip => return ty,
+                .have_field_types,
+                .have_layout,
+                .layout_wip,
+                .fully_resolved_wip,
+                .fully_resolved,
+                => return ty,
             }
 
             union_obj.status = .field_types_wip;

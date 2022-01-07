@@ -1916,7 +1916,7 @@ pub const Type = extern union {
                 const fields = self.structFields();
                 const is_packed = if (self.castTag(.@"struct")) |payload| p: {
                     const struct_obj = payload.data;
-                    assert(struct_obj.status == .have_layout);
+                    assert(struct_obj.haveLayout());
                     break :p struct_obj.layout == .Packed;
                 } else false;
 
@@ -2220,7 +2220,7 @@ pub const Type = extern union {
                 if (field_count == 0) return 0;
 
                 const struct_obj = ty.castTag(.@"struct").?.data;
-                assert(struct_obj.status == .have_layout);
+                assert(struct_obj.haveLayout());
 
                 var total: u64 = 0;
                 for (struct_obj.fields.values()) |field| {
@@ -3771,7 +3771,7 @@ pub const Type = extern union {
         switch (ty.tag()) {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
-                assert(struct_obj.status == .have_layout);
+                assert(struct_obj.haveLayout());
                 const is_packed = struct_obj.layout == .Packed;
                 if (!is_packed) {
                     var offset: u64 = 0;
