@@ -1,5 +1,6 @@
+const std = @import("std");
 const popcount = @import("popcount.zig");
-const testing = @import("std").testing;
+const testing = std.testing;
 
 fn popcountsi2Naive(a: i32) i32 {
     var x = a;
@@ -24,7 +25,7 @@ test "popcountsi2" {
     try test__popcountsi2(@bitCast(i32, @as(u32, 0xfffffffe)));
     try test__popcountsi2(@bitCast(i32, @as(u32, 0xffffffff)));
 
-    const RndGen = @import("std").rand.DefaultPrng;
+    const RndGen = std.rand.DefaultPrng;
     var rnd = RndGen.init(42);
     var i: u32 = 0;
     while (i < 10_000) : (i += 1) {

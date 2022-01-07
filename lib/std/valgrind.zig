@@ -258,6 +258,6 @@ pub const memcheck = @import("valgrind/memcheck.zig");
 pub const callgrind = @import("valgrind/callgrind.zig");
 
 test {
-    _ = @import("valgrind/memcheck.zig");
-    _ = @import("valgrind/callgrind.zig");
+    _ = memcheck;
+    _ = callgrind;
 }

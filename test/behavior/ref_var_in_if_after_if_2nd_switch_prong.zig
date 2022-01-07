@@ -1,5 +1,6 @@
-const expect = @import("std").testing.expect;
-const mem = @import("std").mem;
+const std = @import("std");
+const expect = std.testing.expect;
+const mem = std.mem;
 
 var ok: bool = false;
 test "reference a variable in an if after an if in the 2nd switch prong" {

@@ -820,7 +820,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
         // The C language specification states that variables with static or threadlocal
         // storage without an initializer are initialized to a zero value.
 
-        // @import("std").mem.zeroes(T)
+        // std.mem.zeroes(T)
         init_node = try Tag.std_mem_zeroes.create(c.arena, type_node);
     }
 
@@ -5211,7 +5211,7 @@ const MacroSlicer = struct {
 // mapped function exists in `std.zig.c_translation.Macros`
 test "Macro matching" {
     const helper = struct {
-        const MacroFunctions = @import("std").zig.c_translation.Macros;
+        const MacroFunctions = std.zig.c_translation.Macros;
         fn checkMacro(allocator: mem.Allocator, pattern_list: PatternList, source: []const u8, comptime expected_match: ?[]const u8) !void {
             var tok_list = std.ArrayList(CToken).init(allocator);
             defer tok_list.deinit();

@@ -287,5 +287,5 @@ test "Timer" {
 }
 
 test {
-    _ = @import("time/epoch.zig");
+    _ = epoch;
 }

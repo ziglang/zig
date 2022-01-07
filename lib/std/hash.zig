@@ -33,11 +33,11 @@ const wyhash = @import("hash/wyhash.zig");
 pub const Wyhash = wyhash.Wyhash;
 
 test "hash" {
-    _ = @import("hash/adler.zig");
-    _ = @import("hash/auto_hash.zig");
-    _ = @import("hash/crc.zig");
-    _ = @import("hash/fnv.zig");
-    _ = @import("hash/murmur.zig");
-    _ = @import("hash/cityhash.zig");
-    _ = @import("hash/wyhash.zig");
+    _ = adler;
+    _ = auto_hash;
+    _ = crc;
+    _ = fnv;
+    _ = murmur;
+    _ = cityhash;
+    _ = wyhash;
 }

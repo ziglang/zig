@@ -2,6 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
+const builtin = @import("builtin");
 
 test "int to ptr cast" {
     const x = @as(usize, 13);
@@ -252,10 +253,7 @@ test "array coersion to undefined at runtime" {
     @setRuntimeSafety(true);
 
     // TODO implement @setRuntimeSafety in stage2
-    if (@import("builtin").zig_is_stage2 and
-        @import("builtin").mode != .Debug and
-        @import("builtin").mode != .ReleaseSafe)
-    {
+    if (builtin.zig_is_stage2 and builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
         return error.SkipZigTest;
     }
 

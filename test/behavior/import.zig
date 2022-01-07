@@ -1,5 +1,6 @@
-const expect = @import("std").testing.expect;
-const expectEqual = @import("std").testing.expectEqual;
+const std = @import("std");
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const a_namespace = @import("import/a_namespace.zig");
 
 test "call fn via namespace lookup" {

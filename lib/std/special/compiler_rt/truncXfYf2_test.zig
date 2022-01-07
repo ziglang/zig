@@ -1,3 +1,4 @@
+const std = @import("std");
 const __truncsfhf2 = @import("truncXfYf2.zig").__truncsfhf2;
 
 fn test__truncsfhf2(a: u32, expected: u16) !void {
@@ -217,7 +218,7 @@ fn test__truncdfsf2(a: f64, expected: u32) void {
         }
     }
 
-    @import("std").debug.print("got 0x{x} wanted 0x{x}\n", .{ rep, expected });
+    std.debug.print("got 0x{x} wanted 0x{x}\n", .{ rep, expected });
 
     @panic("__trunctfsf2 test failure");
 }
@@ -248,7 +249,7 @@ fn test__trunctfhf2(a: f128, expected: u16) void {
         return;
     }
 
-    @import("std").debug.print("got 0x{x} wanted 0x{x}\n", .{ rep, expected });
+    std.debug.print("got 0x{x} wanted 0x{x}\n", .{ rep, expected });
 
     @panic("__trunctfhf2 test failure");
 }
