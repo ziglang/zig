@@ -2635,9 +2635,17 @@ pub const Value = extern union {
         var lhs_space: Value.BigIntSpace = undefined;
         const lhs_bigint = lhs.toBigInt(&lhs_space);
         const shift = @intCast(usize, rhs.toUnsignedInt());
+
+        const result_limbs = lhs_bigint.limbs.len -| (shift / (@sizeOf(std.math.big.Limb) * 8));
+        if (result_limbs == 0) {
+            // The shift is enough to remove all the bits from the number, which means the
+            // result is zero.
+            return Value.zero;
+        }
+
         const limbs = try allocator.alloc(
             std.math.big.Limb,
-            lhs_bigint.limbs.len - (shift / (@sizeOf(std.math.big.Limb) * 8)),
+            result_limbs,
         );
         var result_bigint = BigIntMutable{
             .limbs = limbs,
