@@ -2599,7 +2599,7 @@ fn buildOutputType(
         const c_code_path = try fs.path.join(arena, &[_][]const u8{
             c_code_directory.path orelse ".", c_code_loc.basename,
         });
-        try test_exec_args.appendSlice(&.{
+        try test_exec_args.appendSlice(&[_]TestExecArg{
             .{ .arg = self_exe_path },
             .{ .arg = "run" },
             .{ .arg = "-lc" },
