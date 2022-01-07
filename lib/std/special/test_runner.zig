@@ -17,9 +17,8 @@ fn nextArg(args: *std.process.ArgIterator) ?[]const u8 {
 
 fn processArgs() void {
     var args = std.process.args();
-    const test_exe_path = nextArg(&args)
-        orelse @panic("No self executable in arguments");
-    
+    const test_exe_path = nextArg(&args) orelse @panic("No self executable in arguments");
+
     while (nextArg(&args)) |arg| {
         if (std.mem.eql(u8, arg, "--test-arg")) {
             const key = nextArg(&args) orelse @panic("--test-arg requires two arguments, but none were provided.");
@@ -29,7 +28,8 @@ fn processArgs() void {
             gop.value_ptr.* = value;
         } else if (std.mem.eql(u8, arg, "--help")) {
             const exe_name = std.fs.path.basename(test_exe_path);
-            std.debug.print("Usage: {s} [options]\n{s}", .{ exe_name,
+            std.debug.print("Usage: {s} [options]\n{s}", .{
+                exe_name,
                 \\
                 \\Options:
                 \\    -h, --help                  Print this help and exit

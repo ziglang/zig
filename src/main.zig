@@ -980,7 +980,7 @@ fn buildOutputType(
                         try test_exec_args.append(.{ .arg = args[i] });
                     } else if (mem.eql(u8, arg, "--test-arg")) {
                         if (i + 2 >= args.len) fatal("expected two parameters after {s}", .{arg});
-                        try test_runner_args.appendSlice(args[i..i+3]);
+                        try test_runner_args.appendSlice(args[i .. i + 3]);
                         i += 2;
                     } else if (mem.eql(u8, arg, "--cache-dir")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
@@ -2599,7 +2599,7 @@ fn buildOutputType(
         const c_code_path = try fs.path.join(arena, &[_][]const u8{
             c_code_directory.path orelse ".", c_code_loc.basename,
         });
-        try test_exec_args.appendSlice(&.{ 
+        try test_exec_args.appendSlice(&.{
             .{ .arg = self_exe_path },
             .{ .arg = "run" },
             .{ .arg = "-lc" },
