@@ -7318,8 +7318,8 @@ fn zirShr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     const lhs = sema.resolveInst(extra.lhs);
     const rhs = sema.resolveInst(extra.rhs);
 
-    if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lhs_val| {
-        if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| {
+    if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| {
+        if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lhs_val| {
             const lhs_ty = sema.typeOf(lhs);
             if (lhs_val.isUndef() or rhs_val.isUndef()) {
                 return sema.addConstUndef(lhs_ty);
@@ -7330,6 +7330,12 @@ fn zirShr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
             }
             const val = try lhs_val.shr(rhs_val, sema.arena);
             return sema.addConstant(lhs_ty, val);
+        }
+        // Even if lhs is not comptime known, we can still deduce certain things based
+        // on rhs.
+        // If rhs is 0, return lhs without doing any calculations.
+        else if (rhs_val.compareWithZero(.eq)) {
+            return lhs;
         }
     }
 
