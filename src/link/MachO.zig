@@ -220,7 +220,7 @@ managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
 /// We store them here so that we can properly dispose of any allocated
 /// memory within the atom in the incremental linker.
 /// TODO consolidate this.
-decls: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
+decls: std.AutoArrayHashMapUnmanaged(*Module.Decl, ?MatchingSection) = .{},
 
 /// Currently active Module.Decl.
 /// TODO this might not be necessary if we figure out how to pass Module.Decl instance
@@ -3450,7 +3450,7 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
     if (decl.link.macho.local_sym_index != 0) return;
 
     try self.locals.ensureUnusedCapacity(self.base.allocator, 1);
-    try self.decls.putNoClobber(self.base.allocator, decl, {});
+    try self.decls.putNoClobber(self.base.allocator, decl, null);
 
     if (self.locals_free_list.popOrNull()) |i| {
         log.debug("reusing symbol index {d} for {s}", .{ i, decl.name });
@@ -3656,19 +3656,121 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     try self.updateDeclExports(module, decl, decl_exports);
 }
 
+fn getMatchingSectionDecl(self: *MachO, decl: *Module.Decl) !MatchingSection {
+    const code = decl.link.macho.code.items;
+    const alignment = decl.ty.abiAlignment(self.base.options.target);
+    const align_log_2 = math.log2(alignment);
+    const ty = decl.ty;
+    const val = decl.val;
+    const match: MatchingSection = blk: {
+        if (ty.zigTypeTag() == .Fn) {
+            break :blk MatchingSection{
+                .seg = self.text_segment_cmd_index.?,
+                .sect = self.text_section_index.?,
+            };
+        }
+        if (mem.allEqual(u8, code, 0)) {
+            break :blk MatchingSection{
+                .seg = self.data_segment_cmd_index.?,
+                .sect = self.bss_section_index.?,
+            };
+        }
+        if (mem.allEqual(u8, code, 0xaa)) {
+            switch (self.base.options.optimize_mode) {
+                .ReleaseFast, .ReleaseSmall => {
+                    break :blk MatchingSection{
+                        .seg = self.data_segment_cmd_index.?,
+                        .sect = self.bss_section_index.?,
+                    };
+                },
+                else => {
+                    break :blk (try self.getMatchingSection(.{
+                        .segname = makeStaticString("__DATA_CONST"),
+                        .sectname = makeStaticString("__const"),
+                        .size = code.len,
+                        .@"align" = align_log_2,
+                    })).?;
+                },
+            }
+        }
+        if (val.castTag(.variable)) |_| {
+            break :blk MatchingSection{
+                .seg = self.data_segment_cmd_index.?,
+                .sect = self.data_section_index.?,
+            };
+        }
+        if (ty.zigTypeTag() == .Array) {
+            break :blk (try self.getMatchingSection(.{
+                .segname = makeStaticString("__DATA_CONST"),
+                .sectname = makeStaticString("__const"),
+                .size = code.len,
+                .@"align" = align_log_2,
+            })).?;
+        }
+        if (ty.zigTypeTag() == .Pointer) {
+            if (ty.isConstPtr()) {
+                break :blk (try self.getMatchingSection(.{
+                    .segname = makeStaticString("__DATA_CONST"),
+                    .sectname = makeStaticString("__const"),
+                    .size = code.len,
+                    .@"align" = align_log_2,
+                })).?;
+            }
+            break :blk MatchingSection{
+                .seg = self.data_segment_cmd_index.?,
+                .sect = self.data_section_index.?,
+            };
+        }
+        switch (ty.tag()) {
+            .array_u8_sentinel_0,
+            .const_slice_u8_sentinel_0,
+            .manyptr_const_u8_sentinel_0,
+            => {
+                break :blk (try self.getMatchingSection(.{
+                    .segname = makeStaticString("__TEXT"),
+                    .sectname = makeStaticString("__cstring"),
+                    .flags = macho.S_CSTRING_LITERALS,
+                    .size = code.len,
+                    .@"align" = align_log_2,
+                })).?;
+            },
+            else => {
+                break :blk (try self.getMatchingSection(.{
+                    .segname = makeStaticString("__TEXT"),
+                    .sectname = makeStaticString("__const"),
+                    .size = code.len,
+                    .@"align" = align_log_2,
+                })).?;
+            },
+        }
+    };
+    const seg = self.load_commands.items[match.seg].segment;
+    const sect = seg.sections.items[match.sect];
+    log.debug("  allocating atom in '{s},{s}' ({d},{d})", .{
+        sect.segName(),
+        sect.sectName(),
+        match.seg,
+        match.sect,
+    });
+    return match;
+}
+
 fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64 {
     const required_alignment = decl.ty.abiAlignment(self.base.options.target);
     assert(decl.link.macho.local_sym_index != 0); // Caller forgot to call allocateDeclIndexes()
     const symbol = &self.locals.items[decl.link.macho.local_sym_index];
 
+    const decl_ptr = self.decls.getPtr(decl).?;
+    if (decl_ptr.* == null) {
+        decl_ptr.* = try self.getMatchingSectionDecl(decl);
+    }
+    const match = decl_ptr.*.?;
+
     if (decl.link.macho.size != 0) {
         const capacity = decl.link.macho.capacity(self.*);
         const need_realloc = code_len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
         if (need_realloc) {
-            const vaddr = try self.growAtom(&decl.link.macho, code_len, required_alignment, .{
-                .seg = self.text_segment_cmd_index.?,
-                .sect = self.text_section_index.?,
-            });
+            const vaddr = try self.growAtom(&decl.link.macho, code_len, required_alignment, match);
 
             log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ decl.name, symbol.n_value, vaddr });
 
@@ -3690,10 +3792,7 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
 
             symbol.n_value = vaddr;
         } else if (code_len < decl.link.macho.size) {
-            self.shrinkAtom(&decl.link.macho, code_len, .{
-                .seg = self.text_segment_cmd_index.?,
-                .sect = self.text_section_index.?,
-            });
+            self.shrinkAtom(&decl.link.macho, code_len, match);
         }
         decl.link.macho.size = code_len;
         decl.link.macho.dirty = true;
@@ -3714,22 +3813,16 @@ fn placeDecl(self: *MachO, decl: *Module.Decl, code_len: usize) !*macho.nlist_64
         defer self.base.allocator.free(decl_name);
 
         const name_str_index = try self.makeString(decl_name);
-        const addr = try self.allocateAtom(&decl.link.macho, code_len, required_alignment, .{
-            .seg = self.text_segment_cmd_index.?,
-            .sect = self.text_section_index.?,
-        });
+        const addr = try self.allocateAtom(&decl.link.macho, code_len, required_alignment, match);
 
         log.debug("allocated atom for {s} at 0x{x}", .{ decl_name, addr });
 
-        errdefer self.freeAtom(&decl.link.macho, .{
-            .seg = self.text_segment_cmd_index.?,
-            .sect = self.text_section_index.?,
-        });
+        errdefer self.freeAtom(&decl.link.macho, match);
 
         symbol.* = .{
             .n_strx = name_str_index,
             .n_type = macho.N_SECT,
-            .n_sect = @intCast(u8, self.text_section_index.?) + 1,
+            .n_sect = @intCast(u8, self.section_ordinals.getIndex(match).?) + 1,
             .n_desc = 0,
             .n_value = addr,
         };
@@ -3912,12 +4005,11 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
         if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
     }
     log.debug("freeDecl {*}", .{decl});
-    _ = self.decls.swapRemove(decl);
+    const kv = self.decls.fetchSwapRemove(decl);
+    if (kv.?.value) |match| {
+        self.freeAtom(&decl.link.macho, match);
+    }
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
-    self.freeAtom(&decl.link.macho, .{
-        .seg = self.text_segment_cmd_index.?,
-        .sect = self.text_section_index.?,
-    });
     if (decl.link.macho.local_sym_index != 0) {
         self.locals_free_list.append(self.base.allocator, decl.link.macho.local_sym_index) catch {};
 
@@ -3956,6 +4048,29 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
 pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl) u64 {
     assert(decl.link.macho.local_sym_index != 0);
     return self.locals.items[decl.link.macho.local_sym_index].n_value;
+}
+
+pub fn getDeclVAddrWithReloc(self: *MachO, decl: *const Module.Decl, offset: u64) !u64 {
+    assert(decl.link.macho.local_sym_index != 0);
+    assert(self.active_decl != null);
+
+    const atom = &self.active_decl.?.link.macho;
+    try atom.relocs.append(self.base.allocator, .{
+        .offset = @intCast(u32, offset),
+        .target = .{ .local = decl.link.macho.local_sym_index },
+        .addend = 0,
+        .subtractor = null,
+        .pcrel = false,
+        .length = 3,
+        .@"type" = switch (self.base.options.target.cpu.arch) {
+            .aarch64 => @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_UNSIGNED),
+            .x86_64 => @enumToInt(macho.reloc_type_x86_64.X86_64_RELOC_UNSIGNED),
+            else => unreachable,
+        },
+    });
+    try atom.rebases.append(self.base.allocator, offset);
+
+    return 0;
 }
 
 fn populateMissingMetadata(self: *MachO) !void {
