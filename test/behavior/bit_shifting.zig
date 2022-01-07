@@ -72,6 +72,7 @@ test "sharded table" {
 
     try testShardedTable(u0, 0, 1);
 }
+
 fn testShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime node_count: comptime_int) !void {
     const Table = ShardedTable(Key, mask_bit_count, void);
 
