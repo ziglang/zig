@@ -18,9 +18,15 @@ pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
 
-/// This is available to any test that wants to execute Zig in a child process.
-/// It will be the same executable that is running `zig test`.
-pub var zig_exe_path: []const u8 = undefined;
+/// This function attempts to find a test argument, specified by the `--test-arg` parameter.
+/// The returned string has global lifetime and does not need to be freed.
+pub fn getTestArgument(name: []const u8) ?[]const u8 {
+    if (!builtin.is_test) {
+        @compileError("std.testing.getTestArgument can only be used in test builds.");
+    }
+    // root in a test build is std/special/test_runner.zig
+    return @import("root").test_args.get(name);
+}
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.

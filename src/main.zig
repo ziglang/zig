@@ -444,6 +444,8 @@ const usage_build_generic =
     \\  --test-name-prefix [text]      Add prefix to all tests
     \\  --test-cmd [arg]               Specify test execution command one arg at a time
     \\  --test-cmd-bin                 Appends test binary path to test cmd args
+    \\  --test-cmd-args                Appends command line arguments for the test runner to test cmd args
+    \\  --test-arg [key] [value]       Specifies an argument which can be accessed by std.testing.getTestArgument(key)
     \\  --test-evented-io              Runs the test in evented I/O mode
     \\  --test-no-exec                 Compiles test binary without running it
     \\
@@ -556,6 +558,12 @@ const ArgMode = union(enum) {
     translate_c,
     zig_test,
     run,
+};
+
+const TestExecArg = union(enum) {
+    arg: []const u8,
+    test_bin: void,
+    test_runner_args: void,
 };
 
 fn buildOutputType(
@@ -714,9 +722,11 @@ fn buildOutputType(
     var frameworks = std.ArrayList([]const u8).init(gpa);
     defer frameworks.deinit();
 
-    // null means replace with the test executable binary
-    var test_exec_args = std.ArrayList(?[]const u8).init(gpa);
+    var test_exec_args = std.ArrayList(TestExecArg).init(gpa);
     defer test_exec_args.deinit();
+
+    var test_runner_args = std.ArrayList([]const u8).init(gpa);
+    defer test_runner_args.deinit();
 
     var linker_export_symbol_names = std.ArrayList([]const u8).init(gpa);
     defer linker_export_symbol_names.deinit();
@@ -967,7 +977,11 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--test-cmd")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
-                        try test_exec_args.append(args[i]);
+                        try test_exec_args.append(.{ .arg = args[i] });
+                    } else if (mem.eql(u8, arg, "--test-arg")) {
+                        if (i + 2 >= args.len) fatal("expected two parameters after {s}", .{arg});
+                        try test_runner_args.appendSlice(args[i..i+3]);
+                        i += 2;
                     } else if (mem.eql(u8, arg, "--cache-dir")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                         i += 1;
@@ -1005,7 +1019,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--enable-cache")) {
                         enable_cache = true;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
-                        try test_exec_args.append(null);
+                        try test_exec_args.append(.test_bin);
+                    } else if (mem.eql(u8, arg, "--test-cmd-args")) {
+                        try test_exec_args.append(.test_runner_args);
                     } else if (mem.eql(u8, arg, "--test-evented-io")) {
                         test_evented_io = true;
                     } else if (mem.eql(u8, arg, "--test-no-exec")) {
@@ -2583,7 +2599,14 @@ fn buildOutputType(
         const c_code_path = try fs.path.join(arena, &[_][]const u8{
             c_code_directory.path orelse ".", c_code_loc.basename,
         });
-        try test_exec_args.appendSlice(&.{ self_exe_path, "run", "-lc", c_code_path });
+        try test_exec_args.appendSlice(&.{ 
+            .{ .arg = self_exe_path },
+            .{ .arg = "run" },
+            .{ .arg = "-lc" },
+            .{ .arg = c_code_path },
+            .{ .arg = "--" },
+            .{ .test_runner_args = {} },
+        });
     }
 
     const run_or_test = switch (arg_mode) {
@@ -2597,7 +2620,7 @@ fn buildOutputType(
             gpa,
             arena,
             test_exec_args.items,
-            self_exe_path,
+            test_runner_args.items,
             arg_mode,
             target_info,
             watch,
@@ -2669,7 +2692,7 @@ fn buildOutputType(
                         gpa,
                         arena,
                         test_exec_args.items,
-                        self_exe_path,
+                        test_runner_args.items,
                         arg_mode,
                         target_info,
                         watch,
@@ -2694,7 +2717,7 @@ fn buildOutputType(
                         gpa,
                         arena,
                         test_exec_args.items,
-                        self_exe_path,
+                        test_runner_args.items,
                         arg_mode,
                         target_info,
                         watch,
@@ -2757,8 +2780,8 @@ fn runOrTest(
     comp: *Compilation,
     gpa: Allocator,
     arena: Allocator,
-    test_exec_args: []const ?[]const u8,
-    self_exe_path: []const u8,
+    test_exec_args: []const TestExecArg,
+    test_runner_args: []const []const u8,
     arg_mode: ArgMode,
     target_info: std.zig.system.NativeTargetInfo,
     watch: bool,
@@ -2778,25 +2801,21 @@ fn runOrTest(
     defer argv.deinit();
 
     if (test_exec_args.len == 0) {
-        // when testing pass the zig_exe_path to argv
-        if (arg_mode == .zig_test)
-            try argv.appendSlice(&[_][]const u8{
-                exe_path, self_exe_path,
-            })
-            // when running just pass the current exe
-        else
-            try argv.appendSlice(&[_][]const u8{
-                exe_path,
-            });
+        try argv.ensureUnusedCapacity(1 + test_runner_args.len);
+        argv.appendAssumeCapacity(exe_path);
+        argv.appendSliceAssumeCapacity(test_runner_args);
     } else {
-        for (test_exec_args) |arg| {
-            if (arg) |a| {
-                try argv.append(a);
-            } else {
-                try argv.appendSlice(&[_][]const u8{
-                    exe_path, self_exe_path,
-                });
-            }
+        var used_runner_args = false;
+        for (test_exec_args) |arg| switch (arg) {
+            .arg => |a| try argv.append(a),
+            .test_bin => try argv.append(exe_path),
+            .test_runner_args => {
+                try argv.appendSlice(test_runner_args);
+                used_runner_args = true;
+            },
+        };
+        if (!used_runner_args and test_runner_args.len != 0) {
+            fatal("Test runner requires command line arguments, but --test-cmd-args was not specified in the custom test command.", .{});
         }
     }
     if (runtime_args_start) |i| {

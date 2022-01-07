@@ -1487,7 +1487,8 @@ pub const LibExeObjStep = struct {
     c_std: Builder.CStd,
     override_lib_dir: ?[]const u8,
     main_pkg_path: ?[]const u8,
-    exec_cmd_args: ?[]const ?[]const u8,
+    exec_cmd_args: ?[]const TestExecArg,
+    test_args: ArrayList(TestArg),
     name_prefix: []const u8,
     filter: ?[]const u8,
     test_evented_io: bool = false,
@@ -1610,6 +1611,38 @@ pub const LibExeObjStep = struct {
         }
     };
 
+    /// An argument for a custom test executor
+    pub const TestExecArg = union(enum) {
+        /// A direct argument to the executor
+        arg: []const u8,
+        /// Replaced by the path to the test runner binary
+        test_bin: void,
+        /// Replaced by the command line arguments to be
+        /// passed to the test runner binary
+        test_runner_args: void,
+
+        pub fn dupe(self: TestExecArg, b: *Builder) TestExecArg {
+            return switch (self) {
+                .arg => |a| .{ .arg = b.dupe(a) },
+                .test_bin => .test_bin,
+                .test_runner_args => .test_runner_args,
+            };
+        }
+    };
+
+    /// A key and value that will be accessible to tests
+    /// through std.testing.getTestArgument(..).
+    pub const TestArg = struct {
+        key: []const u8,
+        value: []const u8,
+
+        pub fn dupe(self: TestArg, b: *Builder) TestArg {
+            const k = b.dupe(self.key);
+            const v = b.dupe(self.value);
+            return .{ .key = k, .value = v };
+        }
+    };
+
     pub fn createSharedLibrary(builder: *Builder, name: []const u8, root_src: ?FileSource, kind: SharedLibKind) *LibExeObjStep {
         return initExtraArgs(builder, name, root_src, .lib, .dynamic, switch (kind) {
             .versioned => |ver| ver,
@@ -1683,6 +1716,7 @@ pub const LibExeObjStep = struct {
             .override_lib_dir = null,
             .main_pkg_path = null,
             .exec_cmd_args = null,
+            .test_args = ArrayList(TestArg).init(builder.allocator),
             .name_prefix = "",
             .filter = null,
             .disable_stack_probing = false,
@@ -2196,13 +2230,20 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    pub fn setExecCmd(self: *LibExeObjStep, args: []const ?[]const u8) void {
+    pub fn setExecCmd(self: *LibExeObjStep, args: []const TestExecArg) void {
         assert(self.kind == .@"test");
-        const duped_args = self.builder.allocator.alloc(?[]u8, args.len) catch unreachable;
+        const duped_args = self.builder.allocator.alloc(TestExecArg, args.len) catch unreachable;
         for (args) |arg, i| {
-            duped_args[i] = if (arg) |a| self.builder.dupe(a) else null;
+            duped_args[i] = arg.dupe(self.builder);
         }
         self.exec_cmd_args = duped_args;
+    }
+
+    pub fn addTestArg(self: *LibExeObjStep, key: []const u8, value: []const u8) void {
+        assert(self.kind == .@"test");
+        const k = self.builder.dupe(key);
+        const v = self.builder.dupe(value);
+        self.test_args.append(.{ .key = k, .value = v }) catch unreachable;
     }
 
     fn linkLibraryOrObject(self: *LibExeObjStep, other: *LibExeObjStep) void {
@@ -2589,14 +2630,11 @@ pub const LibExeObjStep = struct {
 
         if (self.kind == .@"test") {
             if (self.exec_cmd_args) |exec_cmd_args| {
-                for (exec_cmd_args) |cmd_arg| {
-                    if (cmd_arg) |arg| {
-                        try zig_args.append("--test-cmd");
-                        try zig_args.append(arg);
-                    } else {
-                        try zig_args.append("--test-cmd-bin");
-                    }
-                }
+                for (exec_cmd_args) |cmd_arg| switch (cmd_arg) {
+                    .arg => |a| try zig_args.appendSlice(&.{ "--test-cmd", a }),
+                    .test_bin => try zig_args.append("--test-cmd-bin"),
+                    .test_runner_args => try zig_args.append("--test-cmd-args"),
+                };
             } else {
                 const need_cross_glibc = self.target.isGnuLibC() and self.is_linking_libc;
 
@@ -2610,6 +2648,7 @@ pub const LibExeObjStep = struct {
                     },
                     .rosetta => if (builder.enable_rosetta) {
                         try zig_args.append("--test-cmd-bin");
+                        try zig_args.append("--test-cmd-args");
                     } else {
                         try zig_args.append("--test-no-exec");
                     },
@@ -2643,6 +2682,7 @@ pub const LibExeObjStep = struct {
                                 try zig_args.append(full_dir);
                             }
                             try zig_args.append("--test-cmd-bin");
+                            try zig_args.append("--test-cmd-args");
                             break :ok;
                         }
                         try zig_args.append("--test-no-exec");
@@ -2651,6 +2691,7 @@ pub const LibExeObjStep = struct {
                         try zig_args.append("--test-cmd");
                         try zig_args.append(bin_name);
                         try zig_args.append("--test-cmd-bin");
+                        try zig_args.append("--test-cmd-args");
                     } else {
                         try zig_args.append("--test-no-exec");
                     },
@@ -2660,6 +2701,7 @@ pub const LibExeObjStep = struct {
                         try zig_args.append("--test-cmd");
                         try zig_args.append("--dir=.");
                         try zig_args.append("--test-cmd-bin");
+                        try zig_args.append("--test-cmd-args");
                     } else {
                         try zig_args.append("--test-no-exec");
                     },
@@ -2667,10 +2709,15 @@ pub const LibExeObjStep = struct {
                         try zig_args.append("--test-cmd");
                         try zig_args.append(bin_name);
                         try zig_args.append("--test-cmd-bin");
+                        try zig_args.append("--test-cmd-args");
                     } else {
                         try zig_args.append("--test-no-exec");
                     },
                 }
+            }
+
+            for (self.test_args.items) |arg| {
+                try zig_args.appendSlice(&.{ "--test-arg", arg.key, arg.value });
             }
         } else if (self.kind == .test_exe) {
             try zig_args.append("--test-no-exec");

@@ -518,7 +518,7 @@ pub fn argsWithAllocator(allocator: mem.Allocator) ArgIterator.InitError!ArgIter
 }
 
 test "args iterator" {
-    var ga = std.testing.allocator;
+    const ga = std.testing.allocator;
     var it = if (builtin.os.tag == .wasi) try argsWithAllocator(ga) else args();
     defer it.deinit(); // no-op unless WASI
 
@@ -533,7 +533,6 @@ test "args iterator" {
     const given_suffix = std.fs.path.basename(prog_name);
 
     try testing.expect(mem.eql(u8, expected_suffix, given_suffix));
-    try testing.expect(it.skip()); // Skip over zig_exe_path, passed to the test runner
     try testing.expect((try it.next(ga)) == null);
     try testing.expect(!it.skip());
 }

@@ -6,20 +6,41 @@ pub const io_mode: io.Mode = builtin.test_io_mode;
 
 var log_err_count: usize = 0;
 
-var args_buffer: [std.fs.MAX_PATH_BYTES + std.mem.page_size]u8 = undefined;
-var args_allocator = std.heap.FixedBufferAllocator.init(&args_buffer);
+var args_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+
+/// The list of test arguments passed to the test runner via `--test-arg`
+pub var test_args = std.StringHashMap([]const u8).init(args_allocator.allocator());
+
+fn nextArg(args: *std.process.ArgIterator) ?[]const u8 {
+    return args.next(args_allocator.allocator()) catch @panic("Out of memory while parsing args.");
+}
 
 fn processArgs() void {
-    const args = std.process.argsAlloc(args_allocator.allocator()) catch {
-        @panic("Too many bytes passed over the CLI to the test runner");
-    };
-    if (args.len != 2) {
-        const self_name = if (args.len >= 1) args[0] else if (builtin.os.tag == .windows) "test.exe" else "test";
-        const zig_ext = if (builtin.os.tag == .windows) ".exe" else "";
-        std.debug.print("Usage: {s} path/to/zig{s}\n", .{ self_name, zig_ext });
-        @panic("Wrong number of command line arguments");
+    var args = std.process.args();
+    const test_exe_path = nextArg(&args)
+        orelse @panic("No self executable in arguments");
+    
+    while (nextArg(&args)) |arg| {
+        if (std.mem.eql(u8, arg, "--test-arg")) {
+            const key = nextArg(&args) orelse @panic("--test-arg requires two arguments, but none were provided.");
+            const value = nextArg(&args) orelse @panic("--test-arg requires two arguments, but only one was provided.");
+            const gop = test_args.getOrPut(key) catch @panic("Out of memory while parsing args, in test_args insertion.");
+            if (gop.found_existing) std.debug.panic("test argument was specified twice: {s}.", .{key});
+            gop.value_ptr.* = value;
+        } else if (std.mem.eql(u8, arg, "--help")) {
+            const exe_name = std.fs.path.basename(test_exe_path);
+            std.debug.print("Usage: {s} [options]\n{s}", .{ exe_name,
+                \\
+                \\Options:
+                \\    -h, --help                  Print this help and exit
+                \\    --test-arg <key> <value>    Specify an argument that can be retrieved from std.testing.getTestArgument(..)
+                \\
+            });
+            std.process.exit(1);
+        } else {
+            std.debug.panic("Unknown argument: {s}. Use --help to see usage.", .{arg});
+        }
     }
-    std.testing.zig_exe_path = args[1];
 }
 
 pub fn main() void {
