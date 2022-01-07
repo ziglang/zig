@@ -165,21 +165,9 @@ fn testReader(data: []const u8, comptime expected: []const u8) !void {
     // Read and decompress the whole file
     const buf = try gzip_stream.reader().readAllAlloc(testing.allocator, std.math.maxInt(usize));
     defer testing.allocator.free(buf);
-    // Calculate its SHA256 hash and check it against the reference
-    var hash: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(buf, hash[0..], .{});
 
-    try assertEqual(expected, &hash);
-}
-
-// Assert `expected` == `input` where `input` is a bytestring.
-pub fn assertEqual(comptime expected: []const u8, input: []const u8) !void {
-    var expected_bytes: [expected.len / 2]u8 = undefined;
-    for (expected_bytes) |*r, i| {
-        r.* = std.fmt.parseInt(u8, expected[2 * i .. 2 * i + 2], 16) catch unreachable;
-    }
-
-    try testing.expectEqualSlices(u8, &expected_bytes, input);
+    // Check against the reference
+    try testing.expectEqualSlices(u8, buf, expected);
 }
 
 // All the test cases are obtained by compressing the RFC1952 text
@@ -189,7 +177,7 @@ pub fn assertEqual(comptime expected: []const u8, input: []const u8) !void {
 test "compressed data" {
     try testReader(
         @embedFile("rfc1952.txt.gz"),
-        "164ef0897b4cbec63abf1b57f069f3599bd0fb7c72c2a4dee21bd7e03ec9af67",
+        @embedFile("rfc1952.txt"),
     );
 }
 
