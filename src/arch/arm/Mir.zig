@@ -20,7 +20,7 @@ extra: []const u32,
 
 pub const Inst = struct {
     tag: Tag,
-    cond: bits.Condition,
+    cond: bits.Condition = .al,
     /// The meaning of this depends on `tag`.
     data: Data,
 
