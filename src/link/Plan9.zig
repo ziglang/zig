@@ -203,7 +203,7 @@ fn putFn(self: *Plan9, decl: *Module.Decl, out: FnDeclOutput) !void {
         self.syms.items[fn_map_res.value_ptr.sym_index] = .{
             .type = .z,
             // just put a giant number, no source file will have this many newlines
-            .value = std.math.maxInt(u32),
+            .value = std.math.maxInt(u31),
             .name = &.{ 0, 0 },
         };
     }
