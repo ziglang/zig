@@ -4437,6 +4437,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
             const arg = try sema.addConstant(param_type, opv);
             sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
             total_param_index += 1;
+            runtime_param_index += 1;
             continue;
         }
         const ty_ref = try sema.addType(param_type);
