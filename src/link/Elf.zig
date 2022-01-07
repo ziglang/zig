@@ -31,6 +31,7 @@ const Cache = @import("../Cache.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
+const EmitAsm = @import("../EmitAsm.zig");
 
 const default_entry_addr = 0x8000000;
 
@@ -39,6 +40,9 @@ pub const base_tag: File.Tag = .elf;
 base: File,
 
 ptr_width: PtrWidth,
+
+/// This is `null` when `-femit-asm` is not used or llvm backend is used
+emit_asm: ?EmitAsm = null,
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
 llvm_object: ?*LlvmObject = null,
@@ -338,6 +342,10 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 
     try self.populateMissingMetadata();
 
+    if (options.module.?.comp.emit_asm) |_| {
+        self.emit_asm = .{ .mod = options.module.? };
+    }
+
     return self;
 }
 
@@ -372,6 +380,9 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
 pub fn deinit(self: *Elf) void {
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
+    }
+    if (self.emit_asm) |*e| {
+        e.deinit();
     }
 
     self.sections.deinit(self.base.allocator);
@@ -440,6 +451,20 @@ pub fn getDeclVAddr(self: *Elf, decl: *const Module.Decl, parent_atom_index: u32
     });
 
     return vaddr;
+}
+
+pub fn getGot(self: *Elf) link.File.GotWithAddr {
+    var newslice: []const u8 = undefined;
+    newslice.ptr = @ptrCast([*]const u8, self.offset_table.items.ptr);
+    newslice.len = self.offset_table.items.len * 8;
+    const got_addr = self.program_headers.items[self.phdr_got_index.?].p_vaddr;
+    return link.File.GotWithAddr{ .code = newslice, .addr = got_addr };
+}
+
+pub fn getDeclLinksection(self: *Elf, decl: *Module.Decl) []const u8 {
+    _ = self;
+    const is_fn = decl.ty.zigTypeTag() == .Fn;
+    return if (is_fn) ".text" else ".rodata";
 }
 
 fn getDebugLineProgramOff(self: Elf) u32 {
@@ -3086,6 +3111,10 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
             return;
         },
     };
+
+    if (self.emit_asm) |*e| {
+        try e.updateDataDecl(decl, code);
+    }
 
     _ = try self.updateDeclCode(decl, code, elf.STT_OBJECT);
     return self.finishUpdateDecl(module, decl, &dbg_info_type_relocs, &dbg_info_buffer);

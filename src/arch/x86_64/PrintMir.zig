@@ -26,8 +26,9 @@ const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
 mir: Mir,
 bin_file: *link.File,
+emit_asm: bool = false,
 
-pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap(Mir.Inst.Index, Air.Inst.Index), air: Air) !void {
+pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: ?std.AutoHashMap(Mir.Inst.Index, Air.Inst.Index), air: ?Air) !void {
     const instruction_bytes = print.mir.instructions.len *
         // Here we don't use @sizeOf(Mir.Inst.Data) because it would include
         // the debug safety tag but we want to measure release size.
@@ -35,26 +36,31 @@ pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap
     const extra_bytes = print.mir.extra.len * @sizeOf(u32);
     const total_bytes = @sizeOf(Mir) + instruction_bytes + extra_bytes;
 
-    // zig fmt: off
-    std.debug.print(
-        \\# Total MIR bytes: {}
-        \\# MIR Instructions:         {d} ({})
-        \\# MIR Extra Data:           {d} ({})
-        \\
-    , .{
-        fmtIntSizeBin(total_bytes),
-        print.mir.instructions.len, fmtIntSizeBin(instruction_bytes),
-        print.mir.extra.len, fmtIntSizeBin(extra_bytes),
-    });
-    // zig fmt: on
+    if (!print.emit_asm) {
+        std.debug.print(
+            \\# Total MIR bytes: {}
+            \\# MIR Instructions:         {d} ({})
+            \\# MIR Extra Data:           {d} ({})
+            \\
+        , .{
+            fmtIntSizeBin(total_bytes),
+            print.mir.instructions.len,
+            fmtIntSizeBin(instruction_bytes),
+            print.mir.extra.len,
+            fmtIntSizeBin(extra_bytes),
+        });
+    }
     const mir_tags = print.mir.instructions.items(.tag);
 
     for (mir_tags) |tag, index| {
         const inst = @intCast(u32, index);
-        if (mir_to_air_map.get(inst)) |air_index| {
-            try w.print("air index %{} ({}) for following mir inst(s)\n", .{ air_index, air.instructions.items(.tag)[air_index] });
+        if (mir_to_air_map) |m| {
+            if (air) |a| {
+                if (m.get(inst)) |air_index| {
+                    try w.print("air index %{} ({}) for following mir inst(s)\n", .{ air_index, a.instructions.items(.tag)[air_index] });
+                }
+            }
         }
-        try w.writeAll("  ");
         switch (tag) {
             .adc => try print.mirArith(.adc, inst, w),
             .add => try print.mirArith(.add, inst, w),
@@ -139,20 +145,23 @@ pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap
 
             .@"test" => try print.mirTest(inst, w),
 
-            .brk => try w.writeAll("brk\n"),
-            .ret => try w.writeAll("ret\n"),
-            .nop => try w.writeAll("nop\n"),
-            .syscall => try w.writeAll("syscall\n"),
+            .brk => try w.writeAll("    brk\n"),
+            .ret => try w.writeAll("    ret\n"),
+            .nop => try w.writeAll("    nop\n"),
+            .syscall => try w.writeAll("    syscall\n"),
 
             .call_extern => try print.mirCallExtern(inst, w),
 
-            .dbg_line, .dbg_prologue_end, .dbg_epilogue_begin, .arg_dbg_info => try w.print("{s}\n", .{@tagName(tag)}),
+            .dbg_line, .dbg_prologue_end, .dbg_epilogue_begin, .arg_dbg_info => {
+                if (!print.emit_asm)
+                    try w.print("    {s}\n", .{@tagName(tag)});
+            },
 
             .push_regs_from_callee_preserved_regs => try print.mirPushPopRegsFromCalleePreservedRegs(.push, inst, w),
             .pop_regs_from_callee_preserved_regs => try print.mirPushPopRegsFromCalleePreservedRegs(.pop, inst, w),
 
             else => {
-                try w.print("TODO emit asm for {s}\n", .{@tagName(tag)});
+                try w.print("    TODO emit asm for {s}\n", .{@tagName(tag)});
             },
         }
     }
@@ -163,22 +172,22 @@ fn mirPushPop(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: a
     switch (ops.flags) {
         0b00 => {
             // PUSH/POP reg
-            try w.print("{s} {s}", .{ @tagName(tag), @tagName(ops.reg1) });
+            try w.print("    {s} {s}", .{ @tagName(tag), @tagName(ops.reg1) });
         },
         0b01 => {
             // PUSH/POP r/m64
             const imm = print.mir.instructions.items(.data)[inst].imm;
-            try w.print("{s} [{s} + {d}]", .{ @tagName(tag), @tagName(ops.reg1), imm });
+            try w.print("    {s} [{s} + {d}]", .{ @tagName(tag), @tagName(ops.reg1), imm });
         },
         0b10 => {
             const imm = print.mir.instructions.items(.data)[inst].imm;
             // PUSH imm32
             assert(tag == .push);
-            try w.print("{s} {d}", .{ @tagName(tag), imm });
+            try w.print("    {s} {d}", .{ @tagName(tag), imm });
         },
         0b11 => unreachable,
     }
-    try w.writeByte('\n');
+    try w.writeAll("\n");
 }
 fn mirPushPopRegsFromCalleePreservedRegs(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
     const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
@@ -186,32 +195,28 @@ fn mirPushPopRegsFromCalleePreservedRegs(print: *const Print, tag: Mir.Inst.Tag,
     const data = print.mir.extraData(Mir.RegsToPushOrPop, payload).data;
     const regs = data.regs;
     var disp: u32 = data.disp + 8;
-    if (regs == 0) return w.writeAll("no regs from callee_preserved_regs\n");
-    var printed_first_reg = false;
+    if (regs == 0 and !print.emit_asm) return w.writeAll("no regs from callee_preserved_regs\n");
     for (bits.callee_preserved_regs) |reg, i| {
         if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
-        if (printed_first_reg) try w.writeAll("  ");
-        printed_first_reg = true;
         if (tag == .push) {
-            try w.print("mov qword ptr [{s} + {d}], {s}", .{
+            try w.print("    mov qword ptr [{s} + {d}], {s}\n", .{
                 @tagName(ops.reg1),
                 @bitCast(u32, -@intCast(i32, disp)),
                 @tagName(reg.to64()),
             });
         } else {
-            try w.print("mov {s}, qword ptr [{s} + {d}]", .{
+            try w.print("    mov {s}, qword ptr [{s} + {d}]\n", .{
                 @tagName(reg.to64()),
                 @tagName(ops.reg1),
                 @bitCast(u32, -@intCast(i32, disp)),
             });
         }
         disp += 8;
-        try w.writeByte('\n');
     }
 }
 
 fn mirJmpCall(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
-    try w.print("{s} ", .{@tagName(tag)});
+    try w.print("    {s} ", .{@tagName(tag)});
     const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
     const flag = @truncate(u1, ops.flags);
     if (flag == 0) {
@@ -220,7 +225,7 @@ fn mirJmpCall(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: a
     if (ops.reg1 == .none) {
         // JMP/CALL [imm]
         const imm = print.mir.instructions.items(.data)[inst].imm;
-        try w.print("[{x}]\n", .{imm});
+        try w.print("[0x{x}]\n", .{imm});
         return;
     }
     // JMP/CALL reg
@@ -231,24 +236,25 @@ fn mirCondJmp(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: a
     _ = print;
     _ = tag;
     _ = inst;
-    try w.writeAll("TODO print mirCondJmp\n");
+    try w.writeAll("    TODO print mirCondJmp\n");
 }
 
 fn mirCondSetByte(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
     _ = tag;
     _ = inst;
     _ = print;
-    try w.writeAll("TODO print mirCondSetByte\n");
+    try w.writeAll("    TODO print mirCondSetByte\n");
 }
 
 fn mirTest(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
     _ = print;
     _ = inst;
-    try w.writeAll("TODO print mirTest\n");
+    try w.writeAll("    TODO print mirTest\n");
 }
 
 fn mirArith(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
     const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
+    try w.writeAll("    ");
     try w.writeAll(@tagName(tag));
     try w.writeByte(' ');
     switch (ops.flags) {
@@ -301,14 +307,14 @@ fn mirArith(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: any
             try w.writeAll("unused variant");
         },
     }
-    try w.writeByte('\n');
+    try w.writeAll("\n");
 }
 
 fn mirArithMemImm(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
     const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
     const payload = print.mir.instructions.items(.data)[inst].payload;
     const imm_pair = print.mir.extraData(Mir.ImmPair, payload).data;
-    try w.print("{s} ", .{@tagName(tag)});
+    try w.print("    {s} ", .{@tagName(tag)});
     switch (ops.flags) {
         0b00 => try w.print("byte ptr ", .{}),
         0b01 => try w.print("word ptr ", .{}),
@@ -323,7 +329,7 @@ fn mirArithScaleSrc(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index
     const scale = ops.flags;
     // OP reg1, [reg2 + scale*rcx + imm32]
     const imm = print.mir.instructions.items(.data)[inst].imm;
-    try w.print("{s} {s}, [{s} + {d}*rcx + {d}]\n", .{ @tagName(tag), @tagName(ops.reg1), @tagName(ops.reg2), scale, imm });
+    try w.print("    {s} {s}, [{s} + {d}*rcx + {d}]\n", .{ @tagName(tag), @tagName(ops.reg1), @tagName(ops.reg2), scale, imm });
 }
 
 fn mirArithScaleDst(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
@@ -333,11 +339,11 @@ fn mirArithScaleDst(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index
 
     if (ops.reg2 == .none) {
         // OP [reg1 + scale*rax + 0], imm32
-        try w.print("{s} [{s} + {d}*rax + 0], {d}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm });
+        try w.print("    {s} [{s} + {d}*rax + 0], {d}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm });
     }
 
     // OP [reg1 + scale*rax + imm32], reg2
-    try w.print("{s} [{s} + {d}*rax + {d}], {s}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm, @tagName(ops.reg2) });
+    try w.print("    {s} [{s} + {d}*rax + {d}], {s}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm, @tagName(ops.reg2) });
 }
 
 fn mirArithScaleImm(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
@@ -345,21 +351,21 @@ fn mirArithScaleImm(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index
     const scale = ops.flags;
     const payload = print.mir.instructions.items(.data)[inst].payload;
     const imm_pair = print.mir.extraData(Mir.ImmPair, payload).data;
-    try w.print("{s} [{s} + {d}*rax + {d}], {d}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm_pair.dest_off, imm_pair.operand });
+    try w.print("    {s} [{s} + {d}*rax + {d}], {d}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm_pair.dest_off, imm_pair.operand });
 }
 
 fn mirArithMemIndexImm(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
     const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
     const payload = print.mir.instructions.items(.data)[inst].payload;
     const imm_pair = print.mir.extraData(Mir.ImmPair, payload).data;
-    try w.print("{s} ", .{@tagName(tag)});
+    try w.print("    {s} ", .{@tagName(tag)});
     switch (ops.flags) {
         0b00 => try w.print("byte ptr ", .{}),
         0b01 => try w.print("word ptr ", .{}),
         0b10 => try w.print("dword ptr ", .{}),
         0b11 => try w.print("qword ptr ", .{}),
     }
-    try w.print("[{s} + 1*rax + {d}], {d}\n", .{ @tagName(ops.reg1), imm_pair.dest_off, imm_pair.operand });
+    try w.print("    [{s} + 1*rax + {d}], {d}\n", .{ @tagName(ops.reg1), imm_pair.dest_off, imm_pair.operand });
 }
 
 fn mirMovabs(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
@@ -375,13 +381,13 @@ fn mirMovabs(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
     } else print.mir.instructions.items(.data)[inst].imm;
     if (ops.flags == 0b00) {
         // movabs reg, imm64
-        try w.print("movabs {s}, {d}\n", .{ @tagName(ops.reg1), imm });
+        try w.print("    movabs {s}, {d}\n", .{ @tagName(ops.reg1), imm });
     }
     if (ops.reg1 == .none) {
-        try w.writeAll("movabs moffs64, rax\n");
+        try w.writeAll("    movabs moffs64, rax\n");
     } else {
         // movabs rax, moffs64
-        try w.writeAll("movabs rax, moffs64\n");
+        try w.writeAll("    movabs rax, moffs64\n");
     }
 }
 
@@ -391,19 +397,19 @@ fn mirIMulComplex(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
     const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
-            try w.print("imul {s}, {s}\n", .{ @tagName(ops.reg1), @tagName(ops.reg2) });
+            try w.print("    imul {s}, {s}\n", .{ @tagName(ops.reg1), @tagName(ops.reg2) });
         },
         0b10 => {
             const imm = print.mir.instructions.items(.data)[inst].imm;
-            try w.print("imul {s}, {s}, {d}\n", .{ @tagName(ops.reg1), @tagName(ops.reg2), imm });
+            try w.print("    imul {s}, {s}, {d}\n", .{ @tagName(ops.reg1), @tagName(ops.reg2), imm });
         },
-        else => return w.writeAll("TODO implement imul\n"),
+        else => return w.writeAll("    TODO implement imul\n"),
     }
 }
 
 fn mirLea(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
     const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
-    try w.writeAll("lea ");
+    try w.writeAll("    lea ");
     switch (ops.flags) {
         0b00 => {
             const imm = print.mir.instructions.items(.data)[inst].imm;
@@ -427,7 +433,7 @@ fn mirLea(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
             try w.print("[rip + 0x0] ", .{});
             const payload = print.mir.instructions.items(.data)[inst].payload;
             const imm = print.mir.extraData(Mir.Imm64, payload).data.decode();
-            try w.print("target@{x}", .{imm});
+            try w.print("target@{x}\n", .{imm});
         },
         0b10 => {
             const imm = print.mir.instructions.items(.data)[inst].imm;
@@ -445,13 +451,12 @@ fn mirLea(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
             try w.writeAll("unused variant");
         },
     }
-    try w.writeAll("\n");
 }
 
 fn mirLeaPie(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
     const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
     const load_reloc = print.mir.instructions.items(.data)[inst].load_reloc;
-    try w.print("lea {s}, ", .{@tagName(ops.reg1)});
+    try w.print("    lea {s}, ", .{@tagName(ops.reg1)});
     switch (ops.reg1.size()) {
         8 => try w.print("byte ptr ", .{}),
         16 => try w.print("word ptr ", .{}),
@@ -473,5 +478,5 @@ fn mirLeaPie(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
 fn mirCallExtern(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {
     _ = print;
     _ = inst;
-    return w.writeAll("TODO call_extern");
+    return w.writeAll("    TODO call_extern\n");
 }

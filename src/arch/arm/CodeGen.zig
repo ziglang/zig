@@ -325,6 +325,12 @@ pub fn generate(
         error.EmitFail => return FnResult{ .fail = emit.err_msg.? },
         else => |e| return e,
     };
+    if (builtin.mode == .Debug and bin_file.options.module.?.comp.verbose_mir) {
+        log.err("verbose-mir not available for arm", .{});
+    }
+    if (bin_file.getEmitAsm()) |_| {
+        log.err("functions will not be emitted in emit-asm for arm", .{});
+    }
 
     if (function.err_msg) |em| {
         return FnResult{ .fail = em };

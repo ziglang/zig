@@ -36,6 +36,7 @@ const WaitGroup = @import("WaitGroup.zig");
 const libtsan = @import("libtsan.zig");
 const Zir = @import("Zir.zig");
 const Color = @import("main.zig").Color;
+const EmitAsm = @import("EmitAsm.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
@@ -1524,6 +1525,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         for (options.system_lib_names) |lib_name, i| {
             system_libs.putAssumeCapacity(lib_name, options.system_lib_infos[i]);
         }
+        // we need to put this here because openPath will read comp.emit_asm
+        comp.emit_asm = options.emit_asm;
 
         const bin_file = try link.File.openPath(gpa, .{
             .emit = bin_file_emit,

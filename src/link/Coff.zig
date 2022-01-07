@@ -22,6 +22,7 @@ const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const TypedValue = @import("../TypedValue.zig");
+const EmitAsm = @import("../EmitAsm.zig");
 
 const allocation_padding = 4 / 3;
 const minimum_text_block_size = 64 * allocation_padding;
@@ -40,6 +41,9 @@ const msdos_stub = @embedFile("msdos-stub.bin");
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
 llvm_object: ?*LlvmObject = null,
+
+/// This is `null` when `-femit-asm` is not used or llvm backend is used
+emit_asm: ?EmitAsm = null,
 
 base: link.File,
 ptr_width: PtrWidth,
@@ -391,6 +395,10 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     try self.base.file.?.pwriteAll(hdr_data[0..index], self.optional_header_offset);
     try self.base.file.?.setEndPos(self.section_data_offset + default_offset_table_size + default_size_of_code);
 
+    if (options.module.?.comp.emit_asm) |_| {
+        self.emit_asm = .{ .mod = options.module.? };
+    }
+
     return self;
 }
 
@@ -694,6 +702,10 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
             return;
         },
     };
+
+    if (self.emit_asm) |*e| {
+        try e.updateDataDecl(decl, code);
+    }
 
     return self.finishUpdateDecl(module, func.owner_decl, code);
 }
@@ -1471,6 +1483,18 @@ pub fn getDeclVAddr(self: *Coff, decl: *const Module.Decl, parent_atom_index: u3
     assert(self.llvm_object == null);
     return self.text_section_virtual_address + decl.link.coff.text_offset;
 }
+// TODO audit if these are the right section names
+pub fn getDeclLinksection(self: *Coff, decl: *Module.Decl) []const u8 {
+    _ = self;
+    const is_fn = decl.ty.zigTypeTag() == .Fn;
+    return if (is_fn) ".text" else ".data";
+}
+pub fn getGot(self: *Coff) link.File.GotWithAddr {
+    var newslice: []const u8 = undefined;
+    newslice.ptr = @ptrCast([*]const u8, self.offset_table.items.ptr);
+    newslice.len = self.offset_table.items.len * 8;
+    return link.File.GotWithAddr{ .code = newslice, .addr = self.offset_table_virtual_address };
+}
 
 pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !void {
     _ = self;
@@ -1482,6 +1506,9 @@ pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !v
 pub fn deinit(self: *Coff) void {
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
+    }
+    if (self.emit_asm) |*e| {
+        e.deinit();
     }
 
     self.text_block_free_list.deinit(self.base.allocator);

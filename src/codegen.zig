@@ -38,6 +38,7 @@ pub const Result = union(enum) {
 pub const GenerateSymbolError = error{
     OutOfMemory,
     Overflow,
+    Underflow,
     /// A Decl that this symbol depends on had a semantic analysis failure.
     AnalysisFail,
 };

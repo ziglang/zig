@@ -468,6 +468,47 @@ pub const File = struct {
         }
     }
 
+    pub const GotWithAddr = struct { code: []const u8, addr: u64 };
+    /// Gets the GOT in it's current form as an allocated string if needed
+    /// Asserts backend uses a got that can be accessed without allocating
+    pub fn getGot(base: *File) GotWithAddr {
+        switch (base.tag) {
+            // zig fmt: off
+            .coff  => return @fieldParentPtr(Coff,  "base", base).getGot(),
+            .elf   => return @fieldParentPtr(Elf,   "base", base).getGot(),
+            .macho => return @fieldParentPtr(MachO, "base", base).getGot(),
+            .plan9 => unreachable,
+            .wasm  => unreachable,
+            .c     => unreachable,
+            .spirv => unreachable,
+            .nvptx => unreachable,
+            // zig fmt: on
+        }
+    }
+
+    /// Gets the linksection that the decl will go in
+    /// Asserts backend has the concept of a linksection
+    pub fn getDeclLinksection(base: *File, decl: *Module.Decl) ![]const u8 {
+        if (decl.has_tv and !decl.linksection_val.isNull()) {
+            // the linksection_val gets coerced to a []const u8, so we can do this
+            // TODO allocation???
+            const str = try decl.linksection_val.toAllocatedBytes(@import("type.zig").Type.initTag(.const_slice_u8), base.allocator);
+            return str;
+        }
+        switch (base.tag) {
+            // zig fmt: off
+            .coff  => return base.allocator.dupe(u8, @fieldParentPtr(Coff,  "base", base).getDeclLinksection(decl)),
+            .elf   => return base.allocator.dupe(u8, @fieldParentPtr(Elf,   "base", base).getDeclLinksection(decl)),
+            .macho => return base.allocator.dupe(u8, (try @fieldParentPtr(MachO, "base", base).getDeclLinksection(decl))),
+            .plan9 => return base.allocator.dupe(u8, @fieldParentPtr(Plan9, "base", base).getDeclLinksection(decl)),
+            .wasm  => unreachable,
+            .c     => unreachable,
+            .spirv => unreachable,
+            .nvptx => unreachable,
+            // zig fmt: on
+        }
+    }
+
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
@@ -590,6 +631,7 @@ pub const File = struct {
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
     pub fn flush(base: *File, comp: *Compilation) !void {
+        if (base.getEmitAsm()) |e| try e.flush();
         if (comp.clang_preprocessor_mode == .yes) {
             const emit = base.options.emit orelse return; // -fno-emit-bin
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
@@ -636,6 +678,21 @@ pub const File = struct {
         }
     }
 
+    pub fn getEmitAsm(base: *File) ?*@import("EmitAsm.zig") {
+        return switch (base.tag) {
+            .coff => if (@fieldParentPtr(Coff, "base", base).emit_asm) |*e| e else null,
+            .elf => if (@fieldParentPtr(Elf, "base", base).emit_asm) |*e| e else null,
+            .macho => if (@fieldParentPtr(MachO, "base", base).emit_asm) |*e| e else null,
+            .c => null,
+            // null because nasm can't currently assemble for plan9
+            // we could patch nasm, or just emit raw assembly
+            .plan9 => null,
+            .wasm => null,
+            .spirv => null,
+            .nvptx => null,
+        };
+    }
+
     /// Called when a Decl is deleted from the Module.
     pub fn freeDecl(base: *File, decl: *Module.Decl) void {
         log.debug("freeDecl {*} ({s})", .{ decl, decl.name });
@@ -649,6 +706,7 @@ pub const File = struct {
             .plan9 => @fieldParentPtr(Plan9, "base", base).freeDecl(decl),
             .nvptx => @fieldParentPtr(NvPtx, "base", base).freeDecl(decl),
         }
+        if (base.getEmitAsm()) |e| e.freeDecl(decl);
     }
 
     pub fn errorFlags(base: *File) ErrorFlags {

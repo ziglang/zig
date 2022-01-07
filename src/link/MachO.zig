@@ -41,12 +41,16 @@ const Trie = @import("MachO/Trie.zig");
 const Type = @import("../type.zig").Type;
 const TypedValue = @import("../TypedValue.zig");
 const Value = @import("../value.zig").Value;
+const EmitAsm = @import("../EmitAsm.zig");
 
 pub const TextBlock = Atom;
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
 base: File,
+
+/// This is `null` when `-femit-asm` is not used or llvm backend is used
+emit_asm: ?EmitAsm = null,
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
 llvm_object: ?*LlvmObject = null,
@@ -395,6 +399,9 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 
     if (self.d_sym) |*ds| {
         try ds.populateMissingMetadata(allocator);
+    }
+    if (options.module.?.comp.emit_asm) |_| {
+        self.emit_asm = .{ .mod = options.module.? };
     }
 
     return self;
@@ -3373,6 +3380,9 @@ pub fn deinit(self: *MachO) void {
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
     }
+    if (self.emit_asm) |*e| {
+        e.deinit();
+    }
 
     if (self.d_sym) |*ds| {
         ds.deinit(self.base.allocator);
@@ -3880,6 +3890,10 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             },
         }
     };
+    if (self.emit_asm) |*e| {
+        try e.updateDataDecl(decl, code);
+    }
+
     _ = try self.placeDecl(decl, code.len);
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
@@ -4368,6 +4382,16 @@ pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl, parent_atom_index: u
     try atom.rebases.append(self.base.allocator, offset);
 
     return 0;
+}
+
+pub fn getDeclLinksection(self: *MachO, decl: *Module.Decl) ![]const u8 {
+    const matching_section = try self.getMatchingSectionAtom(&decl.link.macho, decl.ty, decl.val);
+    const seg = &self.load_commands.items[matching_section.seg].segment;
+    return seg.sections.items[matching_section.sect].sectName();
+}
+pub fn getGot(self: *MachO) link.File.GotWithAddr {
+    _ = self;
+    return link.File.GotWithAddr{ .code = "TODO get got for macos", .addr = 0xdeadbeef };
 }
 
 fn populateMissingMetadata(self: *MachO) !void {

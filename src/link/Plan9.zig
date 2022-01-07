@@ -90,6 +90,61 @@ fn getAddr(self: Plan9, addr: u64, t: aout.Sym.Type) u64 {
     };
 }
 
+pub fn getDeclLinksection(self: Plan9, decl: *Module.Decl) []const u8 {
+    _ = self;
+    const is_fn = decl.ty.zigTypeTag() == .Fn;
+    return if (is_fn) ".text" else ".data";
+}
+
+pub fn getGot(self: Plan9, ally: Allocator) !link.File.GotWithAddr {
+    const got_size = self.got_len * if (!self.sixtyfour_bit) @as(u32, 4) else 8;
+    var got_table = try ally.alloc(u8, got_size);
+
+    const hdr_size = if (self.sixtyfour_bit) @as(usize, 40) else 32;
+    var foff = hdr_size;
+    var text_i: u64 = 0;
+    // text
+    {
+        var it_file = self.fn_decl_table.iterator();
+        while (it_file.next()) |fentry| {
+            var it = fentry.value_ptr.functions.iterator();
+            while (it.next()) |entry| {
+                const decl = entry.key_ptr.*;
+                const out = entry.value_ptr.*;
+
+                foff += out.code.len;
+                const off = self.getAddr(text_i, .t);
+                text_i += out.code.len;
+                decl.link.plan9.offset = off;
+                if (!self.sixtyfour_bit) {
+                    mem.writeInt(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+                } else {
+                    mem.writeInt(u64, got_table[decl.link.plan9.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                }
+            }
+        }
+    }
+    // data
+    var data_i: u64 = got_size;
+    {
+        var it = self.data_decl_table.iterator();
+        while (it.next()) |entry| {
+            const decl = entry.key_ptr.*;
+            const code = entry.value_ptr.*;
+
+            foff += code.len;
+            const off = self.getAddr(data_i, .d);
+            data_i += code.len;
+            if (!self.sixtyfour_bit) {
+                mem.writeInt(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+            } else {
+                mem.writeInt(u64, got_table[decl.link.plan9.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+            }
+        }
+    }
+    return link.File.GotWithAddr{ .code = got_table, .addr = self.bases.data };
+}
+
 fn getSymAddr(self: Plan9, s: aout.Sym) u64 {
     return self.getAddr(s.value, s.type);
 }
@@ -450,7 +505,6 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
                 text_i += out.code.len;
                 decl.link.plan9.offset = off;
                 if (!self.sixtyfour_bit) {
-                    mem.writeIntNative(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off));
                     mem.writeInt(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
                 } else {
                     mem.writeInt(u64, got_table[decl.link.plan9.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());

@@ -361,16 +361,28 @@ pub fn generate(
         else => |e| return e,
     };
 
+    const PrintMir = @import("PrintMir.zig");
     if (builtin.mode == .Debug and bin_file.options.module.?.comp.verbose_mir) {
         const w = std.io.getStdErr().writer();
         w.print("# Begin Function MIR: {s}:\n", .{module_fn.owner_decl.name}) catch {};
-        const PrintMir = @import("PrintMir.zig");
         const print = PrintMir{
             .mir = mir,
             .bin_file = bin_file,
         };
         print.printMir(w, function.mir_to_air_map, air) catch {}; // we don't care if the debug printing fails
         w.print("# End Function MIR: {s}\n\n", .{module_fn.owner_decl.name}) catch {};
+    }
+    if (bin_file.getEmitAsm()) |e| {
+        var buf = std.ArrayList(u8).init(bin_file.options.module.?.gpa);
+        defer buf.deinit();
+        const w = buf.writer();
+        const print = PrintMir{
+            .mir = mir,
+            .bin_file = bin_file,
+            .emit_asm = true,
+        };
+        try print.printMir(w, null, null);
+        try e.updateTextDecl(module_fn.owner_decl, buf.items);
     }
 
     if (function.err_msg) |em| {
