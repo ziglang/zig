@@ -672,12 +672,21 @@ pub const File = struct {
         // is not needed we can refactor this into having the frontend do the rename
         // directly, and remove this function from link.zig.
         _ = base;
-        try std.fs.rename(
-            cache_directory.handle,
-            tmp_dir_sub_path,
-            cache_directory.handle,
-            o_sub_path,
-        );
+        while (true) {
+            std.fs.rename(
+                cache_directory.handle,
+                tmp_dir_sub_path,
+                cache_directory.handle,
+                o_sub_path,
+            ) catch |err| switch (err) {
+                error.PathAlreadyExists => {
+                    try cache_directory.handle.deleteTree(o_sub_path);
+                    continue;
+                },
+                else => |e| return e,
+            };
+            break;
+        }
     }
 
     pub fn linkAsArchive(base: *File, comp: *Compilation) !void {
