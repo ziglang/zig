@@ -2647,7 +2647,7 @@ pub const FuncGen = struct {
         switch (struct_ty.zigTypeTag()) {
             .Struct => {
                 var ptr_ty_buf: Type.Payload.Pointer = undefined;
-                const llvm_field_index = llvmFieldIndex(struct_ty, field_index, target, &ptr_ty_buf);
+                const llvm_field_index = llvmFieldIndex(struct_ty, field_index, target, &ptr_ty_buf).?;
                 const field_ptr = self.builder.buildStructGEP(struct_llvm_val, llvm_field_index, "");
                 const field_ptr_ty = Type.initPayload(&ptr_ty_buf.base);
                 return self.load(field_ptr, field_ptr_ty);
@@ -4354,8 +4354,18 @@ pub const FuncGen = struct {
             .Struct => {
                 const target = self.dg.module.getTarget();
                 var ty_buf: Type.Payload.Pointer = undefined;
-                const llvm_field_index = llvmFieldIndex(struct_ty, field_index, target, &ty_buf);
-                return self.builder.buildStructGEP(struct_ptr, llvm_field_index, "");
+                if (llvmFieldIndex(struct_ty, field_index, target, &ty_buf)) |llvm_field_index| {
+                    return self.builder.buildStructGEP(struct_ptr, llvm_field_index, "");
+                } else {
+                    // If we found no index then this means this is a zero sized field at the
+                    // end of the struct. Treat our struct pointer as an array of two and get
+                    // the index to the element at index `1` to get a pointer to the end of
+                    // the struct.
+                    const llvm_usize = try self.dg.llvmType(Type.usize);
+                    const llvm_index = llvm_usize.constInt(1, .False);
+                    const indices: [1]*const llvm.Value = .{llvm_index};
+                    return self.builder.buildInBoundsGEP(struct_ptr, &indices, indices.len, "");
+                }
             },
             .Union => return self.unionFieldPtr(inst, struct_ptr, struct_ty, field_index),
             else => unreachable,
@@ -4750,32 +4760,37 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) llvm.Ca
     };
 }
 
-/// Take into account 0 bit fields.
+/// Take into account 0 bit fields. Returns null if an llvm field could not be found. This only
+/// happends if you want the field index of a zero sized field at the end of the struct.
 fn llvmFieldIndex(
     ty: Type,
     field_index: u32,
     target: std.Target,
     ptr_pl_buf: *Type.Payload.Pointer,
-) c_uint {
+) ?c_uint {
     const struct_obj = ty.castTag(.@"struct").?.data;
     if (struct_obj.layout != .Packed) {
         var llvm_field_index: c_uint = 0;
         for (struct_obj.fields.values()) |field, i| {
-            if (!field.ty.hasCodeGenBits()) continue;
-
-            if (i == field_index) {
-                ptr_pl_buf.* = .{
-                    .data = .{
-                        .pointee_type = field.ty,
-                        .@"align" = field.normalAlignment(target),
-                        .@"addrspace" = .generic,
-                    },
-                };
-                return llvm_field_index;
+            if (!field.ty.hasCodeGenBits())
+                continue;
+            if (field_index > i) {
+                llvm_field_index += 1;
+                continue;
             }
-            llvm_field_index += 1;
+
+            ptr_pl_buf.* = .{
+                .data = .{
+                    .pointee_type = field.ty,
+                    .@"align" = field.normalAlignment(target),
+                    .@"addrspace" = .generic,
+                },
+            };
+            return llvm_field_index;
+        } else {
+            // We did not find an llvm field that corrispons to this zig field.
+            return null;
         }
-        unreachable;
     }
 
     // Our job here is to return the host integer field index.
@@ -4784,7 +4799,8 @@ fn llvmFieldIndex(
     var running_bits: u16 = 0;
     var llvm_field_index: c_uint = 0;
     for (struct_obj.fields.values()) |field, i| {
-        if (!field.ty.hasCodeGenBits()) continue;
+        if (!field.ty.hasCodeGenBits())
+            continue;
 
         const field_align = field.packedAlignment();
         if (field_align == 0) {

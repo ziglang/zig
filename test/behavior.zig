@@ -73,6 +73,7 @@ test {
                 _ = @import("behavior/array_llvm.zig");
                 _ = @import("behavior/atomics.zig");
                 _ = @import("behavior/basic_llvm.zig");
+                _ = @import("behavior/bit_shifting.zig");
                 _ = @import("behavior/bugs/394.zig");
                 _ = @import("behavior/bugs/656.zig");
                 _ = @import("behavior/bugs/1277.zig");
@@ -120,7 +121,6 @@ test {
                         _ = @import("behavior/async_fn.zig");
                     }
                     _ = @import("behavior/await_struct.zig");
-                    _ = @import("behavior/bit_shifting.zig");
                     _ = @import("behavior/bitcast_stage1.zig");
                     _ = @import("behavior/bitreverse.zig");
                     _ = @import("behavior/bugs/421.zig");

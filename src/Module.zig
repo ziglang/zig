@@ -831,6 +831,10 @@ pub const Struct = struct {
         have_field_types,
         layout_wip,
         have_layout,
+        fully_resolved_wip,
+        // The types and all its fields have had their layout resolved. Even through pointer,
+        // which `have_layout` does not ensure.
+        fully_resolved,
     },
     /// If true, definitely nonzero size at runtime. If false, resolving the fields
     /// is necessary to determine whether it has bits at runtime.
@@ -889,6 +893,22 @@ pub const Struct = struct {
             .have_field_types,
             .layout_wip,
             .have_layout,
+            .fully_resolved_wip,
+            .fully_resolved,
+            => true,
+        };
+    }
+
+    pub fn haveLayout(s: Struct) bool {
+        return switch (s.status) {
+            .none,
+            .field_types_wip,
+            .have_field_types,
+            .layout_wip,
+            => false,
+            .have_layout,
+            .fully_resolved_wip,
+            .fully_resolved,
             => true,
         };
     }
@@ -1003,6 +1023,10 @@ pub const Union = struct {
         have_field_types,
         layout_wip,
         have_layout,
+        fully_resolved_wip,
+        // The types and all its fields have had their layout resolved. Even through pointer,
+        // which `have_layout` does not ensure.
+        fully_resolved,
     },
 
     pub const Field = struct {
@@ -1033,6 +1057,8 @@ pub const Union = struct {
             .have_field_types,
             .layout_wip,
             .have_layout,
+            .fully_resolved_wip,
+            .fully_resolved,
             => true,
         };
     }
@@ -1102,8 +1128,22 @@ pub const Union = struct {
         tag_size: u64,
     };
 
+    pub fn haveLayout(u: Union) bool {
+        return switch (u.status) {
+            .none,
+            .field_types_wip,
+            .have_field_types,
+            .layout_wip,
+            => false,
+            .have_layout,
+            .fully_resolved_wip,
+            .fully_resolved,
+            => true,
+        };
+    }
+
     pub fn getLayout(u: Union, target: Target, have_tag: bool) Layout {
-        assert(u.status == .have_layout);
+        assert(u.haveLayout());
         var most_aligned_field: u32 = undefined;
         var most_aligned_field_size: u64 = undefined;
         var biggest_field: u32 = undefined;
@@ -4397,6 +4437,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
             const arg = try sema.addConstant(param_type, opv);
             sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
             total_param_index += 1;
+            runtime_param_index += 1;
             continue;
         }
         const ty_ref = try sema.addType(param_type);
