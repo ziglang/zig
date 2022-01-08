@@ -3777,7 +3777,10 @@ pub const Type = extern union {
                     var offset: u64 = 0;
                     var big_align: u32 = 0;
                     for (struct_obj.fields.values()) |field, i| {
-                        if (!field.ty.hasCodeGenBits()) continue;
+                        if (!field.ty.hasCodeGenBits()) {
+                            if (i == index) return offset;
+                            continue;
+                        }
 
                         const field_align = field.normalAlignment(target);
                         big_align = @maximum(big_align, field_align);
@@ -3794,7 +3797,10 @@ pub const Type = extern union {
                 var big_align: u32 = 0;
                 var running_bits: u16 = 0;
                 for (struct_obj.fields.values()) |field, i| {
-                    if (!field.ty.hasCodeGenBits()) continue;
+                    if (!field.ty.hasCodeGenBits()) {
+                        if (i == index) return offset;
+                        continue;
+                    }
 
                     const field_align = field.packedAlignment();
                     if (field_align == 0) {
