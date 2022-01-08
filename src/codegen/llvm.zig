@@ -181,6 +181,9 @@ pub const Object = struct {
     /// The backing memory for `type_map`. Periodically garbage collected after flush().
     /// The code for doing the periodical GC is not yet implemented.
     type_map_arena: std.heap.ArenaAllocator,
+    /// The LLVM global table which holds the names corresponding to Zig errors. Note that the values
+    /// are not added until flushModule, when all errors in the compilation are known.
+    error_name_table: ?*const llvm.Value,
 
     pub const TypeMap = std.HashMapUnmanaged(
         Type,
@@ -269,6 +272,7 @@ pub const Object = struct {
             .decl_map = .{},
             .type_map = .{},
             .type_map_arena = std.heap.ArenaAllocator.init(gpa),
+            .error_name_table = null,
         };
     }
 
@@ -298,7 +302,60 @@ pub const Object = struct {
         return slice.ptr;
     }
 
+    fn genErrorNameTable(self: *Object, comp: *Compilation) !void {
+        // If self.error_name_table is null, there was no instruction that actually referenced the error table.
+        const error_name_table_ptr_global = self.error_name_table orelse return;
+
+        const mod = comp.bin_file.options.module.?;
+        const target = mod.getTarget();
+
+        const llvm_ptr_ty = self.context.intType(8).pointerType(0); // TODO: Address space
+        const llvm_usize_ty = self.context.intType(target.cpu.arch.ptrBitWidth());
+        const type_fields = [_]*const llvm.Type{
+            llvm_ptr_ty,
+            llvm_usize_ty,
+        };
+        const llvm_slice_ty = self.context.structType(&type_fields, type_fields.len, .False);
+        const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
+        const slice_alignment = slice_ty.abiAlignment(target);
+
+        const error_name_list = mod.error_name_list.items;
+        const llvm_errors = try comp.gpa.alloc(*const llvm.Value, error_name_list.len);
+        defer comp.gpa.free(llvm_errors);
+
+        llvm_errors[0] = llvm_slice_ty.getUndef();
+        for (llvm_errors[1..]) |*llvm_error, i| {
+            const name = error_name_list[1..][i];
+            const str_init = self.context.constString(name.ptr, @intCast(c_uint, name.len), .False);
+            const str_global = self.llvm_module.addGlobal(str_init.typeOf(), "");
+            str_global.setInitializer(str_init);
+            str_global.setLinkage(.Private);
+            str_global.setGlobalConstant(.True);
+            str_global.setUnnamedAddr(.True);
+            str_global.setAlignment(1);
+
+            const slice_fields = [_]*const llvm.Value{
+                str_global.constBitCast(llvm_ptr_ty),
+                llvm_usize_ty.constInt(name.len, .False),
+            };
+            llvm_error.* = llvm_slice_ty.constNamedStruct(&slice_fields, slice_fields.len);
+        }
+
+        const error_name_table_init = llvm_slice_ty.constArray(llvm_errors.ptr, @intCast(c_uint, error_name_list.len));
+
+        const error_name_table_global = self.llvm_module.addGlobal(error_name_table_init.typeOf(), "");
+        error_name_table_global.setInitializer(error_name_table_init);
+        error_name_table_global.setLinkage(.Private);
+        error_name_table_global.setGlobalConstant(.True);
+        error_name_table_global.setUnnamedAddr(.True);
+        error_name_table_global.setAlignment(slice_alignment); // TODO: Dont hardcode
+
+        const error_name_table_ptr = error_name_table_global.constBitCast(llvm_slice_ty.pointerType(0)); // TODO: Address space
+        error_name_table_ptr_global.setInitializer(error_name_table_ptr);
+    }
+
     pub fn flushModule(self: *Object, comp: *Compilation) !void {
+        try self.genErrorNameTable(comp);
         if (comp.verbose_llvm_ir) {
             self.llvm_module.dump();
         }
@@ -2031,6 +2088,7 @@ pub const FuncGen = struct {
                 .ctz            => try self.airClzCtz(inst, "cttz"),
                 .popcount       => try self.airPopCount(inst, "ctpop"),
                 .tag_name       => try self.airTagName(inst),
+                .error_name     => try self.airErrorName(inst),
 
                 .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
                 .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -4277,6 +4335,40 @@ pub const FuncGen = struct {
         self.builder.positionBuilderAtEnd(bad_value_block);
         _ = self.builder.buildUnreachable();
         return fn_val;
+    }
+
+    fn airErrorName(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand = try self.resolveInst(un_op);
+
+        const error_name_table_ptr = try self.getErrorNameTable();
+        const error_name_table = self.builder.buildLoad(error_name_table_ptr, "");
+        const indices = [_]*const llvm.Value{operand};
+        const error_name_ptr = self.builder.buildInBoundsGEP(error_name_table, &indices, indices.len, "");
+        return self.builder.buildLoad(error_name_ptr, "");
+    }
+
+    fn getErrorNameTable(self: *FuncGen) !*const llvm.Value {
+        if (self.dg.object.error_name_table) |table| {
+            return table;
+        }
+
+        const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
+        const slice_alignment = slice_ty.abiAlignment(self.dg.module.getTarget());
+        const llvm_slice_ty = try self.dg.llvmType(slice_ty);
+        const llvm_slice_ptr_ty = llvm_slice_ty.pointerType(0); // TODO: Address space
+
+        const error_name_table_global = self.dg.object.llvm_module.addGlobal(llvm_slice_ptr_ty, "__zig_err_name_table");
+        error_name_table_global.setInitializer(llvm_slice_ptr_ty.getUndef());
+        error_name_table_global.setLinkage(.Private);
+        error_name_table_global.setGlobalConstant(.True);
+        error_name_table_global.setUnnamedAddr(.True);
+        error_name_table_global.setAlignment(slice_alignment);
+
+        self.dg.object.error_name_table = error_name_table_global;
+        return error_name_table_global;
     }
 
     /// Assumes the optional is not pointer-like and payload has bits.

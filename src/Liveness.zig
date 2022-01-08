@@ -334,6 +334,7 @@ fn analyzeInst(
         .ret,
         .ret_load,
         .tag_name,
+        .error_name,
         => {
             const operand = inst_datas[inst].un_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ operand, .none, .none });

@@ -635,6 +635,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ctz             => try self.airCtz(inst),
             .popcount        => try self.airPopcount(inst),
             .tag_name        => try self.airTagName(inst),
+            .error_name,     => try self.airErrorName(inst),
 
             .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
             .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -3645,6 +3646,16 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else {
         _ = operand;
         return self.fail("TODO implement airTagName for x86_64", .{});
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
+}
+
+fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const operand = try self.resolveInst(un_op);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else {
+        _ = operand;
+        return self.fail("TODO implement airErrorName for x86_64", .{});
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
