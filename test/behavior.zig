@@ -16,6 +16,7 @@ test {
 
     if (builtin.zig_backend != .stage2_arm and builtin.zig_backend != .stage2_x86_64) {
         // Tests that pass for stage1, llvm backend, C backend, wasm backend.
+        _ = @import("behavior/array.zig");
         _ = @import("behavior/bugs/3586.zig");
         _ = @import("behavior/basic.zig");
         _ = @import("behavior/bitcast.zig");
@@ -27,6 +28,7 @@ test {
         _ = @import("behavior/bugs/2692.zig");
         _ = @import("behavior/bugs/2889.zig");
         _ = @import("behavior/bugs/3046.zig");
+        _ = @import("behavior/bugs/4560.zig");
         _ = @import("behavior/bugs/4769_a.zig");
         _ = @import("behavior/bugs/4769_b.zig");
         _ = @import("behavior/bugs/4954.zig");
@@ -35,6 +37,7 @@ test {
         _ = @import("behavior/defer.zig");
         _ = @import("behavior/enum.zig");
         _ = @import("behavior/error.zig");
+        _ = @import("behavior/for.zig");
         _ = @import("behavior/generics.zig");
         _ = @import("behavior/if.zig");
         _ = @import("behavior/import.zig");
@@ -48,6 +51,7 @@ test {
         _ = @import("behavior/struct.zig");
         _ = @import("behavior/this.zig");
         _ = @import("behavior/truncate.zig");
+        _ = @import("behavior/undefined.zig");
         _ = @import("behavior/underscore.zig");
         _ = @import("behavior/usingnamespace.zig");
         _ = @import("behavior/void.zig");
@@ -56,15 +60,11 @@ test {
         if (builtin.zig_backend != .stage2_wasm) {
             // Tests that pass for stage1, llvm backend, C backend
             _ = @import("behavior/align.zig");
-            _ = @import("behavior/array.zig");
-            _ = @import("behavior/bugs/4560.zig");
             _ = @import("behavior/cast.zig");
-            _ = @import("behavior/for.zig");
             _ = @import("behavior/int128.zig");
             _ = @import("behavior/optional.zig");
             _ = @import("behavior/translate_c_macros.zig");
             _ = @import("behavior/try.zig");
-            _ = @import("behavior/undefined.zig");
             _ = @import("behavior/src.zig");
 
             if (builtin.zig_backend != .stage2_c) {
