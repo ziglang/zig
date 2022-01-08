@@ -1101,3 +1101,79 @@ test "chown" {
     defer dir.close();
     try dir.chown(null, null);
 }
+
+test "File.Metadata" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const file = try tmp.dir.createFile("test_file", .{ .read = true });
+    defer file.close();
+
+    const metadata = try file.metadata();
+    try testing.expect(metadata.kind() == .File);
+    try testing.expect(metadata.size() == 0);
+    _ = metadata.accessed();
+    _ = metadata.modified();
+    _ = metadata.created();
+}
+
+test "File.Permissions" {
+    if (builtin.os.tag == .wasi)
+        return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const file = try tmp.dir.createFile("test_file", .{ .read = true });
+    defer file.close();
+
+    const metadata = try file.metadata();
+    var permissions = metadata.permissions();
+
+    try testing.expect(!permissions.readOnly());
+    permissions.setReadOnly(true);
+    try testing.expect(permissions.readOnly());
+
+    try file.setPermissions(permissions);
+    const new_permissions = (try file.metadata()).permissions();
+    try testing.expect(new_permissions.readOnly());
+
+    // Must be set to non-read-only to delete
+    permissions.setReadOnly(false);
+    try file.setPermissions(permissions);
+}
+
+test "File.PermissionsUnix" {
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+        return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const file = try tmp.dir.createFile("test_file", .{ .mode = 0o666, .read = true });
+    defer file.close();
+
+    const metadata = try file.metadata();
+    var permissions = metadata.permissions();
+
+    permissions.setReadOnly(true);
+    try testing.expect(permissions.readOnly());
+    try testing.expect(!permissions.inner.unixHas(.user, .write));
+    permissions.inner.unixSet(.user, .{ .write = true });
+    try testing.expect(!permissions.readOnly());
+    try testing.expect(permissions.inner.unixHas(.user, .write));
+    try testing.expect(permissions.inner.mode & 0o400 != 0);
+
+    permissions.setReadOnly(true);
+    try file.setPermissions(permissions);
+    permissions = (try file.metadata()).permissions();
+    try testing.expect(permissions.readOnly());
+
+    // Must be set to non-read-only to delete
+    permissions.setReadOnly(false);
+    try file.setPermissions(permissions);
+
+    const permissions_unix = File.PermissionsUnix.unixNew(0o754);
+    try testing.expect(permissions_unix.unixHas(.user, .execute));
+    try testing.expect(!permissions_unix.unixHas(.other, .execute));
+}
