@@ -915,7 +915,7 @@ fn genTypedValue(self: *Self, ty: Type, val: Value) InnerError!Result {
             },
             .array => {
                 const elem_vals = val.castTag(.array).?.data;
-                const elem_ty = ty.elemType();
+                const elem_ty = ty.childType();
                 for (elem_vals) |elem_val| {
                     switch (try self.genTypedValue(elem_ty, elem_val)) {
                         .appended => {},
@@ -1269,10 +1269,15 @@ fn isByRef(ty: Type) bool {
 
 /// Creates a new local for a pointer that points to memory with given offset.
 /// This can be used to get a pointer to a struct field, error payload, etc.
-fn buildPointerOffset(self: *Self, ptr_value: WValue, offset: u64) InnerError!WValue {
+/// By providing `modify` as action, it will modify the given `ptr_value` instead of making a new
+/// local value to store the pointer. This allows for local re-use and improves binary size.
+fn buildPointerOffset(self: *Self, ptr_value: WValue, offset: u64, action: enum { modify, new }) InnerError!WValue {
     // do not perform arithmetic when offset is 0.
     if (offset == 0) return ptr_value;
-    const result_ptr = try self.allocLocal(Type.usize);
+    const result_ptr: WValue = switch (action) {
+        .new => try self.allocLocal(Type.usize),
+        .modify => ptr_value,
+    };
     try self.emitWValue(ptr_value);
     switch (self.target.cpu.arch.ptrBitWidth()) {
         32 => {
@@ -1287,6 +1292,16 @@ fn buildPointerOffset(self: *Self, ptr_value: WValue, offset: u64) InnerError!WV
     }
     try self.addLabel(.local_set, result_ptr.local);
     return result_ptr;
+}
+
+/// Creates a new local and sets its value to the given `value` local.
+/// User must ensure `ty` matches that of given `value`.
+/// Asserts `value` is a `local`.
+fn copyLocal(self: *Self, value: WValue, ty: Type) InnerError!WValue {
+    const copy = try self.allocLocal(ty);
+    try self.addLabel(.local_get, value.local);
+    try self.addLabel(.local_set, copy.local);
+    return copy;
 }
 
 fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
@@ -1312,6 +1327,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .cmp_lt => self.airCmp(inst, .lt),
         .cmp_neq => self.airCmp(inst, .neq),
 
+        .array_elem_val => self.airArrayElemVal(inst),
         .array_to_slice => self.airArrayToSlice(inst),
         .alloc => self.airAlloc(inst),
         .arg => self.airArg(inst),
@@ -1601,8 +1617,8 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                     const tag_local = try self.load(rhs, tag_ty, 0);
                     if (payload_ty.hasCodeGenBits()) {
                         if (isByRef(payload_ty)) {
-                            const payload_ptr = try self.buildPointerOffset(rhs, payload_offset);
-                            const lhs_payload_ptr = try self.buildPointerOffset(lhs, payload_offset);
+                            const payload_ptr = try self.buildPointerOffset(rhs, payload_offset, .new);
+                            const lhs_payload_ptr = try self.buildPointerOffset(lhs, payload_offset, .new);
                             try self.store(lhs_payload_ptr, payload_ptr, payload_ty, 0);
                         } else {
                             const payload_local = try self.load(rhs, payload_ty, payload_offset);
@@ -1632,7 +1648,7 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                 else => unreachable,
             }
         },
-        .Struct => {
+        .Struct, .Array => {
             if (rhs == .constant) {
                 try self.emitWValue(rhs);
                 try self.addLabel(.local_set, lhs.local);
@@ -1968,17 +1984,74 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             const result = try self.allocStack(ty);
 
             const fields = ty.structFields();
-            var offset: u32 = 0;
+            const offset = try self.copyLocal(result, ty);
             for (fields.values()) |field, index| {
-                if (isByRef(field.ty)) {
-                    return self.fail("TODO: emitConstant for struct field type {}\n", .{field.ty});
-                }
                 const tmp = try self.allocLocal(field.ty);
                 try self.emitConstant(struct_data.data[index], field.ty);
                 try self.addLabel(.local_set, tmp.local);
-                try self.store(result, tmp, field.ty, offset);
-                offset += @intCast(u32, field.ty.abiSize(self.target));
+                try self.store(offset, tmp, field.ty, 0);
+
+                // this prevents us from emitting useless instructions when we reached the end of the loop
+                if (index != (fields.count() - 1)) {
+                    _ = try self.buildPointerOffset(offset, field.ty.abiSize(self.target), .modify);
+                }
             }
+            try self.addLabel(.local_get, result.local);
+        },
+        .Array => {
+            const result = try self.allocStack(ty);
+            if (val.castTag(.bytes)) |bytes| {
+                for (bytes.data) |byte, index| {
+                    try self.addLabel(.local_get, result.local);
+                    try self.addImm32(@intCast(i32, byte));
+                    try self.addMemArg(.i32_store8, .{ .offset = @intCast(u32, index), .alignment = 1 });
+                }
+            } else if (val.castTag(.array)) |array| {
+                const elem_ty = ty.childType();
+                const elem_size = elem_ty.abiSize(self.target);
+                const tmp = try self.allocLocal(elem_ty);
+                const offset = try self.copyLocal(result, ty);
+                for (array.data) |value, index| {
+                    try self.emitConstant(value, elem_ty);
+                    try self.addLabel(.local_set, tmp.local);
+                    try self.store(offset, tmp, elem_ty, 0);
+
+                    if (index != (array.data.len - 1)) {
+                        _ = try self.buildPointerOffset(offset, elem_size, .modify);
+                    }
+                }
+            } else if (val.castTag(.repeated)) |repeated| {
+                const value = repeated.data;
+                const elem_ty = ty.childType();
+                const elem_size = elem_ty.abiSize(self.target);
+                const sentinel = ty.sentinel();
+                const len = ty.arrayLen();
+                const len_with_sent = len + @boolToInt(sentinel != null);
+                const tmp = try self.allocLocal(elem_ty);
+                const offset = try self.copyLocal(result, ty);
+
+                var index: u32 = 0;
+                while (index < len_with_sent) : (index += 1) {
+                    if (sentinel != null and index == len) {
+                        try self.emitConstant(sentinel.?, elem_ty);
+                    } else {
+                        try self.emitConstant(value, elem_ty);
+                    }
+                    try self.addLabel(.local_set, tmp.local);
+                    try self.store(offset, tmp, elem_ty, 0);
+
+                    if (index != (len_with_sent - 1)) {
+                        _ = try self.buildPointerOffset(offset, elem_size, .modify);
+                    }
+                }
+            } else if (val.tag() == .empty_array_sentinel) {
+                const elem_ty = ty.childType();
+                const sent_val = ty.sentinel().?;
+                const tmp = try self.allocLocal(elem_ty);
+                try self.emitConstant(sent_val, elem_ty);
+                try self.addLabel(.local_set, tmp.local);
+                try self.store(result, tmp, elem_ty, 0);
+            } else unreachable;
             try self.addLabel(.local_get, result.local);
         },
         else => |zig_type| return self.fail("Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
@@ -2010,12 +2083,19 @@ fn emitUndefined(self: *Self, ty: Type) InnerError!void {
             33...64 => try self.addFloat64(@bitCast(f64, @as(u64, 0xaaaaaaaaaaaaaaaa))),
             else => |bits| return self.fail("Wasm TODO: emitUndefined for float bitsize: {d}", .{bits}),
         },
-        // As arrays point to linear memory, we cannot use 0xaaaaaaaa as the wasm
-        // validator will not accept it due to out-of-bounds memory access);
-        .Array => try self.addImm32(@bitCast(i32, @as(u32, 0xaa))),
-        .Struct => {
-            // TODO: Write 0xaa struct's memory
+        .Array, .Struct => {
             const result = try self.allocStack(ty);
+            const abi_size = ty.abiSize(self.target);
+            var offset: u32 = 0;
+            while (offset < abi_size) : (offset += 1) {
+                try self.emitWValue(result);
+                try self.addImm32(0xaa);
+                switch (self.ptrSize()) {
+                    4 => try self.addMemArg(.i32_store8, .{ .offset = offset, .alignment = 1 }),
+                    8 => try self.addMemArg(.i64_store8, .{ .offset = offset, .alignment = 1 }),
+                    else => unreachable,
+                }
+            }
             try self.addLabel(.local_get, result.local);
         },
         .Pointer => switch (self.ptrSize()) {
@@ -2293,7 +2373,7 @@ fn structFieldPtr(self: *Self, struct_ptr: WValue, offset: u32) InnerError!WValu
         },
         else => unreachable,
     };
-    return self.buildPointerOffset(.{ .local = local }, final_offset);
+    return self.buildPointerOffset(.{ .local = local }, final_offset, .new);
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2528,7 +2608,7 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const offset = err_ty.errorUnionSet().abiSize(self.target);
 
     const err_union = try self.allocStack(err_ty);
-    const payload_ptr = try self.buildPointerOffset(err_union, offset);
+    const payload_ptr = try self.buildPointerOffset(err_union, offset, .new);
     try self.store(payload_ptr, operand, op_ty, 0);
 
     // ensure we also write '0' to the error part, so any present stack value gets overwritten by it.
@@ -2620,7 +2700,7 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const offset = opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target);
 
     if (isByRef(payload_ty)) {
-        return self.buildPointerOffset(operand, offset);
+        return self.buildPointerOffset(operand, offset, .new);
     }
 
     return self.load(operand, payload_ty, @intCast(u32, offset));
@@ -2640,7 +2720,7 @@ fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     }
 
     const offset = opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target);
-    return self.buildPointerOffset(operand, offset);
+    return self.buildPointerOffset(operand, offset, .new);
 }
 
 fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2665,7 +2745,7 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue
     try self.addImm32(1);
     try self.addMemArg(.i32_store8, .{ .offset = 0, .alignment = 1 });
 
-    return self.buildPointerOffset(operand, offset);
+    return self.buildPointerOffset(operand, offset, .new);
 }
 
 fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2696,7 +2776,7 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     try self.addImm32(1);
     try self.addMemArg(.i32_store8, .{ .offset = 0, .alignment = 1 });
 
-    const payload_ptr = try self.buildPointerOffset(result, offset);
+    const payload_ptr = try self.buildPointerOffset(result, offset, .new);
     try self.store(payload_ptr, operand, payload_ty, 0);
 
     return result;
@@ -2952,7 +3032,11 @@ fn airPtrBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ptr = self.resolveInst(bin_op.lhs);
     const offset = self.resolveInst(bin_op.rhs);
-    const pointee_ty = self.air.typeOf(bin_op.lhs).childType();
+    const ptr_ty = self.air.typeOf(bin_op.lhs);
+    const pointee_ty = switch (ptr_ty.ptrSize()) {
+        .One => ptr_ty.childType().childType(), // ptr to array, so get array element type
+        else => ptr_ty.childType(),
+    };
 
     const valtype = try self.typeToValtype(Type.usize);
     const mul_opcode = buildOpcode(.{ .valtype1 = valtype, .op = .mul });
@@ -3035,4 +3119,30 @@ fn memSet(self: *Self, ptr: WValue, len: WValue, value: WValue) InnerError!void 
     try self.addLabel(.br, 0); // jump to start of loop
     try self.endBlock();
     try self.endBlock();
+}
+
+fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const array_ty = self.air.typeOf(bin_op.lhs);
+    const array = self.resolveInst(bin_op.lhs);
+    const index = self.resolveInst(bin_op.rhs);
+    const elem_ty = array_ty.childType();
+    const elem_size = elem_ty.abiSize(self.target);
+
+    // calculate index into slice
+    try self.emitWValue(array);
+    try self.emitWValue(index);
+    try self.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
+    try self.addTag(.i32_mul);
+    try self.addTag(.i32_add);
+
+    const result = try self.allocLocal(elem_ty);
+    try self.addLabel(.local_set, result.local);
+
+    if (isByRef(elem_ty)) {
+        return result;
+    }
+    return try self.load(result, elem_ty, 0);
 }
