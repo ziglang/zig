@@ -1510,7 +1510,7 @@ pub const Inst = struct {
         /// `operand` is `src_node: i32`.
         ret_addr,
         /// Implements the `@src` builtin.
-        /// `operand` is `src_node: i32`.
+        /// `operand` is payload index to `ColumnLine`.
         builtin_src,
         /// Implements the `@errorReturnTrace` builtin.
         /// `operand` is `src_node: i32`.
@@ -2160,10 +2160,7 @@ pub const Inst = struct {
             switch_inst: Index,
             prong_index: u32,
         },
-        dbg_stmt: struct {
-            line: u32,
-            column: u32,
-        },
+        dbg_stmt: LineColumn,
         /// Used for unary operators which reference an inst,
         /// with an AST node source location.
         inst_node: struct {
@@ -2963,6 +2960,11 @@ pub const Inst = struct {
             /// points to the import name
             token: Ast.TokenIndex,
         };
+    };
+
+    pub const LineColumn = struct {
+        line: u32,
+        column: u32,
     };
 };
 

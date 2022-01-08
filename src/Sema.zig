@@ -9182,8 +9182,50 @@ fn zirBuiltinSrc(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
-    return sema.fail(block, src, "TODO: implement Sema.zirBuiltinSrc", .{});
+    const extra = sema.code.extraData(Zir.Inst.LineColumn, extended.operand).data;
+    const func = sema.func orelse return sema.fail(block, src, "@src outside function", .{});
+
+    const func_name_val = blk: {
+        var anon_decl = try block.startAnonDecl();
+        defer anon_decl.deinit();
+        const name = std.mem.span(func.owner_decl.name);
+        const bytes = try anon_decl.arena().dupe(u8, name[0 .. name.len + 1]);
+        const new_decl = try anon_decl.finish(
+            try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len - 1),
+            try Value.Tag.bytes.create(anon_decl.arena(), bytes),
+        );
+        break :blk try Value.Tag.decl_ref.create(sema.arena, new_decl);
+    };
+
+    const file_name_val = blk: {
+        var anon_decl = try block.startAnonDecl();
+        defer anon_decl.deinit();
+        const name = try func.owner_decl.getFileScope().fullPathZ(anon_decl.arena());
+        const new_decl = try anon_decl.finish(
+            try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), name.len),
+            try Value.Tag.bytes.create(anon_decl.arena(), name[0 .. name.len + 1]),
+        );
+        break :blk try Value.Tag.decl_ref.create(sema.arena, new_decl);
+    };
+
+    const field_values = try sema.arena.alloc(Value, 4);
+    // file: [:0]const u8,
+    field_values[0] = file_name_val;
+    // fn_name: [:0]const u8,
+    field_values[1] = func_name_val;
+    // line: u32
+    field_values[2] = try Value.Tag.int_u64.create(sema.arena, extra.line + 1);
+    // column: u32,
+    field_values[3] = try Value.Tag.int_u64.create(sema.arena, extra.column + 1);
+
+    return sema.addConstant(
+        try sema.getBuiltinType(block, src, "SourceLocation"),
+        try Value.Tag.@"struct".create(sema.arena, field_values),
+    );
 }
 
 fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

@@ -65,6 +65,7 @@ test {
             _ = @import("behavior/translate_c_macros.zig");
             _ = @import("behavior/try.zig");
             _ = @import("behavior/undefined.zig");
+            _ = @import("behavior/src.zig");
 
             if (builtin.zig_backend != .stage2_c) {
                 // Tests that pass for stage1 and the llvm backend.
@@ -204,7 +205,6 @@ test {
                         _ = @import("behavior/wasm.zig");
                     }
                     _ = @import("behavior/while_stage1.zig");
-                    _ = @import("behavior/src.zig");
                     _ = @import("behavior/translate_c_macros_stage1.zig");
                 }
             }

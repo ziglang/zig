@@ -6918,12 +6918,25 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
 
+        .src => {
+            const token_starts = tree.tokens.items(.start);
+            const node_start = token_starts[tree.firstToken(node)];
+
+            astgen.advanceSourceCursor(tree.source, node_start);
+
+            const result = try gz.addExtendedPayload(.builtin_src, Zir.Inst.LineColumn{
+                .line = @intCast(u32, astgen.source_line),
+                .column = @intCast(u32, astgen.source_column),
+            });
+
+            return rvalue(gz, rl, result, node);
+        },
+
         .breakpoint => return simpleNoOpVoid(gz, rl, node, .breakpoint),
 
         // zig fmt: off
         .This               => return rvalue(gz, rl, try gz.addNodeExtended(.this,               node), node),
         .return_address     => return rvalue(gz, rl, try gz.addNodeExtended(.ret_addr,           node), node),
-        .src                => return rvalue(gz, rl, try gz.addNodeExtended(.builtin_src,        node), node),
         .error_return_trace => return rvalue(gz, rl, try gz.addNodeExtended(.error_return_trace, node), node),
         .frame              => return rvalue(gz, rl, try gz.addNodeExtended(.frame,              node), node),
         .frame_address      => return rvalue(gz, rl, try gz.addNodeExtended(.frame_address,      node), node),
