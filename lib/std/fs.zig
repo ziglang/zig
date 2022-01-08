@@ -992,8 +992,10 @@ pub const Dir = struct {
             @as(u32, os.O.RDWR)
         else if (flags.write)
             @as(u32, os.O.WRONLY)
+        else if (flags.read)
+            @as(u32, os.O.RDONLY)
         else
-            @as(u32, os.O.RDONLY);
+            unreachable; // A file must be opened as read-only, write-only, or read/write.
         const fd = if (flags.intended_io_mode != .blocking)
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
         else
