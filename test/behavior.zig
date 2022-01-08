@@ -81,6 +81,7 @@ test {
                 _ = @import("behavior/bugs/1310.zig");
                 _ = @import("behavior/bugs/1381.zig");
                 _ = @import("behavior/bugs/1500.zig");
+                _ = @import("behavior/bugs/1735.zig");
                 _ = @import("behavior/bugs/1741.zig");
                 _ = @import("behavior/bugs/2006.zig");
                 _ = @import("behavior/bugs/2578.zig");
@@ -98,6 +99,7 @@ test {
                 _ = @import("behavior/generics_llvm.zig");
                 _ = @import("behavior/math.zig");
                 _ = @import("behavior/maximum_minimum.zig");
+                _ = @import("behavior/merge_error_sets.zig");
                 _ = @import("behavior/namespace_depends_on_compile_var.zig");
                 _ = @import("behavior/null_llvm.zig");
                 _ = @import("behavior/optional_llvm.zig");
@@ -137,7 +139,6 @@ test {
                     _ = @import("behavior/bugs/1421.zig");
                     _ = @import("behavior/bugs/1442.zig");
                     _ = @import("behavior/bugs/1607.zig");
-                    _ = @import("behavior/bugs/1735.zig");
                     _ = @import("behavior/bugs/1851.zig");
                     _ = @import("behavior/bugs/1914.zig");
                     _ = @import("behavior/bugs/2114.zig");
@@ -171,7 +172,6 @@ test {
                     _ = @import("behavior/if_stage1.zig");
                     _ = @import("behavior/ir_block_deps.zig");
                     _ = @import("behavior/math_stage1.zig");
-                    _ = @import("behavior/merge_error_sets.zig");
                     _ = @import("behavior/misc.zig");
                     _ = @import("behavior/muladd.zig");
                     _ = @import("behavior/null_stage1.zig");

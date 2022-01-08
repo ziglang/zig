@@ -11046,15 +11046,63 @@ fn zirShrExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 }
 
 fn zirBitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirBitOffsetOf", .{});
+    const offset = try bitOffsetOf(sema, block, inst);
+    return sema.addIntUnsigned(Type.comptime_int, offset);
 }
 
 fn zirOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const offset = try bitOffsetOf(sema, block, inst);
+    return sema.addIntUnsigned(Type.comptime_int, offset / 8);
+}
+
+fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u64 {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirOffsetOf", .{});
+    sema.src = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+
+    const ty = try sema.resolveType(block, lhs_src, extra.lhs);
+    const field_name = try sema.resolveConstString(block, rhs_src, extra.rhs);
+
+    try sema.resolveTypeLayout(block, lhs_src, ty);
+    if (ty.tag() != .@"struct") {
+        return sema.fail(
+            block,
+            lhs_src,
+            "expected struct type, found '{}'",
+            .{ty},
+        );
+    }
+
+    const index = ty.structFields().getIndex(field_name) orelse {
+        return sema.fail(
+            block,
+            rhs_src,
+            "struct '{}' has no field '{s}'",
+            .{ ty, field_name },
+        );
+    };
+
+    const target = sema.mod.getTarget();
+    const layout = ty.containerLayout();
+    if (layout == .Packed) {
+        var it = ty.iteratePackedStructOffsets(target);
+        while (it.next()) |field_offset| {
+            if (field_offset.field == index) {
+                return (field_offset.offset * 8) + field_offset.running_bits;
+            }
+        }
+    } else {
+        var it = ty.iterateStructOffsets(target);
+        while (it.next()) |field_offset| {
+            if (field_offset.field == index) {
+                return field_offset.offset * 8;
+            }
+        }
+    }
+
+    unreachable;
 }
 
 /// Returns `true` if the type was a comptime_int.

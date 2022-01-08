@@ -2922,6 +2922,15 @@ pub const Type = extern union {
         }
     }
 
+    pub fn containerLayout(ty: Type) std.builtin.TypeInfo.ContainerLayout {
+        return switch (ty.tag()) {
+            .@"struct" => ty.castTag(.@"struct").?.data.layout,
+            .@"union" => ty.castTag(.@"union").?.data.layout,
+            .union_tagged => ty.castTag(.union_tagged).?.data.layout,
+            else => unreachable,
+        };
+    }
+
     /// Asserts that the type is an error union.
     pub fn errorUnionPayload(self: Type) Type {
         return switch (self.tag()) {
@@ -3765,6 +3774,116 @@ pub const Type = extern union {
         }
     }
 
+    pub const PackedFieldOffset = struct {
+        field: usize,
+        offset: u64,
+        running_bits: u16,
+    };
+
+    pub const PackedStructOffsetIterator = struct {
+        field: usize = 0,
+        offset: u64 = 0,
+        big_align: u32 = 0,
+        running_bits: u16 = 0,
+        struct_obj: *Module.Struct,
+        target: Target,
+
+        pub fn next(it: *PackedStructOffsetIterator) ?PackedFieldOffset {
+            comptime assert(Type.packed_struct_layout_version == 1);
+            if (it.struct_obj.fields.count() <= it.field)
+                return null;
+
+            const field = it.struct_obj.fields.values()[it.field];
+            defer it.field += 1;
+            if (!field.ty.hasCodeGenBits()) {
+                return PackedFieldOffset{
+                    .field = it.field,
+                    .offset = it.offset,
+                    .running_bits = it.running_bits,
+                };
+            }
+
+            const field_align = field.packedAlignment();
+            if (field_align == 0) {
+                defer it.running_bits += @intCast(u16, field.ty.bitSize(it.target));
+                return PackedFieldOffset{
+                    .field = it.field,
+                    .offset = it.offset,
+                    .running_bits = it.running_bits,
+                };
+            } else {
+                it.big_align = @maximum(it.big_align, field_align);
+
+                if (it.running_bits != 0) {
+                    var int_payload: Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = it.running_bits,
+                    };
+                    const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
+                    const int_align = int_ty.abiAlignment(it.target);
+                    it.big_align = @maximum(it.big_align, int_align);
+                    it.offset = std.mem.alignForwardGeneric(u64, it.offset, int_align);
+                    it.offset += int_ty.abiSize(it.target);
+                    it.running_bits = 0;
+                }
+                it.offset = std.mem.alignForwardGeneric(u64, it.offset, field_align);
+                defer it.offset += field.ty.abiSize(it.target);
+                return PackedFieldOffset{
+                    .field = it.field,
+                    .offset = it.offset,
+                    .running_bits = it.running_bits,
+                };
+            }
+        }
+    };
+
+    /// Get an iterator that iterates over all the struct field, returning the field and
+    /// offset of that field. Asserts that the type is a none packed struct.
+    pub fn iteratePackedStructOffsets(ty: Type, target: Target) PackedStructOffsetIterator {
+        const struct_obj = ty.castTag(.@"struct").?.data;
+        assert(struct_obj.haveLayout());
+        assert(struct_obj.layout == .Packed);
+        return .{ .struct_obj = struct_obj, .target = target };
+    }
+
+    pub const FieldOffset = struct {
+        field: usize,
+        offset: u64,
+    };
+
+    pub const StructOffsetIterator = struct {
+        field: usize = 0,
+        offset: u64 = 0,
+        big_align: u32 = 0,
+        struct_obj: *Module.Struct,
+        target: Target,
+
+        pub fn next(it: *StructOffsetIterator) ?FieldOffset {
+            if (it.struct_obj.fields.count() <= it.field)
+                return null;
+
+            const field = it.struct_obj.fields.values()[it.field];
+            defer it.field += 1;
+            if (!field.ty.hasCodeGenBits())
+                return FieldOffset{ .field = it.field, .offset = it.offset };
+
+            const field_align = field.normalAlignment(it.target);
+            it.big_align = @maximum(it.big_align, field_align);
+            it.offset = std.mem.alignForwardGeneric(u64, it.offset, field_align);
+            defer it.offset += field.ty.abiSize(it.target);
+            return FieldOffset{ .field = it.field, .offset = it.offset };
+        }
+    };
+
+    /// Get an iterator that iterates over all the struct field, returning the field and
+    /// offset of that field. Asserts that the type is a none packed struct.
+    pub fn iterateStructOffsets(ty: Type, target: Target) StructOffsetIterator {
+        const struct_obj = ty.castTag(.@"struct").?.data;
+        assert(struct_obj.haveLayout());
+        assert(struct_obj.layout != .Packed);
+        return .{ .struct_obj = struct_obj, .target = target };
+    }
+
     /// Supports structs and unions.
     /// For packed structs, it returns the byte offset of the containing integer.
     pub fn structFieldOffset(ty: Type, index: usize, target: Target) u64 {
@@ -3774,65 +3893,34 @@ pub const Type = extern union {
                 assert(struct_obj.haveLayout());
                 const is_packed = struct_obj.layout == .Packed;
                 if (!is_packed) {
-                    var offset: u64 = 0;
-                    var big_align: u32 = 0;
-                    for (struct_obj.fields.values()) |field, i| {
-                        if (!field.ty.hasCodeGenBits()) continue;
-
-                        const field_align = field.normalAlignment(target);
-                        big_align = @maximum(big_align, field_align);
-                        offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-                        if (i == index) return offset;
-                        offset += field.ty.abiSize(target);
+                    var it = ty.iterateStructOffsets(target);
+                    while (it.next()) |field_offset| {
+                        if (index == field_offset.field)
+                            return field_offset.offset;
                     }
-                    offset = std.mem.alignForwardGeneric(u64, offset, big_align);
-                    return offset;
+
+                    return std.mem.alignForwardGeneric(u64, it.offset, it.big_align);
                 }
 
-                comptime assert(Type.packed_struct_layout_version == 1);
-                var offset: u64 = 0;
-                var big_align: u32 = 0;
-                var running_bits: u16 = 0;
-                for (struct_obj.fields.values()) |field, i| {
-                    if (!field.ty.hasCodeGenBits()) continue;
-
-                    const field_align = field.packedAlignment();
-                    if (field_align == 0) {
-                        if (i == index) return offset;
-                        running_bits += @intCast(u16, field.ty.bitSize(target));
-                    } else {
-                        big_align = @maximum(big_align, field_align);
-
-                        if (running_bits != 0) {
-                            var int_payload: Payload.Bits = .{
-                                .base = .{ .tag = .int_unsigned },
-                                .data = running_bits,
-                            };
-                            const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
-                            const int_align = int_ty.abiAlignment(target);
-                            big_align = @maximum(big_align, int_align);
-                            offset = std.mem.alignForwardGeneric(u64, offset, int_align);
-                            offset += int_ty.abiSize(target);
-                            running_bits = 0;
-                        }
-                        offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-                        if (i == index) return offset;
-                        offset += field.ty.abiSize(target);
-                    }
+                var it = ty.iteratePackedStructOffsets(target);
+                while (it.next()) |field_offset| {
+                    if (index == field_offset.field)
+                        return field_offset.offset;
                 }
-                if (running_bits != 0) {
+
+                if (it.running_bits != 0) {
                     var int_payload: Payload.Bits = .{
                         .base = .{ .tag = .int_unsigned },
-                        .data = running_bits,
+                        .data = it.running_bits,
                     };
                     const int_ty: Type = .{ .ptr_otherwise = &int_payload.base };
                     const int_align = int_ty.abiAlignment(target);
-                    big_align = @maximum(big_align, int_align);
-                    offset = std.mem.alignForwardGeneric(u64, offset, int_align);
-                    offset += int_ty.abiSize(target);
+                    it.big_align = @maximum(it.big_align, int_align);
+                    it.offset = std.mem.alignForwardGeneric(u64, it.offset, int_align);
+                    it.offset += int_ty.abiSize(target);
                 }
-                offset = std.mem.alignForwardGeneric(u64, offset, big_align);
-                return offset;
+                it.offset = std.mem.alignForwardGeneric(u64, it.offset, it.big_align);
+                return it.offset;
             },
             .@"union" => return 0,
             .union_tagged => {
