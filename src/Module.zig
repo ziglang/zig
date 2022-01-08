@@ -1623,6 +1623,11 @@ pub const File = struct {
         return file.pkg.root_src_directory.join(ally, &[_][]const u8{file.sub_file_path});
     }
 
+    /// Returns the full path to this file relative to its package.
+    pub fn fullPathZ(file: File, ally: Allocator) ![:0]u8 {
+        return file.pkg.root_src_directory.joinZ(ally, &[_][]const u8{file.sub_file_path});
+    }
+
     pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
         const loc = std.zig.findLineColumn(file.source.bytes, src);
         std.debug.print("{s}:{d}:{d}\n", .{ file.sub_file_path, loc.line + 1, loc.column + 1 });
