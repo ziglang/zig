@@ -395,6 +395,10 @@ pub const Stat = extern struct {
     pub fn ctime(self: @This()) timespec {
         return self.ctimespec;
     }
+
+    pub fn birthtime(self: @This()) timespec {
+        return self.birthtimespec;
+    }
 };
 
 pub const timespec = extern struct {
