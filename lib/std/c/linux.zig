@@ -85,6 +85,7 @@ pub const pollfd = linux.pollfd;
 pub const rlim_t = linux.rlim_t;
 pub const rlimit = linux.rlimit;
 pub const rlimit_resource = linux.rlimit_resource;
+pub const rusage = linux.rusage;
 pub const siginfo_t = linux.siginfo_t;
 pub const sigset_t = linux.sigset_t;
 pub const sockaddr = linux.sockaddr;
