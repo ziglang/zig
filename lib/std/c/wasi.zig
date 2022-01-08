@@ -41,32 +41,20 @@ pub const Stat = extern struct {
     blksize: i32,
     blocks: i64,
 
-    atimesec: time_t,
-    atimensec: isize,
-    mtimesec: time_t,
-    mtimensec: isize,
-    ctimesec: time_t,
-    ctimensec: isize,
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
 
     pub fn atime(self: @This()) timespec {
-        return timespec{
-            .tv_sec = self.atimesec,
-            .tv_nsec = self.atimensec,
-        };
+        return self.atim;
     }
 
     pub fn mtime(self: @This()) timespec {
-        return timespec{
-            .tv_sec = self.mtimesec,
-            .tv_nsec = self.mtimensec,
-        };
+        return self.mtim;
     }
 
     pub fn ctime(self: @This()) timespec {
-        return timespec{
-            .tv_sec = self.ctimesec,
-            .tv_nsec = self.ctimensec,
-        };
+        return self.ctim;
     }
 };
 
