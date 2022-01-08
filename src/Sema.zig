@@ -10472,7 +10472,18 @@ fn zirBoolToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 fn zirErrorName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirErrorName", .{});
+    _ = src;
+    const operand = sema.resolveInst(inst_data.operand);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+
+    if (try sema.resolveDefinedValue(block, operand_src, operand)) |val| {
+        const bytes = val.castTag(.@"error").?.data.name;
+        return sema.addStrLit(block, bytes);
+    }
+
+    // Similar to zirTagName, we have special AIR instruction for the error name in case an optimimzation pass
+    // might be able to resolve the result at compile time.
+    return block.addUnOp(.error_name, operand);
 }
 
 fn zirUnaryMath(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

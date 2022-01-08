@@ -89,6 +89,7 @@ test {
                 _ = @import("behavior/bugs/9584.zig");
                 _ = @import("behavior/cast_llvm.zig");
                 _ = @import("behavior/enum_llvm.zig");
+                _ = @import("behavior/error_llvm.zig");
                 _ = @import("behavior/eval.zig");
                 _ = @import("behavior/floatop.zig");
                 _ = @import("behavior/fn.zig");

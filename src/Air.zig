@@ -501,6 +501,10 @@ pub const Inst = struct {
         /// Uses the `un_op` field.
         tag_name,
 
+        /// Given an error value, return the error name. Result type is always `[:0] const u8`.
+        /// Uses the `un_op` field.
+        error_name,
+
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
                 .lt => .cmp_lt,
@@ -816,7 +820,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .bool_to_int => return Type.initTag(.u1),
 
-        .tag_name => return Type.initTag(.const_slice_u8_sentinel_0),
+        .tag_name, .error_name => return Type.initTag(.const_slice_u8_sentinel_0),
 
         .call => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand);
