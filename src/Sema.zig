@@ -10993,12 +10993,16 @@ fn zirShrExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 }
 
 fn zirBitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirBitOffsetOf", .{});
+    const offset = try bitOffsetOf(sema, block, inst);
+    return sema.addIntUnsigned(Type.comptime_int, offset);
 }
 
 fn zirOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const offset = try bitOffsetOf(sema, block, inst);
+    return sema.addIntUnsigned(Type.comptime_int, offset / 8);
+}
+
+fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u64 {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     sema.src = .{ .node_offset_bin_op = inst_data.src_node };
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
@@ -11028,8 +11032,24 @@ fn zirOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     };
 
     const target = sema.mod.getTarget();
-    const offset = ty.structFieldOffset(index, target);
-    return sema.addIntUnsigned(Type.comptime_int, offset);
+    const layout = ty.containerLayout();
+    if (layout == .Packed) {
+        var it = ty.iteratePackedStructOffsets(target);
+        while (it.next()) |field_offset| {
+            if (field_offset.field == index) {
+                return (field_offset.offset * 8) + field_offset.running_bits;
+            }
+        }
+    } else {
+        var it = ty.iterateStructOffsets(target);
+        while (it.next()) |field_offset| {
+            if (field_offset.field == index) {
+                return field_offset.offset * 8;
+            }
+        }
+    }
+
+    unreachable;
 }
 
 /// Returns `true` if the type was a comptime_int.
