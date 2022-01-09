@@ -319,9 +319,9 @@ test "file operations on directories" {
             try testing.expectError(error.IsDir, tmp_dir.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
         },
     }
-    // Note: The `.write = true` is necessary to ensure the error occurs on all platforms.
+    // Note: The `.mode = .read_write` is necessary to ensure the error occurs on all platforms.
     // TODO: Add a read-only test as well, see https://github.com/ziglang/zig/issues/5732
-    try testing.expectError(error.IsDir, tmp_dir.dir.openFile(test_dir_name, .{ .write = true }));
+    try testing.expectError(error.IsDir, tmp_dir.dir.openFile(test_dir_name, .{ .mode = .read_write }));
 
     switch (builtin.os.tag) {
         .wasi, .freebsd, .netbsd, .openbsd, .dragonfly => {},

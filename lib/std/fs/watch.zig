@@ -678,7 +678,7 @@ fn testWriteWatchWriteDelete(allocator: Allocator) !void {
     };
 
     // overwrite line 2
-    const file = try std.fs.cwd().openFile(file_path, .{ .read = true, .write = true });
+    const file = try std.fs.cwd().openFile(file_path, .{ .mode = .read_write });
     {
         defer file.close();
         const write_contents = "lorem ipsum";

@@ -45,7 +45,7 @@ pub fn main() !void {
         }
     }
 
-    var in_file = try fs.cwd().openFile(in_file_name, .{ .read = true });
+    var in_file = try fs.cwd().openFile(in_file_name, .{ .mode = .read_only });
     defer in_file.close();
 
     var out_file = try fs.cwd().createFile(out_file_name, .{});
@@ -1866,7 +1866,7 @@ test "shell parsed" {
         // intentional space after "--build-option1 \"
         const shell_out =
             \\$ zig build test.zig \
-            \\ --build-option1 \ 
+            \\ --build-option1 \
             \\ --build-option2
             \\$ ./test
         ;
