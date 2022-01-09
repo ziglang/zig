@@ -16,7 +16,6 @@
 
 const std = @import("std");
 const Arch = std.Target.Cpu.Arch;
-const Abi = std.Target.Abi;
 const assert = std.debug.assert;
 const Blake3 = std.crypto.hash.Blake3;
 

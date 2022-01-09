@@ -11,7 +11,6 @@
 
 const std = @import("std");
 const fs = std.fs;
-const assert = std.debug.assert;
 const json = std.json;
 
 const KnownOpt = struct {

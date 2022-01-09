@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const fs = std.fs;
 const mem = std.mem;
 const json = std.json;
-const assert = std.debug.assert;
 
 // All references to other features are based on "zig name" as the key.
 

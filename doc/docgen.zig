@@ -12,10 +12,8 @@ const Allocator = std.mem.Allocator;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
-const exe_ext = @as(std.zig.CrossTarget, .{}).exeFileExt();
 const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
 const tmp_dir_name = "docgen_tmp";
-const test_out_path = tmp_dir_name ++ fs.path.sep_str ++ "test" ++ exe_ext;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
