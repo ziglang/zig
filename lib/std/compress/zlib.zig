@@ -13,15 +13,14 @@ pub fn ZlibStream(comptime ReaderType: type) type {
         const Self = @This();
 
         pub const Error = ReaderType.Error ||
-            deflate.InflateStream(ReaderType).Error ||
+            deflate.Decompressor(ReaderType).Error ||
             error{ WrongChecksum, Unsupported };
         pub const Reader = io.Reader(*Self, Error, read);
 
         allocator: mem.Allocator,
-        inflater: deflate.InflateStream(ReaderType),
+        inflater: deflate.Decompressor(ReaderType),
         in_reader: ReaderType,
         hasher: std.hash.Adler32,
-        window_slice: []u8,
 
         fn init(allocator: mem.Allocator, source: ReaderType) !Self {
             // Zlib header format is specified in RFC1950
@@ -38,28 +37,25 @@ pub fn ZlibStream(comptime ReaderType: type) type {
 
             // The CM field must be 8 to indicate the use of DEFLATE
             if (CM != 8) return error.InvalidCompression;
-            // CINFO is the base-2 logarithm of the window size, minus 8.
+            // CINFO is the base-2 logarithm of the LZ77 window size, minus 8.
             // Values above 7 are unspecified and therefore rejected.
             if (CINFO > 7) return error.InvalidWindowSize;
-            const window_size: u16 = @as(u16, 1) << (CINFO + 8);
 
+            const dictionary = null;
             // TODO: Support this case
             if (FDICT != 0)
                 return error.Unsupported;
 
-            var window_slice = try allocator.alloc(u8, window_size);
-
             return Self{
                 .allocator = allocator,
-                .inflater = deflate.inflateStream(source, window_slice),
+                .inflater = try deflate.decompressor(allocator, source, dictionary),
                 .in_reader = source,
                 .hasher = std.hash.Adler32.init(),
-                .window_slice = window_slice,
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.allocator.free(self.window_slice);
+            self.inflater.deinit();
         }
 
         // Implements the io.Reader interface

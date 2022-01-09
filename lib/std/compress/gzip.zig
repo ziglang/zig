@@ -20,15 +20,14 @@ pub fn GzipStream(comptime ReaderType: type) type {
         const Self = @This();
 
         pub const Error = ReaderType.Error ||
-            deflate.InflateStream(ReaderType).Error ||
+            deflate.Decompressor(ReaderType).Error ||
             error{ CorruptedData, WrongChecksum };
         pub const Reader = io.Reader(*Self, Error, read);
 
         allocator: mem.Allocator,
-        inflater: deflate.InflateStream(ReaderType),
+        inflater: deflate.Decompressor(ReaderType),
         in_reader: ReaderType,
         hasher: std.hash.Crc32,
-        window_slice: []u8,
         read_amt: usize,
 
         info: struct {
@@ -93,16 +92,11 @@ pub fn GzipStream(comptime ReaderType: type) type {
                 _ = try source.readIntLittle(u16);
             }
 
-            // The RFC doesn't say anything about the DEFLATE window size to be
-            // used, default to 32K.
-            var window_slice = try allocator.alloc(u8, 32 * 1024);
-
             return Self{
                 .allocator = allocator,
-                .inflater = deflate.inflateStream(source, window_slice),
+                .inflater = try deflate.decompressor(allocator, source, null),
                 .in_reader = source,
                 .hasher = std.hash.Crc32.init(),
-                .window_slice = window_slice,
                 .info = .{
                     .filename = filename,
                     .comment = comment,
@@ -113,7 +107,7 @@ pub fn GzipStream(comptime ReaderType: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            self.allocator.free(self.window_slice);
+            self.inflater.deinit();
             if (self.info.filename) |filename|
                 self.allocator.free(filename);
             if (self.info.comment) |comment|

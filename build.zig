@@ -93,12 +93,25 @@ pub fn build(b: *Builder) !void {
             .install_dir = .lib,
             .install_subdir = "zig",
             .exclude_extensions = &[_][]const u8{
-                "README.md",
+                // exclude files from lib/std/compress/
+                ".gz",
                 ".z.0",
                 ".z.9",
-                ".gz",
                 "rfc1951.txt",
+                "rfc1952.txt",
+                // exclude files from lib/std/compress/deflate/testdata
+                ".expect",
+                ".expect-noinput",
+                ".golden",
+                ".input",
+                "compress-e.txt",
+                "compress-gettysburg.txt",
+                "compress-pi.txt",
+                "rfc1951.txt",
+                // exclude files from lib/std/tz/
                 ".tzif",
+                // others
+                "README.md",
             },
             .blank_extensions = &[_][]const u8{
                 "test.zig",
