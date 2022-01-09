@@ -2504,6 +2504,29 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk condition.negate();
             },
             .register => |reg| blk: {
+                try self.spillCompareFlagsIfOccupied();
+
+                // cmp reg, 1
+                // bne ...
+                _ = try self.addInst(.{
+                    .tag = .cmp,
+                    .cond = .al,
+                    .data = .{ .rr_op = .{
+                        .rd = .r0,
+                        .rn = reg,
+                        .op = Instruction.Operand.imm(1, 0),
+                    } },
+                });
+
+                break :blk .ne;
+            },
+            .stack_offset,
+            .memory,
+            => blk: {
+                try self.spillCompareFlagsIfOccupied();
+
+                const reg = try self.copyToTmpRegister(Type.initTag(.bool), cond);
+
                 // cmp reg, 1
                 // bne ...
                 _ = try self.addInst(.{
@@ -2872,17 +2895,16 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
         // block results.
         .mcv = MCValue{ .none = {} },
     });
-    const block_data = self.blocks.getPtr(inst).?;
-    defer block_data.relocs.deinit(self.gpa);
+    defer self.blocks.getPtr(inst).?.relocs.deinit(self.gpa);
 
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[extra.end..][0..extra.data.body_len];
     try self.genBody(body);
 
-    for (block_data.relocs.items) |reloc| try self.performReloc(reloc);
+    for (self.blocks.getPtr(inst).?.relocs.items) |reloc| try self.performReloc(reloc);
 
-    const result = @bitCast(MCValue, block_data.mcv);
+    const result = self.blocks.getPtr(inst).?.mcv;
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
@@ -2926,7 +2948,16 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
         const operand_mcv = try self.resolveInst(operand);
         const block_mcv = block_data.mcv;
         if (block_mcv == .none) {
-            block_data.mcv = operand_mcv;
+            block_data.mcv = switch (operand_mcv) {
+                .none, .dead, .unreach => unreachable,
+                .register, .stack_offset, .memory => operand_mcv,
+                .immediate => blk: {
+                    const new_mcv = try self.allocRegOrMem(block, true);
+                    try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
+                    break :blk new_mcv;
+                },
+                else => return self.fail("TODO implement block_data.mcv = operand_mcv for {}", .{operand_mcv}),
+            };
         } else {
             try self.setRegOrMem(self.air.typeOfIndex(block), block_mcv, operand_mcv);
         }
