@@ -753,7 +753,16 @@ fn dbgAdvancePCAndLine(isel: *Isel, line: u32, column: u32) InnerError!void {
             const d_pc_p9 = @intCast(i64, delta_pc) - quant;
             if (d_pc_p9 > 0) {
                 // minus one because if its the last one, we want to leave space to change the line which is one quanta
-                try dbg_out.dbg_line.append(@intCast(u8, @divExact(d_pc_p9, quant) + 128) - quant);
+                var diff = @divExact(d_pc_p9, quant) - quant;
+                while (diff > 0) {
+                    if (diff < 64) {
+                        try dbg_out.dbg_line.append(@intCast(u8, diff + 128));
+                        diff = 0;
+                    } else {
+                        try dbg_out.dbg_line.append(@intCast(u8, 64 + 128));
+                        diff -= 64;
+                    }
+                }
                 if (dbg_out.pcop_change_index.*) |pci|
                     dbg_out.dbg_line.items[pci] += 1;
                 dbg_out.pcop_change_index.* = @intCast(u32, dbg_out.dbg_line.items.len - 1);
