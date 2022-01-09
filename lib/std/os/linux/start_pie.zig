@@ -15,6 +15,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
     .arm => R_ARM_RELATIVE,
     .aarch64 => R_AARCH64_RELATIVE,
     .riscv64 => R_RISCV_RELATIVE,
+    .sparc => R_SPARC_RELATIVE,
     else => @compileError("Missing R_RELATIVE definition for this target"),
 };
 
