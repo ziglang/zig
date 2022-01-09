@@ -363,9 +363,33 @@ pub const Inst = struct {
         /// Uses `tag`
         i32_wrap_i64 = 0xA7,
         /// Uses `tag`
+        i32_trunc_f32_s = 0xA8,
+        /// Uses `tag`
+        i32_trunc_f32_u = 0xA9,
+        /// Uses `tag`
+        i32_trunc_f64_s = 0xAA,
+        /// Uses `tag`
+        i32_trunc_f64_u = 0xAB,
+        /// Uses `tag`
         i64_extend_i32_s = 0xAC,
         /// Uses `tag`
         i64_extend_i32_u = 0xAD,
+        /// Uses `tag`
+        i64_trunc_f32_s = 0xAE,
+        /// Uses `tag`
+        i64_trunc_f32_u = 0xAF,
+        /// Uses `tag`
+        i64_trunc_f64_s = 0xB0,
+        /// Uses `tag`
+        i64_trunc_f64_u = 0xB1,
+        /// Uses `tag`
+        i32_reinterpret_f32 = 0xBC,
+        /// Uses `tag`
+        i64_reinterpret_f64 = 0xBD,
+        /// Uses `tag`
+        f32_reinterpret_i32 = 0xBE,
+        /// Uses `tag`
+        f64_reinterpret_i64 = 0xBF,
         /// Uses `tag`
         i32_extend8_s = 0xC0,
         /// Uses `tag`

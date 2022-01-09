@@ -43,13 +43,6 @@ fn testResolveUndefWithInt(b: bool, x: i32) !void {
     }
 }
 
-test "@intCast i32 to u7" {
-    var x: u128 = maxInt(u128);
-    var y: i32 = 120;
-    var z = x >> @intCast(u7, y);
-    try expect(z == 0xff);
-}
-
 test "@intCast to comptime_int" {
     try expect(@intCast(comptime_int, 0) == 0);
 }
