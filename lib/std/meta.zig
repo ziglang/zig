@@ -683,8 +683,6 @@ test "std.meta.activeTag" {
     try testing.expect(activeTag(u) == UE.Float);
 }
 
-const TagPayloadType = TagPayload;
-
 ///Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
 pub fn TagPayload(comptime U: type, tag: Tag(U)) type {

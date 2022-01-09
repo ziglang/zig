@@ -1,4 +1,3 @@
-const std = @import("../../../std.zig");
 const builtin = @import("builtin");
 
 const in_bpf_program = switch (builtin.cpu.arch) {

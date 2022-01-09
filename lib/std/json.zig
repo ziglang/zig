@@ -7,7 +7,6 @@ const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
 const mem = std.mem;
-const maxInt = std.math.maxInt;
 
 pub const WriteStream = @import("json/write_stream.zig").WriteStream;
 pub const writeStream = @import("json/write_stream.zig").writeStream;

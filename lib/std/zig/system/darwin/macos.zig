@@ -1,7 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
-const mem = std.mem;
 const testing = std.testing;
 const os = std.os;
 

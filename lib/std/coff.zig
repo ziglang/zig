@@ -1,7 +1,5 @@
 const std = @import("std.zig");
-const io = std.io;
 const mem = std.mem;
-const os = std.os;
 const File = std.fs.File;
 
 const ArrayList = std.ArrayList;

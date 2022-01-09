@@ -1,13 +1,10 @@
 const std = @import("../../std.zig");
-const maxInt = std.math.maxInt;
 const linux = std.os.linux;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
-
 const pid_t = linux.pid_t;
 const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
-const clock_t = linux.clock_t;
 const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
 const sockaddr = linux.sockaddr;

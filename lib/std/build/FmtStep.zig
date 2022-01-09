@@ -1,9 +1,6 @@
-const std = @import("../std.zig");
 const build = @import("../build.zig");
 const Step = build.Step;
 const Builder = build.Builder;
-const BufMap = std.BufMap;
-const mem = std.mem;
 
 const FmtStep = @This();
 

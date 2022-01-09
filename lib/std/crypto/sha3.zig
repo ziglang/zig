@@ -1,7 +1,6 @@
 const std = @import("../std.zig");
 const mem = std.mem;
 const math = std.math;
-const debug = std.debug;
 const htest = @import("test.zig");
 
 pub const Sha3_224 = Keccak(224, 0x06);

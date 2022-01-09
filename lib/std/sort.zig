@@ -1,5 +1,4 @@
 const std = @import("std.zig");
-const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const math = std.math;
@@ -1335,8 +1334,6 @@ test "sort fuzz testing" {
         try fuzzTest(random);
     }
 }
-
-var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn fuzzTest(rng: std.rand.Random) !void {
     const array_size = rng.intRangeLessThan(usize, 0, 1000);

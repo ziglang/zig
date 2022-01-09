@@ -7,8 +7,6 @@ const os = std.os;
 const mem = std.mem;
 const windows = os.windows;
 const Loop = event.Loop;
-const fd_t = os.fd_t;
-const File = std.fs.File;
 const Allocator = mem.Allocator;
 
 const global_event_loop = Loop.instance orelse

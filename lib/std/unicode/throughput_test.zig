@@ -1,14 +1,11 @@
 const std = @import("std");
 const time = std.time;
-const unicode = std.unicode;
-
 const Timer = time.Timer;
 
 const N = 1_000_000;
 
 const KiB = 1024;
 const MiB = 1024 * KiB;
-const GiB = 1024 * MiB;
 
 const ResultCount = struct {
     count: usize,

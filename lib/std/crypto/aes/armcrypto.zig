@@ -1,6 +1,5 @@
 const std = @import("../../std.zig");
 const mem = std.mem;
-const debug = std.debug;
 const Vector = std.meta.Vector;
 
 const BlockVec = Vector(2, u64);

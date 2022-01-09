@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
-const maxInt = std.math.maxInt;
 
 const State = enum {
     Complete,

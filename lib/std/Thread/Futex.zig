@@ -12,9 +12,7 @@ const single_threaded = builtin.single_threaded;
 
 const assert = std.debug.assert;
 const testing = std.testing;
-
 const Atomic = std.atomic.Atomic;
-const spinLoopHint = std.atomic.spinLoopHint;
 
 /// Checks if `ptr` still contains the value `expect` and, if so, blocks the caller until either:
 /// - The value at `ptr` is no longer equal to `expect`.

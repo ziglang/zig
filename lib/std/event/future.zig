@@ -21,7 +21,6 @@ pub fn Future(comptime T: type) type {
         };
 
         const Self = @This();
-        const Queue = std.atomic.Queue(anyframe);
 
         pub fn init() Self {
             return Self{

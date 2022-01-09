@@ -7,7 +7,6 @@ const Sha512 = crypto.hash.sha2.Sha512;
 
 const EncodingError = crypto.errors.EncodingError;
 const IdentityElementError = crypto.errors.IdentityElementError;
-const WeakPublicKeyError = crypto.errors.WeakPublicKeyError;
 
 /// X25519 DH function.
 pub const X25519 = struct {

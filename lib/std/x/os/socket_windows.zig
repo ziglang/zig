@@ -1,9 +1,6 @@
 const std = @import("../../std.zig");
-const net = @import("net.zig");
-
 const os = std.os;
 const mem = std.mem;
-
 const windows = std.os.windows;
 const ws2_32 = windows.ws2_32;
 

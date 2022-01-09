@@ -1,15 +1,11 @@
 const std = @import("../../std.zig");
 const builtin = @import("builtin");
-
 const io = std.io;
 const os = std.os;
 const ip = std.x.net.ip;
-
-const fmt = std.fmt;
 const mem = std.mem;
 const testing = std.testing;
 const native_os = builtin.os;
-
 const IPv4 = std.x.os.IPv4;
 const IPv6 = std.x.os.IPv6;
 const Socket = std.x.os.Socket;

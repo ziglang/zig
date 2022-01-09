@@ -17,7 +17,6 @@ const Blake2b512 = blake2.Blake2b512;
 const Blocks = std.ArrayListAligned([block_length]u64, 16);
 const H0 = [Blake2b512.digest_length + 8]u8;
 
-const EncodingError = crypto.errors.EncodingError;
 const KdfError = pwhash.KdfError;
 const HasherError = pwhash.HasherError;
 const Error = pwhash.Error;

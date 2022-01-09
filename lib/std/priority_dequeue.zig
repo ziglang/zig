@@ -5,7 +5,6 @@ const Order = std.math.Order;
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
-const expectError = testing.expectError;
 
 /// Priority Dequeue for storing generic data. Initialize with `init`.
 /// Provide `compareFn` that returns `Order.lt` when its second

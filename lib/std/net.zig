@@ -1,7 +1,6 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const net = @This();
 const mem = std.mem;
 const os = std.os;
 const fs = std.fs;

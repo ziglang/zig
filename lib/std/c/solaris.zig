@@ -1,9 +1,7 @@
 const std = @import("../std.zig");
-const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
-const timezone = std.c.timezone;
 
 extern "c" fn ___errno() *c_int;
 pub const _errno = ___errno;
@@ -866,8 +864,6 @@ pub const winsize = extern struct {
     ws_xpixel: u16,
     ws_ypixel: u16,
 };
-
-const NSIG = 75;
 
 pub const SIG = struct {
     pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);

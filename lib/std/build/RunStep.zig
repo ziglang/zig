@@ -4,7 +4,6 @@ const build = std.build;
 const Step = build.Step;
 const Builder = build.Builder;
 const LibExeObjStep = build.LibExeObjStep;
-const WriteFileStep = build.WriteFileStep;
 const fs = std.fs;
 const mem = std.mem;
 const process = std.process;

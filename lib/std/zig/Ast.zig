@@ -13,7 +13,6 @@ errors: []const Error,
 
 const std = @import("../std.zig");
 const assert = std.debug.assert;
-const testing = std.testing;
 const mem = std.mem;
 const Token = std.zig.Token;
 const Ast = @This();

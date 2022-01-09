@@ -2,7 +2,6 @@ const std = @import("../std.zig");
 const io = std.io;
 const testing = std.testing;
 const mem = std.mem;
-const assert = std.debug.assert;
 
 /// This turns a byte buffer into an `io.Writer`, `io.Reader`, or `io.SeekableStream`.
 /// If the supplied byte buffer is const, then `io.Writer` is not available.

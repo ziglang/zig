@@ -4,9 +4,7 @@ const os = std.os;
 const io = std.io;
 const mem = std.mem;
 const math = std.math;
-const assert = std.debug.assert;
 const windows = os.windows;
-const Os = std.builtin.Os;
 const maxInt = std.math.maxInt;
 const is_windows = builtin.os.tag == .windows;
 

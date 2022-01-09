@@ -1,8 +1,6 @@
 const std = @import("../std.zig");
 const mem = std.mem;
-const debug = std.debug;
 const testing = std.testing;
-
 const meta = @import("../meta.zig");
 
 pub const TraitFn = fn (type) bool;

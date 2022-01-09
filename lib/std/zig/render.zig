@@ -2,9 +2,7 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
-const meta = std.meta;
 const Ast = std.zig.Ast;
-const Token = std.zig.Token;
 
 const indent_delta = 4;
 const asm_indent_delta = 2;

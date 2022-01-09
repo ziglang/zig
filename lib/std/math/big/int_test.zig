@@ -4,7 +4,6 @@ const testing = std.testing;
 const Managed = std.math.big.int.Managed;
 const Mutable = std.math.big.int.Mutable;
 const Limb = std.math.big.Limb;
-const SignedLimb = std.math.big.SignedLimb;
 const DoubleLimb = std.math.big.DoubleLimb;
 const SignedDoubleLimb = std.math.big.SignedDoubleLimb;
 const maxInt = std.math.maxInt;

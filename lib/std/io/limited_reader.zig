@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const io = std.io;
-const assert = std.debug.assert;
 const testing = std.testing;
 
 pub fn LimitedReader(comptime ReaderType: type) type {

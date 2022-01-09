@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Builder = std.build.Builder;
 const File = std.fs.File;
@@ -10,7 +9,6 @@ const LibExeObjStep = std.build.LibExeObjStep;
 const Step = std.build.Step;
 const elf = std.elf;
 const fs = std.fs;
-const io = std.io;
 const sort = std.sort;
 
 const BinaryElfSection = struct {

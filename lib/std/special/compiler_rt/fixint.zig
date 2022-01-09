@@ -5,8 +5,6 @@ const Log2Int = std.math.Log2Int;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 
-const DBG = false;
-
 pub fn fixint(comptime fp_t: type, comptime fixint_t: type, a: fp_t) fixint_t {
     @setRuntimeSafety(is_test);
 

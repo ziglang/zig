@@ -3,8 +3,6 @@
 // https://github.com/llvm/llvm-project/blob/02d85149a05cb1f6dc49f0ba7a2ceca53718ae17/compiler-rt/lib/builtins/fp_add_impl.inc
 
 const std = @import("std");
-const builtin = @import("builtin");
-const compiler_rt = @import("../compiler_rt.zig");
 
 pub fn __addsf3(a: f32, b: f32) callconv(.C) f32 {
     return addXf3(f32, a, b);

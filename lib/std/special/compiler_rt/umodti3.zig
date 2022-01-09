@@ -1,6 +1,5 @@
 const udivmodti4 = @import("udivmodti4.zig");
 const builtin = @import("builtin");
-const compiler_rt = @import("../compiler_rt.zig");
 
 pub fn __umodti3(a: u128, b: u128) callconv(.C) u128 {
     @setRuntimeSafety(builtin.is_test);

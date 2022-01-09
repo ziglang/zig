@@ -5,7 +5,6 @@ const assert = std.debug.assert;
 const windows = std.os.windows;
 const GetLastError = windows.kernel32.GetLastError;
 const SetLastError = windows.kernel32.SetLastError;
-const unexpectedError = windows.unexpectedError;
 const HWND = windows.HWND;
 const UINT = windows.UINT;
 const HDC = windows.HDC;

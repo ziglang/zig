@@ -1,5 +1,3 @@
-const std = @import("../std.zig");
-
 pub fn SeekableStream(
     comptime Context: type,
     comptime SeekErrorType: type,

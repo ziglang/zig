@@ -1,4 +1,3 @@
-const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 const native_endian = builtin.cpu.arch.endian();

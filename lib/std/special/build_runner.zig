@@ -1,13 +1,11 @@
 const root = @import("@build");
 const std = @import("std");
-const builtin = @import("builtin");
 const io = std.io;
 const fmt = std.fmt;
 const Builder = std.build.Builder;
 const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
-const File = std.fs.File;
 
 pub fn main() !void {
     // Here we use an ArenaAllocator backed by a DirectAllocator because a build is a short-lived,

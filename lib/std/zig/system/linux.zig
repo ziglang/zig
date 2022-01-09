@@ -7,7 +7,6 @@ const fmt = std.fmt;
 const testing = std.testing;
 
 const Target = std.Target;
-const CrossTarget = std.zig.CrossTarget;
 
 const assert = std.debug.assert;
 

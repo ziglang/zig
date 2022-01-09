@@ -1,15 +1,8 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const root = @import("root");
-const c = std.c;
 
-const math = std.math;
-const assert = std.debug.assert;
 const os = std.os;
-const fs = std.fs;
-const mem = std.mem;
-const meta = std.meta;
-const trait = meta.trait;
 const File = std.fs.File;
 
 pub const Mode = enum {

@@ -6,7 +6,6 @@
 
 const std = @import("std");
 const math = std.math;
-const assert = std.debug.assert;
 const expect = std.testing.expect;
 
 /// Returns x * 2^n.

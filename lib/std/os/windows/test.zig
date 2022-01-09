@@ -1,9 +1,7 @@
 const std = @import("../../std.zig");
-const builtin = @import("builtin");
 const windows = std.os.windows;
 const mem = std.mem;
 const testing = std.testing;
-const expect = testing.expect;
 
 fn testRemoveDotDirs(str: []const u8, expected: []const u8) !void {
     const mutable = try testing.allocator.dupe(u8, str);

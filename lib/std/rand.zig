@@ -9,9 +9,7 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
-const math = std.math;
 const ziggurat = @import("rand/ziggurat.zig");
 const maxInt = std.math.maxInt;
 

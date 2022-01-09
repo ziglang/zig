@@ -11,10 +11,7 @@ const windows = os.windows;
 const linux = os.linux;
 const mem = std.mem;
 const math = std.math;
-const debug = std.debug;
 const BufMap = std.BufMap;
-const Os = std.builtin.Os;
-const TailQueue = std.TailQueue;
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
 

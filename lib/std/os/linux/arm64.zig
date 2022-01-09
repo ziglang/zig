@@ -1,5 +1,4 @@
 const std = @import("../../std.zig");
-const maxInt = std.math.maxInt;
 const linux = std.os.linux;
 const socklen_t = linux.socklen_t;
 const sockaddr = linux.sockaddr;

@@ -1,4 +1,3 @@
-const compiler_rt = @import("../compiler_rt.zig");
 const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;

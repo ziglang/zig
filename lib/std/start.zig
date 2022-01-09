@@ -6,7 +6,6 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
 const elf = std.elf;
-const tlcsprng = @import("crypto/tlcsprng.zig");
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 

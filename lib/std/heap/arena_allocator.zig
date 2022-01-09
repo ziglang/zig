@@ -1,5 +1,4 @@
 const std = @import("../std.zig");
-const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 

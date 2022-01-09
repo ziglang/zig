@@ -5,7 +5,6 @@ const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
 const Allocator = @This();
-const builtin = @import("builtin");
 
 pub const Error = error{OutOfMemory};
 

@@ -26,11 +26,9 @@ const Mutex = @This();
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const os = std.os;
-const assert = std.debug.assert;
 const windows = os.windows;
 const linux = os.linux;
 const testing = std.testing;
-const StaticResetEvent = std.thread.StaticResetEvent;
 
 /// Try to acquire the mutex without blocking. Returns `false` if the mutex is
 /// unavailable. Otherwise returns `true`. Call `unlock` on the mutex to release.

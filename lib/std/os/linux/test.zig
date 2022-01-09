@@ -1,7 +1,6 @@
 const std = @import("../../std.zig");
 const builtin = @import("builtin");
 const linux = std.os.linux;
-const mem = std.mem;
 const elf = std.elf;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;

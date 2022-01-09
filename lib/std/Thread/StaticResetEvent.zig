@@ -11,7 +11,6 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 const StaticResetEvent = @This();
 const assert = std.debug.assert;
-const os = std.os;
 const time = std.time;
 const linux = std.os.linux;
 const windows = std.os.windows;

@@ -5,7 +5,6 @@ const net = @import("net.zig");
 const os = std.os;
 const fmt = std.fmt;
 const mem = std.mem;
-const time = std.time;
 const meta = std.meta;
 const native_os = builtin.os;
 const native_endian = builtin.cpu.arch.endian();

@@ -1,4 +1,3 @@
-const std = @import("std");
 const builtin = @import("builtin");
 
 // parity - if number of bits set is even => 0, else => 1

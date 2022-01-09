@@ -1,7 +1,6 @@
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
-const maxInt = std.math.maxInt;
 
 /// Returns whether x is a nan.
 pub fn isNan(x: anytype) bool {

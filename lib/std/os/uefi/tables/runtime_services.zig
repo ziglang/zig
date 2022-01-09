@@ -18,7 +18,7 @@ pub const RuntimeServices = extern struct {
     hdr: TableHeader,
 
     /// Returns the current time and date information, and the time-keeping capabilities of the hardware platform.
-    getTime: fn (*uefi.Time, ?*TimeCapabilities) callconv(.C) Status,
+    getTime: fn (*Time, ?*TimeCapabilities) callconv(.C) Status,
 
     setTime: Status, // TODO
     getWakeupTime: Status, // TODO

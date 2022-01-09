@@ -1,4 +1,3 @@
-const std = @import("../std.zig");
 const builtin = @import("builtin");
 
 pub const syscall_bits = switch (builtin.stage2_arch) {

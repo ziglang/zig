@@ -6,7 +6,6 @@ const BufMap = std.BufMap;
 const mem = std.mem;
 const math = std.math;
 const Allocator = mem.Allocator;
-const assert = std.debug.assert;
 const testing = std.testing;
 const child_process = @import("child_process.zig");
 

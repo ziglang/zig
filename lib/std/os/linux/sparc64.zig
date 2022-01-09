@@ -1,8 +1,5 @@
 const std = @import("../../std.zig");
-const maxInt = std.math.maxInt;
 const pid_t = linux.pid_t;
-const uid_t = linux.uid_t;
-const clock_t = linux.clock_t;
 const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
 

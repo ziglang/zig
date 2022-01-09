@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const is_test = builtin.is_test;
 const native_arch = builtin.cpu.arch;
 
 pub fn __extendsfdf2(a: f32) callconv(.C) f64 {

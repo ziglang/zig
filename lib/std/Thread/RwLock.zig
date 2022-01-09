@@ -11,7 +11,6 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Mutex = std.Thread.Mutex;
 const Semaphore = std.Semaphore;
-const CondVar = std.CondVar;
 
 pub const Impl = if (builtin.single_threaded)
     SingleThreadedRwLock

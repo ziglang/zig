@@ -1,6 +1,5 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const maxInt = std.math.maxInt;
 
 const significandBits = 23;
 const exponentBias = 127;

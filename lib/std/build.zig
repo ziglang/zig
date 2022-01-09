@@ -1,6 +1,5 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const debug = std.debug;
@@ -14,7 +13,6 @@ const process = std.process;
 const BufSet = std.BufSet;
 const BufMap = std.BufMap;
 const fmt_lib = std.fmt;
-const File = std.fs.File;
 const CrossTarget = std.zig.CrossTarget;
 const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 
@@ -3182,7 +3180,6 @@ pub const RemoveDirStep = struct {
     }
 };
 
-const ThisModule = @This();
 pub const Step = struct {
     id: Id,
     name: []const u8,

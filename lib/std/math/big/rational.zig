@@ -6,7 +6,6 @@ const testing = std.testing;
 const Allocator = mem.Allocator;
 
 const Limb = std.math.big.Limb;
-const DoubleLimb = std.math.big.DoubleLimb;
 const Int = std.math.big.int.Managed;
 const IntConst = std.math.big.int.Const;
 

@@ -19,7 +19,6 @@ pub fn BitReader(endian: std.builtin.Endian, comptime ReaderType: type) type {
         const Self = @This();
         const u8_bit_count = meta.bitCount(u8);
         const u7_bit_count = meta.bitCount(u7);
-        const u4_bit_count = meta.bitCount(u4);
 
         pub fn init(forward_reader: ReaderType) Self {
             return Self{

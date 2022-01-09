@@ -5,7 +5,6 @@
 
 const std = @import("../std.zig");
 const CpuFeature = std.Target.Cpu.Feature;
-const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
     v1_1,

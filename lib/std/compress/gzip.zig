@@ -3,13 +3,11 @@
 
 const std = @import("std");
 const io = std.io;
-const fs = std.fs;
 const testing = std.testing;
 const mem = std.mem;
 const deflate = std.compress.deflate;
 
 // Flags for the FLG field in the header
-const FTEXT = 1 << 0;
 const FHCRC = 1 << 1;
 const FEXTRA = 1 << 2;
 const FNAME = 1 << 3;

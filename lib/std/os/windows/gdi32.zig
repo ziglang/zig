@@ -1,6 +1,5 @@
 const std = @import("../../std.zig");
 const windows = std.os.windows;
-const BOOL = windows.BOOL;
 const DWORD = windows.DWORD;
 const WINAPI = windows.WINAPI;
 const HDC = windows.HDC;

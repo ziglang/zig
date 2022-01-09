@@ -1,5 +1,4 @@
 const builtin = @import("builtin");
-const std = @import("std");
 
 // popcount - population count
 // counts the number of 1 bits

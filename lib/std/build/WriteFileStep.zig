@@ -3,7 +3,6 @@ const build = @import("../build.zig");
 const Step = build.Step;
 const Builder = build.Builder;
 const fs = std.fs;
-const ArrayList = std.ArrayList;
 
 const WriteFileStep = @This();
 

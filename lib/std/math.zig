@@ -1,6 +1,5 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
-const mem = std.mem;
 const testing = std.testing;
 
 /// Euler's number (e)

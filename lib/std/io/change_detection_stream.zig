@@ -1,7 +1,6 @@
 const std = @import("../std.zig");
 const io = std.io;
 const mem = std.mem;
-const assert = std.debug.assert;
 
 /// Used to detect if the data written to a stream differs from a source buffer
 pub fn ChangeDetectionStream(comptime WriterType: type) type {

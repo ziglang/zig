@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const testing = std.testing;
 const fs = std.fs;
 const mem = std.mem;
-const wasi = std.os.wasi;
 
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Dir = std.fs.Dir;

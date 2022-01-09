@@ -1,10 +1,4 @@
 // ARM specific builtins
-const builtin = @import("builtin");
-
-const __divmodsi4 = @import("int.zig").__divmodsi4;
-const __udivmodsi4 = @import("int.zig").__udivmodsi4;
-const __divmoddi4 = @import("int.zig").__divmoddi4;
-const __udivmoddi4 = @import("int.zig").__udivmoddi4;
 
 extern fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8;
 extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]u8;

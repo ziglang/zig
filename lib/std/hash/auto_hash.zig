@@ -1,5 +1,4 @@
 const std = @import("std");
-const assert = std.debug.assert;
 const mem = std.mem;
 const meta = std.meta;
 

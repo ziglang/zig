@@ -1,8 +1,6 @@
 const std = @import("../std.zig");
-const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
-const iovec_const = std.os.iovec_const;
 
 extern "c" fn _errnop() *c_int;
 
@@ -727,8 +725,6 @@ pub const winsize = extern struct {
     ws_xpixel: u16,
     ws_ypixel: u16,
 };
-
-const NSIG = 32;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {

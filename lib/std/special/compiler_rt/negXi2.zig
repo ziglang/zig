@@ -1,4 +1,3 @@
-const std = @import("std");
 const builtin = @import("builtin");
 
 // neg - negate (the number)

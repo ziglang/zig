@@ -3,7 +3,6 @@
 
 const std = @import("std");
 const io = std.io;
-const fs = std.fs;
 const testing = std.testing;
 const mem = std.mem;
 const deflate = std.compress.deflate;

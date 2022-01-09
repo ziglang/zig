@@ -944,8 +944,6 @@ pub const winsize = extern struct {
     ws_ypixel: u16,
 };
 
-const NSIG = 32;
-
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
     pub const handler_fn = fn (c_int) callconv(.C) void;

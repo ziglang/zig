@@ -1,9 +1,6 @@
 //
 // SPARC uses a different naming scheme for its support routines so we map it here to the x86 name.
 
-const std = @import("std");
-const builtin = @import("builtin");
-
 // The SPARC Architecture Manual, Version 9:
 // A.13 Floating-Point Compare
 const FCMP = enum(i32) {

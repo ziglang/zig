@@ -1,8 +1,6 @@
 const std = @import("../../std.zig");
 const builtin = @import("builtin");
-
 const os = std.os;
-const mem = std.mem;
 const testing = std.testing;
 const native_os = builtin.os;
 const linux = std.os.linux;

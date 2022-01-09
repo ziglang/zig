@@ -4,7 +4,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const compiler_rt = @import("../compiler_rt.zig");
 
 pub fn __multf3(a: f128, b: f128) callconv(.C) f128 {
     return mulXf3(f128, a, b);

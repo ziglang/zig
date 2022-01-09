@@ -3,7 +3,6 @@ const errno = getErrno;
 const unexpectedErrno = std.os.unexpectedErrno;
 const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
-const expect = std.testing.expect;
 
 const linux = std.os.linux;
 const fd_t = linux.fd_t;

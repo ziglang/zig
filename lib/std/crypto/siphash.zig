@@ -46,8 +46,6 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
 
     return struct {
         const Self = @This();
-        const block_length = 64;
-        const digest_length = 64;
         const key_length = 16;
 
         v0: u64,

@@ -1,7 +1,6 @@
 const std = @import("std");
 const crypto = std.crypto;
 const debug = std.debug;
-const fmt = std.fmt;
 const mem = std.mem;
 
 const EncodingError = crypto.errors.EncodingError;

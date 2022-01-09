@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const io = std.io;
-const assert = std.debug.assert;
 
 /// A Writer that returns whether the given character has been written to it.
 /// The contents are not written to anything.

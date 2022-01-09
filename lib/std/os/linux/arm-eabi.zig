@@ -1,5 +1,4 @@
 const std = @import("../../std.zig");
-const maxInt = std.math.maxInt;
 const linux = std.os.linux;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;

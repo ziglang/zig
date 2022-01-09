@@ -1,14 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const io = std.io;
-const meta = std.meta;
-const trait = std.trait;
 const DefaultPrng = std.rand.DefaultPrng;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 const mem = std.mem;
-const fs = std.fs;
 const File = std.fs.File;
 const native_endian = builtin.target.cpu.arch.endian();
 

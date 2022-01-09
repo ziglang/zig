@@ -9,8 +9,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const windows = std.os.windows;
-const testing = std.testing;
-const assert = std.debug.assert;
 const Progress = @This();
 
 /// `null` if the current node (and its children) should
