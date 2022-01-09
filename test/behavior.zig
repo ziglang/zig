@@ -66,6 +66,7 @@ test {
             _ = @import("behavior/translate_c_macros.zig");
             _ = @import("behavior/try.zig");
             _ = @import("behavior/src.zig");
+            _ = @import("behavior/null_llvm_c.zig");
 
             if (builtin.zig_backend != .stage2_c) {
                 // Tests that pass for stage1 and the llvm backend.
@@ -101,7 +102,6 @@ test {
                 _ = @import("behavior/maximum_minimum.zig");
                 _ = @import("behavior/merge_error_sets.zig");
                 _ = @import("behavior/namespace_depends_on_compile_var.zig");
-                _ = @import("behavior/null_llvm.zig");
                 _ = @import("behavior/optional_llvm.zig");
                 _ = @import("behavior/popcount.zig");
                 _ = @import("behavior/saturating_arithmetic.zig");

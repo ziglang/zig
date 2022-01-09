@@ -392,6 +392,24 @@ pub const DeclGen = struct {
                     try dg.renderType(writer, ty);
                     try writer.print(")0x{x}u)", .{val.toUnsignedInt()});
                 },
+                .field_ptr => {
+                    const field_ptr = val.castTag(.field_ptr).?.data;
+                    const index = field_ptr.field_index;
+                    const container_ptr = field_ptr.container_ptr;
+                    const decl = switch (container_ptr.tag()) {
+                        .decl_ref => container_ptr.castTag(.decl_ref).?.data,
+                        else => unreachable,
+                    };
+                    if (decl.ty.tag() != .@"struct") unreachable;
+                    const fields = decl.ty.structFields();
+                    const field_name = fields.keys()[index];
+                    const field_val = fields.values()[index];
+                    const addrof = if (field_val.ty.zigTypeTag() == .Array) "" else "&";
+
+                    try writer.writeAll(addrof);
+                    try dg.renderDeclName(decl, writer);
+                    try writer.print(".{s}", .{field_name});
+                },
                 else => unreachable,
             },
             .Array => {
