@@ -114,8 +114,8 @@ pub fn buildLibCXX(comp: *Compilation) !void {
     for (libcxx_files) |cxx_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
-        if (target.os.tag == .windows or target.os.tag == .wasi) {
-            // Filesystem stuff isn't supported on WASI and Windows.
+        if ((target.os.tag == .windows and target.abi == .msvc) or target.os.tag == .wasi) {
+            // Filesystem stuff isn't supported on WASI and Windows (MSVC).
             if (std.mem.startsWith(u8, cxx_src, "src/filesystem/"))
                 continue;
         }
