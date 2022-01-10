@@ -20,8 +20,8 @@ test {
 
         if (builtin.zig_backend != .stage2_arm and builtin.zig_backend != .stage2_x86_64) {
             // Tests that pass for stage1, llvm backend, C backend, wasm backend.
+            _ = @import("behavior/align.zig");
             _ = @import("behavior/array.zig");
-            _ = @import("behavior/bugs/3586.zig");
             _ = @import("behavior/basic.zig");
             _ = @import("behavior/bitcast.zig");
             _ = @import("behavior/bugs/624.zig");
@@ -31,12 +31,14 @@ test {
             _ = @import("behavior/bugs/2692.zig");
             _ = @import("behavior/bugs/2889.zig");
             _ = @import("behavior/bugs/3046.zig");
+            _ = @import("behavior/bugs/3586.zig");
             _ = @import("behavior/bugs/4560.zig");
             _ = @import("behavior/bugs/4769_a.zig");
             _ = @import("behavior/bugs/4769_b.zig");
             _ = @import("behavior/bugs/4954.zig");
             _ = @import("behavior/byval_arg_var.zig");
             _ = @import("behavior/call.zig");
+            _ = @import("behavior/cast.zig");
             _ = @import("behavior/defer.zig");
             _ = @import("behavior/enum.zig");
             _ = @import("behavior/error.zig");
@@ -48,12 +50,15 @@ test {
             _ = @import("behavior/inttoptr.zig");
             _ = @import("behavior/member_func.zig");
             _ = @import("behavior/null.zig");
+            _ = @import("behavior/optional.zig");
             _ = @import("behavior/pointers.zig");
             _ = @import("behavior/ptrcast.zig");
             _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
+            _ = @import("behavior/src.zig");
             _ = @import("behavior/struct.zig");
             _ = @import("behavior/this.zig");
             _ = @import("behavior/truncate.zig");
+            _ = @import("behavior/try.zig");
             _ = @import("behavior/undefined.zig");
             _ = @import("behavior/underscore.zig");
             _ = @import("behavior/usingnamespace.zig");
@@ -62,13 +67,9 @@ test {
 
             if (builtin.zig_backend != .stage2_wasm) {
                 // Tests that pass for stage1, llvm backend, C backend
-                _ = @import("behavior/align.zig");
-                _ = @import("behavior/cast.zig");
+                _ = @import("behavior/cast_int.zig");
                 _ = @import("behavior/int128.zig");
-                _ = @import("behavior/optional.zig");
                 _ = @import("behavior/translate_c_macros.zig");
-                _ = @import("behavior/try.zig");
-                _ = @import("behavior/src.zig");
 
                 if (builtin.zig_backend != .stage2_c) {
                     // Tests that pass for stage1 and the llvm backend.

@@ -690,7 +690,7 @@ fn typeToValtype(self: *Self, ty: Type) InnerError!wasm.Valtype {
             const info = ty.intInfo(self.target);
             if (info.bits <= 32) break :blk wasm.Valtype.i32;
             if (info.bits > 32 and info.bits <= 64) break :blk wasm.Valtype.i64;
-            return self.fail("TODO: Support integer bitsize: '{d}'", .{info.bits});
+            break :blk wasm.Valtype.i32; // represented as pointer to stack
         },
         .Enum => switch (ty.tag()) {
             .enum_simple => wasm.Valtype.i32,
@@ -753,7 +753,7 @@ fn genFunctype(self: *Self, fn_ty: Type) !wasm.Type {
     defer returns.deinit();
     const return_type = fn_ty.fnReturnType();
 
-    const want_sret = isByRef(return_type);
+    const want_sret = self.isByRef(return_type);
 
     if (want_sret) {
         try params.append(try self.typeToValtype(Type.usize));
@@ -1084,7 +1084,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
     const ret_ty = fn_ty.fnReturnType();
     // Check if we store the result as a pointer to the stack rather than
     // by value
-    if (isByRef(ret_ty)) {
+    if (self.isByRef(ret_ty)) {
         // the sret arg will be passed as first argument, therefore we
         // set the `return_value` before allocating locals for regular args.
         result.return_value = .{ .local = self.local_index };
@@ -1209,7 +1209,7 @@ fn ptrSize(self: *const Self) u16 {
 
 /// For a given `Type`, will return true when the type will be passed
 /// by reference, rather than by value.
-fn isByRef(ty: Type) bool {
+fn isByRef(self: Self, ty: Type) bool {
     switch (ty.zigTypeTag()) {
         .Type,
         .ComptimeInt,
@@ -1224,7 +1224,6 @@ fn isByRef(ty: Type) bool {
         .NoReturn,
         .Void,
         .Bool,
-        .Int,
         .Float,
         .ErrorSet,
         .Fn,
@@ -1238,6 +1237,7 @@ fn isByRef(ty: Type) bool {
         .Frame,
         .Union,
         => return ty.hasCodeGenBits(),
+        .Int => return if (ty.intInfo(self.target).bits > 64) true else false,
         .ErrorUnion => {
             const has_tag = ty.errorUnionSet().hasCodeGenBits();
             const has_pl = ty.errorUnionPayload().hasCodeGenBits();
@@ -1412,7 +1412,7 @@ fn airRetPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const child_type = self.air.typeOfIndex(inst).childType();
     if (child_type.abiSize(self.target) == 0) return WValue{ .none = {} };
 
-    if (isByRef(child_type)) {
+    if (self.isByRef(child_type)) {
         return self.return_value;
     }
 
@@ -1429,7 +1429,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ret_ty = self.air.typeOf(un_op).childType();
     if (!ret_ty.hasCodeGenBits()) return WValue.none;
 
-    if (!isByRef(ret_ty)) {
+    if (!self.isByRef(ret_ty)) {
         const result = try self.load(operand, ret_ty, 0);
         try self.emitWValue(result);
     }
@@ -1451,7 +1451,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         else => unreachable,
     };
     const ret_ty = fn_ty.fnReturnType();
-    const first_param_sret = isByRef(ret_ty);
+    const first_param_sret = self.isByRef(ret_ty);
 
     const target: ?*Decl = blk: {
         const func_val = self.air.value(pl_op.operand) orelse break :blk null;
@@ -1479,7 +1479,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
         // If we need to pass by reference, but the argument is a constant,
         // we must first lower it before passing it.
-        if (isByRef(arg_ty) and arg_val == .constant) {
+        if (self.isByRef(arg_ty) and arg_val == .constant) {
             const arg_local = try self.allocStack(arg_ty);
             try self.store(arg_local, arg_val, arg_ty, 0);
             try self.emitWValue(arg_local);
@@ -1591,7 +1591,12 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                     if (payload_ty.hasCodeGenBits()) {
                         const payload_local = try self.allocLocal(payload_ty);
                         try self.addLabel(.local_set, payload_local.local);
-                        try self.store(lhs, payload_local, payload_ty, payload_offset);
+                        if (self.isByRef(payload_ty)) {
+                            const ptr = try self.buildPointerOffset(lhs, payload_offset, .new);
+                            try self.store(ptr, payload_local, payload_ty, 0);
+                        } else {
+                            try self.store(lhs, payload_local, payload_ty, payload_offset);
+                        }
                     }
                     try self.addLabel(.local_set, tag_local.local);
 
@@ -1608,7 +1613,7 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
                     // Load values from `rhs` stack position and store in `lhs` instead
                     const tag_local = try self.load(rhs, tag_ty, 0);
                     if (payload_ty.hasCodeGenBits()) {
-                        if (isByRef(payload_ty)) {
+                        if (self.isByRef(payload_ty)) {
                             const payload_ptr = try self.buildPointerOffset(rhs, payload_offset, .new);
                             const lhs_payload_ptr = try self.buildPointerOffset(lhs, payload_offset, .new);
                             try self.store(lhs_payload_ptr, payload_ptr, payload_ty, 0);
@@ -1734,7 +1739,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     if (!ty.hasCodeGenBits()) return WValue{ .none = {} };
 
-    if (isByRef(ty)) {
+    if (self.isByRef(ty)) {
         const new_local = try self.allocStack(ty);
         try self.store(new_local, operand, ty, 0);
         return new_local;
@@ -1803,6 +1808,11 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const lhs = self.resolveInst(bin_op.lhs);
     const rhs = self.resolveInst(bin_op.rhs);
+    const operand_ty = self.air.typeOfIndex(inst);
+
+    if (self.isByRef(operand_ty)) {
+        return self.fail("TODO: Implement binary operation for type: {}", .{operand_ty});
+    }
 
     try self.emitWValue(lhs);
     try self.emitWValue(rhs);
@@ -1893,9 +1903,7 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             const result = try self.allocStack(ty);
             var space: Value.BigIntSpace = undefined;
             const bigint = val.toBigInt(&space);
-            if (bigint.limbs.len == 1) {
-                // value is '0'. As wasm's values are zeroed by default,
-                // just return and pop its stack pointer value.
+            if (bigint.limbs.len == 1 and bigint.limbs[0] == 0) {
                 try self.addLabel(.local_get, result.local);
                 return;
             }
@@ -2277,6 +2285,8 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) Inner
             // both lhs and rhs, as well as checking the payload are matching of lhs and rhs
             return self.cmpOptionals(lhs, rhs, operand_ty, op);
         }
+    } else if (self.isByRef(operand_ty)) {
+        return self.cmpBigInt(lhs, rhs, operand_ty, op);
     }
 
     try self.emitWValue(lhs);
@@ -2425,7 +2435,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return self.fail("Field type '{}' too big to fit into stack frame", .{field_ty});
     };
 
-    if (isByRef(field_ty)) {
+    if (self.isByRef(field_ty)) {
         return WValue{ .local_with_offset = .{ .local = operand.local, .offset = offset } };
     }
 
@@ -2608,13 +2618,16 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!W
 }
 
 fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
-    if (self.liveness.isUnused(inst)) return WValue.none;
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = self.resolveInst(ty_op.operand);
     const err_ty = self.air.typeOf(ty_op.operand);
     const payload_ty = err_ty.errorUnionPayload();
-    if (!payload_ty.hasCodeGenBits()) return WValue.none;
+    if (!payload_ty.hasCodeGenBits()) return WValue{ .none = {} };
     const offset = @intCast(u32, err_ty.errorUnionSet().abiSize(self.target));
+    if (self.isByRef(payload_ty)) {
+        return self.buildPointerOffset(operand, offset, .new);
+    }
     return try self.load(operand, payload_ty, offset);
 }
 
@@ -2741,7 +2754,7 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const offset = opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target);
 
-    if (isByRef(payload_ty)) {
+    if (self.isByRef(payload_ty)) {
         return self.buildPointerOffset(operand, offset, .new);
     }
 
@@ -2872,7 +2885,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const result = try self.allocLocal(elem_ty);
     try self.addLabel(.local_set, result.local);
 
-    if (isByRef(elem_ty)) {
+    if (self.isByRef(elem_ty)) {
         return result;
     }
     return try self.load(result, elem_ty, 0);
@@ -3033,7 +3046,7 @@ fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const result = try self.allocLocal(elem_ty);
     try self.addLabel(.local_set, result.local);
-    if (isByRef(elem_ty)) {
+    if (self.isByRef(elem_ty)) {
         return result;
     }
     return try self.load(result, elem_ty, 0);
@@ -3183,7 +3196,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const result = try self.allocLocal(elem_ty);
     try self.addLabel(.local_set, result.local);
 
-    if (isByRef(elem_ty)) {
+    if (self.isByRef(elem_ty)) {
         return result;
     }
     return try self.load(result, elem_ty, 0);
@@ -3244,10 +3257,43 @@ fn cmpOptionals(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std
     try self.addLabel(.local_set, result.local);
     try self.endBlock();
 
-    const is_equal = try self.allocLocal(Type.initTag(.i32));
     try self.emitWValue(result);
     try self.addImm32(0);
     try self.addTag(if (op == .eq) .i32_ne else .i32_eq);
-    try self.addLabel(.local_set, is_equal.local);
-    return is_equal;
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+/// Compares big integers by checking both its high bits and low bits.
+/// TODO: Lower this to compiler_rt call
+fn cmpBigInt(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
+    if (operand_ty.intInfo(self.target).bits > 128) {
+        return self.fail("TODO: Support cmpBigInt for integer bitsize: '{d}'", .{operand_ty.intInfo(self.target).bits});
+    }
+
+    const result = try self.allocLocal(Type.initTag(.i32));
+    {
+        try self.startBlock(.block, wasm.block_empty);
+        const lhs_high_bit = try self.load(lhs, Type.initTag(.u64), 0);
+        const lhs_low_bit = try self.load(lhs, Type.initTag(.u64), 8);
+        const rhs_high_bit = try self.load(rhs, Type.initTag(.u64), 0);
+        const rhs_low_bit = try self.load(rhs, Type.initTag(.u64), 8);
+        try self.emitWValue(lhs_high_bit);
+        try self.emitWValue(rhs_high_bit);
+        try self.addTag(.i64_ne);
+        try self.addLabel(.br_if, 0);
+        try self.emitWValue(lhs_low_bit);
+        try self.emitWValue(rhs_low_bit);
+        try self.addTag(.i64_ne);
+        try self.addLabel(.br_if, 0);
+        try self.addImm32(1);
+        try self.addLabel(.local_set, result.local);
+        try self.endBlock();
+    }
+
+    try self.emitWValue(result);
+    try self.addImm32(0);
+    try self.addTag(if (op == .eq) .i32_ne else .i32_eq);
+    try self.addLabel(.local_set, result.local);
+    return result;
 }
