@@ -4824,11 +4824,18 @@ fn qualTypeWasDemotedToOpaque(c: *Context, qt: clang.QualType) bool {
 
 fn isAnyopaque(qt: clang.QualType) bool {
     const ty = qt.getTypePtr();
-    if (ty.getTypeClass() == .Builtin) {
-        const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
-        return builtin_ty.getKind() == .Void;
+    switch (ty.getTypeClass()) {
+        .Builtin => {
+            const builtin_ty = @ptrCast(*const clang.BuiltinType, ty);
+            return builtin_ty.getKind() == .Void;
+        },
+        .Typedef => {
+            const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
+            const typedef_decl = typedef_ty.getDecl();
+            return isAnyopaque(typedef_decl.getUnderlyingType());
+        },
+        else => return false,
     }
-    return false;
 }
 
 const FnDeclContext = struct {
