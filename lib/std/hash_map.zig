@@ -750,8 +750,8 @@ pub fn HashMapUnmanaged(
             fingerprint: FingerPrint = free,
             used: u1 = 0,
 
-            const slot_free = @bitCast(u8, Metadata{.fingerprint = free});
-            const slot_tombstone = @bitCast(u8, Metadata{.fingerprint = tombstone});
+            const slot_free = @bitCast(u8, Metadata{ .fingerprint = free });
+            const slot_tombstone = @bitCast(u8, Metadata{ .fingerprint = tombstone });
 
             pub fn isUsed(self: Metadata) bool {
                 return self.used == 1;
