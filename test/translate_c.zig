@@ -814,7 +814,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const Foo = anyopaque;
         ,
-        \\pub extern fn fun(a: ?*Foo) Foo;
+        \\pub extern fn fun(a: ?*Foo) void;
     });
 
     cases.add("duplicate typedef",

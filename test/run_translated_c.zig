@@ -1809,4 +1809,14 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Typedef'ed void used as return type. Issue #10356",
+        \\typedef void V;
+        \\V foo(V *f) {}
+        \\int main(void) {
+        \\    int x = 0;
+        \\    foo(&x);
+        \\    return 0;
+        \\}
+    , "");
 }
