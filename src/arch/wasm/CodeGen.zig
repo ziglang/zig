@@ -1641,12 +1641,13 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
             }
         },
         .Struct, .Array => {
-            if (rhs == .constant) {
+            const final_rhs = if (rhs == .constant) blk: {
+                const tmp = try self.allocLocal(Type.usize);
                 try self.emitWValue(rhs);
-                try self.addLabel(.local_set, lhs.local);
-                return;
-            }
-            return try self.memCopy(ty, lhs, rhs);
+                try self.addLabel(.local_set, tmp.local);
+                break :blk tmp;
+            } else rhs;
+            return try self.memCopy(ty, lhs, final_rhs);
         },
         .Pointer => {
             if (ty.isSlice() and rhs == .constant) {
@@ -2267,9 +2268,6 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) Inner
     const rhs = self.resolveInst(bin_op.rhs);
     const operand_ty = self.air.typeOf(bin_op.lhs);
 
-    try self.emitWValue(lhs);
-    try self.emitWValue(rhs);
-
     if (operand_ty.zigTypeTag() == .Optional and !operand_ty.isPtrLikeOptional()) {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = operand_ty.optionalChild(&buf);
@@ -2277,9 +2275,12 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) Inner
             // When we hit this case, we must check the value of optionals
             // that are not pointers. This means first checking against non-null for
             // both lhs and rhs, as well as checking the payload are matching of lhs and rhs
-            return self.fail("TODO: Implement airCmp for comparing optionals", .{});
+            return self.cmpOptionals(lhs, rhs, operand_ty, op);
         }
     }
+
+    try self.emitWValue(lhs);
+    try self.emitWValue(rhs);
 
     const signedness: std.builtin.Signedness = blk: {
         // by default we tell the operand type is unsigned (i.e. bools and enum values)
@@ -2705,12 +2706,16 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode, op_kind: en
 
     const op_ty = self.air.typeOf(un_op);
     const optional_ty = if (op_kind == .ptr) op_ty.childType() else op_ty;
+    return self.isNull(operand, optional_ty, opcode);
+}
+
+fn isNull(self: *Self, operand: WValue, optional_ty: Type, opcode: wasm.Opcode) InnerError!WValue {
     try self.emitWValue(operand);
     if (!optional_ty.isPtrLikeOptional()) {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = optional_ty.optionalChild(&buf);
-        // When payload is zero-bits, we can treat operand as a value, rather than a
-        // stack value
+        // When payload is zero-bits, we can treat operand as a value, rather than
+        // a pointer to the stack value
         if (payload_ty.hasCodeGenBits()) {
             try self.addMemArg(.i32_load8_u, .{ .offset = 0, .alignment = 1 });
         }
@@ -3204,4 +3209,45 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const result = try self.allocLocal(dest_ty);
     try self.addLabel(.local_set, result.local);
     return result;
+}
+
+fn cmpOptionals(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
+    assert(operand_ty.hasCodeGenBits());
+    assert(op == .eq or op == .neq);
+    var buf: Type.Payload.ElemType = undefined;
+    const payload_ty = operand_ty.optionalChild(&buf);
+    const offset = @intCast(u32, operand_ty.abiSize(self.target) - payload_ty.abiSize(self.target));
+
+    const lhs_is_null = try self.isNull(lhs, operand_ty, .i32_eq);
+    const rhs_is_null = try self.isNull(rhs, operand_ty, .i32_eq);
+
+    // We store the final result in here that will be validated
+    // if the optional is truly equal.
+    const result = try self.allocLocal(Type.initTag(.i32));
+
+    try self.startBlock(.block, wasm.block_empty);
+    try self.emitWValue(lhs_is_null);
+    try self.emitWValue(rhs_is_null);
+    try self.addTag(.i32_ne); // inverse so we can exit early
+    try self.addLabel(.br_if, 0);
+
+    const lhs_pl = try self.load(lhs, payload_ty, offset);
+    const rhs_pl = try self.load(rhs, payload_ty, offset);
+
+    try self.emitWValue(lhs_pl);
+    try self.emitWValue(rhs_pl);
+    const opcode = buildOpcode(.{ .op = .ne, .valtype1 = try self.typeToValtype(payload_ty) });
+    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+    try self.addLabel(.br_if, 0);
+
+    try self.addImm32(1);
+    try self.addLabel(.local_set, result.local);
+    try self.endBlock();
+
+    const is_equal = try self.allocLocal(Type.initTag(.i32));
+    try self.emitWValue(result);
+    try self.addImm32(0);
+    try self.addTag(if (op == .eq) .i32_ne else .i32_eq);
+    try self.addLabel(.local_set, is_equal.local);
+    return is_equal;
 }
