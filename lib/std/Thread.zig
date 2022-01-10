@@ -1152,13 +1152,11 @@ test "Thread.detach" {
     try std.testing.expectEqual(value, 1);
 }
 
-fn testWaitForSignal(mutex: *Mutex, cond: *Condition, event: *ResetEvent, value: *usize) void {
+fn testWaitForSignal(mutex: *Mutex, cond: *Condition) void {
     mutex.lock();
     defer mutex.unlock();
-    event.set();
+    cond.signal();
     cond.wait(mutex);
-    value.* += 1;
-    event.set();
 }
 
 test "Condition.signal" {
@@ -1166,21 +1164,14 @@ test "Condition.signal" {
 
     var mutex = Mutex{};
     var cond = Condition{};
-    var ready: ResetEvent = undefined;
-    var value: usize = 0;
-    try ready.init();
-    defer ready.deinit();
 
-    const thread = try Thread.spawn(.{}, testWaitForSignal, .{ &mutex, &cond, &ready, &value });
-    thread.detach();
-    ready.wait();
-    ready.reset();
+    var thread: Thread = undefined;
     {
         mutex.lock();
         defer mutex.unlock();
+        thread = try Thread.spawn(.{}, testWaitForSignal, .{ &mutex, &cond });
+        cond.wait(&mutex);
         cond.signal();
     }
-    ready.wait();
-
-    try std.testing.expectEqual(value, 1);
+    thread.join();
 }
