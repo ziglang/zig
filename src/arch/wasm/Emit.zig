@@ -161,6 +161,18 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .i64_extend8_s => try emit.emitTag(tag),
             .i64_extend16_s => try emit.emitTag(tag),
             .i64_extend32_s => try emit.emitTag(tag),
+            .i32_reinterpret_f32 => try emit.emitTag(tag),
+            .i64_reinterpret_f64 => try emit.emitTag(tag),
+            .f32_reinterpret_i32 => try emit.emitTag(tag),
+            .f64_reinterpret_i64 => try emit.emitTag(tag),
+            .i32_trunc_f32_s => try emit.emitTag(tag),
+            .i32_trunc_f32_u => try emit.emitTag(tag),
+            .i32_trunc_f64_s => try emit.emitTag(tag),
+            .i32_trunc_f64_u => try emit.emitTag(tag),
+            .i64_trunc_f32_s => try emit.emitTag(tag),
+            .i64_trunc_f32_u => try emit.emitTag(tag),
+            .i64_trunc_f64_s => try emit.emitTag(tag),
+            .i64_trunc_f64_u => try emit.emitTag(tag),
 
             .extended => try emit.emitExtended(inst),
         }
