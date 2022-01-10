@@ -38,6 +38,7 @@ const Module = @import("../Module.zig");
 const StringIndexAdapter = std.hash_map.StringIndexAdapter;
 const StringIndexContext = std.hash_map.StringIndexContext;
 const Trie = @import("MachO/Trie.zig");
+const Type = @import("../type.zig").Type;
 
 pub const TextBlock = Atom;
 
@@ -3656,91 +3657,139 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     try self.updateDeclExports(module, decl, decl_exports);
 }
 
+fn isElemTyPointer(ty: Type) bool {
+    switch (ty.zigTypeTag()) {
+        .Fn => return false,
+        .Pointer => return true,
+        .Array => {
+            const elem_ty = ty.elemType();
+            return isElemTyPointer(elem_ty);
+        },
+        .Struct, .Union => {
+            const len = ty.structFieldCount();
+            var i: usize = 0;
+            while (i < len) : (i += 1) {
+                const field_ty = ty.structFieldType(i);
+                if (isElemTyPointer(field_ty)) return true;
+            }
+            return false;
+        },
+        else => return false,
+    }
+}
+
 fn getMatchingSectionDecl(self: *MachO, decl: *Module.Decl) !MatchingSection {
     const code = decl.link.macho.code.items;
     const alignment = decl.ty.abiAlignment(self.base.options.target);
     const align_log_2 = math.log2(alignment);
     const ty = decl.ty;
+    const zig_ty = ty.zigTypeTag();
     const val = decl.val;
+    const mode = self.base.options.optimize_mode;
     const match: MatchingSection = blk: {
-        if (ty.zigTypeTag() == .Fn) {
-            break :blk MatchingSection{
-                .seg = self.text_segment_cmd_index.?,
-                .sect = self.text_section_index.?,
-            };
+        // TODO finish and audit this function
+        if (val.isUndefDeep()) {
+            if (mode == .ReleaseFast or mode == .ReleaseSmall) {
+                break :blk MatchingSection{
+                    .seg = self.data_segment_cmd_index.?,
+                    .sect = self.bss_section_index.?,
+                };
+            }
+            break :blk (try self.getMatchingSection(.{
+                .segname = makeStaticString("__DATA"),
+                .sectname = makeStaticString("__data"),
+                .size = code.len,
+                .@"align" = align_log_2,
+            })).?;
         }
-        if (mem.allEqual(u8, code, 0)) {
-            break :blk MatchingSection{
-                .seg = self.data_segment_cmd_index.?,
-                .sect = self.bss_section_index.?,
-            };
-        }
-        if (mem.allEqual(u8, code, 0xaa)) {
-            switch (self.base.options.optimize_mode) {
-                .ReleaseFast, .ReleaseSmall => {
-                    break :blk MatchingSection{
-                        .seg = self.data_segment_cmd_index.?,
-                        .sect = self.bss_section_index.?,
-                    };
+
+        switch (zig_ty) {
+            .Fn => {
+                break :blk MatchingSection{
+                    .seg = self.text_segment_cmd_index.?,
+                    .sect = self.text_section_index.?,
+                };
+            },
+            .Array => switch (val.tag()) {
+                .bytes => {
+                    switch (ty.tag()) {
+                        .array_u8_sentinel_0,
+                        .const_slice_u8_sentinel_0,
+                        .manyptr_const_u8_sentinel_0,
+                        => {
+                            break :blk (try self.getMatchingSection(.{
+                                .segname = makeStaticString("__TEXT"),
+                                .sectname = makeStaticString("__cstring"),
+                                .flags = macho.S_CSTRING_LITERALS,
+                                .size = code.len,
+                                .@"align" = align_log_2,
+                            })).?;
+                        },
+                        else => {
+                            break :blk (try self.getMatchingSection(.{
+                                .segname = makeStaticString("__TEXT"),
+                                .sectname = makeStaticString("__const"),
+                                .size = code.len,
+                                .@"align" = align_log_2,
+                            })).?;
+                        },
+                    }
+                },
+                .array => {
+                    if (isElemTyPointer(ty)) {
+                        break :blk (try self.getMatchingSection(.{
+                            .segname = makeStaticString("__DATA_CONST"),
+                            .sectname = makeStaticString("__const"),
+                            .size = code.len,
+                            .@"align" = 3, // TODO I think this should not be needed
+                        })).?;
+                    } else {
+                        break :blk (try self.getMatchingSection(.{
+                            .segname = makeStaticString("__TEXT"),
+                            .sectname = makeStaticString("__const"),
+                            .size = code.len,
+                            .@"align" = align_log_2,
+                        })).?;
+                    }
                 },
                 else => {
+                    break :blk (try self.getMatchingSection(.{
+                        .segname = makeStaticString("__TEXT"),
+                        .sectname = makeStaticString("__const"),
+                        .size = code.len,
+                        .@"align" = align_log_2,
+                    })).?;
+                },
+            },
+            .Pointer => {
+                if (val.castTag(.variable)) |_| {
+                    break :blk MatchingSection{
+                        .seg = self.data_segment_cmd_index.?,
+                        .sect = self.data_section_index.?,
+                    };
+                } else {
                     break :blk (try self.getMatchingSection(.{
                         .segname = makeStaticString("__DATA_CONST"),
                         .sectname = makeStaticString("__const"),
                         .size = code.len,
                         .@"align" = align_log_2,
                     })).?;
-                },
-            }
-        }
-        if (val.castTag(.variable)) |_| {
-            break :blk MatchingSection{
-                .seg = self.data_segment_cmd_index.?,
-                .sect = self.data_section_index.?,
-            };
-        }
-        if (ty.zigTypeTag() == .Array) {
-            break :blk (try self.getMatchingSection(.{
-                .segname = makeStaticString("__DATA_CONST"),
-                .sectname = makeStaticString("__const"),
-                .size = code.len,
-                .@"align" = align_log_2,
-            })).?;
-        }
-        if (ty.zigTypeTag() == .Pointer) {
-            if (ty.isConstPtr()) {
-                break :blk (try self.getMatchingSection(.{
-                    .segname = makeStaticString("__DATA_CONST"),
-                    .sectname = makeStaticString("__const"),
-                    .size = code.len,
-                    .@"align" = align_log_2,
-                })).?;
-            }
-            break :blk MatchingSection{
-                .seg = self.data_segment_cmd_index.?,
-                .sect = self.data_section_index.?,
-            };
-        }
-        switch (ty.tag()) {
-            .array_u8_sentinel_0,
-            .const_slice_u8_sentinel_0,
-            .manyptr_const_u8_sentinel_0,
-            => {
-                break :blk (try self.getMatchingSection(.{
-                    .segname = makeStaticString("__TEXT"),
-                    .sectname = makeStaticString("__cstring"),
-                    .flags = macho.S_CSTRING_LITERALS,
-                    .size = code.len,
-                    .@"align" = align_log_2,
-                })).?;
+                }
             },
             else => {
-                break :blk (try self.getMatchingSection(.{
-                    .segname = makeStaticString("__TEXT"),
-                    .sectname = makeStaticString("__const"),
-                    .size = code.len,
-                    .@"align" = align_log_2,
-                })).?;
+                if (val.castTag(.variable)) |_| {
+                    break :blk MatchingSection{
+                        .seg = self.data_segment_cmd_index.?,
+                        .sect = self.data_section_index.?,
+                    };
+                } else {
+                    break :blk (try self.getMatchingSection(.{
+                        .segname = makeStaticString("__TEXT"),
+                        .sectname = makeStaticString("__const"),
+                        .size = code.len,
+                        .@"align" = align_log_2,
+                    })).?;
+                }
             },
         }
     };
