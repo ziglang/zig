@@ -1720,17 +1720,16 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
         // block results.
         .mcv = MCValue{ .none = {} },
     });
-    const block_data = self.blocks.getPtr(inst).?;
-    defer block_data.relocs.deinit(self.gpa);
+    defer self.blocks.getPtr(inst).?.relocs.deinit(self.gpa);
 
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[extra.end..][0..extra.data.body_len];
     try self.genBody(body);
 
-    for (block_data.relocs.items) |reloc| try self.performReloc(reloc);
+    for (self.blocks.getPtr(inst).?.relocs.items) |reloc| try self.performReloc(reloc);
 
-    const result = @bitCast(MCValue, block_data.mcv);
+    const result = self.blocks.getPtr(inst).?.mcv;
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 

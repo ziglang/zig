@@ -338,7 +338,6 @@ fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
 fn addNop(self: *Self) error{OutOfMemory}!Mir.Inst.Index {
     return try self.addInst(.{
         .tag = .nop,
-        .cond = .al,
         .data = .{ .nop = {} },
     });
 }
@@ -371,7 +370,6 @@ fn gen(self: *Self) !void {
         // mov fp, sp
         _ = try self.addInst(.{
             .tag = .mov,
-            .cond = .al,
             .data = .{ .rr_op = .{
                 .rd = .fp,
                 .rn = .r0,
@@ -405,7 +403,6 @@ fn gen(self: *Self) !void {
 
         self.mir_instructions.set(push_reloc, .{
             .tag = .push,
-            .cond = .al,
             .data = .{ .register_list = saved_regs },
         });
 
@@ -416,7 +413,6 @@ fn gen(self: *Self) !void {
         if (Instruction.Operand.fromU32(stack_size)) |op| {
             self.mir_instructions.set(sub_reloc, .{
                 .tag = .sub,
-                .cond = .al,
                 .data = .{ .rr_op = .{ .rd = .sp, .rn = .sp, .op = op } },
             });
         } else {
@@ -440,7 +436,6 @@ fn gen(self: *Self) !void {
         } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
             self.mir_instructions.set(jmp_reloc, .{
                 .tag = .b,
-                .cond = .al,
                 .data = .{ .inst = @intCast(u32, self.mir_instructions.len) },
             });
         }
@@ -452,7 +447,6 @@ fn gen(self: *Self) !void {
         // mov sp, fp
         _ = try self.addInst(.{
             .tag = .mov,
-            .cond = .al,
             .data = .{ .rr_op = .{
                 .rd = .sp,
                 .rn = .r0,
@@ -463,7 +457,6 @@ fn gen(self: *Self) !void {
         // pop {fp, pc}
         _ = try self.addInst(.{
             .tag = .pop,
-            .cond = .al,
             .data = .{ .register_list = saved_regs },
         });
     } else {
@@ -1251,7 +1244,6 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
 
                     _ = try self.addInst(.{
                         .tag = tag,
-                        .cond = .al,
                         .data = .{ .rr_offset = .{
                             .rt = dst_reg,
                             .rn = base_mcv.register,
@@ -1262,7 +1254,6 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
                 2 => {
                     _ = try self.addInst(.{
                         .tag = .ldrh,
-                        .cond = .al,
                         .data = .{ .rr_extra_offset = .{
                             .rt = dst_reg,
                             .rn = base_mcv.register,
@@ -1406,7 +1397,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 .register => |dst_reg| {
                     _ = try self.addInst(.{
                         .tag = .ldr,
-                        .cond = .al,
                         .data = .{ .rr_offset = .{
                             .rt = dst_reg,
                             .rn = reg,
@@ -1430,7 +1420,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         const tmp_regs = try self.register_manager.allocRegs(2, .{ null, null }, &.{reg});
                         _ = try self.addInst(.{
                             .tag = .ldr,
-                            .cond = .al,
                             .data = .{ .rr_offset = .{
                                 .rt = tmp_regs[0],
                                 .rn = reg,
@@ -1439,7 +1428,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         });
                         _ = try self.addInst(.{
                             .tag = .ldr,
-                            .cond = .al,
                             .data = .{ .rr_offset = .{
                                 .rt = tmp_regs[1],
                                 .rn = reg,
@@ -1465,7 +1453,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         };
                         _ = try self.addInst(.{
                             .tag = .sub,
-                            .cond = .al,
                             .data = .{ .rr_op = .{
                                 .rd = dst_reg,
                                 .rn = .fp,
@@ -1479,7 +1466,6 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         };
                         _ = try self.addInst(.{
                             .tag = .mov,
-                            .cond = .al,
                             .data = .{ .rr_op = .{
                                 .rd = len_reg,
                                 .rn = .r0,
@@ -1560,7 +1546,6 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .register => |value_reg| {
                     _ = try self.addInst(.{
                         .tag = .str,
-                        .cond = .al,
                         .data = .{ .rr_offset = .{
                             .rt = value_reg,
                             .rn = addr_reg,
@@ -1866,7 +1851,6 @@ fn genArmBinOpCode(
 
             _ = try self.addInst(.{
                 .tag = tag,
-                .cond = .al,
                 .data = .{ .rr_op = .{
                     .rd = dst_reg,
                     .rn = op1,
@@ -1879,7 +1863,6 @@ fn genArmBinOpCode(
 
             _ = try self.addInst(.{
                 .tag = tag,
-                .cond = .al,
                 .data = .{ .rr_op = .{
                     .rd = dst_reg,
                     .rn = op1,
@@ -1890,7 +1873,6 @@ fn genArmBinOpCode(
         .cmp_eq => {
             _ = try self.addInst(.{
                 .tag = .cmp,
-                .cond = .al,
                 .data = .{ .rr_op = .{
                     .rd = .r0,
                     .rn = op1,
@@ -1916,7 +1898,6 @@ fn genArmBinOpCode(
 
             _ = try self.addInst(.{
                 .tag = tag,
-                .cond = .al,
                 .data = .{ .rr_shift = .{
                     .rd = dst_reg,
                     .rm = op1,
@@ -1993,7 +1974,6 @@ fn genArmMul(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Ai
 
     _ = try self.addInst(.{
         .tag = .mul,
-        .cond = .al,
         .data = .{ .rrr = .{
             .rd = dst_mcv.register,
             .rn = lhs_mcv.register,
@@ -2045,7 +2025,6 @@ fn genArmMulConstant(self: *Self, inst: Air.Inst.Index, op: Air.Inst.Ref, op_ind
 
     _ = try self.addInst(.{
         .tag = .mul,
-        .cond = .al,
         .data = .{ .rrr = .{
             .rd = dst_mcv.register,
             .rn = lhs_mcv.register,
@@ -2066,7 +2045,6 @@ fn genArmInlineMemcpy(
     // mov count, #0
     _ = try self.addInst(.{
         .tag = .mov,
-        .cond = .al,
         .data = .{ .rr_op = .{
             .rd = count,
             .rn = .r0,
@@ -2078,7 +2056,6 @@ fn genArmInlineMemcpy(
     // cmp count, len
     _ = try self.addInst(.{
         .tag = .cmp,
-        .cond = .al,
         .data = .{ .rr_op = .{
             .rd = .r0,
             .rn = count,
@@ -2096,7 +2073,6 @@ fn genArmInlineMemcpy(
     // ldrb tmp, [src, count]
     _ = try self.addInst(.{
         .tag = .ldrb,
-        .cond = .al,
         .data = .{ .rr_offset = .{
             .rt = tmp,
             .rn = src,
@@ -2107,7 +2083,6 @@ fn genArmInlineMemcpy(
     // strb tmp, [src, count]
     _ = try self.addInst(.{
         .tag = .strb,
-        .cond = .al,
         .data = .{ .rr_offset = .{
             .rt = tmp,
             .rn = dst,
@@ -2118,7 +2093,6 @@ fn genArmInlineMemcpy(
     // add count, count, #1
     _ = try self.addInst(.{
         .tag = .add,
-        .cond = .al,
         .data = .{ .rr_op = .{
             .rd = count,
             .rn = count,
@@ -2129,7 +2103,6 @@ fn genArmInlineMemcpy(
     // b loop
     _ = try self.addInst(.{
         .tag = .b,
-        .cond = .al,
         .data = .{ .inst = @intCast(u32, self.mir_instructions.len - 5) },
     });
 
@@ -2236,7 +2209,6 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 fn airBreakpoint(self: *Self) !void {
     _ = try self.addInst(.{
         .tag = .bkpt,
-        .cond = .al,
         .data = .{ .imm16 = 0 },
     });
     return self.finishAirBookkeeping();
@@ -2348,14 +2320,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
         if (Target.arm.featureSetHas(self.target.cpu.features, .has_v5t)) {
             _ = try self.addInst(.{
                 .tag = .blx,
-                .cond = .al,
                 .data = .{ .reg = .lr },
             });
         } else {
             return self.fail("TODO fix blx emulation for ARM <v5", .{});
             // _ = try self.addInst(.{
             //     .tag = .mov,
-            //     .cond = .al,
             //     .data = .{ .rr_op = .{
             //         .rd = .lr,
             //         .rn = .r0,
@@ -2364,7 +2334,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
             // });
             // _ = try self.addInst(.{
             //     .tag = .bx,
-            //     .cond = .al,
             //     .data = .{ .reg = .lr },
             // });
         }
@@ -2535,11 +2504,33 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk condition.negate();
             },
             .register => |reg| blk: {
+                try self.spillCompareFlagsIfOccupied();
+
                 // cmp reg, 1
                 // bne ...
                 _ = try self.addInst(.{
                     .tag = .cmp,
                     .cond = .al,
+                    .data = .{ .rr_op = .{
+                        .rd = .r0,
+                        .rn = reg,
+                        .op = Instruction.Operand.imm(1, 0),
+                    } },
+                });
+
+                break :blk .ne;
+            },
+            .stack_offset,
+            .memory,
+            => blk: {
+                try self.spillCompareFlagsIfOccupied();
+
+                const reg = try self.copyToTmpRegister(Type.initTag(.bool), cond);
+
+                // cmp reg, 1
+                // bne ...
+                _ = try self.addInst(.{
+                    .tag = .cmp,
                     .data = .{ .rr_op = .{
                         .rd = .r0,
                         .rn = reg,
@@ -2889,7 +2880,6 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
 fn jump(self: *Self, inst: Mir.Inst.Index) !void {
     _ = try self.addInst(.{
         .tag = .b,
-        .cond = .al,
         .data = .{ .inst = inst },
     });
 }
@@ -2905,17 +2895,16 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
         // block results.
         .mcv = MCValue{ .none = {} },
     });
-    const block_data = self.blocks.getPtr(inst).?;
-    defer block_data.relocs.deinit(self.gpa);
+    defer self.blocks.getPtr(inst).?.relocs.deinit(self.gpa);
 
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[extra.end..][0..extra.data.body_len];
     try self.genBody(body);
 
-    for (block_data.relocs.items) |reloc| try self.performReloc(reloc);
+    for (self.blocks.getPtr(inst).?.relocs.items) |reloc| try self.performReloc(reloc);
 
-    const result = @bitCast(MCValue, block_data.mcv);
+    const result = self.blocks.getPtr(inst).?.mcv;
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
@@ -2959,7 +2948,16 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
         const operand_mcv = try self.resolveInst(operand);
         const block_mcv = block_data.mcv;
         if (block_mcv == .none) {
-            block_data.mcv = operand_mcv;
+            block_data.mcv = switch (operand_mcv) {
+                .none, .dead, .unreach => unreachable,
+                .register, .stack_offset, .memory => operand_mcv,
+                .immediate => blk: {
+                    const new_mcv = try self.allocRegOrMem(block, true);
+                    try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
+                    break :blk new_mcv;
+                },
+                else => return self.fail("TODO implement block_data.mcv = operand_mcv for {}", .{operand_mcv}),
+            };
         } else {
             try self.setRegOrMem(self.air.typeOfIndex(block), block_mcv, operand_mcv);
         }
@@ -2973,7 +2971,6 @@ fn brVoid(self: *Self, block: Air.Inst.Index) !void {
     // Emit a jump with a relocation. It will be patched up after the block ends.
     try block_data.relocs.append(self.gpa, try self.addInst(.{
         .tag = .b,
-        .cond = .al,
         .data = .{ .inst = undefined }, // populated later through performReloc
     }));
 }
@@ -3029,7 +3026,6 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         if (mem.eql(u8, asm_source, "svc #0")) {
             _ = try self.addInst(.{
                 .tag = .svc,
-                .cond = .al,
                 .data = .{ .imm24 = 0 },
             });
         } else {
@@ -3135,7 +3131,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
 
                     _ = try self.addInst(.{
                         .tag = tag,
-                        .cond = .al,
                         .data = .{ .rr_offset = .{
                             .rt = reg,
                             .rn = .fp,
@@ -3153,7 +3148,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
 
                     _ = try self.addInst(.{
                         .tag = .strh,
-                        .cond = .al,
                         .data = .{ .rr_extra_offset = .{
                             .rt = reg,
                             .rn = .fp,
@@ -3200,7 +3194,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 };
                 _ = try self.addInst(.{
                     .tag = .sub,
-                    .cond = .al,
                     .data = .{ .rr_op = .{
                         .rd = src_reg,
                         .rn = .fp,
@@ -3215,7 +3208,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 };
                 _ = try self.addInst(.{
                     .tag = .sub,
-                    .cond = .al,
                     .data = .{ .rr_op = .{
                         .rd = dst_reg,
                         .rn = .fp,
@@ -3230,7 +3222,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 };
                 _ = try self.addInst(.{
                     .tag = .mov,
-                    .cond = .al,
                     .data = .{ .rr_op = .{
                         .rd = len_reg,
                         .rn = .r0,
@@ -3272,7 +3263,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // mov reg, 0
             _ = try self.addInst(.{
                 .tag = .mov,
-                .cond = .al,
                 .data = .{ .rr_op = .{
                     .rd = reg,
                     .rn = .r0,
@@ -3297,7 +3287,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             if (Instruction.Operand.fromU32(@intCast(u32, x))) |op| {
                 _ = try self.addInst(.{
                     .tag = .mov,
-                    .cond = .al,
                     .data = .{ .rr_op = .{
                         .rd = reg,
                         .rn = .r0,
@@ -3307,7 +3296,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             } else if (Instruction.Operand.fromU32(~@intCast(u32, x))) |op| {
                 _ = try self.addInst(.{
                     .tag = .mvn,
-                    .cond = .al,
                     .data = .{ .rr_op = .{
                         .rd = reg,
                         .rn = .r0,
@@ -3318,7 +3306,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 if (Target.arm.featureSetHas(self.target.cpu.features, .has_v7)) {
                     _ = try self.addInst(.{
                         .tag = .movw,
-                        .cond = .al,
                         .data = .{ .r_imm16 = .{
                             .rd = reg,
                             .imm16 = @intCast(u16, x),
@@ -3327,7 +3314,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 } else {
                     _ = try self.addInst(.{
                         .tag = .mov,
-                        .cond = .al,
                         .data = .{ .rr_op = .{
                             .rd = reg,
                             .rn = .r0,
@@ -3336,7 +3322,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     });
                     _ = try self.addInst(.{
                         .tag = .orr,
-                        .cond = .al,
                         .data = .{ .rr_op = .{
                             .rd = reg,
                             .rn = reg,
@@ -3353,7 +3338,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     // movt reg, #0xaaaa
                     _ = try self.addInst(.{
                         .tag = .movw,
-                        .cond = .al,
                         .data = .{ .r_imm16 = .{
                             .rd = reg,
                             .imm16 = @truncate(u16, x),
@@ -3361,7 +3345,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     });
                     _ = try self.addInst(.{
                         .tag = .movt,
-                        .cond = .al,
                         .data = .{ .r_imm16 = .{
                             .rd = reg,
                             .imm16 = @truncate(u16, x >> 16),
@@ -3375,7 +3358,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     // orr reg, reg, #0xdd, 8
                     _ = try self.addInst(.{
                         .tag = .mov,
-                        .cond = .al,
                         .data = .{ .rr_op = .{
                             .rd = reg,
                             .rn = .r0,
@@ -3384,7 +3366,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     });
                     _ = try self.addInst(.{
                         .tag = .orr,
-                        .cond = .al,
                         .data = .{ .rr_op = .{
                             .rd = reg,
                             .rn = reg,
@@ -3393,7 +3374,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     });
                     _ = try self.addInst(.{
                         .tag = .orr,
-                        .cond = .al,
                         .data = .{ .rr_op = .{
                             .rd = reg,
                             .rn = reg,
@@ -3402,7 +3382,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     });
                     _ = try self.addInst(.{
                         .tag = .orr,
-                        .cond = .al,
                         .data = .{ .rr_op = .{
                             .rd = reg,
                             .rn = reg,
@@ -3420,7 +3399,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // mov reg, src_reg
             _ = try self.addInst(.{
                 .tag = .mov,
-                .cond = .al,
                 .data = .{ .rr_op = .{
                     .rd = reg,
                     .rn = .r0,
@@ -3434,7 +3412,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             try self.genSetReg(ty, reg, .{ .immediate = @intCast(u32, addr) });
             _ = try self.addInst(.{
                 .tag = .ldr,
-                .cond = .al,
                 .data = .{ .rr_offset = .{
                     .rt = reg,
                     .rn = reg,
@@ -3461,7 +3438,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 
                     _ = try self.addInst(.{
                         .tag = tag,
-                        .cond = .al,
                         .data = .{ .rr_offset = .{
                             .rt = reg,
                             .rn = .fp,
@@ -3479,7 +3455,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 
                     _ = try self.addInst(.{
                         .tag = .ldrh,
-                        .cond = .al,
                         .data = .{ .rr_extra_offset = .{
                             .rt = reg,
                             .rn = .fp,
@@ -3507,7 +3482,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 
             _ = try self.addInst(.{
                 .tag = tag,
-                .cond = .al,
                 .data = .{ .r_stack_offset = .{
                     .rt = reg,
                     .stack_offset = @intCast(u32, adj_off),
@@ -3551,7 +3525,6 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
 
                     _ = try self.addInst(.{
                         .tag = tag,
-                        .cond = .al,
                         .data = .{ .rr_offset = .{
                             .rt = reg,
                             .rn = .sp,
@@ -3566,7 +3539,6 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
 
                     _ = try self.addInst(.{
                         .tag = .strh,
-                        .cond = .al,
                         .data = .{ .rr_extra_offset = .{
                             .rt = reg,
                             .rn = .sp,
