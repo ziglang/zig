@@ -465,9 +465,15 @@ fn lowerDeclRef(
 
     if (decl.analysis != .complete) return error.AnalysisFail;
     markDeclAlive(decl);
-    // TODO handle the dependency of this symbol on the decl's vaddr.
-    // If the decl changes vaddr, then this symbol needs to get regenerated.
-    const vaddr = bin_file.getDeclVAddr(decl);
+    const vaddr = vaddr: {
+        if (bin_file.cast(link.File.MachO)) |macho_file| {
+            break :vaddr try macho_file.getDeclVAddrWithReloc(decl, code.items.len);
+        }
+        // TODO handle the dependency of this symbol on the decl's vaddr.
+        // If the decl changes vaddr, then this symbol needs to get regenerated.
+        break :vaddr bin_file.getDeclVAddr(decl);
+    };
+
     const endian = bin_file.options.target.cpu.arch.endian();
     switch (bin_file.options.target.cpu.arch.ptrBitWidth()) {
         16 => mem.writeInt(u16, try code.addManyAsArray(2), @intCast(u16, vaddr), endian),
