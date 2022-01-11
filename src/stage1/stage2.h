@@ -182,4 +182,7 @@ ZIG_EXTERN_C const char *stage2_add_link_lib(struct ZigStage1 *stage1,
         const char *lib_name_ptr, size_t lib_name_len,
         const char *symbol_name_ptr, size_t symbol_name_len);
 
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_append_symbol(struct ZigStage1 *stage1, const char *name_ptr, size_t name_len);
+
 #endif
