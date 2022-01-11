@@ -12,13 +12,19 @@ const fs = std.fs;
 const process = std.process;
 const native_os = builtin.target.os.tag;
 
-pub const sep_windows_uefi = '\\';
+pub const sep_windows = '\\';
 pub const sep_posix = '/';
-pub const sep = if (native_os == .windows or native_os == .uefi) sep_windows_uefi else sep_posix;
+pub const sep = switch (native_os) {
+    .windows, .uefi => sep_windows,
+    else => sep_posix,
+};
 
-pub const sep_str_windows_uefi = "\\";
+pub const sep_str_windows = "\\";
 pub const sep_str_posix = "/";
-pub const sep_str = if (native_os == .windows or native_os == .uefi) sep_str_windows_uefi else sep_str_posix;
+pub const sep_str = switch (native_os) {
+    .windows, .uefi => sep_str_windows,
+    else => sep_str_posix,
+};
 
 pub const delimiter_windows = ';';
 pub const delimiter_posix = ':';
@@ -116,7 +122,7 @@ fn testJoinMaybeZUefi(paths: []const []const u8, expected: []const u8, zero: boo
             return byte == '\\';
         }
     }.isSep;
-    const actual = try joinSepMaybeZ(testing.allocator, sep_windows_uefi, uefiIsSep, paths, zero);
+    const actual = try joinSepMaybeZ(testing.allocator, sep_windows, uefiIsSep, paths, zero);
     defer testing.allocator.free(actual);
     try testing.expectEqualSlices(u8, expected, if (zero) actual[0 .. actual.len - 1 :0] else actual);
 }
@@ -127,7 +133,7 @@ fn testJoinMaybeZWindows(paths: []const []const u8, expected: []const u8, zero: 
             return byte == '/' or byte == '\\';
         }
     }.isSep;
-    const actual = try joinSepMaybeZ(testing.allocator, sep_windows_uefi, windowsIsSep, paths, zero);
+    const actual = try joinSepMaybeZ(testing.allocator, sep_windows, windowsIsSep, paths, zero);
     defer testing.allocator.free(actual);
     try testing.expectEqualSlices(u8, expected, if (zero) actual[0 .. actual.len - 1 :0] else actual);
 }
@@ -604,7 +610,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
             result[0] = asciiUpper(result[0]);
             // Remove the trailing slash if present, eg. if the cwd is a root
             // directory.
-            if (cwd.len > 0 and cwd[cwd.len - 1] == sep_windows_uefi) {
+            if (cwd.len > 0 and cwd[cwd.len - 1] == sep_windows) {
                 result_index -= 1;
             }
         }
@@ -641,7 +647,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
                         break;
                 }
             } else {
-                result[result_index] = sep_windows_uefi;
+                result[result_index] = sep_windows;
                 result_index += 1;
                 mem.copy(u8, result[result_index..], component);
                 result_index += component.len;
