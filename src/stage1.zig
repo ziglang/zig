@@ -471,6 +471,7 @@ export fn stage2_fetch_file(
 export fn stage2_append_symbol(stage1: *Module, name_ptr: [*c]const u8, name_len: usize) Error {
     if (name_len == 0) return Error.None;
     const comp = @intToPtr(*Compilation, stage1.userdata);
-    comp.export_symbol_names.append(comp.gpa, name_ptr[0..name_len]) catch return Error.OutOfMemory;
+    const sym_name = comp.gpa.dupe(u8, name_ptr[0..name_len]) catch return Error.OutOfMemory;
+    comp.export_symbol_names.append(comp.gpa, sym_name) catch return Error.OutOfMemory;
     return Error.None;
 }
