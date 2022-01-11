@@ -2844,7 +2844,7 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.kind == .@"test") {
-            try builder.spawnChild(zig_args.items);
+            _ = try builder.execFromStep(zig_args.items, step);
         } else {
             try zig_args.append("--enable-cache");
 
