@@ -1,4 +1,7 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const mem = std.mem;
+const uefi = std.os.uefi;
+const Allocator = mem.Allocator;
 const Guid = uefi.Guid;
 
 pub const DevicePathProtocol = packed struct {
@@ -32,6 +35,40 @@ pub const DevicePathProtocol = packed struct {
         }
 
         return (@ptrToInt(node) + node.length) - @ptrToInt(self);
+    }
+
+    /// Creates a file device path from the existing device path and a file path.
+    pub fn create_file_device_path(self: *DevicePathProtocol, allocator: Allocator, path: [:0]const u16) !*DevicePathProtocol {
+        var path_size = self.size();
+
+        // 2 * (path.len + 1) for the path and its null terminator, which are u16s
+        // DevicePathProtocol for the extra node before the end
+        var buf = try allocator.alloc(u8, path_size + 2 * (path.len + 1) + @sizeOf(DevicePathProtocol));
+
+        mem.copy(u8, buf, @ptrCast([*]const u8, self)[0..path_size]);
+
+        // Pointer to the copy of the end node of the current chain, which is - 4 from the buffer
+        // as the end node itself is 4 bytes (type: u8 + subtype: u8 + length: u16).
+        var new = @ptrCast(*MediaDevicePath.FilePathDevicePath, buf.ptr + path_size - 4);
+
+        new.type = .Media;
+        new.subtype = .FilePath;
+        new.length = @sizeOf(MediaDevicePath.FilePathDevicePath) + 2 * (@intCast(u16, path.len) + 1);
+
+        // The same as new.getPath(), but not const as we're filling it in.
+        var ptr = @ptrCast([*:0]u16, @alignCast(2, @ptrCast([*]u8, new)) + @sizeOf(MediaDevicePath.FilePathDevicePath));
+
+        for (path) |s, i|
+            ptr[i] = s;
+
+        ptr[path.len] = 0;
+
+        var end = @ptrCast(*EndDevicePath.EndEntireDevicePath, @ptrCast(*DevicePathProtocol, new).next().?);
+        end.type = .End;
+        end.subtype = .EndEntire;
+        end.length = @sizeOf(EndDevicePath.EndEntireDevicePath);
+
+        return @ptrCast(*DevicePathProtocol, buf.ptr);
     }
 
     pub fn getDevicePath(self: *const DevicePathProtocol) ?DevicePath {
