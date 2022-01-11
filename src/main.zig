@@ -1476,6 +1476,9 @@ fn buildOutputType(
                             fatal("expected [command|reactor] for -mexec-mode=[value], found '{s}'", .{it.only_arg});
                         };
                     },
+                    .sysroot => {
+                        sysroot = it.only_arg;
+                    },
                 }
             }
             // Parse linker args.
@@ -4130,6 +4133,7 @@ pub const ClangArgIterator = struct {
         strip,
         exec_model,
         emit_llvm,
+        sysroot,
     };
 
     const Args = struct {
