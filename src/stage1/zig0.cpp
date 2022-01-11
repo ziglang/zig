@@ -554,3 +554,8 @@ const char *stage2_version_string(void) {
 struct Stage2SemVer stage2_version(void) {
     return {ZIG_VERSION_MAJOR, ZIG_VERSION_MINOR, ZIG_VERSION_PATCH};
 }
+
+Error stage2_append_symbol(struct ZigStage1 *stage1, const char *name_ptr, size_t name_len)
+{
+    return ErrorNone;
+}
