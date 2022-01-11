@@ -9905,6 +9905,18 @@ void codegen_build_object(CodeGen *g) {
 
     codegen_add_time_event(g, "Done");
     codegen_switch_sub_prog_node(g, nullptr);
+   
+    // append all export symbols to stage2 so we can provide them to the linker
+    if (target_is_wasm(g->zig_target)){
+        Error err;
+        auto export_it = g->exported_symbol_names.entry_iterator();
+        decltype(g->exported_symbol_names)::Entry *curr_entry = nullptr;
+        while ((curr_entry = export_it.next()) != nullptr) {
+            if ((err = stage2_append_symbol(&g->stage1, buf_ptr(curr_entry->key), buf_len(curr_entry->key)))) {
+                fprintf(stderr, "Unable to export symbol '%s': %s\n", buf_ptr(curr_entry->key), err_str(err));
+            }
+        }
+    }
 }
 
 ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path,
