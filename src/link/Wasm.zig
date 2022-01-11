@@ -1243,6 +1243,12 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         if (self.base.options.global_base) |global_base| {
             const arg = try std.fmt.allocPrint(arena, "--global-base={d}", .{global_base});
             try argv.append(arg);
+        } else {
+            // We prepend it by default, so when a stack overflow happens the runtime will trap correctly,
+            // rather than silently overwrite all global declarations. See https://github.com/ziglang/zig/issues/4496
+            //
+            // The user can overwrite this behavior by setting the global-base
+            try argv.append("--stack-first");
         }
 
         var auto_export_symbols = true;
@@ -1293,10 +1299,6 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             const stack_size = self.base.options.stack_size_override orelse 1048576;
             const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
             try argv.append(arg);
-
-            // Put stack before globals so that stack overflow results in segfault immediately
-            // before corrupting globals. See https://github.com/ziglang/zig/issues/4496
-            try argv.append("--stack-first");
 
             if (self.base.options.wasi_exec_model == .reactor) {
                 // Reactor execution model does not have _start so lld doesn't look for it.
