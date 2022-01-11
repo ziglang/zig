@@ -15,6 +15,25 @@ pub const DevicePathProtocol = packed struct {
         .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
     };
 
+    /// Returns the next DevicePathProtocol node in the sequence, if any.
+    pub fn next(self: *DevicePathProtocol) ?*DevicePathProtocol {
+        if (self.type == .End and @intToEnum(EndDevicePath.Subtype, self.subtype) == .EndEntire)
+            return null;
+
+        return @ptrCast(*DevicePathProtocol, @ptrCast([*]u8, self) + self.length);
+    }
+
+    /// Calculates the total length of the device path structure in bytes, including the end of device path node.
+    pub fn size(self: *DevicePathProtocol) usize {
+        var node = self;
+
+        while (node.next()) |next_node| {
+            node = next_node;
+        }
+
+        return (@ptrToInt(node) + node.length) - @ptrToInt(self);
+    }
+
     pub fn getDevicePath(self: *const DevicePathProtocol) ?DevicePath {
         return switch (self.type) {
             .Hardware => blk: {
