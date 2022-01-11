@@ -14,6 +14,7 @@ pub const MessagingDevicePath = @import("protocols/device_path_protocol.zig").Me
 pub const SimpleFileSystemProtocol = @import("protocols/simple_file_system_protocol.zig").SimpleFileSystemProtocol;
 pub const FileProtocol = @import("protocols/file_protocol.zig").FileProtocol;
 pub const FileInfo = @import("protocols/file_protocol.zig").FileInfo;
+pub const FileSystemInfo = @import("protocols/file_protocol.zig").FileSystemInfo;
 
 pub const InputKey = @import("protocols/simple_text_input_ex_protocol.zig").InputKey;
 pub const KeyData = @import("protocols/simple_text_input_ex_protocol.zig").KeyData;

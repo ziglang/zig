@@ -14,11 +14,17 @@ const native_os = builtin.target.os.tag;
 
 pub const sep_windows = '\\';
 pub const sep_posix = '/';
-pub const sep = if (native_os == .windows) sep_windows else sep_posix;
+pub const sep = switch (native_os) {
+    .windows, .uefi => sep_windows,
+    else => sep_posix,
+};
 
 pub const sep_str_windows = "\\";
 pub const sep_str_posix = "/";
-pub const sep_str = if (native_os == .windows) sep_str_windows else sep_str_posix;
+pub const sep_str = switch (native_os) {
+    .windows, .uefi => sep_str_windows,
+    else => sep_str_posix,
+};
 
 pub const delimiter_windows = ';';
 pub const delimiter_posix = ':';
@@ -26,11 +32,11 @@ pub const delimiter = if (native_os == .windows) delimiter_windows else delimite
 
 /// Returns if the given byte is a valid path separator
 pub fn isSep(byte: u8) bool {
-    if (native_os == .windows) {
-        return byte == '/' or byte == '\\';
-    } else {
-        return byte == '/';
-    }
+    return switch (native_os) {
+        .windows => byte == '/' or byte == '\\',
+        .uefi => byte == '\\',
+        else => byte == '/',
+    };
 }
 
 /// This is different from mem.join in that the separator will not be repeated if
@@ -110,6 +116,17 @@ pub fn joinZ(allocator: Allocator, paths: []const []const u8) ![:0]u8 {
     return out[0 .. out.len - 1 :0];
 }
 
+fn testJoinMaybeZUefi(paths: []const []const u8, expected: []const u8, zero: bool) !void {
+    const uefiIsSep = struct {
+        fn isSep(byte: u8) bool {
+            return byte == '\\';
+        }
+    }.isSep;
+    const actual = try joinSepMaybeZ(testing.allocator, sep_windows, uefiIsSep, paths, zero);
+    defer testing.allocator.free(actual);
+    try testing.expectEqualSlices(u8, expected, if (zero) actual[0 .. actual.len - 1 :0] else actual);
+}
+
 fn testJoinMaybeZWindows(paths: []const []const u8, expected: []const u8, zero: bool) !void {
     const windowsIsSep = struct {
         fn isSep(byte: u8) bool {
@@ -157,6 +174,11 @@ test "join" {
             "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig",
             zero,
         );
+
+        try testJoinMaybeZUefi(&[_][]const u8{ "EFI", "Boot", "bootx64.efi" }, "EFI\\Boot\\bootx64.efi", zero);
+        try testJoinMaybeZUefi(&[_][]const u8{ "EFI\\Boot", "bootx64.efi" }, "EFI\\Boot\\bootx64.efi", zero);
+        try testJoinMaybeZUefi(&[_][]const u8{ "EFI\\", "\\Boot", "bootx64.efi" }, "EFI\\Boot\\bootx64.efi", zero);
+        try testJoinMaybeZUefi(&[_][]const u8{ "EFI\\", "\\Boot\\", "\\bootx64.efi" }, "EFI\\Boot\\bootx64.efi", zero);
 
         try testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b/", "c" }, "c:\\a\\b/c", zero);
         try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a/", "b\\", "/c" }, "c:\\a/b\\c", zero);
