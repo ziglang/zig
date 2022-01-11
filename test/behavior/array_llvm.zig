@@ -33,3 +33,15 @@ test "read/write through global variable array of struct fields initialized via 
     };
     try S.doTheTest();
 }
+
+test "implicit cast single-item pointer" {
+    try testImplicitCastSingleItemPtr();
+    comptime try testImplicitCastSingleItemPtr();
+}
+
+fn testImplicitCastSingleItemPtr() !void {
+    var byte: u8 = 100;
+    const slice = @as(*[1]u8, &byte)[0..];
+    slice[0] += 1;
+    try expect(byte == 101);
+}

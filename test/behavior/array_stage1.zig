@@ -4,18 +4,6 @@ const mem = std.mem;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "implicit cast single-item pointer" {
-    try testImplicitCastSingleItemPtr();
-    comptime try testImplicitCastSingleItemPtr();
-}
-
-fn testImplicitCastSingleItemPtr() !void {
-    var byte: u8 = 100;
-    const slice = @as(*[1]u8, &byte)[0..];
-    slice[0] += 1;
-    try expect(byte == 101);
-}
-
 fn testArrayByValAtComptime(b: [2]u8) u8 {
     return b[0];
 }

@@ -14085,88 +14085,112 @@ fn beginComptimePtrMutation(
         .elem_ptr => {
             const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
             var parent = try beginComptimePtrMutation(sema, block, src, elem_ptr.array_ptr);
-            const elem_ty = parent.ty.childType();
-            switch (parent.val.tag()) {
-                .undef => {
-                    // An array has been initialized to undefined at comptime and now we
-                    // are for the first time setting an element. We must change the representation
-                    // of the array from `undef` to `array`.
-                    const arena = parent.beginArena(sema.gpa);
-                    defer parent.finishArena();
-
-                    const array_len_including_sentinel =
-                        try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel());
-                    const elems = try arena.alloc(Value, array_len_including_sentinel);
-                    mem.set(Value, elems, Value.undef);
-
-                    parent.val.* = try Value.Tag.array.create(arena, elems);
-
-                    return ComptimePtrMutationKit{
-                        .decl_ref_mut = parent.decl_ref_mut,
-                        .val = &elems[elem_ptr.index],
-                        .ty = elem_ty,
-                    };
-                },
-                .bytes => {
-                    // An array is memory-optimized to store a slice of bytes, but we are about
-                    // to modify an individual field and the representation has to change.
-                    // If we wanted to avoid this, there would need to be special detection
-                    // elsewhere to identify when writing a value to an array element that is stored
-                    // using the `bytes` tag, and handle it without making a call to this function.
-                    const arena = parent.beginArena(sema.gpa);
-                    defer parent.finishArena();
-
-                    const bytes = parent.val.castTag(.bytes).?.data;
-                    const dest_len = parent.ty.arrayLenIncludingSentinel();
-                    // bytes.len may be one greater than dest_len because of the case when
-                    // assigning `[N:S]T` to `[N]T`. This is allowed; the sentinel is omitted.
-                    assert(bytes.len >= dest_len);
-                    const elems = try arena.alloc(Value, @intCast(usize, dest_len));
-                    for (elems) |*elem, i| {
-                        elem.* = try Value.Tag.int_u64.create(arena, bytes[i]);
+            switch (parent.ty.zigTypeTag()) {
+                .Array, .Vector => {
+                    const check_len = parent.ty.arrayLenIncludingSentinel();
+                    if (elem_ptr.index >= check_len) {
+                        // TODO have the parent include the decl so we can say "declared here"
+                        return sema.fail(block, src, "comptime store of index {d} out of bounds of array length {d}", .{
+                            elem_ptr.index, check_len,
+                        });
                     }
+                    const elem_ty = parent.ty.childType();
+                    switch (parent.val.tag()) {
+                        .undef => {
+                            // An array has been initialized to undefined at comptime and now we
+                            // are for the first time setting an element. We must change the representation
+                            // of the array from `undef` to `array`.
+                            const arena = parent.beginArena(sema.gpa);
+                            defer parent.finishArena();
 
-                    parent.val.* = try Value.Tag.array.create(arena, elems);
+                            const array_len_including_sentinel =
+                                try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel());
+                            const elems = try arena.alloc(Value, array_len_including_sentinel);
+                            mem.set(Value, elems, Value.undef);
 
+                            parent.val.* = try Value.Tag.array.create(arena, elems);
+
+                            return ComptimePtrMutationKit{
+                                .decl_ref_mut = parent.decl_ref_mut,
+                                .val = &elems[elem_ptr.index],
+                                .ty = elem_ty,
+                            };
+                        },
+                        .bytes => {
+                            // An array is memory-optimized to store a slice of bytes, but we are about
+                            // to modify an individual field and the representation has to change.
+                            // If we wanted to avoid this, there would need to be special detection
+                            // elsewhere to identify when writing a value to an array element that is stored
+                            // using the `bytes` tag, and handle it without making a call to this function.
+                            const arena = parent.beginArena(sema.gpa);
+                            defer parent.finishArena();
+
+                            const bytes = parent.val.castTag(.bytes).?.data;
+                            const dest_len = parent.ty.arrayLenIncludingSentinel();
+                            // bytes.len may be one greater than dest_len because of the case when
+                            // assigning `[N:S]T` to `[N]T`. This is allowed; the sentinel is omitted.
+                            assert(bytes.len >= dest_len);
+                            const elems = try arena.alloc(Value, @intCast(usize, dest_len));
+                            for (elems) |*elem, i| {
+                                elem.* = try Value.Tag.int_u64.create(arena, bytes[i]);
+                            }
+
+                            parent.val.* = try Value.Tag.array.create(arena, elems);
+
+                            return ComptimePtrMutationKit{
+                                .decl_ref_mut = parent.decl_ref_mut,
+                                .val = &elems[elem_ptr.index],
+                                .ty = elem_ty,
+                            };
+                        },
+                        .repeated => {
+                            // An array is memory-optimized to store only a single element value, and
+                            // that value is understood to be the same for the entire length of the array.
+                            // However, now we want to modify an individual field and so the
+                            // representation has to change.  If we wanted to avoid this, there would
+                            // need to be special detection elsewhere to identify when writing a value to an
+                            // array element that is stored using the `repeated` tag, and handle it
+                            // without making a call to this function.
+                            const arena = parent.beginArena(sema.gpa);
+                            defer parent.finishArena();
+
+                            const repeated_val = try parent.val.castTag(.repeated).?.data.copy(arena);
+                            const array_len_including_sentinel =
+                                try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel());
+                            const elems = try arena.alloc(Value, array_len_including_sentinel);
+                            mem.set(Value, elems, repeated_val);
+
+                            parent.val.* = try Value.Tag.array.create(arena, elems);
+
+                            return ComptimePtrMutationKit{
+                                .decl_ref_mut = parent.decl_ref_mut,
+                                .val = &elems[elem_ptr.index],
+                                .ty = elem_ty,
+                            };
+                        },
+
+                        .array => return ComptimePtrMutationKit{
+                            .decl_ref_mut = parent.decl_ref_mut,
+                            .val = &parent.val.castTag(.array).?.data[elem_ptr.index],
+                            .ty = elem_ty,
+                        },
+
+                        else => unreachable,
+                    }
+                },
+                else => {
+                    if (elem_ptr.index != 0) {
+                        // TODO include a "declared here" note for the decl
+                        return sema.fail(block, src, "out of bounds comptime store of index {d}", .{
+                            elem_ptr.index,
+                        });
+                    }
                     return ComptimePtrMutationKit{
                         .decl_ref_mut = parent.decl_ref_mut,
-                        .val = &elems[elem_ptr.index],
-                        .ty = elem_ty,
+                        .val = parent.val,
+                        .ty = parent.ty,
                     };
                 },
-                .repeated => {
-                    // An array is memory-optimized to store only a single element value, and
-                    // that value is understood to be the same for the entire length of the array.
-                    // However, now we want to modify an individual field and so the
-                    // representation has to change.  If we wanted to avoid this, there would
-                    // need to be special detection elsewhere to identify when writing a value to an
-                    // array element that is stored using the `repeated` tag, and handle it
-                    // without making a call to this function.
-                    const arena = parent.beginArena(sema.gpa);
-                    defer parent.finishArena();
-
-                    const repeated_val = try parent.val.castTag(.repeated).?.data.copy(arena);
-                    const array_len_including_sentinel =
-                        try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel());
-                    const elems = try arena.alloc(Value, array_len_including_sentinel);
-                    mem.set(Value, elems, repeated_val);
-
-                    parent.val.* = try Value.Tag.array.create(arena, elems);
-
-                    return ComptimePtrMutationKit{
-                        .decl_ref_mut = parent.decl_ref_mut,
-                        .val = &elems[elem_ptr.index],
-                        .ty = elem_ty,
-                    };
-                },
-
-                .array => return ComptimePtrMutationKit{
-                    .decl_ref_mut = parent.decl_ref_mut,
-                    .val = &parent.val.castTag(.array).?.data[elem_ptr.index],
-                    .ty = elem_ty,
-                },
-
-                else => unreachable,
             }
         },
         .field_ptr => {
@@ -14296,15 +14320,41 @@ fn beginComptimePtrLoad(
         .elem_ptr => {
             const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
             const parent = try beginComptimePtrLoad(sema, block, src, elem_ptr.array_ptr);
-            const elem_ty = parent.ty.childType();
-            const elem_size = elem_ty.abiSize(target);
-            return ComptimePtrLoadKit{
-                .root_val = parent.root_val,
-                .val = try parent.val.elemValue(sema.arena, elem_ptr.index),
-                .ty = elem_ty,
-                .byte_offset = try sema.usizeCast(block, src, parent.byte_offset + elem_size * elem_ptr.index),
-                .is_mutable = parent.is_mutable,
-            };
+            switch (parent.ty.zigTypeTag()) {
+                .Array, .Vector => {
+                    const check_len = parent.ty.arrayLenIncludingSentinel();
+                    if (elem_ptr.index >= check_len) {
+                        // TODO have the parent include the decl so we can say "declared here"
+                        return sema.fail(block, src, "comptime load of index {d} out of bounds of array length {d}", .{
+                            elem_ptr.index, check_len,
+                        });
+                    }
+                    const elem_ty = parent.ty.childType();
+                    const elem_size = elem_ty.abiSize(target);
+                    return ComptimePtrLoadKit{
+                        .root_val = parent.root_val,
+                        .val = try parent.val.elemValue(sema.arena, elem_ptr.index),
+                        .ty = elem_ty,
+                        .byte_offset = try sema.usizeCast(block, src, parent.byte_offset + elem_size * elem_ptr.index),
+                        .is_mutable = parent.is_mutable,
+                    };
+                },
+                else => {
+                    if (elem_ptr.index != 0) {
+                        // TODO have the parent include the decl so we can say "declared here"
+                        return sema.fail(block, src, "out of bounds comptime load of index {d}", .{
+                            elem_ptr.index,
+                        });
+                    }
+                    return ComptimePtrLoadKit{
+                        .root_val = parent.root_val,
+                        .val = parent.val,
+                        .ty = parent.ty,
+                        .byte_offset = parent.byte_offset,
+                        .is_mutable = parent.is_mutable,
+                    };
+                },
+            }
         },
         .field_ptr => {
             const field_ptr = ptr_val.castTag(.field_ptr).?.data;
