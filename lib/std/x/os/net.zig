@@ -16,7 +16,7 @@ pub fn resolveScopeId(name: []const u8) !u32 {
     if (have_ifnamesize) {
         if (name.len >= os.IFNAMESIZE) return error.NameTooLong;
 
-        if (native_os.tag == .windows or builtin.link_libc) {
+        if (native_os.tag == .windows or comptime native_os.tag.isDarwin()) {
             var interface_name: [os.IFNAMESIZE:0]u8 = undefined;
             mem.copy(u8, &interface_name, name);
             interface_name[name.len] = 0;

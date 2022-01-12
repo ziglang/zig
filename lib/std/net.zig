@@ -650,7 +650,7 @@ fn if_nametoindex(name: []const u8) !u32 {
         return @bitCast(u32, ifr.ifru.ivalue);
     }
 
-    if (builtin.link_libc) {
+    if (comptime builtin.target.os.tag.isDarwin()) {
         if (name.len >= os.IFNAMESIZE)
             return error.NameTooLong;
 
