@@ -719,7 +719,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
         const name_c = try std.cstr.addNullByte(allocator, name);
         defer allocator.free(name_c);
 
-        const port_c = try std.fmt.allocPrint(allocator, "{}\x00", .{port});
+        const port_c = try std.fmt.allocPrintZ(allocator, "{}", .{port});
         defer allocator.free(port_c);
 
         const sys = if (builtin.target.os.tag == .windows) os.windows.ws2_32 else os.system;
@@ -734,7 +734,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
             .next = null,
         };
         var res: *os.addrinfo = undefined;
-        const rc = sys.getaddrinfo(name_c.ptr, std.meta.assumeSentinel(port_c.ptr, 0), &hints, &res);
+        const rc = sys.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res);
         if (builtin.target.os.tag == .windows) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
             @intToEnum(os.windows.ws2_32.WinsockError, 0) => {},
             .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
