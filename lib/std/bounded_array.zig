@@ -28,14 +28,14 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
             return Self{ .buffer = undefined, .len = len };
         }
 
-        /// View the internal array as a mutable slice whose size was previously set.
-        pub fn slice(self: *Self) []T {
+        /// View the internal array as a slice whose size was previously set.
+        pub fn slice(self: anytype) mem.Span(@TypeOf(&self.buffer)) {
             return self.buffer[0..self.len];
         }
 
         /// View the internal array as a constant slice whose size was previously set.
         pub fn constSlice(self: *const Self) []const T {
-            return self.buffer[0..self.len];
+            return self.slice();
         }
 
         /// Adjust the slice's length to `len`.
