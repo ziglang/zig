@@ -114,7 +114,7 @@ pub const DebugEvent = struct {
 };
 
 pub const AtomicEvent = struct {
-    waiters: u32 = 0,
+    waiters: std.atomic.Atomic(u32) = std.atomic.Atomic(u32).init(0),
 
     const WAKE = 1 << 0;
     const WAIT = 1 << 1;
@@ -132,7 +132,7 @@ pub const AtomicEvent = struct {
     }
 
     pub fn set(ev: *AtomicEvent) void {
-        const waiters = @atomicRmw(u32, &ev.waiters, .Xchg, WAKE, .Release);
+        const waiters = ev.waiters.swap(WAKE, .Release);
         if (waiters >= WAIT) {
             return Futex.wake(&ev.waiters, waiters >> 1);
         }
@@ -146,10 +146,10 @@ pub const AtomicEvent = struct {
     }
 
     pub fn timedWait(ev: *AtomicEvent, timeout: ?u64) TimedWaitResult {
-        var waiters = @atomicLoad(u32, &ev.waiters, .Acquire);
+        var waiters = ev.waiters.load(.Acquire);
         while (waiters != WAKE) {
-            waiters = @cmpxchgWeak(u32, &ev.waiters, waiters, waiters + WAIT, .Acquire, .Acquire) orelse {
-                if (Futex.wait(&ev.waiters, timeout)) |_| {
+            waiters = ev.waiters.tryCompareAndSwap(waiters, waiters + WAIT, .Acquire, .Acquire) orelse {
+                if (Futex.wait(&ev.waiters, WAIT, timeout)) |_| {
                     return .event_set;
                 } else |_| {
                     return .timed_out;
@@ -160,27 +160,28 @@ pub const AtomicEvent = struct {
     }
 
     pub fn reset(ev: *AtomicEvent) void {
-        @atomicStore(u32, &ev.waiters, 0, .Monotonic);
+        ev.waiters.store(0, .Monotonic);
     }
 
     pub const Futex = switch (builtin.os.tag) {
         .windows => WindowsFutex,
         .linux => LinuxFutex,
+        .macos => std.Thread.Futex,
         else => SpinFutex,
     };
 
     pub const SpinFutex = struct {
-        fn wake(waiters: *u32, wake_count: u32) void {
+        fn wake(waiters: *const std.atomic.Atomic(u32), wake_count: u32) void {
             _ = waiters;
             _ = wake_count;
         }
 
-        fn wait(waiters: *u32, timeout: ?u64) !void {
+        fn wait(waiters: *const std.atomic.Atomic(u32), _: u32, timeout: ?u64) !void {
             var timer: time.Timer = undefined;
             if (timeout != null)
                 timer = time.Timer.start() catch return error.TimedOut;
 
-            while (@atomicLoad(u32, waiters, .Acquire) != WAKE) {
+            while (waiters.load(.Acquire) != WAKE) {
                 std.os.sched_yield() catch std.atomic.spinLoopHint();
                 if (timeout) |timeout_ns| {
                     if (timer.read() >= timeout_ns)
@@ -191,15 +192,15 @@ pub const AtomicEvent = struct {
     };
 
     pub const LinuxFutex = struct {
-        fn wake(waiters: *u32, wake_count: u32) void {
+        fn wake(waiters: *const std.atomic.Atomic(u32), wake_count: u32) void {
             _ = wake_count;
             const waiting = std.math.maxInt(i32); // wake_count
-            const ptr = @ptrCast(*const i32, waiters);
+            const ptr = @ptrCast(*const i32, &waiters.value);
             const rc = linux.futex_wake(ptr, linux.FUTEX.WAKE | linux.FUTEX.PRIVATE_FLAG, waiting);
             assert(linux.getErrno(rc) == .SUCCESS);
         }
 
-        fn wait(waiters: *u32, timeout: ?u64) !void {
+        fn wait(waiters: *const std.atomic.Atomic(u32), _: u32, timeout: ?u64) !void {
             var ts: linux.timespec = undefined;
             var ts_ptr: ?*linux.timespec = null;
             if (timeout) |timeout_ns| {
@@ -209,11 +210,11 @@ pub const AtomicEvent = struct {
             }
 
             while (true) {
-                const waiting = @atomicLoad(u32, waiters, .Acquire);
+                const waiting = waiters.load(.Acquire);
                 if (waiting == WAKE)
                     return;
                 const expected = @intCast(i32, waiting);
-                const ptr = @ptrCast(*const i32, waiters);
+                const ptr = @ptrCast(*const i32, &waiters.value);
                 const rc = linux.futex_wait(ptr, linux.FUTEX.WAIT | linux.FUTEX.PRIVATE_FLAG, expected, ts_ptr);
                 switch (linux.getErrno(rc)) {
                     .SUCCESS => continue,
@@ -227,9 +228,9 @@ pub const AtomicEvent = struct {
     };
 
     pub const WindowsFutex = struct {
-        pub fn wake(waiters: *u32, wake_count: u32) void {
+        pub fn wake(waiters: *const std.atomic.Atomic(u32), wake_count: u32) void {
             const handle = getEventHandle() orelse return SpinFutex.wake(waiters, wake_count);
-            const key = @ptrCast(*const anyopaque, waiters);
+            const key = @ptrCast(*const anyopaque, &waiters.value);
 
             var waiting = wake_count;
             while (waiting != 0) : (waiting -= 1) {
@@ -238,9 +239,9 @@ pub const AtomicEvent = struct {
             }
         }
 
-        pub fn wait(waiters: *u32, timeout: ?u64) !void {
-            const handle = getEventHandle() orelse return SpinFutex.wait(waiters, timeout);
-            const key = @ptrCast(*const anyopaque, waiters);
+        pub fn wait(waiters: *std.atomic.Atomic(u32), expect: u32, timeout: ?u64) !void {
+            const handle = getEventHandle() orelse return SpinFutex.wait(waiters, expect, timeout);
+            const key = @ptrCast(*const anyopaque, &waiters.value);
 
             // NT uses timeouts in units of 100ns with negative value being relative
             var timeout_ptr: ?*windows.LARGE_INTEGER = null;
@@ -258,14 +259,14 @@ pub const AtomicEvent = struct {
                     // if the .set() thread already observed that we are, perform a
                     // matching NtWaitForKeyedEvent so that the .set() thread doesn't
                     // deadlock trying to run NtReleaseKeyedEvent above.
-                    var waiting = @atomicLoad(u32, waiters, .Monotonic);
+                    var waiting = waiters.load(.Monotonic);
                     while (true) {
                         if (waiting == WAKE) {
                             rc = windows.ntdll.NtWaitForKeyedEvent(handle, key, windows.FALSE, null);
                             assert(rc == windows.NTSTATUS.WAIT_0);
                             break;
                         } else {
-                            waiting = @cmpxchgWeak(u32, waiters, waiting, waiting - WAIT, .Acquire, .Monotonic) orelse break;
+                            waiting = waiters.tryCompareAndSwap(waiting, waiting - WAIT, .Acquire, .Monotonic) orelse break;
                             continue;
                         }
                     }
