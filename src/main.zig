@@ -708,6 +708,9 @@ fn buildOutputType(
     var link_objects = std.ArrayList([]const u8).init(gpa);
     defer link_objects.deinit();
 
+    var must_link_objects = std.ArrayList([]const u8).init(gpa);
+    defer must_link_objects.deinit();
+
     var framework_dirs = std.ArrayList([]const u8).init(gpa);
     defer framework_dirs.deinit();
 
@@ -1748,6 +1751,12 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     install_name = linker_args.items[i];
+                } else if (mem.eql(u8, arg, "-force_load")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    try must_link_objects.append(linker_args.items[i]);
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
@@ -2438,6 +2447,7 @@ fn buildOutputType(
         .rpath_list = rpath_list.items,
         .c_source_files = c_source_files.items,
         .link_objects = link_objects.items,
+        .must_link_objects = must_link_objects.items,
         .framework_dirs = framework_dirs.items,
         .frameworks = frameworks.items,
         .system_lib_names = system_libs.keys(),

@@ -156,6 +156,7 @@ pub const Options = struct {
     llvm_cpu_features: ?[*:0]const u8,
 
     objects: []const []const u8,
+    must_link_objects: []const []const u8,
     framework_dirs: []const []const u8,
     frameworks: []const []const u8,
     system_libs: std.StringArrayHashMapUnmanaged(SystemLib),

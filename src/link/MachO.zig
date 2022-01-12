@@ -679,10 +679,20 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             // the relocatable object files.
             self.invalidate_relocs = true;
 
+            // Unpack must-link archives
+            var must_link_archives = std.StringArrayHashMap(void).init(arena);
+            try must_link_archives.ensureTotalCapacity(@intCast(u32, self.base.options.must_link_objects.len));
+            for (self.base.options.must_link_objects) |lib| {
+                _ = must_link_archives.getOrPutAssumeCapacity(lib);
+            }
+
             // Positional arguments to the linker such as object files and static archives.
             var positionals = std.ArrayList([]const u8).init(arena);
-
-            try positionals.appendSlice(self.base.options.objects);
+            try positionals.ensureUnusedCapacity(self.base.options.objects.len);
+            for (self.base.options.objects) |obj| {
+                if (must_link_archives.contains(obj)) continue;
+                _ = positionals.appendAssumeCapacity(obj);
+            }
 
             for (comp.c_object_table.keys()) |key| {
                 try positionals.append(key.status.success.object_path);
@@ -889,12 +899,17 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                     try argv.append("dynamic_lookup");
                 }
 
+                for (self.base.options.must_link_objects) |lib| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-force_load {s}", .{lib}));
+                }
+
                 Compilation.dump_argv(argv.items);
             }
 
             var dependent_libs = std.fifo.LinearFifo(Dylib.Id, .Dynamic).init(self.base.allocator);
             defer dependent_libs.deinit();
             try self.parseInputFiles(positionals.items, self.base.options.sysroot, &dependent_libs);
+            try self.parseAndForceLoadStaticArchives(must_link_archives.keys());
             try self.parseLibs(libs.items, self.base.options.sysroot, &dependent_libs);
             try self.parseDependentLibs(self.base.options.sysroot, &dependent_libs);
         }
@@ -1203,7 +1218,7 @@ fn parseObject(self: *MachO, path: []const u8) !bool {
     return true;
 }
 
-fn parseArchive(self: *MachO, path: []const u8) !bool {
+fn parseArchive(self: *MachO, path: []const u8, force_load: bool) !bool {
     const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => |e| return e,
@@ -1226,7 +1241,23 @@ fn parseArchive(self: *MachO, path: []const u8) !bool {
         else => |e| return e,
     };
 
-    try self.archives.append(self.base.allocator, archive);
+    if (force_load) {
+        defer archive.deinit(self.base.allocator);
+        // Get all offsets from the ToC
+        var offsets = std.AutoArrayHashMap(u32, void).init(self.base.allocator);
+        defer offsets.deinit();
+        for (archive.toc.values()) |offs| {
+            for (offs.items) |off| {
+                _ = try offsets.getOrPut(off);
+            }
+        }
+        for (offsets.keys()) |off| {
+            const object = try self.objects.addOne(self.base.allocator);
+            object.* = try archive.parseObject(self.base.allocator, self.base.options.target, off);
+        }
+    } else {
+        try self.archives.append(self.base.allocator, archive);
+    }
 
     return true;
 }
@@ -1311,13 +1342,28 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
         log.debug("parsing input file path '{s}'", .{full_path});
 
         if (try self.parseObject(full_path)) continue;
-        if (try self.parseArchive(full_path)) continue;
+        if (try self.parseArchive(full_path, false)) continue;
         if (try self.parseDylib(full_path, .{
             .syslibroot = syslibroot,
             .dependent_libs = dependent_libs,
         })) continue;
 
         log.warn("unknown filetype for positional input file: '{s}'", .{file_name});
+    }
+}
+
+fn parseAndForceLoadStaticArchives(self: *MachO, files: []const []const u8) !void {
+    for (files) |file_name| {
+        const full_path = full_path: {
+            var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+            const path = try fs.realpath(file_name, &buffer);
+            break :full_path try self.base.allocator.dupe(u8, path);
+        };
+        defer self.base.allocator.free(full_path);
+        log.debug("parsing and force loading static archive '{s}'", .{full_path});
+
+        if (try self.parseArchive(full_path, true)) continue;
+        log.warn("unknown filetype: expected static archive: '{s}'", .{file_name});
     }
 }
 
@@ -1328,7 +1374,7 @@ fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8, de
             .syslibroot = syslibroot,
             .dependent_libs = dependent_libs,
         })) continue;
-        if (try self.parseArchive(lib)) continue;
+        if (try self.parseArchive(lib, false)) continue;
 
         log.warn("unknown filetype for a library: '{s}'", .{lib});
     }
