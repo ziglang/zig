@@ -141,6 +141,9 @@ objc_selrefs_section_index: ?u16 = null,
 objc_classrefs_section_index: ?u16 = null,
 objc_data_section_index: ?u16 = null,
 
+rustc_section_index: ?u16 = null,
+rustc_section_size: u64 = 0,
+
 bss_file_offset: u32 = 0,
 tlv_bss_file_offset: u32 = 0,
 
@@ -993,6 +996,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             try self.writeAtoms();
         }
 
+        if (self.rustc_section_index) |id| {
+            const seg = &self.load_commands.items[self.data_segment_cmd_index.?].segment;
+            const sect = &seg.sections.items[id];
+            sect.size = self.rustc_section_size;
+        }
         if (self.bss_section_index) |idx| {
             const seg = &self.load_commands.items[self.data_segment_cmd_index.?].segment;
             const sect = &seg.sections.items[idx];
@@ -1885,6 +1893,24 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         break :blk .{
                             .seg = self.data_segment_cmd_index.?,
                             .sect = self.objc_data_section_index.?,
+                        };
+                    } else if (mem.eql(u8, sectname, ".rustc")) {
+                        if (self.rustc_section_index == null) {
+                            self.rustc_section_index = try self.initSection(
+                                self.data_segment_cmd_index.?,
+                                ".rustc",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
+                            // We need to preserve the section size for rustc to properly
+                            // decompress the metadata.
+                            self.rustc_section_size = sect.size;
+                        }
+
+                        break :blk .{
+                            .seg = self.data_segment_cmd_index.?,
+                            .sect = self.rustc_section_index.?,
                         };
                     } else {
                         if (self.data_section_index == null) {
@@ -5212,6 +5238,7 @@ fn sortSections(self: *MachO) !void {
 
         // __DATA segment
         const indices = &[_]*?u16{
+            &self.rustc_section_index,
             &self.la_symbol_ptr_section_index,
             &self.objc_const_section_index,
             &self.objc_selrefs_section_index,
