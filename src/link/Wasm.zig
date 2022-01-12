@@ -495,9 +495,21 @@ fn setupMemory(self: *Wasm) !void {
     log.debug("Setting up memory layout", .{});
     const page_size = 64 * 1024;
     const stack_size = self.base.options.stack_size_override orelse page_size * 1;
-    const stack_alignment = 16;
-    var memory_ptr: u64 = self.base.options.global_base orelse 1024;
-    memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
+    const stack_alignment = 16; // wasm's stack alignment as specified by tool-convention
+    // Always place the stack at the start by default
+    // unless the user specified the global-base flag
+    var place_stack_first = true;
+    var memory_ptr: u64 = if (self.base.options.global_base) |base| blk: {
+        place_stack_first = false;
+        break :blk base;
+    } else 0;
+
+    if (place_stack_first) {
+        memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
+        memory_ptr += stack_size;
+        // We always put the stack pointer global at index 0
+        self.globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
+    }
 
     var offset: u32 = @intCast(u32, memory_ptr);
     for (self.segments.items) |*segment, i| {
@@ -511,8 +523,11 @@ fn setupMemory(self: *Wasm) !void {
         offset += segment.size;
     }
 
-    memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
-    memory_ptr += stack_size;
+    if (!place_stack_first) {
+        memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, stack_alignment);
+        memory_ptr += stack_size;
+        self.globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
+    }
 
     // Setup the max amount of pages
     // For now we only support wasm32 by setting the maximum allowed memory size 2^32-1
@@ -555,9 +570,6 @@ fn setupMemory(self: *Wasm) !void {
         self.memories.limits.max = @intCast(u32, max_memory / page_size);
         log.debug("Maximum memory pages: {d}", .{self.memories.limits.max});
     }
-
-    // We always put the stack pointer global at index 0
-    self.globals.items[0].init.i32_const = @bitCast(i32, @intCast(u32, memory_ptr));
 }
 
 fn resetState(self: *Wasm) void {
@@ -1105,6 +1117,12 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         if (self.base.options.global_base) |global_base| {
             const arg = try std.fmt.allocPrint(arena, "--global-base={d}", .{global_base});
             try argv.append(arg);
+        } else {
+            // We prepend it by default, so when a stack overflow happens the runtime will trap correctly,
+            // rather than silently overwrite all global declarations. See https://github.com/ziglang/zig/issues/4496
+            //
+            // The user can overwrite this behavior by setting the global-base
+            try argv.append("--stack-first");
         }
 
         // Users are allowed to specify which symbols they want to export to the wasm host.
@@ -1124,10 +1142,6 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             const stack_size = self.base.options.stack_size_override orelse 1048576;
             const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
             try argv.append(arg);
-
-            // Put stack before globals so that stack overflow results in segfault immediately
-            // before corrupting globals. See https://github.com/ziglang/zig/issues/4496
-            try argv.append("--stack-first");
 
             if (self.base.options.wasi_exec_model == .reactor) {
                 // Reactor execution model does not have _start so lld doesn't look for it.
