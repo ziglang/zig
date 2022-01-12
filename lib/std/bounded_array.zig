@@ -18,14 +18,14 @@ const testing = std.testing;
 pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
     return struct {
         const Self = @This();
-        buffer: [capacity]T,
+        buffer: [capacity]T = undefined,
         len: usize = 0,
 
         /// Set the actual length of the slice.
         /// Returns error.Overflow if it exceeds the length of the backing array.
         pub fn init(len: usize) !Self {
             if (len > capacity) return error.Overflow;
-            return Self{ .buffer = undefined, .len = len };
+            return Self{ .len = len };
         }
 
         /// View the internal array as a mutable slice whose size was previously set.
