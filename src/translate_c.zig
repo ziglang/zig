@@ -5602,16 +5602,18 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
         },
         .FloatLiteral => |suffix| {
             if (suffix != .none) lit_bytes = lit_bytes[0 .. lit_bytes.len - 1];
-            const dot_index = mem.indexOfScalar(u8, lit_bytes, '.').?;
-            if (dot_index == 0) {
-                lit_bytes = try std.fmt.allocPrint(c.arena, "0{s}", .{lit_bytes});
-            } else if (dot_index + 1 == lit_bytes.len or !std.ascii.isDigit(lit_bytes[dot_index + 1])) {
-                // If the literal lacks a digit after the `.`, we need to
-                // add one since `1.` or `1.e10` would be invalid syntax in Zig.
-                lit_bytes = try std.fmt.allocPrint(c.arena, "{s}0{s}", .{
-                    lit_bytes[0 .. dot_index + 1],
-                    lit_bytes[dot_index + 1 ..],
-                });
+
+            if (mem.indexOfScalar(u8, lit_bytes, '.')) |dot_index| {
+                if (dot_index == 0) {
+                    lit_bytes = try std.fmt.allocPrint(c.arena, "0{s}", .{lit_bytes});
+                } else if (dot_index + 1 == lit_bytes.len or !std.ascii.isDigit(lit_bytes[dot_index + 1])) {
+                    // If the literal lacks a digit after the `.`, we need to
+                    // add one since `1.` or `1.e10` would be invalid syntax in Zig.
+                    lit_bytes = try std.fmt.allocPrint(c.arena, "{s}0{s}", .{
+                        lit_bytes[0 .. dot_index + 1],
+                        lit_bytes[dot_index + 1 ..],
+                    });
+                }
             }
 
             if (suffix == .none)

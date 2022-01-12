@@ -1135,11 +1135,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define bar 16.e-2l
         \\#define FOO 0.12345
         \\#define BAR .12345
+        \\#define baz 1e1
+        \\#define BAZ 42e-3f
     , &[_][]const u8{
         "pub const foo = @as(f32, 3.14);",
         "pub const bar = @as(c_longdouble, 16.0e-2);",
         "pub const FOO = 0.12345;",
         "pub const BAR = 0.12345;",
+        "pub const baz = 1e1;",
+        "pub const BAZ = @as(f32, 42e-3);",
     });
 
     cases.add("comments",
