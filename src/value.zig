@@ -1817,8 +1817,13 @@ pub const Value = extern union {
 
             .decl_ref => return val.castTag(.decl_ref).?.data.val.elemValueAdvanced(index, arena, buffer),
             .decl_ref_mut => return val.castTag(.decl_ref_mut).?.data.decl.val.elemValueAdvanced(index, arena, buffer),
+            .elem_ptr => {
+                const data = val.castTag(.elem_ptr).?.data;
+                return data.array_ptr.elemValueAdvanced(index + data.index, arena, buffer);
+            },
 
-            // The child type of arrays which have only one possible value need to have only one possible value itself.
+            // The child type of arrays which have only one possible value need
+            // to have only one possible value itself.
             .the_only_possible_value => return val,
 
             else => unreachable,

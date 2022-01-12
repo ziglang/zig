@@ -1418,7 +1418,13 @@ fn arrayInitExprRlPtrInner(
         extra_index += 1;
         _ = try expr(gz, scope, .{ .ptr = elem_ptr }, elem_init);
     }
-    _ = try gz.addPlNodePayloadIndex(.validate_array_init, node, payload_index);
+
+    const tag: Zir.Inst.Tag = if (gz.force_comptime)
+        .validate_array_init_comptime
+    else
+        .validate_array_init;
+
+    _ = try gz.addPlNodePayloadIndex(tag, node, payload_index);
     return .void_value;
 }
 
@@ -2317,6 +2323,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .validate_struct_init,
             .validate_struct_init_comptime,
             .validate_array_init,
+            .validate_array_init_comptime,
             .set_align_stack,
             .set_cold,
             .set_float_mode,

@@ -44,7 +44,7 @@ const BlockData = struct {
     result: CValue,
 };
 
-pub const CValueMap = std.AutoHashMap(Air.Inst.Index, CValue);
+pub const CValueMap = std.AutoHashMap(Air.Inst.Ref, CValue);
 pub const TypedefMap = std.ArrayHashMap(
     Type,
     struct { name: []const u8, rendered: []u8 },
@@ -110,11 +110,29 @@ pub const Function = struct {
     func: *Module.Fn,
 
     fn resolveInst(f: *Function, inst: Air.Inst.Ref) !CValue {
-        if (f.air.value(inst)) |_| {
-            return CValue{ .constant = inst };
+        const gop = try f.value_map.getOrPut(inst);
+        if (gop.found_existing) return gop.value_ptr.*;
+
+        const val = f.air.value(inst).?;
+        const ty = f.air.typeOf(inst);
+        switch (ty.zigTypeTag()) {
+            .Array => {
+                const writer = f.object.code_header.writer();
+                const decl_c_value = f.allocLocalValue();
+                gop.value_ptr.* = decl_c_value;
+                try writer.writeAll("static ");
+                try f.object.dg.renderTypeAndName(writer, ty, decl_c_value, .Const);
+                try writer.writeAll(" = ");
+                try f.object.dg.renderValue(writer, ty, val);
+                try writer.writeAll(";\n ");
+                return decl_c_value;
+            },
+            else => {
+                const result = CValue{ .constant = inst };
+                gop.value_ptr.* = result;
+                return result;
+            },
         }
-        const index = Air.refToIndex(inst).?;
-        return f.value_map.get(index).?; // Assertion means instruction does not dominate usage.
     }
 
     fn allocLocalValue(f: *Function) CValue {
@@ -154,6 +172,8 @@ pub const Function = struct {
 pub const Object = struct {
     dg: DeclGen,
     code: std.ArrayList(u8),
+    /// Goes before code. Initialized and deinitialized in `genFunc`.
+    code_header: std.ArrayList(u8) = undefined,
     indent_writer: IndentWriter(std.ArrayList(u8).Writer),
 
     fn writer(o: *Object) IndentWriter(std.ArrayList(u8).Writer).Writer {
@@ -218,12 +238,18 @@ pub const DeclGen = struct {
             // Determine if we must pointer cast.
             if (ty.eql(decl.ty)) {
                 try writer.writeByte('&');
-            } else {
-                try writer.writeAll("(");
-                try dg.renderType(writer, ty);
-                try writer.writeAll(")&");
+                try dg.renderDeclName(decl, writer);
+                return;
             }
+
+            try writer.writeAll("((");
+            try dg.renderType(writer, ty);
+            try writer.writeAll(")&");
+            try dg.renderDeclName(decl, writer);
+            try writer.writeByte(')');
+            return;
         }
+
         try dg.renderDeclName(decl, writer);
     }
 
@@ -1010,6 +1036,10 @@ pub fn genFunc(f: *Function) !void {
     defer tracy.end();
 
     const o = &f.object;
+
+    o.code_header = std.ArrayList(u8).init(f.object.dg.gpa);
+    defer o.code_header.deinit();
+
     const is_global = o.dg.module.decl_exports.contains(f.func.owner_decl);
     const fwd_decl_writer = o.dg.fwd_decl.writer();
     if (is_global) {
@@ -1020,12 +1050,26 @@ pub fn genFunc(f: *Function) !void {
 
     try o.indent_writer.insertNewline();
     try o.dg.renderFunctionSignature(o.writer(), is_global);
-
     try o.writer().writeByte(' ');
+
+    // In case we need to use the header, populate it with a copy of the function
+    // signature here. We anticipate a brace, newline, and space.
+    try o.code_header.ensureUnusedCapacity(o.code.items.len + 3);
+    o.code_header.appendSliceAssumeCapacity(o.code.items);
+    o.code_header.appendSliceAssumeCapacity("{\n ");
+    const empty_header_len = o.code_header.items.len;
+
     const main_body = f.air.getMainBody();
     try genBody(f, main_body);
 
     try o.indent_writer.insertNewline();
+
+    // If we have a header to insert, append the body to the header
+    // and then return the result, freeing the body.
+    if (o.code_header.items.len > empty_header_len) {
+        try o.code_header.appendSlice(o.code.items[empty_header_len..]);
+        mem.swap(std.ArrayList(u8), &o.code, &o.code_header);
+    }
 }
 
 pub fn genDecl(o: *Object) !void {
@@ -1289,7 +1333,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
         };
         switch (result_value) {
             .none => {},
-            else => try f.value_map.putNoClobber(inst, result_value),
+            else => try f.value_map.putNoClobber(Air.indexToRef(inst), result_value),
         }
     }
 
@@ -2189,7 +2233,15 @@ fn airCall(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
     const dbg_stmt = f.air.instructions.items(.data)[inst].dbg_stmt;
     const writer = f.object.writer();
-    try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
+    // TODO re-evaluate whether to emit these or not. If we naively emit
+    // these directives, the output file will report bogus line numbers because
+    // every newline after the #line directive adds one to the line.
+    // We also don't print the filename yet, so the output is strictly unhelpful.
+    // If we wanted to go this route, we would need to go all the way and not output
+    // newlines until the next dbg_stmt occurs.
+    // Perhaps an additional compilation option is in order?
+    //try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
+    try writer.print("/* file:{d}:{d} */\n", .{ dbg_stmt.line + 1, dbg_stmt.column + 1 });
     return CValue.none;
 }
 

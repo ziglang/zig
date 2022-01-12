@@ -663,6 +663,9 @@ pub const Inst = struct {
         /// because it must use one of them to find out the array type.
         /// Uses the `pl_node` field. Payload is `Block`.
         validate_array_init,
+        /// Same as `validate_array_init` but additionally communicates that the
+        /// resulting array initialization value is within a comptime scope.
+        validate_array_init_comptime,
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
@@ -1087,6 +1090,7 @@ pub const Inst = struct {
                 .validate_struct_init,
                 .validate_struct_init_comptime,
                 .validate_array_init,
+                .validate_array_init_comptime,
                 .struct_init_empty,
                 .struct_init,
                 .struct_init_ref,
@@ -1341,6 +1345,7 @@ pub const Inst = struct {
                 .validate_struct_init = .pl_node,
                 .validate_struct_init_comptime = .pl_node,
                 .validate_array_init = .pl_node,
+                .validate_array_init_comptime = .pl_node,
                 .struct_init_empty = .un_node,
                 .field_type = .pl_node,
                 .field_type_ref = .pl_node,

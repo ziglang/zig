@@ -836,7 +836,12 @@ pub fn analyzeBody(
                 continue;
             },
             .validate_array_init => {
-                try sema.zirValidateArrayInit(block, inst);
+                try sema.zirValidateArrayInit(block, inst, false);
+                i += 1;
+                continue;
+            },
+            .validate_array_init_comptime => {
+                try sema.zirValidateArrayInit(block, inst, true);
                 i += 1;
                 continue;
             },
@@ -2815,13 +2820,18 @@ fn validateStructInit(
     }
 }
 
-fn zirValidateArrayInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+fn zirValidateArrayInit(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    is_comptime: bool,
+) CompileError!void {
     const validate_inst = sema.code.instructions.items(.data)[inst].pl_node;
     const init_src = validate_inst.src();
     const validate_extra = sema.code.extraData(Zir.Inst.Block, validate_inst.payload_index);
     const instrs = sema.code.extra[validate_extra.end..][0..validate_extra.data.body_len];
-    const elem_ptr_data = sema.code.instructions.items(.data)[instrs[0]].pl_node;
-    const elem_ptr_extra = sema.code.extraData(Zir.Inst.ElemPtrImm, elem_ptr_data.payload_index).data;
+    const first_elem_ptr_data = sema.code.instructions.items(.data)[instrs[0]].pl_node;
+    const elem_ptr_extra = sema.code.extraData(Zir.Inst.ElemPtrImm, first_elem_ptr_data.payload_index).data;
     const array_ptr = sema.resolveInst(elem_ptr_extra.ptr);
     const array_ty = sema.typeOf(array_ptr).childType();
     const array_len = array_ty.arrayLen();
@@ -2830,6 +2840,82 @@ fn zirValidateArrayInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compil
         return sema.fail(block, init_src, "expected {d} array elements; found {d}", .{
             array_len, instrs.len,
         });
+    }
+
+    if (is_comptime or block.is_comptime) {
+        // In this case the comptime machinery will have evaluated the store instructions
+        // at comptime and we have nothing to do here.
+        return;
+    }
+
+    var array_is_comptime = true;
+    var first_block_index: usize = std.math.maxInt(u32);
+
+    // Collect the comptime element values in case the array literal ends up
+    // being comptime-known.
+    const element_vals = try sema.arena.alloc(Value, instrs.len);
+    const opt_opv = try sema.typeHasOnePossibleValue(block, init_src, array_ty);
+    const air_tags = sema.air_instructions.items(.tag);
+    const air_datas = sema.air_instructions.items(.data);
+
+    for (instrs) |elem_ptr, i| {
+        const elem_ptr_data = sema.code.instructions.items(.data)[elem_ptr].pl_node;
+        const elem_src: LazySrcLoc = .{ .node_offset = elem_ptr_data.src_node };
+
+        // Determine whether the value stored to this pointer is comptime-known.
+
+        if (opt_opv) |opv| {
+            element_vals[i] = opv;
+            continue;
+        }
+
+        const elem_ptr_air_ref = sema.inst_map.get(elem_ptr).?;
+        const elem_ptr_air_inst = Air.refToIndex(elem_ptr_air_ref).?;
+        // Find the block index of the elem_ptr so that we can look at the next
+        // instruction after it within the same block.
+        // Possible performance enhancement: save the `block_index` between iterations
+        // of the for loop.
+        const next_air_inst = inst: {
+            var block_index = block.instructions.items.len - 1;
+            while (block.instructions.items[block_index] != elem_ptr_air_inst) {
+                block_index -= 1;
+            }
+            first_block_index = @minimum(first_block_index, block_index);
+            break :inst block.instructions.items[block_index + 1];
+        };
+
+        // If the next instructon is a store with a comptime operand, this element
+        // is comptime.
+        switch (air_tags[next_air_inst]) {
+            .store => {
+                const bin_op = air_datas[next_air_inst].bin_op;
+                if (bin_op.lhs != elem_ptr_air_ref) {
+                    array_is_comptime = false;
+                    continue;
+                }
+                if (try sema.resolveMaybeUndefValAllowVariables(block, elem_src, bin_op.rhs)) |val| {
+                    element_vals[i] = val;
+                } else {
+                    array_is_comptime = false;
+                }
+                continue;
+            },
+            else => {
+                array_is_comptime = false;
+                continue;
+            },
+        }
+    }
+
+    if (array_is_comptime) {
+        // Our task is to delete all the `elem_ptr` and `store` instructions, and insert
+        // instead a single `store` to the array_ptr with a comptime struct value.
+
+        block.instructions.shrinkRetainingCapacity(first_block_index);
+
+        const array_val = try Value.Tag.array.create(sema.arena, element_vals);
+        const array_init = try sema.addConstant(array_ty, array_val);
+        try sema.storePtr2(block, init_src, array_ptr, init_src, array_init, init_src, .store);
     }
 }
 
