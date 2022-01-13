@@ -3741,7 +3741,7 @@ fn getMatchingSectionDecl(self: *MachO, decl: *Module.Decl) !MatchingSection {
                             .segname = makeStaticString("__DATA_CONST"),
                             .sectname = makeStaticString("__const"),
                             .size = code.len,
-                            .@"align" = 3, // TODO I think this should not be needed
+                            .@"align" = align_log_2,
                         })).?;
                     } else {
                         break :blk (try self.getMatchingSection(.{
