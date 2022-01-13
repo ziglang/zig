@@ -499,7 +499,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
         comptime assert(Compilation.link_hash_implementation_version == 1);
 
-        try man.addListOfFiles(self.base.options.objects);
+        for (self.base.options.objects) |obj| {
+            _ = try man.addFile(obj.path, null);
+            man.hash.add(obj.must_link);
+        }
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
         }
@@ -571,8 +574,9 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
-            if (self.base.options.objects.len != 0)
-                break :blk self.base.options.objects[0];
+            if (self.base.options.objects.len != 0) {
+                break :blk self.base.options.objects[0].path;
+            }
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -679,19 +683,20 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             // the relocatable object files.
             self.invalidate_relocs = true;
 
-            // Unpack must-link archives
-            var must_link_archives = std.StringArrayHashMap(void).init(arena);
-            try must_link_archives.ensureTotalCapacity(@intCast(u32, self.base.options.must_link_objects.len));
-            for (self.base.options.must_link_objects) |lib| {
-                _ = must_link_archives.getOrPutAssumeCapacity(lib);
-            }
-
             // Positional arguments to the linker such as object files and static archives.
             var positionals = std.ArrayList([]const u8).init(arena);
             try positionals.ensureUnusedCapacity(self.base.options.objects.len);
+
+            var must_link_archives = std.StringArrayHashMap(void).init(arena);
+            try must_link_archives.ensureUnusedCapacity(self.base.options.objects.len);
+
             for (self.base.options.objects) |obj| {
-                if (must_link_archives.contains(obj)) continue;
-                _ = positionals.appendAssumeCapacity(obj);
+                if (must_link_archives.contains(obj.path)) continue;
+                if (obj.must_link) {
+                    _ = must_link_archives.getOrPutAssumeCapacity(obj.path);
+                } else {
+                    _ = positionals.appendAssumeCapacity(obj.path);
+                }
             }
 
             for (comp.c_object_table.keys()) |key| {
@@ -899,7 +904,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                     try argv.append("dynamic_lookup");
                 }
 
-                for (self.base.options.must_link_objects) |lib| {
+                for (must_link_archives.keys()) |lib| {
                     try argv.append(try std.fmt.allocPrint(arena, "-force_load {s}", .{lib}));
                 }
 

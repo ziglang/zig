@@ -155,8 +155,7 @@ pub const Options = struct {
     soname: ?[]const u8,
     llvm_cpu_features: ?[*:0]const u8,
 
-    objects: []const []const u8,
-    must_link_objects: []const []const u8,
+    objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,
     frameworks: []const []const u8,
     system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
@@ -756,7 +755,10 @@ pub const File = struct {
             // We are about to obtain this lock, so here we give other processes a chance first.
             base.releaseLock();
 
-            try man.addListOfFiles(base.options.objects);
+            for (base.options.objects) |obj| {
+                _ = try man.addFile(obj.path, null);
+                man.hash.add(obj.must_link);
+            }
             for (comp.c_object_table.keys()) |key| {
                 _ = try man.addFile(key.status.success.object_path, null);
             }
@@ -793,8 +795,8 @@ pub const File = struct {
         var object_files = try std.ArrayList([*:0]const u8).initCapacity(base.allocator, num_object_files);
         defer object_files.deinit();
 
-        for (base.options.objects) |obj_path| {
-            object_files.appendAssumeCapacity(try arena.dupeZ(u8, obj_path));
+        for (base.options.objects) |obj| {
+            object_files.appendAssumeCapacity(try arena.dupeZ(u8, obj.path));
         }
         for (comp.c_object_table.keys()) |key| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.object_path));

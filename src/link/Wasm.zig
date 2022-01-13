@@ -1128,7 +1128,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 
         comptime assert(Compilation.link_hash_implementation_version == 1);
 
-        try man.addListOfFiles(self.base.options.objects);
+        for (self.base.options.objects) |obj| {
+            _ = try man.addFile(obj.path, null);
+            man.hash.add(obj.must_link);
+        }
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
         }
@@ -1181,7 +1184,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
             if (self.base.options.objects.len != 0)
-                break :blk self.base.options.objects[0];
+                break :blk self.base.options.objects[0].path;
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -1346,7 +1349,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         }
 
         // Positional arguments to the linker such as object files.
-        try argv.appendSlice(self.base.options.objects);
+        try argv.ensureUnusedCapacity(self.base.options.objects.len);
+        for (self.base.options.objects) |obj| {
+            argv.appendAssumeCapacity(obj.path);
+        }
 
         for (comp.c_object_table.keys()) |key| {
             try argv.append(key.status.success.object_path);

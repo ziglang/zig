@@ -705,11 +705,8 @@ fn buildOutputType(
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(gpa);
     defer c_source_files.deinit();
 
-    var link_objects = std.ArrayList([]const u8).init(gpa);
+    var link_objects = std.ArrayList(Compilation.LinkObject).init(gpa);
     defer link_objects.deinit();
-
-    var must_link_objects = std.ArrayList([]const u8).init(gpa);
-    defer must_link_objects.deinit();
 
     var framework_dirs = std.ArrayList([]const u8).init(gpa);
     defer framework_dirs.deinit();
@@ -1241,7 +1238,7 @@ fn buildOutputType(
                     }
                 } else switch (Compilation.classifyFileExt(arg)) {
                     .object, .static_library, .shared_library => {
-                        try link_objects.append(arg);
+                        try link_objects.append(.{ .path = arg });
                     },
                     .assembly, .c, .cpp, .h, .ll, .bc, .m, .mm => {
                         try c_source_files.append(.{
@@ -1312,7 +1309,7 @@ fn buildOutputType(
                         switch (file_ext) {
                             .assembly, .c, .cpp, .ll, .bc, .h, .m, .mm => try c_source_files.append(.{ .src_path = it.only_arg }),
                             .unknown, .shared_library, .object, .static_library => {
-                                try link_objects.append(it.only_arg);
+                                try link_objects.append(.{ .path = it.only_arg });
                             },
                             .zig => {
                                 if (root_src_file) |other| {
@@ -1756,7 +1753,10 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
-                    try must_link_objects.append(linker_args.items[i]);
+                    try link_objects.append(.{
+                        .path = linker_args.items[i],
+                        .must_link = true,
+                    });
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
@@ -1851,7 +1851,7 @@ fn buildOutputType(
             const basename = fs.path.basename(c_source_files.items[0].src_path);
             break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (link_objects.items.len >= 1) {
-            const basename = fs.path.basename(link_objects.items[0]);
+            const basename = fs.path.basename(link_objects.items[0].path);
             break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (emit_bin == .yes) {
             const basename = fs.path.basename(emit_bin.yes);
@@ -2054,7 +2054,7 @@ fn buildOutputType(
                         test_path.items, @errorName(e),
                     }),
                 };
-                try link_objects.append(try arena.dupe(u8, test_path.items));
+                try link_objects.append(.{ .path = try arena.dupe(u8, test_path.items) });
                 break;
             } else {
                 var search_paths = std.ArrayList(u8).init(arena);
@@ -2447,7 +2447,6 @@ fn buildOutputType(
         .rpath_list = rpath_list.items,
         .c_source_files = c_source_files.items,
         .link_objects = link_objects.items,
-        .must_link_objects = must_link_objects.items,
         .framework_dirs = framework_dirs.items,
         .frameworks = frameworks.items,
         .system_lib_names = system_libs.keys(),
