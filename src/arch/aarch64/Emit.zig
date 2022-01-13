@@ -112,12 +112,19 @@ pub fn emitMir(
             .strb_stack => try emit.mirLoadStoreStack(inst),
             .strh_stack => try emit.mirLoadStoreStack(inst),
 
-            .ldr => try emit.mirLoadStoreRegister(inst),
-            .ldrb => try emit.mirLoadStoreRegister(inst),
-            .ldrh => try emit.mirLoadStoreRegister(inst),
-            .str => try emit.mirLoadStoreRegister(inst),
-            .strb => try emit.mirLoadStoreRegister(inst),
-            .strh => try emit.mirLoadStoreRegister(inst),
+            .ldr_register => try emit.mirLoadStoreRegisterRegister(inst),
+            .ldrb_register => try emit.mirLoadStoreRegisterRegister(inst),
+            .ldrh_register => try emit.mirLoadStoreRegisterRegister(inst),
+            .str_register => try emit.mirLoadStoreRegisterRegister(inst),
+            .strb_register => try emit.mirLoadStoreRegisterRegister(inst),
+            .strh_register => try emit.mirLoadStoreRegisterRegister(inst),
+
+            .ldr_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
+            .ldrb_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
+            .ldrh_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
+            .str_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
+            .strb_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
+            .strh_immediate => try emit.mirLoadStoreRegisterImmediate(inst),
 
             .mov_register => try emit.mirMoveRegister(inst),
             .mov_to_from_sp => try emit.mirMoveRegister(inst),
@@ -737,41 +744,38 @@ fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
-fn mirLoadStoreRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
+fn mirLoadStoreRegisterImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    const load_store_register = emit.mir.instructions.items(.data)[inst].load_store_register;
+    const load_store_register_immediate = emit.mir.instructions.items(.data)[inst].load_store_register_immediate;
+    const rt = load_store_register_immediate.rt;
+    const rn = load_store_register_immediate.rn;
+    const offset = Instruction.LoadStoreOffset{ .immediate = load_store_register_immediate.offset };
 
     switch (tag) {
-        .ldr => try emit.writeInstruction(Instruction.ldr(
-            load_store_register.rt,
-            load_store_register.rn,
-            load_store_register.offset,
-        )),
-        .ldrb => try emit.writeInstruction(Instruction.ldrb(
-            load_store_register.rt,
-            load_store_register.rn,
-            load_store_register.offset,
-        )),
-        .ldrh => try emit.writeInstruction(Instruction.ldrh(
-            load_store_register.rt,
-            load_store_register.rn,
-            load_store_register.offset,
-        )),
-        .str => try emit.writeInstruction(Instruction.str(
-            load_store_register.rt,
-            load_store_register.rn,
-            load_store_register.offset,
-        )),
-        .strb => try emit.writeInstruction(Instruction.strb(
-            load_store_register.rt,
-            load_store_register.rn,
-            load_store_register.offset,
-        )),
-        .strh => try emit.writeInstruction(Instruction.strh(
-            load_store_register.rt,
-            load_store_register.rn,
-            load_store_register.offset,
-        )),
+        .ldr_immediate => try emit.writeInstruction(Instruction.ldr(rt, rn, offset)),
+        .ldrb_immediate => try emit.writeInstruction(Instruction.ldrb(rt, rn, offset)),
+        .ldrh_immediate => try emit.writeInstruction(Instruction.ldrh(rt, rn, offset)),
+        .str_immediate => try emit.writeInstruction(Instruction.str(rt, rn, offset)),
+        .strb_immediate => try emit.writeInstruction(Instruction.strb(rt, rn, offset)),
+        .strh_immediate => try emit.writeInstruction(Instruction.strh(rt, rn, offset)),
+        else => unreachable,
+    }
+}
+
+fn mirLoadStoreRegisterRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const load_store_register_register = emit.mir.instructions.items(.data)[inst].load_store_register_register;
+    const rt = load_store_register_register.rt;
+    const rn = load_store_register_register.rn;
+    const offset = Instruction.LoadStoreOffset{ .register = load_store_register_register.offset };
+
+    switch (tag) {
+        .ldr_register => try emit.writeInstruction(Instruction.ldr(rt, rn, offset)),
+        .ldrb_register => try emit.writeInstruction(Instruction.ldrb(rt, rn, offset)),
+        .ldrh_register => try emit.writeInstruction(Instruction.ldrh(rt, rn, offset)),
+        .str_register => try emit.writeInstruction(Instruction.str(rt, rn, offset)),
+        .strb_register => try emit.writeInstruction(Instruction.strb(rt, rn, offset)),
+        .strh_register => try emit.writeInstruction(Instruction.strh(rt, rn, offset)),
         else => unreachable,
     }
 }
