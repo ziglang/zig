@@ -1795,7 +1795,7 @@ fn parseInternal(
                         if (!field.is_comptime) {
                             @field(r, field.name) = default;
                         }
-                    } else {
+                    } else if (@typeInfo(field.field_type) != .Optional) {
                         return error.MissingField;
                     }
                 }
@@ -2285,6 +2285,68 @@ test "parse into struct ignoring unknown fields" {
 
     try testing.expectEqual(@as(i64, 420), r.int);
     try testing.expectEqualSlices(u8, "zig", r.language);
+}
+
+test "parse into struct with optional fields not provided" {
+    @setEvalBranchQuota(10000);
+    const options = ParseOptions{ .allocator = testing.allocator };
+    const T = struct {
+        int: ?i64,
+        float: ?f64,
+        @"with\\escape": ?bool,
+        @"withąunicode😂": ?bool,
+        language: ?[]const u8,
+        optional: ?bool,
+        default_field: ?i32 = 42,
+        static_array: ?[3]f64,
+        dynamic_array: ?[]f64,
+
+        complex: struct {
+            nested: []const u8,
+            optional_nested: ?[]const u8,
+        },
+
+        veryComplex: ?[]struct {
+            foo: []const u8,
+        },
+
+        a_union: ?Union,
+        const Union = union(enum) {
+            x: u8,
+            float: f64,
+            string: []const u8,
+        };
+    };
+    const r = try parse(T, &TokenStream.init(
+        \\{
+        \\  "complex": {
+        \\    "nested": "zig"
+        \\  }
+        \\}
+    ), options);
+    defer parseFree(T, r, options);
+    try testing.expectEqual(@as(?i64, null), r.int);
+    try testing.expectEqual(@as(?f64, null), r.float);
+    try testing.expectEqual(@as(?bool, null), r.@"with\\escape");
+    try testing.expectEqual(@as(?bool, null), r.@"withąunicode😂");
+    try testing.expectEqual(@as(?[]const u8, null), r.language);
+    try testing.expectEqual(@as(?bool, null), r.optional);
+    try testing.expectEqual(@as(?i32, 42), r.default_field);
+    try testing.expectEqual(@as(?[3]f64, null), r.static_array);
+    try testing.expectEqual(@as(?[]f64, null), r.dynamic_array);
+    try testing.expectEqualSlices(u8, r.complex.nested, "zig");
+    try testing.expectEqual(@as(?[]const u8, null), r.complex.optional_nested);
+    try testing.expectEqual(@as(@TypeOf(r.veryComplex), null), r.veryComplex);
+    try testing.expectEqual(@as(?T.Union, null), r.a_union);
+}
+
+test "parse into struct with not-optional field not provided" {
+    const options = ParseOptions{ .allocator = testing.allocator };
+    const T = struct {
+        int: i64,
+        float: ?f64,
+    };
+    try testing.expectError(error.MissingField, parse(T, &TokenStream.init("{}"), options));
 }
 
 const ParseIntoRecursiveUnionDefinitionValue = union(enum) {
