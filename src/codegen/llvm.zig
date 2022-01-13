@@ -2089,6 +2089,8 @@ pub const FuncGen = struct {
                 .popcount       => try self.airPopCount(inst, "ctpop"),
                 .tag_name       => try self.airTagName(inst),
                 .error_name     => try self.airErrorName(inst),
+                .splat          => try self.airSplat(inst),
+                .vector_init    => try self.airVectorInit(inst),
 
                 .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
                 .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -2612,15 +2614,19 @@ pub const FuncGen = struct {
         const array_ty = self.air.typeOf(bin_op.lhs);
         const array_llvm_val = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        assert(isByRef(array_ty));
-        const indices: [2]*const llvm.Value = .{ self.context.intType(32).constNull(), rhs };
-        const elem_ptr = self.builder.buildInBoundsGEP(array_llvm_val, &indices, indices.len, "");
-        const elem_ty = array_ty.childType();
-        if (isByRef(elem_ty)) {
-            return elem_ptr;
-        } else {
-            return self.builder.buildLoad(elem_ptr, "");
+        if (isByRef(array_ty)) {
+            const indices: [2]*const llvm.Value = .{ self.context.intType(32).constNull(), rhs };
+            const elem_ptr = self.builder.buildInBoundsGEP(array_llvm_val, &indices, indices.len, "");
+            const elem_ty = array_ty.childType();
+            if (isByRef(elem_ty)) {
+                return elem_ptr;
+            } else {
+                return self.builder.buildLoad(elem_ptr, "");
+            }
         }
+
+        // This branch can be reached for vectors, which are always by-value.
+        return self.builder.buildExtractElement(array_llvm_val, rhs, "");
     }
 
     fn airPtrElemVal(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -4163,11 +4169,20 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
         const target = self.dg.module.getTarget();
         const bits = operand_ty.intInfo(target).bits;
+        const vec_len: ?u32 = switch (operand_ty.zigTypeTag()) {
+            .Vector => @intCast(u32, operand_ty.arrayLen()),
+            else => null,
+        };
 
         var fn_name_buf: [100]u8 = undefined;
-        const llvm_fn_name = std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.i{d}", .{
-            prefix, bits,
-        }) catch unreachable;
+        const llvm_fn_name = if (vec_len) |len|
+            std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.v{d}i{d}", .{
+                prefix, len, bits,
+            }) catch unreachable
+        else
+            std.fmt.bufPrintZ(&fn_name_buf, "llvm.{s}.i{d}", .{
+                prefix, bits,
+            }) catch unreachable;
         const llvm_i1 = self.context.intType(1);
         const fn_val = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
             const operand_llvm_ty = try self.dg.llvmType(operand_ty);
@@ -4348,6 +4363,43 @@ pub const FuncGen = struct {
         const indices = [_]*const llvm.Value{operand};
         const error_name_ptr = self.builder.buildInBoundsGEP(error_name_table, &indices, indices.len, "");
         return self.builder.buildLoad(error_name_ptr, "");
+    }
+
+    fn airSplat(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const scalar = try self.resolveInst(ty_op.operand);
+        const scalar_ty = self.air.typeOf(ty_op.operand);
+        const vector_ty = self.air.typeOfIndex(inst);
+        const len = @intCast(u32, vector_ty.arrayLen());
+        const scalar_llvm_ty = try self.dg.llvmType(scalar_ty);
+        const op_llvm_ty = scalar_llvm_ty.vectorType(1);
+        const u32_llvm_ty = self.context.intType(32);
+        const mask_llvm_ty = u32_llvm_ty.vectorType(len);
+        const undef_vector = op_llvm_ty.getUndef();
+        const u32_zero = u32_llvm_ty.constNull();
+        const op_vector = self.builder.buildInsertElement(undef_vector, scalar, u32_zero, "");
+        return self.builder.buildShuffleVector(op_vector, undef_vector, mask_llvm_ty.constNull(), "");
+    }
+
+    fn airVectorInit(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const vector_ty = self.air.typeOfIndex(inst);
+        const len = vector_ty.arrayLen();
+        const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
+        const llvm_vector_ty = try self.dg.llvmType(vector_ty);
+        const llvm_u32 = self.context.intType(32);
+
+        var vector = llvm_vector_ty.getUndef();
+        for (elements) |elem, i| {
+            const index_u32 = llvm_u32.constInt(i, .False);
+            const llvm_elem = try self.resolveInst(elem);
+            vector = self.builder.buildInsertElement(vector, llvm_elem, index_u32, "");
+        }
+        return vector;
     }
 
     fn getErrorNameTable(self: *FuncGen) !*const llvm.Value {

@@ -593,6 +593,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .popcount        => try self.airPopcount(inst),
             .tag_name        => try self.airTagName(inst),
             .error_name      => try self.airErrorName(inst),
+            .splat           => try self.airSplat(inst),
+            .vector_init     => try self.airVectorInit(inst),
 
             .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
             .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -1648,7 +1650,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
         break :result info.return_value;
     };
 
-    if (args.len <= Liveness.bpi - 2) {
+    if (args.len + 1 <= Liveness.bpi - 1) {
         var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
         buf[0] = callee;
         std.mem.copy(Air.Inst.Ref, buf[1..], args);
@@ -2565,6 +2567,34 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
         return self.fail("TODO implement airErrorName for aarch64", .{});
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
+}
+
+fn airSplat(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airSplat for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airVectorInit(self: *Self, inst: Air.Inst.Index) !void {
+    const vector_ty = self.air.typeOfIndex(inst);
+    const len = @intCast(u32, vector_ty.arrayLen());
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
+    const result: MCValue = res: {
+        if (self.liveness.isUnused(inst)) break :res MCValue.dead;
+        return self.fail("TODO implement airVectorInit for {}", .{self.target.cpu.arch});
+    };
+
+    if (elements.len <= Liveness.bpi - 1) {
+        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+        std.mem.copy(Air.Inst.Ref, &buf, elements);
+        return self.finishAir(inst, result, buf);
+    }
+    var bt = try self.iterateBigTomb(inst, elements.len);
+    for (elements) |elem| {
+        bt.feed(elem);
+    }
+    return bt.finishAir(result);
 }
 
 fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {

@@ -1245,6 +1245,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .popcount         => try airBuiltinCall(f, inst, "popcount"),
             .tag_name         => try airTagName(f, inst),
             .error_name       => try airErrorName(f, inst),
+            .splat            => try airSplat(f, inst),
+            .vector_init      => try airVectorInit(f, inst),
 
             .int_to_float,
             .float_to_int,
@@ -3013,6 +3015,39 @@ fn airErrorName(f: *Function, inst: Air.Inst.Index) !CValue {
     _ = operand;
     _ = local;
     return f.fail("TODO: C backend: implement airErrorName", .{});
+}
+
+fn airSplat(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const operand = try f.resolveInst(ty_op.operand);
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+
+    _ = operand;
+    _ = local;
+    return f.fail("TODO: C backend: implement airSplat", .{});
+}
+
+fn airVectorInit(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const vector_ty = f.air.getRefType(ty_pl.ty);
+    const len = @intCast(u32, vector_ty.arrayLen());
+    const elements = @bitCast([]const Air.Inst.Ref, f.air.extra[ty_pl.payload..][0..len]);
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = ");
+
+    _ = elements;
+    _ = local;
+    return f.fail("TODO: C backend: implement airVectorInit", .{});
 }
 
 fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {

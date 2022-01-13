@@ -3224,6 +3224,29 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     return result;
 }
 
+fn airSplat(self: *Self, inst: Air.Inst.Index) !void {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const operand = self.resolveInst(ty_op.operand);
+
+    _ = ty_op;
+    _ = operand;
+    return self.fail("TODO: Implement wasm airSplat", .{});
+}
+
+fn airVectorInit(self: *Self, inst: Air.Inst.Index) !void {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const vector_ty = self.air.typeOfIndex(inst);
+    const len = @intCast(u32, vector_ty.arrayLen());
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
+
+    _ = elements;
+    return self.fail("TODO: Wasm backend: implement airVectorInit", .{});
+}
+
 fn cmpOptionals(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
     assert(operand_ty.hasCodeGenBits());
     assert(op == .eq or op == .neq);

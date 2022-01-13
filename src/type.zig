@@ -3080,7 +3080,7 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the type is an integer, enum, or error set.
+    /// Asserts the type is an integer, enum, error set, or vector of one of them.
     pub fn intInfo(self: Type, target: Target) struct { signedness: std.builtin.Signedness, bits: u16 } {
         var ty = self;
         while (true) switch (ty.tag()) {
@@ -3127,6 +3127,8 @@ pub const Type = extern union {
                 // TODO revisit this when error sets support custom int types
                 return .{ .signedness = .unsigned, .bits = 16 };
             },
+
+            .vector => ty = ty.castTag(.vector).?.data.elem_type,
 
             else => unreachable,
         };
@@ -4501,6 +4503,7 @@ pub const Type = extern union {
     };
 
     pub const @"u8" = initTag(.u8);
+    pub const @"u32" = initTag(.u32);
     pub const @"bool" = initTag(.bool);
     pub const @"usize" = initTag(.usize);
     pub const @"isize" = initTag(.isize);

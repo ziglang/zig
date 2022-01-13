@@ -196,6 +196,7 @@ const Writer = struct {
             .struct_field_ptr_index_3,
             .array_to_slice,
             .int_to_float,
+            .splat,
             .float_to_int,
             .get_union_tag,
             .clz,
@@ -218,6 +219,7 @@ const Writer = struct {
             .assembly => try w.writeAssembly(s, inst),
             .dbg_stmt => try w.writeDbgStmt(s, inst),
             .call => try w.writeCall(s, inst),
+            .vector_init => try w.writeVectorInit(s, inst),
             .br => try w.writeBr(s, inst),
             .cond_br => try w.writeCondBr(s, inst),
             .switch_br => try w.writeSwitchBr(s, inst),
@@ -288,6 +290,20 @@ const Writer = struct {
         w.indent = old_indent;
         try s.writeByteNTimes(' ', w.indent);
         try s.writeAll("}");
+    }
+
+    fn writeVectorInit(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const vector_ty = w.air.getRefType(ty_pl.ty);
+        const len = @intCast(u32, vector_ty.arrayLen());
+        const elements = @bitCast([]const Air.Inst.Ref, w.air.extra[ty_pl.payload..][0..len]);
+
+        try s.print("{}, [", .{vector_ty});
+        for (elements) |elem, i| {
+            if (i != 0) try s.writeAll(", ");
+            try w.writeOperand(s, inst, i, elem);
+        }
+        try s.writeAll("]");
     }
 
     fn writeStructField(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

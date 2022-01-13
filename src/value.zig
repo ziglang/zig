@@ -1172,6 +1172,44 @@ pub const Value = extern union {
         }
     }
 
+    pub fn ctz(val: Value, ty: Type, target: Target) u64 {
+        const ty_bits = ty.intInfo(target).bits;
+        switch (val.tag()) {
+            .zero, .bool_false => return ty_bits,
+            .one, .bool_true => return 0,
+
+            .int_u64 => {
+                const big = @ctz(u64, val.castTag(.int_u64).?.data);
+                return if (big == 64) ty_bits else big;
+            },
+            .int_i64 => {
+                @panic("TODO implement i64 Value ctz");
+            },
+            .int_big_positive => {
+                // TODO: move this code into std lib big ints
+                const bigint = val.castTag(.int_big_positive).?.asBigInt();
+                // Limbs are stored in little-endian order.
+                var result: u64 = 0;
+                for (bigint.limbs) |limb| {
+                    const limb_tz = @ctz(std.math.big.Limb, limb);
+                    result += limb_tz;
+                    if (limb_tz != @sizeOf(std.math.big.Limb) * 8) break;
+                }
+                return result;
+            },
+            .int_big_negative => {
+                @panic("TODO implement int_big_negative Value ctz");
+            },
+
+            .the_only_possible_value => {
+                assert(ty_bits == 0);
+                return ty_bits;
+            },
+
+            else => unreachable,
+        }
+    }
+
     /// Asserts the value is an integer and not undefined.
     /// Returns the number of bits the value requires to represent stored in twos complement form.
     pub fn intBitCountTwosComp(self: Value) usize {
@@ -1455,6 +1493,20 @@ pub const Value = extern union {
                 .field_ptr => @panic("TODO: Implement more pointer eql cases"),
                 .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
                 .opt_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
+                .array => {
+                    const a_array = a.castTag(.array).?.data;
+                    const b_array = b.castTag(.array).?.data;
+
+                    if (a_array.len != b_array.len) return false;
+
+                    const elem_ty = ty.childType();
+                    for (a_array) |a_elem, i| {
+                        const b_elem = b_array[i];
+
+                        if (!eql(a_elem, b_elem, elem_ty)) return false;
+                    }
+                    return true;
+                },
                 else => {},
             }
         } else if (a_tag == .null_value or b_tag == .null_value) {
@@ -1487,6 +1539,19 @@ pub const Value = extern union {
                 var buf_ty: Type.Payload.Bits = undefined;
                 const int_ty = ty.intTagType(&buf_ty);
                 return eql(a_val, b_val, int_ty);
+            },
+            .Array, .Vector => {
+                const len = ty.arrayLen();
+                const elem_ty = ty.childType();
+                var i: usize = 0;
+                var a_buf: ElemValueBuffer = undefined;
+                var b_buf: ElemValueBuffer = undefined;
+                while (i < len) : (i += 1) {
+                    const a_elem = elemValueBuffer(a, i, &a_buf);
+                    const b_elem = elemValueBuffer(b, i, &b_buf);
+                    if (!eql(a_elem, b_elem, elem_ty)) return false;
+                }
+                return true;
             },
             else => return order(a, b).compare(.eq),
         }

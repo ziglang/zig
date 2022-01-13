@@ -426,7 +426,8 @@ pub const Inst = struct {
         /// Given a pointer to a slice, return a pointer to the pointer of the slice.
         /// Uses the `ty_op` field.
         ptr_slice_ptr_ptr,
-        /// Given an array value and element index, return the element value at that index.
+        /// Given an (array value or vector value) and element index,
+        /// return the element value at that index.
         /// Result type is the element type of the array operand.
         /// Uses the `bin_op` field.
         array_elem_val,
@@ -455,6 +456,10 @@ pub const Inst = struct {
         /// Given an integer operand, return the float with the closest mathematical meaning.
         /// Uses the `ty_op` field.
         int_to_float,
+        /// Given an integer, bool, float, or pointer operand, return a vector with all elements
+        /// equal to the scalar value.
+        /// Uses the `ty_op` field.
+        splat,
 
         /// Given dest ptr, value, and len, set all elements at dest to value.
         /// Result type is always void.
@@ -504,6 +509,11 @@ pub const Inst = struct {
         /// Given an error value, return the error name. Result type is always `[:0] const u8`.
         /// Uses the `un_op` field.
         error_name,
+
+        /// Constructs a vector value out of runtime-known elements.
+        /// Uses the `ty_pl` field, payload is index of an array of elements, each of which
+        /// is a `Ref`. Length of the array is given by the vector type.
+        vector_init,
 
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
@@ -756,6 +766,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .cmpxchg_weak,
         .cmpxchg_strong,
         .slice,
+        .vector_init,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,
@@ -785,6 +796,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .array_to_slice,
         .float_to_int,
         .int_to_float,
+        .splat,
         .get_union_tag,
         .clz,
         .ctz,

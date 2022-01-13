@@ -7060,7 +7060,7 @@ fn builtinCall(
         },
 
         .splat => {
-            const len = try expr(gz, scope, .{ .ty = .u32_type }, params[0]);
+            const len = try expr(gz, scope, .{ .coerced_ty = .u32_type }, params[0]);
             const scalar = try expr(gz, scope, .none, params[1]);
             const result = try gz.addPlNode(.splat, node, Zir.Inst.Bin{
                 .lhs = len,
@@ -7395,8 +7395,14 @@ fn bitBuiltin(
     operand_node: Ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    const int_type = try typeExpr(gz, scope, int_type_node);
-    const operand = try expr(gz, scope, .{ .ty = int_type }, operand_node);
+    // The accepted proposal https://github.com/ziglang/zig/issues/6835
+    // tells us to remove the type parameter from these builtins. To stay
+    // source-compatible with stage1, we still observe the parameter here,
+    // but we do not encode it into the ZIR. To implement this proposal in
+    // stage2, only AstGen code will need to be changed.
+    _ = try typeExpr(gz, scope, int_type_node);
+
+    const operand = try expr(gz, scope, .none, operand_node);
     const result = try gz.addUnNode(tag, operand, node);
     return rvalue(gz, rl, result, node);
 }

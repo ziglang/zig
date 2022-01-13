@@ -820,6 +820,9 @@ pub const Builder = opaque {
 
     pub const setCurrentDebugLocation2 = LLVMSetCurrentDebugLocation2;
     extern fn LLVMSetCurrentDebugLocation2(Builder: *const Builder, Loc: *Metadata) void;
+
+    pub const buildShuffleVector = LLVMBuildShuffleVector;
+    extern fn LLVMBuildShuffleVector(*const Builder, V1: *const Value, V2: *const Value, Mask: *const Value, Name: [*:0]const u8) *const Value;
 };
 
 pub const DIScope = opaque {};
