@@ -59,23 +59,34 @@ pub const BootServices = extern struct {
     /// Checks whether an event is in the signaled state.
     checkEvent: fn (Event) callconv(.C) Status,
 
-    installProtocolInterface: Status, // TODO
-    reinstallProtocolInterface: Status, // TODO
-    uninstallProtocolInterface: Status, // TODO
+    /// Installs a protocol interface on a device handle. If the handle does not exist, it is created
+    /// and added to the list of handles in the system. installMultipleProtocolInterfaces()
+    /// performs more error checking than installProtocolInterface(), so its use is recommended over this.
+    installProtocolInterface: fn (Handle, *align(8) const Guid, EfiInterfaceType, *anyopaque) callconv(.C) Status,
+
+    /// Reinstalls a protocol interface on a device handle
+    reinstallProtocolInterface: fn (Handle, *align(8) const Guid, *anyopaque, *anyopaque) callconv(.C) Status,
+
+    /// Removes a protocol interface from a device handle. Usage of 
+    /// uninstallMultipleProtocolInterfaces is recommended over this.
+    uninstallProtocolInterface: fn (Handle, *align(8) const Guid, *anyopaque) callconv(.C) Status,
 
     /// Queries a handle to determine if it supports a specified protocol.
     handleProtocol: fn (Handle, *align(8) const Guid, *?*anyopaque) callconv(.C) Status,
 
     reserved: *anyopaque,
 
-    registerProtocolNotify: Status, // TODO
+    /// Creates an event that is to be signaled whenever an interface is installed for a specified protocol.
+    registerProtocolNotify: fn (*align(8) const Guid, Event, **anyopaque) callconv(.C) Status,
 
     /// Returns an array of handles that support a specified protocol.
     locateHandle: fn (LocateSearchType, ?*align(8) const Guid, ?*const anyopaque, *usize, [*]Handle) callconv(.C) Status,
 
     /// Locates the handle to a device on the device path that supports the specified protocol
     locateDevicePath: fn (*align(8) const Guid, **const DevicePathProtocol, *?Handle) callconv(.C) Status,
-    installConfigurationTable: Status, // TODO
+
+    /// Adds, updates, or removes a configuration table entry from the EFI System Table.
+    installConfigurationTable: fn (*align(8) const Guid, ?*anyopaque) callconv(.C) Status,
 
     /// Loads an EFI image into memory.
     loadImage: fn (bool, Handle, ?*const DevicePathProtocol, ?[*]const u8, usize, *?Handle) callconv(.C) Status,
@@ -101,8 +112,11 @@ pub const BootServices = extern struct {
     /// Sets the system's watchdog timer.
     setWatchdogTimer: fn (usize, u64, usize, ?[*]const u16) callconv(.C) Status,
 
-    connectController: Status, // TODO
-    disconnectController: Status, // TODO
+    /// Connects one or more drives to a controller.
+    connectController: fn (Handle, ?Handle, ?*DevicePathProtocol, bool) callconv(.C) Status,
+
+    // Disconnects one or more drivers from a controller
+    disconnectController: fn (Handle, ?Handle, ?Handle) callconv(.C) Status,
 
     /// Queries a handle to determine if it supports a specified protocol.
     openProtocol: fn (Handle, *align(8) const Guid, *?*anyopaque, ?Handle, ?Handle, OpenProtocolAttributes) callconv(.C) Status,
@@ -122,8 +136,11 @@ pub const BootServices = extern struct {
     /// Returns the first protocol instance that matches the given protocol.
     locateProtocol: fn (*align(8) const Guid, ?*const anyopaque, *?*anyopaque) callconv(.C) Status,
 
-    installMultipleProtocolInterfaces: Status, // TODO
-    uninstallMultipleProtocolInterfaces: Status, // TODO
+    /// Installs one or more protocol interfaces into the boot services environment
+    installMultipleProtocolInterfaces: fn (*Handle, ...) callconv(.C) Status,
+
+    /// Removes one or more protocol interfaces into the boot services environment
+    uninstallMultipleProtocolInterfaces: fn (*Handle, ...) callconv(.C) Status,
 
     /// Computes and returns a 32-bit CRC for a data buffer.
     calculateCrc32: fn ([*]const u8, usize, *u32) callconv(.C) Status,
@@ -134,7 +151,8 @@ pub const BootServices = extern struct {
     /// Fills a buffer with a specified value
     setMem: fn ([*]u8, usize, u8) callconv(.C) void,
 
-    createEventEx: Status, // TODO
+    /// Creates an event in a group.
+    createEventEx: fn (u32, usize, EfiEventNotify, *const anyopaque, *align(8) const Guid, *Event) callconv(.C) Status,
 
     pub const signature: u64 = 0x56524553544f4f42;
 
@@ -150,6 +168,8 @@ pub const BootServices = extern struct {
     pub const tpl_notify: usize = 16;
     pub const tpl_high_level: usize = 31;
 };
+
+pub const EfiEventNotify = fn (event: Event, ctx: *anyopaque) callconv(.C) void;
 
 pub const TimerDelay = enum(u32) {
     TimerCancel,
@@ -229,6 +249,10 @@ pub const ProtocolInformationEntry = extern struct {
     controller_handle: ?Handle,
     attributes: OpenProtocolAttributes,
     open_count: u32,
+};
+
+pub const EfiInterfaceType = enum(u32) {
+    EfiNativeInterface,
 };
 
 pub const AllocateType = enum(u32) {
