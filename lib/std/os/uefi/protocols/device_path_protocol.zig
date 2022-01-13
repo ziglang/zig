@@ -87,7 +87,10 @@ pub const DevicePathProtocol = packed struct {
             },
             .Acpi => blk: {
                 const acpi: ?AcpiDevicePath = switch (@intToEnum(AcpiDevicePath.Subtype, self.subtype)) {
-                    else => null, // TODO
+                    .Acpi => .{ .Acpi = @ptrCast(*const AcpiDevicePath.BaseAcpiDevicePath, self) },
+                    .ExpandedAcpi => .{ .ExpandedAcpi = @ptrCast(*const AcpiDevicePath.ExpandedAcpiDevicePath, self) },
+                    .Adr => .{ .Adr = @ptrCast(*const AcpiDevicePath.AdrDevicePath, self) },
+                    _ => null,
                 };
                 break :blk if (acpi) |a| .{ .Acpi = a } else null;
             },
@@ -173,57 +176,91 @@ pub const HardwareDevicePath = union(Subtype) {
         type: DevicePathType,
         subtype: Subtype,
         length: u16,
-        // TODO
+        function: u8,
+        device: u8,
     };
 
     pub const PcCardDevicePath = packed struct {
         type: DevicePathType,
         subtype: Subtype,
         length: u16,
-        // TODO
+        function_number: u8,
     };
 
     pub const MemoryMappedDevicePath = packed struct {
         type: DevicePathType,
         subtype: Subtype,
         length: u16,
-        // TODO
+        memory_type: u32,
+        start_address: u64,
+        end_address: u64,
     };
 
     pub const VendorDevicePath = packed struct {
         type: DevicePathType,
         subtype: Subtype,
         length: u16,
-        // TODO
+        vendor_guid: Guid,
     };
 
     pub const ControllerDevicePath = packed struct {
         type: DevicePathType,
         subtype: Subtype,
         length: u16,
-        // TODO
+        controller_number: u32,
     };
 
     pub const BmcDevicePath = packed struct {
         type: DevicePathType,
         subtype: Subtype,
         length: u16,
-        // TODO
+        interface_type: u8,
+        base_address: usize,
     };
 };
 
 pub const AcpiDevicePath = union(Subtype) {
-    Acpi: void, // TODO
-    ExpandedAcpi: void, // TODO
-    Adr: void, // TODO
-    Nvdimm: void, // TODO
+    Acpi: *const BaseAcpiDevicePath,
+    ExpandedAcpi: *const ExpandedAcpiDevicePath,
+    Adr: *const AdrDevicePath,
 
     pub const Subtype = enum(u8) {
         Acpi = 1,
         ExpandedAcpi = 2,
         Adr = 3,
-        Nvdimm = 4,
         _,
+    };
+
+    pub const BaseAcpiDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        hid: u32,
+        uid: u32,
+    };
+
+    pub const ExpandedAcpiDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        hid: u32,
+        uid: u32,
+        cid: u32,
+        // variable length u16[*:0] strings
+        // hid_str, uid_str, cid_str
+    };
+
+    pub const AdrDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        adr: u32,
+        // multiple adr entries can optionally follow
+        pub fn adrs(self: *const AdrDevicePath) []const u32 {
+            // self.length is a minimum of 8 with one adr which is size 4.
+            var entries = (self.length - 4) / @sizeOf(u32);
+            return @ptrCast([*]const u32, &self.adr)[0..entries];
+        }
     };
 };
 
