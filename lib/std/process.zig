@@ -393,7 +393,7 @@ pub const ArgIteratorWindows = struct {
                 },
                 '"' => {
                     const quote_is_real = backslash_count % 2 == 0;
-                    try self.emitBackslashes(&buf, backslash_count / 2);
+                    try emitBackslashes(&buf, backslash_count / 2);
                     backslash_count = 0;
 
                     if (quote_is_real) {
@@ -406,7 +406,7 @@ pub const ArgIteratorWindows = struct {
                     backslash_count += 1;
                 },
                 ' ', '\t' => {
-                    try self.emitBackslashes(&buf, backslash_count);
+                    try emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
                     if (in_quote) {
                         try buf.append(std.mem.nativeToLittle(u16, character));
@@ -415,7 +415,7 @@ pub const ArgIteratorWindows = struct {
                     }
                 },
                 else => {
-                    try self.emitBackslashes(&buf, backslash_count);
+                    try emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
                     try buf.append(std.mem.nativeToLittle(u16, character));
                 },
@@ -433,8 +433,7 @@ pub const ArgIteratorWindows = struct {
             error.OutOfMemory => return error.OutOfMemory,
         };
     }
-    fn emitBackslashes(self: *ArgIteratorWindows, buf: *std.ArrayList(u16), emit_count: usize) !void {
-        _ = self;
+    fn emitBackslashes(buf: *std.ArrayList(u16), emit_count: usize) !void {
         var i: usize = 0;
         while (i < emit_count) : (i += 1) {
             try buf.append(std.mem.nativeToLittle(u16, '\\'));
