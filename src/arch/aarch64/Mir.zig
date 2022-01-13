@@ -58,19 +58,22 @@ pub const Inst = struct {
         ldp,
         /// Pseudo-instruction: Load from stack
         ldr_stack,
-        /// Load Register
-        // TODO: split into ldr_immediate and ldr_register
-        ldr,
+        /// Load Register (immediate)
+        ldr_immediate,
+        /// Load Register (register)
+        ldr_register,
         /// Pseudo-instruction: Load byte from stack
         ldrb_stack,
-        /// Load Register Byte
-        // TODO: split into ldrb_immediate and ldrb_register
-        ldrb,
+        /// Load Register Byte (immediate)
+        ldrb_immediate,
+        /// Load Register Byte (register)
+        ldrb_register,
         /// Pseudo-instruction: Load halfword from stack
         ldrh_stack,
-        /// Load Register Halfword
-        // TODO: split into ldrh_immediate and ldrh_register
-        ldrh,
+        /// Load Register Halfword (immediate)
+        ldrh_immediate,
+        /// Load Register Halfword (register)
+        ldrh_register,
         /// Move (to/from SP)
         mov_to_from_sp,
         /// Move (register)
@@ -91,19 +94,22 @@ pub const Inst = struct {
         stp,
         /// Pseudo-instruction: Store to stack
         str_stack,
-        /// Store Register
-        // TODO: split into str_immediate and str_register
-        str,
+        /// Store Register (immediate)
+        str_immediate,
+        /// Store Register (register)
+        str_register,
         /// Pseudo-instruction: Store byte to stack
         strb_stack,
-        /// Store Register Byte
-        // TODO: split into strb_immediate and strb_register
-        strb,
+        /// Store Register Byte (immediate)
+        strb_immediate,
+        /// Store Register Byte (register)
+        strb_register,
         /// Pseudo-instruction: Store halfword to stack
         strh_stack,
-        /// Store Register Halfword
-        // TODO: split into strh_immediate and strh_register
-        strh,
+        /// Store Register Halfword (immediate)
+        strh_immediate,
+        /// Store Register Halfword (register)
+        strh_register,
         /// Subtract (immediate)
         sub_immediate,
         /// Supervisor Call
@@ -195,13 +201,21 @@ pub const Inst = struct {
             rm: Register,
             cond: bits.Instruction.Condition,
         },
-        /// Two registers and a LoadStoreOffset
+        /// Two registers and a LoadStoreOffsetImmediate
         ///
         /// Used by e.g. str_register
-        load_store_register: struct {
+        load_store_register_immediate: struct {
             rt: Register,
             rn: Register,
-            offset: bits.Instruction.LoadStoreOffset,
+            offset: bits.Instruction.LoadStoreOffsetImmediate,
+        },
+        /// Two registers and a LoadStoreOffsetRegister
+        ///
+        /// Used by e.g. str_register
+        load_store_register_register: struct {
+            rt: Register,
+            rn: Register,
+            offset: bits.Instruction.LoadStoreOffsetRegister,
         },
         /// A registers and a stack offset
         ///
@@ -230,11 +244,11 @@ pub const Inst = struct {
 
     // Make sure we don't accidentally make instructions bigger than expected.
     // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
-    // comptime {
-    //     if (builtin.mode != .Debug) {
-    //         assert(@sizeOf(Inst) == 8);
-    //     }
-    // }
+    comptime {
+        if (builtin.mode != .Debug) {
+            assert(@sizeOf(Data) == 8);
+        }
+    }
 };
 
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
