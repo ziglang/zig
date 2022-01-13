@@ -723,10 +723,7 @@ comptime {
     @export(floorf, .{ .name = "floorf", .linkage = linkage });
     @export(floor, .{ .name = "floor", .linkage = linkage });
     @export(floorl, .{ .name = "floorl", .linkage = linkage });
-
-    if (!builtin.zig_is_stage2) {
-        @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
-    }
+    @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
 }
 
 const math = std.math;
