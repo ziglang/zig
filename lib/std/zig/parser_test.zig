@@ -5459,52 +5459,24 @@ fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *
     anything_changed.* = !mem.eql(u8, formatted, source);
     return formatted;
 }
-fn testTransform(source: [:0]const u8, expected_source: []const u8) !void {
-    const needed_alloc_count = x: {
-        // Try it once with unlimited memory, make sure it works
-        var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-        var failing_allocator = std.testing.FailingAllocator.init(fixed_allocator.allocator(), maxInt(usize));
-        const allocator = failing_allocator.allocator();
-        var anything_changed: bool = undefined;
-        const result_source = try testParse(source, allocator, &anything_changed);
-        try std.testing.expectEqualStrings(expected_source, result_source);
-        const changes_expected = source.ptr != expected_source.ptr;
-        if (anything_changed != changes_expected) {
-            print("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
-            return error.TestFailed;
-        }
-        try std.testing.expect(anything_changed == changes_expected);
-        allocator.free(result_source);
-        break :x failing_allocator.index;
-    };
-
-    var fail_index: usize = 0;
-    while (fail_index < needed_alloc_count) : (fail_index += 1) {
-        var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-        var failing_allocator = std.testing.FailingAllocator.init(fixed_allocator.allocator(), fail_index);
-        var anything_changed: bool = undefined;
-        if (testParse(source, failing_allocator.allocator(), &anything_changed)) |_| {
-            return error.NondeterministicMemoryUsage;
-        } else |err| switch (err) {
-            error.OutOfMemory => {
-                if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
-                    print(
-                        "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\n",
-                        .{
-                            fail_index,
-                            needed_alloc_count,
-                            failing_allocator.allocated_bytes,
-                            failing_allocator.freed_bytes,
-                            failing_allocator.allocations,
-                            failing_allocator.deallocations,
-                        },
-                    );
-                    return error.MemoryLeakDetected;
-                }
-            },
-            else => return err,
-        }
+fn testTransformImpl(allocator: mem.Allocator, fba: *std.heap.FixedBufferAllocator, source: [:0]const u8, expected_source: []const u8) !void {
+    // reset the fixed buffer allocator each run so that it can be re-used for each
+    // iteration of the failing index
+    fba.reset();
+    var anything_changed: bool = undefined;
+    const result_source = try testParse(source, allocator, &anything_changed);
+    try std.testing.expectEqualStrings(expected_source, result_source);
+    const changes_expected = source.ptr != expected_source.ptr;
+    if (anything_changed != changes_expected) {
+        print("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
+        return error.TestFailed;
     }
+    try std.testing.expect(anything_changed == changes_expected);
+    allocator.free(result_source);
+}
+fn testTransform(source: [:0]const u8, expected_source: []const u8) !void {
+    var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+    return std.testing.checkAllAllocationFailures(fixed_allocator.allocator(), testTransformImpl, .{ &fixed_allocator, source, expected_source });
 }
 fn testCanonical(source: [:0]const u8) !void {
     return testTransform(source, source);
