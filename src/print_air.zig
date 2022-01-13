@@ -295,7 +295,7 @@ const Writer = struct {
     fn writeVectorInit(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const vector_ty = w.air.getRefType(ty_pl.ty);
-        const len = @intCast(u32, vector_ty.arrayLen());
+        const len = vector_ty.vectorLen();
         const elements = @bitCast([]const Air.Inst.Ref, w.air.extra[ty_pl.payload..][0..len]);
 
         try s.print("{}, [", .{vector_ty});

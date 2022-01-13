@@ -11010,7 +11010,7 @@ fn zirClzCtz(
     const result_scalar_ty = try Type.smallestUnsignedInt(sema.arena, bits);
     switch (operand_ty.zigTypeTag()) {
         .Vector => {
-            const vec_len = operand_ty.arrayLen();
+            const vec_len = operand_ty.vectorLen();
             const result_ty = try Type.vector(sema.arena, vec_len, result_scalar_ty);
             if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
                 if (val.isUndef()) return sema.addConstUndef(result_ty);
@@ -14578,7 +14578,7 @@ fn coerceVectors(
 ) !Air.Inst.Ref {
     const inst_ty = sema.typeOf(inst);
     const inst_len = inst_ty.arrayLen();
-    const dest_len = dest_ty.arrayLen();
+    const dest_len = try sema.usizeCast(block, dest_ty_src, dest_ty.arrayLen());
 
     if (dest_len != inst_len) {
         const msg = msg: {

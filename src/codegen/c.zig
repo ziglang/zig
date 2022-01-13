@@ -3038,7 +3038,7 @@ fn airVectorInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const inst_ty = f.air.typeOfIndex(inst);
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const vector_ty = f.air.getRefType(ty_pl.ty);
-    const len = @intCast(u32, vector_ty.arrayLen());
+    const len = vector_ty.vectorLen();
     const elements = @bitCast([]const Air.Inst.Ref, f.air.extra[ty_pl.payload..][0..len]);
 
     const writer = f.object.writer();

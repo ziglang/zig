@@ -3005,6 +3005,13 @@ pub const Type = extern union {
         return ty.arrayLen() + @boolToInt(ty.sentinel() != null);
     }
 
+    pub fn vectorLen(ty: Type) u32 {
+        return switch (ty.tag()) {
+            .vector => @intCast(u32, ty.castTag(.vector).?.data.len),
+            else => unreachable,
+        };
+    }
+
     /// Asserts the type is an array, pointer or vector.
     pub fn sentinel(self: Type) ?Value {
         return switch (self.tag()) {

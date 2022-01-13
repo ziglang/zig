@@ -3669,7 +3669,7 @@ fn airSplat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airVectorInit(self: *Self, inst: Air.Inst.Index) !void {
     const vector_ty = self.air.typeOfIndex(inst);
-    const len = @intCast(u32, vector_ty.arrayLen());
+    const len = vector_ty.vectorLen();
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
     const result: MCValue = res: {

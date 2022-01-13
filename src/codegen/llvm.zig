@@ -873,7 +873,7 @@ pub const DeclGen = struct {
             },
             .Vector => {
                 const elem_type = try dg.llvmType(t.childType());
-                return elem_type.vectorType(@intCast(c_uint, t.arrayLen()));
+                return elem_type.vectorType(t.vectorLen());
             },
             .Optional => {
                 var buf: Type.Payload.ElemType = undefined;
@@ -4170,7 +4170,7 @@ pub const FuncGen = struct {
         const target = self.dg.module.getTarget();
         const bits = operand_ty.intInfo(target).bits;
         const vec_len: ?u32 = switch (operand_ty.zigTypeTag()) {
-            .Vector => @intCast(u32, operand_ty.arrayLen()),
+            .Vector => operand_ty.vectorLen(),
             else => null,
         };
 
@@ -4372,7 +4372,7 @@ pub const FuncGen = struct {
         const scalar = try self.resolveInst(ty_op.operand);
         const scalar_ty = self.air.typeOf(ty_op.operand);
         const vector_ty = self.air.typeOfIndex(inst);
-        const len = @intCast(u32, vector_ty.arrayLen());
+        const len = vector_ty.vectorLen();
         const scalar_llvm_ty = try self.dg.llvmType(scalar_ty);
         const op_llvm_ty = scalar_llvm_ty.vectorType(1);
         const u32_llvm_ty = self.context.intType(32);

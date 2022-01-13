@@ -368,7 +368,7 @@ fn analyzeInst(
         .vector_init => {
             const ty_pl = inst_datas[inst].ty_pl;
             const vector_ty = a.air.getRefType(ty_pl.ty);
-            const len = @intCast(u32, vector_ty.arrayLen());
+            const len = vector_ty.vectorLen();
             const elements = @bitCast([]const Air.Inst.Ref, a.air.extra[ty_pl.payload..][0..len]);
 
             if (elements.len <= bpi - 1) {
