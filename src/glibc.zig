@@ -183,8 +183,8 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     const arena = arena_allocator.allocator();
 
     const target = comp.getTarget();
-    const target_version = target.os.version_range.linux.glibc;
-    const start_needs_init_fini_functions = target_version.major < 2 or (target_version.major == 2 and target_version.minor <= 33);
+    const target_ver = target.os.version_range.linux.glibc;
+    const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33 }) != .gt;
 
     switch (crt_file) {
         .crti_o => {
@@ -246,8 +246,9 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     "-DASSEMBLER",
                     "-Wa,--noexecstack",
                 });
+                const src_path = if (start_old_init_fini) "start-2.33.S" else "start.S";
                 break :blk .{
-                    .src_path = try start_asm_path(comp, arena, if (start_needs_init_fini_functions) "start-2-33.S" else "start.S"),
+                    .src_path = try start_asm_path(comp, arena, src_path),
                     .extra_flags = args.items,
                 };
             };
@@ -280,6 +281,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             const Dep = struct {
                 path: []const u8,
                 flavor: Flavor = .shared,
+                exclude: bool = false,
             };
             const deps = [_]Dep{
                 .{
@@ -299,6 +301,10 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .flavor = .nonshared,
                 },
                 .{ .path = lib_libc_glibc ++ "csu" ++ s ++ "errno.c" },
+                .{
+                    .path = lib_libc_glibc ++ "csu" ++ s ++ "elf-init-2.33.c",
+                    .exclude = !start_old_init_fini,
+                },
                 .{ .path = linux_prefix ++ "stat.c" },
                 .{ .path = linux_prefix ++ "fstat.c" },
                 .{ .path = linux_prefix ++ "lstat.c" },
@@ -312,46 +318,12 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 .{ .path = linux_prefix ++ "stat_t64_cp.c" },
             };
 
-            var c_source_files: [deps.len + 1]Compilation.CSourceFile = undefined;
+            var files_buf: [deps.len]Compilation.CSourceFile = undefined;
+            var files_index: usize = 0;
 
-            if (start_needs_init_fini_functions) {
-                c_source_files[0] = blk: {
-                    var args = std.ArrayList([]const u8).init(arena);
-                    try args.appendSlice(&[_][]const u8{
-                        "-std=gnu11",
-                        "-fgnu89-inline",
-                        "-fmerge-all-constants",
-                        "-fno-stack-protector",
-                        "-fmath-errno",
-                        "-I",
-                        try lib_path(comp, arena, lib_libc_glibc ++ "csu"),
-                    });
-                    try add_include_dirs(comp, arena, &args);
-                    try args.appendSlice(&[_][]const u8{
-                        "-DSTACK_PROTECTOR_LEVEL=0",
-                        "-fPIC",
-                        "-fno-stack-protector",
-                        "-fno-common",
-                        "-ftls-model=initial-exec",
-                        "-D_LIBC_REENTRANT",
-                        "-include",
-                        try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
-                        "-DMODULE_NAME=libc",
-                        "-Wno-nonportable-include-path",
-                        "-include",
-                        try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
-                        "-DPIC",
-                        "-DLIBC_NONSHARED=1",
-                        "-DTOP_NAMESPACE=glibc",
-                    });
-                    break :blk .{
-                        .src_path = try lib_path(comp, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "elf-init-2-33.c"),
-                        .extra_flags = args.items,
-                    };
-                };
-            }
+            for (deps) |dep| {
+                if (dep.exclude) continue;
 
-            for (deps) |dep, i| {
                 var args = std.ArrayList([]const u8).init(arena);
                 try args.appendSlice(&[_][]const u8{
                     "-std=gnu11",
@@ -393,12 +365,14 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     shared_def,
                     "-DTOP_NAMESPACE=glibc",
                 });
-                c_source_files[i + @boolToInt(start_needs_init_fini_functions)] = .{
+                files_buf[files_index] = .{
                     .src_path = try lib_path(comp, arena, dep.path),
                     .extra_flags = args.items,
                 };
+                files_index += 1;
             }
-            return comp.build_crt_file("c_nonshared", .Lib, c_source_files[0 .. deps.len + @boolToInt(start_needs_init_fini_functions)]);
+            const files = files_buf[0..files_index];
+            return comp.build_crt_file("c_nonshared", .Lib, files);
         },
     }
 }
