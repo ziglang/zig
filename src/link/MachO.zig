@@ -5774,7 +5774,10 @@ fn writeCodeSignaturePadding(self: *MachO) !void {
 
     const linkedit_segment = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
     const code_sig_cmd = &self.load_commands.items[self.code_signature_cmd_index.?].linkedit_data;
-    const fileoff = linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize;
+    // Code signature data has to be 16-bytes aligned for Apple tools to recognize the file
+    // https://github.com/opensource-apple/cctools/blob/fdb4825f303fd5c0751be524babd32958181b3ed/libstuff/checkout.c#L271
+    const fileoff = mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, 16);
+    const padding = fileoff - (linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize);
     const needed_size = CodeSignature.calcCodeSignaturePaddingSize(
         self.base.options.emit.?.sub_path,
         fileoff,
@@ -5784,7 +5787,7 @@ fn writeCodeSignaturePadding(self: *MachO) !void {
     code_sig_cmd.datasize = needed_size;
 
     // Advance size of __LINKEDIT segment
-    linkedit_segment.inner.filesize += needed_size;
+    linkedit_segment.inner.filesize += needed_size + padding;
     if (linkedit_segment.inner.vmsize < linkedit_segment.inner.filesize) {
         linkedit_segment.inner.vmsize = mem.alignForwardGeneric(u64, linkedit_segment.inner.filesize, self.page_size);
     }
