@@ -219,7 +219,7 @@ void bigint_init_bigfloat(BigInt *dest, const BigFloat *op) {
     ui64_to_f128M(UINT64_MAX, &max_u64);
     if (f128M_le(&abs_val, &max_u64)) {
         dest->digit_count = 1;
-        dest->data.digit = f128M_to_ui64(&op->value, softfloat_round_minMag, false);
+        dest->data.digit = f128M_to_ui64(&abs_val, softfloat_round_minMag, false);
         bigint_normalize(dest);
         return;
     }
