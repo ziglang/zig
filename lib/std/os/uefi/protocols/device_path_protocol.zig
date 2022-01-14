@@ -72,66 +72,39 @@ pub const DevicePathProtocol = packed struct {
     }
 
     pub fn getDevicePath(self: *const DevicePathProtocol) ?DevicePath {
-        return switch (self.type) {
-            .Hardware => blk: {
-                const hardware: ?HardwareDevicePath = switch (@intToEnum(HardwareDevicePath.Subtype, self.subtype)) {
-                    .Pci => .{ .Pci = @ptrCast(*const HardwareDevicePath.PciDevicePath, self) },
-                    .PcCard => .{ .PcCard = @ptrCast(*const HardwareDevicePath.PcCardDevicePath, self) },
-                    .MemoryMapped => .{ .MemoryMapped = @ptrCast(*const HardwareDevicePath.MemoryMappedDevicePath, self) },
-                    .Vendor => .{ .Vendor = @ptrCast(*const HardwareDevicePath.VendorDevicePath, self) },
-                    .Controller => .{ .Controller = @ptrCast(*const HardwareDevicePath.ControllerDevicePath, self) },
-                    .Bmc => .{ .Bmc = @ptrCast(*const HardwareDevicePath.BmcDevicePath, self) },
-                    _ => null,
-                };
-                break :blk if (hardware) |h| .{ .Hardware = h } else null;
-            },
-            .Acpi => blk: {
-                const acpi: ?AcpiDevicePath = switch (@intToEnum(AcpiDevicePath.Subtype, self.subtype)) {
-                    .Acpi => .{ .Acpi = @ptrCast(*const AcpiDevicePath.BaseAcpiDevicePath, self) },
-                    .ExpandedAcpi => .{ .ExpandedAcpi = @ptrCast(*const AcpiDevicePath.ExpandedAcpiDevicePath, self) },
-                    .Adr => .{ .Adr = @ptrCast(*const AcpiDevicePath.AdrDevicePath, self) },
-                    _ => null,
-                };
-                break :blk if (acpi) |a| .{ .Acpi = a } else null;
-            },
-            .Messaging => blk: {
-                const messaging: ?MessagingDevicePath = switch (@intToEnum(MessagingDevicePath.Subtype, self.subtype)) {
-                    else => null, // TODO
-                };
-                break :blk if (messaging) |m| .{ .Messaging = m } else null;
-            },
-            .Media => blk: {
-                const media: ?MediaDevicePath = switch (@intToEnum(MediaDevicePath.Subtype, self.subtype)) {
-                    .HardDrive => .{ .HardDrive = @ptrCast(*const MediaDevicePath.HardDriveDevicePath, self) },
-                    .Cdrom => .{ .Cdrom = @ptrCast(*const MediaDevicePath.CdromDevicePath, self) },
-                    .Vendor => .{ .Vendor = @ptrCast(*const MediaDevicePath.VendorDevicePath, self) },
-                    .FilePath => .{ .FilePath = @ptrCast(*const MediaDevicePath.FilePathDevicePath, self) },
-                    .MediaProtocol => .{ .MediaProtocol = @ptrCast(*const MediaDevicePath.MediaProtocolDevicePath, self) },
-                    .PiwgFirmwareFile => .{ .PiwgFirmwareFile = @ptrCast(*const MediaDevicePath.PiwgFirmwareFileDevicePath, self) },
-                    .PiwgFirmwareVolume => .{ .PiwgFirmwareVolume = @ptrCast(*const MediaDevicePath.PiwgFirmwareVolumeDevicePath, self) },
-                    .RelativeOffsetRange => .{ .RelativeOffsetRange = @ptrCast(*const MediaDevicePath.RelativeOffsetRangeDevicePath, self) },
-                    .RamDisk => .{ .RamDisk = @ptrCast(*const MediaDevicePath.RamDiskDevicePath, self) },
-                    _ => null,
-                };
-                break :blk if (media) |m| .{ .Media = m } else null;
-            },
-            .BiosBootSpecification => blk: {
-                const bbs: ?BiosBootSpecificationDevicePath = switch (@intToEnum(BiosBootSpecificationDevicePath.Subtype, self.subtype)) {
-                    .BBS101 => .{ .BBS101 = @ptrCast(*const BiosBootSpecificationDevicePath.BBS101DevicePath, self) },
-                    _ => null,
-                };
-                break :blk if (bbs) |b| .{ .BiosBootSpecification = b } else null;
-            },
-            .End => blk: {
-                const end: ?EndDevicePath = switch (@intToEnum(EndDevicePath.Subtype, self.subtype)) {
-                    .EndEntire => .{ .EndEntire = @ptrCast(*const EndDevicePath.EndEntireDevicePath, self) },
-                    .EndThisInstance => .{ .EndThisInstance = @ptrCast(*const EndDevicePath.EndThisInstanceDevicePath, self) },
-                    _ => null,
-                };
-                break :blk if (end) |e| .{ .End = e } else null;
-            },
-            _ => null,
-        };
+        inline for (@typeInfo(DevicePath).Union.fields) |ufield| {
+            const enum_value = std.meta.stringToEnum(DevicePathType, ufield.name);
+
+            // Got the associated union type for self.type, now
+            // we need to initialize it and its subtype
+            if (self.type == enum_value) {
+                var subtype = self.initSubtype(ufield.field_type);
+
+                if (subtype) |sb| {
+                    // e.g. return .{ .Hardware = .{ .Pci = @ptrCast(...) } }
+                    return @unionInit(DevicePath, ufield.name, sb);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    pub fn initSubtype(self: *const DevicePathProtocol, comptime TUnion: type) ?TUnion {
+        const type_info = @typeInfo(TUnion).Union;
+        const TTag = type_info.tag_type.?;
+
+        inline for (type_info.fields) |subtype| {
+            // The tag names match the union names, so just grab that off the enum
+            const tag_val: u8 = @enumToInt(@field(TTag, subtype.name));
+
+            if (self.subtype == tag_val) {
+                // e.g. expr = .{ .Pci = @ptrCast(...) }
+                return @unionInit(TUnion, subtype.name, @ptrCast(subtype.field_type, self));
+            }
+        }
+
+        return null;
     }
 };
 
@@ -268,7 +241,7 @@ pub const MessagingDevicePath = union(Subtype) {
     Atapi: *const AtapiDevicePath,
     Scsi: *const ScsiDevicePath,
     FibreChannel: *const FibreChannelDevicePath,
-    FibreChannelEx: FibreChannelExDevicePath,
+    FibreChannelEx: *const FibreChannelExDevicePath,
     @"1394": *const F1394DevicePath,
     Usb: *const UsbDevicePath,
     Sata: *const SataDevicePath,
