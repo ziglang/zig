@@ -654,6 +654,11 @@ pub const ClangPreprocessorMode = enum {
 pub const SystemLib = link.SystemLib;
 pub const CacheMode = link.CacheMode;
 
+pub const LinkObject = struct {
+    path: []const u8,
+    must_link: bool = false,
+};
+
 pub const InitOptions = struct {
     zig_lib_directory: Directory,
     local_cache_directory: Directory,
@@ -698,7 +703,7 @@ pub const InitOptions = struct {
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
-    link_objects: []const []const u8 = &[0][]const u8{},
+    link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
     frameworks: []const []const u8 = &[0][]const u8{},
     system_lib_names: []const []const u8 = &.{},
@@ -1056,7 +1061,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 if (options.system_lib_names.len != 0)
                     break :x true;
                 for (options.link_objects) |obj| {
-                    switch (classifyFileExt(obj)) {
+                    switch (classifyFileExt(obj.path)) {
                         .shared_library => break :x true,
                         else => continue,
                     }
@@ -1459,7 +1464,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             if (options.c_source_files.len >= 1) {
                 hash.addBytes(options.c_source_files[0].src_path);
             } else if (options.link_objects.len >= 1) {
-                hash.addBytes(options.link_objects[0]);
+                hash.addBytes(options.link_objects[0].path);
             }
 
             const digest = hash.final();
@@ -2265,7 +2270,11 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
     try man.addOptionalFile(comp.bin_file.options.linker_script);
     try man.addOptionalFile(comp.bin_file.options.version_script);
-    try man.addListOfFiles(comp.bin_file.options.objects);
+
+    for (comp.bin_file.options.objects) |obj| {
+        _ = try man.addFile(obj.path, null);
+        man.hash.add(obj.must_link);
+    }
 
     for (comp.c_object_table.keys()) |key| {
         _ = try man.addFile(key.src.src_path, null);
