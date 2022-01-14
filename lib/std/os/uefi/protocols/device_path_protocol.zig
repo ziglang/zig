@@ -265,24 +265,24 @@ pub const AcpiDevicePath = union(Subtype) {
 };
 
 pub const MessagingDevicePath = union(Subtype) {
-    Atapi: void, // TODO
-    Scsi: void, // TODO
-    FibreChannel: void, // TODO
-    FibreChannelEx: void, // TODO
-    @"1394": void, // TODO
-    Usb: void, // TODO
-    Sata: void, // TODO
-    UsbWwid: void, // TODO
-    Lun: void, // TODO
-    UsbClass: void, // TODO
-    I2o: void, // TODO
-    MacAddress: void, // TODO
-    Ipv4: void, // TODO
-    Ipv6: void, // TODO
-    Vlan: void, // TODO
-    InfiniBand: void, // TODO
-    Uart: void, // TODO
-    Vendor: void, // TODO
+    Atapi: *const AtapiDevicePath,
+    Scsi: *const ScsiDevicePath,
+    FibreChannel: *const FibreChannelDevicePath,
+    FibreChannelEx: FibreChannelExDevicePath,
+    @"1394": *const F1394DevicePath,
+    Usb: *const UsbDevicePath,
+    Sata: *const SataDevicePath,
+    UsbWwid: *const UsbWwidDevicePath,
+    Lun: *const DeviceLogicalUnitDevicePath,
+    UsbClass: *const UsbClassDevicePath,
+    I2o: *const I2oDevicePath,
+    MacAddress: *const MacAddressDevicePath,
+    Ipv4: *const Ipv4DevicePath,
+    Ipv6: *const Ipv6DevicePath,
+    Vlan: *const VlanDevicePath,
+    InfiniBand: *const InfiniBandDevicePath,
+    Uart: *const UartDevicePath,
+    Vendor: *const VendorDefinedDevicePath,
 
     pub const Subtype = enum(u8) {
         Atapi = 1,
@@ -304,6 +304,232 @@ pub const MessagingDevicePath = union(Subtype) {
         Uart = 14,
         Vendor = 10,
         _,
+    };
+
+    pub const AtapiDevicePath = packed struct {
+        const Role = enum(u8) {
+            Master = 0,
+            Slave = 1,
+        };
+
+        const Rank = enum(u8) {
+            Primary = 0,
+            Secondary = 1,
+        };
+
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        primary_secondary: Rank,
+        slave_master: Role,
+        logical_unit_number: u16,
+    };
+
+    pub const ScsiDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        target_id: u16,
+        logical_unit_number: u16,
+    };
+
+    pub const FibreChannelDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        reserved: u32,
+        world_wide_name: u64,
+        logical_unit_number: u64,
+    };
+
+    pub const FibreChannelExDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        reserved: u32,
+        world_wide_name: [8]u8,
+        logical_unit_number: [8]u8,
+    };
+
+    pub const F1394DevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        reserved: u32,
+        guid: u64,
+    };
+
+    pub const UsbDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        parent_port_number: u8,
+        interface_number: u8,
+    };
+
+    pub const SataDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        hba_port_number: u16,
+        port_multiplier_port_number: u16,
+        logical_unit_number: u16,
+    };
+
+    pub const UsbWwidDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        interface_number: u16,
+        device_vendor_id: u16,
+        device_product_id: u16,
+
+        pub fn serial_number(self: *const UsbWwidDevicePath) []const u16 {
+            var serial_len = (self.length - @sizeOf(UsbWwidDevicePath)) / @sizeOf(u16);
+            return @ptrCast([*]u16, @ptrCast([*]u8, self) + @sizeOf(UsbWwidDevicePath))[0..serial_len];
+        }
+    };
+
+    pub const DeviceLogicalUnitDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        lun: u8,
+    };
+
+    pub const UsbClassDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        vendor_id: u16,
+        product_id: u16,
+        device_class: u8,
+        device_subclass: u8,
+        device_protocol: u8,
+    };
+
+    pub const I2oDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        tid: u32,
+    };
+
+    pub const MacAddressDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        mac_address: uefi.MacAddress,
+        if_type: u8,
+    };
+
+    pub const Ipv4DevicePath = packed struct {
+        pub const IpType = enum(u8) {
+            Dhcp = 0,
+            Static = 1,
+        };
+
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        local_ip_address: uefi.Ipv4Address,
+        remote_ip_address: uefi.Ipv4Address,
+        local_port: u16,
+        remote_port: u16,
+        network_protocol: u16,
+        static_ip_address: IpType,
+        gateway_ip_address: u32,
+        subnet_mask: u32,
+    };
+
+    pub const Ipv6DevicePath = packed struct {
+        pub const Origin = enum(u8) {
+            Manual = 0,
+            AssignedStateless = 1,
+            AssignedStateful = 2,
+        };
+
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        local_ip_address: uefi.Ipv6Address,
+        remote_ip_address: uefi.Ipv6Address,
+        local_port: u16,
+        remote_port: u16,
+        protocol: u16,
+        ip_address_origin: Origin,
+        prefix_length: u8,
+        gateway_ip_address: uefi.Ipv6Address,
+    };
+
+    pub const VlanDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        vlan_id: u16,
+    };
+
+    pub const InfiniBandDevicePath = packed struct {
+        pub const ResourceFlags = packed struct {
+            pub const ControllerType = enum(u1) {
+                Ioc = 0,
+                Service = 1,
+            };
+
+            ioc_or_service: ControllerType,
+            extend_boot_environment: bool,
+            console_protocol: bool,
+            storage_protocol: bool,
+            network_protocol: bool,
+
+            // u1 + 4 * bool = 5 bits, we need a total of 32 bits
+            reserved: u27,
+        };
+
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        resource_flags: ResourceFlags,
+        port_gid: [16]u8,
+        service_id: u64,
+        target_port_id: u64,
+        device_id: u64,
+    };
+
+    pub const UartDevicePath = packed struct {
+        pub const Parity = enum(u8) {
+            Default = 0,
+            None = 1,
+            Even = 2,
+            Odd = 3,
+            Mark = 4,
+            Space = 5,
+            _,
+        };
+
+        pub const StopBits = enum(u8) {
+            Default = 0,
+            One = 1,
+            OneAndAHalf = 2,
+            Two = 3,
+            _,
+        };
+
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        reserved: u16,
+        baud_rate: u32,
+        data_bits: u8,
+        parity: Parity,
+        stop_bits: StopBits,
+    };
+
+    pub const VendorDefinedDevicePath = packed struct {
+        type: DevicePathType,
+        subtype: Subtype,
+        length: u16,
+        vendor_guid: Guid,
     };
 };
 
@@ -332,24 +558,44 @@ pub const MediaDevicePath = union(Subtype) {
     };
 
     pub const HardDriveDevicePath = packed struct {
+        pub const Format = enum(u8) {
+            LegacyMbr = 0x01,
+            GuidPartitionTable = 0x02,
+        };
+
+        pub const SignatureType = enum(u8) {
+            NoSignature = 0x00,
+            /// "32-bit signature from address 0x1b8 of the type 0x01 MBR"
+            MbrSignature = 0x01,
+            GuidSignature = 0x02,
+        };
+
         type: DevicePathType,
         subtype: Subtype,
         length: u16,
-        // TODO
+        partition_number: u32,
+        partition_start: u64,
+        partition_size: u64,
+        partition_signature: [16]u8,
+        partition_format: Format,
+        signature_type: SignatureType,
     };
 
     pub const CdromDevicePath = packed struct {
         type: DevicePathType,
         subtype: Subtype,
         length: u16,
-        // TODO
+        boot_entry: u32,
+        partition_start: u64,
+        partition_size: u64,
     };
 
     pub const VendorDevicePath = packed struct {
         type: DevicePathType,
         subtype: Subtype,
         length: u16,
-        // TODO
+        guid: Guid,
+        // vendor-defined variable data
     };
 
     pub const FilePathDevicePath = packed struct {
@@ -366,19 +612,21 @@ pub const MediaDevicePath = union(Subtype) {
         type: DevicePathType,
         subtype: Subtype,
         length: u16,
-        // TODO
+        guid: Guid,
     };
 
     pub const PiwgFirmwareFileDevicePath = packed struct {
         type: DevicePathType,
         subtype: Subtype,
         length: u16,
+        fv_filename: Guid,
     };
 
     pub const PiwgFirmwareVolumeDevicePath = packed struct {
         type: DevicePathType,
         subtype: Subtype,
         length: u16,
+        fv_name: Guid,
     };
 
     pub const RelativeOffsetRangeDevicePath = packed struct {
@@ -396,7 +644,7 @@ pub const MediaDevicePath = union(Subtype) {
         length: u16,
         start: u64,
         end: u64,
-        disk_type: uefi.Guid,
+        disk_type: Guid,
         instance: u16,
     };
 };
