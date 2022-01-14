@@ -108,6 +108,8 @@ pub fn sigaddset(set: *sigset_t, signo: u5) void {
 
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
+pub const IFNAMESIZE = 16;
+
 pub const AI = struct {
     /// get address to use bind()
     pub const PASSIVE = 0x00000001;

@@ -636,17 +636,35 @@ pub fn connectUnixSocket(path: []const u8) !Stream {
 }
 
 fn if_nametoindex(name: []const u8) !u32 {
-    var ifr: os.ifreq = undefined;
-    var sockfd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM | os.SOCK.CLOEXEC, 0);
-    defer os.closeSocket(sockfd);
+    if (builtin.target.os.tag == .linux) {
+        var ifr: os.ifreq = undefined;
+        var sockfd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM | os.SOCK.CLOEXEC, 0);
+        defer os.closeSocket(sockfd);
 
-    std.mem.copy(u8, &ifr.ifrn.name, name);
-    ifr.ifrn.name[name.len] = 0;
+        std.mem.copy(u8, &ifr.ifrn.name, name);
+        ifr.ifrn.name[name.len] = 0;
 
-    // TODO investigate if this needs to be integrated with evented I/O.
-    try os.ioctl_SIOCGIFINDEX(sockfd, &ifr);
+        // TODO investigate if this needs to be integrated with evented I/O.
+        try os.ioctl_SIOCGIFINDEX(sockfd, &ifr);
 
-    return @bitCast(u32, ifr.ifru.ivalue);
+        return @bitCast(u32, ifr.ifru.ivalue);
+    }
+
+    if (comptime builtin.target.os.tag.isDarwin()) {
+        if (name.len >= os.IFNAMESIZE)
+            return error.NameTooLong;
+
+        var if_name: [os.IFNAMESIZE:0]u8 = undefined;
+        std.mem.copy(u8, &if_name, name);
+        if_name[name.len] = 0;
+        const if_slice = if_name[0..name.len :0];
+        const index = os.system.if_nametoindex(if_slice);
+        if (index == 0)
+            return error.InterfaceNotFound;
+        return @bitCast(u32, index);
+    }
+
+    @compileError("std.net.if_nametoindex unimplemented for this OS");
 }
 
 pub const AddressList = struct {
