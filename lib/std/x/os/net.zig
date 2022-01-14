@@ -16,28 +16,37 @@ pub fn resolveScopeId(name: []const u8) !u32 {
     if (have_ifnamesize) {
         if (name.len >= os.IFNAMESIZE) return error.NameTooLong;
 
-        if (native_os.tag == .windows) {
+        if (native_os.tag == .windows or comptime native_os.tag.isDarwin()) {
             var interface_name: [os.IFNAMESIZE:0]u8 = undefined;
             mem.copy(u8, &interface_name, name);
             interface_name[name.len] = 0;
 
-            const rc = os.windows.ws2_32.if_nametoindex(@ptrCast([*:0]const u8, &interface_name));
+            const rc = blk: {
+                if (native_os.tag == .windows) {
+                    break :blk os.windows.ws2_32.if_nametoindex(@ptrCast([*:0]const u8, &interface_name));
+                } else {
+                    const index = os.system.if_nametoindex(@ptrCast([*:0]const u8, &interface_name));
+                    break :blk @bitCast(u32, index);
+                }
+            };
             if (rc == 0) {
                 return error.InterfaceNotFound;
             }
             return rc;
         }
 
-        const fd = try os.socket(os.AF.INET, os.SOCK.DGRAM, 0);
-        defer os.closeSocket(fd);
+        if (native_os.tag == .linux) {
+            const fd = try os.socket(os.AF.INET, os.SOCK.DGRAM, 0);
+            defer os.closeSocket(fd);
 
-        var f: os.ifreq = undefined;
-        mem.copy(u8, &f.ifrn.name, name);
-        f.ifrn.name[name.len] = 0;
+            var f: os.ifreq = undefined;
+            mem.copy(u8, &f.ifrn.name, name);
+            f.ifrn.name[name.len] = 0;
 
-        try os.ioctl_SIOCGIFINDEX(fd, &f);
+            try os.ioctl_SIOCGIFINDEX(fd, &f);
 
-        return @bitCast(u32, f.ifru.ivalue);
+            return @bitCast(u32, f.ifru.ivalue);
+        }
     }
 
     return error.InterfaceNotFound;

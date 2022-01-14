@@ -357,6 +357,8 @@ pub extern "c" fn openlog(ident: [*:0]const u8, logopt: c_int, facility: c_int) 
 pub extern "c" fn closelog() void;
 pub extern "c" fn setlogmask(maskpri: c_int) c_int;
 
+pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
+
 pub const max_align_t = if (builtin.abi == .msvc)
     f64
 else if (builtin.target.isDarwin())
