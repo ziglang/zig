@@ -1137,6 +1137,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define BAR .12345
         \\#define baz 1e1
         \\#define BAZ 42e-3f
+        \\#define foobar -73.L
     , &[_][]const u8{
         "pub const foo = @as(f32, 3.14);",
         "pub const bar = @as(c_longdouble, 16.0e-2);",
@@ -1144,6 +1145,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         "pub const BAR = 0.12345;",
         "pub const baz = 1e1;",
         "pub const BAZ = @as(f32, 42e-3);",
+        "pub const foobar = -@as(c_longdouble, 73.0);",
+    });
+
+    cases.add("macro defines hexadecimal float",
+        \\#define FOO 0xf7p38
+        \\#define BAR -0X8F.BP5F
+        \\#define FOOBAR 0X0P+0
+        \\#define BAZ -0x.0a5dp+12
+        \\#define FOOBAZ 0xfE.P-1l
+    , &[_][]const u8{
+        "pub const FOO = 0xf7p38;",
+        "pub const BAR = -@as(f32, 0x8F.BP5);",
+        "pub const FOOBAR = 0x0P+0;",
+        "pub const BAZ = -0x0.0a5dp+12;",
+        "pub const FOOBAZ = @as(c_longdouble, 0xfE.0P-1);",
     });
 
     cases.add("comments",
