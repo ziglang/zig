@@ -409,7 +409,7 @@ pub fn parseIntoAtoms(self: *Object, allocator: Allocator, macho_file: *MachO) !
     } else blk: {
         var iundefsym: usize = sorted_all_nlists.items.len;
         while (iundefsym > 0) : (iundefsym -= 1) {
-            const nlist = sorted_all_nlists.items[iundefsym];
+            const nlist = sorted_all_nlists.items[iundefsym - 1];
             if (nlist.nlist.sect()) break;
         }
         break :blk iundefsym;

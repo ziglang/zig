@@ -140,6 +140,9 @@ objc_selrefs_section_index: ?u16 = null,
 objc_classrefs_section_index: ?u16 = null,
 objc_data_section_index: ?u16 = null,
 
+rustc_section_index: ?u16 = null,
+rustc_section_size: u64 = 0,
+
 bss_file_offset: u32 = 0,
 tlv_bss_file_offset: u32 = 0,
 
@@ -466,7 +469,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        try man.addListOfFiles(self.base.options.objects);
+        for (self.base.options.objects) |obj| {
+            _ = try man.addFile(obj.path, null);
+            man.hash.add(obj.must_link);
+        }
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
         }
@@ -539,8 +545,9 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
-            if (self.base.options.objects.len != 0)
-                break :blk self.base.options.objects[0];
+            if (self.base.options.objects.len != 0) {
+                break :blk self.base.options.objects[0].path;
+            }
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -649,8 +656,19 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
             // Positional arguments to the linker such as object files and static archives.
             var positionals = std.ArrayList([]const u8).init(arena);
+            try positionals.ensureUnusedCapacity(self.base.options.objects.len);
 
-            try positionals.appendSlice(self.base.options.objects);
+            var must_link_archives = std.StringArrayHashMap(void).init(arena);
+            try must_link_archives.ensureUnusedCapacity(self.base.options.objects.len);
+
+            for (self.base.options.objects) |obj| {
+                if (must_link_archives.contains(obj.path)) continue;
+                if (obj.must_link) {
+                    _ = must_link_archives.getOrPutAssumeCapacity(obj.path);
+                } else {
+                    _ = positionals.appendAssumeCapacity(obj.path);
+                }
+            }
 
             for (comp.c_object_table.keys()) |key| {
                 try positionals.append(key.status.success.object_path);
@@ -857,12 +875,17 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                     try argv.append("dynamic_lookup");
                 }
 
+                for (must_link_archives.keys()) |lib| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-force_load {s}", .{lib}));
+                }
+
                 Compilation.dump_argv(argv.items);
             }
 
             var dependent_libs = std.fifo.LinearFifo(Dylib.Id, .Dynamic).init(self.base.allocator);
             defer dependent_libs.deinit();
             try self.parseInputFiles(positionals.items, self.base.options.sysroot, &dependent_libs);
+            try self.parseAndForceLoadStaticArchives(must_link_archives.keys());
             try self.parseLibs(libs.items, self.base.options.sysroot, &dependent_libs);
             try self.parseDependentLibs(self.base.options.sysroot, &dependent_libs);
         }
@@ -951,6 +974,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             try self.writeAllAtoms();
         } else {
             try self.writeAtoms();
+        }
+
+        if (self.rustc_section_index) |id| {
+            const seg = &self.load_commands.items[self.data_segment_cmd_index.?].segment;
+            const sect = &seg.sections.items[id];
+            sect.size = self.rustc_section_size;
         }
 
         try self.setEntryPoint();
@@ -1142,7 +1171,7 @@ fn parseObject(self: *MachO, path: []const u8) !bool {
     return true;
 }
 
-fn parseArchive(self: *MachO, path: []const u8) !bool {
+fn parseArchive(self: *MachO, path: []const u8, force_load: bool) !bool {
     const file = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => |e| return e,
@@ -1165,7 +1194,23 @@ fn parseArchive(self: *MachO, path: []const u8) !bool {
         else => |e| return e,
     };
 
-    try self.archives.append(self.base.allocator, archive);
+    if (force_load) {
+        defer archive.deinit(self.base.allocator);
+        // Get all offsets from the ToC
+        var offsets = std.AutoArrayHashMap(u32, void).init(self.base.allocator);
+        defer offsets.deinit();
+        for (archive.toc.values()) |offs| {
+            for (offs.items) |off| {
+                _ = try offsets.getOrPut(off);
+            }
+        }
+        for (offsets.keys()) |off| {
+            const object = try self.objects.addOne(self.base.allocator);
+            object.* = try archive.parseObject(self.base.allocator, self.base.options.target, off);
+        }
+    } else {
+        try self.archives.append(self.base.allocator, archive);
+    }
 
     return true;
 }
@@ -1250,13 +1295,28 @@ fn parseInputFiles(self: *MachO, files: []const []const u8, syslibroot: ?[]const
         log.debug("parsing input file path '{s}'", .{full_path});
 
         if (try self.parseObject(full_path)) continue;
-        if (try self.parseArchive(full_path)) continue;
+        if (try self.parseArchive(full_path, false)) continue;
         if (try self.parseDylib(full_path, .{
             .syslibroot = syslibroot,
             .dependent_libs = dependent_libs,
         })) continue;
 
         log.warn("unknown filetype for positional input file: '{s}'", .{file_name});
+    }
+}
+
+fn parseAndForceLoadStaticArchives(self: *MachO, files: []const []const u8) !void {
+    for (files) |file_name| {
+        const full_path = full_path: {
+            var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+            const path = try fs.realpath(file_name, &buffer);
+            break :full_path try self.base.allocator.dupe(u8, path);
+        };
+        defer self.base.allocator.free(full_path);
+        log.debug("parsing and force loading static archive '{s}'", .{full_path});
+
+        if (try self.parseArchive(full_path, true)) continue;
+        log.warn("unknown filetype: expected static archive: '{s}'", .{file_name});
     }
 }
 
@@ -1267,7 +1327,7 @@ fn parseLibs(self: *MachO, libs: []const []const u8, syslibroot: ?[]const u8, de
             .syslibroot = syslibroot,
             .dependent_libs = dependent_libs,
         })) continue;
-        if (try self.parseArchive(lib)) continue;
+        if (try self.parseArchive(lib, false)) continue;
 
         log.warn("unknown filetype for a library: '{s}'", .{lib});
     }
@@ -1832,6 +1892,24 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
                         break :blk .{
                             .seg = self.data_segment_cmd_index.?,
                             .sect = self.objc_data_section_index.?,
+                        };
+                    } else if (mem.eql(u8, sectname, ".rustc")) {
+                        if (self.rustc_section_index == null) {
+                            self.rustc_section_index = try self.initSection(
+                                self.data_segment_cmd_index.?,
+                                ".rustc",
+                                sect.size,
+                                sect.@"align",
+                                .{},
+                            );
+                            // We need to preserve the section size for rustc to properly
+                            // decompress the metadata.
+                            self.rustc_section_size = sect.size;
+                        }
+
+                        break :blk .{
+                            .seg = self.data_segment_cmd_index.?,
+                            .sect = self.rustc_section_index.?,
                         };
                     } else {
                         if (self.data_section_index == null) {
@@ -5003,6 +5081,7 @@ fn sortSections(self: *MachO) !void {
 
         // __DATA segment
         const indices = &[_]*?u16{
+            &self.rustc_section_index,
             &self.la_symbol_ptr_section_index,
             &self.objc_const_section_index,
             &self.objc_selrefs_section_index,
