@@ -66,3 +66,9 @@ fn testDifferentSizedFloatComparisons() !void {
 //    try expect(@nearbyint(a) == -4);
 //    }
 //}
+
+test "negative f128 floatToInt at compile-time" {
+    const a: f128 = -2;
+    var b = @floatToInt(i64, a);
+    try expect(@as(i64, -2) == b);
+}
