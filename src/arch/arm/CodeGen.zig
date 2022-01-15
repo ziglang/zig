@@ -2524,6 +2524,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
             },
             .stack_offset,
             .memory,
+            .stack_argument_offset,
             => blk: {
                 try self.spillCompareFlagsIfOccupied();
 
@@ -2953,7 +2954,7 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
             block_data.mcv = switch (operand_mcv) {
                 .none, .dead, .unreach => unreachable,
                 .register, .stack_offset, .memory => operand_mcv,
-                .immediate => blk: {
+                .immediate, .stack_argument_offset => blk: {
                     const new_mcv = try self.allocRegOrMem(block, true);
                     try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
                     break :blk new_mcv;
@@ -3911,7 +3912,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             result.stack_align = 1;
             return result;
         },
-        .Unspecified, .C => {
+        .C => {
             // ARM Procedure Call Standard, Chapter 6.5
             var ncrn: usize = 0; // Next Core Register Number
             var nsaa: u32 = 0; // Next stacked argument address
@@ -3941,6 +3942,18 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             }
 
             result.stack_byte_count = nsaa;
+            result.stack_align = 8;
+        },
+        .Unspecified => {
+            var stack_offset: u32 = 0;
+
+            for (param_types) |ty, i| {
+                stack_offset = std.mem.alignForwardGeneric(u32, stack_offset, ty.abiAlignment(self.target.*));
+                result.args[i] = .{ .stack_argument_offset = stack_offset };
+                stack_offset += @intCast(u32, ty.abiSize(self.target.*));
+            }
+
+            result.stack_byte_count = stack_offset;
             result.stack_align = 8;
         },
         else => return self.fail("TODO implement function parameters for {} on arm", .{cc}),
