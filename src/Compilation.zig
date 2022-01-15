@@ -5663,3 +5663,10 @@ pub fn compilerRtStrip(comp: Compilation) bool {
         return true;
     }
 }
+
+pub fn hotCodeSwap(comp: *Compilation, pid: std.os.pid_t) !void {
+    comp.bin_file.child_pid = pid;
+    try comp.makeBinFileWritable();
+    try comp.update();
+    try comp.makeBinFileExecutable();
+}

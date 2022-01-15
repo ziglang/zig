@@ -687,6 +687,7 @@ fn buildOutputType(
     var function_sections = false;
     var no_builtin = false;
     var watch = false;
+    var listen_addr: ?std.net.Ip4Address = null;
     var debug_compile_errors = false;
     var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
     var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
@@ -1144,6 +1145,17 @@ fn buildOutputType(
                         } else {
                             try log_scopes.append(gpa, args_iter.nextOrFatal());
                         }
+                    } else if (mem.eql(u8, arg, "--listen")) {
+                        const next_arg = args_iter.nextOrFatal();
+                        // example: --listen 127.0.0.1:9000
+                        var it = std.mem.split(u8, next_arg, ":");
+                        const host = it.next().?;
+                        const port_text = it.next() orelse "14735";
+                        const port = std.fmt.parseInt(u16, port_text, 10) catch |err|
+                            fatal("invalid port number: '{s}': {s}", .{ port_text, @errorName(err) });
+                        listen_addr = std.net.Ip4Address.parse(host, port) catch |err|
+                            fatal("invalid host: '{s}': {s}", .{ host, @errorName(err) });
+                        watch = true;
                     } else if (mem.eql(u8, arg, "--debug-link-snapshot")) {
                         if (!build_options.enable_link_snapshots) {
                             std.log.warn("Zig was compiled without linker snapshots enabled (-Dlink-snapshot). --debug-link-snapshot has no effect.", .{});
@@ -3353,6 +3365,125 @@ fn buildOutputType(
 
     var last_cmd: ReplCmd = .help;
 
+    if (listen_addr) |ip4_addr| {
+        var server = std.net.StreamServer.init(.{
+            .reuse_address = true,
+        });
+        defer server.deinit();
+
+        try server.listen(.{ .in = ip4_addr });
+
+        while (true) {
+            const conn = try server.accept();
+            defer conn.stream.close();
+
+            var buf: [100]u8 = undefined;
+            var child_pid: ?i32 = null;
+
+            while (true) {
+                try comp.makeBinFileExecutable();
+
+                const amt = try conn.stream.read(&buf);
+                const line = buf[0..amt];
+                const actual_line = mem.trimRight(u8, line, "\r\n ");
+
+                const cmd: ReplCmd = blk: {
+                    if (mem.eql(u8, actual_line, "update")) {
+                        break :blk .update;
+                    } else if (mem.eql(u8, actual_line, "exit")) {
+                        break;
+                    } else if (mem.eql(u8, actual_line, "help")) {
+                        break :blk .help;
+                    } else if (mem.eql(u8, actual_line, "run")) {
+                        break :blk .run;
+                    } else if (mem.eql(u8, actual_line, "update-and-run")) {
+                        break :blk .update_and_run;
+                    } else if (actual_line.len == 0) {
+                        break :blk last_cmd;
+                    } else {
+                        try stderr.print("unknown command: {s}\n", .{actual_line});
+                        continue;
+                    }
+                };
+                last_cmd = cmd;
+                switch (cmd) {
+                    .update => {
+                        tracy.frameMark();
+                        if (output_mode == .Exe) {
+                            try comp.makeBinFileWritable();
+                        }
+                        updateModule(gpa, comp, hook) catch |err| switch (err) {
+                            error.SemanticAnalyzeFail => continue,
+                            else => |e| return e,
+                        };
+                    },
+                    .help => {
+                        try stderr.writeAll(repl_help);
+                    },
+                    .run => {
+                        tracy.frameMark();
+                        try runOrTest(
+                            comp,
+                            gpa,
+                            arena,
+                            test_exec_args.items,
+                            self_exe_path.?,
+                            arg_mode,
+                            target_info,
+                            watch,
+                            &comp_destroyed,
+                            all_args,
+                            runtime_args_start,
+                            link_libc,
+                        );
+                    },
+                    .update_and_run => {
+                        tracy.frameMark();
+                        if (child_pid) |pid| {
+                            try conn.stream.writer().print("hot code swap requested for pid {d}", .{pid});
+                            try comp.hotCodeSwap(pid);
+
+                            var errors = try comp.getAllErrorsAlloc();
+                            defer errors.deinit(comp.gpa);
+
+                            if (errors.list.len != 0) {
+                                const ttyconf: std.debug.TTY.Config = switch (comp.color) {
+                                    .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
+                                    .on => .escape_codes,
+                                    .off => .no_color,
+                                };
+                                for (errors.list) |full_err_msg| {
+                                    try full_err_msg.renderToWriter(ttyconf, conn.stream.writer(), "error:", .Red, 0);
+                                }
+                                continue;
+                            }
+                        } else {
+                            if (output_mode == .Exe) {
+                                try comp.makeBinFileWritable();
+                            }
+                            updateModule(gpa, comp, hook) catch |err| switch (err) {
+                                error.SemanticAnalyzeFail => continue,
+                                else => |e| return e,
+                            };
+                            try comp.makeBinFileExecutable();
+
+                            child_pid = try runOrTestHotSwap(
+                                comp,
+                                gpa,
+                                arena,
+                                test_exec_args.items,
+                                self_exe_path.?,
+                                arg_mode,
+                                all_args,
+                                runtime_args_start,
+                            );
+                        }
+                    },
+                }
+            }
+        }
+    }
+
     while (watch) {
         try stderr.print("(zig) ", .{});
         try comp.makeBinFileExecutable();
@@ -3629,6 +3760,62 @@ fn runOrTest(
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
     }
+}
+
+fn runOrTestHotSwap(
+    comp: *Compilation,
+    gpa: Allocator,
+    arena: Allocator,
+    test_exec_args: []const ?[]const u8,
+    self_exe_path: []const u8,
+    arg_mode: ArgMode,
+    all_args: []const []const u8,
+    runtime_args_start: ?usize,
+) !i32 {
+    const exe_emit = comp.bin_file.options.emit.?;
+    // A naive `directory.join` here will indeed get the correct path to the binary,
+    // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
+    const exe_path = try fs.path.join(arena, &[_][]const u8{
+        exe_emit.directory.path orelse ".", exe_emit.sub_path,
+    });
+
+    var argv = std.ArrayList([]const u8).init(gpa);
+    defer argv.deinit();
+
+    if (test_exec_args.len == 0) {
+        // when testing pass the zig_exe_path to argv
+        if (arg_mode == .zig_test)
+            try argv.appendSlice(&[_][]const u8{
+                exe_path, self_exe_path,
+            })
+            // when running just pass the current exe
+        else
+            try argv.appendSlice(&[_][]const u8{
+                exe_path,
+            });
+    } else {
+        for (test_exec_args) |arg| {
+            if (arg) |a| {
+                try argv.append(a);
+            } else {
+                try argv.appendSlice(&[_][]const u8{
+                    exe_path, self_exe_path,
+                });
+            }
+        }
+    }
+    if (runtime_args_start) |i| {
+        try argv.appendSlice(all_args[i..]);
+    }
+    var child = std.ChildProcess.init(argv.items, arena);
+
+    child.stdin_behavior = .Inherit;
+    child.stdout_behavior = .Inherit;
+    child.stderr_behavior = .Inherit;
+
+    try child.spawn();
+
+    return child.pid;
 }
 
 const AfterUpdateHook = union(enum) {
