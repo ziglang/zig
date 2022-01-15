@@ -27,8 +27,22 @@ const WValue = union(enum) {
     none: void,
     /// Index of the local variable
     local: u32,
-    /// Holds a memoized typed value
-    constant: TypedValue,
+    /// Represents the index of a local that contains a pointer to its stack position
+    stack: u32,
+    /// An immediate 32bit value
+    imm32: u32,
+    /// An immediate 64bit value
+    imm64: u64,
+    /// A constant 32bit float value
+    float32: f32,
+    /// A constant 64bit float value
+    float64: f64,
+    /// A value that represents a pointer to the data section
+    memory: u64,
+    /// Represents a function pointer
+    /// In wasm function pointers are indexes into a function table,
+    /// rather than an address in the data section.
+    function_index: u32,
     /// Used for types that contains of multiple areas within
     /// a memory region in the stack.
     /// The local represents the position in the stack,
@@ -588,24 +602,14 @@ fn fail(self: *Self, comptime fmt: []const u8, args: anytype) InnerError {
 /// Resolves the `WValue` for the given instruction `inst`
 /// When the given instruction has a `Value`, it returns a constant instead
 fn resolveInst(self: Self, ref: Air.Inst.Ref) WValue {
-    const inst_index = Air.refToIndex(ref) orelse {
-        const tv = Air.Inst.Ref.typed_value_map[@enumToInt(ref)];
-        if (!tv.ty.hasCodeGenBits()) {
-            return WValue.none;
-        }
-        return WValue{ .constant = tv };
-    };
+    const gop = try self.values.getOrPut(self.gpa, ref);
+    if (gop.found_existing) return gop.value_ptr.*;
 
-    const inst_type = self.air.typeOfIndex(inst_index);
-    // It's allowed to have 0-bit integers
-    if (!inst_type.hasCodeGenBits() and !inst_type.isInt()) return WValue{ .none = {} };
-
-    if (self.air.instructions.items(.tag)[inst_index] == .constant) {
-        const ty_pl = self.air.instructions.items(.data)[inst_index].ty_pl;
-        return WValue{ .constant = .{ .ty = inst_type, .val = self.air.values[ty_pl.payload] } };
-    }
-
-    return self.values.get(inst_index).?; // Instruction does not dominate all uses!
+    // when we did not find an existing instruction, it
+    // means we must generate it from a constant.
+    const val = self.air.value(ref).?;
+    const ty = self.air.typeOf(ref);
+    return self.lowerConstant(val, ty);
 }
 
 /// Appends a MIR instruction and returns its index within the list of instructions
@@ -730,7 +734,12 @@ fn emitWValue(self: *Self, val: WValue) InnerError!void {
         .none => {}, // no-op
         .local_with_offset => |with_off| try self.addLabel(.local_get, with_off.local),
         .local => |idx| try self.addLabel(.local_get, idx),
-        .constant => |tv| try self.emitConstant(tv.val, tv.ty), // Creates a new constant on the stack
+        .imm32 => |val| try self.addImm32(@bitCast(i32, val)),
+        .imm64 => |val| try self.addImm64(val),
+        .float32 => |val| try self.addInst(.{ .tag = .f32_const, .data = .{ .float32 = val } }),
+        .float64 => |val| try self.addFloat64(val),
+        .memory => |ptr| try self.addLabel(.memory_address, ptr), // write sybol address and generate relocation
+        .function_index => |index| try self.addLabel(.function_index, index), // write function index and generate relocation
     }
 }
 
@@ -929,7 +938,8 @@ fn genTypedValue(self: *Self, ty: Type, val: Value) InnerError!Result {
             return Result.appended;
         },
         .Enum => {
-            try self.emitConstant(val, ty);
+            const size = @intCast(usize, ty.abiSize(self.target));
+            try self.code.appendNTimes(0xaa, size);
             return Result.appended;
         },
         .Bool => {
@@ -1205,6 +1215,10 @@ fn memCopy(self: *Self, ty: Type, lhs: WValue, rhs: WValue) !void {
 
 fn ptrSize(self: *const Self) u16 {
     return @divExact(self.target.cpu.arch.ptrBitWidth(), 8);
+}
+
+fn arch(self: *const Self) std.Target.Cpu.Arch {
+    return self.target.cpu.arch;
 }
 
 /// For a given `Type`, will return true when the type will be passed
@@ -1699,13 +1713,7 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
             }
         },
         .Struct, .Array => {
-            const final_rhs = if (rhs == .constant) blk: {
-                const tmp = try self.allocLocal(Type.usize);
-                try self.emitWValue(rhs);
-                try self.addLabel(.local_set, tmp.local);
-                break :blk tmp;
-            } else rhs;
-            return try self.memCopy(ty, lhs, final_rhs);
+            return try self.memCopy(ty, lhs, rhs);
         },
         .Pointer => {
             if (ty.isSlice() and rhs == .constant) {
@@ -1748,11 +1756,6 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
             }
         },
         .Int => if (ty.intInfo(self.target).bits > 64) {
-            if (rhs == .constant) {
-                try self.emitWValue(rhs);
-                try self.addLabel(.local_set, lhs.local);
-                return;
-            }
             return try self.memCopy(ty, lhs, rhs);
         },
         else => {},
@@ -1933,7 +1936,7 @@ fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     return bin_local;
 }
 
-fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
+fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
     if (val.isUndefDeep()) return self.emitUndefined(ty);
     switch (ty.zigTypeTag()) {
         .Int => {
@@ -1941,16 +1944,16 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             // write constant
             switch (int_info.signedness) {
                 .signed => switch (int_info.bits) {
-                    0...32 => return try self.addImm32(@intCast(i32, val.toSignedInt())),
-                    33...64 => return try self.addImm64(@bitCast(u64, val.toSignedInt())),
+                    0...32 => return WValue{ .imm32 = @bitCast(u32, @intCast(i32, val.toSignedInt())) },
+                    33...64 => return WValue{ .imm64 = @bitCast(u64, val.toSignedInt()) },
                     65...128 => {},
-                    else => |bits| return self.fail("Wasm todo: emitConstant for integer with {d} bits", .{bits}),
+                    else => |bits| return self.fail("Wasm todo: lowerConstant for integer with {d} bits", .{bits}),
                 },
                 .unsigned => switch (int_info.bits) {
-                    0...32 => return try self.addImm32(@bitCast(i32, @intCast(u32, val.toUnsignedInt()))),
-                    33...64 => return try self.addImm64(val.toUnsignedInt()),
+                    0...32 => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt()) },
+                    33...64 => return WValue{ .imm64 = val.toUnsignedInt() },
                     65...128 => {},
-                    else => |bits| return self.fail("Wasm TODO: emitConstant for integer with {d} bits", .{bits}),
+                    else => |bits| return self.fail("Wasm TODO: lowerConstant for integer with {d} bits", .{bits}),
                 },
             }
             const result = try self.allocStack(ty);
@@ -1970,53 +1973,58 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 try self.addImm64(limb);
                 try self.addMemArg(.i64_store, .{ .offset = @intCast(u32, index * 8), .alignment = 8 });
             }
-            try self.addLabel(.local_get, result.local);
+            return result;
         },
-        .Bool => try self.addImm32(@intCast(i32, val.toSignedInt())),
-        .Float => {
-            // write constant
-            switch (ty.floatBits(self.target)) {
-                0...32 => try self.addInst(.{ .tag = .f32_const, .data = .{ .float32 = val.toFloat(f32) } }),
-                64 => try self.addFloat64(val.toFloat(f64)),
-                else => |bits| return self.fail("Wasm TODO: emitConstant for float with {d} bits", .{bits}),
-            }
+        .Bool => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt()) },
+        .Float => switch (ty.floatBits(self.target)) {
+            0...32 => return WValue{ .float32 = val.toFloat(f32) },
+            33...64 => return WValue{ .float64 = val.toFloat(f64) },
+            else => |bits| return self.fail("Wasm TODO: emitConstant for floats with {d} bits", .{bits}),
         },
-        .Pointer => {
-            if (val.castTag(.slice)) |slice| {
+        .Pointer => switch (val) {
+            .slice => {
+                const result = try self.allocStack(ty);
                 var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                try self.emitConstant(slice.data.ptr, ty.slicePtrFieldType(&buf));
-                try self.emitConstant(slice.data.len, Type.usize);
-            } else if (val.castTag(.decl_ref)) |payload| {
-                const decl = payload.data;
-                decl.markAlive();
-                // Function pointers use a table index, rather than a memory address
-                if (decl.ty.zigTypeTag() == .Fn) {
-                    const target_sym_index = decl.link.wasm.sym_index;
-                    try self.bin_file.addTableFunction(target_sym_index);
-                    try self.addLabel(.function_index, target_sym_index);
-                } else {
-                    try self.addLabel(.memory_address, decl.link.wasm.sym_index);
+                const ptr = try self.lowerConstant(val.slicePtr(), ty.slicePtrFieldType(&buf));
+                const len = val.sliceLen();
+                try self.store(result, ptr, Type.usize, 0);
+                try self.addLabel(.local_get, result.local);
+                switch (self.arch()) {
+                    .wasm32 => {
+                        try self.addImm32(@bitCast(i32, @intCast(u32, len)));
+                        try self.addMemArg(.i32_store, .{ .offset = self.ptrSize(), .alignment = self.ptrSize() });
+                    },
+                    .wasm64 => {
+                        try self.addImm64(len);
+                        try self.addMemArg(.i64_store, .{ .offset = self.ptrSize(), .alignment = self.ptrSize() });
+                    },
                 }
-            } else if (val.castTag(.int_u64)) |int_ptr| {
-                try self.addImm32(@bitCast(i32, @intCast(u32, int_ptr.data)));
-            } else if (val.tag() == .zero or val.tag() == .null_value) {
-                try self.addImm32(0);
-            } else if (val.tag() == .one) {
-                try self.addImm32(1);
-            } else return self.fail("Wasm TODO: emitConstant for other const pointer tag {s}", .{val.tag()});
+                return result;
+            },
+            .decl_ref => {
+                const decl = val.castTag(.decl_ref).?.data;
+                decl.markAlive();
+                const target_sym_index = decl.link.wasm.sym_index;
+                if (decl.ty.zigTypeTag() == .Fn) {
+                    try self.bin_file.addTableFunction(target_sym_index);
+                    return WValue{ .function_index = target_sym_index };
+                } else return WValue{ .memory = target_sym_index };
+            },
+            .int_u64, .one => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt()) },
+            .zero, .null_value => return WValue{ .imm32 = 0 },
+            else => return self.fail("Wasm TODO: emitConstant for other const pointer tag {s}", .{val.tag()}),
         },
-        .Void => {},
         .Enum => {
             if (val.castTag(.enum_field_index)) |field_index| {
                 switch (ty.tag()) {
-                    .enum_simple => try self.addImm32(@bitCast(i32, field_index.data)),
+                    .enum_simple => return WValue{ .imm32 = field_index.data },
                     .enum_full, .enum_nonexhaustive => {
                         const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
                         if (enum_full.values.count() != 0) {
                             const tag_val = enum_full.values.keys()[field_index.data];
-                            try self.emitConstant(tag_val, enum_full.tag_ty);
+                            return self.lowerConstant(tag_val, enum_full.tag_ty);
                         } else {
-                            try self.addImm32(@bitCast(i32, field_index.data));
+                            return WValue{ .imm32 = field_index.data };
                         }
                     },
                     else => unreachable,
@@ -2024,55 +2032,61 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             } else {
                 var int_tag_buffer: Type.Payload.Bits = undefined;
                 const int_tag_ty = ty.intTagType(&int_tag_buffer);
-                try self.emitConstant(val, int_tag_ty);
+                return self.lowerConstant(val, int_tag_ty);
             }
         },
         .ErrorSet => {
             const error_index = self.global_error_set.get(val.getError().?).?;
-            try self.addImm32(@bitCast(i32, error_index));
+            return WValue{ .imm32 = error_index };
         },
         .ErrorUnion => {
             const error_type = ty.errorUnionSet();
             const payload_type = ty.errorUnionPayload();
-            if (val.castTag(.eu_payload)) |pl| {
-                const payload_val = pl.data;
-                // no error, so write a '0' const
-                try self.addImm32(0);
-
-                if (payload_type.hasCodeGenBits()) {
-                    // after the error code, we emit the payload
-                    try self.emitConstant(payload_val, payload_type);
-                }
-            } else {
-                // write the error val
-                try self.emitConstant(val, error_type);
-
-                if (payload_type.hasCodeGenBits()) {
-                    // no payload, so write a '0' const
-                    try self.addImm32(0);
-                }
+            const is_pl = val.errorUnionIsPayload();
+            const err_val = if (!is_pl) val else Value.initTag(.zero);
+            const error_value = try self.lowerConstant(err_val, error_type);
+            if (!payload_type.hasCodeGenBits()) {
+                return error_value;
             }
+
+            const result = try self.allocStack(ty);
+            try self.store(result, error_value, error_type, 0);
+            const payload = try lowerConstant(
+                if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef),
+                payload_type,
+            );
+            const pl_ptr = if (self.isByRef(payload_type)) try self.buildPointerOffset(
+                result,
+                error_type.abiSize(self.target),
+                .new,
+            ) else result;
+            try self.store(pl_ptr, payload, payload_type, 0);
+            return result;
         },
-        .Optional => {
+        .Optional => if (ty.isPtrLikeOptional()) {
+            return self.lowerConstant(val, payload_type);
+        } else {
             var buf: Type.Payload.ElemType = undefined;
             const payload_type = ty.optionalChild(&buf);
-            if (ty.isPtrLikeOptional()) {
-                try self.emitConstant(val, payload_type);
-                return;
+            const is_pl = val.tag() == .opt_payload;
+            const null_value = WValue{ .imm32 = if (is_pl) @as(u32, 0) else 1 };
+            if (!payload_type.hasCodeGenBits()) {
+                return null_value;
             }
 
-            // When constant has value 'null', set is_null local to '1'
-            // and payload to '0'
-            if (val.castTag(.opt_payload)) |payload| {
-                try self.addImm32(1);
-                if (payload_type.hasCodeGenBits())
-                    try self.emitConstant(payload.data, payload_type);
-            } else {
-                // set null-tag
-                try self.addImm32(0);
-                // null-tag is set, so write a '0' const
-                try self.addImm32(0);
-            }
+            const result = try self.allocStack(ty);
+            try self.store(result, null_value, Type.initTag(.u8), 0);
+            const payload = try self.lowerConstant(
+                if (val.castTag(.opt_payload)) |pl| pl.data else Value.initTag(.undef),
+                payload_type,
+            );
+
+            const pl_ptr = if (self.isByRef(payload_type)) blk: {
+                const offset = ty.abiSize(self.target) - payload_type.abiSize();
+                break :blk try self.buildPointerOffset(result, offset, .new);
+            } else result;
+            try self.store(pl_ptr, payload, payload_type, 0);
+            return result;
         },
         .Struct => {
             const struct_data = val.castTag(.@"struct").?;
@@ -2083,16 +2097,15 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             const offset = try self.copyLocal(result, ty);
             for (fields.values()) |field, index| {
                 const tmp = try self.allocLocal(field.ty);
-                try self.emitConstant(struct_data.data[index], field.ty);
-                try self.addLabel(.local_set, tmp.local);
-                try self.store(offset, tmp, field.ty, 0);
+                const field_value = try self.lowerConstant(struct_data.data[index], field.ty);
+                try self.store(offset, field_value, field.ty, 0);
 
                 // this prevents us from emitting useless instructions when we reached the end of the loop
                 if (index != (fields.count() - 1)) {
                     _ = try self.buildPointerOffset(offset, field.ty.abiSize(self.target), .modify);
                 }
             }
-            try self.addLabel(.local_get, result.local);
+            return result;
         },
         .Array => {
             const result = try self.allocStack(ty);
@@ -2108,7 +2121,7 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 const tmp = try self.allocLocal(elem_ty);
                 const offset = try self.copyLocal(result, ty);
                 for (array.data) |value, index| {
-                    try self.emitConstant(value, elem_ty);
+                    try self.lowerConstant(value, elem_ty);
                     try self.addLabel(.local_set, tmp.local);
                     try self.store(offset, tmp, elem_ty, 0);
 
@@ -2129,9 +2142,9 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 var index: u32 = 0;
                 while (index < len_with_sent) : (index += 1) {
                     if (sentinel != null and index == len) {
-                        try self.emitConstant(sentinel.?, elem_ty);
+                        try self.lowerConstant(sentinel.?, elem_ty);
                     } else {
-                        try self.emitConstant(value, elem_ty);
+                        try self.lowerConstant(value, elem_ty);
                     }
                     try self.addLabel(.local_set, tmp.local);
                     try self.store(offset, tmp, elem_ty, 0);
@@ -2144,26 +2157,26 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 const elem_ty = ty.childType();
                 const sent_val = ty.sentinel().?;
                 const tmp = try self.allocLocal(elem_ty);
-                try self.emitConstant(sent_val, elem_ty);
+                try self.lowerConstant(sent_val, elem_ty);
                 try self.addLabel(.local_set, tmp.local);
                 try self.store(result, tmp, elem_ty, 0);
             } else unreachable;
-            try self.addLabel(.local_get, result.local);
+            return result;
         },
         else => |zig_type| return self.fail("Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
     }
 }
 
-fn emitUndefined(self: *Self, ty: Type) InnerError!void {
+fn emitUndefined(self: *Self, ty: Type) InnerError!WValue {
     switch (ty.zigTypeTag()) {
         .Int => switch (ty.intInfo(self.target).bits) {
-            0...32 => try self.addImm32(@bitCast(i32, @as(u32, 0xaaaaaaaa))),
-            33...64 => try self.addImm64(0xaaaaaaaaaaaaaaaa),
+            0...32 => return WValue{ .imm32 = 0xaaaaaaaa },
+            33...64 => return WValue{ .imm64 = 0xaaaaaaaaaaaaaaaa },
             else => |bits| return self.fail("Wasm TODO: emitUndefined for integer bitsize: {d}", .{bits}),
         },
         .Float => switch (ty.floatBits(self.target)) {
-            0...32 => try self.addInst(.{ .tag = .f32_const, .data = .{ .float32 = @bitCast(f32, @as(u32, 0xaaaaaaaa)) } }),
-            33...64 => try self.addFloat64(@bitCast(f64, @as(u64, 0xaaaaaaaaaaaaaaaa))),
+            0...32 => return WValue{ .float32 = @bitCast(f32, @as(u32, 0xaaaaaaaa)) },
+            33...64 => return WValue{ .float64 = @bitCast(f64, @as(u64, 0xaaaaaaaaaaaaaaaa)) },
             else => |bits| return self.fail("Wasm TODO: emitUndefined for float bitsize: {d}", .{bits}),
         },
         .Array, .Struct => {
@@ -2172,18 +2185,18 @@ fn emitUndefined(self: *Self, ty: Type) InnerError!void {
             var offset: u32 = 0;
             while (offset < abi_size) : (offset += 1) {
                 try self.emitWValue(result);
-                try self.addImm32(0xaa);
-                switch (self.ptrSize()) {
-                    4 => try self.addMemArg(.i32_store8, .{ .offset = offset, .alignment = 1 }),
-                    8 => try self.addMemArg(.i64_store8, .{ .offset = offset, .alignment = 1 }),
+                try self.addImm32(0xaaaaaaaa);
+                switch (self.arch()) {
+                    .wasm32 => try self.addMemArg(.i32_store8, .{ .offset = offset, .alignment = 1 }),
+                    .wasm64 => try self.addMemArg(.i64_store8, .{ .offset = offset, .alignment = 1 }),
                     else => unreachable,
                 }
             }
-            try self.addLabel(.local_get, result.local);
+            return result;
         },
-        .Pointer => switch (self.ptrSize()) {
-            4 => try self.addImm32(@bitCast(i32, @as(u32, 0xaaaaaaaa))),
-            8 => try self.addImm64(0xaaaaaaaaaaaaaaaa),
+        .Pointer => switch (self.arch()) {
+            .wasm32 => return WValue{ .imm32 = 0xaaaaaaaa },
+            .wasm64 => return WValue{ .imm64 = 0xaaaaaaaaaaaaaaaa },
             else => unreachable,
         },
         else => return self.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty}),
@@ -2595,7 +2608,8 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             // for single value prong we can emit a simple if
             if (case.values.len == 1) {
                 try self.emitWValue(target);
-                try self.emitConstant(case.values[0].value, target_ty);
+                const val = try self.lowerConstant(case.values[0].value, target_ty);
+                try self.emitWValue(val);
                 const opcode = buildOpcode(.{
                     .valtype1 = try self.typeToValtype(target_ty),
                     .op = .ne, // not equal, because we want to jump out of this block if it does not match the condition.
@@ -2608,7 +2622,8 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                 try self.startBlock(.block, blocktype);
                 for (case.values) |value| {
                     try self.emitWValue(target);
-                    try self.emitConstant(value.value, target_ty);
+                    const val = try self.lowerConstant(value.value, target_ty);
+                    try self.emitWValue(val);
                     const opcode = buildOpcode(.{
                         .valtype1 = try self.typeToValtype(target_ty),
                         .op = .eq,
