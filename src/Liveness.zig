@@ -342,6 +342,11 @@ fn analyzeInst(
             return trackOperands(a, new_set, inst, main_tomb, .{ operand, .none, .none });
         },
 
+        .prefetch => {
+            const prefetch = inst_datas[inst].prefetch;
+            return trackOperands(a, new_set, inst, main_tomb, .{ prefetch.ptr, .none, .none });
+        },
+
         .call => {
             const inst_data = inst_datas[inst].pl_op;
             const callee = inst_data.operand;
