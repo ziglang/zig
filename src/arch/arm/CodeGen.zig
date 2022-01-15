@@ -1482,16 +1482,13 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 else => return self.fail("TODO load from register into {}", .{dst_mcv}),
             }
         },
-        .memory => |addr| {
+        .memory,
+        .stack_offset,
+        .stack_argument_offset,
+        => {
             const reg = try self.register_manager.allocReg(null, &.{});
-            try self.genSetReg(ptr_ty, reg, .{ .memory = addr });
+            try self.genSetReg(ptr_ty, reg, ptr);
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
-        },
-        .stack_offset => {
-            return self.fail("TODO implement loading from MCValue.stack_offset", .{});
-        },
-        .stack_argument_offset => {
-            return self.fail("TODO implement loading from MCValue.stack_argument_offset", .{});
         },
     }
 }

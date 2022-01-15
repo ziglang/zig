@@ -17,6 +17,7 @@ test {
     if (builtin.zig_backend != .stage2_x86_64) {
         // Tests that pass for stage1, llvm backend, C backend, wasm backend, and arm backend.
         _ = @import("behavior/bool.zig");
+        _ = @import("behavior/bugs/655.zig");
 
         if (builtin.zig_backend != .stage2_arm and builtin.zig_backend != .stage2_x86_64) {
             // Tests that pass for stage1, llvm backend, C backend, wasm backend.
@@ -25,7 +26,6 @@ test {
             _ = @import("behavior/basic.zig");
             _ = @import("behavior/bitcast.zig");
             _ = @import("behavior/bugs/624.zig");
-            _ = @import("behavior/bugs/655.zig");
             _ = @import("behavior/bugs/704.zig");
             _ = @import("behavior/bugs/1486.zig");
             _ = @import("behavior/bugs/2692.zig");
