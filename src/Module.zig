@@ -783,6 +783,16 @@ pub const Decl = struct {
             return decl.ty.abiAlignment(target);
         }
     }
+
+    pub fn markAlive(decl: *Decl) void {
+        if (decl.alive) return;
+        decl.alive = true;
+
+        // This is the first time we are marking this Decl alive. We must
+        // therefore recurse into its value and mark any Decl it references
+        // as also alive, so that any Decl referenced does not get garbage collected.
+        decl.val.markReferencedDeclsAlive();
+    }
 };
 
 /// This state is attached to every Decl when Module emit_h is non-null.

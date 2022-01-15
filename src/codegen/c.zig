@@ -215,7 +215,7 @@ pub const DeclGen = struct {
         val: Value,
         decl: *Decl,
     ) error{ OutOfMemory, AnalysisFail }!void {
-        markDeclAlive(decl);
+        decl.markAlive();
 
         if (ty.isSlice()) {
             try writer.writeByte('(');
@@ -251,19 +251,6 @@ pub const DeclGen = struct {
         }
 
         try dg.renderDeclName(decl, writer);
-    }
-
-    fn markDeclAlive(decl: *Decl) void {
-        if (decl.alive) return;
-        decl.alive = true;
-
-        // This is the first time we are marking this Decl alive. We must
-        // therefore recurse into its value and mark any Decl it references
-        // as also alive, so that any Decl referenced does not get garbage collected.
-
-        if (decl.val.pointerDecl()) |pointee| {
-            return markDeclAlive(pointee);
-        }
     }
 
     fn renderInt128(

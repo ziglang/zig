@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;
+const mem = std.mem;
 
 var s_array: [8]Sub = undefined;
 const Sub = struct { b: u8 };
@@ -86,4 +87,82 @@ test "array literal as argument to function" {
     };
     try S.entry(2);
     comptime try S.entry(2);
+}
+
+test "double nested array to const slice cast in array literal" {
+    const S = struct {
+        fn entry(two: i32) !void {
+            const cases = [_][]const []const i32{
+                &[_][]const i32{&[_]i32{1}},
+                &[_][]const i32{&[_]i32{ 2, 3 }},
+                &[_][]const i32{
+                    &[_]i32{4},
+                    &[_]i32{ 5, 6, 7 },
+                },
+            };
+            try check(&cases);
+
+            const cases2 = [_][]const i32{
+                &[_]i32{1},
+                &[_]i32{ two, 3 },
+            };
+            try expect(cases2.len == 2);
+            try expect(cases2[0].len == 1);
+            try expect(cases2[0][0] == 1);
+            try expect(cases2[1].len == 2);
+            try expect(cases2[1][0] == 2);
+            try expect(cases2[1][1] == 3);
+
+            const cases3 = [_][]const []const i32{
+                &[_][]const i32{&[_]i32{1}},
+                &[_][]const i32{&[_]i32{ two, 3 }},
+                &[_][]const i32{
+                    &[_]i32{4},
+                    &[_]i32{ 5, 6, 7 },
+                },
+            };
+            try check(&cases3);
+        }
+
+        fn check(cases: []const []const []const i32) !void {
+            try expect(cases.len == 3);
+            try expect(cases[0].len == 1);
+            try expect(cases[0][0].len == 1);
+            try expect(cases[0][0][0] == 1);
+            try expect(cases[1].len == 1);
+            try expect(cases[1][0].len == 2);
+            try expect(cases[1][0][0] == 2);
+            try expect(cases[1][0][1] == 3);
+            try expect(cases[2].len == 2);
+            try expect(cases[2][0].len == 1);
+            try expect(cases[2][0][0] == 4);
+            try expect(cases[2][1].len == 3);
+            try expect(cases[2][1][0] == 5);
+            try expect(cases[2][1][1] == 6);
+            try expect(cases[2][1][2] == 7);
+        }
+    };
+    try S.entry(2);
+    comptime try S.entry(2);
+}
+
+test "anonymous literal in array" {
+    const S = struct {
+        const Foo = struct {
+            a: usize = 2,
+            b: usize = 4,
+        };
+        fn doTheTest() !void {
+            var array: [2]Foo = .{
+                .{ .a = 3 },
+                .{ .b = 3 },
+            };
+            try expect(array[0].a == 3);
+            try expect(array[0].b == 4);
+            try expect(array[1].a == 2);
+            try expect(array[1].b == 3);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }

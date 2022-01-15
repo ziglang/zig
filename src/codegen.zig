@@ -464,7 +464,7 @@ fn lowerDeclRef(
     }
 
     if (decl.analysis != .complete) return error.AnalysisFail;
-    markDeclAlive(decl);
+    decl.markAlive();
     const vaddr = vaddr: {
         if (bin_file.cast(link.File.MachO)) |macho_file| {
             break :vaddr try macho_file.getDeclVAddrWithReloc(decl, code.items.len);
@@ -483,17 +483,4 @@ fn lowerDeclRef(
     }
 
     return Result{ .appended = {} };
-}
-
-fn markDeclAlive(decl: *Module.Decl) void {
-    if (decl.alive) return;
-    decl.alive = true;
-
-    // This is the first time we are marking this Decl alive. We must
-    // therefore recurse into its value and mark any Decl it references
-    // as also alive, so that any Decl referenced does not get garbage collected.
-
-    if (decl.val.pointerDecl()) |pointee| {
-        return markDeclAlive(pointee);
-    }
 }

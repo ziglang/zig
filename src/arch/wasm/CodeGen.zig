@@ -1037,7 +1037,7 @@ fn lowerDeclRef(self: *Self, ty: Type, val: Value, decl: *Module.Decl) InnerErro
     const offset = @intCast(u32, self.code.items.len);
     const atom = &self.decl.link.wasm;
     const target_sym_index = decl.link.wasm.sym_index;
-    markDeclAlive(decl);
+    decl.markAlive();
     if (decl.ty.zigTypeTag() == .Fn) {
         // We found a function pointer, so add it to our table,
         // as function pointers are not allowed to be stored inside the data section,
@@ -1935,7 +1935,7 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
                 try self.emitConstant(slice.data.len, Type.usize);
             } else if (val.castTag(.decl_ref)) |payload| {
                 const decl = payload.data;
-                markDeclAlive(decl);
+                decl.markAlive();
                 // Function pointers use a table index, rather than a memory address
                 if (decl.ty.zigTypeTag() == .Fn) {
                     const target_sym_index = decl.link.wasm.sym_index;
@@ -2098,19 +2098,6 @@ fn emitConstant(self: *Self, val: Value, ty: Type) InnerError!void {
             try self.addLabel(.local_get, result.local);
         },
         else => |zig_type| return self.fail("Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
-    }
-}
-
-fn markDeclAlive(decl: *Decl) void {
-    if (decl.alive) return;
-    decl.alive = true;
-
-    // This is the first time we are marking this Decl alive. We must
-    // therefore recurse into its value and mark any Decl it references
-    // as also alive, so that any Decl referenced does not get garbage collected.
-
-    if (decl.val.pointerDecl()) |pointee| {
-        return markDeclAlive(pointee);
     }
 }
 

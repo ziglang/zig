@@ -1746,6 +1746,55 @@ pub const Value = extern union {
         };
     }
 
+    pub fn markReferencedDeclsAlive(val: Value) void {
+        switch (val.tag()) {
+            .decl_ref_mut => return val.castTag(.decl_ref_mut).?.data.decl.markAlive(),
+            .extern_fn, .decl_ref => return val.cast(Payload.Decl).?.data.markAlive(),
+            .function => return val.castTag(.function).?.data.owner_decl.markAlive(),
+            .variable => return val.castTag(.variable).?.data.owner_decl.markAlive(),
+
+            .repeated,
+            .eu_payload,
+            .eu_payload_ptr,
+            .opt_payload,
+            .opt_payload_ptr,
+            .empty_array_sentinel,
+            => return markReferencedDeclsAlive(val.cast(Payload.SubValue).?.data),
+
+            .array => {
+                for (val.cast(Payload.Array).?.data) |elem_val| {
+                    markReferencedDeclsAlive(elem_val);
+                }
+            },
+            .slice => {
+                const slice = val.cast(Payload.Slice).?.data;
+                markReferencedDeclsAlive(slice.ptr);
+                markReferencedDeclsAlive(slice.len);
+            },
+
+            .elem_ptr => {
+                const elem_ptr = val.cast(Payload.ElemPtr).?.data;
+                return markReferencedDeclsAlive(elem_ptr.array_ptr);
+            },
+            .field_ptr => {
+                const field_ptr = val.cast(Payload.FieldPtr).?.data;
+                return markReferencedDeclsAlive(field_ptr.container_ptr);
+            },
+            .@"struct" => {
+                for (val.cast(Payload.Struct).?.data) |field_val| {
+                    markReferencedDeclsAlive(field_val);
+                }
+            },
+            .@"union" => {
+                const data = val.cast(Payload.Union).?.data;
+                markReferencedDeclsAlive(data.tag);
+                markReferencedDeclsAlive(data.val);
+            },
+
+            else => {},
+        }
+    }
+
     pub fn slicePtr(val: Value) Value {
         return switch (val.tag()) {
             .slice => val.castTag(.slice).?.data.ptr,
