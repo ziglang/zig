@@ -4,46 +4,6 @@ const mem = std.mem;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-fn testArrayByValAtComptime(b: [2]u8) u8 {
-    return b[0];
-}
-
-test "comptime evaluating function that takes array by value" {
-    const arr = [_]u8{ 0, 1 };
-    _ = comptime testArrayByValAtComptime(arr);
-    _ = comptime testArrayByValAtComptime(arr);
-}
-
-test "runtime initialize array elem and then implicit cast to slice" {
-    var two: i32 = 2;
-    const x: []const i32 = &[_]i32{two};
-    try expect(x[0] == 2);
-}
-
-test "array literal as argument to function" {
-    const S = struct {
-        fn entry(two: i32) !void {
-            try foo(&[_]i32{ 1, 2, 3 });
-            try foo(&[_]i32{ 1, two, 3 });
-            try foo2(true, &[_]i32{ 1, 2, 3 });
-            try foo2(true, &[_]i32{ 1, two, 3 });
-        }
-        fn foo(x: []const i32) !void {
-            try expect(x[0] == 1);
-            try expect(x[1] == 2);
-            try expect(x[2] == 3);
-        }
-        fn foo2(trash: bool, x: []const i32) !void {
-            try expect(trash);
-            try expect(x[0] == 1);
-            try expect(x[1] == 2);
-            try expect(x[2] == 3);
-        }
-    };
-    try S.entry(2);
-    comptime try S.entry(2);
-}
-
 test "double nested array to const slice cast in array literal" {
     const S = struct {
         fn entry(two: i32) !void {

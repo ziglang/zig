@@ -45,3 +45,45 @@ fn testImplicitCastSingleItemPtr() !void {
     slice[0] += 1;
     try expect(byte == 101);
 }
+
+fn testArrayByValAtComptime(b: [2]u8) u8 {
+    return b[0];
+}
+
+test "comptime evaluating function that takes array by value" {
+    const arr = [_]u8{ 1, 2 };
+    const x = comptime testArrayByValAtComptime(arr);
+    const y = comptime testArrayByValAtComptime(arr);
+    try expect(x == 1);
+    try expect(y == 1);
+}
+
+test "runtime initialize array elem and then implicit cast to slice" {
+    var two: i32 = 2;
+    const x: []const i32 = &[_]i32{two};
+    try expect(x[0] == 2);
+}
+
+test "array literal as argument to function" {
+    const S = struct {
+        fn entry(two: i32) !void {
+            try foo(&[_]i32{ 1, 2, 3 });
+            try foo(&[_]i32{ 1, two, 3 });
+            try foo2(true, &[_]i32{ 1, 2, 3 });
+            try foo2(true, &[_]i32{ 1, two, 3 });
+        }
+        fn foo(x: []const i32) !void {
+            try expect(x[0] == 1);
+            try expect(x[1] == 2);
+            try expect(x[2] == 3);
+        }
+        fn foo2(trash: bool, x: []const i32) !void {
+            try expect(trash);
+            try expect(x[0] == 1);
+            try expect(x[1] == 2);
+            try expect(x[2] == 3);
+        }
+    };
+    try S.entry(2);
+    comptime try S.entry(2);
+}

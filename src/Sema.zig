@@ -367,10 +367,20 @@ pub const Block = struct {
         elem_index: Air.Inst.Ref,
         elem_ptr_ty: Type,
     ) !Air.Inst.Ref {
+        const ty_ref = try block.sema.addType(elem_ptr_ty);
+        return block.addPtrElemPtrTypeRef(array_ptr, elem_index, ty_ref);
+    }
+
+    pub fn addPtrElemPtrTypeRef(
+        block: *Block,
+        array_ptr: Air.Inst.Ref,
+        elem_index: Air.Inst.Ref,
+        elem_ptr_ty: Air.Inst.Ref,
+    ) !Air.Inst.Ref {
         return block.addInst(.{
             .tag = .ptr_elem_ptr,
             .data = .{ .ty_pl = .{
-                .ty = try block.sema.addType(elem_ptr_ty),
+                .ty = elem_ptr_ty,
                 .payload = try block.sema.addExtra(Air.Bin{
                     .lhs = array_ptr,
                     .rhs = elem_index,
@@ -10538,9 +10548,16 @@ fn zirArrayInit(
     });
     const alloc = try block.addTy(.alloc, alloc_ty);
 
+    const elem_ptr_ty = try Type.ptr(sema.arena, .{
+        .mutable = true,
+        .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+        .pointee_type = elem_ty,
+    });
+    const elem_ptr_ty_ref = try sema.addType(elem_ptr_ty);
+
     for (resolved_args) |arg, i| {
-        const index = try sema.addIntUnsigned(Type.initTag(.u64), i);
-        const elem_ptr = try block.addBinOp(.ptr_elem_ptr, alloc, index);
+        const index = try sema.addIntUnsigned(Type.u64, i);
+        const elem_ptr = try block.addPtrElemPtrTypeRef(alloc, index, elem_ptr_ty_ref);
         _ = try block.addBinOp(.store, elem_ptr, arg);
     }
     if (is_ref) {
