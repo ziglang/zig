@@ -378,7 +378,7 @@ pub const File = struct {
                 if (build_options.only_c) unreachable;
                 if (base.file != null) return;
                 const emit = base.options.emit orelse return;
-                if (base.child_pid != null) {
+                if (base.child_pid) |pid| {
                     // If we try to open the output file in write mode while it is running,
                     // it will return ETXTBSY. So instead, we copy the file, atomically rename it
                     // over top of the exe path, and then proceed normally. This changes the inode,
@@ -388,6 +388,11 @@ pub const File = struct {
                     });
                     try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, tmp_sub_path, .{});
                     try emit.directory.handle.rename(tmp_sub_path, emit.sub_path);
+
+                    switch (std.os.errno(std.os.linux.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0, 0))) {
+                        .SUCCESS => {},
+                        else => |errno| log.warn("ptrace failure: {s}", .{@tagName(errno)}),
+                    }
                 }
                 base.file = try emit.directory.handle.createFile(emit.sub_path, .{
                     .truncate = false,
@@ -437,6 +442,13 @@ pub const File = struct {
                 }
                 f.close();
                 base.file = null;
+
+                if (base.child_pid) |pid| {
+                    switch (std.os.errno(std.os.linux.ptrace(std.os.linux.PTRACE.DETACH, pid, 0, 0, 0))) {
+                        .SUCCESS => {},
+                        else => |errno| log.warn("ptrace failure: {s}", .{@tagName(errno)}),
+                    }
+                }
             },
             .c, .spirv, .nvptx => {},
         }
