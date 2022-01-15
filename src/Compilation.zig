@@ -358,10 +358,10 @@ pub const AllErrors = struct {
             return msg.renderToStdErrInner(ttyconf, stderr, "error:", .Red, 0) catch return;
         }
 
-        fn renderToStdErrInner(
+        pub fn renderToStdErrInner(
             msg: Message,
             ttyconf: std.debug.TTY.Config,
-            stderr_file: std.fs.File,
+            stderr_file: anytype,
             kind: []const u8,
             color: std.debug.TTY.Color,
             indent: usize,
@@ -5220,4 +5220,11 @@ pub fn compilerRtStrip(comp: Compilation) bool {
     } else {
         return true;
     }
+}
+
+pub fn hotCodeSwap(comp: *Compilation, pid: std.os.pid_t) !void {
+    comp.bin_file.child_pid = pid;
+    try comp.makeBinFileWritable();
+    try comp.update();
+    try comp.makeBinFileExecutable();
 }

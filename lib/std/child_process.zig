@@ -19,6 +19,8 @@ const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
 
 pub const ChildProcess = struct {
+    /// Available after calling `spawn()`. It is a race condition to use this
+    /// value after `wait()`.
     pid: if (builtin.os.tag == .windows) void else i32,
     handle: if (builtin.os.tag == .windows) windows.HANDLE else void,
     thread_handle: if (builtin.os.tag == .windows) windows.HANDLE else void,
@@ -123,6 +125,7 @@ pub const ChildProcess = struct {
     }
 
     /// On success must call `kill` or `wait`.
+    /// After spawning the `pid` is available.
     pub fn spawn(self: *ChildProcess) SpawnError!void {
         if (builtin.os.tag == .windows) {
             return self.spawnWindows();
@@ -167,6 +170,7 @@ pub const ChildProcess = struct {
     }
 
     /// Blocks until child process terminates and then cleans up all resources.
+    /// TODO: set the pid to undefined in this function.
     pub fn wait(self: *ChildProcess) !Term {
         if (builtin.os.tag == .windows) {
             return self.waitWindows();

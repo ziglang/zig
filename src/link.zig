@@ -204,6 +204,8 @@ pub const File = struct {
     /// of this linking operation.
     lock: ?Cache.Lock = null,
 
+    child_pid: ?std.os.pid_t = null,
+
     pub const LinkBlock = union {
         elf: Elf.TextBlock,
         coff: Coff.TextBlock,
@@ -330,6 +332,17 @@ pub const File = struct {
             .coff, .elf, .macho, .plan9 => {
                 if (base.file != null) return;
                 const emit = base.options.emit orelse return;
+                if (base.child_pid != null) {
+                    // If we try to open the output file in write mode while it is running,
+                    // it will return ETXTBSY. So instead, we copy the file, atomically rename it
+                    // over top of the exe path, and then proceed normally. This changes the inode,
+                    // avoiding the error.
+                    const tmp_sub_path = try std.fmt.allocPrint(base.allocator, "{s}-{x}", .{
+                        emit.sub_path, std.crypto.random.int(u32),
+                    });
+                    try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, tmp_sub_path, .{});
+                    try emit.directory.handle.rename(tmp_sub_path, emit.sub_path);
+                }
                 base.file = try emit.directory.handle.createFile(emit.sub_path, .{
                     .truncate = false,
                     .read = true,
