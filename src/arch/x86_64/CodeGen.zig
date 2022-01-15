@@ -497,14 +497,14 @@ fn gen(self: *Self) InnerError!void {
                 .ops = (Mir.Ops{
                     .reg1 = .rsp,
                 }).encode(),
-                .data = .{ .imm = @intCast(i32, aligned_stack_end) + stack_adjustment },
+                .data = .{ .imm = @bitCast(u32, @intCast(i32, aligned_stack_end) + stack_adjustment) },
             });
             self.mir_instructions.set(backpatch_stack_add, .{
                 .tag = .add,
                 .ops = (Mir.Ops{
                     .reg1 = .rsp,
                 }).encode(),
-                .data = .{ .imm = @intCast(i32, aligned_stack_end) + stack_adjustment },
+                .data = .{ .imm = @bitCast(u32, @intCast(i32, aligned_stack_end) + stack_adjustment) },
             });
         }
     } else {
@@ -1347,7 +1347,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
                             .reg2 = .rbp,
                             .flags = 0b01,
                         }).encode(),
-                        .data = .{ .imm = -@intCast(i32, off + 16) },
+                        .data = .{ .imm = @bitCast(u32, -@intCast(i32, off + 16)) },
                     });
                     // add addr, offset
                     _ = try self.addInst(.{
@@ -1555,7 +1555,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                     try self.genSetReg(Type.initTag(.u32), count_reg, .{ .immediate = @intCast(u32, abi_size) });
 
                     return self.genInlineMemcpy(
-                        -@intCast(i32, off + abi_size),
+                        @bitCast(u32, -@intCast(i32, off + abi_size)),
                         registerAlias(addr_reg, @divExact(reg.size(), 8)),
                         count_reg.to64(),
                         tmp_reg.to8(),
@@ -1637,7 +1637,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                             // introduce new MIR tag specifically for mov [reg + 0], imm
                             const payload = try self.addExtra(Mir.ImmPair{
                                 .dest_off = 0,
-                                .operand = @bitCast(i32, @intCast(u32, imm)),
+                                .operand = @truncate(u32, imm),
                             });
                             _ = try self.addInst(.{
                                 .tag = .mov_mem_imm,
@@ -1872,7 +1872,7 @@ fn genBinMathOpMir(
                         .ops = (Mir.Ops{
                             .reg1 = registerAlias(dst_reg, @intCast(u32, abi_size)),
                         }).encode(),
-                        .data = .{ .imm = @intCast(i32, imm) },
+                        .data = .{ .imm = @truncate(u32, imm) },
                     });
                 },
                 .embedded_in_code, .memory => {
@@ -1891,7 +1891,7 @@ fn genBinMathOpMir(
                             .reg2 = .rbp,
                             .flags = 0b01,
                         }).encode(),
-                        .data = .{ .imm = -@intCast(i32, adj_off) },
+                        .data = .{ .imm = @bitCast(u32, -@intCast(i32, adj_off)) },
                     });
                 },
                 .compare_flags_unsigned => {
@@ -1926,7 +1926,7 @@ fn genBinMathOpMir(
                             .reg2 = registerAlias(src_reg, @intCast(u32, abi_size)),
                             .flags = 0b10,
                         }).encode(),
-                        .data = .{ .imm = -@intCast(i32, adj_off) },
+                        .data = .{ .imm = @bitCast(u32, -@intCast(i32, adj_off)) },
                     });
                 },
                 .immediate => |imm| {
@@ -1947,8 +1947,8 @@ fn genBinMathOpMir(
                         else => unreachable,
                     };
                     const payload = try self.addExtra(Mir.ImmPair{
-                        .dest_off = -@intCast(i32, adj_off),
-                        .operand = @bitCast(i32, @intCast(u32, imm)),
+                        .dest_off = @bitCast(u32, -@intCast(i32, adj_off)),
+                        .operand = @truncate(u32, imm),
                     });
                     _ = try self.addInst(.{
                         .tag = tag,
@@ -2015,7 +2015,7 @@ fn genIMulOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !
                                 .reg2 = dst_reg.to32(),
                                 .flags = 0b10,
                             }).encode(),
-                            .data = .{ .imm = @intCast(i32, imm) },
+                            .data = .{ .imm = @truncate(u32, imm) },
                         });
                     } else {
                         // TODO verify we don't spill and assign to the same register as dst_mcv
@@ -2088,7 +2088,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const mcv = self.args[arg_index];
     const payload = try self.addExtra(Mir.ArgDbgInfo{
         .air_inst = inst,
-        .arg_index = @intCast(u32, arg_index), // TODO can arg_index: u32?
+        .arg_index = @truncate(u32, arg_index), // TODO can arg_index: u32?
     });
     _ = try self.addInst(.{
         .tag = .arg_dbg_info,
@@ -2196,7 +2196,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                     .ops = (Mir.Ops{
                         .flags = 0b01,
                     }).encode(),
-                    .data = .{ .imm = @bitCast(i32, got_addr) },
+                    .data = .{ .imm = @truncate(u32, got_addr) },
                 });
             } else if (func_value.castTag(.extern_fn)) |_| {
                 return self.fail("TODO implement calling extern functions", .{});
@@ -3121,8 +3121,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     // offset from rbp, which is at the top of the stack frame.
                     // mov [rbp+offset], immediate
                     const payload = try self.addExtra(Mir.ImmPair{
-                        .dest_off = -@intCast(i32, adj_off),
-                        .operand = @bitCast(i32, @intCast(u32, x_big)),
+                        .dest_off = @bitCast(u32, -@intCast(i32, adj_off)),
+                        .operand = @truncate(u32, x_big),
                     });
                     _ = try self.addInst(.{
                         .tag = .mov_mem_imm,
@@ -3147,8 +3147,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     // insted just use two 32 bit writes to avoid register allocation
                     {
                         const payload = try self.addExtra(Mir.ImmPair{
-                            .dest_off = negative_offset + 4,
-                            .operand = @bitCast(i32, @truncate(u32, x_big >> 32)),
+                            .dest_off = @bitCast(u32, negative_offset + 4),
+                            .operand = @truncate(u32, x_big >> 32),
                         });
                         _ = try self.addInst(.{
                             .tag = .mov_mem_imm,
@@ -3161,8 +3161,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     }
                     {
                         const payload = try self.addExtra(Mir.ImmPair{
-                            .dest_off = negative_offset,
-                            .operand = @bitCast(i32, @truncate(u32, x_big)),
+                            .dest_off = @bitCast(u32, negative_offset),
+                            .operand = @truncate(u32, x_big),
                         });
                         _ = try self.addInst(.{
                             .tag = .mov_mem_imm,
@@ -3192,7 +3192,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     .reg2 = registerAlias(reg, @intCast(u32, abi_size)),
                     .flags = 0b10,
                 }).encode(),
-                .data = .{ .imm = -@intCast(i32, adj_off) },
+                .data = .{ .imm = @bitCast(u32, -@intCast(i32, adj_off)) },
             });
         },
         .memory, .embedded_in_code => {
@@ -3228,14 +3228,14 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     .reg1 = addr_reg.to64(),
                     .reg2 = .rbp,
                 }).encode(),
-                .data = .{ .imm = -@intCast(i32, off + abi_size) },
+                .data = .{ .imm = @bitCast(u32, -@intCast(i32, off + abi_size)) },
             });
 
             // TODO allow for abi_size to be u64
             try self.genSetReg(Type.initTag(.u32), count_reg, .{ .immediate = @intCast(u32, abi_size) });
 
             return self.genInlineMemcpy(
-                -@intCast(i32, stack_offset + abi_size),
+                @bitCast(u32, -@intCast(i32, stack_offset + abi_size)),
                 addr_reg.to64(),
                 count_reg.to64(),
                 tmp_reg.to8(),
@@ -3246,7 +3246,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
 
 fn genInlineMemcpy(
     self: *Self,
-    stack_offset: i32,
+    stack_offset: u32,
     addr_reg: Register,
     count_reg: Register,
     tmp_reg: Register,
@@ -3361,7 +3361,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     .reg1 = registerAlias(reg, @intCast(u32, ptr_abi_size)),
                     .reg2 = .rbp,
                 }).encode(),
-                .data = .{ .imm = -@intCast(i32, off) },
+                .data = .{ .imm = @bitCast(u32, -@intCast(i32, off)) },
             });
         },
         .ptr_embedded_in_code => unreachable,
@@ -3426,7 +3426,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     .ops = (Mir.Ops{
                         .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
                     }).encode(),
-                    .data = .{ .imm = @intCast(i32, x) },
+                    .data = .{ .imm = @truncate(u32, x) },
                 });
                 return;
             }
@@ -3482,7 +3482,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .reg1 = reg,
                         .flags = 0b10,
                     }).encode(),
-                    .data = .{ .got_entry = @intCast(u32, x) },
+                    .data = .{ .got_entry = @truncate(u32, x) },
                 });
                 // MOV reg, [reg]
                 _ = try self.addInst(.{
@@ -3502,7 +3502,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .reg1 = reg,
                         .flags = 0b01,
                     }).encode(),
-                    .data = .{ .imm = @intCast(i32, x) },
+                    .data = .{ .imm = @truncate(u32, x) },
                 });
             } else {
                 // If this is RAX, we can use a direct load.
@@ -3561,7 +3561,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     .reg2 = .rbp,
                     .flags = 0b01,
                 }).encode(),
-                .data = .{ .imm = -@intCast(i32, off) },
+                .data = .{ .imm = @bitCast(u32, -@intCast(i32, off)) },
             });
         },
     }

@@ -483,17 +483,26 @@ inline fn setRexWRegister(reg: Register) bool {
     };
 }
 
-inline fn immOpSize(imm: i64) u8 {
-    blk: {
-        _ = math.cast(i8, imm) catch break :blk;
+inline fn immOpSize(u_imm: u32) u8 {
+    const imm = @bitCast(i32, u_imm);
+    if (math.minInt(i8) <= imm and imm <= math.maxInt(i8)) {
         return 8;
     }
-    blk: {
-        _ = math.cast(i16, imm) catch break :blk;
+    if (math.minInt(i16) <= imm and imm <= math.maxInt(i16)) {
         return 16;
     }
-    blk: {
-        _ = math.cast(i32, imm) catch break :blk;
+    return 32;
+}
+
+inline fn imm64OpSize(u_imm: u64) u8 {
+    const imm = @bitCast(i64, u_imm);
+    if (math.minInt(i8) <= imm and imm <= math.maxInt(i8)) {
+        return 8;
+    }
+    if (math.minInt(i16) <= imm and imm <= math.maxInt(i16)) {
+        return 16;
+    }
+    if (math.minInt(i32) <= imm and imm <= math.maxInt(i32)) {
         return 32;
     }
     return 64;
@@ -560,10 +569,10 @@ fn mirMovabs(isel: *Isel, inst: Mir.Inst.Index) InnerError!void {
     const tag = isel.mir.instructions.items(.tag)[inst];
     assert(tag == .movabs);
     const ops = Mir.Ops.decode(isel.mir.instructions.items(.ops)[inst]);
-    const imm: i64 = if (ops.reg1.size() == 64) blk: {
+    const imm: u64 = if (ops.reg1.size() == 64) blk: {
         const payload = isel.mir.instructions.items(.data)[inst].payload;
         const imm = isel.mir.extraData(Mir.Imm64, payload).data;
-        break :blk @bitCast(i64, imm.decode());
+        break :blk imm.decode();
     } else isel.mir.instructions.items(.data)[inst].imm;
     if (ops.flags == 0b00) {
         // movabs reg, imm64
@@ -1233,7 +1242,7 @@ const ScaleIndex = struct {
 const Memory = struct {
     base: ?Register,
     rip: bool = false,
-    disp: i32,
+    disp: u32,
     ptr_size: PtrSize,
     scale_index: ?ScaleIndex = null,
 
@@ -1283,7 +1292,7 @@ const Memory = struct {
                     } else {
                         encoder.sib_baseDisp8(dst);
                     }
-                    encoder.disp8(@intCast(i8, mem_op.disp));
+                    encoder.disp8(@bitCast(i8, @truncate(u8, mem_op.disp)));
                 } else {
                     encoder.modRm_SIBDisp32(src);
                     if (mem_op.scale_index) |si| {
@@ -1291,17 +1300,17 @@ const Memory = struct {
                     } else {
                         encoder.sib_baseDisp32(dst);
                     }
-                    encoder.disp32(mem_op.disp);
+                    encoder.disp32(@bitCast(i32, mem_op.disp));
                 }
             } else {
                 if (mem_op.disp == 0) {
                     encoder.modRm_indirectDisp0(src, dst);
                 } else if (immOpSize(mem_op.disp) == 8) {
                     encoder.modRm_indirectDisp8(src, dst);
-                    encoder.disp8(@intCast(i8, mem_op.disp));
+                    encoder.disp8(@bitCast(i8, @truncate(u8, mem_op.disp)));
                 } else {
                     encoder.modRm_indirectDisp32(src, dst);
-                    encoder.disp32(mem_op.disp);
+                    encoder.disp32(@bitCast(i32, mem_op.disp));
                 }
             }
         } else {
@@ -1315,16 +1324,16 @@ const Memory = struct {
                     encoder.sib_disp32();
                 }
             }
-            encoder.disp32(mem_op.disp);
+            encoder.disp32(@bitCast(i32, mem_op.disp));
         }
     }
 };
 
-fn encodeImm(encoder: Encoder, imm: i32, size: u64) void {
+fn encodeImm(encoder: Encoder, imm: u32, size: u64) void {
     switch (size) {
-        8 => encoder.imm8(@intCast(i8, imm)),
-        16 => encoder.imm16(@intCast(i16, imm)),
-        32, 64 => encoder.imm32(imm),
+        8 => encoder.imm8(@bitCast(i8, @truncate(u8, imm))),
+        16 => encoder.imm16(@bitCast(i16, @truncate(u16, imm))),
+        32, 64 => encoder.imm32(@bitCast(i32, imm)),
         else => unreachable,
     }
 }
@@ -1338,7 +1347,7 @@ const RegisterOrMemory = union(enum) {
     }
 
     fn mem(ptr_size: Memory.PtrSize, args: struct {
-        disp: i32,
+        disp: u32,
         base: ?Register = null,
         scale_index: ?ScaleIndex = null,
     }) RegisterOrMemory {
@@ -1352,7 +1361,7 @@ const RegisterOrMemory = union(enum) {
         };
     }
 
-    fn rip(ptr_size: Memory.PtrSize, disp: i32) RegisterOrMemory {
+    fn rip(ptr_size: Memory.PtrSize, disp: u32) RegisterOrMemory {
         return .{
             .memory = .{
                 .base = null,
@@ -1377,12 +1386,12 @@ fn lowerToZoEnc(tag: Tag, code: *std.ArrayList(u8)) LoweringError!void {
     opc.encode(encoder);
 }
 
-fn lowerToIEnc(tag: Tag, imm: i32, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToIEnc(tag: Tag, imm: u32, code: *std.ArrayList(u8)) LoweringError!void {
     if (tag == .ret_far or tag == .ret_near) {
         const encoder = try Encoder.init(code, 3);
         const opc = getOpCode(tag, .i, false).?;
         opc.encode(encoder);
-        encoder.imm16(@intCast(i16, imm));
+        encoder.imm16(@bitCast(i16, @truncate(u16, imm)));
         return;
     }
     const opc = getOpCode(tag, .i, immOpSize(imm) == 8).?;
@@ -1410,11 +1419,11 @@ fn lowerToOEnc(tag: Tag, reg: Register, code: *std.ArrayList(u8)) LoweringError!
     opc.encodeWithReg(encoder, reg);
 }
 
-fn lowerToDEnc(tag: Tag, imm: i32, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToDEnc(tag: Tag, imm: u32, code: *std.ArrayList(u8)) LoweringError!void {
     const opc = getOpCode(tag, .d, false).?;
     const encoder = try Encoder.init(code, 6);
     opc.encode(encoder);
-    encoder.imm32(imm);
+    encoder.imm32(@bitCast(i32, imm));
 }
 
 fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8)) LoweringError!void {
@@ -1467,19 +1476,19 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
     }
 }
 
-fn lowerToTdEnc(tag: Tag, moffs: i64, reg: Register, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToTdEnc(tag: Tag, moffs: u64, reg: Register, code: *std.ArrayList(u8)) LoweringError!void {
     return lowerToTdFdEnc(tag, reg, moffs, code, true);
 }
 
-fn lowerToFdEnc(tag: Tag, reg: Register, moffs: i64, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToFdEnc(tag: Tag, reg: Register, moffs: u64, code: *std.ArrayList(u8)) LoweringError!void {
     return lowerToTdFdEnc(tag, reg, moffs, code, false);
 }
 
-fn lowerToTdFdEnc(tag: Tag, reg: Register, moffs: i64, code: *std.ArrayList(u8), td: bool) LoweringError!void {
+fn lowerToTdFdEnc(tag: Tag, reg: Register, moffs: u64, code: *std.ArrayList(u8), td: bool) LoweringError!void {
     if (reg.lowId() != Register.rax.lowId()) {
         return error.RaxOperandExpected;
     }
-    if (reg.size() != immOpSize(moffs)) {
+    if (reg.size() != imm64OpSize(moffs)) {
         return error.OperandSizeMismatch;
     }
     const opc = if (td)
@@ -1495,27 +1504,16 @@ fn lowerToTdFdEnc(tag: Tag, reg: Register, moffs: i64, code: *std.ArrayList(u8),
     });
     opc.encode(encoder);
     switch (reg.size()) {
-        8 => {
-            const moffs8 = try math.cast(i8, moffs);
-            encoder.imm8(moffs8);
-        },
-        16 => {
-            const moffs16 = try math.cast(i16, moffs);
-            encoder.imm16(moffs16);
-        },
-        32 => {
-            const moffs32 = try math.cast(i32, moffs);
-            encoder.imm32(moffs32);
-        },
-        64 => {
-            encoder.imm64(@bitCast(u64, moffs));
-        },
+        8 => encoder.imm8(@bitCast(i8, @truncate(u8, moffs))),
+        16 => encoder.imm16(@bitCast(i16, @truncate(u16, moffs))),
+        32 => encoder.imm32(@bitCast(i32, @truncate(u32, moffs))),
+        64 => encoder.imm64(moffs),
         else => unreachable,
     }
 }
 
-fn lowerToOiEnc(tag: Tag, reg: Register, imm: i64, code: *std.ArrayList(u8)) LoweringError!void {
-    if (reg.size() != immOpSize(imm)) {
+fn lowerToOiEnc(tag: Tag, reg: Register, imm: u64, code: *std.ArrayList(u8)) LoweringError!void {
+    if (reg.size() != imm64OpSize(imm)) {
         return error.OperandSizeMismatch;
     }
     const opc = getOpCode(tag, .oi, reg.size() == 8).?;
@@ -1529,26 +1527,15 @@ fn lowerToOiEnc(tag: Tag, reg: Register, imm: i64, code: *std.ArrayList(u8)) Low
     });
     opc.encodeWithReg(encoder, reg);
     switch (reg.size()) {
-        8 => {
-            const imm8 = try math.cast(i8, imm);
-            encoder.imm8(imm8);
-        },
-        16 => {
-            const imm16 = try math.cast(i16, imm);
-            encoder.imm16(imm16);
-        },
-        32 => {
-            const imm32 = try math.cast(i32, imm);
-            encoder.imm32(imm32);
-        },
-        64 => {
-            encoder.imm64(@bitCast(u64, imm));
-        },
+        8 => encoder.imm8(@bitCast(i8, @truncate(u8, imm))),
+        16 => encoder.imm16(@bitCast(i16, @truncate(u16, imm))),
+        32 => encoder.imm32(@bitCast(i32, @truncate(u32, imm))),
+        64 => encoder.imm64(imm),
         else => unreachable,
     }
 }
 
-fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: i32, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: u32, code: *std.ArrayList(u8)) LoweringError!void {
     const modrm_ext = getModRmExt(tag).?;
     switch (reg_or_mem) {
         .register => |dst_reg| {
@@ -1700,7 +1687,7 @@ fn lowerToRmiEnc(
     tag: Tag,
     reg: Register,
     reg_or_mem: RegisterOrMemory,
-    imm: i32,
+    imm: u32,
     code: *std.ArrayList(u8),
 ) LoweringError!void {
     if (reg.size() == 8) {
@@ -1804,7 +1791,10 @@ test "lower MI encoding" {
     try expectEqualHexStrings("\x48\xc7\xc0\x10\x00\x00\x00", isel.lowered(), "mov rax, 0x10");
     try lowerToMiEnc(.mov, RegisterOrMemory.mem(.dword_ptr, .{ .disp = 0, .base = .r11 }), 0x10, isel.code());
     try expectEqualHexStrings("\x41\xc7\x03\x10\x00\x00\x00", isel.lowered(), "mov dword ptr [r11 + 0], 0x10");
-    try lowerToMiEnc(.add, RegisterOrMemory.mem(.dword_ptr, .{ .disp = -8, .base = .rdx }), 0x10, isel.code());
+    try lowerToMiEnc(.add, RegisterOrMemory.mem(.dword_ptr, .{
+        .disp = @bitCast(u32, @as(i32, -8)),
+        .base = .rdx,
+    }), 0x10, isel.code());
     try expectEqualHexStrings("\x81\x42\xF8\x10\x00\x00\x00", isel.lowered(), "add dword ptr [rdx - 8], 0x10");
     try lowerToMiEnc(.sub, RegisterOrMemory.mem(.dword_ptr, .{
         .disp = 0x10000000,
@@ -1836,15 +1826,24 @@ test "lower MI encoding" {
         isel.lowered(),
         "mov qword ptr [rip + 0x10], 0x10",
     );
-    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{ .disp = -8, .base = .rbp }), 0x10, isel.code());
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = @bitCast(u32, @as(i32, -8)),
+        .base = .rbp,
+    }), 0x10, isel.code());
     try expectEqualHexStrings(
         "\x48\xc7\x45\xf8\x10\x00\x00\x00",
         isel.lowered(),
         "mov qword ptr [rbp - 8], 0x10",
     );
-    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.word_ptr, .{ .disp = -2, .base = .rbp }), 0x10, isel.code());
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.word_ptr, .{
+        .disp = @bitCast(u32, @as(i32, -2)),
+        .base = .rbp,
+    }), 0x10, isel.code());
     try expectEqualHexStrings("\x66\xC7\x45\xFE\x10\x00", isel.lowered(), "mov word ptr [rbp - 2], 0x10");
-    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.byte_ptr, .{ .disp = -1, .base = .rbp }), 0x10, isel.code());
+    try lowerToMiEnc(.mov, RegisterOrMemory.mem(.byte_ptr, .{
+        .disp = @bitCast(u32, @as(i32, -1)),
+        .base = .rbp,
+    }), 0x10, isel.code());
     try expectEqualHexStrings("\xC6\x45\xFF\x10", isel.lowered(), "mov byte ptr [rbp - 1], 0x10");
     try lowerToMiEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
         .disp = 0x10000000,
@@ -1897,12 +1896,15 @@ test "lower RM encoding" {
         isel.lowered(),
         "sub r11, qword ptr [r12 + 0x10000000]",
     );
-    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.qword_ptr, .{ .disp = -4, .base = .rbp }), isel.code());
+    try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = @bitCast(u32, @as(i32, -4)),
+        .base = .rbp,
+    }), isel.code());
     try expectEqualHexStrings("\x48\x8B\x45\xFC", isel.lowered(), "mov rax, qword ptr [rbp - 4]");
     try lowerToRmEnc(.lea, .rax, RegisterOrMemory.rip(.qword_ptr, 0x10), isel.code());
     try expectEqualHexStrings("\x48\x8D\x05\x10\x00\x00\x00", isel.lowered(), "lea rax, [rip + 0x10]");
     try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.qword_ptr, .{
-        .disp = -8,
+        .disp = @bitCast(u32, @as(i32, -8)),
         .base = .rbp,
         .scale_index = .{
             .scale = 0,
@@ -1911,7 +1913,7 @@ test "lower RM encoding" {
     }), isel.code());
     try expectEqualHexStrings("\x48\x8B\x44\x0D\xF8", isel.lowered(), "mov rax, qword ptr [rbp + rcx*1 - 8]");
     try lowerToRmEnc(.mov, .eax, RegisterOrMemory.mem(.dword_ptr, .{
-        .disp = -4,
+        .disp = @bitCast(u32, @as(i32, -4)),
         .base = .rbp,
         .scale_index = .{
             .scale = 2,
@@ -1920,7 +1922,7 @@ test "lower RM encoding" {
     }), isel.code());
     try expectEqualHexStrings("\x8B\x44\x95\xFC", isel.lowered(), "mov eax, dword ptr [rbp + rdx*4 - 4]");
     try lowerToRmEnc(.mov, .rax, RegisterOrMemory.mem(.qword_ptr, .{
-        .disp = -8,
+        .disp = @bitCast(u32, @as(i32, -8)),
         .base = .rbp,
         .scale_index = .{
             .scale = 3,
@@ -1929,7 +1931,7 @@ test "lower RM encoding" {
     }), isel.code());
     try expectEqualHexStrings("\x48\x8B\x44\xCD\xF8", isel.lowered(), "mov rax, qword ptr [rbp + rcx*8 - 8]");
     try lowerToRmEnc(.mov, .r8b, RegisterOrMemory.mem(.byte_ptr, .{
-        .disp = -24,
+        .disp = @bitCast(u32, @as(i32, -24)),
         .base = .rsi,
         .scale_index = .{
             .scale = 0,
@@ -1953,7 +1955,10 @@ test "lower MR encoding" {
     defer isel.deinit();
     try lowerToMrEnc(.mov, RegisterOrMemory.reg(.rax), .rbx, isel.code());
     try expectEqualHexStrings("\x48\x89\xd8", isel.lowered(), "mov rax, rbx");
-    try lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{ .disp = -4, .base = .rbp }), .r11, isel.code());
+    try lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = @bitCast(u32, @as(i32, -4)),
+        .base = .rbp,
+    }), .r11, isel.code());
     try expectEqualHexStrings("\x4c\x89\x5d\xfc", isel.lowered(), "mov qword ptr [rbp - 4], r11");
     try lowerToMrEnc(.add, RegisterOrMemory.mem(.byte_ptr, .{ .disp = 0x10000000 }), .r12b, isel.code());
     try expectEqualHexStrings(
@@ -2063,7 +2068,7 @@ test "lower RMI encoding" {
     var isel = TestIsel.init();
     defer isel.deinit();
     try lowerToRmiEnc(.imul, .rax, RegisterOrMemory.mem(.qword_ptr, .{
-        .disp = -8,
+        .disp = @bitCast(u32, @as(i32, -8)),
         .base = .rbp,
     }), 0x10, isel.code());
     try expectEqualHexStrings(
@@ -2072,12 +2077,12 @@ test "lower RMI encoding" {
         "imul rax, qword ptr [rbp - 8], 0x10",
     );
     try lowerToRmiEnc(.imul, .eax, RegisterOrMemory.mem(.dword_ptr, .{
-        .disp = -4,
+        .disp = @bitCast(u32, @as(i32, -4)),
         .base = .rbp,
     }), 0x10, isel.code());
     try expectEqualHexStrings("\x69\x45\xFC\x10\x00\x00\x00", isel.lowered(), "imul eax, dword ptr [rbp - 4], 0x10");
     try lowerToRmiEnc(.imul, .ax, RegisterOrMemory.mem(.word_ptr, .{
-        .disp = -2,
+        .disp = @bitCast(u32, @as(i32, -2)),
         .base = .rbp,
     }), 0x10, isel.code());
     try expectEqualHexStrings("\x66\x69\x45\xFE\x10\x00", isel.lowered(), "imul ax, word ptr [rbp - 2], 0x10");

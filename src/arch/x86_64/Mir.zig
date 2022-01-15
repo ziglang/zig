@@ -302,7 +302,7 @@ pub const Inst = struct {
         /// Another instruction.
         inst: Index,
         /// A 32-bit immediate value.
-        imm: i32,
+        imm: u32,
         /// An extern function.
         /// Index into the linker's string table.
         extern_fn: u32,
@@ -324,8 +324,8 @@ pub const Inst = struct {
 };
 
 pub const ImmPair = struct {
-    dest_off: i32,
-    operand: i32,
+    dest_off: u32,
+    operand: u32,
 };
 
 pub const Imm64 = struct {
