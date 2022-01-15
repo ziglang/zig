@@ -23,6 +23,71 @@ const FILE_BASIC_INFORMATION = windows.FILE_BASIC_INFORMATION;
 const SIZE_T = windows.SIZE_T;
 const CURDIR = windows.CURDIR;
 
+pub const THREADINFOCLASS = enum(c_int) {
+    ThreadBasicInformation,
+    ThreadTimes,
+    ThreadPriority,
+    ThreadBasePriority,
+    ThreadAffinityMask,
+    ThreadImpersonationToken,
+    ThreadDescriptorTableEntry,
+    ThreadEnableAlignmentFaultFixup,
+    ThreadEventPair_Reusable,
+    ThreadQuerySetWin32StartAddress,
+    ThreadZeroTlsCell,
+    ThreadPerformanceCount,
+    ThreadAmILastThread,
+    ThreadIdealProcessor,
+    ThreadPriorityBoost,
+    ThreadSetTlsArrayAddress,
+    ThreadIsIoPending,
+    // Windows 2000+ from here
+    ThreadHideFromDebugger,
+    // Windows XP+ from here
+    ThreadBreakOnTermination,
+    ThreadSwitchLegacyState,
+    ThreadIsTerminated,
+    // Windows Vista+ from here
+    ThreadLastSystemCall,
+    ThreadIoPriority,
+    ThreadCycleTime,
+    ThreadPagePriority,
+    ThreadActualBasePriority,
+    ThreadTebInformation,
+    ThreadCSwitchMon,
+    // Windows 7+ from here
+    ThreadCSwitchPmu,
+    ThreadWow64Context,
+    ThreadGroupInformation,
+    ThreadUmsInformation,
+    ThreadCounterProfiling,
+    ThreadIdealProcessorEx,
+    // Windows 8+ from here
+    ThreadCpuAccountingInformation,
+    // Windows 8.1+ from here
+    ThreadSuspendCount,
+    // Windows 10+ from here
+    ThreadHeterogeneousCpuPolicy,
+    ThreadContainerId,
+    ThreadNameInformation,
+    ThreadSelectedCpuSets,
+    ThreadSystemThreadInformation,
+    ThreadActualGroupAffinity,
+};
+pub extern "ntdll" fn NtQueryInformationThread(
+    ThreadHandle: HANDLE,
+    ThreadInformationClass: THREADINFOCLASS,
+    ThreadInformation: *anyopaque,
+    ThreadInformationLength: ULONG,
+    ReturnLength: ?*ULONG,
+) callconv(WINAPI) NTSTATUS;
+pub extern "ntdll" fn NtSetInformationThread(
+    ThreadHandle: HANDLE,
+    ThreadInformationClass: THREADINFOCLASS,
+    ThreadInformation: *const anyopaque,
+    ThreadInformationLength: ULONG,
+) callconv(WINAPI) NTSTATUS;
+
 pub extern "ntdll" fn RtlGetVersion(
     lpVersionInformation: *RTL_OSVERSIONINFOW,
 ) callconv(WINAPI) NTSTATUS;
