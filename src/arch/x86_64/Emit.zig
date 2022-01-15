@@ -492,20 +492,6 @@ inline fn immOpSize(u_imm: u32) u8 {
     return 32;
 }
 
-inline fn imm64OpSize(u_imm: u64) u8 {
-    const imm = @bitCast(i64, u_imm);
-    if (math.minInt(i8) <= imm and imm <= math.maxInt(i8)) {
-        return 8;
-    }
-    if (math.minInt(i16) <= imm and imm <= math.maxInt(i16)) {
-        return 16;
-    }
-    if (math.minInt(i32) <= imm and imm <= math.maxInt(i32)) {
-        return 32;
-    }
-    return 64;
-}
-
 fn mirArithScaleSrc(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     const scale = ops.flags;
@@ -1485,9 +1471,6 @@ fn lowerToTdFdEnc(tag: Tag, reg: Register, moffs: u64, code: *std.ArrayList(u8),
     if (reg.lowId() != Register.rax.lowId()) {
         return error.RaxOperandExpected;
     }
-    if (reg.size() != imm64OpSize(moffs)) {
-        return error.OperandSizeMismatch;
-    }
     const opc = if (td)
         getOpCode(tag, .td, reg.size() == 8).?
     else
@@ -1510,9 +1493,6 @@ fn lowerToTdFdEnc(tag: Tag, reg: Register, moffs: u64, code: *std.ArrayList(u8),
 }
 
 fn lowerToOiEnc(tag: Tag, reg: Register, imm: u64, code: *std.ArrayList(u8)) LoweringError!void {
-    if (reg.size() != imm64OpSize(imm)) {
-        return error.OperandSizeMismatch;
-    }
     const opc = getOpCode(tag, .oi, reg.size() == 8).?;
     const encoder = try Encoder.init(code, 10);
     if (reg.size() == 16) {

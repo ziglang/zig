@@ -1821,11 +1821,11 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     const dst_ty = self.air.typeOfIndex(inst);
     const air_tags = self.air.instructions.items(.tag);
     switch (air_tags[inst]) {
-        .add, .addwrap => try self.genBinMathOpMir(.add, dst_ty, dst_mcv, src_mcv),
-        .bool_or, .bit_or => try self.genBinMathOpMir(.@"or", dst_ty, dst_mcv, src_mcv),
-        .bool_and, .bit_and => try self.genBinMathOpMir(.@"and", dst_ty, dst_mcv, src_mcv),
-        .sub, .subwrap => try self.genBinMathOpMir(.sub, dst_ty, dst_mcv, src_mcv),
-        .xor, .not => try self.genBinMathOpMir(.xor, dst_ty, dst_mcv, src_mcv),
+        .add, .addwrap => try self.genBinMathOpMir(.add, dst_ty, .unsigned, dst_mcv, src_mcv),
+        .bool_or, .bit_or => try self.genBinMathOpMir(.@"or", dst_ty, .unsigned, dst_mcv, src_mcv),
+        .bool_and, .bit_and => try self.genBinMathOpMir(.@"and", dst_ty, .unsigned, dst_mcv, src_mcv),
+        .sub, .subwrap => try self.genBinMathOpMir(.sub, dst_ty, .unsigned, dst_mcv, src_mcv),
+        .xor, .not => try self.genBinMathOpMir(.xor, dst_ty, .unsigned, dst_mcv, src_mcv),
         .mul, .mulwrap => try self.genIMulOpMir(dst_ty, dst_mcv, src_mcv),
         else => unreachable,
     }
@@ -1837,6 +1837,7 @@ fn genBinMathOpMir(
     self: *Self,
     mir_tag: Mir.Inst.Tag,
     dst_ty: Type,
+    signedness: std.builtin.Signedness,
     dst_mcv: MCValue,
     src_mcv: MCValue,
 ) !void {
@@ -1856,11 +1857,16 @@ fn genBinMathOpMir(
                 .ptr_stack_offset => unreachable,
                 .ptr_embedded_in_code => unreachable,
                 .register => |src_reg| {
+                    // TODO think more carefully about this: is this actually correct?
+                    const reg_size = if (mir_tag == .cmp and signedness == .signed)
+                        @divExact(dst_reg.size(), 8)
+                    else
+                        @divExact(src_reg.size(), 8);
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
-                            .reg1 = registerAlias(dst_reg, @divExact(src_reg.size(), 8)),
-                            .reg2 = src_reg,
+                            .reg1 = registerAlias(dst_reg, reg_size),
+                            .reg2 = registerAlias(src_reg, reg_size),
                         }).encode(),
                         .data = undefined,
                     });
@@ -2446,7 +2452,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         // This instruction supports only signed 32-bit immediates at most.
         const src_mcv = try self.limitImmediateType(bin_op.rhs, i32);
 
-        try self.genBinMathOpMir(.cmp, ty, dst_mcv, src_mcv);
+        try self.genBinMathOpMir(.cmp, ty, signedness, dst_mcv, src_mcv);
         break :result switch (signedness) {
             .signed => MCValue{ .compare_flags_signed = op },
             .unsigned => MCValue{ .compare_flags_unsigned = op },
@@ -2669,7 +2675,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn isNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
-    try self.genBinMathOpMir(.cmp, ty, operand, MCValue{ .immediate = 0 });
+    try self.genBinMathOpMir(.cmp, ty, .unsigned, operand, MCValue{ .immediate = 0 });
     return MCValue{ .compare_flags_unsigned = .eq };
 }
 
@@ -2686,7 +2692,7 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
         return MCValue{ .immediate = 0 }; // always false
     } else if (!payload_type.hasCodeGenBits()) {
         if (err_type.abiSize(self.target.*) <= 8) {
-            try self.genBinMathOpMir(.cmp, err_type, operand, MCValue{ .immediate = 0 });
+            try self.genBinMathOpMir(.cmp, err_type, .unsigned, operand, MCValue{ .immediate = 0 });
             return MCValue{ .compare_flags_unsigned = .gt };
         } else {
             return self.fail("TODO isErr for errors with size larger than register size", .{});
@@ -3378,7 +3384,9 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 else => unreachable,
             }
         },
-        .compare_flags_unsigned => |op| {
+        .compare_flags_unsigned,
+        .compare_flags_signed,
+        => |op| {
             const tag: Mir.Inst.Tag = switch (op) {
                 .gte, .gt, .lt, .lte => .cond_set_byte_above_below,
                 .eq, .neq => .cond_set_byte_eq_ne,
@@ -3399,10 +3407,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 }).encode(),
                 .data = undefined,
             });
-        },
-        .compare_flags_signed => |op| {
-            _ = op;
-            return self.fail("TODO set register with compare flags value (signed)", .{});
         },
         .immediate => |x| {
             // 32-bit moves zero-extend to 64-bit, so xoring the 32-bit
@@ -3441,7 +3445,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             _ = try self.addInst(.{
                 .tag = .movabs,
                 .ops = (Mir.Ops{
-                    .reg1 = reg,
+                    .reg1 = reg.to64(),
                 }).encode(),
                 .data = .{ .payload = payload },
             });
