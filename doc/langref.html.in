@@ -5297,6 +5297,8 @@ fn createFoo(param: i32) !Foo {
       the verbosity and cognitive overhead of trying to make sure every exit path
       is covered. The deallocation code is always directly following the allocation code.
       </p>
+      {#header_close#}
+      {#header_open|Common errdefer Slip-Ups#}
       <p>
       It should be noted that {#syntax#}errdefer{#endsyntax#} statements only last until the end of the block
       they are written in, and therefore are not run if an error is returned outside of that block:
