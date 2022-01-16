@@ -239,9 +239,7 @@ pub const OpenProtocolAttributes = packed struct {
     by_child_controller: bool = false,
     by_driver: bool = false,
     exclusive: bool = false,
-    _pad1: u2 = undefined,
-    _pad2: u8 = undefined,
-    _pad3: u16 = undefined,
+    _pad: u26 = 0,
 };
 
 pub const ProtocolInformationEntry = extern struct {

@@ -126,9 +126,7 @@ pub const SimpleNetworkReceiveFilter = packed struct {
     receive_broadcast: bool,
     receive_promiscuous: bool,
     receive_promiscuous_multicast: bool,
-    _pad1: u3 = undefined,
-    _pad2: u8 = undefined,
-    _pad3: u16 = undefined,
+    _pad: u27 = 0,
 };
 
 pub const SimpleNetworkState = enum(u32) {
@@ -171,7 +169,5 @@ pub const SimpleNetworkInterruptStatus = packed struct {
     transmit_interrupt: bool,
     command_interrupt: bool,
     software_interrupt: bool,
-    _pad1: u4,
-    _pad2: u8,
-    _pad3: u16,
+    _pad: u28 = 0,
 };

@@ -98,7 +98,6 @@ pub const Time = extern struct {
 
     /// 0 - 59
     second: u8,
-    _pad1: u8,
 
     /// 0 - 999999999
     nanosecond: u32,
@@ -115,7 +114,6 @@ pub const Time = extern struct {
         /// If true, the time is affected by daylight savings time.
         adjust_daylight: bool,
     },
-    _pad2: u8,
 
     /// Time is to be interpreted as local time
     pub const unspecified_timezone: i16 = 0x7ff;
