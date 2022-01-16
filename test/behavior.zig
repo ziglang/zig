@@ -124,7 +124,6 @@ test {
                     } else {
                         // Tests that only pass for the stage1 backend.
                         _ = @import("behavior/align_stage1.zig");
-                        _ = @import("behavior/array_stage1.zig");
                         if (builtin.os.tag != .wasi) {
                             _ = @import("behavior/asm.zig");
                             _ = @import("behavior/async_fn.zig");
