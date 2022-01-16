@@ -9,7 +9,7 @@ pub const EdidOverrideProtocol = extern struct {
 
     /// Returns policy information and potentially a replacement EDID for the specified video output device.
     pub fn getEdid(self: *const EdidOverrideProtocol, handle: Handle, attributes: *EdidOverrideProtocolAttributes, edid_size: *usize, edid: *?[*]u8) Status {
-        return self._get_edid(self, handle, attributes, edid_size, edid);
+        return self._get_edid(self, handle, @ptrCast(*u32, attributes), edid_size, edid);
     }
 
     pub const guid align(8) = Guid{
