@@ -183,13 +183,6 @@ pub const Status = enum(usize) {
         ConnectionFin,
         ConnectionReset,
         ConnectionRefused,
-        WarnUnknownGlyph,
-        WarnDeleteFailure,
-        WarnWriteFailure,
-        WarnBufferTooSmall,
-        WarnStaleData,
-        WarnFileSystem,
-        WarnResetRequired,
     };
 
     pub fn err(self: Status) EfiError!void {
@@ -198,7 +191,7 @@ pub const Status = enum(usize) {
                 return @field(EfiError, efi_err.name);
             }
         }
-        // self is .Success
+        // self is .Success or Warning
     }
 };
 
