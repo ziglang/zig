@@ -62,12 +62,6 @@ test "ignore lval with underscore (for loop)" {
 }
 
 test "basic for loop" {
-    if (@import("builtin").zig_backend == .stage2_wasm) {
-        // TODO this is a recent stage2 test case regression due to an enhancement;
-        // now arrays are properly detected as comptime. This exercised a new code
-        // path in the wasm backend that is not yet implemented.
-        return error.SkipZigTest;
-    }
     const expected_result = [_]u8{ 9, 8, 7, 6, 0, 1, 2, 3 } ** 3;
 
     var buffer: [expected_result.len]u8 = undefined;

@@ -146,13 +146,6 @@ test "void arrays" {
 test "nested arrays" {
     if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_wasm) {
-        // TODO this is a recent stage2 test case regression due to an enhancement;
-        // now arrays are properly detected as comptime. This exercised a new code
-        // path in the wasm backend that is not yet implemented.
-        return error.SkipZigTest;
-    }
-
     const array_of_strings = [_][]const u8{ "hello", "this", "is", "my", "thing" };
     for (array_of_strings) |s, i| {
         if (i == 0) try expect(mem.eql(u8, s, "hello"));

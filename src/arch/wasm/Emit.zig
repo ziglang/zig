@@ -323,16 +323,24 @@ fn emitFunctionIndex(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
     const symbol_index = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(std.wasm.opcode(.i32_const));
-    const mem_offset = emit.offset();
-    var buf: [5]u8 = undefined;
-    leb128.writeUnsignedFixed(5, &buf, symbol_index);
-    try emit.code.appendSlice(&buf);
+    const mem_offset = emit.offset() + 1;
+    const is_wasm32 = emit.bin_file.options.target.cpu.arch == .wasm32;
+    if (is_wasm32) {
+        try emit.code.append(std.wasm.opcode(.i32_const));
+        var buf: [5]u8 = undefined;
+        leb128.writeUnsignedFixed(5, &buf, symbol_index);
+        try emit.code.appendSlice(&buf);
+    } else {
+        try emit.code.append(std.wasm.opcode(.i64_const));
+        var buf: [10]u8 = undefined;
+        leb128.writeUnsignedFixed(10, &buf, symbol_index);
+        try emit.code.appendSlice(&buf);
+    }
 
     try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
         .offset = mem_offset,
         .index = symbol_index,
-        .relocation_type = .R_WASM_MEMORY_ADDR_LEB,
+        .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_LEB else .R_WASM_MEMORY_ADDR_LEB64,
     });
 }
 

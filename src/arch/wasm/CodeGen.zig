@@ -27,8 +27,6 @@ const WValue = union(enum) {
     none: void,
     /// Index of the local variable
     local: u32,
-    /// Represents the index of a local that contains a pointer to its stack position
-    stack: u32,
     /// An immediate 32bit value
     imm32: u32,
     /// An immediate 64bit value
@@ -38,21 +36,13 @@ const WValue = union(enum) {
     /// A constant 64bit float value
     float64: f64,
     /// A value that represents a pointer to the data section
-    memory: u64,
+    /// Note: The value contains the symbol index, rather than the actual address
+    /// as we use this to perform the relocation.
+    memory: u32,
     /// Represents a function pointer
     /// In wasm function pointers are indexes into a function table,
     /// rather than an address in the data section.
     function_index: u32,
-    /// Used for types that contains of multiple areas within
-    /// a memory region in the stack.
-    /// The local represents the position in the stack,
-    /// whereas the offset represents the offset from that position.
-    local_with_offset: struct {
-        /// Index of the local variable
-        local: u32,
-        /// The offset from the local's stack position
-        offset: u32,
-    },
 };
 
 /// Wasm ops, but without input/output/signedness information
@@ -514,7 +504,7 @@ pub const Result = union(enum) {
 };
 
 /// Hashmap to store generated `WValue` for each `Air.Inst.Ref`
-pub const ValueTable = std.AutoHashMapUnmanaged(Air.Inst.Index, WValue);
+pub const ValueTable = std.AutoHashMapUnmanaged(Air.Inst.Ref, WValue);
 
 const Self = @This();
 
@@ -601,7 +591,7 @@ fn fail(self: *Self, comptime fmt: []const u8, args: anytype) InnerError {
 
 /// Resolves the `WValue` for the given instruction `inst`
 /// When the given instruction has a `Value`, it returns a constant instead
-fn resolveInst(self: Self, ref: Air.Inst.Ref) WValue {
+fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!WValue {
     const gop = try self.values.getOrPut(self.gpa, ref);
     if (gop.found_existing) return gop.value_ptr.*;
 
@@ -609,7 +599,10 @@ fn resolveInst(self: Self, ref: Air.Inst.Ref) WValue {
     // means we must generate it from a constant.
     const val = self.air.value(ref).?;
     const ty = self.air.typeOf(ref);
-    return self.lowerConstant(val, ty);
+    if (!ty.hasCodeGenBits() and !ty.isInt()) return WValue{ .none = {} };
+    const result = try self.lowerConstant(val, ty);
+    gop.value_ptr.* = result;
+    return result;
 }
 
 /// Appends a MIR instruction and returns its index within the list of instructions
@@ -729,10 +722,9 @@ fn genBlockType(self: *Self, ty: Type) InnerError!u8 {
 }
 
 /// Writes the bytecode depending on the given `WValue` in `val`
-fn emitWValue(self: *Self, val: WValue) InnerError!void {
-    switch (val) {
+fn emitWValue(self: *Self, value: WValue) InnerError!void {
+    switch (value) {
         .none => {}, // no-op
-        .local_with_offset => |with_off| try self.addLabel(.local_get, with_off.local),
         .local => |idx| try self.addLabel(.local_get, idx),
         .imm32 => |val| try self.addImm32(@bitCast(i32, val)),
         .imm64 => |val| try self.addImm64(val),
@@ -1195,7 +1187,6 @@ fn toWasmIntBits(bits: u16) ?u16 {
 
 /// Performs a copy of bytes for a given type. Copying all bytes
 /// from rhs to lhs.
-/// Asserts `lhs` and `rhs` have their active tag set to `local`
 ///
 /// TODO: Perform feature detection and when bulk_memory is available,
 /// use wasm's mem.copy instruction.
@@ -1204,9 +1195,9 @@ fn memCopy(self: *Self, ty: Type, lhs: WValue, rhs: WValue) !void {
     var offset: u32 = 0;
     while (offset < abi_size) : (offset += 1) {
         // get lhs' address to store the result
-        try self.addLabel(.local_get, lhs.local);
+        try self.emitWValue(lhs);
         // load byte from rhs' adress
-        try self.addLabel(.local_get, rhs.local);
+        try self.emitWValue(rhs);
         try self.addMemArg(.i32_load8_u, .{ .offset = offset, .alignment = 1 });
         // store the result in lhs (we already have its address on the stack)
         try self.addMemArg(.i32_store8, .{ .offset = offset, .alignment = 1 });
@@ -1456,13 +1447,13 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     for (body) |inst| {
         const result = try self.genInst(inst);
-        try self.values.putNoClobber(self.gpa, inst, result);
+        try self.values.putNoClobber(self.gpa, Air.indexToRef(inst), result);
     }
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const operand = self.resolveInst(un_op);
+    const operand = try self.resolveInst(un_op);
     // result must be stored in the stack and we return a pointer
     // to the stack instead
     if (self.return_value != .none) {
@@ -1492,7 +1483,7 @@ fn airRetPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const operand = self.resolveInst(un_op);
+    const operand = try self.resolveInst(un_op);
     const ret_ty = self.air.typeOf(un_op).childType();
     if (!ret_ty.hasCodeGenBits()) return WValue.none;
 
@@ -1539,24 +1530,11 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     for (args) |arg| {
         const arg_ref = @intToEnum(Air.Inst.Ref, arg);
-        const arg_val = self.resolveInst(arg_ref);
+        const arg_val = try self.resolveInst(arg_ref);
 
         const arg_ty = self.air.typeOf(arg_ref);
         if (!arg_ty.hasCodeGenBits()) continue;
-
-        // If we need to pass by reference, but the argument is a constant,
-        // we must first lower it before passing it.
-        if (self.isByRef(arg_ty) and arg_val == .constant) {
-            const arg_local = try self.allocStack(arg_ty);
-            try self.store(arg_local, arg_val, arg_ty, 0);
-            try self.emitWValue(arg_local);
-        } else if (arg_val == .none) {
-            // TODO: Remove this branch when zero-sized pointers do not generate
-            // an argument.
-            try self.addImm32(0);
-        } else {
-            try self.emitWValue(arg_val);
-        }
+        try self.emitWValue(arg_val);
     }
 
     if (target) |direct| {
@@ -1565,7 +1543,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         // in this case we call a function pointer
         // so load its value onto the stack
         std.debug.assert(ty.zigTypeTag() == .Pointer);
-        const operand = self.resolveInst(pl_op.operand);
+        const operand = try self.resolveInst(pl_op.operand);
         try self.emitWValue(operand);
 
         var fn_type = try self.genFunctype(fn_ty);
@@ -1609,142 +1587,44 @@ fn airAlloc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
-    const lhs = self.resolveInst(bin_op.lhs);
-    const rhs = self.resolveInst(bin_op.rhs);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
     const ty = self.air.typeOf(bin_op.lhs).childType();
 
-    const offset: u32 = switch (lhs) {
-        .local_with_offset => |with_off| with_off.offset,
-        else => 0,
-    };
-
-    try self.store(lhs, rhs, ty, offset);
+    try self.store(lhs, rhs, ty, 0);
     return .none;
 }
 
 fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerError!void {
     switch (ty.zigTypeTag()) {
-        .ErrorUnion, .Optional => {
-            var buf: Type.Payload.ElemType = undefined;
-            const payload_ty = if (ty.zigTypeTag() == .ErrorUnion) ty.errorUnionPayload() else ty.optionalChild(&buf);
-            const tag_ty = if (ty.zigTypeTag() == .ErrorUnion) ty.errorUnionSet() else Type.initTag(.u8);
-            const payload_offset = if (ty.zigTypeTag() == .ErrorUnion)
-                @intCast(u32, tag_ty.abiSize(self.target))
-            else if (ty.isPtrLikeOptional())
-                @as(u32, 0)
-            else
-                @intCast(u32, ty.abiSize(self.target) - payload_ty.abiSize(self.target));
-
-            switch (rhs) {
-                .constant => {
-                    if (rhs.constant.val.castTag(.decl_ref)) |_| {
-                        // retrieve values from memory instead
-                        const mem_local = try self.allocLocal(Type.usize);
-                        try self.emitWValue(rhs);
-                        try self.addLabel(.local_set, mem_local.local);
-                        try self.store(lhs, mem_local, ty, 0);
-                        return;
-                    } else if (ty.isPtrLikeOptional()) {
-                        // set the address of rhs to lhs
-                        try self.store(lhs, rhs, Type.usize, 0);
-                        return;
-                    }
-                    // constant will contain both tag and payload,
-                    // so save those in 2 temporary locals before storing them
-                    // in memory
-                    try self.emitWValue(rhs);
-                    const tag_local = try self.allocLocal(tag_ty);
-
-                    if (payload_ty.hasCodeGenBits()) {
-                        const payload_local = try self.allocLocal(payload_ty);
-                        try self.addLabel(.local_set, payload_local.local);
-                        if (self.isByRef(payload_ty)) {
-                            const ptr = try self.buildPointerOffset(lhs, payload_offset, .new);
-                            try self.store(ptr, payload_local, payload_ty, 0);
-                        } else {
-                            try self.store(lhs, payload_local, payload_ty, payload_offset);
-                        }
-                    }
-                    try self.addLabel(.local_set, tag_local.local);
-
-                    try self.store(lhs, tag_local, tag_ty, 0);
-                    return;
-                },
-                .local => {
-                    // When the optional is pointer-like, we simply store the pointer
-                    // instead.
-                    if (ty.isPtrLikeOptional()) {
-                        try self.store(lhs, rhs, Type.usize, 0);
-                        return;
-                    }
-                    // Load values from `rhs` stack position and store in `lhs` instead
-                    const tag_local = try self.load(rhs, tag_ty, 0);
-                    if (payload_ty.hasCodeGenBits()) {
-                        if (self.isByRef(payload_ty)) {
-                            const payload_ptr = try self.buildPointerOffset(rhs, payload_offset, .new);
-                            const lhs_payload_ptr = try self.buildPointerOffset(lhs, payload_offset, .new);
-                            try self.store(lhs_payload_ptr, payload_ptr, payload_ty, 0);
-                        } else {
-                            const payload_local = try self.load(rhs, payload_ty, payload_offset);
-                            try self.store(lhs, payload_local, payload_ty, payload_offset);
-                        }
-                    }
-                    return try self.store(lhs, tag_local, tag_ty, 0);
-                },
-                .local_with_offset => |with_offset| {
-                    // check if we're storing the payload, or the error
-                    if (with_offset.offset == 0) {
-                        try self.store(lhs, .{ .local = with_offset.local }, tag_ty, 0);
-                        return;
-                    }
-                    const tag_local = try self.allocLocal(tag_ty);
-                    try self.addImm32(0);
-                    try self.addLabel(.local_set, tag_local.local);
-                    try self.store(lhs, tag_local, tag_ty, 0);
-
-                    return try self.store(
-                        lhs,
-                        .{ .local = with_offset.local },
-                        payload_ty,
-                        with_offset.offset,
-                    );
-                },
-                else => unreachable,
+        .ErrorUnion => {
+            const err_ty = ty.errorUnionSet();
+            const pl_ty = ty.errorUnionPayload();
+            if (!pl_ty.hasCodeGenBits()) {
+                const err_val = try self.load(rhs, err_ty, 0);
+                return self.store(lhs, err_val, err_ty, 0);
             }
+
+            return try self.memCopy(ty, lhs, rhs);
+        },
+        .Optional => {
+            if (ty.isPtrLikeOptional()) {
+                return self.store(lhs, rhs, Type.usize, 0);
+            }
+            var buf: Type.Payload.ElemType = undefined;
+            const pl_ty = ty.optionalChild(&buf);
+            if (!pl_ty.hasCodeGenBits()) {
+                // const null_val = try self.load(rhs, Type.initTag(.u8), 0);
+                return self.store(lhs, rhs, Type.initTag(.u8), 0);
+            }
+
+            return self.memCopy(ty, lhs, rhs);
         },
         .Struct, .Array => {
             return try self.memCopy(ty, lhs, rhs);
         },
         .Pointer => {
-            if (ty.isSlice() and rhs == .constant) {
-                try self.emitWValue(rhs);
-
-                const val = rhs.constant.val;
-                const len_local = try self.allocLocal(Type.usize);
-                const ptr_local = try self.allocLocal(Type.usize);
-                const len_offset = self.ptrSize();
-                if (val.castTag(.decl_ref)) |decl| {
-                    const decl_ty: Type = decl.data.ty;
-                    if (decl_ty.isSlice()) {
-                        // for decl references we also need to retrieve the length and the original decl's pointer
-                        try self.addMemArg(.i32_load, .{ .offset = 0, .alignment = self.ptrSize() });
-                        try self.addLabel(.memory_address, decl.data.link.wasm.sym_index);
-                        try self.addMemArg(.i32_load, .{ .offset = len_offset, .alignment = self.ptrSize() });
-                    } else if (decl_ty.zigTypeTag() == .Array) {
-                        const len = decl_ty.arrayLen();
-                        switch (self.ptrSize()) {
-                            4 => try self.addImm32(@bitCast(i32, @intCast(u32, len))),
-                            8 => try self.addImm64(len),
-                            else => unreachable,
-                        }
-                    } else return self.fail("Wasm todo: Implement storing slices for decl_ref with type: {}", .{decl_ty});
-                }
-                try self.addLabel(.local_set, len_local.local);
-                try self.addLabel(.local_set, ptr_local.local);
-                try self.store(lhs, ptr_local, Type.usize, 0);
-                try self.store(lhs, len_local, Type.usize, len_offset);
-                return;
-            } else if (ty.isSlice()) {
+            if (ty.isSlice()) {
                 // store pointer first
                 const ptr_local = try self.load(rhs, Type.usize, 0);
                 try self.store(lhs, ptr_local, Type.usize, 0);
@@ -1790,7 +1670,7 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
 
 fn airLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     const ty = self.air.getRefType(ty_op.ty);
 
     if (!ty.hasCodeGenBits()) return WValue{ .none = {} };
@@ -1801,10 +1681,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return new_local;
     }
 
-    return switch (operand) {
-        .local_with_offset => |with_offset| try self.load(operand, ty, with_offset.offset),
-        else => try self.load(operand, ty, 0),
-    };
+    return self.load(operand, ty, 0);
 }
 
 fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
@@ -1862,8 +1739,8 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const lhs = self.resolveInst(bin_op.lhs);
-    const rhs = self.resolveInst(bin_op.rhs);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
     const operand_ty = self.air.typeOfIndex(inst);
 
     if (self.isByRef(operand_ty)) {
@@ -1889,8 +1766,8 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
 
 fn airWrapBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const lhs = self.resolveInst(bin_op.lhs);
-    const rhs = self.resolveInst(bin_op.rhs);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
 
     try self.emitWValue(lhs);
     try self.emitWValue(rhs);
@@ -1960,8 +1837,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
             var space: Value.BigIntSpace = undefined;
             const bigint = val.toBigInt(&space);
             if (bigint.limbs.len == 1 and bigint.limbs[0] == 0) {
-                try self.addLabel(.local_get, result.local);
-                return;
+                return result;
             }
             if (@sizeOf(usize) != @sizeOf(u64)) {
                 return self.fail("Wasm todo: Implement big integers for 32bit compiler", .{});
@@ -1979,9 +1855,9 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
         .Float => switch (ty.floatBits(self.target)) {
             0...32 => return WValue{ .float32 = val.toFloat(f32) },
             33...64 => return WValue{ .float64 = val.toFloat(f64) },
-            else => |bits| return self.fail("Wasm TODO: emitConstant for floats with {d} bits", .{bits}),
+            else => |bits| return self.fail("Wasm TODO: lowerConstant for floats with {d} bits", .{bits}),
         },
-        .Pointer => switch (val) {
+        .Pointer => switch (val.tag()) {
             .slice => {
                 const result = try self.allocStack(ty);
                 var buf: Type.SlicePtrFieldTypeBuffer = undefined;
@@ -1998,6 +1874,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
                         try self.addImm64(len);
                         try self.addMemArg(.i64_store, .{ .offset = self.ptrSize(), .alignment = self.ptrSize() });
                     },
+                    else => unreachable,
                 }
                 return result;
             },
@@ -2005,14 +1882,24 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
                 const decl = val.castTag(.decl_ref).?.data;
                 decl.markAlive();
                 const target_sym_index = decl.link.wasm.sym_index;
-                if (decl.ty.zigTypeTag() == .Fn) {
+                if (ty.isSlice()) {
+                    var slice_len: Value.Payload.U64 = .{
+                        .base = .{ .tag = .int_u64 },
+                        .data = val.sliceLen(),
+                    };
+                    var slice_val: Value.Payload.Slice = .{
+                        .base = .{ .tag = .slice },
+                        .data = .{ .ptr = val.slicePtr(), .len = Value.initPayload(&slice_len.base) },
+                    };
+                    return self.lowerConstant(Value.initPayload(&slice_val.base), ty);
+                } else if (decl.ty.zigTypeTag() == .Fn) {
                     try self.bin_file.addTableFunction(target_sym_index);
                     return WValue{ .function_index = target_sym_index };
                 } else return WValue{ .memory = target_sym_index };
             },
             .int_u64, .one => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt()) },
             .zero, .null_value => return WValue{ .imm32 = 0 },
-            else => return self.fail("Wasm TODO: emitConstant for other const pointer tag {s}", .{val.tag()}),
+            else => return self.fail("Wasm TODO: lowerConstant for other const pointer tag {s}", .{val.tag()}),
         },
         .Enum => {
             if (val.castTag(.enum_field_index)) |field_index| {
@@ -2035,9 +1922,12 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
                 return self.lowerConstant(val, int_tag_ty);
             }
         },
-        .ErrorSet => {
-            const error_index = self.global_error_set.get(val.getError().?).?;
-            return WValue{ .imm32 = error_index };
+        .ErrorSet => switch (val.tag()) {
+            .@"error" => {
+                const error_index = self.global_error_set.get(val.getError().?).?;
+                return WValue{ .imm32 = error_index };
+            },
+            else => return WValue{ .imm32 = 0 },
         },
         .ErrorUnion => {
             const error_type = ty.errorUnionSet();
@@ -2051,25 +1941,25 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
 
             const result = try self.allocStack(ty);
             try self.store(result, error_value, error_type, 0);
-            const payload = try lowerConstant(
+            const payload = try self.lowerConstant(
                 if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef),
                 payload_type,
             );
-            const pl_ptr = if (self.isByRef(payload_type)) try self.buildPointerOffset(
-                result,
-                error_type.abiSize(self.target),
-                .new,
-            ) else result;
-            try self.store(pl_ptr, payload, payload_type, 0);
+            const pl_ptr = if (self.isByRef(payload_type))
+                try self.buildPointerOffset(result, error_type.abiSize(self.target), .new)
+            else
+                result;
+            try self.store(pl_ptr, payload, payload_type, @intCast(u32, error_type.abiSize(self.target)));
             return result;
         },
         .Optional => if (ty.isPtrLikeOptional()) {
-            return self.lowerConstant(val, payload_type);
+            var buf: Type.Payload.ElemType = undefined;
+            return self.lowerConstant(val, ty.optionalChild(&buf));
         } else {
             var buf: Type.Payload.ElemType = undefined;
             const payload_type = ty.optionalChild(&buf);
             const is_pl = val.tag() == .opt_payload;
-            const null_value = WValue{ .imm32 = if (is_pl) @as(u32, 0) else 1 };
+            const null_value = WValue{ .imm32 = if (is_pl) @as(u32, 1) else 0 };
             if (!payload_type.hasCodeGenBits()) {
                 return null_value;
             }
@@ -2081,11 +1971,11 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
                 payload_type,
             );
 
+            const offset = @intCast(u32, ty.abiSize(self.target) - payload_type.abiSize(self.target));
             const pl_ptr = if (self.isByRef(payload_type)) blk: {
-                const offset = ty.abiSize(self.target) - payload_type.abiSize();
                 break :blk try self.buildPointerOffset(result, offset, .new);
             } else result;
-            try self.store(pl_ptr, payload, payload_type, 0);
+            try self.store(pl_ptr, payload, payload_type, offset);
             return result;
         },
         .Struct => {
@@ -2096,7 +1986,6 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
             const fields = ty.structFields();
             const offset = try self.copyLocal(result, ty);
             for (fields.values()) |field, index| {
-                const tmp = try self.allocLocal(field.ty);
                 const field_value = try self.lowerConstant(struct_data.data[index], field.ty);
                 try self.store(offset, field_value, field.ty, 0);
 
@@ -2118,12 +2007,10 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
             } else if (val.castTag(.array)) |array| {
                 const elem_ty = ty.childType();
                 const elem_size = elem_ty.abiSize(self.target);
-                const tmp = try self.allocLocal(elem_ty);
                 const offset = try self.copyLocal(result, ty);
                 for (array.data) |value, index| {
-                    try self.lowerConstant(value, elem_ty);
-                    try self.addLabel(.local_set, tmp.local);
-                    try self.store(offset, tmp, elem_ty, 0);
+                    const elem_val = try self.lowerConstant(value, elem_ty);
+                    try self.store(offset, elem_val, elem_ty, 0);
 
                     if (index != (array.data.len - 1)) {
                         _ = try self.buildPointerOffset(offset, elem_size, .modify);
@@ -2136,18 +2023,16 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
                 const sentinel = ty.sentinel();
                 const len = ty.arrayLen();
                 const len_with_sent = len + @boolToInt(sentinel != null);
-                const tmp = try self.allocLocal(elem_ty);
                 const offset = try self.copyLocal(result, ty);
 
                 var index: u32 = 0;
                 while (index < len_with_sent) : (index += 1) {
-                    if (sentinel != null and index == len) {
-                        try self.lowerConstant(sentinel.?, elem_ty);
-                    } else {
+                    const elem_val = if (sentinel != null and index == len)
+                        try self.lowerConstant(sentinel.?, elem_ty)
+                    else
                         try self.lowerConstant(value, elem_ty);
-                    }
-                    try self.addLabel(.local_set, tmp.local);
-                    try self.store(offset, tmp, elem_ty, 0);
+
+                    try self.store(offset, elem_val, elem_ty, 0);
 
                     if (index != (len_with_sent - 1)) {
                         _ = try self.buildPointerOffset(offset, elem_size, .modify);
@@ -2156,19 +2041,18 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
             } else if (val.tag() == .empty_array_sentinel) {
                 const elem_ty = ty.childType();
                 const sent_val = ty.sentinel().?;
-                const tmp = try self.allocLocal(elem_ty);
-                try self.lowerConstant(sent_val, elem_ty);
-                try self.addLabel(.local_set, tmp.local);
-                try self.store(result, tmp, elem_ty, 0);
+                const sentinel = try self.lowerConstant(sent_val, elem_ty);
+                try self.store(result, sentinel, elem_ty, 0);
             } else unreachable;
             return result;
         },
-        else => |zig_type| return self.fail("Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
+        else => |zig_type| return self.fail("Wasm TODO: LowerConstant for zigTypeTag {s}", .{zig_type}),
     }
 }
 
 fn emitUndefined(self: *Self, ty: Type) InnerError!WValue {
     switch (ty.zigTypeTag()) {
+        .Bool, .ErrorSet => return WValue{ .imm32 = 0xaaaaaaaa },
         .Int => switch (ty.intInfo(self.target).bits) {
             0...32 => return WValue{ .imm32 = 0xaaaaaaaa },
             33...64 => return WValue{ .imm64 = 0xaaaaaaaaaaaaaaaa },
@@ -2185,7 +2069,7 @@ fn emitUndefined(self: *Self, ty: Type) InnerError!WValue {
             var offset: u32 = 0;
             while (offset < abi_size) : (offset += 1) {
                 try self.emitWValue(result);
-                try self.addImm32(0xaaaaaaaa);
+                try self.addImm32(@bitCast(i32, @as(u32, 0xaaaaaaaa)));
                 switch (self.arch()) {
                     .wasm32 => try self.addMemArg(.i32_store8, .{ .offset = offset, .alignment = 1 }),
                     .wasm64 => try self.addMemArg(.i64_store8, .{ .offset = offset, .alignment = 1 }),
@@ -2199,7 +2083,50 @@ fn emitUndefined(self: *Self, ty: Type) InnerError!WValue {
             .wasm64 => return WValue{ .imm64 = 0xaaaaaaaaaaaaaaaa },
             else => unreachable,
         },
-        else => return self.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty}),
+        .Optional => {
+            var buf: Type.Payload.ElemType = undefined;
+            const pl_ty = ty.optionalChild(&buf);
+            if (ty.isPtrLikeOptional()) {
+                return self.emitUndefined(pl_ty);
+            }
+            if (!pl_ty.hasCodeGenBits()) {
+                return self.emitUndefined(Type.initTag(.u8));
+            }
+            const result = try self.allocStack(ty);
+            const abi_size = ty.abiSize(self.target);
+            var offset: u32 = 0;
+            while (offset < abi_size) : (offset += 1) {
+                try self.emitWValue(result);
+                try self.addImm32(@bitCast(i32, @as(u32, 0xaaaaaaaa)));
+                switch (self.arch()) {
+                    .wasm32 => try self.addMemArg(.i32_store8, .{ .offset = offset, .alignment = 1 }),
+                    .wasm64 => try self.addMemArg(.i64_store8, .{ .offset = offset, .alignment = 1 }),
+                    else => unreachable,
+                }
+            }
+            return result;
+        },
+        .ErrorUnion => {
+            // const error_set = ty.errorUnionSet();
+            const pl_ty = ty.errorUnionPayload();
+            if (!pl_ty.hasCodeGenBits()) {
+                return WValue{ .imm32 = 0xaaaaaaaa };
+            }
+            const result = try self.allocStack(ty);
+            const abi_size = ty.abiSize(self.target);
+            var offset: u32 = 0;
+            while (offset < abi_size) : (offset += 1) {
+                try self.emitWValue(result);
+                try self.addImm32(@bitCast(i32, @as(u32, 0xaaaaaaaa)));
+                switch (self.arch()) {
+                    .wasm32 => try self.addMemArg(.i32_store8, .{ .offset = offset, .alignment = 1 }),
+                    .wasm64 => try self.addMemArg(.i64_store8, .{ .offset = offset, .alignment = 1 }),
+                    else => unreachable,
+                }
+            }
+            return result;
+        },
+        else => return self.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty.zigTypeTag()}),
     }
 }
 
@@ -2298,7 +2225,7 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airCondBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const condition = self.resolveInst(pl_op.operand);
+    const condition = try self.resolveInst(pl_op.operand);
     const extra = self.air.extraData(Air.CondBr, pl_op.payload);
     const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
     const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
@@ -2325,8 +2252,8 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) InnerError!WValue {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const lhs = self.resolveInst(bin_op.lhs);
-    const rhs = self.resolveInst(bin_op.rhs);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
     const operand_ty = self.air.typeOf(bin_op.lhs);
 
     if (operand_ty.zigTypeTag() == .Optional and !operand_ty.isPtrLikeOptional()) {
@@ -2377,7 +2304,7 @@ fn airBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     // if operand has codegen bits we should break with a value
     if (self.air.typeOf(br.operand).hasCodeGenBits()) {
-        try self.emitWValue(self.resolveInst(br.operand));
+        try self.emitWValue(try self.resolveInst(br.operand));
 
         if (block.value != .none) {
             try self.addLabel(.local_set, block.value.local);
@@ -2395,7 +2322,7 @@ fn airBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airNot(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     try self.emitWValue(operand);
 
     // wasm does not have booleans nor the `not` instruction, therefore compare with 0
@@ -2425,20 +2352,21 @@ fn airUnreachable(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airBitcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
-    if (operand == .constant) {
-        const result = try self.allocLocal(self.air.typeOfIndex(inst));
-        try self.emitWValue(operand);
-        try self.addLabel(.local_set, result.local);
-        return result;
-    }
+    const operand = try self.resolveInst(ty_op.operand);
+    // if (operand == .constant) {
+    //     std.debug.print("Let's take a look at this!!!!!!\n--------------------\n", .{});
+    //     const result = try self.allocLocal(self.air.typeOfIndex(inst));
+    //     try self.emitWValue(operand);
+    //     try self.addLabel(.local_set, result.local);
+    //     return result;
+    // }
     return operand;
 }
 
 fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload);
-    const struct_ptr = self.resolveInst(extra.data.struct_operand);
+    const struct_ptr = try self.resolveInst(extra.data.struct_operand);
     const struct_ty = self.air.typeOf(extra.data.struct_operand).childType();
     const offset = std.math.cast(u32, struct_ty.structFieldOffset(extra.data.field_index, self.target)) catch {
         return self.fail("Field type '{}' too big to fit into stack frame", .{
@@ -2450,7 +2378,7 @@ fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u32) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const struct_ptr = self.resolveInst(ty_op.operand);
+    const struct_ptr = try self.resolveInst(ty_op.operand);
     const struct_ty = self.air.typeOf(ty_op.operand).childType();
     const field_ty = struct_ty.structFieldType(index);
     const offset = std.math.cast(u32, struct_ty.structFieldOffset(index, self.target)) catch {
@@ -2462,47 +2390,35 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u32) InnerEr
 }
 
 fn structFieldPtr(self: *Self, struct_ptr: WValue, offset: u32) InnerError!WValue {
-    var final_offset = offset;
-    const local = switch (struct_ptr) {
-        .local => |local| local,
-        .local_with_offset => |with_offset| blk: {
-            final_offset += with_offset.offset;
-            break :blk with_offset.local;
-        },
-        else => unreachable,
-    };
-    return self.buildPointerOffset(.{ .local = local }, final_offset, .new);
+    return self.buildPointerOffset(struct_ptr, offset, .new);
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
-    if (self.liveness.isUnused(inst)) return WValue.none;
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
     const struct_ty = self.air.typeOf(struct_field.struct_operand);
-    const operand = self.resolveInst(struct_field.struct_operand);
+    const operand = try self.resolveInst(struct_field.struct_operand);
     const field_index = struct_field.field_index;
     const field_ty = struct_ty.structFieldType(field_index);
-    if (!field_ty.hasCodeGenBits()) return WValue.none;
+    if (!field_ty.hasCodeGenBits()) return WValue{ .none = {} };
     const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, self.target)) catch {
         return self.fail("Field type '{}' too big to fit into stack frame", .{field_ty});
     };
 
     if (self.isByRef(field_ty)) {
-        return WValue{ .local_with_offset = .{ .local = operand.local, .offset = offset } };
+        return self.buildPointerOffset(operand, offset, .new);
     }
 
-    switch (operand) {
-        .local_with_offset => |with_offset| return try self.load(operand, field_ty, offset + with_offset.offset),
-        else => return try self.load(operand, field_ty, offset),
-    }
+    return self.load(operand, field_ty, offset);
 }
 
 fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     // result type is always 'noreturn'
     const blocktype = wasm.block_empty;
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const target = self.resolveInst(pl_op.operand);
+    const target = try self.resolveInst(pl_op.operand);
     const target_ty = self.air.typeOf(pl_op.operand);
     const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
     var extra_index: usize = switch_br.end;
@@ -2650,7 +2566,7 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const operand = self.resolveInst(un_op);
+    const operand = try self.resolveInst(un_op);
     const err_ty = self.air.typeOf(un_op);
     const pl_ty = err_ty.errorUnionPayload();
 
@@ -2675,7 +2591,7 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!W
 fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     const err_ty = self.air.typeOf(ty_op.operand);
     const payload_ty = err_ty.errorUnionPayload();
     if (!payload_ty.hasCodeGenBits()) return WValue{ .none = {} };
@@ -2690,7 +2606,7 @@ fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue.none;
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     const err_ty = self.air.typeOf(ty_op.operand);
     const payload_ty = err_ty.errorUnionPayload();
     if (!payload_ty.hasCodeGenBits()) {
@@ -2703,7 +2619,7 @@ fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue.none;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
 
     const op_ty = self.air.typeOf(ty_op.operand);
     if (!op_ty.hasCodeGenBits()) return operand;
@@ -2725,7 +2641,7 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue.none;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     const err_ty = self.air.getRefType(ty_op.ty);
 
     const err_union = try self.allocStack(err_ty);
@@ -2739,7 +2655,7 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const ty = self.air.getRefType(ty_op.ty);
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     const ref_ty = self.air.typeOf(ty_op.operand);
     const ref_info = ref_ty.intInfo(self.target);
     const wanted_info = ty.intInfo(self.target);
@@ -2770,7 +2686,7 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode, op_kind: enum { value, ptr }) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const operand = self.resolveInst(un_op);
+    const operand = try self.resolveInst(un_op);
 
     const op_ty = self.air.typeOf(un_op);
     const optional_ty = if (op_kind == .ptr) op_ty.childType() else op_ty;
@@ -2801,7 +2717,7 @@ fn isNull(self: *Self, operand: WValue, optional_ty: Type, opcode: wasm.Opcode) 
 fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     const opt_ty = self.air.typeOf(ty_op.operand);
     const payload_ty = self.air.typeOfIndex(inst);
     if (!payload_ty.hasCodeGenBits()) return WValue{ .none = {} };
@@ -2820,7 +2736,7 @@ fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     const opt_ty = self.air.typeOf(ty_op.operand).childType();
 
     var buf: Type.Payload.ElemType = undefined;
@@ -2835,7 +2751,7 @@ fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     const opt_ty = self.air.typeOf(ty_op.operand).childType();
     var buf: Type.Payload.ElemType = undefined;
     const payload_ty = opt_ty.optionalChild(&buf);
@@ -2871,7 +2787,7 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return non_null_bit;
     }
 
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     const op_ty = self.air.typeOfIndex(inst);
     if (op_ty.isPtrLikeOptional()) {
         return operand;
@@ -2897,8 +2813,8 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const lhs = self.resolveInst(bin_op.lhs);
-    const rhs = self.resolveInst(bin_op.rhs);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
     const slice_ty = self.air.typeOfIndex(inst);
 
     const slice = try self.allocStack(slice_ty);
@@ -2912,7 +2828,7 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue.none;
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
 
     return try self.load(operand, Type.usize, self.ptrSize());
 }
@@ -2922,8 +2838,8 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const slice_ty = self.air.typeOf(bin_op.lhs);
-    const slice = self.resolveInst(bin_op.lhs);
-    const index = self.resolveInst(bin_op.rhs);
+    const slice = try self.resolveInst(bin_op.lhs);
+    const index = try self.resolveInst(bin_op.rhs);
     const elem_ty = slice_ty.childType();
     const elem_size = elem_ty.abiSize(self.target);
 
@@ -2954,8 +2870,8 @@ fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const elem_ty = self.air.getRefType(ty_pl.ty).childType();
     const elem_size = elem_ty.abiSize(self.target);
 
-    const slice = self.resolveInst(bin_op.lhs);
-    const index = self.resolveInst(bin_op.rhs);
+    const slice = try self.resolveInst(bin_op.lhs);
+    const index = try self.resolveInst(bin_op.rhs);
 
     const slice_ptr = try self.load(slice, slice_ty, 0);
     try self.addLabel(.local_get, slice_ptr.local);
@@ -2974,14 +2890,14 @@ fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airSlicePtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue.none;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     return try self.load(operand, Type.usize, 0);
 }
 
 fn airTrunc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue.none;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     const op_ty = self.air.typeOf(ty_op.operand);
     const int_info = self.air.getRefType(ty_op.ty).intInfo(self.target);
     const wanted_bits = int_info.bits;
@@ -3040,12 +2956,12 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airBoolToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
-    return self.resolveInst(un_op);
+    return try self.resolveInst(un_op);
 }
 
 fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     const array_ty = self.air.typeOf(ty_op.operand).childType();
     const ty = Type.@"usize";
     const ptr_width = @intCast(u32, ty.abiSize(self.target));
@@ -3072,7 +2988,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airPtrToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
     const un_op = self.air.instructions.items(.data)[inst].un_op;
-    return self.resolveInst(un_op);
+    return try self.resolveInst(un_op);
 }
 
 fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -3080,8 +2996,8 @@ fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ptr_ty = self.air.typeOf(bin_op.lhs);
-    const pointer = self.resolveInst(bin_op.lhs);
-    const index = self.resolveInst(bin_op.rhs);
+    const pointer = try self.resolveInst(bin_op.lhs);
+    const index = try self.resolveInst(bin_op.rhs);
     const elem_ty = ptr_ty.childType();
     const elem_size = elem_ty.abiSize(self.target);
 
@@ -3115,8 +3031,8 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const elem_ty = self.air.getRefType(ty_pl.ty).childType();
     const elem_size = elem_ty.abiSize(self.target);
 
-    const ptr = self.resolveInst(bin_op.lhs);
-    const index = self.resolveInst(bin_op.rhs);
+    const ptr = try self.resolveInst(bin_op.lhs);
+    const index = try self.resolveInst(bin_op.rhs);
 
     // load pointer onto the stack
     if (ptr_ty.isSlice()) {
@@ -3140,8 +3056,8 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn airPtrBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const ptr = self.resolveInst(bin_op.lhs);
-    const offset = self.resolveInst(bin_op.rhs);
+    const ptr = try self.resolveInst(bin_op.lhs);
+    const offset = try self.resolveInst(bin_op.rhs);
     const ptr_ty = self.air.typeOf(bin_op.lhs);
     const pointee_ty = switch (ptr_ty.ptrSize()) {
         .One => ptr_ty.childType().childType(), // ptr to array, so get array element type
@@ -3167,9 +3083,9 @@ fn airMemset(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const bin_op = self.air.extraData(Air.Bin, pl_op.payload).data;
 
-    const ptr = self.resolveInst(pl_op.operand);
-    const value = self.resolveInst(bin_op.lhs);
-    const len = self.resolveInst(bin_op.rhs);
+    const ptr = try self.resolveInst(pl_op.operand);
+    const value = try self.resolveInst(bin_op.lhs);
+    const len = try self.resolveInst(bin_op.rhs);
     try self.memSet(ptr, len, value);
 
     return WValue.none;
@@ -3236,8 +3152,8 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const array_ty = self.air.typeOf(bin_op.lhs);
-    const array = self.resolveInst(bin_op.lhs);
-    const index = self.resolveInst(bin_op.rhs);
+    const array = try self.resolveInst(bin_op.lhs);
+    const index = try self.resolveInst(bin_op.rhs);
     const elem_ty = array_ty.childType();
     const elem_size = elem_ty.abiSize(self.target);
 
@@ -3261,7 +3177,7 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
     const dest_ty = self.air.typeOfIndex(inst);
     const op_ty = self.air.typeOf(ty_op.operand);
 
@@ -3283,7 +3199,7 @@ fn airSplat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
 
     _ = ty_op;
     _ = operand;
