@@ -1295,13 +1295,39 @@ test "expectError demo" {
       A variable is a unit of {#link|Memory#} storage.
       </p>
       <p>
-      Variables are never allowed to shadow identifiers from an outer scope.
-      </p>
-      <p>
       It is generally preferable to use {#syntax#}const{#endsyntax#} rather than
       {#syntax#}var{#endsyntax#} when declaring a variable. This causes less work for both
       humans and computers to do when reading code, and creates more optimization opportunities.
       </p>
+
+      {#header_open|Identifiers#}
+      <p>
+      Variable identifiers are never allowed to shadow identifiers from an outer scope.
+      </p>
+      <p>
+      Identifiers must start with an alphabetic character or underscore and may be followed
+      by any number of alphanumeric characters or underscores.
+      They must not overlap with any keywords. See {#link|Keyword Reference#}.
+      </p>
+      <p>
+      If a name that does not fit these requirements is needed, such as for linking with external libraries, the {#syntax#}@""{#endsyntax#} syntax may be used.
+      </p>
+      {#code_begin|syntax#}
+const @"identifier with spaces in it" = 0xff;
+const @"1SmallStep4Man" = 112358;
+
+const c = @import("std").c;
+pub extern "c" fn @"error"() anyopaque;
+pub extern "c" fn @"fstat$INODE64"(fd: c.fd_t, buf: *c.Stat) c_int;
+
+const Color = enum {
+  red,
+  @"really red",
+};
+const color: Color = .@"really red";
+      {#code_end#}
+      {#header_close#}
+
       {#header_open|Container Level Variables#}
       <p>
       Container level variables have static lifetime and are order-independent and lazily analyzed.
@@ -3497,7 +3523,7 @@ fn dump(args: anytype) !void {
       </p>
       <p>
       The fields are implicitly named using numbers starting from 0. Because their names are integers,
-      the {#syntax#}@"0"{#endsyntax#} syntax must be used to access them. Names inside {#syntax#}@""{#endsyntax#} are always recognised as identifiers.
+      the {#syntax#}@"0"{#endsyntax#} syntax must be used to access them. Names inside {#syntax#}@""{#endsyntax#} are always recognised as {#link|identifiers|Identifiers#}.
       </p>
       <p>
       Like arrays, tuples have a .len field, can be indexed and  work with the ++ and ** operators. They can also be iterated over with {#link|inline for#}.
@@ -3986,7 +4012,7 @@ test "labeled break from labeled block expression" {
       {#see_also|Labeled while|Labeled for#}
 
       {#header_open|Shadowing#}
-      <p>Identifiers are never allowed to "hide" other identifiers by using the same name:</p>
+      <p>{#link|Identifiers#} are never allowed to "hide" other identifiers by using the same name:</p>
       {#code_begin|test_err|local shadows declaration#}
 const pi = 3.14;
 
@@ -4037,7 +4063,7 @@ test "switch simple" {
         1, 2, 3 => 0,
 
         // Ranges can be specified using the ... syntax. These are inclusive
-        // both ends.
+        // of both ends.
         5...100 => 1,
 
         // Branches can be arbitrarily complex.
@@ -4809,8 +4835,8 @@ test "errdefer unwinding" {
       </p>
       {#header_open|Basics#}
       {#code_begin|test|test_unreachable#}
-// unreachable is used to assert that control flow will never happen upon a
-// particular location:
+// unreachable is used to assert that control flow will never reach a
+// particular place in the code.
 test "basic math" {
     const x = 1;
     const y = 2;
@@ -6777,8 +6803,7 @@ test "variable values" {
       generic data structure.
       </p>
       <p>
-      Here is an example of a generic {#syntax#}List{#endsyntax#} data structure, that we will instantiate with
-          the type {#syntax#}i32{#endsyntax#}. In Zig we refer to the type as {#syntax#}List(i32){#endsyntax#}.
+			Here is an example of a generic {#syntax#}List{#endsyntax#} data structure.
       </p>
       {#code_begin|syntax#}
 fn List(comptime T: type) type {
@@ -6787,27 +6812,46 @@ fn List(comptime T: type) type {
         len: usize,
     };
 }
-      {#code_end#}
-      <p>
-      That's it. It's a function that returns an anonymous {#syntax#}struct{#endsyntax#}. For the purposes of error messages
-          and debugging, Zig infers the name {#syntax#}"List(i32)"{#endsyntax#} from the function name and parameters invoked when creating
-      the anonymous struct.
-      </p>
-      <p>
-      To keep the language small and uniform, all aggregate types in Zig are anonymous. To give a type
-      a name, we assign it to a constant:
-      </p>
-      {#code_begin|syntax#}
-const Node = struct {
-    next: *Node,
-    name: []u8,
+
+// The generic List data structure can be instantiated by passing in a type:
+var buffer: [10]i32 = undefined;
+var list = List(i32){
+    .items = &buffer,
+    .len = 0,
 };
       {#code_end#}
       <p>
-      This works because all top level declarations are order-independent, and as long as there isn't
-      an actual infinite regression, values can refer to themselves, directly or indirectly. In this case,
-      {#syntax#}Node{#endsyntax#} refers to itself as a pointer, which is not actually an infinite regression, so
-      it works fine.
+      That's it. It's a function that returns an anonymous {#syntax#}struct{#endsyntax#}.
+      To keep the language small and uniform, all aggregate types in Zig are anonymous.
+      For the purposes of error messages and debugging, Zig infers the name
+      {#syntax#}"List(i32)"{#endsyntax#} from the function name and parameters invoked when creating
+      the struct.
+      </p>
+      <p>
+      To explicitly give a type a name, we assign it to a constant.
+      </p>
+      {#code_begin|syntax#}
+const Node = struct {
+    next: ?*Node,
+    name: []const u8,
+};
+
+var node_a = Node{
+    .next = null,
+    .name = &"Node A",
+};
+
+var node_b = Node{
+    .next = &node_a,
+    .name = &"Node B",
+};
+      {#code_end#}
+      <p>
+      In this example, the {#syntax#}Node{#endsyntax#} struct refers to itself.
+      This works because all top level declarations are order-independent.
+      As long as the compiler can determine the size of the struct, it is free to refer to itself.
+      In this case, {#syntax#}Node{#endsyntax#} refers to itself as a pointer, which has a
+      well-defined size at compile time, so it works fine.
       </p>
       {#header_close#}
       {#header_open|Case Study: print in Zig#}
@@ -8297,8 +8341,8 @@ fn internalName() callconv(.C) void {}
       {#code_begin|obj#}
 export fn foo() void {}
       {#code_end#}
-      <p>Note that even when using {#syntax#}export{#endsyntax#}, {#syntax#}@"foo"{#endsyntax#} syntax can
-      be used to choose any string for the symbol name:</p>
+      <p>Note that even when using {#syntax#}export{#endsyntax#}, the {#syntax#}@"foo"{#endsyntax#} syntax for
+      {#link|identifiers|Identifiers#} can be used to choose any string for the symbol name:</p>
       {#code_begin|obj#}
 export fn @"A function name that is a complete sentence."() void {}
       {#code_end#}
