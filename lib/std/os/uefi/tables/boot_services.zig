@@ -154,6 +154,27 @@ pub const BootServices = extern struct {
     /// Creates an event in a group.
     createEventEx: fn (type: u32, notify_tpl: usize, notify_func: EfiEventNotify, notify_ctx: *const anyopaque, event_group: *align(8) const Guid, event: *Event) callconv(.C) Status,
 
+    /// Opens a protocol with a structure as the loaded image for a UEFI application
+    pub fn openProtocolSt(self: *BootServices, comptime protocol: type, handle: Handle) !*protocol {
+        if (!@hasDecl(protocol, "guid"))
+            @compileError("Protocol is missing guid!");
+
+        var ptr: ?*protocol = undefined;
+
+        try self.openProtocol(
+            handle,
+            &protocol.guid,
+            @ptrCast(*?*anyopaque, &ptr),
+            // Invoking handle (loaded image)
+            uefi.handle,
+            // Control handle (null as not a driver)
+            null,
+            uefi.tables.OpenProtocolAttributes{ .by_handle_protocol = true },
+        ).err();
+
+        return ptr.?;
+    }
+
     pub const signature: u64 = 0x56524553544f4f42;
 
     pub const event_timer: u32 = 0x80000000;
