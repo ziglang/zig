@@ -4,19 +4,6 @@ const mem = std.mem;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
-test "access the null element of a null terminated array" {
-    const S = struct {
-        fn doTheTest() !void {
-            var array: [4:0]u8 = .{ 'a', 'o', 'e', 'u' };
-            try expect(array[4] == 0);
-            var len: usize = 4;
-            try expect(array[len] == 0);
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
-}
-
 test "type deduction for array subscript expression" {
     const S = struct {
         fn doTheTest() !void {

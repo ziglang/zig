@@ -2854,7 +2854,15 @@ fn zirValidateArrayInit(
 
     if (is_comptime or block.is_comptime) {
         // In this case the comptime machinery will have evaluated the store instructions
-        // at comptime and we have nothing to do here.
+        // at comptime so we have almost nothing to do here. However, in case of a
+        // sentinel-terminated array, the sentinel will not have been populated by
+        // any ZIR instructions at comptime; we need to do that here.
+        if (array_ty.sentinel()) |sentinel_val| {
+            const array_len_ref = try sema.addIntUnsigned(Type.usize, array_len);
+            const sentinel_ptr = try sema.elemPtrArray(block, init_src, array_ptr, array_len_ref, init_src);
+            const sentinel = try sema.addConstant(array_ty.childType(), sentinel_val);
+            try sema.storePtr2(block, init_src, sentinel_ptr, init_src, sentinel, init_src, .store);
+        }
         return;
     }
 
@@ -2863,7 +2871,7 @@ fn zirValidateArrayInit(
 
     // Collect the comptime element values in case the array literal ends up
     // being comptime-known.
-    const element_vals = try sema.arena.alloc(Value, instrs.len);
+    const element_vals = try sema.arena.alloc(Value, array_ty.arrayLenIncludingSentinel());
     const opt_opv = try sema.typeHasOnePossibleValue(block, init_src, array_ty);
     const air_tags = sema.air_instructions.items(.tag);
     const air_datas = sema.air_instructions.items(.data);
@@ -2920,6 +2928,10 @@ fn zirValidateArrayInit(
     if (array_is_comptime) {
         // Our task is to delete all the `elem_ptr` and `store` instructions, and insert
         // instead a single `store` to the array_ptr with a comptime struct value.
+        // Also to populate the sentinel value, if any.
+        if (array_ty.sentinel()) |sentinel_val| {
+            element_vals[instrs.len] = sentinel_val;
+        }
 
         block.instructions.shrinkRetainingCapacity(first_block_index);
 
@@ -13436,6 +13448,12 @@ fn elemValArray(
         const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
         if (maybe_index_val) |index_val| {
             const index = @intCast(usize, index_val.toUnsignedInt());
+            const len = array_ty.arrayLenIncludingSentinel();
+            if (index >= len) {
+                return sema.fail(block, elem_index_src, "index {d} outside array of length {d}", .{
+                    index, len,
+                });
+            }
             const elem_val = try array_val.elemValue(sema.arena, index);
             return sema.addConstant(elem_ty, elem_val);
         }
