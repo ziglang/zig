@@ -2871,7 +2871,8 @@ fn zirValidateArrayInit(
 
     // Collect the comptime element values in case the array literal ends up
     // being comptime-known.
-    const element_vals = try sema.arena.alloc(Value, array_ty.arrayLenIncludingSentinel());
+    const array_len_s = try sema.usizeCast(block, init_src, array_ty.arrayLenIncludingSentinel());
+    const element_vals = try sema.arena.alloc(Value, array_len_s);
     const opt_opv = try sema.typeHasOnePossibleValue(block, init_src, array_ty);
     const air_tags = sema.air_instructions.items(.tag);
     const air_datas = sema.air_instructions.items(.data);
