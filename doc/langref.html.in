@@ -3159,7 +3159,12 @@ test "linked list" {
         .last = &node,
         .len = 1,
     };
+    
+    // When using a pointer to a struct, fields can be accessed directly,
+    // without explicitly dereferencing the pointer.
+    // So you can do
     try expect(list2.first.?.data == 1234);
+    // instead of try expect(list2.first.?.*.data == 1234);
 }
       {#code_end#}
 
