@@ -179,3 +179,17 @@ test "access the null element of a null terminated array" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "type deduction for array subscript expression" {
+    const S = struct {
+        fn doTheTest() !void {
+            var array = [_]u8{ 0x55, 0xAA };
+            var v0 = true;
+            try expect(@as(u8, 0xAA) == array[if (v0) 1 else 0]);
+            var v1 = false;
+            try expect(@as(u8, 0x55) == array[if (v1) 1 else 0]);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}

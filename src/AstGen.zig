@@ -281,6 +281,15 @@ pub const ResultLoc = union(enum) {
             },
         }
     }
+
+    /// Turns a `coerced_ty` back into a `ty`. Should be called at branch points
+    /// such as if and switch expressions.
+    fn br(rl: ResultLoc) ResultLoc {
+        return switch (rl) {
+            .coerced_ty => |ty| .{ .ty = ty },
+            else => rl,
+        };
+    }
 };
 
 pub const align_rl: ResultLoc = .{ .ty = .u16_type };
@@ -748,15 +757,15 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
         .field_access => return fieldAccess(gz, scope, rl, node),
         .float_literal => return floatLiteral(gz, rl, node),
 
-        .if_simple => return ifExpr(gz, scope, rl, node, tree.ifSimple(node)),
-        .@"if" => return ifExpr(gz, scope, rl, node, tree.ifFull(node)),
+        .if_simple => return ifExpr(gz, scope, rl.br(), node, tree.ifSimple(node)),
+        .@"if" => return ifExpr(gz, scope, rl.br(), node, tree.ifFull(node)),
 
-        .while_simple => return whileExpr(gz, scope, rl, node, tree.whileSimple(node)),
-        .while_cont => return whileExpr(gz, scope, rl, node, tree.whileCont(node)),
-        .@"while" => return whileExpr(gz, scope, rl, node, tree.whileFull(node)),
+        .while_simple => return whileExpr(gz, scope, rl.br(), node, tree.whileSimple(node)),
+        .while_cont => return whileExpr(gz, scope, rl.br(), node, tree.whileCont(node)),
+        .@"while" => return whileExpr(gz, scope, rl.br(), node, tree.whileFull(node)),
 
-        .for_simple => return forExpr(gz, scope, rl, node, tree.forSimple(node)),
-        .@"for" => return forExpr(gz, scope, rl, node, tree.forFull(node)),
+        .for_simple => return forExpr(gz, scope, rl.br(), node, tree.forSimple(node)),
+        .@"for" => return forExpr(gz, scope, rl.br(), node, tree.forFull(node)),
 
         .slice_open => {
             const lhs = try expr(gz, scope, .ref, node_datas[node].lhs);
@@ -943,7 +952,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
         .error_set_decl => return errorSetDecl(gz, rl, node),
         .array_access => return arrayAccess(gz, scope, rl, node),
         .@"comptime" => return comptimeExprAst(gz, scope, rl, node),
-        .@"switch", .switch_comma => return switchExpr(gz, scope, rl, node),
+        .@"switch", .switch_comma => return switchExpr(gz, scope, rl.br(), node),
 
         .@"nosuspend" => return nosuspendExpr(gz, scope, rl, node),
         .@"suspend" => return suspendExpr(gz, scope, node),
