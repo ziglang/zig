@@ -158,6 +158,12 @@ pub extern "NtDll" fn RtlWaitOnAddress(
     Timeout: ?*const LARGE_INTEGER,
 ) callconv(WINAPI) NTSTATUS;
 
+pub extern "NtDll" fn RtlUpcaseUnicodeString(
+    DestinationString: *UNICODE_STRING,
+    SourceString: *const UNICODE_STRING,
+    AllocateDestinationString: BOOLEAN,
+) callconv(WINAPI) NTSTATUS;
+
 pub extern "NtDll" fn NtLockFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
