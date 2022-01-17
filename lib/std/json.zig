@@ -3333,3 +3333,23 @@ test "stringify null optional fields" {
         .{ .allocator = std.testing.allocator },
     ));
 }
+
+// Same as `stringify` but accepts an Allocator and stores result in dynamically allocated memory instead of using a Writer.
+// Caller owns returned memory.
+pub fn stringifyAlloc(allocator: std.mem.Allocator, value: anytype, options: StringifyOptions) ![]const u8 {
+    var list = std.ArrayList(u8).init(allocator);
+    errdefer list.deinit();
+    try stringify(value, options, list.writer());
+    return list.toOwnedSlice();
+}
+
+test "stringify alloc" {
+    const allocator = std.testing.allocator;
+    const expected =
+        \\{"foo":"bar","answer":42,"my_friend":"sammy"}
+    ;
+    const actual = try stringifyAlloc(allocator, .{ .foo = "bar", .answer = 42, .my_friend = "sammy" }, .{});
+    defer allocator.free(actual);
+
+    try std.testing.expectEqualStrings(expected, actual);
+}
