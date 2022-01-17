@@ -188,7 +188,7 @@ pub fn MultiArrayList(comptime S: type) type {
         /// after and including the specified index back by one and
         /// sets the given index to the specified element.  May reallocate
         /// and invalidate iterators.
-        pub fn insert(self: *Self, gpa: Allocator, index: usize, elem: S) void {
+        pub fn insert(self: *Self, gpa: Allocator, index: usize, elem: S) !void {
             try self.ensureUnusedCapacity(gpa, 1);
             self.insertAssumeCapacity(index, elem);
         }
