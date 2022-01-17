@@ -169,7 +169,7 @@ pub fn attachSegfaultHandler() void {
         return;
     }
     var act = os.Sigaction{
-        .handler = .{ .sigaction = handleSegfaultLinux },
+        .handler = .{ .sigaction = handleSegfaultPosix },
         .mask = os.empty_sigset,
         .flags = (os.SA.SIGINFO | os.SA.RESTART | os.SA.RESETHAND),
     };
@@ -179,17 +179,17 @@ pub fn attachSegfaultHandler() void {
     os.sigaction(os.SIG.BUS, &act, null);
 }
 
-fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) noreturn {
+fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) noreturn {
     // TODO: use alarm() here to prevent infinite loops
     PanicSwitch.preDispatch();
 
     const addr = switch (builtin.os.tag) {
         .linux => @ptrToInt(info.fields.sigfault.addr),
-        .freebsd => @ptrToInt(info.addr),
+        .freebsd, .macos => @ptrToInt(info.addr),
         .netbsd => @ptrToInt(info.info.reason.fault.addr),
         .openbsd => @ptrToInt(info.data.fault.addr),
         .solaris => @ptrToInt(info.reason.fault.addr),
-        else => @compileError("TODO implement handleSegfaultLinux for new linux OS"),
+        else => @compileError("TODO implement handleSegfaultPosix for new POSIX OS"),
     };
 
     var err_buffer: [128]u8 = undefined;
@@ -213,12 +213,14 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
                 .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RIP]),
                 .freebsd => @intCast(usize, ctx.mcontext.rip),
                 .openbsd => @intCast(usize, ctx.sc_rip),
+                .macos => @intCast(usize, ctx.mcontext.ss.rip),
                 else => unreachable,
             };
             const bp = switch (builtin.os.tag) {
                 .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RBP]),
                 .openbsd => @intCast(usize, ctx.sc_rbp),
                 .freebsd => @intCast(usize, ctx.mcontext.rbp),
+                .macos => @intCast(usize, ctx.mcontext.ss.rbp),
                 else => unreachable,
             };
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };
