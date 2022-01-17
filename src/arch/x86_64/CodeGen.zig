@@ -2479,6 +2479,7 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
 fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const cond = try self.resolveInst(pl_op.operand);
+    const cond_ty = self.air.typeOf(pl_op.operand);
     const extra = self.air.extraData(Air.CondBr, pl_op.payload);
     const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
     const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
@@ -2550,10 +2551,29 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
                 });
                 break :reloc reloc;
             },
-            else => return self.fail("TODO implement condbr {s} when condition is {s}", .{
-                self.target.cpu.arch,
-                @tagName(cond),
-            }),
+            .immediate => |imm| {
+                if (cond_ty.abiSize(self.target.*) <= 4) {
+                    const reg = try self.copyToTmpRegister(cond_ty, .{ .immediate = imm });
+                    _ = try self.addInst(.{
+                        .tag = .@"test",
+                        .ops = (Mir.Ops{
+                            .reg1 = reg,
+                            .flags = 0b00,
+                        }).encode(),
+                        .data = .{ .imm = 1 },
+                    });
+                    const reloc = try self.addInst(.{
+                        .tag = .cond_jmp_eq_ne,
+                        .ops = (Mir.Ops{
+                            .flags = 0b01,
+                        }).encode(),
+                        .data = .{ .inst = undefined },
+                    });
+                    break :reloc reloc;
+                }
+                return self.fail("TODO implement condbr when condition is immediate larger than 4 bytes", .{});
+            },
+            else => return self.fail("TODO implement condbr when condition is {s}", .{@tagName(cond)}),
         }
     };
 
@@ -2916,7 +2936,16 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
         const operand_mcv = try self.resolveInst(operand);
         const block_mcv = block_data.mcv;
         if (block_mcv == .none) {
-            block_data.mcv = operand_mcv;
+            block_data.mcv = switch (operand_mcv) {
+                .none, .dead, .unreach => unreachable,
+                .register, .stack_offset, .memory => operand_mcv,
+                .immediate => blk: {
+                    const new_mcv = try self.allocRegOrMem(block, true);
+                    try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
+                    break :blk new_mcv;
+                },
+                else => return self.fail("TODO implement block_data.mcv = operand_mcv for {}", .{operand_mcv}),
+            };
         } else {
             try self.setRegOrMem(self.air.typeOfIndex(block), block_mcv, operand_mcv);
         }
@@ -3081,12 +3110,15 @@ fn iterateBigTomb(self: *Self, inst: Air.Inst.Index, operand_count: usize) !BigT
 fn setRegOrMem(self: *Self, ty: Type, loc: MCValue, val: MCValue) !void {
     switch (loc) {
         .none => return,
+        .immediate => unreachable,
         .register => |reg| return self.genSetReg(ty, reg, val),
         .stack_offset => |off| return self.genSetStack(ty, off, val),
         .memory => {
             return self.fail("TODO implement setRegOrMem for memory", .{});
         },
-        else => unreachable,
+        else => {
+            return self.fail("TODO implement setRegOrMem for {}", .{loc});
+        },
     }
 }
 
@@ -3416,8 +3448,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 _ = try self.addInst(.{
                     .tag = .xor,
                     .ops = (Mir.Ops{
-                        .reg1 = reg,
-                        .reg2 = reg,
+                        .reg1 = reg.to64(),
+                        .reg2 = reg.to64(),
                     }).encode(),
                     .data = undefined,
                 });
