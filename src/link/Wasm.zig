@@ -19,7 +19,7 @@ const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const wasi_libc = @import("../wasi_libc.zig");
 const Cache = @import("../Cache.zig");
-const TypedValue = @import("../TypedValue.zig");
+const Type = @import("../type.zig").Type;
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
@@ -306,7 +306,39 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, cod
     if (code.len == 0) return;
     const atom: *Atom = &decl.link.wasm;
     atom.size = @intCast(u32, code.len);
+    atom.alignment = decl.ty.abiAlignment(self.base.options.target);
+    self.symbols.items[atom.sym_index].name = decl.name;
     try atom.code.appendSlice(self.base.allocator, code);
+}
+
+/// Creates a new local symbol for a given type (and its bytes it's represented by)
+/// and then append it as a 'contained' atom onto the Decl.
+pub fn createLocalSymbol(self: *Wasm, decl: *Module.Decl, ty: Type, code: []const u8) !u32 {
+    assert(ty.zigTypeTag() != .Fn); // cannot create local symbols for functions
+    var symbol: Symbol = .{
+        .name = "unnamed_local",
+        .flags = 0,
+        .tag = .data,
+        .index = undefined,
+    };
+    symbol.setFlag(.WASM_SYM_BINDING_LOCAL);
+    symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+
+    var atom = Atom.empty;
+    atom.size = @intCast(u32, code.len);
+    atom.alignment = ty.abiAlignment(self.base.options.target);
+    try atom.code.appendSlice(self.base.allocator, code);
+
+    if (self.symbols_free_list.popOrNull()) |index| {
+        atom.sym_index = index;
+        self.symbols.items[index] = symbol;
+    } else {
+        atom.sym_index = @intCast(u32, self.symbols.items.len);
+        self.symbols.appendAssumeCapacity(symbol);
+    }
+
+    try decl.link.wasm.locals.append(self.base.allocator, atom);
+    return atom.sym_index;
 }
 
 pub fn updateDeclExports(
@@ -329,9 +361,12 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     }
     const atom = &decl.link.wasm;
     self.symbols_free_list.append(self.base.allocator, atom.sym_index) catch {};
-    atom.deinit(self.base.allocator);
     _ = self.decls.remove(decl);
     self.symbols.items[atom.sym_index].tag = .dead; // to ensure it does not end in the names section
+    for (atom.locals.items) |local_atom| {
+        self.symbols.items[local_atom.sym_index].tag = .dead; // also for any local symbol
+    }
+    atom.deinit(self.base.allocator);
 
     if (decl.isExtern()) {
         const import = self.imports.fetchRemove(decl.link.wasm.sym_index).?.value;
@@ -377,14 +412,16 @@ fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
     }
 }
 
-fn parseDeclIntoAtom(self: *Wasm, decl: *Module.Decl) !void {
-    const atom: *Atom = &decl.link.wasm;
+const Kind = union(enum) {
+    data: void,
+    function: FnData,
+};
+
+/// Parses an Atom and inserts its metadata into the corresponding sections.
+fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
     const symbol: *Symbol = &self.symbols.items[atom.sym_index];
-    symbol.name = decl.name;
-    atom.alignment = decl.ty.abiAlignment(self.base.options.target);
-    const final_index: u32 = switch (decl.ty.zigTypeTag()) {
-        .Fn => result: {
-            const fn_data = decl.fn_link.wasm;
+    const final_index: u32 = switch (kind) {
+        .function => |fn_data| result: {
             const type_index = fn_data.type_index;
             const index = @intCast(u32, self.functions.items.len + self.imported_functions_count);
             try self.functions.append(self.base.allocator, .{ .type_index = type_index });
@@ -402,7 +439,7 @@ fn parseDeclIntoAtom(self: *Wasm, decl: *Module.Decl) !void {
 
             break :result self.code_section_index.?;
         },
-        else => result: {
+        .data => result: {
             const gop = try self.data_segments.getOrPut(self.base.allocator, ".rodata");
             const atom_index = if (gop.found_existing) blk: {
                 self.segments.items[gop.value_ptr.*].size += atom.size;
@@ -430,7 +467,6 @@ fn parseDeclIntoAtom(self: *Wasm, decl: *Module.Decl) !void {
             });
             symbol.tag = .data;
             symbol.index = info_index;
-            atom.alignment = decl.ty.abiAlignment(self.base.options.target);
 
             break :result atom_index;
         },
@@ -617,7 +653,17 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     var decl_it = self.decls.keyIterator();
     while (decl_it.next()) |decl| {
         if (decl.*.isExtern()) continue;
-        try self.parseDeclIntoAtom(decl.*);
+        const atom = &decl.*.link.wasm;
+        if (decl.*.ty.zigTypeTag() == .Fn) {
+            try self.parseAtom(atom, .{ .function = decl.*.fn_link.wasm });
+        } else {
+            try self.parseAtom(atom, .data);
+        }
+
+        // also parse atoms for a decl's locals
+        for (atom.locals.items) |*local_atom| {
+            try self.parseAtom(local_atom, .data);
+        }
     }
 
     try self.setupMemory();
