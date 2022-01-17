@@ -326,3 +326,24 @@ test "anon enum literal used in switch on union enum" {
         },
     }
 }
+
+test "switch all prongs unreachable" {
+    try testAllProngsUnreachable();
+    comptime try testAllProngsUnreachable();
+}
+
+fn testAllProngsUnreachable() !void {
+    try expect(switchWithUnreachable(1) == 2);
+    try expect(switchWithUnreachable(2) == 10);
+}
+
+fn switchWithUnreachable(x: i32) i32 {
+    while (true) {
+        switch (x) {
+            1 => return 2,
+            2 => break,
+            else => continue,
+        }
+    }
+    return 10;
+}

@@ -3,27 +3,6 @@ const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
 
-test "switch all prongs unreachable" {
-    try testAllProngsUnreachable();
-    comptime try testAllProngsUnreachable();
-}
-
-fn testAllProngsUnreachable() !void {
-    try expect(switchWithUnreachable(1) == 2);
-    try expect(switchWithUnreachable(2) == 10);
-}
-
-fn switchWithUnreachable(x: i32) i32 {
-    while (true) {
-        switch (x) {
-            1 => return 2,
-            2 => break,
-            else => continue,
-        }
-    }
-    return 10;
-}
-
 fn return_a_number() anyerror!i32 {
     return 1;
 }

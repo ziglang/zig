@@ -39,6 +39,9 @@ func: ?*Module.Fn,
 fn_ret_ty: Type,
 branch_quota: u32 = 1000,
 branch_count: u32 = 0,
+/// Populated when returning `error.ComptimeBreak`. Used to communicate the
+/// break instruction up the stack to find the corresponding Block.
+comptime_break_inst: Zir.Inst.Index = undefined,
 /// This field is updated when a new source location becomes active, so that
 /// instructions which do not have explicitly mapped source locations still have
 /// access to the source location set by the previous instruction which did
@@ -486,8 +489,31 @@ pub fn deinit(sema: *Sema) void {
 /// has no peers.
 fn resolveBody(sema: *Sema, block: *Block, body: []const Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const break_inst = try sema.analyzeBody(block, body);
-    const operand_ref = sema.code.instructions.items(.data)[break_inst].@"break".operand;
-    return sema.resolveInst(operand_ref);
+    const break_data = sema.code.instructions.items(.data)[break_inst].@"break";
+    // For comptime control flow, we need to detect when `analyzeBody` reports
+    // that we need to break from an outer block. In such case we
+    // use Zig's error mechanism to send control flow up the stack until
+    // we find the corresponding block to this break.
+    if (block.is_comptime) {
+        if (block.label) |label| {
+            if (label.zir_block != break_data.block_inst) {
+                sema.comptime_break_inst = break_inst;
+                return error.ComptimeBreak;
+            }
+        }
+    }
+    return sema.resolveInst(break_data.operand);
+}
+
+pub fn analyzeBody(
+    sema: *Sema,
+    block: *Block,
+    body: []const Zir.Inst.Index,
+) CompileError!Zir.Inst.Index {
+    return sema.analyzeBodyInner(block, body) catch |err| switch (err) {
+        error.ComptimeBreak => sema.comptime_break_inst,
+        else => |e| return e,
+    };
 }
 
 /// ZIR instructions which are always `noreturn` return this. This matches the
@@ -505,7 +531,7 @@ const always_noreturn: CompileError!Zir.Inst.Index = @as(Zir.Inst.Index, undefin
 ///   instruction. In this case, the `Zir.Inst.Index` part of the return value will be
 ///   the break instruction. This communicates both which block the break applies to, as
 ///   well as the operand. No block scope needs to be created for this strategy.
-pub fn analyzeBody(
+fn analyzeBodyInner(
     sema: *Sema,
     block: *Block,
     body: []const Zir.Inst.Index,
@@ -541,6 +567,9 @@ pub fn analyzeBody(
     const result = while (true) {
         crash_info.setBodyIndex(i);
         const inst = body[i];
+        std.log.scoped(.sema_zir).debug("sema ZIR {s} %{d}", .{
+            block.src_decl.src_namespace.file_scope.sub_file_path, inst,
+        });
         const air_inst: Air.Inst.Ref = switch (tags[inst]) {
             // zig fmt: off
             .alloc                        => try sema.zirAlloc(block, inst),
@@ -4319,6 +4348,7 @@ fn analyzeCall(
             const result = result: {
                 _ = sema.analyzeBody(&child_block, fn_info.body) catch |err| switch (err) {
                     error.ComptimeReturn => break :result inlining.comptime_result,
+                    error.ComptimeBreak => unreachable, // Can't break through a fn call.
                     else => |e| return e,
                 };
                 break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges);

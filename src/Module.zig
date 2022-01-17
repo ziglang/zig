@@ -2486,6 +2486,9 @@ pub const CompileError = error{
     /// In a comptime scope, a return instruction was encountered. This error is only seen when
     /// doing a comptime function call.
     ComptimeReturn,
+    /// In a comptime scope, a break instruction was encountered. This error is only seen when
+    /// evaluating a comptime block.
+    ComptimeBreak,
 };
 
 pub fn deinit(mod: *Module) void {
@@ -4446,6 +4449,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
+            error.ComptimeBreak => unreachable,
             else => |e| return e,
         };
         if (opt_opv) |opv| {
@@ -4478,6 +4482,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn, arena: Allocator) Sem
         error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
         error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
         error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
+        error.ComptimeBreak => @panic("zig compiler bug: ComptimeBreak"),
         else => |e| return e,
     };
 
