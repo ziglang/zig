@@ -5,7 +5,23 @@ const mem = std.mem;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
+test "array to slice" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const a: u32 align(4) = 3;
+    const b: u32 align(8) = 4;
+    const a_slice: []align(1) const u32 = @as(*const [1]u32, &a)[0..];
+    const b_slice: []align(1) const u32 = @as(*const [1]u32, &b)[0..];
+    try expect(a_slice[0] + b_slice[0] == 7);
+
+    const d: []const u32 = &[2]u32{ 1, 2 };
+    const e: []const u32 = &[3]u32{ 3, 4, 5 };
+    try expect(d[0] + e[0] + d[1] + e[1] == 10);
+}
+
 test "arrays" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     var array: [5]u32 = undefined;
 
     var i: u32 = 0;
@@ -30,6 +46,8 @@ fn getArrayLen(a: []const u32) usize {
 }
 
 test "array init with mult" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const a = 'a';
     var i: [8]u8 = [2]u8{ a, 'b' } ** 4;
     try expect(std.mem.eql(u8, &i, "abababab"));
@@ -39,6 +57,8 @@ test "array init with mult" {
 }
 
 test "array literal with explicit type" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const hex_mult: [4]u16 = .{ 4096, 256, 16, 1 };
 
     try expect(hex_mult.len == 4);
@@ -46,6 +66,8 @@ test "array literal with explicit type" {
 }
 
 test "array literal with inferred length" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const hex_mult = [_]u16{ 4096, 256, 16, 1 };
 
     try expect(hex_mult.len == 4);
@@ -53,6 +75,8 @@ test "array literal with inferred length" {
 }
 
 test "array dot len const expr" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     try expect(comptime x: {
         break :x some_array.len == 4;
     });
@@ -64,12 +88,16 @@ const ArrayDotLenConstExpr = struct {
 const some_array = [_]u8{ 0, 1, 2, 3 };
 
 test "array literal with specified size" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     var array = [2]u8{ 1, 2 };
     try expect(array[0] == 1);
     try expect(array[1] == 2);
 }
 
 test "array len field" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     var arr = [4]u8{ 0, 0, 0, 0 };
     var ptr = &arr;
     try expect(arr.len == 4);
@@ -79,6 +107,8 @@ test "array len field" {
 }
 
 test "array with sentinels" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest(is_ct: bool) !void {
             if (is_ct or builtin.zig_is_stage2) {
@@ -106,6 +136,8 @@ test "array with sentinels" {
 }
 
 test "void arrays" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     var array: [4]void = undefined;
     array[0] = void{};
     array[1] = array[2];
@@ -114,6 +146,8 @@ test "void arrays" {
 }
 
 test "nested arrays" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     if (builtin.zig_backend == .stage2_wasm) {
         // TODO this is a recent stage2 test case regression due to an enhancement;
         // now arrays are properly detected as comptime. This exercised a new code
@@ -132,6 +166,8 @@ test "nested arrays" {
 }
 
 test "implicit comptime in array type size" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     var arr: [plusOne(10)]bool = undefined;
     try expect(arr.len == 11);
 }
@@ -141,6 +177,8 @@ fn plusOne(x: u32) u32 {
 }
 
 test "single-item pointer to array indexing and slicing" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     try testSingleItemPtrArrayIndexSlice();
     comptime try testSingleItemPtrArrayIndexSlice();
 }
@@ -164,6 +202,8 @@ fn doSomeMangling(array: *[4]u8) void {
 }
 
 test "implicit cast zero sized array ptr to slice" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     {
         var b = "".*;
         const c: []const u8 = &b;
@@ -177,6 +217,8 @@ test "implicit cast zero sized array ptr to slice" {
 }
 
 test "anonymous list literal syntax" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var array: [4]u8 = .{ 1, 2, 3, 4 };
