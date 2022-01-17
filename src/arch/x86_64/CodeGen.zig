@@ -3252,9 +3252,11 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             }
             return self.fail("TODO implement memcpy for setting stack from {}", .{mcv});
         },
-        .ptr_stack_offset,
-        .stack_offset,
-        => |off| {
+        .ptr_stack_offset => {
+            const reg = try self.copyToTmpRegister(ty, mcv);
+            return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
+        },
+        .stack_offset => |off| {
             if (stack_offset == off) {
                 // Copy stack variable to itself; nothing to do.
                 return;
