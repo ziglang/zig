@@ -1659,6 +1659,18 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         },
                     }
                 },
+                .register => |src_reg| {
+                    const abi_size = value_ty.abiSize(self.target.*);
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .ops = (Mir.Ops{
+                            .reg1 = reg.to64(),
+                            .reg2 = registerAlias(src_reg, @intCast(u32, abi_size)),
+                            .flags = 0b10,
+                        }).encode(),
+                        .data = .{ .imm = 0 },
+                    });
+                },
                 else => |other| {
                     return self.fail("TODO implement set pointee with {}", .{other});
                 },
@@ -1822,7 +1834,7 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     const dst_ty = self.air.typeOfIndex(inst);
     const air_tags = self.air.instructions.items(.tag);
     switch (air_tags[inst]) {
-        .add, .addwrap => try self.genBinMathOpMir(.add, dst_ty, .unsigned, dst_mcv, src_mcv),
+        .add, .addwrap, .ptr_add => try self.genBinMathOpMir(.add, dst_ty, .unsigned, dst_mcv, src_mcv),
         .bool_or, .bit_or => try self.genBinMathOpMir(.@"or", dst_ty, .unsigned, dst_mcv, src_mcv),
         .bool_and, .bit_and => try self.genBinMathOpMir(.@"and", dst_ty, .unsigned, dst_mcv, src_mcv),
         .sub, .subwrap => try self.genBinMathOpMir(.sub, dst_ty, .unsigned, dst_mcv, src_mcv),
@@ -3125,7 +3137,6 @@ fn setRegOrMem(self: *Self, ty: Type, loc: MCValue, val: MCValue) !void {
 fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
     switch (mcv) {
         .dead => unreachable,
-        .ptr_stack_offset => unreachable,
         .ptr_embedded_in_code => unreachable,
         .unreach, .none => return, // Nothing to do.
         .undef => {
@@ -3241,7 +3252,9 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             }
             return self.fail("TODO implement memcpy for setting stack from {}", .{mcv});
         },
-        .stack_offset => |off| {
+        .ptr_stack_offset,
+        .stack_offset,
+        => |off| {
             if (stack_offset == off) {
                 // Copy stack variable to itself; nothing to do.
                 return;
@@ -3618,10 +3631,16 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement airArrayToSlice for {}", .{self.target.cpu.arch});
+    const ptr_ty = self.air.typeOf(ty_op.operand);
+    const ptr = try self.resolveInst(ty_op.operand);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else blk: {
+        const stack_offset = try self.allocMem(inst, 16, 16);
+        const array_ty = ptr_ty.childType();
+        const array_len = array_ty.arrayLenIncludingSentinel();
+        try self.genSetStack(Type.initTag(.usize), stack_offset + 8, ptr);
+        try self.genSetStack(Type.initTag(.u64), stack_offset + 16, .{ .immediate = array_len });
+        break :blk .{ .stack_offset = stack_offset };
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
