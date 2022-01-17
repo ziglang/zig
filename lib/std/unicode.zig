@@ -710,6 +710,29 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
     return dest_i;
 }
 
+pub fn utf8ToUtf16LeWriter(writer: anytype, utf8: []const u8) !usize {
+    var src_i: usize = 0;
+    var bytes_written: usize = 0;
+    while (src_i < utf8.len) {
+        const n = utf8ByteSequenceLength(utf8[src_i]) catch return error.InvalidUtf8;
+        const next_src_i = src_i + n;
+        const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch return error.InvalidUtf8;
+        if (codepoint < 0x10000) {
+            const short = @intCast(u16, codepoint);
+            try writer.writeIntLittle(u16, short);
+            bytes_written += 2;
+        } else {
+            const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
+            const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
+            try writer.writeIntLittle(u16, high);
+            try writer.writeIntLittle(u16, low);
+            bytes_written += 4;
+        }
+        src_i = next_src_i;
+    }
+    return bytes_written;
+}
+
 test "utf8ToUtf16Le" {
     var utf16le: [2]u16 = [_]u16{0} ** 2;
     {

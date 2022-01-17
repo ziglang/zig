@@ -229,6 +229,12 @@ pub extern "ntdll" fn RtlEqualUnicodeString(
     CaseInSensitive: BOOLEAN,
 ) callconv(WINAPI) BOOLEAN;
 
+pub extern "NtDll" fn RtlUpcaseUnicodeString(
+    DestinationString: *UNICODE_STRING,
+    SourceString: *const UNICODE_STRING,
+    AllocateDestinationString: BOOLEAN,
+) callconv(WINAPI) NTSTATUS;
+
 pub extern "ntdll" fn NtLockFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
