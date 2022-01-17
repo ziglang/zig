@@ -166,7 +166,7 @@ pub const AtomicEvent = struct {
     pub const Futex = switch (builtin.os.tag) {
         .windows => WindowsFutex,
         .linux => LinuxFutex,
-        .macos => std.Thread.Futex,
+        .macos => ThreadFutexWrapper,
         else => SpinFutex,
     };
 
@@ -187,6 +187,31 @@ pub const AtomicEvent = struct {
                     if (timer.read() >= timeout_ns)
                         return error.TimedOut;
                 }
+            }
+        }
+    };
+
+    pub const ThreadFutexWrapper = struct {
+        fn wake(waiters: *const std.atomic.Atomic(u32), wake_count: u32) void {
+            std.Thread.Futex.wake(waiters, wake_count);
+        }
+
+        fn wait(waiters: *const std.atomic.Atomic(u32), _: u32, timeout: ?u64) !void {
+            const deadline: ?i128 = if (timeout) |t|
+                t + std.time.nanoTimestamp()
+            else
+                null;
+
+            while (true) {
+                const w = waiters.load(.Acquire);
+                if (w == WAKE) return;
+
+                try std.Thread.Futex.wait(waiters, w, timeout: {
+                    const d = deadline orelse break :timeout null;
+                    const now = std.time.nanoTimestamp();
+                    if (now >= d) return error.TimedOut;
+                    break :timeout @intCast(u64, d - now);
+                });
             }
         }
     };
