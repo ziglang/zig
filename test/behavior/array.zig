@@ -75,8 +75,6 @@ test "array literal with inferred length" {
 }
 
 test "array dot len const expr" {
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     try expect(comptime x: {
         break :x some_array.len == 4;
     });
@@ -166,7 +164,7 @@ test "nested arrays" {
 }
 
 test "implicit comptime in array type size" {
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var arr: [plusOne(10)]bool = undefined;
     try expect(arr.len == 11);

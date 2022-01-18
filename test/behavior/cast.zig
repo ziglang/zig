@@ -5,6 +5,8 @@ const maxInt = std.math.maxInt;
 const builtin = @import("builtin");
 
 test "int to ptr cast" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const x = @as(usize, 13);
     const y = @intToPtr(*u8, x);
     const z = @ptrToInt(y);
@@ -12,11 +14,15 @@ test "int to ptr cast" {
 }
 
 test "integer literal to pointer cast" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const vga_mem = @intToPtr(*u16, 0xB8000);
     try expect(@ptrToInt(vga_mem) == 0xB8000);
 }
 
 test "peer type resolution: ?T and T" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     try expect(peerTypeTAndOptionalT(true, false).? == 0);
     try expect(peerTypeTAndOptionalT(false, false).? == 3);
     comptime {
@@ -33,6 +39,8 @@ fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
 }
 
 test "resolve undefined with integer" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     try testResolveUndefWithInt(true, 1234);
     comptime try testResolveUndefWithInt(true, 1234);
 }
@@ -88,6 +96,8 @@ test "comptime_int @intToFloat" {
 }
 
 test "@floatToInt" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     try testFloatToInts();
     comptime try testFloatToInts();
 }
@@ -107,6 +117,8 @@ fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) !void {
 }
 
 test "implicitly cast indirect pointer to maybe-indirect pointer" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const S = struct {
         const Self = @This();
         x: u8,
@@ -163,6 +175,8 @@ test "@floatCast comptime_int and comptime_float" {
 }
 
 test "coerce undefined to optional" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     try expect(MakeType(void).getNull() == null);
     try expect(MakeType(void).getNonNull() != null);
 }
@@ -180,6 +194,8 @@ fn MakeType(comptime T: type) type {
 }
 
 test "implicit cast from *[N]T to [*c]T" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     var x: [4]u16 = [4]u16{ 0, 1, 2, 3 };
     var y: [*c]u16 = &x;
 
@@ -190,6 +206,8 @@ test "implicit cast from *[N]T to [*c]T" {
 }
 
 test "*usize to *void" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     var i = @as(usize, 0);
     var v = @ptrCast(*void, &i);
     v.* = {};
@@ -202,6 +220,8 @@ test "@intToEnum passed a comptime_int to an enum with one item" {
 }
 
 test "@intCast to u0 and use the result" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest(zero: u1, one: u1, bigzero: i32) !void {
             try expect((one << @intCast(u0, bigzero)) == 1);
@@ -213,6 +233,8 @@ test "@intCast to u0 and use the result" {
 }
 
 test "peer result null and comptime_int" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const S = struct {
         fn blah(n: i32) ?i32 {
             if (n == 0) {
@@ -234,6 +256,8 @@ test "peer result null and comptime_int" {
 }
 
 test "*const ?[*]const T to [*c]const [*c]const T" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     var array = [_]u8{ 'o', 'k' };
     const opt_array_ptr: ?[*]const u8 = &array;
     const a: *const ?[*]const u8 = &opt_array_ptr;
@@ -243,6 +267,8 @@ test "*const ?[*]const T to [*c]const [*c]const T" {
 }
 
 test "array coersion to undefined at runtime" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     @setRuntimeSafety(true);
 
     // TODO implement @setRuntimeSafety in stage2
@@ -270,6 +296,8 @@ fn implicitIntLitToOptional() void {
 }
 
 test "return u8 coercing into ?u32 return type" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             try expect(foo(123).? == 123);
@@ -288,6 +316,8 @@ test "cast from ?[*]T to ??[*]T" {
 }
 
 test "peer type unsigned int to signed" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     var w: u31 = 5;
     var x: u8 = 7;
     var y: i32 = -5;

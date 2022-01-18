@@ -115,6 +115,16 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .cmp_scale_imm => try emit.mirArithScaleImm(.cmp, inst),
             .mov_scale_imm => try emit.mirArithScaleImm(.mov, inst),
 
+            .adc_mem_index_imm => try emit.mirArithMemIndexImm(.adc, inst),
+            .add_mem_index_imm => try emit.mirArithMemIndexImm(.add, inst),
+            .sub_mem_index_imm => try emit.mirArithMemIndexImm(.sub, inst),
+            .xor_mem_index_imm => try emit.mirArithMemIndexImm(.xor, inst),
+            .and_mem_index_imm => try emit.mirArithMemIndexImm(.@"and", inst),
+            .or_mem_index_imm => try emit.mirArithMemIndexImm(.@"or", inst),
+            .sbb_mem_index_imm => try emit.mirArithMemIndexImm(.sbb, inst),
+            .cmp_mem_index_imm => try emit.mirArithMemIndexImm(.cmp, inst),
+            .mov_mem_index_imm => try emit.mirArithMemIndexImm(.mov, inst),
+
             .movabs => try emit.mirMovabs(inst),
 
             .lea => try emit.mirLea(inst),
@@ -543,6 +553,29 @@ fn mirArithScaleImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
     };
     // OP qword ptr [reg1 + scale*rax + imm32], imm32
     return lowerToMiEnc(tag, RegisterOrMemory.mem(.qword_ptr, .{
+        .disp = imm_pair.dest_off,
+        .base = ops.reg1,
+        .scale_index = scale_index,
+    }), imm_pair.operand, emit.code) catch |err| emit.failWithLoweringError(err);
+}
+
+fn mirArithMemIndexImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    assert(ops.reg2 == .none);
+    const payload = emit.mir.instructions.items(.data)[inst].payload;
+    const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
+    const ptr_size: Memory.PtrSize = switch (ops.flags) {
+        0b00 => .byte_ptr,
+        0b01 => .word_ptr,
+        0b10 => .dword_ptr,
+        0b11 => .qword_ptr,
+    };
+    const scale_index = ScaleIndex{
+        .scale = 0,
+        .index = .rax,
+    };
+    // OP ptr [reg1 + rax*1 + imm32], imm32
+    return lowerToMiEnc(tag, RegisterOrMemory.mem(ptr_size, .{
         .disp = imm_pair.dest_off,
         .base = ops.reg1,
         .scale_index = scale_index,
@@ -1287,7 +1320,7 @@ const Memory = struct {
                     encoder.disp32(@bitCast(i32, mem_op.disp));
                 }
             } else {
-                if (mem_op.disp == 0) {
+                if (mem_op.disp == 0 and dst != 5) {
                     encoder.modRm_indirectDisp0(src, dst);
                 } else if (immOpSize(mem_op.disp) == 8) {
                     encoder.modRm_indirectDisp8(src, dst);
