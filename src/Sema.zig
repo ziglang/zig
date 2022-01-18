@@ -669,8 +669,6 @@ fn analyzeBodyInner(
             .switch_capture_ref           => try sema.zirSwitchCapture(block, inst, false, true),
             .switch_capture_multi         => try sema.zirSwitchCapture(block, inst, true, false),
             .switch_capture_multi_ref     => try sema.zirSwitchCapture(block, inst, true, true),
-            .switch_capture_else          => try sema.zirSwitchCaptureElse(block, inst, false),
-            .switch_capture_else_ref      => try sema.zirSwitchCaptureElse(block, inst, true),
             .type_info                    => try sema.zirTypeInfo(block, inst),
             .size_of                      => try sema.zirSizeOf(block, inst),
             .bit_size_of                  => try sema.zirBitSizeOf(block, inst),
@@ -6071,6 +6069,27 @@ fn zirSwitchCapture(
     const operand_ptr_ty = sema.typeOf(operand_ptr);
     const operand_ty = if (operand_is_ref) operand_ptr_ty.childType() else operand_ptr_ty;
 
+    if (capture_info.prong_index == std.math.maxInt(@TypeOf(capture_info.prong_index))) {
+        // It is the else/`_` prong.
+        switch (operand_ty.zigTypeTag()) {
+            .ErrorSet => {
+                return sema.fail(block, operand_src, "TODO implement Sema for zirSwitchCaptureElse for error sets", .{});
+            },
+            else => {},
+        }
+        if (is_ref) {
+            assert(operand_is_ref);
+            return operand_ptr;
+        }
+
+        const operand = if (operand_is_ref)
+            try sema.analyzeLoad(block, operand_src, operand_ptr, operand_src)
+        else
+            operand_ptr;
+
+        return operand;
+    }
+
     if (is_multi) {
         return sema.fail(block, switch_src, "TODO implement Sema for switch capture multi", .{});
     }
@@ -6135,26 +6154,6 @@ fn zirSwitchCapture(
             });
         },
     }
-}
-
-fn zirSwitchCaptureElse(
-    sema: *Sema,
-    block: *Block,
-    inst: Zir.Inst.Index,
-    is_ref: bool,
-) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const zir_datas = sema.code.instructions.items(.data);
-    const capture_info = zir_datas[inst].switch_capture;
-    const switch_info = zir_datas[capture_info.switch_inst].pl_node;
-    const switch_extra = sema.code.extraData(Zir.Inst.SwitchBlock, switch_info.payload_index).data;
-    const src = switch_info.src();
-    const operand_is_ref = switch_extra.bits.is_ref;
-    assert(!is_ref or operand_is_ref);
-
-    return sema.fail(block, src, "TODO implement Sema for zirSwitchCaptureElse", .{});
 }
 
 fn zirSwitchCond(

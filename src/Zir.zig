@@ -625,10 +625,14 @@ pub const Inst = struct {
         switch_cond_ref,
         /// Produces the capture value for a switch prong.
         /// Uses the `switch_capture` field.
+        /// If the `prong_index` field is max int, it means this is the capture
+        /// for the else/`_` prong.
         switch_capture,
         /// Produces the capture value for a switch prong.
         /// Result is a pointer to the value.
         /// Uses the `switch_capture` field.
+        /// If the `prong_index` field is max int, it means this is the capture
+        /// for the else/`_` prong.
         switch_capture_ref,
         /// Produces the capture value for a switch prong.
         /// The prong is one of the multi cases.
@@ -639,13 +643,6 @@ pub const Inst = struct {
         /// Result is a pointer to the value.
         /// Uses the `switch_capture` field.
         switch_capture_multi_ref,
-        /// Produces the capture value for the else/'_' switch prong.
-        /// Uses the `switch_capture` field.
-        switch_capture_else,
-        /// Produces the capture value for the else/'_' switch prong.
-        /// Result is a pointer to the value.
-        /// Uses the `switch_capture` field.
-        switch_capture_else_ref,
         /// Given a set of `field_ptr` instructions, assumes they are all part of a struct
         /// initialization expression, and emits compile errors for duplicate fields
         /// as well as missing fields, if applicable.
@@ -1082,8 +1079,6 @@ pub const Inst = struct {
                 .switch_capture_ref,
                 .switch_capture_multi,
                 .switch_capture_multi_ref,
-                .switch_capture_else,
-                .switch_capture_else_ref,
                 .switch_block,
                 .switch_cond,
                 .switch_cond_ref,
@@ -1340,8 +1335,6 @@ pub const Inst = struct {
                 .switch_capture_ref = .switch_capture,
                 .switch_capture_multi = .switch_capture,
                 .switch_capture_multi_ref = .switch_capture,
-                .switch_capture_else = .switch_capture,
-                .switch_capture_else_ref = .switch_capture,
                 .validate_struct_init = .pl_node,
                 .validate_struct_init_comptime = .pl_node,
                 .validate_array_init = .pl_node,
@@ -1469,6 +1462,11 @@ pub const Inst = struct {
                 .extended = .extended,
             });
         };
+
+        // Uncomment to view how many tag slots are available.
+        //comptime {
+        //    @compileLog("ZIR tags left: ", 256 - @typeInfo(Tag).Enum.fields.len);
+        //}
     };
 
     /// Rarer instructions are here; ones that do not fit in the 8-bit `Tag` enum.

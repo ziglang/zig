@@ -203,7 +203,6 @@ test {
                     if (builtin.target.cpu.arch == .wasm32) {
                         _ = @import("behavior/wasm.zig");
                     }
-                    _ = @import("behavior/while_stage1.zig");
                     _ = @import("behavior/translate_c_macros_stage1.zig");
                 }
             }

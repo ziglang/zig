@@ -359,6 +359,21 @@ fn return_a_number() anyerror!i32 {
     return 1;
 }
 
+test "switch on integer with else capturing expr" {
+    const S = struct {
+        fn doTheTest() !void {
+            var x: i32 = 5;
+            switch (x + 10) {
+                14 => @panic("fail"),
+                16 => @panic("fail"),
+                else => |e| try expect(e == 15),
+            }
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
 test "else prong of switch on error set excludes other cases" {
     if (@import("builtin").zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
 

@@ -2198,8 +2198,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .switch_capture_ref,
             .switch_capture_multi,
             .switch_capture_multi_ref,
-            .switch_capture_else,
-            .switch_capture_else_ref,
             .struct_init_empty,
             .struct_init,
             .struct_init_ref,
@@ -5758,16 +5756,19 @@ fn switchExpr(
             }
             if (case_node == special_node) {
                 const capture_tag: Zir.Inst.Tag = if (is_ptr)
-                    .switch_capture_else_ref
+                    .switch_capture_ref
                 else
-                    .switch_capture_else;
+                    .switch_capture;
                 capture_inst = @intCast(Zir.Inst.Index, astgen.instructions.len);
                 try astgen.instructions.append(gpa, .{
                     .tag = capture_tag,
-                    .data = .{ .switch_capture = .{
-                        .switch_inst = switch_block,
-                        .prong_index = undefined,
-                    } },
+                    .data = .{
+                        .switch_capture = .{
+                            .switch_inst = switch_block,
+                            // Max int communicates that this is the else/underscore prong.
+                            .prong_index = std.math.maxInt(u32),
+                        },
+                    },
                 });
             } else {
                 const is_multi_case_bits: u2 = @boolToInt(is_multi_case);
