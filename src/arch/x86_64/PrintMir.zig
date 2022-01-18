@@ -64,6 +64,7 @@ pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap
             .@"or" => try print.mirArith(.@"or", inst, w),
             .sbb => try print.mirArith(.sbb, inst, w),
             .cmp => try print.mirArith(.cmp, inst, w),
+            .mov => try print.mirArith(.mov, inst, w),
 
             .adc_mem_imm => try print.mirArithMemImm(.adc, inst, w),
             .add_mem_imm => try print.mirArithMemImm(.add, inst, w),
@@ -73,6 +74,7 @@ pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap
             .or_mem_imm => try print.mirArithMemImm(.@"or", inst, w),
             .sbb_mem_imm => try print.mirArithMemImm(.sbb, inst, w),
             .cmp_mem_imm => try print.mirArithMemImm(.cmp, inst, w),
+            .mov_mem_imm => try print.mirArithMemImm(.mov, inst, w),
 
             .adc_scale_src => try print.mirArithScaleSrc(.adc, inst, w),
             .add_scale_src => try print.mirArithScaleSrc(.add, inst, w),
@@ -82,6 +84,7 @@ pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap
             .or_scale_src => try print.mirArithScaleSrc(.@"or", inst, w),
             .sbb_scale_src => try print.mirArithScaleSrc(.sbb, inst, w),
             .cmp_scale_src => try print.mirArithScaleSrc(.cmp, inst, w),
+            .mov_scale_src => try print.mirArithScaleSrc(.mov, inst, w),
 
             .adc_scale_dst => try print.mirArithScaleDst(.adc, inst, w),
             .add_scale_dst => try print.mirArithScaleDst(.add, inst, w),
@@ -91,6 +94,7 @@ pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap
             .or_scale_dst => try print.mirArithScaleDst(.@"or", inst, w),
             .sbb_scale_dst => try print.mirArithScaleDst(.sbb, inst, w),
             .cmp_scale_dst => try print.mirArithScaleDst(.cmp, inst, w),
+            .mov_scale_dst => try print.mirArithScaleDst(.mov, inst, w),
 
             .adc_scale_imm => try print.mirArithScaleImm(.adc, inst, w),
             .add_scale_imm => try print.mirArithScaleImm(.add, inst, w),
@@ -100,11 +104,18 @@ pub fn printMir(print: *const Print, w: anytype, mir_to_air_map: std.AutoHashMap
             .or_scale_imm => try print.mirArithScaleImm(.@"or", inst, w),
             .sbb_scale_imm => try print.mirArithScaleImm(.sbb, inst, w),
             .cmp_scale_imm => try print.mirArithScaleImm(.cmp, inst, w),
-
-            .mov => try print.mirArith(.mov, inst, w),
-            .mov_scale_src => try print.mirArithScaleSrc(.mov, inst, w),
-            .mov_scale_dst => try print.mirArithScaleDst(.mov, inst, w),
             .mov_scale_imm => try print.mirArithScaleImm(.mov, inst, w),
+
+            .adc_mem_index_imm => try print.mirArithMemIndexImm(.adc, inst, w),
+            .add_mem_index_imm => try print.mirArithMemIndexImm(.add, inst, w),
+            .sub_mem_index_imm => try print.mirArithMemIndexImm(.sub, inst, w),
+            .xor_mem_index_imm => try print.mirArithMemIndexImm(.xor, inst, w),
+            .and_mem_index_imm => try print.mirArithMemIndexImm(.@"and", inst, w),
+            .or_mem_index_imm => try print.mirArithMemIndexImm(.@"or", inst, w),
+            .sbb_mem_index_imm => try print.mirArithMemIndexImm(.sbb, inst, w),
+            .cmp_mem_index_imm => try print.mirArithMemIndexImm(.cmp, inst, w),
+            .mov_mem_index_imm => try print.mirArithMemIndexImm(.mov, inst, w),
+
             .movabs => try print.mirMovabs(inst, w),
 
             .lea => try print.mirLea(inst, w),
@@ -316,11 +327,11 @@ fn mirArithScaleDst(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index
 
     if (ops.reg2 == .none) {
         // OP [reg1 + scale*rax + 0], imm32
-        try w.print("{s} [{s} + {d}*rcx + 0], {d}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm });
+        try w.print("{s} [{s} + {d}*rax + 0], {d}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm });
     }
 
     // OP [reg1 + scale*rax + imm32], reg2
-    try w.print("{s} [{s} + {d}*rcx + {d}], {s}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm, @tagName(ops.reg2) });
+    try w.print("{s} [{s} + {d}*rax + {d}], {s}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm, @tagName(ops.reg2) });
 }
 
 fn mirArithScaleImm(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
@@ -328,7 +339,21 @@ fn mirArithScaleImm(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index
     const scale = ops.flags;
     const payload = print.mir.instructions.items(.data)[inst].payload;
     const imm_pair = print.mir.extraData(Mir.ImmPair, payload).data;
-    try w.print("{s} [{s} + {d}*rcx + {d}], {d}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm_pair.dest_off, imm_pair.operand });
+    try w.print("{s} [{s} + {d}*rax + {d}], {d}\n", .{ @tagName(tag), @tagName(ops.reg1), scale, imm_pair.dest_off, imm_pair.operand });
+}
+
+fn mirArithMemIndexImm(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
+    const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
+    const payload = print.mir.instructions.items(.data)[inst].payload;
+    const imm_pair = print.mir.extraData(Mir.ImmPair, payload).data;
+    try w.print("{s} ", .{@tagName(tag)});
+    switch (ops.flags) {
+        0b00 => try w.print("byte ptr ", .{}),
+        0b01 => try w.print("word ptr ", .{}),
+        0b10 => try w.print("dword ptr ", .{}),
+        0b11 => try w.print("qword ptr ", .{}),
+    }
+    try w.print("[{s} + 1*rax + {d}], {d}\n", .{ @tagName(ops.reg1), imm_pair.dest_off, imm_pair.operand });
 }
 
 fn mirMovabs(print: *const Print, inst: Mir.Inst.Index, w: anytype) !void {

@@ -3148,7 +3148,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 2 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaa }),
                 4 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
                 8 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
-                else => return self.fail("TODO implement memset", .{}),
+                else => return self.genInlineMemset(ty, stack_offset, .{ .immediate = 0xaa }),
             }
         },
         .compare_flags_unsigned => |op| {
@@ -3383,6 +3383,97 @@ fn genInlineMemcpy(
         .tag = .sub,
         .ops = (Mir.Ops{
             .reg1 = count_reg,
+        }).encode(),
+        .data = .{ .imm = 1 },
+    });
+
+    // jmp loop
+    _ = try self.addInst(.{
+        .tag = .jmp,
+        .ops = (Mir.Ops{ .flags = 0b00 }).encode(),
+        .data = .{ .inst = loop_start },
+    });
+
+    // end:
+    try self.performReloc(loop_reloc);
+}
+
+fn genInlineMemset(self: *Self, ty: Type, stack_offset: u32, value: MCValue) InnerError!void {
+    try self.register_manager.getReg(.rax, null);
+    const abi_size = ty.abiSize(self.target.*);
+    const adj_off = stack_offset + abi_size;
+    if (adj_off > 128) {
+        return self.fail("TODO inline memset with large stack offset", .{});
+    }
+    const negative_offset = @bitCast(u32, -@intCast(i32, adj_off));
+
+    // We are actually counting `abi_size` bytes; however, we reuse the index register
+    // as both the counter and offset scaler, hence we need to subtract one from `abi_size`
+    // and count until -1.
+    if (abi_size > math.maxInt(i32)) {
+        // movabs rax, abi_size - 1
+        const payload = try self.addExtra(Mir.Imm64.encode(abi_size - 1));
+        _ = try self.addInst(.{
+            .tag = .movabs,
+            .ops = (Mir.Ops{
+                .reg1 = .rax,
+            }).encode(),
+            .data = .{ .payload = payload },
+        });
+    } else {
+        // mov rax, abi_size - 1
+        _ = try self.addInst(.{
+            .tag = .mov,
+            .ops = (Mir.Ops{
+                .reg1 = .rax,
+            }).encode(),
+            .data = .{ .imm = @truncate(u32, abi_size - 1) },
+        });
+    }
+
+    // loop:
+    // cmp rax, -1
+    const loop_start = try self.addInst(.{
+        .tag = .cmp,
+        .ops = (Mir.Ops{
+            .reg1 = .rax,
+        }).encode(),
+        .data = .{ .imm = @bitCast(u32, @as(i32, -1)) },
+    });
+
+    // je end
+    const loop_reloc = try self.addInst(.{
+        .tag = .cond_jmp_eq_ne,
+        .ops = (Mir.Ops{ .flags = 0b01 }).encode(),
+        .data = .{ .inst = undefined },
+    });
+
+    switch (value) {
+        .immediate => |x| {
+            if (x > math.maxInt(i32)) {
+                return self.fail("TODO inline memset for value immediate larger than 32bits", .{});
+            }
+            // mov byte ptr [rbp + rax + stack_offset], imm
+            const payload = try self.addExtra(Mir.ImmPair{
+                .dest_off = negative_offset,
+                .operand = @truncate(u32, x),
+            });
+            _ = try self.addInst(.{
+                .tag = .mov_mem_index_imm,
+                .ops = (Mir.Ops{
+                    .reg1 = .rbp,
+                }).encode(),
+                .data = .{ .payload = payload },
+            });
+        },
+        else => return self.fail("TODO inline memset for value of type {}", .{value}),
+    }
+
+    // sub rax, 1
+    _ = try self.addInst(.{
+        .tag = .sub,
+        .ops = (Mir.Ops{
+            .reg1 = .rax,
         }).encode(),
         .data = .{ .imm = 1 },
     });
@@ -3639,7 +3730,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
         const stack_offset = try self.allocMem(inst, 16, 16);
         const array_ty = ptr_ty.childType();
         const array_len = array_ty.arrayLenIncludingSentinel();
-        try self.genSetStack(Type.initTag(.usize), stack_offset + 8, ptr);
+        try self.genSetStack(ptr_ty, stack_offset + 8, ptr);
         try self.genSetStack(Type.initTag(.u64), stack_offset + 16, .{ .immediate = array_len });
         break :blk .{ .stack_offset = stack_offset };
     };
