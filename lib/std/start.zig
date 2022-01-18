@@ -22,7 +22,7 @@ comptime {
     // The self-hosted compiler is not fully capable of handling all of this start.zig file.
     // Until then, we have simplified logic here for self-hosted. TODO remove this once
     // self-hosted is capable enough to handle all of the real start.zig logic.
-    if (builtin.zig_is_stage2) {
+    if (builtin.zig_backend != .stage1) {
         if (builtin.output_mode == .Exe) {
             if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
                 if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {

@@ -213,7 +213,7 @@ test "packed struct field alignment" {
             b: u32 align(1),
         } = undefined;
     };
-    const S = if (builtin.zig_is_stage2) Stage2 else Stage1;
+    const S = if (builtin.zig_backend != .stage1) Stage2 else Stage1;
     try expect(@TypeOf(&S.baz.b) == *align(1) u32);
 }
 

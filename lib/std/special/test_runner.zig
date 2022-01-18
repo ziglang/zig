@@ -23,7 +23,7 @@ fn processArgs() void {
 }
 
 pub fn main() void {
-    if (builtin.zig_is_stage2) {
+    if (builtin.zig_backend != .stage1) {
         return main2() catch @panic("test failure");
     }
     processArgs();

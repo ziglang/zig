@@ -4973,7 +4973,7 @@ pub fn toPosixPath(file_path: []const u8) ![MAX_PATH_BYTES - 1:0]u8 {
 /// Until then, unexpected error tracing is disabled for the self-hosted compiler.
 /// TODO remove this once self-hosted is capable enough to handle printing and
 /// stack trace dumping.
-pub const unexpected_error_tracing = !builtin.zig_is_stage2 and builtin.mode == .Debug;
+pub const unexpected_error_tracing = builtin.zig_backend == .stage1 and builtin.mode == .Debug;
 
 pub const UnexpectedError = error{
     /// The Operating System returned an undocumented error code.

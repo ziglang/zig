@@ -23,7 +23,7 @@ const long_double_is_f128 = builtin.target.longDoubleIsF128();
 
 comptime {
     // These files do their own comptime exporting logic.
-    if (!builtin.zig_is_stage2) {
+    if (builtin.zig_backend == .stage1) {
         _ = @import("compiler_rt/atomics.zig");
     }
     _ = @import("compiler_rt/clear_cache.zig").clear_cache;
@@ -186,7 +186,7 @@ comptime {
         //@export(__trunctfxf2, .{ .name = "__trunctfxf2", .linkage = linkage });
     }
 
-    if (!builtin.zig_is_stage2) {
+    if (builtin.zig_backend == .stage1) {
         switch (arch) {
             .i386,
             .x86_64,
@@ -301,7 +301,7 @@ comptime {
 
     const __floatunsisf = @import("compiler_rt/floatunsisf.zig").__floatunsisf;
     @export(__floatunsisf, .{ .name = "__floatunsisf", .linkage = linkage });
-    if (!builtin.zig_is_stage2) {
+    if (builtin.zig_backend == .stage1) {
         const __floatundisf = @import("compiler_rt/floatundisf.zig").__floatundisf;
         @export(__floatundisf, .{ .name = "__floatundisf", .linkage = linkage });
     }
@@ -752,7 +752,7 @@ fn floorl(x: c_longdouble) callconv(.C) c_longdouble {
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
     _ = error_return_trace;
     @setCold(true);
-    if (builtin.zig_is_stage2) {
+    if (builtin.zig_backend != .stage1) {
         while (true) {
             @breakpoint();
         }

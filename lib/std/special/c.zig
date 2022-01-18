@@ -12,7 +12,7 @@ comptime {
     // When the self-hosted compiler is further along, all the logic from c_stage1.zig will
     // be migrated to this file and then c_stage1.zig will be deleted. Until then we have a
     // simpler implementation of c.zig that only uses features already implemented in self-hosted.
-    if (builtin.zig_is_stage2) {
+    if (builtin.zig_backend != .stage1) {
         @export(memset, .{ .name = "memset", .linkage = .Strong });
         @export(memcpy, .{ .name = "memcpy", .linkage = .Strong });
     } else {
@@ -25,7 +25,7 @@ comptime {
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
     @setCold(true);
     _ = error_return_trace;
-    if (builtin.zig_is_stage2) {
+    if (builtin.zig_backend != .stage1) {
         while (true) {
             @breakpoint();
         }

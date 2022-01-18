@@ -111,7 +111,7 @@ test "array with sentinels" {
 
     const S = struct {
         fn doTheTest(is_ct: bool) !void {
-            if (is_ct or builtin.zig_is_stage2) {
+            if (is_ct or builtin.zig_backend != .stage1) {
                 var zero_sized: [0:0xde]u8 = [_:0xde]u8{};
                 // Stage1 test coverage disabled at runtime because of
                 // https://github.com/ziglang/zig/issues/4372

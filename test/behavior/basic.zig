@@ -180,7 +180,7 @@ const OpaqueB = opaque {};
 
 test "opaque types" {
     try expect(*OpaqueA != *OpaqueB);
-    if (!builtin.zig_is_stage2) {
+    if (builtin.zig_backend == .stage1) { // TODO make this pass for stage2
         try expect(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
         try expect(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
     }

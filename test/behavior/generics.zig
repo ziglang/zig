@@ -19,7 +19,7 @@ fn checkSize(comptime T: type) usize {
 test "simple generic fn" {
     try expect(max(i32, 3, -1) == 3);
     try expect(max(u8, 1, 100) == 100);
-    if (!builtin.zig_is_stage2) {
+    if (builtin.zig_backend == .stage1) {
         // TODO: stage2 is incorrectly emitting the following:
         // error: cast of value 1.23e-01 to type 'f32' loses information
         try expect(max(f32, 0.123, 0.456) == 0.456);

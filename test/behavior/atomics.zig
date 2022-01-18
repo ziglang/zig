@@ -88,7 +88,7 @@ test "128-bit cmpxchg" {
 }
 
 fn test_u128_cmpxchg() !void {
-    if (builtin.zig_is_stage2) {
+    if (builtin.zig_backend != .stage1) {
         if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
         if (!builtin.stage2_x86_cx16) return error.SkipZigTest;
     } else {
