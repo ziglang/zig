@@ -74,6 +74,12 @@
 #define zig_frame_address() 0
 #endif
 
+#if defined(__GNUC__)
+#define zig_prefetch(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
+#else
+#define zig_prefetch(addr, rw, locality)
+#endif
+
 #if __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)
 #include <stdatomic.h>
 #define zig_cmpxchg_strong(obj, expected, desired, succ, fail) atomic_compare_exchange_strong_explicit(obj, &(expected), desired, succ, fail)

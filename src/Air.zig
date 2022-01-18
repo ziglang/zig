@@ -515,6 +515,11 @@ pub const Inst = struct {
         /// is a `Ref`. Length of the array is given by the vector type.
         vector_init,
 
+        /// Communicates an intent to load memory.
+        /// Result is always unused.
+        /// Uses the `prefetch` field.
+        prefetch,
+
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
                 .lt => .cmp_lt,
@@ -585,6 +590,12 @@ pub const Inst = struct {
         atomic_load: struct {
             ptr: Ref,
             order: std.builtin.AtomicOrder,
+        },
+        prefetch: struct {
+            ptr: Ref,
+            rw: std.builtin.PrefetchOptions.Rw,
+            locality: u2,
+            cache: std.builtin.PrefetchOptions.Cache,
         },
 
         // Make sure we don't accidentally add a field to make this union
@@ -823,6 +834,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .memset,
         .memcpy,
         .set_union_tag,
+        .prefetch,
         => return Type.initTag(.void),
 
         .ptrtoint,
