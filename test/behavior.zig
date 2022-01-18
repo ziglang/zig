@@ -191,7 +191,6 @@ test {
                     _ = @import("behavior/struct_stage1.zig");
                     _ = @import("behavior/switch_prong_err_enum.zig");
                     _ = @import("behavior/switch_prong_implicit_cast.zig");
-                    _ = @import("behavior/switch_stage1.zig");
                     _ = @import("behavior/truncate_stage1.zig");
                     _ = @import("behavior/tuple.zig");
                     _ = @import("behavior/type_stage1.zig");
