@@ -1320,7 +1320,7 @@ const Memory = struct {
                     encoder.disp32(@bitCast(i32, mem_op.disp));
                 }
             } else {
-                if (mem_op.disp == 0) {
+                if (mem_op.disp == 0 and dst != 5) {
                     encoder.modRm_indirectDisp0(src, dst);
                 } else if (immOpSize(mem_op.disp) == 8) {
                     encoder.modRm_indirectDisp8(src, dst);

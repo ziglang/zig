@@ -877,10 +877,26 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     if (info_a.signedness != info_b.signedness)
         return self.fail("TODO gen intcast sign safety in semantic analysis", .{});
 
-    if (info_a.bits == info_b.bits)
-        return self.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
+    const operand_abi_size = operand_ty.abiSize(self.target.*);
+    const dest_ty = self.air.typeOfIndex(inst);
+    const dest_abi_size = dest_ty.abiSize(self.target.*);
+    const dst_mcv: MCValue = blk: {
+        if (info_a.bits == info_b.bits) {
+            break :blk operand;
+        }
+        if (operand_abi_size > 8 or dest_abi_size > 8) {
+            return self.fail("TODO implement intCast for abi sizes larger than 8", .{});
+        }
+        const reg = switch (operand) {
+            .register => |src_reg| try self.register_manager.allocReg(inst, &.{src_reg}),
+            else => try self.register_manager.allocReg(inst, &.{}),
+        };
+        try self.genSetReg(dest_ty, reg, .{ .immediate = 0 });
+        try self.genSetReg(dest_ty, reg, operand);
+        break :blk .{ .register = registerAlias(reg, @intCast(u32, dest_abi_size)) };
+    };
 
-    return self.fail("TODO implement intCast for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
 fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {

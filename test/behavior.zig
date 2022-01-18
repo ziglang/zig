@@ -18,6 +18,7 @@ test {
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/align.zig");
     _ = @import("behavior/array.zig");
+    _ = @import("behavior/cast.zig");
 
     if (builtin.zig_backend != .stage2_arm and builtin.zig_backend != .stage2_x86_64) {
         // Tests that pass for stage1, llvm backend, C backend, wasm backend.
@@ -36,7 +37,6 @@ test {
         _ = @import("behavior/bugs/4954.zig");
         _ = @import("behavior/byval_arg_var.zig");
         _ = @import("behavior/call.zig");
-        _ = @import("behavior/cast.zig");
         _ = @import("behavior/defer.zig");
         _ = @import("behavior/enum.zig");
         _ = @import("behavior/error.zig");
