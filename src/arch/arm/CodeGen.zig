@@ -795,11 +795,7 @@ fn spillCompareFlagsIfOccupied(self: *Self) !void {
         assert(mcv == .compare_flags_signed or mcv == .compare_flags_unsigned);
 
         const new_mcv = try self.allocRegOrMem(inst_to_save, true);
-        switch (new_mcv) {
-            .register => |reg| try self.genSetReg(self.air.typeOfIndex(inst_to_save), reg, mcv),
-            .stack_offset => |offset| try self.genSetStack(self.air.typeOfIndex(inst_to_save), offset, mcv),
-            else => unreachable,
-        }
+        try self.setRegOrMem(self.air.typeOfIndex(inst_to_save), new_mcv, mcv);
         log.debug("spilling {d} to mcv {any}", .{ inst_to_save, new_mcv });
 
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -1172,8 +1168,13 @@ fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(ty_op.operand);
         switch (mcv) {
+            .dead, .unreach => unreachable,
+            .register => unreachable, // a slice doesn't fit in one register
             .stack_offset => |off| {
                 break :result MCValue{ .stack_offset = off };
+            },
+            .memory => |addr| {
+                break :result MCValue{ .memory = addr };
             },
             else => return self.fail("TODO implement slice_ptr for {}", .{mcv}),
         }
@@ -1186,8 +1187,13 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(ty_op.operand);
         switch (mcv) {
+            .dead, .unreach => unreachable,
+            .register => unreachable, // a slice doesn't fit in one register
             .stack_offset => |off| {
                 break :result MCValue{ .stack_offset = off + 4 };
+            },
+            .memory => |addr| {
+                break :result MCValue{ .memory = addr + 4 };
             },
             else => return self.fail("TODO implement slice_len for {}", .{mcv}),
         }
@@ -1197,13 +1203,33 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement ptr_slice_len_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(ty_op.operand);
+        switch (mcv) {
+            .dead, .unreach => unreachable,
+            .register => unreachable, // a slice doesn't fit in one register
+            .ptr_stack_offset => |off| {
+                break :result MCValue{ .ptr_stack_offset = off + 4 };
+            },
+            else => return self.fail("TODO implement ptr_slice_len_ptr for {}", .{mcv}),
+        }
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement ptr_slice_ptr_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(ty_op.operand);
+        switch (mcv) {
+            .dead, .unreach => unreachable,
+            .register => unreachable, // a slice doesn't fit in one register
+            .ptr_stack_offset => |off| {
+                break :result MCValue{ .ptr_stack_offset = off };
+            },
+            else => return self.fail("TODO implement ptr_slice_ptr_ptr for {}", .{mcv}),
+        }
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
