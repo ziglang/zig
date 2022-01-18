@@ -31,6 +31,10 @@ next: ?*Atom,
 /// is null when this atom is the first in its order
 prev: ?*Atom,
 
+/// Contains atoms local to a decl, all managed by this `Atom`.
+/// When the parent atom is being freed, it will also do so for all local atoms.
+locals: std.ArrayListUnmanaged(Atom) = .{},
+
 /// Represents a default empty wasm `Atom`
 pub const empty: Atom = .{
     .alignment = 0,
@@ -45,6 +49,11 @@ pub const empty: Atom = .{
 pub fn deinit(self: *Atom, gpa: Allocator) void {
     self.relocs.deinit(gpa);
     self.code.deinit(gpa);
+
+    while (self.locals.popOrNull()) |*local| {
+        local.deinit(gpa);
+    }
+    self.locals.deinit(gpa);
 }
 
 /// Sets the length of relocations and code to '0',
@@ -70,6 +79,15 @@ pub fn getFirst(self: *Atom) *Atom {
     var tmp = self;
     while (tmp.prev) |prev| tmp = prev;
     return tmp;
+}
+
+/// Returns the atom for the given `symbol_index`.
+/// This can be either the `Atom` itself, or one of its locals.
+pub fn symbolAtom(self: *Atom, symbol_index: u32) *Atom {
+    if (self.sym_index == symbol_index) return self;
+    return for (self.locals.items) |*local_atom| {
+        if (local_atom.sym_index == symbol_index) break local_atom;
+    } else unreachable; // Used a symbol index not present in this atom or its children.
 }
 
 /// Resolves the relocations within the atom, writing the new value

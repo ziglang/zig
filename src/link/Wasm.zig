@@ -234,12 +234,12 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
         .locals = .{},
         .target = self.base.options.target,
         .bin_file = self,
-        .global_error_set = self.base.options.module.?.global_error_set,
+        .module = module,
     };
     defer codegen.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = codegen.genFunc() catch |err| switch (err) {
+    codegen.genFunc() catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
@@ -247,7 +247,7 @@ pub fn updateFunc(self: *Wasm, module: *Module, func: *Module.Fn, air: Air, live
         },
         else => |e| return e,
     };
-    return self.finishUpdateDecl(decl, result, &codegen);
+    return self.finishUpdateDecl(decl, codegen.code.items);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
@@ -264,40 +264,37 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 
     decl.link.wasm.clear();
 
-    var codegen: CodeGen = .{
+    var code_writer = std.ArrayList(u8).init(self.base.allocator);
+    defer code_writer.deinit();
+    var decl_gen: CodeGen.DeclGen = .{
         .gpa = self.base.allocator,
-        .air = undefined,
-        .liveness = undefined,
-        .values = .{},
-        .code = std.ArrayList(u8).init(self.base.allocator),
         .decl = decl,
-        .err_msg = undefined,
-        .locals = .{},
-        .target = self.base.options.target,
+        .symbol_index = decl.link.wasm.sym_index,
         .bin_file = self,
-        .global_error_set = self.base.options.module.?.global_error_set,
+        .err_msg = undefined,
+        .code = &code_writer,
+        .module = module,
     };
-    defer codegen.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = codegen.genDecl() catch |err| switch (err) {
+    const result = decl_gen.genDecl() catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl, codegen.err_msg);
+            try module.failed_decls.put(module.gpa, decl, decl_gen.err_msg);
             return;
         },
         else => |e| return e,
     };
 
-    return self.finishUpdateDecl(decl, result, &codegen);
-}
-
-fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, codegen: *CodeGen) !void {
-    const code: []const u8 = switch (result) {
-        .appended => @as([]const u8, codegen.code.items),
-        .externally_managed => |payload| payload,
+    const code = switch (result) {
+        .externally_managed => |data| data,
+        .appended => code_writer.items,
     };
 
+    return self.finishUpdateDecl(decl, code);
+}
+
+fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
     if (decl.isExtern()) {
         try self.addOrUpdateImport(decl);
         return;
@@ -313,7 +310,7 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, result: CodeGen.Result, cod
 
 /// Creates a new local symbol for a given type (and its bytes it's represented by)
 /// and then append it as a 'contained' atom onto the Decl.
-pub fn createLocalSymbol(self: *Wasm, decl: *Module.Decl, ty: Type, code: []const u8) !u32 {
+pub fn createLocalSymbol(self: *Wasm, decl: *Module.Decl, ty: Type) !u32 {
     assert(ty.zigTypeTag() != .Fn); // cannot create local symbols for functions
     var symbol: Symbol = .{
         .name = "unnamed_local",
@@ -325,9 +322,7 @@ pub fn createLocalSymbol(self: *Wasm, decl: *Module.Decl, ty: Type, code: []cons
     symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
 
     var atom = Atom.empty;
-    atom.size = @intCast(u32, code.len);
     atom.alignment = ty.abiAlignment(self.base.options.target);
-    try atom.code.appendSlice(self.base.allocator, code);
 
     if (self.symbols_free_list.popOrNull()) |index| {
         atom.sym_index = index;
@@ -339,6 +334,41 @@ pub fn createLocalSymbol(self: *Wasm, decl: *Module.Decl, ty: Type, code: []cons
 
     try decl.link.wasm.locals.append(self.base.allocator, atom);
     return atom.sym_index;
+}
+
+pub fn updateLocalSymbolCode(self: *Wasm, decl: *Module.Decl, symbol_index: u32, code: []const u8) !void {
+    const atom = decl.link.wasm.symbolAtom(symbol_index);
+    atom.size = @intCast(u32, code.len);
+    try atom.code.appendSlice(self.base.allocator, code);
+}
+
+/// For a given decl, find the given symbol index's atom, and create a relocation for the type.
+/// Returns the given pointer address
+pub fn getDeclVAddr(self: *Wasm, decl: *Module.Decl, ty: Type, symbol_index: u32, target_symbol_index: u32, offset: u32) !u32 {
+    const atom = decl.link.wasm.symbolAtom(symbol_index);
+    const is_wasm32 = self.base.options.target.cpu.arch == .wasm32;
+    if (ty.zigTypeTag() == .Fn) {
+        // We found a function pointer, so add it to our table,
+        // as function pointers are not allowed to be stored inside the data section.
+        // They are instead stored in a function table which are called by index.
+        try self.addTableFunction(target_symbol_index);
+        try atom.relocs.append(self.base.allocator, .{
+            .index = target_symbol_index,
+            .offset = offset,
+            .relocation_type = if (is_wasm32) .R_WASM_TABLE_INDEX_I32 else .R_WASM_TABLE_INDEX_I64,
+        });
+    } else {
+        try atom.relocs.append(self.base.allocator, .{
+            .index = target_symbol_index,
+            .offset = offset,
+            .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_I32 else .R_WASM_MEMORY_ADDR_I64,
+        });
+    }
+    // we do not know the final address at this point,
+    // as atom allocation will determine the address and relocations
+    // will calculate and rewrite this. Therefore, we simply return the symbol index
+    // that was targeted.
+    return target_symbol_index;
 }
 
 pub fn updateDeclExports(
