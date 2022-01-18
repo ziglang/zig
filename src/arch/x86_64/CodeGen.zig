@@ -1329,59 +1329,49 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn elemOffset(self: *Self, index_ty: Type, index: MCValue, elem_size: u64) !Register {
+    const reg = try self.register_manager.allocReg(null, &.{});
+    try self.genSetReg(index_ty, reg, index);
+    try self.genIMulOpMir(index_ty, .{ .register = reg }, .{ .immediate = elem_size });
+    return reg;
+}
+
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const is_volatile = false; // TODO
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else result: {
         const slice_mcv = try self.resolveInst(bin_op.lhs);
         const slice_ty = self.air.typeOf(bin_op.lhs);
-
         const elem_ty = slice_ty.childType();
         const elem_size = elem_ty.abiSize(self.target.*);
-
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf);
-
-        const offset_reg = blk: {
-            const index_ty = self.air.typeOf(bin_op.rhs);
-            const index_mcv = try self.resolveInst(bin_op.rhs);
-            const offset_reg = try self.register_manager.allocReg(null, &.{});
-            try self.genSetReg(index_ty, offset_reg, index_mcv);
-            try self.genIMulOpMir(index_ty, .{ .register = offset_reg }, .{ .immediate = elem_size });
-            break :blk offset_reg;
-        };
-
-        const dst_mcv = blk: {
-            switch (slice_mcv) {
-                .stack_offset => |off| {
-                    const dst_mcv = try self.allocRegOrMem(inst, false);
-                    const addr_reg = try self.register_manager.allocReg(null, &.{offset_reg});
-                    // mov reg, [rbp - 8]
-                    _ = try self.addInst(.{
-                        .tag = .mov,
-                        .ops = (Mir.Ops{
-                            .reg1 = addr_reg.to64(),
-                            .reg2 = .rbp,
-                            .flags = 0b01,
-                        }).encode(),
-                        .data = .{ .imm = @bitCast(u32, -@intCast(i32, off + 16)) },
-                    });
-                    // add addr, offset
-                    _ = try self.addInst(.{
-                        .tag = .add,
-                        .ops = (Mir.Ops{
-                            .reg1 = addr_reg.to64(),
-                            .reg2 = offset_reg.to64(),
-                        }).encode(),
-                        .data = undefined,
-                    });
-                    try self.load(dst_mcv, .{ .register = addr_reg }, slice_ptr_field_type);
-                    break :blk dst_mcv;
-                },
-                else => return self.fail("TODO implement slice_elem_val when slice is {}", .{slice_mcv}),
-            }
-        };
-
+        const index_ty = self.air.typeOf(bin_op.rhs);
+        const index_mcv = try self.resolveInst(bin_op.rhs);
+        const offset_reg = try self.elemOffset(index_ty, index_mcv, elem_size);
+        const addr_reg = try self.register_manager.allocReg(null, &.{offset_reg});
+        switch (slice_mcv) {
+            .stack_offset => |off| {
+                // mov reg, [rbp - 8]
+                _ = try self.addInst(.{
+                    .tag = .mov,
+                    .ops = (Mir.Ops{
+                        .reg1 = addr_reg.to64(),
+                        .reg2 = .rbp,
+                        .flags = 0b01,
+                    }).encode(),
+                    .data = .{ .imm = @bitCast(u32, -@intCast(i32, off + 16)) },
+                });
+            },
+            else => return self.fail("TODO implement slice_elem_val when slice is {}", .{slice_mcv}),
+        }
+        // TODO we could allocate register here, but need to except addr register and potentially
+        // offset register.
+        const dst_mcv = try self.allocRegOrMem(inst, false);
+        try self.genBinMathOpMir(.add, slice_ptr_field_type, .unsigned, .{ .register = addr_reg.to64() }, .{
+            .register = offset_reg.to64(),
+        });
+        try self.load(dst_mcv, .{ .register = addr_reg.to64() }, slice_ptr_field_type);
         break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -1399,10 +1389,43 @@ fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement array_elem_val for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const array_ty = self.air.typeOf(bin_op.lhs);
+        const array = try self.resolveInst(bin_op.lhs);
+        const array_abi_size = array_ty.abiSize(self.target.*);
+        const elem_ty = array_ty.childType();
+        const elem_abi_size = elem_ty.abiSize(self.target.*);
+        const index_ty = self.air.typeOf(bin_op.rhs);
+        const index = try self.resolveInst(bin_op.rhs);
+        const offset_reg = try self.elemOffset(index_ty, index, elem_abi_size);
+        const addr_reg = try self.register_manager.allocReg(null, &.{offset_reg});
+        switch (array) {
+            .stack_offset => |off| {
+                // lea reg, [rbp]
+                _ = try self.addInst(.{
+                    .tag = .lea,
+                    .ops = (Mir.Ops{
+                        .reg1 = addr_reg.to64(),
+                        .reg2 = .rbp,
+                    }).encode(),
+                    .data = .{ .imm = @bitCast(u32, -@intCast(i32, off + array_abi_size)) },
+                });
+            },
+            else => return self.fail("TODO implement array_elem_val when array is {}", .{array}),
+        }
+        // TODO we could allocate register here, but need to except addr register and potentially
+        // offset register.
+        const dst_mcv = try self.allocRegOrMem(inst, false);
+        try self.genBinMathOpMir(
+            .add,
+            array_ty,
+            .unsigned,
+            .{ .register = addr_reg.to64() },
+            .{ .register = offset_reg.to64() },
+        );
+        try self.load(dst_mcv, .{ .register = addr_reg.to64() }, array_ty);
+        break :result dst_mcv;
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1419,10 +1442,27 @@ fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
 fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement ptr_elem_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr_ty = self.air.typeOf(extra.lhs);
+        const ptr = try self.resolveInst(extra.lhs);
+        const elem_ty = ptr_ty.elemType2();
+        const elem_abi_size = elem_ty.abiSize(self.target.*);
+        const index_ty = self.air.typeOf(extra.rhs);
+        const index = try self.resolveInst(extra.rhs);
+        const offset_reg = try self.elemOffset(index_ty, index, elem_abi_size);
+        const dst_mcv = blk: {
+            switch (ptr) {
+                .ptr_stack_offset => {
+                    const reg = try self.register_manager.allocReg(inst, &.{offset_reg});
+                    try self.genSetReg(ptr_ty, reg, ptr);
+                    break :blk .{ .register = reg };
+                },
+                else => return self.fail("TODO implement ptr_elem_ptr when ptr is {}", .{ptr}),
+            }
+        };
+        try self.genBinMathOpMir(.add, ptr_ty, .unsigned, dst_mcv, .{ .register = offset_reg });
+        break :result dst_mcv;
+    };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
@@ -3742,12 +3782,12 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const ptr_ty = self.air.typeOf(ty_op.operand);
     const ptr = try self.resolveInst(ty_op.operand);
+    const array_ty = ptr_ty.childType();
+    const array_len = array_ty.arrayLenIncludingSentinel();
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else blk: {
         const stack_offset = try self.allocMem(inst, 16, 16);
-        const array_ty = ptr_ty.childType();
-        const array_len = array_ty.arrayLenIncludingSentinel();
         try self.genSetStack(ptr_ty, stack_offset + 8, ptr);
-        try self.genSetStack(Type.initTag(.u64), stack_offset + 16, .{ .immediate = array_len });
+        try self.genSetStack(Type.initTag(.u64), stack_offset, .{ .immediate = array_len });
         break :blk .{ .stack_offset = stack_offset };
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
