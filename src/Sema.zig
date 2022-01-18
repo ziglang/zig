@@ -10316,50 +10316,46 @@ fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const obj_ty = try sema.resolveType(block, src, inst_data.operand);
+    const gpa = sema.gpa;
 
     switch (obj_ty.zigTypeTag()) {
-        .Struct => return structInitEmpty(sema, block, obj_ty, src, src),
-        .Array => return arrayInitEmpty(sema, obj_ty),
+        .Struct => {
+            // This logic must be synchronized with that in `zirStructInit`.
+            const struct_ty = try sema.resolveTypeFields(block, src, obj_ty);
+            const struct_obj = struct_ty.castTag(.@"struct").?.data;
+
+            // The init values to use for the struct instance.
+            const field_inits = try gpa.alloc(Air.Inst.Ref, struct_obj.fields.count());
+            defer gpa.free(field_inits);
+
+            var root_msg: ?*Module.ErrorMsg = null;
+
+            for (struct_obj.fields.values()) |field, i| {
+                if (field.default_val.tag() == .unreachable_value) {
+                    const field_name = struct_obj.fields.keys()[i];
+                    const template = "missing struct field: {s}";
+                    const args = .{field_name};
+                    if (root_msg) |msg| {
+                        try sema.errNote(block, src, msg, template, args);
+                    } else {
+                        root_msg = try sema.errMsg(block, src, template, args);
+                    }
+                } else {
+                    field_inits[i] = try sema.addConstant(field.ty, field.default_val);
+                }
+            }
+            return sema.finishStructInit(block, src, field_inits, root_msg, struct_obj, struct_ty, false);
+        },
+        .Array => {
+            if (obj_ty.sentinel()) |sentinel| {
+                const val = try Value.Tag.empty_array_sentinel.create(sema.arena, sentinel);
+                return sema.addConstant(obj_ty, val);
+            } else {
+                return sema.addConstant(obj_ty, Value.initTag(.empty_array));
+            }
+        },
         .Void => return sema.addConstant(obj_ty, Value.void),
         else => unreachable,
-    }
-}
-
-fn structInitEmpty(sema: *Sema, block: *Block, obj_ty: Type, dest_src: LazySrcLoc, init_src: LazySrcLoc) CompileError!Air.Inst.Ref {
-    const gpa = sema.gpa;
-    // This logic must be synchronized with that in `zirStructInit`.
-    const struct_ty = try sema.resolveTypeFields(block, dest_src, obj_ty);
-    const struct_obj = struct_ty.castTag(.@"struct").?.data;
-
-    // The init values to use for the struct instance.
-    const field_inits = try gpa.alloc(Air.Inst.Ref, struct_obj.fields.count());
-    defer gpa.free(field_inits);
-
-    var root_msg: ?*Module.ErrorMsg = null;
-
-    for (struct_obj.fields.values()) |field, i| {
-        if (field.default_val.tag() == .unreachable_value) {
-            const field_name = struct_obj.fields.keys()[i];
-            const template = "missing struct field: {s}";
-            const args = .{field_name};
-            if (root_msg) |msg| {
-                try sema.errNote(block, init_src, msg, template, args);
-            } else {
-                root_msg = try sema.errMsg(block, init_src, template, args);
-            }
-        } else {
-            field_inits[i] = try sema.addConstant(field.ty, field.default_val);
-        }
-    }
-    return sema.finishStructInit(block, dest_src, field_inits, root_msg, struct_obj, struct_ty, false);
-}
-
-fn arrayInitEmpty(sema: *Sema, obj_ty: Type) CompileError!Air.Inst.Ref {
-    if (obj_ty.sentinel()) |sentinel| {
-        const val = try Value.Tag.empty_array_sentinel.create(sema.arena, sentinel);
-        return sema.addConstant(obj_ty, val);
-    } else {
-        return sema.addConstant(obj_ty, Value.initTag(.empty_array));
     }
 }
 
@@ -12330,38 +12326,8 @@ fn zirPrefetch(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-    const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
-    const opts_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
-    const options_ty = try sema.getBuiltinType(block, opts_src, "PrefetchOptions");
-    const ptr = sema.resolveInst(extra.lhs);
-    try sema.checkPtrType(block, ptr_src, sema.typeOf(ptr));
-    const options = try sema.coerce(block, options_ty, sema.resolveInst(extra.rhs), opts_src);
-
-    const rw = try sema.fieldVal(block, opts_src, options, "rw", opts_src);
-    const rw_val = try sema.resolveConstValue(block, opts_src, rw);
-    const rw_tag = rw_val.toEnum(std.builtin.PrefetchOptions.Rw);
-
-    const locality = try sema.fieldVal(block, opts_src, options, "locality", opts_src);
-    const locality_val = try sema.resolveConstValue(block, opts_src, locality);
-    const locality_int = @intCast(u2, locality_val.toUnsignedInt());
-
-    const cache = try sema.fieldVal(block, opts_src, options, "cache", opts_src);
-    const cache_val = try sema.resolveConstValue(block, opts_src, cache);
-    const cache_tag = cache_val.toEnum(std.builtin.PrefetchOptions.Cache);
-
-    if (!block.is_comptime) {
-        _ = try block.addInst(.{
-            .tag = .prefetch,
-            .data = .{ .prefetch = .{
-                .ptr = ptr,
-                .rw = rw_tag,
-                .locality = locality_int,
-                .cache = cache_tag,
-            } },
-        });
-    }
-
-    return Air.Inst.Ref.void_value;
+    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    return sema.fail(block, src, "TODO: implement Sema.zirPrefetch", .{});
 }
 
 fn zirBuiltinExtern(
@@ -13821,22 +13787,12 @@ fn coerce(
         },
         .Array => switch (inst_ty.zigTypeTag()) {
             .Vector => return sema.coerceVectorInMemory(block, dest_ty, dest_ty_src, inst, inst_src),
-            .Struct => {
-                if (inst == .empty_struct) {
-                    return arrayInitEmpty(sema, dest_ty);
-                }
-            },
             else => {},
         },
         .Vector => switch (inst_ty.zigTypeTag()) {
             .Array => return sema.coerceVectorInMemory(block, dest_ty, dest_ty_src, inst, inst_src),
             .Vector => return sema.coerceVectors(block, dest_ty, dest_ty_src, inst, inst_src),
             else => {},
-        },
-        .Struct => {
-            if (inst == .empty_struct) {
-                return structInitEmpty(sema, block, dest_ty, dest_ty_src, inst_src);
-            }
         },
         else => {},
     }

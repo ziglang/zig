@@ -2073,7 +2073,6 @@ pub const FuncGen = struct {
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
                 .vector_init    => try self.airVectorInit(inst),
-                .prefetch       => try self.airPrefetch(inst),
 
                 .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
                 .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
@@ -4383,67 +4382,6 @@ pub const FuncGen = struct {
             vector = self.builder.buildInsertElement(vector, llvm_elem, index_u32, "");
         }
         return vector;
-    }
-
-    fn airPrefetch(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
-        const prefetch = self.air.instructions.items(.data)[inst].prefetch;
-
-        comptime assert(@enumToInt(std.builtin.PrefetchOptions.Rw.read) == 0);
-        comptime assert(@enumToInt(std.builtin.PrefetchOptions.Rw.write) == 1);
-
-        // TODO these two asserts should be able to be comptime because the type is a u2
-        assert(prefetch.locality >= 0);
-        assert(prefetch.locality <= 3);
-
-        comptime assert(@enumToInt(std.builtin.PrefetchOptions.Cache.instruction) == 0);
-        comptime assert(@enumToInt(std.builtin.PrefetchOptions.Cache.data) == 1);
-
-        // LLVM fails during codegen of instruction cache prefetchs for these architectures.
-        // This is an LLVM bug as the prefetch intrinsic should be a noop if not supported
-        // by the target.
-        // To work around this, don't emit llvm.prefetch in this case.
-        // See https://bugs.llvm.org/show_bug.cgi?id=21037
-        const target = self.dg.module.getTarget();
-        switch (prefetch.cache) {
-            .instruction => switch (target.cpu.arch) {
-                .x86_64, .i386 => return null,
-                .arm, .armeb, .thumb, .thumbeb => {
-                    switch (prefetch.rw) {
-                        .write => return null,
-                        else => {},
-                    }
-                },
-                else => {},
-            },
-            .data => {},
-        }
-
-        const llvm_u8 = self.context.intType(8);
-        const llvm_ptr_u8 = llvm_u8.pointerType(0);
-        const llvm_u32 = self.context.intType(32);
-
-        const llvm_fn_name = "llvm.prefetch.p0i8";
-        const fn_val = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
-            // declare void @llvm.prefetch(i8*, i32, i32, i32)
-            const llvm_void = self.context.voidType();
-            const param_types = [_]*const llvm.Type{
-                llvm_ptr_u8, llvm_u32, llvm_u32, llvm_u32,
-            };
-            const fn_type = llvm.functionType(llvm_void, &param_types, param_types.len, .False);
-            break :blk self.dg.object.llvm_module.addFunction(llvm_fn_name, fn_type);
-        };
-
-        const ptr = try self.resolveInst(prefetch.ptr);
-        const ptr_u8 = self.builder.buildBitCast(ptr, llvm_ptr_u8, "");
-
-        const params = [_]*const llvm.Value{
-            ptr_u8,
-            llvm_u32.constInt(@enumToInt(prefetch.rw), .False),
-            llvm_u32.constInt(prefetch.locality, .False),
-            llvm_u32.constInt(@enumToInt(prefetch.cache), .False),
-        };
-        _ = self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");
-        return null;
     }
 
     fn getErrorNameTable(self: *FuncGen) !*const llvm.Value {

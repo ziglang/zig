@@ -1297,9 +1297,6 @@ fn copyLocal(self: *Self, value: WValue, ty: Type) InnerError!WValue {
 fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
     const air_tags = self.air.instructions.items(.tag);
     return switch (air_tags[inst]) {
-        .constant => unreachable,
-        .const_ty => unreachable,
-
         .add => self.airBinOp(inst, .add),
         .addwrap => self.airWrapBinOp(inst, .add),
         .sub => self.airBinOp(inst, .sub),
@@ -1333,6 +1330,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .bool_to_int => self.airBoolToInt(inst),
         .call => self.airCall(inst),
         .cond_br => self.airCondBr(inst),
+        .constant => unreachable,
         .dbg_stmt => WValue.none,
         .intcast => self.airIntcast(inst),
         .float_to_int => self.airFloatToInt(inst),
@@ -1360,9 +1358,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .ret => self.airRet(inst),
         .ret_ptr => self.airRetPtr(inst),
         .ret_load => self.airRetLoad(inst),
-        .splat => self.airSplat(inst),
-        .vector_init => self.airVectorInit(inst),
-        .prefetch => self.airPrefetch(inst),
 
         .slice => self.airSlice(inst),
         .slice_len => self.airSliceLen(inst),
@@ -1387,55 +1382,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .unwrap_errunion_err => self.airUnwrapErrUnionError(inst),
         .wrap_errunion_payload => self.airWrapErrUnionPayload(inst),
         .wrap_errunion_err => self.airWrapErrUnionErr(inst),
-
-        .add_sat,
-        .sub_sat,
-        .mul_sat,
-        .div_float,
-        .div_floor,
-        .div_exact,
-        .rem,
-        .mod,
-        .max,
-        .min,
-        .assembly,
-        .shl_exact,
-        .shl_sat,
-        .ret_addr,
-        .clz,
-        .ctz,
-        .popcount,
-        .is_err_ptr,
-        .is_non_err_ptr,
-        .fptrunc,
-        .fpext,
-        .unwrap_errunion_payload_ptr,
-        .unwrap_errunion_err_ptr,
-        .set_union_tag,
-        .get_union_tag,
-        .ptr_slice_len_ptr,
-        .ptr_slice_ptr_ptr,
-        .int_to_float,
-        .memcpy,
-        .cmpxchg_weak,
-        .cmpxchg_strong,
-        .fence,
-        .atomic_load,
-        .atomic_store_unordered,
-        .atomic_store_monotonic,
-        .atomic_store_release,
-        .atomic_store_seq_cst,
-        .atomic_rmw,
-        .tag_name,
-        .error_name,
-
-        // For these 4, probably best to wait until https://github.com/ziglang/zig/issues/10248
-        // is implemented in the frontend before implementing them here in the wasm backend.
-        .add_with_overflow,
-        .sub_with_overflow,
-        .mul_with_overflow,
-        .shl_with_overflow,
-        => |tag| self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
+        else => |tag| self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
     };
 }
 
@@ -3264,7 +3211,7 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     return result;
 }
 
-fn airSplat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+fn airSplat(self: *Self, inst: Air.Inst.Index) !void {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -3275,7 +3222,7 @@ fn airSplat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     return self.fail("TODO: Implement wasm airSplat", .{});
 }
 
-fn airVectorInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+fn airVectorInit(self: *Self, inst: Air.Inst.Index) !void {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
     const vector_ty = self.air.typeOfIndex(inst);
@@ -3285,12 +3232,6 @@ fn airVectorInit(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     _ = elements;
     return self.fail("TODO: Wasm backend: implement airVectorInit", .{});
-}
-
-fn airPrefetch(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
-    const prefetch = self.air.instructions.items(.data)[inst].prefetch;
-    _ = prefetch;
-    return WValue{ .none = {} };
 }
 
 fn cmpOptionals(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {

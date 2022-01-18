@@ -226,7 +226,6 @@ const Writer = struct {
             .cmpxchg_weak, .cmpxchg_strong => try w.writeCmpxchg(s, inst),
             .fence => try w.writeFence(s, inst),
             .atomic_load => try w.writeAtomicLoad(s, inst),
-            .prefetch => try w.writePrefetch(s, inst),
             .atomic_store_unordered => try w.writeAtomicStore(s, inst, .Unordered),
             .atomic_store_monotonic => try w.writeAtomicStore(s, inst, .Monotonic),
             .atomic_store_release => try w.writeAtomicStore(s, inst, .Release),
@@ -349,15 +348,6 @@ const Writer = struct {
 
         try w.writeOperand(s, inst, 0, atomic_load.ptr);
         try s.print(", {s}", .{@tagName(atomic_load.order)});
-    }
-
-    fn writePrefetch(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const prefetch = w.air.instructions.items(.data)[inst].prefetch;
-
-        try w.writeOperand(s, inst, 0, prefetch.ptr);
-        try s.print(", {s}, {d}, {s}", .{
-            @tagName(prefetch.rw), prefetch.locality, @tagName(prefetch.cache),
-        });
     }
 
     fn writeAtomicStore(
