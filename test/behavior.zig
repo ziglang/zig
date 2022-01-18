@@ -16,11 +16,11 @@ test {
     _ = @import("behavior/type.zig");
     _ = @import("behavior/bugs/655.zig");
     _ = @import("behavior/bool.zig");
+    _ = @import("behavior/align.zig");
+    _ = @import("behavior/array.zig");
 
     if (builtin.zig_backend != .stage2_arm and builtin.zig_backend != .stage2_x86_64) {
         // Tests that pass for stage1, llvm backend, C backend, wasm backend.
-        _ = @import("behavior/align.zig");
-        _ = @import("behavior/array.zig");
         _ = @import("behavior/basic.zig");
         _ = @import("behavior/bitcast.zig");
         _ = @import("behavior/bugs/624.zig");
