@@ -512,9 +512,11 @@ fn gen(self: *Self) InnerError!void {
             });
         }
         while (self.stack_args_relocs.popOrNull()) |index| {
+            // TODO like above, gotta figure out the alignment shenanigans for macOS, etc.
+            const adjustment = if (self.target.isDarwin()) 2 * stack_adjustment else stack_adjustment;
             // +16 bytes to account for saved return address of the `call` instruction and
             // `push rbp`.
-            self.mir_instructions.items(.data)[index].imm += stack_adjustment + aligned_stack_end + 16;
+            self.mir_instructions.items(.data)[index].imm += adjustment + aligned_stack_end + 16;
         }
     } else {
         _ = try self.addInst(.{
