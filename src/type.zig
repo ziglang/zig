@@ -2094,8 +2094,7 @@ pub const Type = extern union {
             .const_slice,
             .mut_slice,
             => {
-                if (self.elemType().hasCodeGenBits()) return @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2;
-                return @divExact(target.cpu.arch.ptrBitWidth(), 8);
+                return @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2;
             },
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
@@ -2114,11 +2113,15 @@ pub const Type = extern union {
             .many_mut_pointer,
             .c_const_pointer,
             .c_mut_pointer,
-            .pointer,
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
+
+            .pointer => switch (self.castTag(.pointer).?.data.size) {
+                .Slice => @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2,
+                else => @divExact(target.cpu.arch.ptrBitWidth(), 8),
+            },
 
             .c_short => return @divExact(CType.short.sizeInBits(target), 8),
             .c_ushort => return @divExact(CType.ushort.sizeInBits(target), 8),
@@ -2276,13 +2279,8 @@ pub const Type = extern union {
 
             .const_slice,
             .mut_slice,
-            => {
-                if (ty.elemType().hasCodeGenBits()) {
-                    return target.cpu.arch.ptrBitWidth() * 2;
-                } else {
-                    return target.cpu.arch.ptrBitWidth();
-                }
-            },
+            => return target.cpu.arch.ptrBitWidth() * 2,
+
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
             => target.cpu.arch.ptrBitWidth() * 2,
@@ -2303,13 +2301,17 @@ pub const Type = extern union {
             .many_mut_pointer,
             .c_const_pointer,
             .c_mut_pointer,
-            .pointer,
             => {
                 if (ty.elemType().hasCodeGenBits()) {
                     return target.cpu.arch.ptrBitWidth();
                 } else {
                     return 0;
                 }
+            },
+
+            .pointer => switch (ty.castTag(.pointer).?.data.size) {
+                .Slice => target.cpu.arch.ptrBitWidth() * 2,
+                else => target.cpu.arch.ptrBitWidth(),
             },
 
             .manyptr_u8,
