@@ -1598,6 +1598,81 @@ static LLVMValueRef gen_assert_zero(CodeGen *g, LLVMValueRef expr_val, ZigType *
     return nullptr;
 }
 
+
+static LLVMValueRef gen_soft_f80_widen_or_shorten(CodeGen *g, ZigType *actual_type,
+        ZigType *wanted_type, LLVMValueRef expr_val)
+{
+    ZigType *scalar_actual_type = (actual_type->id == ZigTypeIdVector) ?
+        actual_type->data.vector.elem_type : actual_type;
+    ZigType *scalar_wanted_type = (wanted_type->id == ZigTypeIdVector) ?
+        wanted_type->data.vector.elem_type : wanted_type;
+    uint64_t actual_bits = scalar_actual_type->data.floating.bit_count;
+    uint64_t wanted_bits = scalar_wanted_type->data.floating.bit_count;
+
+
+    LLVMTypeRef param_type;
+    LLVMTypeRef return_type;
+    const char *func_name;
+
+    if (actual_bits == wanted_bits) {
+        return expr_val;
+    } else if (actual_bits == 80) {
+        param_type = g->builtin_types.entry_f80->llvm_type;
+        switch (wanted_bits) {
+            case 16:
+                return_type = g->builtin_types.entry_f16->llvm_type;
+                func_name = "__truncxfhf2";
+                break;
+            case 32:
+                return_type = g->builtin_types.entry_f32->llvm_type;
+                func_name = "__truncxfff2";
+                break;
+            case 64:
+                return_type = g->builtin_types.entry_f64->llvm_type;
+                func_name = "__truncxfdf2";
+                break;
+            case 128:
+                return_type = g->builtin_types.entry_f128->llvm_type;
+                func_name = "__extendxftf2";
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else if (wanted_bits == 80) {
+        return_type = g->builtin_types.entry_f80->llvm_type;
+        switch (actual_bits) {
+            case 16:
+                param_type = g->builtin_types.entry_f16->llvm_type;
+                func_name = "__extendhfxf2";
+                break;
+            case 32:
+                param_type = g->builtin_types.entry_f32->llvm_type;
+                func_name = "__extendffxf2";
+                break;
+            case 64:
+                param_type = g->builtin_types.entry_f64->llvm_type;
+                func_name = "__extenddfxf2";
+                break;
+            case 128:
+                param_type = g->builtin_types.entry_f128->llvm_type;
+                func_name = "__trunctfxf2";
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+
+    LLVMValueRef func_ref = LLVMGetNamedFunction(g->module, func_name);
+    if (func_ref == nullptr) {
+        LLVMTypeRef fn_type = LLVMFunctionType(return_type, &param_type, 1, false);
+        func_ref = LLVMAddFunction(g->module, func_name, fn_type);
+    }
+
+    return LLVMBuildCall(g->builder, func_ref, &expr_val, 1, "");
+}
+
 static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, ZigType *actual_type,
         ZigType *wanted_type, LLVMValueRef expr_val)
 {
@@ -1612,6 +1687,13 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
     uint64_t actual_bits;
     uint64_t wanted_bits;
     if (scalar_actual_type->id == ZigTypeIdFloat) {
+
+        if ((scalar_actual_type == g->builtin_types.entry_f80
+            || scalar_wanted_type == g->builtin_types.entry_f80)
+         && !target_has_f80(g->zig_target))
+        {
+            return gen_soft_f80_widen_or_shorten(g, actual_type, wanted_type, expr_val);
+        }
         actual_bits = scalar_actual_type->data.floating.bit_count;
         wanted_bits = scalar_wanted_type->data.floating.bit_count;
     } else if (scalar_actual_type->id == ZigTypeIdInt) {
@@ -3142,6 +3224,142 @@ static void gen_shift_rhs_check(CodeGen *g, ZigType *lhs_type, ZigType *rhs_type
     }
 }
 
+static LLVMValueRef get_soft_f80_bin_op_func(CodeGen *g, const char *name, int param_count, LLVMTypeRef return_type) {
+    LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, name);
+    if (existing_llvm_fn != nullptr) return existing_llvm_fn;
+
+    LLVMTypeRef float_type_ref = g->builtin_types.entry_f80->llvm_type;
+    LLVMTypeRef param_types[2] = { float_type_ref, float_type_ref };
+    LLVMTypeRef fn_type = LLVMFunctionType(return_type, param_types, param_count, false);
+    return LLVMAddFunction(g->module, name, fn_type);
+}
+
+static LLVMValueRef ir_render_soft_f80_bin_op(CodeGen *g, Stage1Air *executable,
+        Stage1AirInstBinOp *bin_op_instruction)
+{
+    // TODO support vectors
+    IrBinOp op_id = bin_op_instruction->op_id;
+    Stage1AirInst *op1 = bin_op_instruction->op1;
+    Stage1AirInst *op2 = bin_op_instruction->op2;
+
+    LLVMValueRef op1_value = ir_llvm_value(g, op1);
+    LLVMValueRef op2_value = ir_llvm_value(g, op2);
+
+    bool div_exact_safety_check = false;
+    LLVMTypeRef return_type = g->builtin_types.entry_f80->llvm_type;
+    int param_count = 2;
+    const char *func_name;
+    switch (op_id) {
+        case IrBinOpInvalid:
+        case IrBinOpArrayCat:
+        case IrBinOpArrayMult:
+        case IrBinOpRemUnspecified:
+        case IrBinOpBitShiftLeftLossy:
+        case IrBinOpBitShiftLeftExact:
+        case IrBinOpBitShiftRightLossy:
+        case IrBinOpBitShiftRightExact:
+        case IrBinOpBoolOr:
+        case IrBinOpBoolAnd:
+        case IrBinOpMultWrap:
+        case IrBinOpAddWrap:
+        case IrBinOpSubWrap:
+        case IrBinOpBinOr:
+        case IrBinOpBinXor:
+        case IrBinOpBinAnd:
+        case IrBinOpAddSat:
+        case IrBinOpSubSat:
+        case IrBinOpMultSat:
+        case IrBinOpShlSat:
+            zig_unreachable();
+        case IrBinOpCmpEq:
+            return_type = g->builtin_types.entry_i32->llvm_type;
+            func_name = "__eqxf2";
+            break;
+        case IrBinOpCmpNotEq:
+            return_type = g->builtin_types.entry_i32->llvm_type;
+            func_name = "__nexf2";
+            break;
+        case IrBinOpCmpLessOrEq:
+        case IrBinOpCmpLessThan:
+            return_type = g->builtin_types.entry_i32->llvm_type;
+            func_name = "__lexf2";
+            break;
+        case IrBinOpCmpGreaterOrEq:
+        case IrBinOpCmpGreaterThan:
+            return_type = g->builtin_types.entry_i32->llvm_type;
+            func_name = "__gexf2";
+            break;
+        case IrBinOpMaximum:
+            func_name = "__fmaxx";
+            break;
+        case IrBinOpMinimum:
+            func_name = "__fminx";
+            break;
+        case IrBinOpMult:
+            func_name = "__mulxf3";
+            break;
+        case IrBinOpAdd:
+            func_name = "__addxf3";
+            break;
+        case IrBinOpSub:
+            func_name = "__subxf3";
+            break;
+        case IrBinOpDivUnspecified:
+            func_name = "__divxf3";
+            break;
+        case IrBinOpDivExact:
+            func_name = "__divxf3";
+            div_exact_safety_check = bin_op_instruction->safety_check_on &&
+                ir_want_runtime_safety(g, &bin_op_instruction->base);
+            break;
+        case IrBinOpDivTrunc:
+            param_count = 1;
+            func_name = "__truncx";
+            break;
+        case IrBinOpDivFloor:
+            param_count = 1;
+            func_name = "__floorx";
+            break;
+        case IrBinOpRemRem:
+            param_count = 1;
+            func_name = "__remx";
+            break;
+        case IrBinOpRemMod:
+            param_count = 1;
+            func_name = "__modx";
+            break;
+        default:
+            zig_unreachable();
+    }
+
+    LLVMValueRef func_ref = get_soft_f80_bin_op_func(g, func_name, param_count, return_type);
+
+    LLVMValueRef params[2] = {op1_value, op2_value};
+    LLVMValueRef result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+
+    if (div_exact_safety_check) {
+        // Safety check: a / b == floor(a / b)
+        func_ref = get_soft_f80_bin_op_func(g, "__floorx", 1, return_type);
+        LLVMValueRef floored = LLVMBuildCall(g->builder, func_ref, &result, 1, "");
+
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactOk");
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactFail");
+
+        LLVMValueRef params[2] = {result, floored};
+        func_ref = get_soft_f80_bin_op_func(g, "__eqxf2", 2, g->builtin_types.entry_i32->llvm_type);
+        LLVMValueRef ok_bit = LLVMBuildCall(g->builder, func_ref, params, 2, "");
+
+        LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_safety_crash(g, PanicMsgIdExactDivisionRemainder);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    }
+
+    return result;
+}
+
 static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
         Stage1AirInstBinOp *bin_op_instruction)
 {
@@ -3151,13 +3369,16 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
 
     ZigType *operand_type = op1->value->type;
     ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ? operand_type->data.vector.elem_type : operand_type;
+    if (scalar_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) {
+        return ir_render_soft_f80_bin_op(g, executable, bin_op_instruction);
+    }
+
 
     bool want_runtime_safety = bin_op_instruction->safety_check_on &&
         ir_want_runtime_safety(g, &bin_op_instruction->base);
 
     LLVMValueRef op1_value = ir_llvm_value(g, op1);
     LLVMValueRef op2_value = ir_llvm_value(g, op2);
-
 
     switch (op_id) {
         case IrBinOpInvalid:
@@ -5927,7 +6148,7 @@ static LLVMValueRef ir_render_prefetch(CodeGen *g, Stage1Air *executable, Stage1
     static_assert(PrefetchCacheInstruction == 0, "");
     static_assert(PrefetchCacheData == 1, "");
     assert(instruction->cache == PrefetchCacheData || instruction->cache == PrefetchCacheInstruction);
-    
+
     // LLVM fails during codegen of instruction cache prefetchs for these architectures.
     // This is an LLVM bug as the prefetch intrinsic should be a noop if not supported by the target.
     // To work around this, simply don't emit llvm.prefetch in this case.
@@ -8920,8 +9141,19 @@ static void define_builtin_types(CodeGen *g) {
     if (target_has_f80(g->zig_target)) {
         add_fp_entry(g, "f80", 80, LLVMX86FP80Type(), &g->builtin_types.entry_f80);
     } else {
-        // use f128 for correct size and alignment
-        add_fp_entry(g, "f80", 128, LLVMFP128Type(), &g->builtin_types.entry_f80);
+        ZigType *entry = new_type_table_entry(ZigTypeIdFloat);
+        entry->llvm_type = get_int_type(g, false, 128)->llvm_type;
+        entry->size_in_bits = 8 * LLVMStoreSizeOfType(g->target_data_ref, entry->llvm_type);
+        entry->abi_size = LLVMABISizeOfType(g->target_data_ref, entry->llvm_type);
+        entry->abi_align = 16;
+        buf_init_from_str(&entry->name, "f80");
+        entry->data.floating.bit_count = 80;
+
+        entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+            entry->size_in_bits, ZigLLVMEncoding_DW_ATE_unsigned());
+
+        g->builtin_types.entry_f80 = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
 
     switch (g->zig_target->arch) {
