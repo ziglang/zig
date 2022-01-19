@@ -1552,6 +1552,8 @@ pub const LibExeObjStep = struct {
 
     subsystem: ?std.Target.SubSystem = null,
 
+    entry_symbol_name: ?[]const u8 = null,
+
     /// Overrides the default stack size
     stack_size: ?u64 = null,
 
@@ -2251,6 +2253,11 @@ pub const LibExeObjStep = struct {
         if (builder.color != .auto) {
             try zig_args.append("--color");
             try zig_args.append(@tagName(builder.color));
+        }
+
+        if (self.entry_symbol_name) |entry| {
+            try zig_args.append("--entry");
+            try zig_args.append(entry);
         }
 
         if (self.stack_size) |stack_size| {

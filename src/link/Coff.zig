@@ -925,6 +925,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             _ = try man.addFile(key.status.success.object_path, null);
         }
         try man.addOptionalFile(module_obj_path);
+        man.hash.addOptionalBytes(self.base.options.entry);
         man.hash.addOptional(self.base.options.stack_size_override);
         man.hash.addOptional(self.base.options.image_base_override);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
@@ -1043,6 +1044,10 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
 
         if (is_dyn_lib) {
             try argv.append("-DLL");
+        }
+
+        if (self.base.options.entry) |entry| {
+            try argv.append(try allocPrint(arena, "-ENTRY:{s}", .{entry}));
         }
 
         if (self.base.options.tsaware) {

@@ -1018,6 +1018,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFile(compiler_rt_path);
+        man.hash.addOptionalBytes(self.base.options.entry);
         man.hash.addOptional(self.base.options.stack_size_override);
         man.hash.add(self.base.options.import_memory);
         man.hash.addOptional(self.base.options.initial_memory);
@@ -1163,6 +1164,11 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                     }
                 }
             }
+        }
+
+        if (self.base.options.entry) |entry| {
+            try argv.append("--entry");
+            try argv.append(entry);
         }
 
         if (self.base.options.output_mode == .Exe) {
