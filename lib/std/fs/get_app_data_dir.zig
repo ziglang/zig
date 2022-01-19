@@ -45,6 +45,10 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
             return fs.path.join(allocator, &[_][]const u8{ home_dir, "Library", "Application Support", appname });
         },
         .linux, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris => {
+            if (os.getenv("XDG_DATA_HOME")) |xdg| {
+                return fs.path.join(allocator, &[_][]const u8{ xdg, appname });
+            }
+
             const home_dir = os.getenv("HOME") orelse {
                 // TODO look in /etc/passwd
                 return error.AppDataDirUnavailable;
