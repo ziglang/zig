@@ -867,17 +867,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             try self.parseDependentLibs(self.base.options.sysroot, &dependent_libs);
         }
 
-        if (self.bss_section_index) |idx| {
-            const seg = &self.load_commands.items[self.data_segment_cmd_index.?].segment;
-            const sect = &seg.sections.items[idx];
-            sect.offset = self.bss_file_offset;
-        }
-        if (self.tlv_bss_section_index) |idx| {
-            const seg = &self.load_commands.items[self.data_segment_cmd_index.?].segment;
-            const sect = &seg.sections.items[idx];
-            sect.offset = self.tlv_bss_file_offset;
-        }
-
         try self.createMhExecuteHeaderAtom();
         for (self.objects.items) |*object, object_id| {
             if (object.analyzed) continue;
@@ -962,19 +951,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
             try self.writeAllAtoms();
         } else {
             try self.writeAtoms();
-        }
-
-        if (self.bss_section_index) |idx| {
-            const seg = &self.load_commands.items[self.data_segment_cmd_index.?].segment;
-            const sect = &seg.sections.items[idx];
-            self.bss_file_offset = sect.offset;
-            sect.offset = 0;
-        }
-        if (self.tlv_bss_section_index) |idx| {
-            const seg = &self.load_commands.items[self.data_segment_cmd_index.?].segment;
-            const sect = &seg.sections.items[idx];
-            self.tlv_bss_file_offset = sect.offset;
-            sect.offset = 0;
         }
 
         try self.setEntryPoint();
@@ -2021,6 +1997,8 @@ fn writeAllAtoms(self: *MachO) !void {
         const sect = seg.sections.items[match.sect];
         var atom: *Atom = entry.value_ptr.*;
 
+        if (sect.flags == macho.S_ZEROFILL or sect.flags == macho.S_THREAD_LOCAL_ZEROFILL) continue;
+
         var buffer = std.ArrayList(u8).init(self.base.allocator);
         defer buffer.deinit();
         try buffer.ensureTotalCapacity(try math.cast(usize, sect.size));
@@ -2072,6 +2050,8 @@ fn writeAtoms(self: *MachO) !void {
         const seg = self.load_commands.items[match.seg].segment;
         const sect = seg.sections.items[match.sect];
         var atom: *Atom = entry.value_ptr.*;
+
+        if (sect.flags == macho.S_ZEROFILL or sect.flags == macho.S_THREAD_LOCAL_ZEROFILL) continue;
 
         log.debug("writing atoms in {s},{s}", .{ sect.segName(), sect.sectName() });
 
@@ -4194,9 +4174,6 @@ fn populateMissingMetadata(self: *MachO) !void {
                 .flags = macho.S_THREAD_LOCAL_ZEROFILL,
             },
         );
-        const seg = self.load_commands.items[self.data_segment_cmd_index.?].segment;
-        const sect = seg.sections.items[self.tlv_bss_section_index.?];
-        self.tlv_bss_file_offset = sect.offset;
     }
 
     if (self.bss_section_index == null) {
@@ -4211,9 +4188,6 @@ fn populateMissingMetadata(self: *MachO) !void {
                 .flags = macho.S_ZEROFILL,
             },
         );
-        const seg = self.load_commands.items[self.data_segment_cmd_index.?].segment;
-        const sect = seg.sections.items[self.bss_section_index.?];
-        self.bss_file_offset = sect.offset;
     }
 
     if (self.linkedit_segment_cmd_index == null) {
@@ -4513,9 +4487,10 @@ fn allocateSegment(self: *MachO, index: u16, offset: u64) !void {
     // Allocate the sections according to their alignment at the beginning of the segment.
     var start: u64 = offset;
     for (seg.sections.items) |*sect, sect_id| {
+        const is_zerofill = sect.flags == macho.S_ZEROFILL or sect.flags == macho.S_THREAD_LOCAL_ZEROFILL;
         const alignment = try math.powi(u32, 2, sect.@"align");
         const start_aligned = mem.alignForwardGeneric(u64, start, alignment);
-        sect.offset = @intCast(u32, seg.inner.fileoff + start_aligned);
+        sect.offset = if (is_zerofill) 0 else @intCast(u32, seg.inner.fileoff + start_aligned);
         sect.addr = seg.inner.vmaddr + start_aligned;
 
         // Recalculate section size given the allocated start address
@@ -4542,11 +4517,15 @@ fn allocateSegment(self: *MachO, index: u16, offset: u64) !void {
         } else 0;
 
         start = start_aligned + sect.size;
+
+        if (!is_zerofill) {
+            seg.inner.filesize = start;
+        }
+        seg.inner.vmsize = start;
     }
 
-    const seg_size_aligned = mem.alignForwardGeneric(u64, start, self.page_size);
-    seg.inner.filesize = seg_size_aligned;
-    seg.inner.vmsize = seg_size_aligned;
+    seg.inner.filesize = mem.alignForwardGeneric(u64, seg.inner.filesize, self.page_size);
+    seg.inner.vmsize = mem.alignForwardGeneric(u64, seg.inner.vmsize, self.page_size);
 }
 
 const InitSectionOpts = struct {
@@ -4584,8 +4563,12 @@ fn initSection(
             off,
             off + size,
         });
+
         sect.addr = seg.inner.vmaddr + off - seg.inner.fileoff;
-        sect.offset = @intCast(u32, off);
+
+        if (opts.flags != macho.S_ZEROFILL and opts.flags != macho.S_THREAD_LOCAL_ZEROFILL) {
+            sect.offset = @intCast(u32, off);
+        }
     }
 
     const index = @intCast(u16, seg.sections.items.len);
