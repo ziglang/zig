@@ -5,7 +5,6 @@
 One of the best ways you can contribute to Zig is to start using it for a
 personal project. Here are some great examples:
 
- * [Oxid](https://github.com/dbandstra/oxid) - arcade style game
  * [TM35-Metronome](https://github.com/TM35-Metronome) - tools for modifying and randomizing Pokémon games
  * [River](https://github.com/ifreund/river/) - a dynamic tiling wayland compositor 
 
