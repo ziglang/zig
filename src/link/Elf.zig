@@ -2889,7 +2889,8 @@ pub fn updateDeclExports(
         const stb_bits: u8 = switch (exp.options.linkage) {
             .Internal => elf.STB_LOCAL,
             .Strong => blk: {
-                if (mem.eql(u8, exp.options.name, "_start")) {
+                const entry_name = self.base.options.entry orelse "_start";
+                if (mem.eql(u8, exp.options.name, entry_name)) {
                     self.entry_addr = decl_sym.st_value;
                 }
                 break :blk elf.STB_GLOBAL;

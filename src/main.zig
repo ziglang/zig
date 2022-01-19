@@ -1485,6 +1485,9 @@ fn buildOutputType(
                     .sysroot => {
                         sysroot = it.only_arg;
                     },
+                    .entry => {
+                        entry = it.only_arg;
+                    },
                 }
             }
             // Parse linker args.
@@ -4156,6 +4159,7 @@ pub const ClangArgIterator = struct {
         exec_model,
         emit_llvm,
         sysroot,
+        entry,
     };
 
     const Args = struct {

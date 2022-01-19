@@ -1071,6 +1071,10 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             try argv.append("-DLL");
         }
 
+        if (self.base.options.entry) |entry| {
+            try argv.append(try allocPrint(arena, "-ENTRY:{s}", .{entry}));
+        }
+
         if (self.base.options.tsaware) {
             try argv.append("-tsaware");
         }
