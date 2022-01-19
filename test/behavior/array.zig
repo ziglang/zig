@@ -20,7 +20,7 @@ test "array to slice" {
 }
 
 test "arrays" {
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var array: [5]u32 = undefined;
 

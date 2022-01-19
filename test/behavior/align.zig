@@ -119,7 +119,7 @@ fn fnWithAlignedStack() i32 {
 }
 
 test "implicitly decreasing slice alignment" {
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
@@ -130,7 +130,7 @@ fn addUnalignedSlice(a: []align(1) const u32, b: []align(1) const u32) u32 {
 }
 
 test "specifying alignment allows pointer cast" {
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     try testBytesAlign(0x33);
 }
