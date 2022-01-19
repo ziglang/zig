@@ -323,6 +323,7 @@ pub fn createLocalSymbol(self: *Wasm, decl: *Module.Decl, ty: Type) !u32 {
 
     var atom = Atom.empty;
     atom.alignment = ty.abiAlignment(self.base.options.target);
+    try self.symbols.ensureUnusedCapacity(self.base.allocator, 1);
 
     if (self.symbols_free_list.popOrNull()) |index| {
         atom.sym_index = index;
