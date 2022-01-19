@@ -643,12 +643,12 @@ pub const PrefetchOptions = struct {
     /// The cache that the prefetch should be preformed on.
     cache: Cache = .data,
 
-    pub const Rw = enum {
+    pub const Rw = enum(u1) {
         read,
         write,
     };
 
-    pub const Cache = enum {
+    pub const Cache = enum(u1) {
         instruction,
         data,
     };

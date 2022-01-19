@@ -1278,6 +1278,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .error_name       => try airErrorName(f, inst),
             .splat            => try airSplat(f, inst),
             .vector_init      => try airVectorInit(f, inst),
+            .prefetch         => try airPrefetch(f, inst),
 
             .int_to_float,
             .float_to_int,
@@ -3087,6 +3088,25 @@ fn airVectorInit(f: *Function, inst: Air.Inst.Index) !CValue {
     _ = elements;
     _ = local;
     return f.fail("TODO: C backend: implement airVectorInit", .{});
+}
+
+fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
+    const prefetch = f.air.instructions.items(.data)[inst].prefetch;
+    switch (prefetch.cache) {
+        .data => {},
+        // The available prefetch intrinsics do not accept a cache argument; only
+        // address, rw, and locality. So unless the cache is data, we do not lower
+        // this instruction.
+        .instruction => return CValue.none,
+    }
+    const ptr = try f.resolveInst(prefetch.ptr);
+    const writer = f.object.writer();
+    try writer.writeAll("zig_prefetch(");
+    try f.writeCValue(writer, ptr);
+    try writer.print(", {d}, {d});\n", .{
+        @enumToInt(prefetch.rw), prefetch.locality,
+    });
+    return CValue.none;
 }
 
 fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {
