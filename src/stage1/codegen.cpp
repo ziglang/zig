@@ -6888,13 +6888,148 @@ static LLVMValueRef ir_render_atomic_store(CodeGen *g, Stage1Air *executable,
     return nullptr;
 }
 
+static LLVMValueRef ir_render_soft_f80_float_op(CodeGen *g, Stage1Air *executable, Stage1AirInstFloatOp *instruction) {
+    ZigType *op_type = instruction->operand->value->type;
+    uint32_t vector_len = op_type->id == ZigTypeIdVector ? op_type->data.vector.len : 0;
+
+    const char *func_name;
+    switch (instruction->fn_id) {
+        case BuiltinFnIdSqrt:
+            func_name = "__sqrt";
+            break;
+        case BuiltinFnIdSin:
+            func_name = "__sinx";
+            break;
+        case BuiltinFnIdCos:
+            func_name = "__cosx";
+            break;
+        case BuiltinFnIdExp:
+            func_name = "__expx";
+            break;
+        case BuiltinFnIdExp2:
+            func_name = "__exp2x";
+            break;
+        case BuiltinFnIdLog:
+            func_name = "__logx";
+            break;
+        case BuiltinFnIdLog2:
+            func_name = "__log2x";
+            break;
+        case BuiltinFnIdLog10:
+            func_name = "__log10x";
+            break;
+        case BuiltinFnIdFabs:
+            func_name = "__fabsx";
+            break;
+        case BuiltinFnIdFloor:
+            func_name = "__floorx";
+            break;
+        case BuiltinFnIdCeil:
+            func_name = "__ceilx";
+            break;
+        case BuiltinFnIdTrunc:
+            func_name = "__truncx";
+            break;
+        case BuiltinFnIdNearbyInt:
+            func_name = "__nearbyintx";
+            break;
+        case BuiltinFnIdRound:
+            func_name = "__roundx";
+            break;
+        default:
+            zig_unreachable();
+    }
+
+
+    LLVMValueRef func_ref = LLVMGetNamedFunction(g->module, func_name);
+    if (func_ref == nullptr) {
+        LLVMTypeRef f80_ref = g->builtin_types.entry_f80->llvm_type;
+        LLVMTypeRef fn_type = LLVMFunctionType(f80_ref, &f80_ref, 1, false);
+        func_ref = LLVMAddFunction(g->module, func_name, fn_type);
+    }
+
+    LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
+    LLVMValueRef result;
+    if (vector_len == 0) {
+        result = LLVMBuildCall(g->builder, func_ref, &operand, 1, "");
+    } else {
+        result = build_alloca(g, instruction->operand->value->type, "", 0);
+    }
+
+    LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
+    for (uint32_t i = 0; i < vector_len; i++) {
+        LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
+        LLVMValueRef param = LLVMBuildExtractElement(g->builder, operand, index_value, "");
+        LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, &param, 1, "");
+        LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
+            call_result, index_value, "");
+    }
+    if (vector_len != 0) {
+        result = LLVMBuildLoad(g->builder, result, "");
+    }
+    return result;
+}
+
 static LLVMValueRef ir_render_float_op(CodeGen *g, Stage1Air *executable, Stage1AirInstFloatOp *instruction) {
+    ZigType *op_type = instruction->operand->value->type;
+    op_type = op_type->id == ZigTypeIdVector ? op_type->data.vector.elem_type : op_type;
+    if (op_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) {
+        return ir_render_soft_f80_float_op(g, executable, instruction);
+    }
     LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
     LLVMValueRef fn_val = get_float_fn(g, instruction->base.value->type, ZigLLVMFnIdFloatOp, instruction->fn_id);
     return LLVMBuildCall(g->builder, fn_val, &operand, 1, "");
 }
 
+static LLVMValueRef ir_render_soft_f80_mul_add(CodeGen *g, Stage1Air *executable, Stage1AirInstMulAdd *instruction) {
+    ZigType *op_type = instruction->op1->value->type;
+    uint32_t vector_len = op_type->id == ZigTypeIdVector ? op_type->data.vector.len : 0;
+
+    const char *func_name = "__fmax";
+    LLVMValueRef func_ref = LLVMGetNamedFunction(g->module, func_name);
+    if (func_ref == nullptr) {
+        LLVMTypeRef f80_ref = g->builtin_types.entry_f80->llvm_type;
+        LLVMTypeRef params[3] = { f80_ref, f80_ref, f80_ref };
+        LLVMTypeRef fn_type = LLVMFunctionType(f80_ref, params, 3, false);
+        func_ref = LLVMAddFunction(g->module, func_name, fn_type);
+    }
+
+    LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
+    LLVMValueRef op2 = ir_llvm_value(g, instruction->op2);
+    LLVMValueRef op3 = ir_llvm_value(g, instruction->op3);
+    LLVMValueRef result;
+    if (vector_len == 0) {
+        LLVMValueRef params[3] = { op1, op2, op3 };
+        result = LLVMBuildCall(g->builder, func_ref, params, 3, "");
+    } else {
+        result = build_alloca(g, instruction->op1->value->type, "", 0);
+    }
+
+    LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
+    for (uint32_t i = 0; i < vector_len; i++) {
+        LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
+
+        LLVMValueRef params[3] = {
+            LLVMBuildExtractElement(g->builder, op1, index_value, ""),
+            LLVMBuildExtractElement(g->builder, op2, index_value, ""),
+            LLVMBuildExtractElement(g->builder, op3, index_value, ""),
+        };
+        LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, params, 3, "");
+        LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
+            call_result, index_value, "");
+    }
+    if (vector_len != 0) {
+        result = LLVMBuildLoad(g->builder, result, "");
+    }
+    return result;
+}
+
 static LLVMValueRef ir_render_mul_add(CodeGen *g, Stage1Air *executable, Stage1AirInstMulAdd *instruction) {
+    ZigType *op_type = instruction->op1->value->type;
+    op_type = op_type->id == ZigTypeIdVector ? op_type->data.vector.elem_type : op_type;
+    if (op_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target)) {
+        return ir_render_soft_f80_mul_add(g, executable, instruction);
+    }
     LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
     LLVMValueRef op2 = ir_llvm_value(g, instruction->op2);
     LLVMValueRef op3 = ir_llvm_value(g, instruction->op3);
