@@ -791,6 +791,7 @@ pub const InitOptions = struct {
     /// infinite recursion.
     skip_linker_dependencies: bool = false,
     parent_compilation_link_libc: bool = false,
+    entry: ?[]const u8 = null,
     stack_size_override: ?u64 = null,
     image_base_override: ?u64 = null,
     self_exe_path: ?[]const u8 = null,
@@ -1572,6 +1573,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .linker_optimization = linker_optimization,
             .major_subsystem_version = options.major_subsystem_version,
             .minor_subsystem_version = options.minor_subsystem_version,
+            .entry = options.entry,
             .stack_size_override = options.stack_size_override,
             .image_base_override = options.image_base_override,
             .include_compiler_rt = include_compiler_rt,

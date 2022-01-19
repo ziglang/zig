@@ -1396,6 +1396,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
+        man.hash.addOptionalBytes(self.base.options.entry);
         man.hash.add(stack_size);
         man.hash.addOptional(self.base.options.image_base_override);
         man.hash.add(gc_sections);
@@ -1517,6 +1518,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append(try std.fmt.allocPrint(arena, "-O{d}", .{
             self.base.options.linker_optimization,
         }));
+
+        if (self.base.options.entry) |entry| {
+            try argv.append("--entry");
+            try argv.append(entry);
+        }
 
         if (self.base.options.output_mode == .Exe) {
             try argv.append("-z");
@@ -2883,7 +2889,8 @@ pub fn updateDeclExports(
         const stb_bits: u8 = switch (exp.options.linkage) {
             .Internal => elf.STB_LOCAL,
             .Strong => blk: {
-                if (mem.eql(u8, exp.options.name, "_start")) {
+                const entry_name = self.base.options.entry orelse "_start";
+                if (mem.eql(u8, exp.options.name, entry_name)) {
                     self.entry_addr = decl_sym.st_value;
                 }
                 break :blk elf.STB_GLOBAL;
