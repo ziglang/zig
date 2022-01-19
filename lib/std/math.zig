@@ -43,7 +43,21 @@ pub const f128_max = @bitCast(f128, @as(u128, 0x7FFEFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 pub const f128_epsilon = @bitCast(f128, @as(u128, 0x3F8F0000000000000000000000000000));
 pub const f128_toint = 1.0 / f128_epsilon;
 
+const F80Repr = if (@import("builtin").cpu.arch.endian() == .Little) extern struct {
+    fraction: u64,
+    exp: u16,
+} else extern struct {
+    exp: u16,
+    fraction: u64,
+};
+
 // float.h details
+pub const f80_true_min = @ptrCast(*const f80, &F80Repr{ .fraction = 1, .exp = 0 }).*;
+pub const f80_min = @ptrCast(*const f80, &F80Repr{ .fraction = 0x8000000000000000, .exp = 1 }).*;
+pub const f80_max = @ptrCast(*const f80, &F80Repr{ .fraction = 0xFFFFFFFFFFFFFFFF, .exp = 0x7FFE }).*;
+pub const f80_epsilon = @ptrCast(*const f80, &F80Repr{ .fraction = 0x8000000000000000, .exp = 0x3FC0 }).*;
+pub const f80_toint = 1.0 / f80_epsilon;
+
 pub const f64_true_min = 4.94065645841246544177e-324;
 pub const f64_min = 2.2250738585072014e-308;
 pub const f64_max = 1.79769313486231570815e+308;
@@ -90,6 +104,10 @@ pub const qnan_f64 = @bitCast(f64, qnan_u64);
 
 pub const inf_u64 = @as(u64, 0x7FF << 52);
 pub const inf_f64 = @bitCast(f64, inf_u64);
+
+pub const inf_f80 = @ptrCast(*const f80, &F80Repr{ .fraction = 0x8000000000000000, .exp = 0x7fff }).*;
+pub const nan_f80 = @ptrCast(*const f80, &F80Repr{ .fraction = 0xA000000000000000, .exp = 0x7fff }).*;
+pub const qnan_f80 = @ptrCast(*const f80, &F80Repr{ .fraction = 0xC000000000000000, .exp = 0x7fff }).*;
 
 pub const nan_u128 = @as(u128, 0x7fff0000000000000000000000000001);
 pub const nan_f128 = @bitCast(f128, nan_u128);

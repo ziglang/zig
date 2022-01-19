@@ -7,6 +7,7 @@ pub fn inf(comptime T: type) T {
         f16 => math.inf_f16,
         f32 => math.inf_f32,
         f64 => math.inf_f64,
+        f80 => math.inf_f80,
         f128 => math.inf_f128,
         else => @compileError("inf not implemented for " ++ @typeName(T)),
     };
