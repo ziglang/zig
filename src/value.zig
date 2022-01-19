@@ -768,7 +768,12 @@ pub const Value = extern union {
                 return allocator.dupe(u8, adjusted_bytes);
             },
             .enum_literal => return allocator.dupe(u8, val.castTag(.enum_literal).?.data),
-            .repeated => @panic("TODO implement toAllocatedBytes for this Value tag"),
+            .repeated => {
+                const byte = @intCast(u8, val.castTag(.repeated).?.data.toUnsignedInt());
+                const result = try allocator.alloc(u8, @intCast(usize, ty.arrayLen()));
+                std.mem.set(u8, result, byte);
+                return result;
+            },
             .decl_ref => {
                 const decl = val.castTag(.decl_ref).?.data;
                 const decl_val = try decl.value();
@@ -776,7 +781,15 @@ pub const Value = extern union {
             },
             .the_only_possible_value => return &[_]u8{},
             .slice => return toAllocatedBytes(val.castTag(.slice).?.data.ptr, ty, allocator),
-            else => unreachable,
+            else => {
+                const result = try allocator.alloc(u8, @intCast(usize, ty.arrayLen()));
+                var elem_value_buf: ElemValueBuffer = undefined;
+                for (result) |*elem, i| {
+                    const elem_val = val.elemValueBuffer(i, &elem_value_buf);
+                    elem.* = @intCast(u8, elem_val.toUnsignedInt());
+                }
+                return result;
+            },
         }
     }
 

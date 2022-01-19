@@ -11,7 +11,6 @@ test {
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/pub_enum.zig");
-    _ = @import("behavior/type_info.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/bugs/655.zig");
     _ = @import("behavior/bool.zig");
@@ -56,6 +55,7 @@ test {
         _ = @import("behavior/this.zig");
         _ = @import("behavior/truncate.zig");
         _ = @import("behavior/try.zig");
+        _ = @import("behavior/type_info.zig");
         _ = @import("behavior/undefined.zig");
         _ = @import("behavior/underscore.zig");
         _ = @import("behavior/usingnamespace.zig");
@@ -194,7 +194,6 @@ test {
                     _ = @import("behavior/truncate_stage1.zig");
                     _ = @import("behavior/tuple.zig");
                     _ = @import("behavior/type_stage1.zig");
-                    _ = @import("behavior/type_info_stage1.zig");
                     _ = @import("behavior/typename.zig");
                     _ = @import("behavior/union_stage1.zig");
                     _ = @import("behavior/union_with_members.zig");

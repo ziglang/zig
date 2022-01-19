@@ -9677,12 +9677,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
             };
 
-            if (ty.getNamespace()) |namespace| {
-                if (namespace.decls.count() != 0) {
-                    return sema.fail(block, src, "TODO: implement zirTypeInfo for Enum which has declarations", .{});
-                }
-            }
-            const decls_val = Value.initTag(.empty_array);
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ty.getNamespace());
 
             const field_values = try sema.arena.create([5]Value);
             field_values.* = .{
@@ -9773,12 +9768,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
             };
 
-            if (ty.getNamespace()) |namespace| {
-                if (namespace.decls.count() != 0) {
-                    return sema.fail(block, src, "TODO: implement zirTypeInfo for Union which has declarations", .{});
-                }
-            }
-            const decls_val = Value.initTag(.empty_array);
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, union_ty.getNamespace());
 
             const enum_tag_ty_val = if (union_ty.unionTagType()) |tag_ty| v: {
                 const ty_val = try Value.Tag.ty.create(sema.arena, tag_ty);
@@ -9810,12 +9800,103 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             );
         },
         .Struct => return sema.fail(block, src, "TODO: implement zirTypeInfo for Struct", .{}),
+        .Opaque => {
+            // TODO: look into memoizing this result.
+
+            var fields_anon_decl = try block.startAnonDecl();
+            defer fields_anon_decl.deinit();
+
+            const opaque_ty = try sema.resolveTypeFields(block, src, ty);
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, opaque_ty.getNamespace());
+
+            const field_values = try sema.arena.create([1]Value);
+            field_values.* = .{
+                // decls: []const Declaration,
+                decls_val,
+            };
+
+            return sema.addConstant(
+                type_info_ty,
+                try Value.Tag.@"union".create(sema.arena, .{
+                    .tag = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(std.builtin.TypeId.Opaque)),
+                    .val = try Value.Tag.@"struct".create(sema.arena, field_values),
+                }),
+            );
+        },
         .ErrorSet => return sema.fail(block, src, "TODO: implement zirTypeInfo for ErrorSet", .{}),
         .BoundFn => @panic("TODO remove this type from the language and compiler"),
-        .Opaque => return sema.fail(block, src, "TODO: implement zirTypeInfo for Opaque", .{}),
         .Frame => return sema.fail(block, src, "TODO: implement zirTypeInfo for Frame", .{}),
         .AnyFrame => return sema.fail(block, src, "TODO: implement zirTypeInfo for AnyFrame", .{}),
     }
+}
+
+fn typeInfoDecls(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    type_info_ty: Type,
+    opt_namespace: ?*Module.Namespace,
+) CompileError!Value {
+    const namespace = opt_namespace orelse return Value.initTag(.empty_array);
+    const decls_len = namespace.decls.count();
+    if (decls_len == 0) return Value.initTag(.empty_array);
+
+    var decls_anon_decl = try block.startAnonDecl();
+    defer decls_anon_decl.deinit();
+
+    const declaration_ty = t: {
+        const declaration_ty_decl = (try sema.namespaceLookup(
+            block,
+            src,
+            type_info_ty.getNamespace().?,
+            "EnumField",
+        )).?;
+        try sema.mod.declareDeclDependency(sema.owner_decl, declaration_ty_decl);
+        try sema.ensureDeclAnalyzed(declaration_ty_decl);
+        var buffer: Value.ToTypeBuffer = undefined;
+        break :t try declaration_ty_decl.val.toType(&buffer).copy(decls_anon_decl.arena());
+    };
+
+    const decls_vals = try decls_anon_decl.arena().alloc(Value, decls_len);
+    for (decls_vals) |*decls_val, i| {
+        const decl = namespace.decls.values()[i];
+        const name = namespace.decls.keys()[i];
+        const name_val = v: {
+            var anon_decl = try block.startAnonDecl();
+            defer anon_decl.deinit();
+            const bytes = try anon_decl.arena().dupeZ(u8, name);
+            const new_decl = try anon_decl.finish(
+                try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
+                try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+            );
+            break :v try Value.Tag.decl_ref.create(decls_anon_decl.arena(), new_decl);
+        };
+
+        const is_pub = if (decl.is_pub) Value.@"true" else Value.@"false";
+
+        const fields = try decls_anon_decl.arena().create([3]Value);
+        fields.* = .{
+            //name: []const u8,
+            name_val,
+            //is_pub: bool,
+            is_pub,
+            //data: Data,
+            Value.undef, // TODO
+        };
+        decls_val.* = try Value.Tag.@"struct".create(decls_anon_decl.arena(), fields);
+    }
+
+    const new_decl = try decls_anon_decl.finish(
+        try Type.Tag.array.create(decls_anon_decl.arena(), .{
+            .len = decls_vals.len,
+            .elem_type = declaration_ty,
+        }),
+        try Value.Tag.array.create(
+            decls_anon_decl.arena(),
+            try decls_anon_decl.arena().dupe(Value, decls_vals),
+        ),
+    );
+    return try Value.Tag.decl_ref.create(sema.arena, new_decl);
 }
 
 fn zirTypeof(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
