@@ -3237,10 +3237,10 @@ static LLVMValueRef get_soft_f80_bin_op_func(CodeGen *g, const char *name, int p
 static LLVMValueRef ir_render_soft_f80_bin_op(CodeGen *g, Stage1Air *executable,
         Stage1AirInstBinOp *bin_op_instruction)
 {
-    // TODO support vectors
     IrBinOp op_id = bin_op_instruction->op_id;
     Stage1AirInst *op1 = bin_op_instruction->op1;
     Stage1AirInst *op2 = bin_op_instruction->op2;
+    uint32_t vector_len = op1->value->type->id == ZigTypeIdVector ? op1->value->type->data.vector.len : 0;
 
     LLVMValueRef op1_value = ir_llvm_value(g, op1);
     LLVMValueRef op2_value = ir_llvm_value(g, op2);
@@ -3334,20 +3334,62 @@ static LLVMValueRef ir_render_soft_f80_bin_op(CodeGen *g, Stage1Air *executable,
 
     LLVMValueRef func_ref = get_soft_f80_bin_op_func(g, func_name, param_count, return_type);
 
-    LLVMValueRef params[2] = {op1_value, op2_value};
-    LLVMValueRef result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+    LLVMValueRef result;
+    if (vector_len == 0) {
+        LLVMValueRef params[2] = {op1_value, op2_value};
+        result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+    } else {
+        result = build_alloca(g, op1->value->type, "", 0);
+    }
+
+    LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
+    for (uint32_t i = 0; i < vector_len; i++) {
+        LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
+        LLVMValueRef params[2] = {
+            LLVMBuildExtractElement(g->builder, op1_value, index_value, ""),
+            LLVMBuildExtractElement(g->builder, op2_value, index_value, ""),
+        };
+        LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+        LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
+            call_result, index_value, "");
+    }
 
     if (div_exact_safety_check) {
         // Safety check: a / b == floor(a / b)
-        func_ref = get_soft_f80_bin_op_func(g, "__floorx", 1, return_type);
-        LLVMValueRef floored = LLVMBuildCall(g->builder, func_ref, &result, 1, "");
+        LLVMValueRef floor_func = get_soft_f80_bin_op_func(g, "__floorx", 1, return_type);
+        LLVMValueRef eq_func = get_soft_f80_bin_op_func(g, "__eqxf2", 2, g->builtin_types.entry_i32->llvm_type);
 
+        LLVMValueRef ok_bit;
+        if (vector_len == 0) {
+            LLVMValueRef floored = LLVMBuildCall(g->builder, floor_func, &result, 1, "");
+
+            LLVMValueRef params[2] = {result, floored};
+            ok_bit = LLVMBuildCall(g->builder, eq_func, params, 2, "");
+        } else {
+            ZigType *bool_vec_ty = get_vector_type(g, vector_len, g->builtin_types.entry_bool);
+            ok_bit = build_alloca(g, bool_vec_ty, "", 0);
+        }
+
+        for (uint32_t i = 0; i < vector_len; i++) {
+            LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
+            LLVMValueRef div_res = LLVMBuildExtractElement(g->builder,
+                LLVMBuildLoad(g->builder, result, ""), index_value, "");
+
+            LLVMValueRef params[2] = {
+                div_res,
+                LLVMBuildCall(g->builder, floor_func, &div_res, 1, ""),
+            };
+            LLVMValueRef cmp_res = LLVMBuildCall(g->builder, eq_func, params, 2, "");
+            cmp_res = LLVMBuildTrunc(g->builder, cmp_res, g->builtin_types.entry_bool->llvm_type, "");
+            LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, ok_bit, ""),
+                cmp_res, index_value, "");
+        }
+
+        if (vector_len != 0) {
+            ok_bit = ZigLLVMBuildAndReduce(g->builder, LLVMBuildLoad(g->builder, ok_bit, ""));
+        }
         LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactOk");
         LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactFail");
-
-        LLVMValueRef params[2] = {result, floored};
-        func_ref = get_soft_f80_bin_op_func(g, "__eqxf2", 2, g->builtin_types.entry_i32->llvm_type);
-        LLVMValueRef ok_bit = LLVMBuildCall(g->builder, func_ref, params, 2, "");
 
         LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
@@ -3357,6 +3399,9 @@ static LLVMValueRef ir_render_soft_f80_bin_op(CodeGen *g, Stage1Air *executable,
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
 
+    if (vector_len != 0) {
+        result = LLVMBuildLoad(g->builder, result, "");
+    }
     return result;
 }
 
