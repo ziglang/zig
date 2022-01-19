@@ -516,6 +516,7 @@ struct ZigValue {
         float16_t x_f16;
         float x_f32;
         double x_f64;
+        extFloat80_t x_f80;
         float128_t x_f128;
         bool x_bool;
         ConstBoundFnValue x_bound_fn;
@@ -2089,6 +2090,7 @@ struct CodeGen {
         ZigType *entry_f16;
         ZigType *entry_f32;
         ZigType *entry_f64;
+        ZigType *entry_f80;
         ZigType *entry_f128;
         ZigType *entry_void;
         ZigType *entry_unreachable;

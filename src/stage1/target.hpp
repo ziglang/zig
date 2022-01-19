@@ -81,6 +81,7 @@ bool target_is_sparc(const ZigTarget *target);
 bool target_is_android(const ZigTarget *target);
 bool target_has_debug_info(const ZigTarget *target);
 bool target_long_double_is_f128(const ZigTarget *target);
+bool target_has_f80(const ZigTarget *target);
 
 uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch);
 uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch);

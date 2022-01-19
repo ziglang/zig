@@ -7692,6 +7692,12 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                     return LLVMConstReal(get_llvm_type(g, type_entry), const_val->data.x_f32);
                 case 64:
                     return LLVMConstReal(get_llvm_type(g, type_entry), const_val->data.x_f64);
+                case 80: {
+                    uint64_t buf[2];
+                    memcpy(&buf, &const_val->data.x_f80, 16);
+                    LLVMValueRef as_int = LLVMConstIntOfArbitraryPrecision(LLVMInt128Type(), 2, buf);
+                    return LLVMConstBitCast(as_int, get_llvm_type(g, type_entry));
+                }
                 case 128:
                     {
                         uint64_t buf[2];
@@ -8910,6 +8916,13 @@ static void define_builtin_types(CodeGen *g) {
     add_fp_entry(g, "f32", 32, LLVMFloatType(), &g->builtin_types.entry_f32);
     add_fp_entry(g, "f64", 64, LLVMDoubleType(), &g->builtin_types.entry_f64);
     add_fp_entry(g, "f128", 128, LLVMFP128Type(), &g->builtin_types.entry_f128);
+
+    if (target_has_f80(g->zig_target)) {
+        add_fp_entry(g, "f80", 80, LLVMX86FP80Type(), &g->builtin_types.entry_f80);
+    } else {
+        // use f128 for correct size and alignment
+        add_fp_entry(g, "f80", 128, LLVMFP128Type(), &g->builtin_types.entry_f80);
+    }
 
     switch (g->zig_target->arch) {
         case ZigLLVM_x86:
