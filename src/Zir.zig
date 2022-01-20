@@ -3001,7 +3001,7 @@ pub const DeclIterator = struct {
         const sub_index = @intCast(u32, it.extra_index);
         it.extra_index += 5; // src_hash(4) + line(1)
         const name = it.zir.nullTerminatedString(it.zir.extra[it.extra_index]);
-        it.extra_index += 2; // name(1) + value(1)
+        it.extra_index += 3; // name(1) + value(1) + doc_comment(1)
         it.extra_index += @truncate(u1, flags >> 2);
         it.extra_index += @truncate(u1, flags >> 3);
 

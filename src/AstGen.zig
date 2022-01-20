@@ -3080,9 +3080,9 @@ const WipMembers = struct {
     /// struct, union, enum, and opaque decls all use same 4 bits per decl
     const bits_per_decl = 4;
     const decls_per_u32 = 32 / bits_per_decl;
-    /// struct, union, enum, and opaque decls all have maximum size of 10 u32 slots
-    /// (4 for src_hash + line + name + value + align + link_section + address_space)
-    const max_decl_size = 10;
+    /// struct, union, enum, and opaque decls all have maximum size of 11 u32 slots
+    /// (4 for src_hash + line + name + value + doc_comment + align + link_section + address_space )
+    const max_decl_size = 11;
 
     pub fn init(gpa: Allocator, payload: *ArrayListUnmanaged(u32), decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
         const payload_top = @intCast(u32, payload.items.len);
@@ -3193,6 +3193,7 @@ fn fnDecl(
     // missing function name already happened in scanDecls()
     const fn_name_token = fn_proto.name_token orelse return error.AnalysisFail;
     const fn_name_str_index = try astgen.identAsString(fn_name_token);
+    const doc_comment_index = try docCommentAsString(astgen, fn_name_token - 1);
 
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
@@ -3445,6 +3446,7 @@ fn fnDecl(
     }
     wip_members.appendToDecl(fn_name_str_index);
     wip_members.appendToDecl(block_inst);
+    wip_members.appendToDecl(doc_comment_index);
     if (align_inst != .none) {
         wip_members.appendToDecl(@enumToInt(align_inst));
     }
@@ -3472,6 +3474,7 @@ fn globalVarDecl(
 
     const name_token = var_decl.ast.mut_token + 1;
     const name_str_index = try astgen.identAsString(name_token);
+    const doc_comment_index = try docCommentAsString(astgen, var_decl.ast.mut_token);
 
     var block_scope: GenZir = .{
         .parent = scope,
@@ -3594,6 +3597,7 @@ fn globalVarDecl(
     }
     wip_members.appendToDecl(name_str_index);
     wip_members.appendToDecl(block_inst);
+    wip_members.appendToDecl(doc_comment_index); // doc_comment wip
     if (align_inst != .none) {
         wip_members.appendToDecl(@enumToInt(align_inst));
     }
@@ -3648,6 +3652,7 @@ fn comptimeDecl(
     }
     wip_members.appendToDecl(0);
     wip_members.appendToDecl(block_inst);
+    wip_members.appendToDecl(0); // no doc comments on comptime decls
 }
 
 fn usingnamespaceDecl(
@@ -3699,6 +3704,7 @@ fn usingnamespaceDecl(
     }
     wip_members.appendToDecl(0);
     wip_members.appendToDecl(block_inst);
+    wip_members.appendToDecl(0); // no doc comments on usingnamespace decls
 }
 
 fn testDecl(
@@ -3802,6 +3808,7 @@ fn testDecl(
     }
     wip_members.appendToDecl(test_name);
     wip_members.appendToDecl(block_inst);
+    wip_members.appendToDecl(0); // no doc comments on test decls
 }
 
 fn structDeclInner(
@@ -8774,6 +8781,58 @@ fn identAsString(astgen: *AstGen, ident_token: Ast.TokenIndex) !u32 {
     }, StringIndexContext{
         .bytes = string_bytes,
     });
+    if (gop.found_existing) {
+        string_bytes.shrinkRetainingCapacity(str_index);
+        return gop.key_ptr.*;
+    } else {
+        gop.key_ptr.* = str_index;
+        try string_bytes.append(gpa, 0);
+        return str_index;
+    }
+}
+
+/// Adds a doc comment block to `string_bytes` by walking backwards from `end_token`. 
+/// `end_token` must point at the first token after the last doc coment line.
+/// Returns 0 if no doc comment is present.
+fn docCommentAsString(astgen: *AstGen, end_token: Ast.TokenIndex) !u32 {
+    const gpa = astgen.gpa;
+    const string_bytes = &astgen.string_bytes;
+    const str_index = @intCast(u32, string_bytes.items.len);
+    const token_tags = astgen.tree.tokens.items(.tag);
+    const token_starts = astgen.tree.tokens.items(.start);
+
+    if (end_token == 0) return 0;
+    const start_token: u32 = blk: {
+        var tok = end_token - 1;
+        while (token_tags[tok] == .doc_comment) {
+            if (tok == 0) break;
+            tok -= 1;
+        } else {
+            tok += 1;
+        }
+        break :blk tok;
+    };
+    if (start_token == end_token) return 0;
+
+    const total_bytes = token_starts[end_token] - token_starts[start_token];
+    try string_bytes.ensureUnusedCapacity(gpa, total_bytes);
+
+    var current_token = start_token;
+    while (current_token < end_token) : (current_token += 1) {
+        const tok_bytes = astgen.tree.tokenSlice(current_token)[3..];
+        string_bytes.appendSliceAssumeCapacity(tok_bytes);
+        if (current_token != end_token - 1) {
+            string_bytes.appendAssumeCapacity('\n');
+        }
+    }
+
+    const key = string_bytes.items[str_index..];
+    const gop = try astgen.string_table.getOrPutContextAdapted(gpa, @as([]const u8, key), StringIndexAdapter{
+        .bytes = string_bytes,
+    }, StringIndexContext{
+        .bytes = string_bytes,
+    });
+
     if (gop.found_existing) {
         string_bytes.shrinkRetainingCapacity(str_index);
         return gop.key_ptr.*;

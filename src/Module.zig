@@ -4011,7 +4011,7 @@ pub fn scanNamespace(
         cur_bit_bag >>= 4;
 
         const decl_sub_index = extra_index;
-        extra_index += 7; // src_hash(4) + line(1) + name(1) + value(1)
+        extra_index += 8; // src_hash(4) + line(1) + name(1) + value(1) + doc_comment(1)
         extra_index += @truncate(u1, flags >> 2); // Align
         extra_index += @as(u2, @truncate(u1, flags >> 3)) * 2; // Link section or address space, consists of 2 Refs
 

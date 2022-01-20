@@ -1398,6 +1398,9 @@ const Writer = struct {
             extra_index += 1;
             const decl_index = self.code.extra[extra_index];
             extra_index += 1;
+            const doc_comment_index = self.code.extra[extra_index];
+            extra_index += 1;
+
             const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
                 const inst = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
                 extra_index += 1;
@@ -1431,6 +1434,16 @@ const Writer = struct {
                     raw_decl_name;
                 const test_str = if (raw_decl_name.len == 0) "test " else "";
                 const export_str = if (is_exported) "export " else "";
+
+                if (doc_comment_index != 0) {
+                    const doc_comment = self.code.nullTerminatedString(doc_comment_index);
+                    var it = std.mem.tokenize(u8, doc_comment, "\n");
+                    while (it.next()) |doc_line| {
+                        try stream.print("///{s}\n", .{doc_line});
+                        try stream.writeByteNTimes(' ', self.indent);
+                    }
+                }
+
                 try stream.print("[{d}] {s}{s}{s}{}", .{
                     sub_index, pub_str, test_str, export_str, std.zig.fmtId(decl_name),
                 });
