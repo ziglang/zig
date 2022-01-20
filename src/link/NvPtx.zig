@@ -25,6 +25,8 @@ base: link.File,
 llvm_object: *LlvmObject,
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
+    if (!build_options.have_llvm) return error.TODOArchNotSupported;
+
     const nvptx = try gpa.create(NvPtx);
     nvptx.* = .{
         .base = .{
@@ -35,8 +37,6 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
         },
         .llvm_object = undefined,
     };
-
-    if (!build_options.have_llvm) return error.TODOArchNotSupported;
 
     switch (options.target.cpu.arch) {
         .nvptx, .nvptx64 => {},
@@ -53,8 +53,9 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
 }
 
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*NvPtx {
+    if (!build_options.have_llvm) @panic("nvptx target requires a zig compiler with llvm enabled.");
+    if (!options.use_llvm) return error.TODOArchNotSupported;
     assert(options.object_format == .nvptx);
-    if (!build_options.have_llvm or !options.use_llvm) return error.NvptxRequiresLlvm;
 
     const nvptx = try createEmpty(allocator, options);
     errdefer nvptx.base.destroy();
@@ -64,14 +65,17 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 }
 
 pub fn deinit(self: *NvPtx) void {
+    if (!build_options.have_llvm) return;
     self.llvm_object.destroy(self.base.allocator);
 }
 
 pub fn updateFunc(self: *NvPtx, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+    if (!build_options.have_llvm) return;
     try self.llvm_object.updateFunc(module, func, air, liveness);
 }
 
 pub fn updateDecl(self: *NvPtx, module: *Module, decl: *Module.Decl) !void {
+    if (!build_options.have_llvm) return;
     return self.llvm_object.updateDecl(module, decl);
 }
 
@@ -81,6 +85,7 @@ pub fn updateDeclExports(
     decl: *const Module.Decl,
     exports: []const *Module.Export,
 ) !void {
+    if (!build_options.have_llvm) return;
     if (build_options.skip_non_native and builtin.object_format != .nvptx) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -88,6 +93,7 @@ pub fn updateDeclExports(
 }
 
 pub fn freeDecl(self: *NvPtx, decl: *Module.Decl) void {
+    if (!build_options.have_llvm) return;
     return self.llvm_object.freeDecl(decl);
 }
 
@@ -96,7 +102,8 @@ pub fn flush(self: *NvPtx, comp: *Compilation) !void {
 }
 
 pub fn flushModule(self: *NvPtx, comp: *Compilation) !void {
-    if (build_options.skip_non_native or !build_options.have_llvm) {
+    if (!build_options.have_llvm) return;
+    if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
     const tracy = trace(@src());
