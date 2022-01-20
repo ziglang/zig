@@ -510,9 +510,11 @@ pub const Inst = struct {
         /// Uses the `un_op` field.
         error_name,
 
-        /// Constructs a vector value out of runtime-known elements.
+        /// Constructs a vector, tuple, or array value out of runtime-known elements.
+        /// Some of the elements may be comptime-known.
         /// Uses the `ty_pl` field, payload is index of an array of elements, each of which
         /// is a `Ref`. Length of the array is given by the vector type.
+        /// TODO rename this to `array_init` and make it support array values too.
         vector_init,
 
         /// Communicates an intent to load memory.

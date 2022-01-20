@@ -821,6 +821,8 @@ pub const ErrorSet = struct {
     }
 };
 
+pub const RequiresComptime = enum { no, yes, unknown, wip };
+
 /// Represents the data that a struct declaration provides.
 pub const Struct = struct {
     /// The Decl that corresponds to the struct itself.
@@ -849,6 +851,7 @@ pub const Struct = struct {
     /// If true, definitely nonzero size at runtime. If false, resolving the fields
     /// is necessary to determine whether it has bits at runtime.
     known_has_bits: bool,
+    requires_comptime: RequiresComptime = .unknown,
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
@@ -1038,6 +1041,7 @@ pub const Union = struct {
         // which `have_layout` does not ensure.
         fully_resolved,
     },
+    requires_comptime: RequiresComptime = .unknown,
 
     pub const Field = struct {
         /// undefined until `status` is `have_field_types` or `have_layout`.

@@ -2581,9 +2581,12 @@ fn varDecl(
             // Depending on the type of AST the initialization expression is, we may need an lvalue
             // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
             // the variable, no memory location needed.
-            if (align_inst == .none and !nodeMayNeedMemoryLocation(tree, var_decl.ast.init_node)) {
-                const result_loc: ResultLoc = if (var_decl.ast.type_node != 0) .{
-                    .ty = try typeExpr(gz, scope, var_decl.ast.type_node),
+            const type_node = var_decl.ast.type_node;
+            if (align_inst == .none and
+                !nodeMayNeedMemoryLocation(tree, var_decl.ast.init_node, type_node != 0))
+            {
+                const result_loc: ResultLoc = if (type_node != 0) .{
+                    .ty = try typeExpr(gz, scope, type_node),
                 } else .none;
                 const init_inst = try reachableExpr(gz, scope, result_loc, var_decl.ast.init_node, node);
 
@@ -6008,7 +6011,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         return Zir.Inst.Ref.unreachable_value;
     }
 
-    const rl: ResultLoc = if (nodeMayNeedMemoryLocation(tree, operand_node)) .{
+    const rl: ResultLoc = if (nodeMayNeedMemoryLocation(tree, operand_node, true)) .{
         .ptr = try gz.addNodeExtended(.ret_ptr, node),
     } else .{
         .ty = try gz.addNodeExtended(.ret_type, node),
@@ -7725,7 +7728,7 @@ const primitives = std.ComptimeStringMap(Zir.Inst.Ref, .{
     .{ "void", .void_type },
 });
 
-fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index) bool {
+fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index, have_res_ty: bool) bool {
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
@@ -7875,24 +7878,27 @@ fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index) bool 
             .@"orelse",
             => node = node_datas[node].rhs,
 
-            // True because these are exactly the expressions we need memory locations for.
+            // Array and struct init exprs write to result locs, but anon literals do not.
             .array_init_one,
             .array_init_one_comma,
+            .struct_init_one,
+            .struct_init_one_comma,
+            .array_init,
+            .array_init_comma,
+            .struct_init,
+            .struct_init_comma,
+            => return have_res_ty or node_datas[node].lhs != 0,
+
+            // Anon literals do not need result location.
             .array_init_dot_two,
             .array_init_dot_two_comma,
             .array_init_dot,
             .array_init_dot_comma,
-            .array_init,
-            .array_init_comma,
-            .struct_init_one,
-            .struct_init_one_comma,
             .struct_init_dot_two,
             .struct_init_dot_two_comma,
             .struct_init_dot,
             .struct_init_dot_comma,
-            .struct_init,
-            .struct_init_comma,
-            => return true,
+            => return have_res_ty,
 
             // True because depending on comptime conditions, sub-expressions
             // may be the kind that need memory locations.

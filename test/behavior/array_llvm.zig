@@ -237,8 +237,6 @@ test "zero-sized array with recursive type definition" {
 }
 
 test "type coercion of anon struct literal to array" {
-    if (@import("builtin").zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
-
     const S = struct {
         const U = union {
             a: u32,
@@ -253,6 +251,8 @@ test "type coercion of anon struct literal to array" {
             try expect(arr1[0] == 42);
             try expect(arr1[1] == 56);
             try expect(arr1[2] == 54);
+
+            if (@import("builtin").zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
 
             var x2: U = .{ .a = 42 };
             const t2 = .{ x2, .{ .b = true }, .{ .c = "hello" } };
