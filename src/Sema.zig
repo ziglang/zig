@@ -14012,7 +14012,7 @@ fn coerce(
                 if (inst == .empty_struct) {
                     return arrayInitEmpty(sema, dest_ty);
                 }
-                if (inst_ty.tag() == .tuple) {
+                if (inst_ty.isTuple()) {
                     return sema.coerceTupleToArray(block, dest_ty, dest_ty_src, inst, inst_src);
                 }
             },
@@ -14384,12 +14384,30 @@ fn storePtr2(
     uncasted_operand: Air.Inst.Ref,
     operand_src: LazySrcLoc,
     air_tag: Air.Inst.Tag,
-) !void {
+) CompileError!void {
     const ptr_ty = sema.typeOf(ptr);
     if (ptr_ty.isConstPtr())
-        return sema.fail(block, src, "cannot assign to constant", .{});
+        return sema.fail(block, ptr_src, "cannot assign to constant", .{});
 
     const elem_ty = ptr_ty.childType();
+
+    // To generate better code for tuples, we detect a tuple operand here, and
+    // analyze field loads and stores directly. This avoids an extra allocation + memcpy
+    // which would occur if we used `coerce`.
+    const operand_ty = sema.typeOf(uncasted_operand);
+    if (operand_ty.castTag(.tuple)) |payload| {
+        const tuple_fields_len = payload.data.types.len;
+        var i: u32 = 0;
+        while (i < tuple_fields_len) : (i += 1) {
+            const elem_src = operand_src; // TODO better source location
+            const elem = try tupleField(sema, block, uncasted_operand, i, operand_src, elem_src);
+            const elem_index = try sema.addIntUnsigned(Type.usize, i);
+            const elem_ptr = try sema.elemPtr(block, ptr_src, ptr, elem_index, elem_src);
+            try sema.storePtr2(block, src, elem_ptr, elem_src, elem, elem_src, .store);
+        }
+        return;
+    }
+
     const operand = try sema.coerce(block, elem_ty, uncasted_operand, operand_src);
     if ((try sema.typeHasOnePossibleValue(block, src, elem_ty)) != null)
         return;
