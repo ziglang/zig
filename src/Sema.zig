@@ -2628,6 +2628,7 @@ fn validateUnionInit(
             // Otherwise, the bitcast should be preserved and a store instruction should be
             // emitted to store the constant union value through the bitcast.
         },
+        .alloc => {},
         else => |t| {
             if (std.debug.runtime_safety) {
                 std.debug.panic("unexpected AIR tag for union pointer: {s}", .{@tagName(t)});
@@ -10694,12 +10695,77 @@ fn zirArrayInit(
     }
 }
 
-fn zirArrayInitAnon(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: bool) CompileError!Air.Inst.Ref {
+fn zirArrayInitAnon(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    is_ref: bool,
+) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
+    const extra = sema.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
+    const operands = sema.code.refSlice(extra.end, extra.data.operands_len);
 
-    _ = is_ref;
-    return sema.fail(block, src, "TODO: Sema.zirArrayInitAnon", .{});
+    const types = try sema.arena.alloc(Type, operands.len);
+    const values = try sema.arena.alloc(Value, operands.len);
+
+    const opt_runtime_src = rs: {
+        var runtime_src: ?LazySrcLoc = null;
+        for (operands) |operand, i| {
+            const elem = sema.resolveInst(operand);
+            types[i] = sema.typeOf(elem);
+            const operand_src = src; // TODO better source location
+            if (try sema.resolveMaybeUndefVal(block, operand_src, elem)) |val| {
+                values[i] = val;
+            } else {
+                values[i] = Value.initTag(.unreachable_value);
+                runtime_src = operand_src;
+            }
+        }
+        break :rs runtime_src;
+    };
+
+    const tuple_ty = try Type.Tag.tuple.create(sema.arena, .{
+        .types = types,
+        .values = values,
+    });
+
+    const runtime_src = opt_runtime_src orelse {
+        const tuple_val = try Value.Tag.@"struct".create(sema.arena, values);
+        if (!is_ref) return sema.addConstant(tuple_ty, tuple_val);
+
+        var anon_decl = try block.startAnonDecl();
+        defer anon_decl.deinit();
+        const decl = try anon_decl.finish(
+            try tuple_ty.copy(anon_decl.arena()),
+            try tuple_val.copy(anon_decl.arena()),
+        );
+        return sema.analyzeDeclRef(decl);
+    };
+
+    if (is_ref) {
+        const alloc = try block.addTy(.alloc, tuple_ty);
+        for (operands) |operand, i_usize| {
+            const i = @intCast(u32, i_usize);
+            const field_ptr_ty = try Type.ptr(sema.arena, .{
+                .mutable = true,
+                .@"addrspace" = target_util.defaultAddressSpace(sema.mod.getTarget(), .local),
+                .pointee_type = types[i],
+            });
+            const field_ptr = try block.addStructFieldPtr(alloc, i, field_ptr_ty);
+            _ = try block.addBinOp(.store, field_ptr, sema.resolveInst(operand));
+        }
+
+        return alloc;
+    }
+
+    const element_refs = try sema.arena.alloc(Air.Inst.Ref, operands.len);
+    for (operands) |operand, i| {
+        element_refs[i] = sema.resolveInst(operand);
+    }
+
+    try sema.requireRuntimeBlock(block, runtime_src);
+    return block.addVectorInit(tuple_ty, element_refs);
 }
 
 fn zirFieldTypeRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -13540,8 +13606,48 @@ fn elemVal(
             // TODO: If the index is a vector, the result should be a vector.
             return elemValArray(sema, block, array, elem_index, array_src, elem_index_src);
         },
+        .Struct => {
+            // Tuple field access.
+            const index_val = try sema.resolveConstValue(block, elem_index_src, elem_index);
+            const index = @intCast(u32, index_val.toUnsignedInt());
+            return tupleField(sema, block, array, index, array_src, elem_index_src);
+        },
         else => unreachable,
     }
+}
+
+fn tupleField(
+    sema: *Sema,
+    block: *Block,
+    tuple: Air.Inst.Ref,
+    field_index: u32,
+    tuple_src: LazySrcLoc,
+    field_index_src: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
+    const tuple_ty = sema.typeOf(tuple);
+    const tuple_info = tuple_ty.castTag(.tuple).?.data;
+
+    if (field_index > tuple_info.types.len) {
+        return sema.fail(block, field_index_src, "index {d} outside tuple of length {d}", .{
+            field_index, tuple_info.types.len,
+        });
+    }
+
+    const field_ty = tuple_info.types[field_index];
+    const field_val = tuple_info.values[field_index];
+
+    if (field_val.tag() != .unreachable_value) {
+        return sema.addConstant(field_ty, field_val); // comptime field
+    }
+
+    if (try sema.resolveMaybeUndefVal(block, tuple_src, tuple)) |tuple_val| {
+        if (tuple_val.isUndef()) return sema.addConstUndef(field_ty);
+        const field_values = tuple_val.castTag(.@"struct").?.data;
+        return sema.addConstant(field_ty, field_values[field_index]);
+    }
+
+    try sema.requireRuntimeBlock(block, tuple_src);
+    return block.addStructFieldVal(tuple, field_index, field_ty);
 }
 
 fn elemValArray(
@@ -13901,17 +14007,19 @@ fn coerce(
             else => {},
         },
         .Array => switch (inst_ty.zigTypeTag()) {
-            .Vector => return sema.coerceVectorInMemory(block, dest_ty, dest_ty_src, inst, inst_src),
+            .Vector => return sema.coerceArrayLike(block, dest_ty, dest_ty_src, inst, inst_src),
             .Struct => {
                 if (inst == .empty_struct) {
                     return arrayInitEmpty(sema, dest_ty);
+                }
+                if (inst_ty.tag() == .tuple) {
+                    return sema.coerceTupleToArray(block, dest_ty, dest_ty_src, inst, inst_src);
                 }
             },
             else => {},
         },
         .Vector => switch (inst_ty.zigTypeTag()) {
-            .Array => return sema.coerceVectorInMemory(block, dest_ty, dest_ty_src, inst, inst_src),
-            .Vector => return sema.coerceVectors(block, dest_ty, dest_ty_src, inst, inst_src),
+            .Array, .Vector => return sema.coerceArrayLike(block, dest_ty, dest_ty_src, inst, inst_src),
             else => {},
         },
         .Struct => {
@@ -14847,54 +14955,8 @@ fn coerceEnumToUnion(
     return sema.failWithOwnedErrorMsg(msg);
 }
 
-/// Coerces vectors/arrays which have the same in-memory layout. This can be used for
-/// both coercing from and to vectors.
-/// TODO (affects the lang spec) delete this in favor of always using `coerceVectors`.
-fn coerceVectorInMemory(
-    sema: *Sema,
-    block: *Block,
-    dest_ty: Type,
-    dest_ty_src: LazySrcLoc,
-    inst: Air.Inst.Ref,
-    inst_src: LazySrcLoc,
-) !Air.Inst.Ref {
-    const inst_ty = sema.typeOf(inst);
-    const inst_len = inst_ty.arrayLen();
-    const dest_len = dest_ty.arrayLen();
-
-    if (dest_len != inst_len) {
-        const msg = msg: {
-            const msg = try sema.errMsg(block, inst_src, "expected {}, found {}", .{
-                dest_ty, inst_ty,
-            });
-            errdefer msg.destroy(sema.gpa);
-            try sema.errNote(block, dest_ty_src, msg, "destination has length {d}", .{dest_len});
-            try sema.errNote(block, inst_src, msg, "source has length {d}", .{inst_len});
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(msg);
-    }
-
-    const target = sema.mod.getTarget();
-    const dest_elem_ty = dest_ty.childType();
-    const inst_elem_ty = inst_ty.childType();
-    const in_memory_result = try sema.coerceInMemoryAllowed(block, dest_elem_ty, inst_elem_ty, false, target, dest_ty_src, inst_src);
-    if (in_memory_result != .ok) {
-        // TODO recursive error notes for coerceInMemoryAllowed failure
-        return sema.fail(block, inst_src, "expected {}, found {}", .{ dest_ty, inst_ty });
-    }
-
-    if (try sema.resolveMaybeUndefVal(block, inst_src, inst)) |inst_val| {
-        // These types share the same comptime value representation.
-        return sema.addConstant(dest_ty, inst_val);
-    }
-
-    try sema.requireRuntimeBlock(block, inst_src);
-    return block.addBitCast(dest_ty, inst);
-}
-
 /// If the lengths match, coerces element-wise.
-fn coerceVectors(
+fn coerceArrayLike(
     sema: *Sema,
     block: *Block,
     dest_ty: Type,
@@ -14943,6 +15005,63 @@ fn coerceVectors(
         );
         const elem_src = inst_src; // TODO better source location
         const elem_ref = try elemValArray(sema, block, inst, index_ref, inst_src, elem_src);
+        const coerced = try sema.coerce(block, dest_elem_ty, elem_ref, elem_src);
+        element_refs[i] = coerced;
+        if (runtime_src == null) {
+            if (try sema.resolveMaybeUndefVal(block, elem_src, coerced)) |elem_val| {
+                elem.* = elem_val;
+            } else {
+                runtime_src = elem_src;
+            }
+        }
+    }
+
+    if (runtime_src) |rs| {
+        try sema.requireRuntimeBlock(block, rs);
+        return block.addVectorInit(dest_ty, element_refs);
+    }
+
+    return sema.addConstant(
+        dest_ty,
+        try Value.Tag.array.create(sema.arena, element_vals),
+    );
+}
+
+/// If the lengths match, coerces element-wise.
+fn coerceTupleToArray(
+    sema: *Sema,
+    block: *Block,
+    dest_ty: Type,
+    dest_ty_src: LazySrcLoc,
+    inst: Air.Inst.Ref,
+    inst_src: LazySrcLoc,
+) !Air.Inst.Ref {
+    const inst_ty = sema.typeOf(inst);
+    const inst_len = inst_ty.arrayLen();
+    const dest_len = dest_ty.arrayLen();
+
+    if (dest_len != inst_len) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, inst_src, "expected {}, found {}", .{
+                dest_ty, inst_ty,
+            });
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, dest_ty_src, msg, "destination has length {d}", .{dest_len});
+            try sema.errNote(block, inst_src, msg, "source has length {d}", .{inst_len});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    const element_vals = try sema.arena.alloc(Value, dest_len);
+    const element_refs = try sema.arena.alloc(Air.Inst.Ref, dest_len);
+    const dest_elem_ty = dest_ty.childType();
+
+    var runtime_src: ?LazySrcLoc = null;
+    for (element_vals) |*elem, i_usize| {
+        const i = @intCast(u32, i_usize);
+        const elem_src = inst_src; // TODO better source location
+        const elem_ref = try tupleField(sema, block, inst, i, inst_src, elem_src);
         const coerced = try sema.coerce(block, dest_elem_ty, elem_ref, elem_src);
         element_refs[i] = coerced;
         if (runtime_src == null) {
@@ -15833,19 +15952,22 @@ fn resolveStructLayout(
     ty: Type,
 ) CompileError!void {
     const resolved_ty = try sema.resolveTypeFields(block, src, ty);
-    const struct_obj = resolved_ty.castTag(.@"struct").?.data;
-    switch (struct_obj.status) {
-        .none, .have_field_types => {},
-        .field_types_wip, .layout_wip => {
-            return sema.fail(block, src, "struct {} depends on itself", .{ty});
-        },
-        .have_layout, .fully_resolved_wip, .fully_resolved => return,
+    if (resolved_ty.castTag(.@"struct")) |payload| {
+        const struct_obj = payload.data;
+        switch (struct_obj.status) {
+            .none, .have_field_types => {},
+            .field_types_wip, .layout_wip => {
+                return sema.fail(block, src, "struct {} depends on itself", .{ty});
+            },
+            .have_layout, .fully_resolved_wip, .fully_resolved => return,
+        }
+        struct_obj.status = .layout_wip;
+        for (struct_obj.fields.values()) |field| {
+            try sema.resolveTypeLayout(block, src, field.ty);
+        }
+        struct_obj.status = .have_layout;
     }
-    struct_obj.status = .layout_wip;
-    for (struct_obj.fields.values()) |field| {
-        try sema.resolveTypeLayout(block, src, field.ty);
-    }
-    struct_obj.status = .have_layout;
+    // otherwise it's a tuple; no need to resolve anything
 }
 
 fn resolveUnionLayout(
@@ -16642,6 +16764,17 @@ pub fn typeHasOnePossibleValue(
             }
             return Value.initTag(.empty_struct_value);
         },
+
+        .tuple => {
+            const tuple = ty.castTag(.tuple).?.data;
+            for (tuple.values) |val| {
+                if (val.tag() == .unreachable_value) {
+                    return null; // non-comptime field
+                }
+            }
+            return Value.initTag(.empty_struct_value);
+        },
+
         .enum_numbered => {
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const enum_obj = resolved_ty.castTag(.enum_numbered).?.data;

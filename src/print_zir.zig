@@ -1963,7 +1963,8 @@ const Writer = struct {
             if (i != 0) try stream.writeAll(", ");
             try self.writeInstRef(stream, arg);
         }
-        try stream.writeAll("})");
+        try stream.writeAll("}) ");
+        try self.writeSrc(stream, inst_data.src());
     }
 
     fn writeUnreachable(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {

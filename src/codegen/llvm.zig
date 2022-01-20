@@ -916,6 +916,31 @@ pub const DeclGen = struct {
                 // reference, we need to copy it here.
                 gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
+                if (t.castTag(.tuple)) |tuple| {
+                    const llvm_struct_ty = dg.context.structCreateNamed("");
+                    gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
+
+                    const types = tuple.data.types;
+                    const values = tuple.data.values;
+                    var llvm_field_types = try std.ArrayListUnmanaged(*const llvm.Type).initCapacity(gpa, types.len);
+                    defer llvm_field_types.deinit(gpa);
+
+                    for (types) |field_ty, i| {
+                        const field_val = values[i];
+                        if (field_val.tag() != .unreachable_value) continue;
+
+                        llvm_field_types.appendAssumeCapacity(try dg.llvmType(field_ty));
+                    }
+
+                    llvm_struct_ty.structSetBody(
+                        llvm_field_types.items.ptr,
+                        @intCast(c_uint, llvm_field_types.items.len),
+                        .False,
+                    );
+
+                    return llvm_struct_ty;
+                }
+
                 const struct_obj = t.castTag(.@"struct").?.data;
 
                 const name = try struct_obj.getFullyQualifiedName(gpa);
@@ -2687,10 +2712,23 @@ pub const FuncGen = struct {
         if (!field_ty.hasCodeGenBits()) {
             return null;
         }
-
-        assert(isByRef(struct_ty));
-
         const target = self.dg.module.getTarget();
+
+        if (!isByRef(struct_ty)) {
+            assert(!isByRef(field_ty));
+            switch (struct_ty.zigTypeTag()) {
+                .Struct => {
+                    var ptr_ty_buf: Type.Payload.Pointer = undefined;
+                    const llvm_field_index = llvmFieldIndex(struct_ty, field_index, target, &ptr_ty_buf).?;
+                    return self.builder.buildExtractValue(struct_llvm_val, llvm_field_index, "");
+                },
+                .Union => {
+                    return self.todo("airStructFieldVal byval union", .{});
+                },
+                else => unreachable,
+            }
+        }
+
         switch (struct_ty.zigTypeTag()) {
             .Struct => {
                 var ptr_ty_buf: Type.Payload.Pointer = undefined;
@@ -4370,19 +4408,85 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-        const vector_ty = self.air.typeOfIndex(inst);
-        const len = vector_ty.arrayLen();
+        const result_ty = self.air.typeOfIndex(inst);
+        const len = @intCast(usize, result_ty.arrayLen());
         const elements = @bitCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
-        const llvm_vector_ty = try self.dg.llvmType(vector_ty);
-        const llvm_u32 = self.context.intType(32);
+        const llvm_result_ty = try self.dg.llvmType(result_ty);
 
-        var vector = llvm_vector_ty.getUndef();
-        for (elements) |elem, i| {
-            const index_u32 = llvm_u32.constInt(i, .False);
-            const llvm_elem = try self.resolveInst(elem);
-            vector = self.builder.buildInsertElement(vector, llvm_elem, index_u32, "");
+        switch (result_ty.zigTypeTag()) {
+            .Vector => {
+                const llvm_u32 = self.context.intType(32);
+
+                var vector = llvm_result_ty.getUndef();
+                for (elements) |elem, i| {
+                    const index_u32 = llvm_u32.constInt(i, .False);
+                    const llvm_elem = try self.resolveInst(elem);
+                    vector = self.builder.buildInsertElement(vector, llvm_elem, index_u32, "");
+                }
+                return vector;
+            },
+            .Struct => {
+                const tuple = result_ty.castTag(.tuple).?.data;
+
+                if (isByRef(result_ty)) {
+                    const llvm_u32 = self.context.intType(32);
+                    const alloca_inst = self.buildAlloca(llvm_result_ty);
+                    const target = self.dg.module.getTarget();
+                    alloca_inst.setAlignment(result_ty.abiAlignment(target));
+
+                    var indices: [2]*const llvm.Value = .{ llvm_u32.constNull(), undefined };
+                    var llvm_i: u32 = 0;
+
+                    for (elements) |elem, i| {
+                        if (tuple.values[i].tag() != .unreachable_value) continue;
+                        const field_ty = tuple.types[i];
+                        const llvm_elem = try self.resolveInst(elem);
+                        indices[1] = llvm_u32.constInt(llvm_i, .False);
+                        llvm_i += 1;
+                        const field_ptr = self.builder.buildInBoundsGEP(alloca_inst, &indices, indices.len, "");
+                        const store_inst = self.builder.buildStore(llvm_elem, field_ptr);
+                        store_inst.setAlignment(field_ty.abiAlignment(target));
+                    }
+
+                    return alloca_inst;
+                } else {
+                    var result = llvm_result_ty.getUndef();
+                    var llvm_i: u32 = 0;
+                    for (elements) |elem, i| {
+                        if (tuple.values[i].tag() != .unreachable_value) continue;
+
+                        const llvm_elem = try self.resolveInst(elem);
+                        result = self.builder.buildInsertValue(result, llvm_elem, llvm_i, "");
+                        llvm_i += 1;
+                    }
+                    return result;
+                }
+            },
+            .Array => {
+                assert(isByRef(result_ty));
+
+                const llvm_usize = try self.dg.llvmType(Type.usize);
+                const target = self.dg.module.getTarget();
+                const alloca_inst = self.buildAlloca(llvm_result_ty);
+                alloca_inst.setAlignment(result_ty.abiAlignment(target));
+
+                const elem_ty = result_ty.childType();
+
+                for (elements) |elem, i| {
+                    const indices: [2]*const llvm.Value = .{
+                        llvm_usize.constNull(),
+                        llvm_usize.constInt(@intCast(c_uint, i), .False),
+                    };
+                    const elem_ptr = self.builder.buildInBoundsGEP(alloca_inst, &indices, indices.len, "");
+                    const llvm_elem = try self.resolveInst(elem);
+                    const store_inst = self.builder.buildStore(llvm_elem, elem_ptr);
+                    store_inst.setAlignment(elem_ty.abiAlignment(target));
+                }
+
+                return alloca_inst;
+            },
+            else => unreachable,
         }
-        return vector;
     }
 
     fn airPrefetch(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -4956,6 +5060,29 @@ fn llvmFieldIndex(
     target: std.Target,
     ptr_pl_buf: *Type.Payload.Pointer,
 ) ?c_uint {
+    if (ty.castTag(.tuple)) |payload| {
+        const values = payload.data.values;
+        var llvm_field_index: c_uint = 0;
+        for (values) |val, i| {
+            if (val.tag() != .unreachable_value) {
+                continue;
+            }
+            if (field_index > i) {
+                llvm_field_index += 1;
+                continue;
+            }
+            const field_ty = payload.data.types[i];
+            ptr_pl_buf.* = .{
+                .data = .{
+                    .pointee_type = field_ty,
+                    .@"align" = field_ty.abiAlignment(target),
+                    .@"addrspace" = .generic,
+                },
+            };
+            return llvm_field_index;
+        }
+        return null;
+    }
     const struct_obj = ty.castTag(.@"struct").?.data;
     if (struct_obj.layout != .Packed) {
         var llvm_field_index: c_uint = 0;
@@ -4976,7 +5103,7 @@ fn llvmFieldIndex(
             };
             return llvm_field_index;
         } else {
-            // We did not find an llvm field that corrispons to this zig field.
+            // We did not find an llvm field that corresponds to this zig field.
             return null;
         }
     }
@@ -5072,6 +5199,10 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
 }
 
 fn isByRef(ty: Type) bool {
+    // For tuples (and TODO structs), if there are more than this many non-void
+    // fields, then we make it byref, otherwise byval.
+    const max_fields_byval = 2;
+
     switch (ty.zigTypeTag()) {
         .Type,
         .ComptimeInt,
@@ -5096,7 +5227,26 @@ fn isByRef(ty: Type) bool {
         .AnyFrame,
         => return false,
 
-        .Array, .Struct, .Frame => return ty.hasCodeGenBits(),
+        .Array, .Frame => return ty.hasCodeGenBits(),
+        .Struct => {
+            if (!ty.hasCodeGenBits()) return false;
+            if (ty.castTag(.tuple)) |tuple| {
+                var count: usize = 0;
+                for (tuple.data.values) |field_val, i| {
+                    if (field_val.tag() != .unreachable_value) continue;
+                    count += 1;
+                    if (count > max_fields_byval) {
+                        return true;
+                    }
+                    const field_ty = tuple.data.types[i];
+                    if (isByRef(field_ty)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            return true;
+        },
         .Union => return ty.hasCodeGenBits(),
         .ErrorUnion => return isByRef(ty.errorUnionPayload()),
         .Optional => {
