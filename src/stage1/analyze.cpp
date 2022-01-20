@@ -73,7 +73,6 @@ ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, TokenIndex token, Buf *msg
 }
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
-    node->already_traced_this_node = true;
     return add_token_error(g, node->owner, node->main_token, msg);
 }
 
@@ -4472,11 +4471,6 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool all
             tld->resolution = TldResolutionOk;
             break;
         }
-    }
-
-    if (g->trace_err != nullptr && source_node != nullptr && !source_node->already_traced_this_node) {
-        g->trace_err = add_error_note(g, g->trace_err, source_node, buf_create_from_str("referenced here"));
-        source_node->already_traced_this_node = true;
     }
 }
 
