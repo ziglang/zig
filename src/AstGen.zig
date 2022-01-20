@@ -3193,7 +3193,7 @@ fn fnDecl(
     // missing function name already happened in scanDecls()
     const fn_name_token = fn_proto.name_token orelse return error.AnalysisFail;
     const fn_name_str_index = try astgen.identAsString(fn_name_token);
-    const doc_comment_index = try docCommentAsString(astgen, fn_name_token - 1);
+    const doc_comment_index = try astgen.docCommentAsString(fn_name_token - 1);
 
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
@@ -3474,7 +3474,7 @@ fn globalVarDecl(
 
     const name_token = var_decl.ast.mut_token + 1;
     const name_str_index = try astgen.identAsString(name_token);
-    const doc_comment_index = try docCommentAsString(astgen, var_decl.ast.mut_token);
+    const doc_comment_index = try astgen.docCommentAsString(var_decl.ast.mut_token);
 
     var block_scope: GenZir = .{
         .parent = scope,
@@ -3864,7 +3864,7 @@ fn structDeclInner(
     const field_count = @intCast(u32, container_decl.ast.members.len - decl_count);
 
     const bits_per_field = 4;
-    const max_field_size = 4;
+    const max_field_size = 5;
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
@@ -3887,6 +3887,9 @@ fn structDeclInner(
         else
             try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
         wip_members.appendToField(@enumToInt(field_type));
+
+        const doc_comment_index = try astgen.docCommentAsString(member.ast.name_token);
+        wip_members.appendToField(doc_comment_index);
 
         known_has_bits = known_has_bits or nodeImpliesRuntimeBits(tree, member.ast.type_expr);
 
@@ -3986,7 +3989,7 @@ fn unionDeclInner(
         .none;
 
     const bits_per_field = 4;
-    const max_field_size = 4;
+    const max_field_size = 5;
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
@@ -4001,6 +4004,9 @@ fn unionDeclInner(
 
         const field_name = try astgen.identAsString(member.ast.name_token);
         wip_members.appendToField(field_name);
+
+        const doc_comment_index = try astgen.docCommentAsString(member.ast.name_token);
+        wip_members.appendToField(doc_comment_index);
 
         const have_type = member.ast.type_expr != 0;
         const have_align = member.ast.align_expr != 0;
@@ -4265,7 +4271,7 @@ fn containerDecl(
                 .none;
 
             const bits_per_field = 1;
-            const max_field_size = 2;
+            const max_field_size = 3;
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, @intCast(u32, counts.decls), @intCast(u32, counts.total_fields), bits_per_field, max_field_size);
             defer wip_members.deinit();
 
@@ -4282,6 +4288,9 @@ fn containerDecl(
 
                 const field_name = try astgen.identAsString(member.ast.name_token);
                 wip_members.appendToField(field_name);
+
+                const doc_comment_index = try astgen.docCommentAsString(member.ast.name_token);
+                wip_members.appendToField(doc_comment_index);
 
                 const have_value = member.ast.value_expr != 0;
                 wip_members.nextField(bits_per_field, .{have_value});
@@ -4513,8 +4522,14 @@ fn errorSetDecl(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Zir
             switch (token_tags[tok_i]) {
                 .doc_comment, .comma => {},
                 .identifier => {
+                    // TODO: maybe consider not using `docCommentAsString`
+                    //       since we're already visiting the first doc comment
+                    //       token.
+                    try astgen.extra.ensureUnusedCapacity(gpa, 2);
                     const str_index = try astgen.identAsString(tok_i);
-                    try astgen.extra.append(gpa, str_index);
+                    astgen.extra.appendAssumeCapacity(str_index);
+                    const doc_comment_index = try astgen.docCommentAsString(tok_i);
+                    astgen.extra.appendAssumeCapacity(doc_comment_index);
                     fields_len += 1;
                 },
                 .r_brace => break,
