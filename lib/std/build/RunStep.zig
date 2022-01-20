@@ -34,7 +34,8 @@ stderr_action: StdIoAction = .inherit,
 
 stdin_behavior: std.ChildProcess.StdIo = .Inherit,
 
-expected_exit_code: u8 = 0,
+/// Set this to `null` to ignore the exit code for the purpose of determining a successful execution
+expected_exit_code: ?u8 = 0,
 
 /// Print the command before running it
 print: bool,
@@ -220,17 +221,19 @@ fn make(step: *Step) !void {
     };
 
     switch (term) {
-        .Exited => |code| {
-            if (code != self.expected_exit_code) {
+        .Exited => |code| blk: {
+            const expected_exit_code = self.expected_exit_code orelse break :blk;
+
+            if (code != expected_exit_code) {
                 if (self.builder.prominent_compile_errors) {
                     std.debug.print("Run step exited with error code {} (expected {})\n", .{
                         code,
-                        self.expected_exit_code,
+                        expected_exit_code,
                     });
                 } else {
                     std.debug.print("The following command exited with error code {} (expected {}):\n", .{
                         code,
-                        self.expected_exit_code,
+                        expected_exit_code,
                     });
                     printCmd(cwd, argv);
                 }
