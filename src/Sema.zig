@@ -15056,7 +15056,7 @@ fn coerceTupleToArray(
 ) !Air.Inst.Ref {
     const inst_ty = sema.typeOf(inst);
     const inst_len = inst_ty.arrayLen();
-    const dest_len = dest_ty.arrayLen();
+    const dest_len = try sema.usizeCast(block, dest_ty_src, dest_ty.arrayLen());
 
     if (dest_len != inst_len) {
         const msg = msg: {
