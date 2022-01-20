@@ -60,6 +60,9 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         .build_modes = true,
         .cross_targets = true,
     });
+    if (builtin.os.tag == .linux) {
+        cases.addBuildFile("test/standalone/c_glibc_versions/build.zig", .{});
+    }
 
     if (builtin.os.tag == .windows) {
         cases.addC("test/standalone/issue_9402/main.zig");
