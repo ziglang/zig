@@ -307,8 +307,7 @@ pub const EnvMap = struct {
         else => std.BufMap,
     };
 
-    /// Matches what BufMap uses for its internal HashMap Size
-    pub const Size = u32;
+    pub const Size = std.BufMap.BufMapHashMap.Size;
 
     const Self = @This();
 
