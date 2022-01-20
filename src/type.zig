@@ -1544,22 +1544,40 @@ pub const Type = extern union {
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
-                for (struct_obj.fields.values()) |field| {
-                    if (requiresComptime(field.ty)) {
-                        return true;
-                    }
+                switch (struct_obj.requires_comptime) {
+                    .no, .wip => return false,
+                    .yes => return true,
+                    .unknown => {
+                        struct_obj.requires_comptime = .wip;
+                        for (struct_obj.fields.values()) |field| {
+                            if (requiresComptime(field.ty)) {
+                                struct_obj.requires_comptime = .yes;
+                                return true;
+                            }
+                        }
+                        struct_obj.requires_comptime = .no;
+                        return false;
+                    },
                 }
-                return false;
             },
 
             .@"union", .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
-                for (union_obj.fields.values()) |field| {
-                    if (requiresComptime(field.ty)) {
-                        return true;
-                    }
+                switch (union_obj.requires_comptime) {
+                    .no, .wip => return false,
+                    .yes => return true,
+                    .unknown => {
+                        union_obj.requires_comptime = .wip;
+                        for (union_obj.fields.values()) |field| {
+                            if (requiresComptime(field.ty)) {
+                                union_obj.requires_comptime = .yes;
+                                return true;
+                            }
+                        }
+                        union_obj.requires_comptime = .no;
+                        return false;
+                    },
                 }
-                return false;
             },
 
             .error_union => return requiresComptime(errorUnionPayload(ty)),
@@ -3661,7 +3679,7 @@ pub const Type = extern union {
                 .Slice, .Many, .C => true,
                 .One => ty.elemType().zigTypeTag() == .Array,
             },
-            .Struct => ty.tag() == .tuple,
+            .Struct => ty.isTuple(),
             else => false,
         };
     }
@@ -4500,6 +4518,10 @@ pub const Type = extern union {
             return std.meta.fieldInfo(t.Type(), .data).field_type;
         }
     };
+
+    pub fn isTuple(ty: Type) bool {
+        return ty.tag() == .tuple;
+    }
 
     /// The sub-types are named after what fields they contain.
     pub const Payload = struct {
