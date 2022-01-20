@@ -412,7 +412,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:15:23: error: enum field missing: 'arst'",
-        "tmp.zig:27:24: note: referenced here",
     });
 
     ctx.objErrStage1("field access of opaque type",
@@ -505,7 +504,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:25: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
-        "tmp.zig:13:17: note: referenced here",
     });
 
     ctx.objErrStage1("slice sentinel mismatch",
@@ -541,7 +539,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:25: error: unions must have 1 or more fields",
-        "tmp.zig:11:17: note: referenced here",
     });
 
     ctx.objErrStage1("@Type for exhaustive enum with zero fields",
@@ -560,7 +557,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:20: error: enums must have 1 or more fields",
-        "tmp.zig:12:9: note: referenced here",
     });
 
     ctx.objErrStage1("@Type for tagged union with extra union field",
@@ -596,7 +592,6 @@ pub fn addCases(ctx: *TestContext) !void {
     , &[_][]const u8{
         "tmp.zig:14:23: error: enum field not found: 'arst'",
         "tmp.zig:2:20: note: enum declared here",
-        "tmp.zig:27:24: note: referenced here",
     });
 
     ctx.objErrStage1("@Type with undefined",
@@ -812,9 +807,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:3:35: error: unable to evaluate constant expression",
-        "tmp.zig:3:9: note: referenced here",
         "tmp.zig:7:37: error: unable to evaluate constant expression",
-        "tmp.zig:7:9: note: referenced here",
     });
 
     ctx.objErrStage1("extern variable has no type",
@@ -911,13 +904,9 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:3:32: error: unable to evaluate constant expression",
-        "tmp.zig:3:9: note: referenced here",
         "tmp.zig:7:21: error: expected float type, found 'u32'",
-        "tmp.zig:7:9: note: referenced here",
         "tmp.zig:11:26: error: expected float type, found 'u32'",
-        "tmp.zig:11:9: note: referenced here",
         "tmp.zig:15:23: error: expected integer type, found 'f32'",
-        "tmp.zig:15:9: note: referenced here",
     });
 
     ctx.testErrStage1("invalid float casts",
@@ -939,13 +928,9 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:3:36: error: unable to evaluate constant expression",
-        "tmp.zig:3:9: note: referenced here",
         "tmp.zig:7:21: error: expected integer type, found 'f32'",
-        "tmp.zig:7:9: note: referenced here",
         "tmp.zig:11:26: error: expected int type, found 'f32'",
-        "tmp.zig:11:9: note: referenced here",
         "tmp.zig:15:25: error: expected float type, found 'u32'",
-        "tmp.zig:15:9: note: referenced here",
     });
 
     ctx.testErrStage1("invalid assignments",
@@ -1218,7 +1203,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export const foo = @typeInfo(@This()).Struct.decls;
     , &[_][]const u8{
         "tmp.zig:1:20: error: dependency loop detected",
-        "tmp.zig:1:45: note: referenced here",
     });
 
     ctx.objErrStage1("function call assigned to incorrect type",
@@ -2154,7 +2138,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:21: error: shift amount has to be an integer type, but found '*const u8'",
-        "tmp.zig:2:17: note: referenced here",
     });
 
     ctx.objErrStage1("bit shifting only works on integer types",
@@ -2164,7 +2147,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:16: error: bit shifting operation expected integer type, found '*const u8'",
-        "tmp.zig:2:27: note: referenced here",
     });
 
     ctx.objErrStage1("struct depends on itself via optional field",
@@ -2461,7 +2443,6 @@ pub fn addCases(ctx: *TestContext) !void {
     , &[_][]const u8{
         "tmp.zig:4:1: error: unable to determine async function frame of 'amain'",
         "tmp.zig:5:10: note: analysis of function 'other' depends on the frame",
-        "tmp.zig:8:13: note: referenced here",
     });
 
     ctx.objErrStage1("async function depends on its own frame",
@@ -2474,7 +2455,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:4:1: error: cannot resolve '@Frame(amain)': function not fully analyzed yet",
-        "tmp.zig:5:13: note: referenced here",
     });
 
     ctx.objErrStage1("non async function pointer passed to @asyncCall",
@@ -2697,7 +2677,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:1:29: error: evaluation exceeded 1000 backwards branches",
-        "tmp.zig:5:18: note: referenced here",
     });
 
     ctx.objErrStage1("@ptrToInt 0 to non optional pointer",
@@ -2874,7 +2853,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:1:13: error: struct 'Foo' depends on itself",
-        "tmp.zig:8:28: note: referenced here",
     });
 
     ctx.objErrStage1("enum field value references enum",
@@ -2900,8 +2878,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:19: error: dependency loop detected",
-        "tmp.zig:1:19: note: referenced here",
-        "tmp.zig:4:15: note: referenced here",
     });
 
     ctx.testErrStage1("not an enum type",
@@ -5824,7 +5800,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() usize { return @sizeOf(@TypeOf(y)); }
     , &[_][]const u8{
         "tmp.zig:3:14: error: division by zero",
-        "tmp.zig:1:14: note: referenced here",
     });
 
     ctx.objErrStage1("branch on undefined value",
@@ -6205,8 +6180,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() usize { return @sizeOf(@TypeOf(seventh_fib_number)); }
     , &[_][]const u8{
         "tmp.zig:3:21: error: evaluation exceeded 1000 backwards branches",
-        "tmp.zig:1:37: note: referenced here",
-        "tmp.zig:6:50: note: referenced here",
     });
 
     ctx.objErrStage1("@embedFile with bogus file",
@@ -6243,7 +6216,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() usize { return @sizeOf(@TypeOf(a)); }
     , &[_][]const u8{
         "tmp.zig:6:26: error: unable to evaluate constant expression",
-        "tmp.zig:4:17: note: referenced here",
     });
 
     ctx.objErrStage1("undeclared identifier error should mark fn as impure",
@@ -6321,7 +6293,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() usize { return @sizeOf(@TypeOf(y)); }
     , &[_][]const u8{
         "tmp.zig:3:12: error: negation caused overflow",
-        "tmp.zig:1:14: note: referenced here",
     });
 
     ctx.objErrStage1("add overflow in function evaluation",
@@ -6333,7 +6304,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() usize { return @sizeOf(@TypeOf(y)); }
     , &[_][]const u8{
         "tmp.zig:3:14: error: operation caused overflow",
-        "tmp.zig:1:14: note: referenced here",
     });
 
     ctx.objErrStage1("sub overflow in function evaluation",
@@ -6345,7 +6315,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() usize { return @sizeOf(@TypeOf(y)); }
     , &[_][]const u8{
         "tmp.zig:3:14: error: operation caused overflow",
-        "tmp.zig:1:14: note: referenced here",
     });
 
     ctx.objErrStage1("mul overflow in function evaluation",
@@ -6357,7 +6326,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn entry() usize { return @sizeOf(@TypeOf(y)); }
     , &[_][]const u8{
         "tmp.zig:3:14: error: operation caused overflow",
-        "tmp.zig:1:14: note: referenced here",
     });
 
     ctx.objErrStage1("truncate sign mismatch",
@@ -6444,7 +6412,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:3:7: error: unable to evaluate constant expression",
-        "tmp.zig:16:19: note: referenced here",
     });
 
     ctx.objErrStage1("bogus method call on slice",
@@ -6768,7 +6735,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:10:14: error: reached unreachable code",
-        "tmp.zig:6:20: note: referenced here",
     });
 
     ctx.objErrStage1("control flow uses comptime var at runtime",
@@ -7269,8 +7235,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:1:13: error: aoeu",
-        "tmp.zig:3:19: note: referenced here",
-        "tmp.zig:7:12: note: referenced here",
     });
 
     ctx.objErrStage1("float literal too large error",
@@ -8194,7 +8158,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:3:53: error: vector element type must be integer, float, bool, or pointer; '@Vector(4, u8)' is invalid",
-        "tmp.zig:3:16: note: referenced here",
     });
 
     ctx.testErrStage1("bad @splat type",
@@ -8392,7 +8355,6 @@ pub fn addCases(ctx: *TestContext) !void {
     , &[_][]const u8{
         "tmp.zig:3:42: error: unable to @bitCast from pointer type '*[2]u8'",
         "tmp.zig:8:32: error: destination type 'u16' has size 2 but source type '[]const u8' has size 16",
-        "tmp.zig:8:37: note: referenced here",
     });
 
     // issue #7810

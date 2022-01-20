@@ -25274,13 +25274,6 @@ ZigType *ir_analyze(CodeGen *codegen, Stage1Zir *stage1_zir, Stage1Air *stage1_a
                 } else {
                     stage1_air->first_err_trace_msg = ira->codegen->trace_err;
                 }
-                if (stage1_air->first_err_trace_msg != nullptr &&
-                    !old_instruction->source_node->already_traced_this_node)
-                {
-                    old_instruction->source_node->already_traced_this_node = true;
-                    stage1_air->first_err_trace_msg = add_error_note(ira->codegen, stage1_air->first_err_trace_msg,
-                            old_instruction->source_node, buf_create_from_str("referenced here"));
-                }
                 return ira->codegen->builtin_types.entry_invalid;
             } else if (ira->codegen->verbose_ir) {
                 fprintf(stderr, "-> ");
@@ -25306,13 +25299,6 @@ ZigType *ir_analyze(CodeGen *codegen, Stage1Zir *stage1_zir, Stage1Air *stage1_a
     ZigType *res_type;
     if (stage1_air->first_err_trace_msg != nullptr) {
         codegen->trace_err = stage1_air->first_err_trace_msg;
-        if (codegen->trace_err != nullptr && stage1_air->source_node != nullptr &&
-            !stage1_air->source_node->already_traced_this_node)
-        {
-            stage1_air->source_node->already_traced_this_node = true;
-            codegen->trace_err = add_error_note(codegen, codegen->trace_err,
-                    stage1_air->source_node, buf_create_from_str("referenced here"));
-        }
         res_type = ira->codegen->builtin_types.entry_invalid;
     } else if (ira->src_implicit_return_type_list.length == 0) {
         res_type = codegen->builtin_types.entry_unreachable;
@@ -26277,11 +26263,6 @@ static Error ir_resolve_lazy_recurse(AstNode *source_node, ZigValue *val) {
 Error ir_resolve_lazy(CodeGen *codegen, AstNode *source_node, ZigValue *val) {
     Error err;
     if ((err = ir_resolve_lazy_raw(source_node, val))) {
-        if (codegen->trace_err != nullptr && source_node != nullptr && !source_node->already_traced_this_node) {
-            source_node->already_traced_this_node = true;
-            codegen->trace_err = add_error_note(codegen, codegen->trace_err, source_node,
-                buf_create_from_str("referenced here"));
-        }
         return err;
     }
     if (type_is_invalid(val->type)) {
