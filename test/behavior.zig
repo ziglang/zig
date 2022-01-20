@@ -71,7 +71,6 @@ test {
 
             if (builtin.zig_backend != .stage2_c) {
                 // Tests that pass for stage1 and the llvm backend.
-                _ = @import("behavior/align_llvm.zig");
                 _ = @import("behavior/alignof.zig");
                 _ = @import("behavior/array_llvm.zig");
                 _ = @import("behavior/atomics.zig");
