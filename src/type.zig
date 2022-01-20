@@ -2157,7 +2157,7 @@ pub const Type = extern union {
                 const child_type = self.optionalChild(&buf);
                 if (!child_type.hasCodeGenBits()) return 1;
 
-                if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr())
+                if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr() and !child_type.isSlice())
                     return @divExact(target.cpu.arch.ptrBitWidth(), 8);
 
                 // Optional types are represented as a struct with the child type as the first
@@ -2344,7 +2344,7 @@ pub const Type = extern union {
                 const child_type = ty.optionalChild(&buf);
                 if (!child_type.hasCodeGenBits()) return 8;
 
-                if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr())
+                if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr() and !child_type.isSlice())
                     return target.cpu.arch.ptrBitWidth();
 
                 // Optional types are represented as a struct with the child type as the first
