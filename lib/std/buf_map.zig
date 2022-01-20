@@ -82,7 +82,7 @@ pub const BufMap = struct {
     }
 
     /// Returns the number of KV pairs stored in the map.
-    pub fn count(self: BufMap) usize {
+    pub fn count(self: BufMap) BufMapHashMap.Size {
         return self.hash_map.count();
     }
 
