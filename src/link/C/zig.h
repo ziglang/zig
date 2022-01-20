@@ -26,6 +26,15 @@
 #define ZIG_RESTRICT
 #endif
 
+#if __STDC_VERSION__ >= 201112L
+#include <stdalign.h>
+#define ZIG_ALIGN(alignment) alignas(alignment)
+#elif defined(__GNUC__)
+#define ZIG_ALIGN(alignment) __attribute__((aligned(alignment)))
+#else
+#define ZIG_ALIGN(alignment) zig_compile_error("the C compiler being used does not support aligning variables")
+#endif
+
 #if __STDC_VERSION__ >= 199901L
 #include <stdbool.h>
 #else

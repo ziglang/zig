@@ -121,7 +121,13 @@ pub const Function = struct {
                 const decl_c_value = f.allocLocalValue();
                 gop.value_ptr.* = decl_c_value;
                 try writer.writeAll("static ");
-                try f.object.dg.renderTypeAndName(writer, ty, decl_c_value, .Const);
+                try f.object.dg.renderTypeAndName(
+                    writer,
+                    ty,
+                    decl_c_value,
+                    .Const,
+                    Value.initTag(.abi_align_default),
+                );
                 try writer.writeAll(" = ");
                 try f.object.dg.renderValue(writer, ty, val);
                 try writer.writeAll(";\n ");
@@ -142,8 +148,18 @@ pub const Function = struct {
     }
 
     fn allocLocal(f: *Function, ty: Type, mutability: Mutability) !CValue {
+        return f.allocAlignedLocal(ty, mutability, Value.initTag(.abi_align_default));
+    }
+
+    fn allocAlignedLocal(f: *Function, ty: Type, mutability: Mutability, alignment: Value) !CValue {
         const local_value = f.allocLocalValue();
-        try f.object.dg.renderTypeAndName(f.object.writer(), ty, local_value, mutability);
+        try f.object.dg.renderTypeAndName(
+            f.object.writer(),
+            ty,
+            local_value,
+            mutability,
+            alignment,
+        );
         return local_value;
     }
 
@@ -711,9 +727,11 @@ pub const DeclGen = struct {
             while (it.next()) |entry| {
                 const field_ty = entry.value_ptr.ty;
                 if (!field_ty.hasCodeGenBits()) continue;
+
+                const alignment = entry.value_ptr.abi_align;
                 const name: CValue = .{ .bytes = entry.key_ptr.* };
                 try buffer.append(' ');
-                try dg.renderTypeAndName(buffer.writer(), field_ty, name, .Mut);
+                try dg.renderTypeAndName(buffer.writer(), field_ty, name, .Mut, alignment);
                 try buffer.appendSlice(";\n");
             }
         }
@@ -950,6 +968,7 @@ pub const DeclGen = struct {
         ty: Type,
         name: CValue,
         mutability: Mutability,
+        alignment: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
         var suffix = std.ArrayList(u8).init(dg.gpa);
         defer suffix.deinit();
@@ -962,6 +981,8 @@ pub const DeclGen = struct {
             render_ty = render_ty.elemType();
         }
 
+        if (alignment.tag() != .abi_align_default and alignment.tag() != .null_value)
+            try w.print("ZIG_ALIGN({}) ", .{alignment.toUnsignedInt()});
         try dg.renderType(w, render_ty);
 
         const const_prefix = switch (mutability) {
@@ -1118,7 +1139,7 @@ pub fn genDecl(o: *Object) !void {
         // https://github.com/ziglang/zig/issues/7582
 
         const decl_c_value: CValue = .{ .decl = o.dg.decl };
-        try o.dg.renderTypeAndName(writer, tv.ty, decl_c_value, .Mut);
+        try o.dg.renderTypeAndName(writer, tv.ty, decl_c_value, .Mut, o.dg.decl.align_val);
 
         try writer.writeAll(" = ");
         try o.dg.renderValue(writer, tv.ty, tv.val);
@@ -1460,8 +1481,16 @@ fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
         return CValue{ .bytes = literal };
     }
 
+    const target = f.object.dg.module.getTarget();
+    const alignment = inst_ty.ptrAlignment(target);
+    var payload = Value.Payload.U64{
+        .base = .{ .tag = .int_u64 },
+        .data = alignment,
+    };
+    const alignment_value = Value.initPayload(&payload.base);
+
     // First line: the variable used as data storage.
-    const local = try f.allocLocal(elem_type, mutability);
+    const local = try f.allocAlignedLocal(elem_type, mutability, alignment_value);
     try writer.writeAll(";\n");
 
     // Arrays are already pointers so they don't need to be referenced.

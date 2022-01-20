@@ -201,6 +201,8 @@ test "struct field init with catch" {
 }
 
 test "packed struct field alignment" {
+    if (builtin.object_format == .c) return error.SkipZigTest;
+
     const Stage1 = struct {
         var baz: packed struct {
             a: u32,
