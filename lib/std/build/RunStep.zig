@@ -99,8 +99,8 @@ pub fn clearEnvironment(self: *RunStep) void {
 pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
     const env_map = self.getEnvMap();
 
-    var key: []const u8 = undefined;
-    var prev_path = env_map.get("PATH");
+    var key: []const u8 = "PATH";
+    var prev_path = env_map.get(key);
 
     if (prev_path) |pp| {
         const new_path = self.builder.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
