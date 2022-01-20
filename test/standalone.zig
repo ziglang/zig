@@ -62,6 +62,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     });
     if (builtin.os.tag == .linux) {
         cases.addBuildFile("test/standalone/c_glibc_versions/build.zig", .{});
+        cases.addBuildFile("test/standalone/c_glibc_libcxx_interaction/build.zig", .{});
     }
 
     if (builtin.os.tag == .windows) {
