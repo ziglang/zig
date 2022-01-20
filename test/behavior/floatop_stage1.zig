@@ -4,6 +4,7 @@ const math = std.math;
 const pi = std.math.pi;
 const e = std.math.e;
 const Vector = std.meta.Vector;
+const has_f80_rt = @import("builtin").cpu.arch == .x86_64;
 
 const epsilon = 0.000001;
 
@@ -25,6 +26,10 @@ fn testSqrt() !void {
     }
     {
         var a: f64 = 25;
+        try expect(@sqrt(a) == 5);
+    }
+    if (has_f80_rt) {
+        var a: f80 = 25;
         try expect(@sqrt(a) == 5);
     }
     {
@@ -86,6 +91,10 @@ fn testSin() !void {
         var a: f64 = 0;
         try expect(@sin(a) == 0);
     }
+    // {
+    //     var a: f80 = 0;
+    //     try expect(@sin(a) == 0);
+    // }
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
         var result = @sin(v);
@@ -116,6 +125,10 @@ fn testCos() !void {
         var a: f64 = 0;
         try expect(@cos(a) == 1);
     }
+    // {
+    //     var a: f80 = 0;
+    //     try expect(@cos(a) == 1);
+    // }
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 3.3, 4.4 };
         var result = @cos(v);
@@ -146,6 +159,10 @@ fn testExp() !void {
         var a: f64 = 0;
         try expect(@exp(a) == 1);
     }
+    // {
+    //     var a: f80 = 0;
+    //     try expect(@exp(a) == 1);
+    // }
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @exp(v);
@@ -176,6 +193,10 @@ fn testExp2() !void {
         var a: f64 = 2;
         try expect(@exp2(a) == 4);
     }
+    // {
+    //     var a: f80 = 2;
+    //     try expect(@exp2(a) == 4);
+    // }
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @exp2(v);
@@ -208,6 +229,10 @@ fn testLog() !void {
         var a: f64 = e;
         try expect(@log(a) == 1 or @log(a) == @bitCast(f64, @as(u64, 0x3ff0000000000000)));
     }
+    // {
+    //     var a: f80 = e;
+    //     try expect(@log(a) == 1);
+    // }
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @log(v);
@@ -238,6 +263,10 @@ fn testLog2() !void {
         var a: f64 = 4;
         try expect(@log2(a) == 2);
     }
+    // {
+    //     var a: f80 = 4;
+    //     try expect(@log2(a) == 2);
+    // }
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @log2(v);
@@ -268,6 +297,10 @@ fn testLog10() !void {
         var a: f64 = 1000;
         try expect(@log10(a) == 3);
     }
+    // {
+    //     var a: f80 = 1000;
+    //     try expect(@log10(a) == 3);
+    // }
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, 2.2, 0.3, 0.4 };
         var result = @log10(v);
@@ -304,6 +337,12 @@ fn testFabs() !void {
         try expect(@fabs(a) == 2.5);
         try expect(@fabs(b) == 2.5);
     }
+    // {
+    //     var a: f80 = -2.5;
+    //     var b: f80 = 2.5;
+    //     try expect(@fabs(a) == 2.5);
+    //     try expect(@fabs(b) == 2.5);
+    // }
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
         var result = @fabs(v);
@@ -334,6 +373,10 @@ fn testFloor() !void {
         var a: f64 = 3.5;
         try expect(@floor(a) == 3);
     }
+    // {
+    //     var a: f80 = 3.5;
+    //     try expect(@floor(a) == 3);
+    // }
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
         var result = @floor(v);
@@ -364,6 +407,10 @@ fn testCeil() !void {
         var a: f64 = 3.5;
         try expect(@ceil(a) == 4);
     }
+    // {
+    //     var a: f80 = 3.5;
+    //     try expect(@ceil(a) == 4);
+    // }
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
         var result = @ceil(v);
@@ -394,6 +441,10 @@ fn testTrunc() !void {
         var a: f64 = -3.5;
         try expect(@trunc(a) == -3);
     }
+    // {
+    //     var a: f80 = -3.5;
+    //     try expect(@trunc(a) == -3);
+    // }
     {
         var v: Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
         var result = @trunc(v);
@@ -401,5 +452,35 @@ fn testTrunc() !void {
         try expect(math.approxEqAbs(f32, @trunc(@as(f32, -2.2)), result[1], epsilon));
         try expect(math.approxEqAbs(f32, @trunc(@as(f32, 0.3)), result[2], epsilon));
         try expect(math.approxEqAbs(f32, @trunc(@as(f32, -0.4)), result[3], epsilon));
+    }
+}
+
+test "floating point comparisons" {
+    if (has_f80_rt) try testFloatComparisons();
+    comptime try testFloatComparisons();
+}
+
+fn testFloatComparisons() !void {
+    inline for ([_]type{ f16, f32, f64, f80, f128 }) |ty| {
+        // No decimal part
+        {
+            const x: ty = 1.0;
+            try expect(x == 1);
+            try expect(x != 0);
+            try expect(x > 0);
+            try expect(x < 2);
+            try expect(x >= 1);
+            try expect(x <= 1);
+        }
+        // Non-zero decimal part
+        {
+            const x: ty = 1.5;
+            try expect(x != 1);
+            try expect(x != 2);
+            try expect(x > 1);
+            try expect(x < 2);
+            try expect(x >= 1);
+            try expect(x <= 2);
+        }
     }
 }

@@ -5,6 +5,7 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const mem = std.mem;
+const has_f80_rt = @import("builtin").cpu.arch == .x86_64;
 
 test "allow signed integer division/remainder when values are comptime known and positive or exact" {
     try expect(5 / 3 == 1);
@@ -194,6 +195,8 @@ fn testSqrt(comptime T: type, x: T) !void {
 test "@fabs" {
     try testFabs(f128, 12.0);
     comptime try testFabs(f128, 12.0);
+    if (has_f80_rt) try testFabs(f80, 12.0);
+    // comptime try testFabs(f80, 12.0);
     try testFabs(f64, 12.0);
     comptime try testFabs(f64, 12.0);
     try testFabs(f32, 12.0);
@@ -217,6 +220,8 @@ test "@floor" {
     // FIXME: Generates a floorl function call
     // testFloor(f128, 12.0);
     comptime try testFloor(f128, 12.0);
+    // try testFloor(f80, 12.0);
+    comptime try testFloor(f80, 12.0);
     try testFloor(f64, 12.0);
     comptime try testFloor(f64, 12.0);
     try testFloor(f32, 12.0);
@@ -240,6 +245,8 @@ test "@ceil" {
     // FIXME: Generates a ceill function call
     //testCeil(f128, 12.0);
     comptime try testCeil(f128, 12.0);
+    // try testCeil(f80, 12.0);
+    comptime try testCeil(f80, 12.0);
     try testCeil(f64, 12.0);
     comptime try testCeil(f64, 12.0);
     try testCeil(f32, 12.0);
@@ -263,6 +270,14 @@ test "@trunc" {
     // FIXME: Generates a truncl function call
     //testTrunc(f128, 12.0);
     comptime try testTrunc(f128, 12.0);
+    // try testTrunc(f80, 12.0);
+    // comptime try testTrunc(f80, 12.0);
+    comptime {
+        const x: f80 = 12.0;
+        const y = x + 0.8;
+        const z = @trunc(y);
+        try expectEqual(x, z);
+    }
     try testTrunc(f64, 12.0);
     comptime try testTrunc(f64, 12.0);
     try testTrunc(f32, 12.0);
@@ -294,6 +309,8 @@ test "@round" {
     // FIXME: Generates a roundl function call
     //testRound(f128, 12.0);
     comptime try testRound(f128, 12.0);
+    // try testRound(f80, 12.0);
+    comptime try testRound(f80, 12.0);
     try testRound(f64, 12.0);
     comptime try testRound(f64, 12.0);
     try testRound(f32, 12.0);
@@ -333,10 +350,12 @@ test "NaN comparison" {
     try testNanEqNan(f32);
     try testNanEqNan(f64);
     try testNanEqNan(f128);
+    if (has_f80_rt) try testNanEqNan(f80);
     comptime try testNanEqNan(f16);
     comptime try testNanEqNan(f32);
     comptime try testNanEqNan(f64);
     comptime try testNanEqNan(f128);
+    // comptime try testNanEqNan(f80);
 }
 
 fn testNanEqNan(comptime F: type) !void {

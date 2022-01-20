@@ -2,6 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 const mem = std.mem;
 const builtin = @import("builtin");
+const has_f80_rt = @import("builtin").cpu.arch == .x86_64;
 
 test "integer widening" {
     var a: u8 = 250;
@@ -27,6 +28,10 @@ test "float widening" {
     try expect(a == b);
     try expect(b == c);
     try expect(c == d);
+    if (has_f80_rt) {
+        var e: f80 = c;
+        try expect(c == e);
+    }
 }
 
 test "float widening f16 to f128" {
