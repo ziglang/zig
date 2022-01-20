@@ -1726,6 +1726,12 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
     while (ptr[i] != 0) {
         const key_start = i;
 
+        // There are some special environment variables that start with =,
+        // so we need a special case to not treat = as a key/value separator
+        // if it's the first character.
+        // https://devblogs.microsoft.com/oldnewthing/20100506-00/?p=14133
+        if (ptr[key_start] == '=') i += 1;
+
         while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
         const this_key = ptr[key_start..i];
 
