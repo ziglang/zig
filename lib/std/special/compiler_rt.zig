@@ -39,6 +39,15 @@ comptime {
     const __extendhftf2 = @import("compiler_rt/extendXfYf2.zig").__extendhftf2;
     @export(__extendhftf2, .{ .name = "__extendhftf2", .linkage = linkage });
 
+    const __extendhfxf2 = @import("compiler_rt/extend_f80.zig").__extendhfxf2;
+    @export(__extendhfxf2, .{ .name = "__extendhfxf2", .linkage = linkage });
+    const __extendffxf2 = @import("compiler_rt/extend_f80.zig").__extendffxf2;
+    @export(__extendffxf2, .{ .name = "__extendffxf2", .linkage = linkage });
+    const __extenddfxf2 = @import("compiler_rt/extend_f80.zig").__extenddfxf2;
+    @export(__extenddfxf2, .{ .name = "__extenddfxf2", .linkage = linkage });
+    const __extendxftf2 = @import("compiler_rt/extend_f80.zig").__extendxftf2;
+    @export(__extendxftf2, .{ .name = "__extendxftf2", .linkage = linkage });
+
     const __lesf2 = @import("compiler_rt/compareXf2.zig").__lesf2;
     @export(__lesf2, .{ .name = "__lesf2", .linkage = linkage });
     const __ledf2 = @import("compiler_rt/compareXf2.zig").__ledf2;
@@ -181,9 +190,6 @@ comptime {
 
     if (!long_double_is_f128) {
         // TODO implement these
-        //const __extendxftf2 = @import("compiler_rt/extendXfYf2.zig").__extendxftf2;
-        //@export(__extendxftf2, .{ .name = "__extendxftf2", .linkage = linkage });
-
         //const __trunctfxf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfxf2;
         //@export(__trunctfxf2, .{ .name = "__trunctfxf2", .linkage = linkage });
     }

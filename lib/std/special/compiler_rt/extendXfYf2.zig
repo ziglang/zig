@@ -27,11 +27,6 @@ pub fn __extendhftf2(a: F16T) callconv(.C) f128 {
     return extendXfYf2(f128, f16, @bitCast(u16, a));
 }
 
-pub fn __extendxftf2(a: c_longdouble) callconv(.C) f128 {
-    _ = a;
-    @panic("TODO implement");
-}
-
 pub fn __aeabi_h2f(arg: u16) callconv(.AAPCS) f32 {
     @setRuntimeSafety(false);
     return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f32, f16, arg });
