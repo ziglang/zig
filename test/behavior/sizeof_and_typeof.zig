@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 test "@sizeOf and @TypeOf" {
     const y: @TypeOf(x) = 120;
     try expect(@sizeOf(@TypeOf(y)) == 2);
-    try expect(@sizeOf(@TypeOf(z)) == 2);
+    try expect(@TypeOf(z) == u16);
 }
 const x: u16 = 13;
 const z: @TypeOf(x) = 19;

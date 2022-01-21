@@ -865,6 +865,8 @@ pub const winsize = extern struct {
     ws_ypixel: u16,
 };
 
+pub const NSIG = 75;
+
 pub const SIG = struct {
     pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
     pub const ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
