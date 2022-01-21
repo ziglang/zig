@@ -1,5 +1,9 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
+const TypeId = std.builtin.TypeId;
+const TypeInfo = std.builtin.TypeInfo;
+const mem = std.mem;
 
 test "type info: integer, floating point type info" {
     try testIntFloat();
@@ -265,7 +269,7 @@ fn testStruct() !void {
     try expect(unpacked_struct_info.Struct.is_tuple == false);
     try expect(unpacked_struct_info.Struct.fields[0].alignment == @alignOf(u32));
     try expect(unpacked_struct_info.Struct.fields[0].default_value.? == 4);
-    try expectEqualStrings("foobar", unpacked_struct_info.Struct.fields[1].default_value.?);
+    try std.testing.expectEqualStrings("foobar", unpacked_struct_info.Struct.fields[1].default_value.?);
 
     const struct_info = @typeInfo(TestStruct);
     try expect(struct_info == .Struct);
@@ -426,7 +430,7 @@ test "type info: extern fns with and without lib names" {
             if (std.mem.eql(u8, decl.name, "bar1")) {
                 try expect(decl.data.Fn.lib_name == null);
             } else {
-                try expectEqualStrings("cool", decl.data.Fn.lib_name.?);
+                try std.testing.expectEqualStrings("cool", decl.data.Fn.lib_name.?);
             }
         }
     }

@@ -377,7 +377,7 @@ test "else prong of switch on error set excludes other cases" {
 
     const S = struct {
         fn doTheTest() !void {
-            try expectError(error.C, bar());
+            try std.testing.expectError(error.C, bar());
         }
         const E = error{
             A,
@@ -409,7 +409,7 @@ test "switch prongs with error set cases make a new error set type for capture v
 
     const S = struct {
         fn doTheTest() !void {
-            try expectError(error.B, bar());
+            try std.testing.expectError(error.B, bar());
         }
         const E = E1 || E2;
 
@@ -573,7 +573,7 @@ test "switch capture copies its payload" {
                 .A => |value| {
                     // Modify the original union
                     tmp = .{ .B = 0x10101010 };
-                    try expectEqual(@as(u8, 42), value);
+                    try std.testing.expectEqual(@as(u8, 42), value);
                 },
                 else => unreachable,
             }
