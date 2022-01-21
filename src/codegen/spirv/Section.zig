@@ -22,17 +22,34 @@ pub fn deinit(section: *Section, allocator: Allocator) void {
     section.* = undefined;
 }
 
-fn writeWord(section: *Section, word: Word) void {
-    section.instructions.appendAssumeCapacity(word);
-}
-
-fn writeWords(section: *Section, words: []const Word) void {
-    section.instructions.appendSliceAssumeCapacity(words);
-}
-
-// Clear the instructions in this section
+/// Clear the instructions in this section
 pub fn reset(section: *Section) void {
     section.instructions.items.len = 0;
+}
+
+pub fn toWords(section: Section) []Word {
+    return section.instructions.items;
+}
+
+/// Append the instructions from another section into this section.
+pub fn append(
+    section: *Section,
+    allocator: Allocator,
+    other_section: Section
+) !void {
+    try section.instructions.appendSlice(allocator, other_section.instructions.items);
+}
+
+/// Write an instruction and size, operands are to be inserted manually.
+pub fn emitRaw(
+    section: *Section,
+    allocator: Allocator,
+    opcode: Opcode,
+    operands: usize, // opcode itself not included
+) !void {
+    const word_count = 1 + operands;
+    try section.instructions.ensureUnusedCapacity(allocator, word_count);
+    section.writeWord((@intCast(Word, word_count << 16)) | @enumToInt(opcode));
 }
 
 pub fn emit(
@@ -43,8 +60,23 @@ pub fn emit(
 ) !void {
     const word_count = instructionSize(opcode, operands);
     try section.instructions.ensureUnusedCapacity(allocator, word_count);
-    section.instructions.appendAssumeCapacity(@intCast(Word, word_count << 16) | @enumToInt(opcode));
+    section.writeWord(@intCast(Word, word_count << 16) | @enumToInt(opcode));
     section.writeOperands(opcode.Operands(), operands);
+}
+
+pub fn writeWord(section: *Section, word: Word) void {
+    section.instructions.appendAssumeCapacity(word);
+}
+
+pub fn writeWords(section: *Section, words: []const Word) void {
+    section.instructions.appendSliceAssumeCapacity(words);
+}
+
+fn writeDoubleWord(section: *Section, dword: DoubleWord) void {
+    section.writeWords(&.{
+        @truncate(Word, dword),
+        @truncate(Word, dword >> @bitSizeOf(Word)),
+    });
 }
 
 fn writeOperands(section: *Section, comptime Operands: type, operands: Operands) void {
@@ -59,7 +91,7 @@ fn writeOperands(section: *Section, comptime Operands: type, operands: Operands)
     }
 }
 
-fn writeOperand(section: *Section, comptime Operand: type, operand: Operand) void {
+pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand) void {
     switch (Operand) {
         spec.IdResultType,
         spec.IdResult,
