@@ -785,6 +785,12 @@ const Writer = struct {
         try stream.print("\"{}\", ", .{
             std.zig.fmtEscapes(self.code.nullTerminatedString(extra.data.name)),
         });
+
+        if (extra.data.doc_comment != 0) {
+            try stream.writeAll("\n");
+            try self.writeDocComment(stream, extra.data.doc_comment);
+            try stream.writeByteNTimes(' ', self.indent);
+        }
         try self.writeBracedBody(stream, body);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());

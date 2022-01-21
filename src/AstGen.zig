@@ -9721,8 +9721,12 @@ const GenZir = struct {
         try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Param).Struct.fields.len +
             param_body.len);
 
+        const doc_comment_index = try gz.astgen.docCommentAsString(abs_tok_index -
+            @boolToInt(tag == .param_comptime));
+
         const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Param{
             .name = name,
+            .doc_comment = doc_comment_index,
             .body_len = @intCast(u32, param_body.len),
         });
         gz.astgen.extra.appendSliceAssumeCapacity(param_body);
