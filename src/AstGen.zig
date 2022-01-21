@@ -3193,7 +3193,6 @@ fn fnDecl(
     // missing function name already happened in scanDecls()
     const fn_name_token = fn_proto.name_token orelse return error.AnalysisFail;
     const fn_name_str_index = try astgen.identAsString(fn_name_token);
-    const doc_comment_index = try astgen.docCommentAsString(fn_name_token - 1);
 
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
@@ -3237,6 +3236,13 @@ fn fnDecl(
         const maybe_inline_token = fn_proto.extern_export_inline_token orelse break :blk false;
         break :blk token_tags[maybe_inline_token] == .keyword_inline;
     };
+
+    const doc_comment_index = try astgen.docCommentAsString(fn_name_token - 1 -
+        @boolToInt(is_pub) -
+        @boolToInt(is_export) -
+        @boolToInt(is_extern) -
+        @boolToInt(has_inline_keyword)); // TODO subtract noinline too
+
     const has_section_or_addrspace = fn_proto.ast.section_expr != 0 or fn_proto.ast.addrspace_expr != 0;
     wip_members.nextDecl(is_pub, is_export, fn_proto.ast.align_expr != 0, has_section_or_addrspace);
 
@@ -3474,7 +3480,6 @@ fn globalVarDecl(
 
     const name_token = var_decl.ast.mut_token + 1;
     const name_str_index = try astgen.identAsString(name_token);
-    const doc_comment_index = try astgen.docCommentAsString(var_decl.ast.mut_token);
 
     var block_scope: GenZir = .{
         .parent = scope,
@@ -3521,6 +3526,12 @@ fn globalVarDecl(
         const lib_name_str = try astgen.strLitAsString(lib_name_token);
         break :blk lib_name_str.index;
     } else 0;
+
+    const doc_comment_index = try astgen.docCommentAsString(var_decl.ast.mut_token -
+        @boolToInt(is_pub) -
+        @boolToInt(is_export) -
+        @boolToInt(lib_name != 0) -
+        @boolToInt(is_threadlocal));
 
     assert(var_decl.comptime_token == null); // handled by parser
 
