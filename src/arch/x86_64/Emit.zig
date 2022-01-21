@@ -1605,7 +1605,7 @@ fn lowerToRmEnc(
             if (reg.size() != src_reg.size()) {
                 return error.OperandSizeMismatch;
             }
-            const encoder = try Encoder.init(code, 3);
+            const encoder = try Encoder.init(code, 4);
             encoder.rex(.{
                 .w = setRexWRegister(reg) or setRexWRegister(src_reg),
                 .r = reg.isExtended(),
