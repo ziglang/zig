@@ -188,11 +188,14 @@ comptime {
     const __truncdfsf2 = @import("compiler_rt/truncXfYf2.zig").__truncdfsf2;
     @export(__truncdfsf2, .{ .name = "__truncdfsf2", .linkage = linkage });
 
-    if (!long_double_is_f128) {
-        // TODO implement these
-        //const __trunctfxf2 = @import("compiler_rt/truncXfYf2.zig").__trunctfxf2;
-        //@export(__trunctfxf2, .{ .name = "__trunctfxf2", .linkage = linkage });
-    }
+    const __truncxfhf2 = @import("compiler_rt/trunc_f80.zig").__truncxfhf2;
+    @export(__truncxfhf2, .{ .name = "__truncxfhf2", .linkage = linkage });
+    const __truncxfff2 = @import("compiler_rt/trunc_f80.zig").__truncxfff2;
+    @export(__truncxfff2, .{ .name = "__truncxfff2", .linkage = linkage });
+    const __truncxfdf2 = @import("compiler_rt/trunc_f80.zig").__truncxfdf2;
+    @export(__truncxfdf2, .{ .name = "__truncxfdf2", .linkage = linkage });
+    const __trunctfxf2 = @import("compiler_rt/trunc_f80.zig").__trunctfxf2;
+    @export(__trunctfxf2, .{ .name = "__trunctfxf2", .linkage = linkage });
 
     if (builtin.zig_backend == .stage1) {
         switch (arch) {
