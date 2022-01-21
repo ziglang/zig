@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const Target = std.Target;
 const Module = @import("Module.zig");
 const log = std.log.scoped(.Type);
+const target_util = @import("target.zig");
 
 const file_struct = @This();
 
@@ -577,21 +578,36 @@ pub const Type = extern union {
                 }
             },
             .Fn => {
-                if (!a.fnReturnType().eql(b.fnReturnType()))
+                const a_info = a.fnInfo();
+                const b_info = b.fnInfo();
+
+                if (!eql(a_info.return_type, b_info.return_type))
                     return false;
-                if (a.fnCallingConvention() != b.fnCallingConvention())
+
+                if (a_info.cc != b_info.cc)
                     return false;
-                const a_param_len = a.fnParamLen();
-                const b_param_len = b.fnParamLen();
-                if (a_param_len != b_param_len)
+
+                if (a_info.param_types.len != b_info.param_types.len)
                     return false;
-                var i: usize = 0;
-                while (i < a_param_len) : (i += 1) {
-                    if (!a.fnParamType(i).eql(b.fnParamType(i)))
+
+                for (a_info.param_types) |a_param_ty, i| {
+                    const b_param_ty = b_info.param_types[i];
+                    if (!eql(a_param_ty, b_param_ty))
+                        return false;
+
+                    if (a_info.comptime_params[i] != b_info.comptime_params[i])
                         return false;
                 }
-                if (a.fnIsVarArgs() != b.fnIsVarArgs())
+
+                if (a_info.alignment != b_info.alignment)
                     return false;
+
+                if (a_info.is_var_args != b_info.is_var_args)
+                    return false;
+
+                if (a_info.is_generic != b_info.is_generic)
+                    return false;
+
                 return true;
             },
             .Optional => {
@@ -686,6 +702,7 @@ pub const Type = extern union {
                 return false;
             },
             .Float => return a.tag() == b.tag(),
+
             .BoundFn,
             .Frame,
             => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
@@ -937,6 +954,7 @@ pub const Type = extern union {
                     .return_type = try payload.return_type.copy(allocator),
                     .param_types = param_types,
                     .cc = payload.cc,
+                    .alignment = payload.alignment,
                     .is_var_args = payload.is_var_args,
                     .is_generic = payload.is_generic,
                     .comptime_params = comptime_params.ptr,
@@ -1114,9 +1132,15 @@ pub const Type = extern union {
                         }
                         try writer.writeAll("...");
                     }
-                    try writer.writeAll(") callconv(.");
-                    try writer.writeAll(@tagName(payload.cc));
                     try writer.writeAll(") ");
+                    if (payload.cc != .Unspecified) {
+                        try writer.writeAll("callconv(.");
+                        try writer.writeAll(@tagName(payload.cc));
+                        try writer.writeAll(") ");
+                    }
+                    if (payload.alignment != 0) {
+                        try writer.print("align({d}) ", .{payload.alignment});
+                    }
                     ty = payload.return_type;
                     continue;
                 },
@@ -1421,170 +1445,6 @@ pub const Type = extern union {
                 return try buf.toOwnedSliceSentinel(0);
             },
         }
-    }
-
-    /// Anything that reports hasCodeGenBits() false returns false here as well.
-    /// `generic_poison` will return false.
-    pub fn requiresComptime(ty: Type) bool {
-        return switch (ty.tag()) {
-            .u1,
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .u128,
-            .i128,
-            .usize,
-            .isize,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
-            .c_longdouble,
-            .f16,
-            .f32,
-            .f64,
-            .f128,
-            .anyopaque,
-            .bool,
-            .void,
-            .anyerror,
-            .noreturn,
-            .@"anyframe",
-            .@"null",
-            .@"undefined",
-            .atomic_order,
-            .atomic_rmw_op,
-            .calling_convention,
-            .address_space,
-            .float_mode,
-            .reduce_op,
-            .call_options,
-            .prefetch_options,
-            .export_options,
-            .extern_options,
-            .manyptr_u8,
-            .manyptr_const_u8,
-            .manyptr_const_u8_sentinel_0,
-            .fn_noreturn_no_args,
-            .fn_void_no_args,
-            .fn_naked_noreturn_no_args,
-            .fn_ccc_void_no_args,
-            .const_slice_u8,
-            .const_slice_u8_sentinel_0,
-            .anyerror_void_error_union,
-            .empty_struct_literal,
-            .function,
-            .empty_struct,
-            .error_set,
-            .error_set_single,
-            .error_set_inferred,
-            .error_set_merged,
-            .@"opaque",
-            .generic_poison,
-            .array_u8,
-            .array_u8_sentinel_0,
-            .int_signed,
-            .int_unsigned,
-            .enum_simple,
-            => false,
-
-            .single_const_pointer_to_comptime_int,
-            .type,
-            .comptime_int,
-            .comptime_float,
-            .enum_literal,
-            .type_info,
-            => true,
-
-            .var_args_param => unreachable,
-            .inferred_alloc_mut => unreachable,
-            .inferred_alloc_const => unreachable,
-            .bound_fn => unreachable,
-
-            .array,
-            .array_sentinel,
-            .vector,
-            .pointer,
-            .single_const_pointer,
-            .single_mut_pointer,
-            .many_const_pointer,
-            .many_mut_pointer,
-            .c_const_pointer,
-            .c_mut_pointer,
-            .const_slice,
-            .mut_slice,
-            => return requiresComptime(childType(ty)),
-
-            .optional,
-            .optional_single_mut_pointer,
-            .optional_single_const_pointer,
-            => {
-                var buf: Payload.ElemType = undefined;
-                return requiresComptime(optionalChild(ty, &buf));
-            },
-
-            .tuple => {
-                const tuple = ty.castTag(.tuple).?.data;
-                for (tuple.types) |field_ty| {
-                    if (requiresComptime(field_ty)) {
-                        return true;
-                    }
-                }
-                return false;
-            },
-
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                switch (struct_obj.requires_comptime) {
-                    .no, .wip => return false,
-                    .yes => return true,
-                    .unknown => {
-                        struct_obj.requires_comptime = .wip;
-                        for (struct_obj.fields.values()) |field| {
-                            if (requiresComptime(field.ty)) {
-                                struct_obj.requires_comptime = .yes;
-                                return true;
-                            }
-                        }
-                        struct_obj.requires_comptime = .no;
-                        return false;
-                    },
-                }
-            },
-
-            .@"union", .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                switch (union_obj.requires_comptime) {
-                    .no, .wip => return false,
-                    .yes => return true,
-                    .unknown => {
-                        union_obj.requires_comptime = .wip;
-                        for (union_obj.fields.values()) |field| {
-                            if (requiresComptime(field.ty)) {
-                                union_obj.requires_comptime = .yes;
-                                return true;
-                            }
-                        }
-                        union_obj.requires_comptime = .no;
-                        return false;
-                    },
-                }
-            },
-
-            .error_union => return requiresComptime(errorUnionPayload(ty)),
-            .anyframe_T => return ty.castTag(.anyframe_T).?.data.requiresComptime(),
-            .enum_numbered => return ty.castTag(.enum_numbered).?.data.tag_ty.requiresComptime(),
-            .enum_full, .enum_nonexhaustive => return ty.cast(Payload.EnumFull).?.data.tag_ty.requiresComptime(),
-        };
     }
 
     pub fn toValue(self: Type, allocator: Allocator) Allocator.Error!Value {
@@ -1918,12 +1778,13 @@ pub const Type = extern union {
             .fn_void_no_args, // represents machine code; not a pointer
             .fn_naked_noreturn_no_args, // represents machine code; not a pointer
             .fn_ccc_void_no_args, // represents machine code; not a pointer
-            .function, // represents machine code; not a pointer
-            => return switch (target.cpu.arch) {
-                .arm, .armeb => 4,
-                .aarch64, .aarch64_32, .aarch64_be => 4,
-                .riscv64 => 2,
-                else => 1,
+            => return target_util.defaultFunctionAlignment(target),
+
+            // represents machine code; not a pointer
+            .function => {
+                const alignment = self.castTag(.function).?.data.alignment;
+                if (alignment != 0) return alignment;
+                return target_util.defaultFunctionAlignment(target);
             },
 
             .i16, .u16 => return 2,
@@ -3424,6 +3285,7 @@ pub const Type = extern union {
                 .comptime_params = undefined,
                 .return_type = initTag(.noreturn),
                 .cc = .Unspecified,
+                .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
             },
@@ -3432,6 +3294,7 @@ pub const Type = extern union {
                 .comptime_params = undefined,
                 .return_type = initTag(.void),
                 .cc = .Unspecified,
+                .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
             },
@@ -3440,6 +3303,7 @@ pub const Type = extern union {
                 .comptime_params = undefined,
                 .return_type = initTag(.noreturn),
                 .cc = .Naked,
+                .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
             },
@@ -3448,6 +3312,7 @@ pub const Type = extern union {
                 .comptime_params = undefined,
                 .return_type = initTag(.void),
                 .cc = .C,
+                .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
             },
@@ -4572,6 +4437,8 @@ pub const Type = extern union {
                 param_types: []Type,
                 comptime_params: [*]bool,
                 return_type: Type,
+                /// If zero use default target function code alignment.
+                alignment: u32,
                 cc: std.builtin.CallingConvention,
                 is_var_args: bool,
                 is_generic: bool,

@@ -637,3 +637,12 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
         else => return null,
     }
 }
+
+pub fn defaultFunctionAlignment(target: std.Target) u32 {
+    return switch (target.cpu.arch) {
+        .arm, .armeb => 4,
+        .aarch64, .aarch64_32, .aarch64_be => 4,
+        .riscv64 => 2,
+        else => 1,
+    };
+}

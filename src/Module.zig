@@ -898,6 +898,45 @@ pub const Struct = struct {
         };
     }
 
+    pub fn fieldSrcLoc(s: Struct, gpa: Allocator, query: FieldSrcQuery) SrcLoc {
+        @setCold(true);
+        const tree = s.owner_decl.getFileScope().getTree(gpa) catch |err| {
+            // In this case we emit a warning + a less precise source location.
+            log.warn("unable to load {s}: {s}", .{
+                s.owner_decl.getFileScope().sub_file_path, @errorName(err),
+            });
+            return s.srcLoc();
+        };
+        const node = s.owner_decl.relativeToNodeIndex(s.node_offset);
+        const node_tags = tree.nodes.items(.tag);
+        const file = s.owner_decl.getFileScope();
+        switch (node_tags[node]) {
+            .container_decl,
+            .container_decl_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDecl(node)),
+            .container_decl_two, .container_decl_two_trailing => {
+                var buffer: [2]Ast.Node.Index = undefined;
+                return queryFieldSrc(tree.*, query, file, tree.containerDeclTwo(&buffer, node));
+            },
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDeclArg(node)),
+
+            .tagged_union,
+            .tagged_union_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnion(node)),
+            .tagged_union_two, .tagged_union_two_trailing => {
+                var buffer: [2]Ast.Node.Index = undefined;
+                return queryFieldSrc(tree.*, query, file, tree.taggedUnionTwo(&buffer, node));
+            },
+            .tagged_union_enum_tag,
+            .tagged_union_enum_tag_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnionEnumTag(node)),
+
+            else => unreachable,
+        }
+    }
+
     pub fn haveFieldTypes(s: Struct) bool {
         return switch (s.status) {
             .none,
@@ -1061,6 +1100,33 @@ pub const Union = struct {
             .parent_decl_node = self.owner_decl.src_node,
             .lazy = .{ .node_offset = self.node_offset },
         };
+    }
+
+    pub fn fieldSrcLoc(u: Union, gpa: Allocator, query: FieldSrcQuery) SrcLoc {
+        @setCold(true);
+        const tree = u.owner_decl.getFileScope().getTree(gpa) catch |err| {
+            // In this case we emit a warning + a less precise source location.
+            log.warn("unable to load {s}: {s}", .{
+                u.owner_decl.getFileScope().sub_file_path, @errorName(err),
+            });
+            return u.srcLoc();
+        };
+        const node = u.owner_decl.relativeToNodeIndex(u.node_offset);
+        const node_tags = tree.nodes.items(.tag);
+        const file = u.owner_decl.getFileScope();
+        switch (node_tags[node]) {
+            .container_decl,
+            .container_decl_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDecl(node)),
+            .container_decl_two, .container_decl_two_trailing => {
+                var buffer: [2]Ast.Node.Index = undefined;
+                return queryFieldSrc(tree.*, query, file, tree.containerDeclTwo(&buffer, node));
+            },
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.containerDeclArg(node)),
+            else => unreachable,
+        }
     }
 
     pub fn haveFieldTypes(u: Union) bool {
@@ -4662,8 +4728,8 @@ pub fn createAnonymousDeclFromDeclNamed(
     new_decl.src_line = src_decl.src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
-    new_decl.align_val = Value.initTag(.null_value);
-    new_decl.linksection_val = Value.initTag(.null_value);
+    new_decl.align_val = Value.@"null";
+    new_decl.linksection_val = Value.@"null";
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
@@ -4904,6 +4970,55 @@ pub const PeerTypeCandidateSrc = union(enum) {
         }
     }
 };
+
+const FieldSrcQuery = struct {
+    index: usize,
+    range: enum { name, type, value, alignment },
+};
+
+fn queryFieldSrc(
+    tree: Ast,
+    query: FieldSrcQuery,
+    file_scope: *File,
+    container_decl: Ast.full.ContainerDecl,
+) SrcLoc {
+    const node_tags = tree.nodes.items(.tag);
+    var field_index: usize = 0;
+    for (container_decl.ast.members) |member_node| {
+        const field = switch (node_tags[member_node]) {
+            .container_field_init => tree.containerFieldInit(member_node),
+            .container_field_align => tree.containerFieldAlign(member_node),
+            .container_field => tree.containerField(member_node),
+            else => continue,
+        };
+        if (field_index == query.index) {
+            return switch (query.range) {
+                .name => .{
+                    .file_scope = file_scope,
+                    .parent_decl_node = 0,
+                    .lazy = .{ .token_abs = field.ast.name_token },
+                },
+                .type => .{
+                    .file_scope = file_scope,
+                    .parent_decl_node = 0,
+                    .lazy = .{ .node_abs = field.ast.type_expr },
+                },
+                .value => .{
+                    .file_scope = file_scope,
+                    .parent_decl_node = 0,
+                    .lazy = .{ .node_abs = field.ast.value_expr },
+                },
+                .alignment => .{
+                    .file_scope = file_scope,
+                    .parent_decl_node = 0,
+                    .lazy = .{ .node_abs = field.ast.align_expr },
+                },
+            };
+        }
+        field_index += 1;
+    }
+    unreachable;
+}
 
 /// Called from `performAllTheWork`, after all AstGen workers have finished,
 /// and before the main semantic analysis loop begins.

@@ -3240,7 +3240,8 @@ fn fnDecl(
     const doc_comment_index = try astgen.docCommentAsString(fn_proto.firstToken());
 
     const has_section_or_addrspace = fn_proto.ast.section_expr != 0 or fn_proto.ast.addrspace_expr != 0;
-    wip_members.nextDecl(is_pub, is_export, fn_proto.ast.align_expr != 0, has_section_or_addrspace);
+    // Alignment is passed in the func instruction in this case.
+    wip_members.nextDecl(is_pub, is_export, false, has_section_or_addrspace);
 
     var params_scope = &fn_gz.base;
     const is_var_args = is_var_args: {
@@ -3380,7 +3381,7 @@ fn fnDecl(
             .param_block = block_inst,
             .body_gz = null,
             .cc = cc,
-            .align_inst = .none, // passed in the per-decl data
+            .align_inst = align_inst,
             .lib_name = lib_name,
             .is_var_args = is_var_args,
             .is_inferred_error = false,
@@ -3423,7 +3424,7 @@ fn fnDecl(
             .ret_br = ret_br,
             .body_gz = &fn_gz,
             .cc = cc,
-            .align_inst = .none, // passed in the per-decl data
+            .align_inst = align_inst,
             .lib_name = lib_name,
             .is_var_args = is_var_args,
             .is_inferred_error = is_inferred_error,
@@ -3449,9 +3450,6 @@ fn fnDecl(
     wip_members.appendToDecl(fn_name_str_index);
     wip_members.appendToDecl(block_inst);
     wip_members.appendToDecl(doc_comment_index);
-    if (align_inst != .none) {
-        wip_members.appendToDecl(@enumToInt(align_inst));
-    }
     if (has_section_or_addrspace) {
         wip_members.appendToDecl(@enumToInt(section_inst));
         wip_members.appendToDecl(@enumToInt(addrspace_inst));

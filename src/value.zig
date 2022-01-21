@@ -1520,6 +1520,11 @@ pub const Value = extern union {
                     }
                     return true;
                 },
+                .function => {
+                    const a_payload = a.castTag(.function).?.data;
+                    const b_payload = b.castTag(.function).?.data;
+                    return a_payload == b_payload;
+                },
                 else => {},
             }
         } else if (a_tag == .null_value or b_tag == .null_value) {
@@ -1573,6 +1578,7 @@ pub const Value = extern union {
     pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash) void {
         const zig_ty_tag = ty.zigTypeTag();
         std.hash.autoHash(hasher, zig_ty_tag);
+        if (val.isUndef()) return;
 
         switch (zig_ty_tag) {
             .BoundFn => unreachable, // TODO remove this from the language
@@ -1694,7 +1700,8 @@ pub const Value = extern union {
                 union_obj.val.hash(active_field_ty, hasher);
             },
             .Fn => {
-                @panic("TODO implement hashing function values");
+                const func = val.castTag(.function).?.data;
+                return std.hash.autoHash(hasher, func.owner_decl);
             },
             .Frame => {
                 @panic("TODO implement hashing frame values");
@@ -1703,7 +1710,8 @@ pub const Value = extern union {
                 @panic("TODO implement hashing anyframe values");
             },
             .EnumLiteral => {
-                @panic("TODO implement hashing enum literal values");
+                const bytes = val.castTag(.enum_literal).?.data;
+                hasher.update(bytes);
             },
         }
     }

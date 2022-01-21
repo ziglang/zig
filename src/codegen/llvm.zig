@@ -725,6 +725,10 @@ pub const DeclGen = struct {
             llvm_fn.setFunctionCallConv(toLlvmCallConv(fn_info.cc, target));
         }
 
+        if (fn_info.alignment != 0) {
+            llvm_fn.setAlignment(fn_info.alignment);
+        }
+
         // Function attributes that are independent of analysis results of the function body.
         dg.addCommonFnAttributes(llvm_fn);
 

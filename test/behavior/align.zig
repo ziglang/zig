@@ -181,3 +181,23 @@ test "page aligned array on stack" {
     try expect(number1 == 42);
     try expect(number2 == 43);
 }
+
+fn derp() align(@sizeOf(usize) * 2) i32 {
+    return 1234;
+}
+fn noop1() align(1) void {}
+fn noop4() align(4) void {}
+
+test "function alignment" {
+    // function alignment is a compile error on wasm32/wasm64
+    if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    try expect(derp() == 1234);
+    try expect(@TypeOf(noop1) == fn () align(1) void);
+    try expect(@TypeOf(noop4) == fn () align(4) void);
+    noop1();
+    noop4();
+}
