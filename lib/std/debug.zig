@@ -1689,6 +1689,12 @@ pub fn maybeEnableSegfaultHandler() void {
 
 var windows_segfault_handle: ?windows.HANDLE = null;
 
+pub fn updateSegfaultHandler(act: ?*const os.Sigaction) error{OperationNotSupported}!void {
+    try os.sigaction(os.SIG.SEGV, act, null);
+    try os.sigaction(os.SIG.ILL, act, null);
+    try os.sigaction(os.SIG.BUS, act, null);
+}
+
 /// Attaches a global SIGSEGV handler which calls @panic("segmentation fault");
 pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
@@ -1704,9 +1710,9 @@ pub fn attachSegfaultHandler() void {
         .flags = (os.SA.SIGINFO | os.SA.RESTART | os.SA.RESETHAND),
     };
 
-    os.sigaction(os.SIG.SEGV, &act, null);
-    os.sigaction(os.SIG.ILL, &act, null);
-    os.sigaction(os.SIG.BUS, &act, null);
+    updateSegfaultHandler(&act) catch {
+        @panic("unable to install segfault handler, maybe adjust have_segfault_handling_support in std/debug.zig");
+    };
 }
 
 fn resetSegfaultHandler() void {
@@ -1722,9 +1728,8 @@ fn resetSegfaultHandler() void {
         .mask = os.empty_sigset,
         .flags = 0,
     };
-    os.sigaction(os.SIG.SEGV, &act, null);
-    os.sigaction(os.SIG.ILL, &act, null);
-    os.sigaction(os.SIG.BUS, &act, null);
+    // do nothing if an error happens to avoid a double-panic
+    updateSegfaultHandler(&act) catch {};
 }
 
 fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) noreturn {
