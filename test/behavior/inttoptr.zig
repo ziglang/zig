@@ -1,4 +1,7 @@
+const builtin = @import("builtin");
+
 test "casting random address to function pointer" {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) return error.SkipZigTest; // TODO
     randomAddressToFunction();
     comptime randomAddressToFunction();
 }
