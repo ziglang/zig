@@ -169,7 +169,11 @@ pub const Status = union(enum) {
     };
 
     pub fn class(self: Status) Class {
-        return switch (@enumToInt(self)) {
+        const code = switch (self) {
+            .standard => @enumToInt(self.standard),
+            .unknown => self.unknown.code,
+        };
+        return switch (code) {
             100...199 => .informational,
             200...299 => .success,
             300...399 => .redirect,
