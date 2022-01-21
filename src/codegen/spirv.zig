@@ -190,12 +190,12 @@ pub const DeclGen = struct {
     /// The decl we are currently generating code for.
     decl: *Decl,
 
-    /// If `gen` returned `Error.AnalysisFail`, this contains an explanatory message.
+    /// If `gen` returned `Error.CodegenFail`, this contains an explanatory message.
     /// Memory is owned by `module.gpa`.
     error_msg: ?*Module.ErrorMsg,
 
     /// Possible errors the `gen` function may return.
-    const Error = error{ AnalysisFail, OutOfMemory };
+    const Error = error{ CodegenFail, OutOfMemory };
 
     /// This structure is used to return information about a type typically used for
     /// arithmetic operations. These types may either be integers, floats, or a vector
@@ -276,8 +276,12 @@ pub const DeclGen = struct {
         self.decl = decl;
         self.error_msg = null;
 
-        try self.genDecl();
-        return self.error_msg;
+        self.genDecl() catch |err| switch (err) {
+            error.CodegenFail => return self.error_msg,
+            else => |others| return others,
+        };
+
+        return null;
     }
 
     /// Free resources owned by the DeclGen.
@@ -297,7 +301,7 @@ pub const DeclGen = struct {
         const src: LazySrcLoc = .{ .node_offset = 0 };
         const src_loc = src.toSrcLoc(self.decl);
         self.error_msg = try Module.ErrorMsg.create(self.spv.module.gpa, src_loc, format, args);
-        return error.AnalysisFail;
+        return error.CodegenFail;
     }
 
     fn resolve(self: *DeclGen, inst: Air.Inst.Ref) !ResultId {
