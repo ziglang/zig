@@ -1454,6 +1454,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .slice_ptr => self.airSlicePtr(inst),
         .store => self.airStore(inst),
 
+        .set_union_tag => self.airSetUnionTag(inst),
         .struct_field_ptr => self.airStructFieldPtr(inst),
         .struct_field_ptr_index_0 => self.airStructFieldPtrIndex(inst, 0),
         .struct_field_ptr_index_1 => self.airStructFieldPtrIndex(inst, 1),
@@ -1494,7 +1495,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .fpext,
         .unwrap_errunion_payload_ptr,
         .unwrap_errunion_err_ptr,
-        .set_union_tag,
+
         .get_union_tag,
         .ptr_slice_len_ptr,
         .ptr_slice_ptr_ptr,
@@ -1518,7 +1519,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .sub_with_overflow,
         .mul_with_overflow,
         .shl_with_overflow,
-        => |tag| self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
+        => |tag| return self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
     };
 }
 
@@ -1596,6 +1597,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             break :blk func.data.owner_decl;
         } else if (func_val.castTag(.extern_fn)) |ext_fn| {
             break :blk ext_fn.data;
+        } else if (func_val.castTag(.decl_ref)) |decl_ref| {
+            break :blk decl_ref.data;
         }
         return self.fail("Expected a function, but instead found type '{s}'", .{func_val.tag()});
     };
@@ -3176,4 +3179,26 @@ fn cmpBigInt(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.ma
     try self.addTag(if (op == .eq) .i32_ne else .i32_eq);
     try self.addLabel(.local_set, result.local);
     return result;
+}
+
+fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const un_ty = self.air.typeOf(bin_op.lhs).childType();
+    const tag_ty = self.air.typeOf(bin_op.rhs);
+    const layout = un_ty.unionGetLayout(self.target);
+    if (layout.tag_size == 0) return WValue{ .none = {} };
+    const union_ptr = try self.resolveInst(bin_op.lhs);
+    const new_tag = try self.resolveInst(bin_op.rhs);
+    if (layout.payload_size == 0) {
+        try self.store(union_ptr, new_tag, tag_ty, 0);
+        return WValue{ .none = {} };
+    }
+
+    // when the tag alignment is smaller than the payload, the field will be stored
+    // after the payload.
+    const offset = if (layout.tag_align < layout.payload_align) blk: {
+        break :blk @intCast(u32, layout.payload_size);
+    } else @as(u32, 0);
+    try self.store(union_ptr, new_tag, tag_ty, offset);
+    return WValue{ .none = {} };
 }
