@@ -43,7 +43,7 @@ err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
 fn_type: Type,
-arg_index: usize,
+arg_index: u32,
 src_loc: Module.SrcLoc,
 stack_align: u32,
 
@@ -117,9 +117,9 @@ pub const MCValue = union(enum) {
     memory: u64,
     /// The value is one of the stack variables.
     /// If the type is a pointer, it means the pointer address is in the stack at this offset.
-    stack_offset: u32,
+    stack_offset: i32,
     /// The value is a pointer to one of the stack variables (payload is stack offset).
-    ptr_stack_offset: u32,
+    ptr_stack_offset: i32,
     /// The value is in the compare flags assuming an unsigned operation,
     /// with this operator applied on top of it.
     compare_flags_unsigned: math.CompareOperator,
@@ -485,13 +485,12 @@ fn gen(self: *Self) InnerError!void {
         });
 
         // Adjust the stack
-        const stack_end = self.max_end_stack;
-        if (stack_end > math.maxInt(i32)) {
+        if (self.max_end_stack > math.maxInt(i32)) {
             return self.failSymbol("too much stack used in call parameters", .{});
         }
         // TODO we should reuse this mechanism to align the stack when calling any function even if
         // we do not pass any args on the stack BUT we still push regs to stack with `push` inst.
-        const aligned_stack_end = @intCast(u32, mem.alignForward(stack_end, self.stack_align));
+        const aligned_stack_end = @intCast(u32, mem.alignForward(self.max_end_stack, self.stack_align));
         if (aligned_stack_end > 0) {
             self.mir_instructions.set(backpatch_stack_sub, .{
                 .tag = .sub,
@@ -798,7 +797,7 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
         }
     }
     const stack_offset = try self.allocMem(inst, abi_size, abi_align);
-    return MCValue{ .stack_offset = stack_offset };
+    return MCValue{ .stack_offset = @intCast(i32, stack_offset) };
 }
 
 pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
@@ -844,12 +843,12 @@ fn copyToNewRegisterWithExceptions(
 
 fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
     const stack_offset = try self.allocMemPtr(inst);
-    return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
+    return self.finishAir(inst, .{ .ptr_stack_offset = @intCast(i32, stack_offset) }, .{ .none, .none, .none });
 }
 
 fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
     const stack_offset = try self.allocMemPtr(inst);
-    return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
+    return self.finishAir(inst, .{ .ptr_stack_offset = @intCast(i32, stack_offset) }, .{ .none, .none, .none });
 }
 
 fn airFptrunc(self: *Self, inst: Air.Inst.Index) !void {
@@ -1409,7 +1408,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
                         .reg1 = addr_reg.to64(),
                         .reg2 = .rbp,
                     }).encode(),
-                    .data = .{ .imm = @bitCast(u32, -@intCast(i32, off + array_abi_size)) },
+                    .data = .{ .imm = @bitCast(u32, -(off + @intCast(i32, array_abi_size))) },
                 });
             },
             else => return self.fail("TODO implement array_elem_val when array is {}", .{array}),
@@ -1613,7 +1612,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                     try self.genSetReg(Type.initTag(.u32), count_reg, .{ .immediate = @intCast(u32, abi_size) });
 
                     return self.genInlineMemcpy(
-                        @bitCast(u32, -@intCast(i32, off + abi_size)),
+                        -(off + @intCast(i32, abi_size)),
                         .rbp,
                         registerAlias(addr_reg, @divExact(reg.size(), 8)),
                         count_reg.to64(),
@@ -1770,10 +1769,10 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
     return if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(operand);
         const struct_ty = self.air.typeOf(operand).childType();
-        const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
-        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+        const struct_size = @intCast(i32, struct_ty.abiSize(self.target.*));
+        const struct_field_offset = @intCast(i32, struct_ty.structFieldOffset(index, self.target.*));
         const struct_field_ty = struct_ty.structFieldType(index);
-        const struct_field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
+        const struct_field_size = @intCast(i32, struct_field_ty.abiSize(self.target.*));
 
         switch (mcv) {
             .ptr_stack_offset => |off| {
@@ -1793,10 +1792,10 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(operand);
         const struct_ty = self.air.typeOf(operand);
-        const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
-        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+        const struct_size = @intCast(i32, struct_ty.abiSize(self.target.*));
+        const struct_field_offset = @intCast(i32, struct_ty.structFieldOffset(index, self.target.*));
         const struct_field_ty = struct_ty.structFieldType(index);
-        const struct_field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
+        const struct_field_size = @intCast(i32, struct_field_ty.abiSize(self.target.*));
 
         switch (mcv) {
             .stack_offset => |off| {
@@ -1960,7 +1959,7 @@ fn genBinMathOpMir(
                         return self.fail("stack offset too large", .{});
                     }
                     const abi_size = dst_ty.abiSize(self.target.*);
-                    const adj_off = off + abi_size;
+                    const adj_off = off + @intCast(i32, abi_size);
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = (Mir.Ops{
@@ -1968,7 +1967,7 @@ fn genBinMathOpMir(
                             .reg2 = .rbp,
                             .flags = 0b01,
                         }).encode(),
-                        .data = .{ .imm = @bitCast(u32, -@intCast(i32, adj_off)) },
+                        .data = .{ .imm = @bitCast(u32, -adj_off) },
                     });
                 },
                 .compare_flags_unsigned => {
@@ -1987,7 +1986,7 @@ fn genBinMathOpMir(
             if (abi_size > 8) {
                 return self.fail("TODO implement ADD/SUB/CMP for stack dst with large ABI", .{});
             }
-            const adj_off = off + abi_size;
+            const adj_off = off + @intCast(i32, abi_size);
 
             switch (src_mcv) {
                 .none => unreachable,
@@ -2003,7 +2002,7 @@ fn genBinMathOpMir(
                             .reg2 = registerAlias(src_reg, @intCast(u32, abi_size)),
                             .flags = 0b10,
                         }).encode(),
-                        .data = .{ .imm = @bitCast(u32, -@intCast(i32, adj_off)) },
+                        .data = .{ .imm = @bitCast(u32, -adj_off) },
                     });
                 },
                 .immediate => |imm| {
@@ -2024,7 +2023,7 @@ fn genBinMathOpMir(
                         else => unreachable,
                     };
                     const payload = try self.addExtra(Mir.ImmPair{
-                        .dest_off = @bitCast(u32, -@intCast(i32, adj_off)),
+                        .dest_off = @bitCast(u32, -adj_off),
                         .operand = @truncate(u32, imm),
                     });
                     _ = try self.addInst(.{
@@ -2162,7 +2161,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const mcv = self.args[arg_index];
     const payload = try self.addExtra(Mir.ArgDbgInfo{
         .air_inst = inst,
-        .arg_index = @truncate(u32, arg_index), // TODO can arg_index: u32?
+        .arg_index = arg_index,
     });
     _ = try self.addInst(.{
         .tag = .arg_dbg_info,
@@ -2178,56 +2177,13 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
                 self.register_manager.getRegAssumeFree(reg.to64(), inst);
                 break :blk mcv;
             },
-            .stack_offset => |off| {
+            .stack_offset => {
                 const ty = self.air.typeOfIndex(inst);
                 const abi_size = ty.abiSize(self.target.*);
-
-                if (abi_size <= 8) {
-                    const reg = try self.register_manager.allocReg(inst, &.{});
-                    _ = try self.addInst(.{
-                        .tag = .mov,
-                        .ops = (Mir.Ops{
-                            .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
-                            .reg2 = .rbp,
-                            .flags = 0b01,
-                        }).encode(),
-                        .data = .{ .imm = off + 16 },
-                    });
-                    break :blk .{ .register = reg };
-                }
-
-                // TODO copy ellision
-                const dst_mcv = try self.allocRegOrMem(inst, false);
-                const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{ .rax, .rcx });
-                const addr_reg = regs[0];
-                const count_reg = regs[1];
-                const tmp_reg = regs[2];
-
-                try self.register_manager.getReg(.rax, null);
-                try self.register_manager.getReg(.rcx, null);
-
-                _ = try self.addInst(.{
-                    .tag = .lea,
-                    .ops = (Mir.Ops{
-                        .reg1 = addr_reg.to64(),
-                        .reg2 = .rbp,
-                    }).encode(),
-                    .data = .{ .imm = off + 16 },
-                });
-
-                // TODO allow for abi_size to be u64
-                try self.genSetReg(Type.initTag(.u32), count_reg, .{ .immediate = @intCast(u32, abi_size) });
-                try self.genInlineMemcpy(
-                    @bitCast(u32, -@intCast(i32, dst_mcv.stack_offset + abi_size)),
-                    .rbp,
-                    addr_reg.to64(),
-                    count_reg.to64(),
-                    tmp_reg.to8(),
-                );
-
-                break :blk dst_mcv;
+                const off = @intCast(i32, (arg_index + 1) * abi_size) + 16;
+                break :blk MCValue{ .stack_offset = -off };
             },
-            else => unreachable,
+            else => return self.fail("TODO implement arg for {}", .{mcv}),
         }
     };
 
@@ -2252,64 +2208,6 @@ fn airFence(self: *Self) !void {
     //return self.finishAirBookkeeping();
 }
 
-fn genSetStackArg(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
-    const abi_size = ty.abiSize(self.target.*);
-    switch (mcv) {
-        .dead => unreachable,
-        .ptr_embedded_in_code => unreachable,
-        .unreach, .none => return,
-        .register => |reg| {
-            _ = try self.addInst(.{
-                .tag = .mov,
-                .ops = (Mir.Ops{
-                    .reg1 = .rsp,
-                    .reg2 = registerAlias(reg, @intCast(u32, abi_size)),
-                    .flags = 0b10,
-                }).encode(),
-                .data = .{ .imm = @bitCast(u32, -@intCast(i32, stack_offset + abi_size)) },
-            });
-        },
-        .ptr_stack_offset => {
-            const reg = try self.copyToTmpRegister(ty, mcv);
-            return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
-        },
-        .stack_offset => |unadjusted_off| {
-            if (abi_size <= 8) {
-                const reg = try self.copyToTmpRegister(ty, mcv);
-                return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
-            }
-
-            const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{ .rax, .rcx });
-            const addr_reg = regs[0];
-            const count_reg = regs[1];
-            const tmp_reg = regs[2];
-
-            try self.register_manager.getReg(.rax, null);
-            try self.register_manager.getReg(.rcx, null);
-
-            _ = try self.addInst(.{
-                .tag = .lea,
-                .ops = (Mir.Ops{
-                    .reg1 = addr_reg.to64(),
-                    .reg2 = .rbp,
-                }).encode(),
-                .data = .{ .imm = @bitCast(u32, -@intCast(i32, unadjusted_off + abi_size)) },
-            });
-
-            // TODO allow for abi_size to be u64
-            try self.genSetReg(Type.initTag(.u32), count_reg, .{ .immediate = @intCast(u32, abi_size) });
-            try self.genInlineMemcpy(
-                @bitCast(u32, -@intCast(i32, stack_offset + abi_size)),
-                .rsp,
-                addr_reg.to64(),
-                count_reg.to64(),
-                tmp_reg.to8(),
-            );
-        },
-        else => return self.fail("TODO implement args on stack for {}", .{mcv}),
-    }
-}
-
 fn airCall(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const callee = pl_op.operand;
@@ -2326,12 +2224,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
     var info = try self.resolveCallingConventionValues(fn_ty);
     defer info.deinit(self);
 
-    var count: usize = info.args.len;
     var stack_adjustment: u32 = 0;
-    while (count > 0) : (count -= 1) {
-        const arg_i = count - 1;
+    for (args) |arg, arg_i| {
         const mc_arg = info.args[arg_i];
-        const arg = args[arg_i];
         const arg_ty = self.air.typeOf(arg);
         const arg_mcv = try self.resolveInst(args[arg_i]);
         // Here we do not use setRegOrMem even though the logic is similar, because
@@ -2343,9 +2238,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 try self.genSetReg(arg_ty, reg, arg_mcv);
             },
             .stack_offset => |off| {
-                const abi_size = arg_ty.abiSize(self.target.*);
+                const abi_size = @intCast(u32, arg_ty.abiSize(self.target.*));
                 try self.genSetStackArg(arg_ty, off, arg_mcv);
-                stack_adjustment += @intCast(u32, abi_size);
+                stack_adjustment += abi_size;
             },
             .ptr_stack_offset => {
                 return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
@@ -3257,7 +3152,65 @@ fn setRegOrMem(self: *Self, ty: Type, loc: MCValue, val: MCValue) !void {
     }
 }
 
-fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
+fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerError!void {
+    const abi_size = ty.abiSize(self.target.*);
+    switch (mcv) {
+        .dead => unreachable,
+        .ptr_embedded_in_code => unreachable,
+        .unreach, .none => return,
+        .register => |reg| {
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .reg1 = .rsp,
+                    .reg2 = registerAlias(reg, @intCast(u32, abi_size)),
+                    .flags = 0b10,
+                }).encode(),
+                .data = .{ .imm = @bitCast(u32, -(stack_offset + @intCast(i32, abi_size))) },
+            });
+        },
+        .ptr_stack_offset => {
+            const reg = try self.copyToTmpRegister(ty, mcv);
+            return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
+        },
+        .stack_offset => |unadjusted_off| {
+            if (abi_size <= 8) {
+                const reg = try self.copyToTmpRegister(ty, mcv);
+                return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
+            }
+
+            const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{ .rax, .rcx });
+            const addr_reg = regs[0];
+            const count_reg = regs[1];
+            const tmp_reg = regs[2];
+
+            try self.register_manager.getReg(.rax, null);
+            try self.register_manager.getReg(.rcx, null);
+
+            _ = try self.addInst(.{
+                .tag = .lea,
+                .ops = (Mir.Ops{
+                    .reg1 = addr_reg.to64(),
+                    .reg2 = .rbp,
+                }).encode(),
+                .data = .{ .imm = @bitCast(u32, -(unadjusted_off + @intCast(i32, abi_size))) },
+            });
+
+            // TODO allow for abi_size to be u64
+            try self.genSetReg(Type.initTag(.u32), count_reg, .{ .immediate = @intCast(u32, abi_size) });
+            try self.genInlineMemcpy(
+                -(stack_offset + @intCast(i32, abi_size)),
+                .rsp,
+                addr_reg.to64(),
+                count_reg.to64(),
+                tmp_reg.to8(),
+            );
+        },
+        else => return self.fail("TODO implement args on stack for {}", .{mcv}),
+    }
+}
+
+fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerError!void {
     switch (mcv) {
         .dead => unreachable,
         .ptr_embedded_in_code => unreachable,
@@ -3284,7 +3237,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
         },
         .immediate => |x_big| {
             const abi_size = ty.abiSize(self.target.*);
-            const adj_off = stack_offset + abi_size;
+            const adj_off = stack_offset + @intCast(i32, abi_size);
             if (adj_off > 128) {
                 return self.fail("TODO implement set stack variable with large stack offset", .{});
             }
@@ -3294,7 +3247,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     // offset from rbp, which is at the top of the stack frame.
                     // mov [rbp+offset], immediate
                     const payload = try self.addExtra(Mir.ImmPair{
-                        .dest_off = @bitCast(u32, -@intCast(i32, adj_off)),
+                        .dest_off = @bitCast(u32, -adj_off),
                         .operand = @truncate(u32, x_big),
                     });
                     _ = try self.addInst(.{
@@ -3314,7 +3267,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 8 => {
                     // We have a positive stack offset value but we want a twos complement negative
                     // offset from rbp, which is at the top of the stack frame.
-                    const negative_offset = -@intCast(i32, adj_off);
+                    const negative_offset = -adj_off;
 
                     // 64 bit write to memory would take two mov's anyways so we
                     // insted just use two 32 bit writes to avoid register allocation
@@ -3357,7 +3310,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 return self.fail("stack offset too large", .{});
             }
             const abi_size = ty.abiSize(self.target.*);
-            const adj_off = stack_offset + abi_size;
+            const adj_off = stack_offset + @intCast(i32, abi_size);
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = (Mir.Ops{
@@ -3365,7 +3318,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     .reg2 = registerAlias(reg, @intCast(u32, abi_size)),
                     .flags = 0b10,
                 }).encode(),
-                .data = .{ .imm = @bitCast(u32, -@intCast(i32, adj_off)) },
+                .data = .{ .imm = @bitCast(u32, -adj_off) },
             });
         },
         .memory, .embedded_in_code => {
@@ -3391,7 +3344,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
             }
 
-            const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{ .rax, .rcx });
+            const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{ .rax, .rcx, .rbp });
             const addr_reg = regs[0];
             const count_reg = regs[1];
             const tmp_reg = regs[2];
@@ -3405,14 +3358,14 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     .reg1 = addr_reg.to64(),
                     .reg2 = .rbp,
                 }).encode(),
-                .data = .{ .imm = @bitCast(u32, -@intCast(i32, off + abi_size)) },
+                .data = .{ .imm = @bitCast(u32, -(off + @intCast(i32, abi_size))) },
             });
 
             // TODO allow for abi_size to be u64
             try self.genSetReg(Type.initTag(.u32), count_reg, .{ .immediate = @intCast(u32, abi_size) });
 
             return self.genInlineMemcpy(
-                @bitCast(u32, -@intCast(i32, stack_offset + abi_size)),
+                -(stack_offset + @intCast(i32, abi_size)),
                 .rbp,
                 addr_reg.to64(),
                 count_reg.to64(),
@@ -3424,7 +3377,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
 
 fn genInlineMemcpy(
     self: *Self,
-    stack_offset: u32,
+    stack_offset: i32,
     stack_reg: Register,
     addr_reg: Register,
     count_reg: Register,
@@ -3482,7 +3435,7 @@ fn genInlineMemcpy(
             .reg1 = stack_reg,
             .reg2 = tmp_reg.to8(),
         }).encode(),
-        .data = .{ .imm = stack_offset },
+        .data = .{ .imm = @bitCast(u32, stack_offset) },
     });
 
     // add rcx, 1
@@ -3523,14 +3476,14 @@ fn genInlineMemcpy(
     try self.performReloc(loop_reloc);
 }
 
-fn genInlineMemset(self: *Self, ty: Type, stack_offset: u32, value: MCValue) InnerError!void {
+fn genInlineMemset(self: *Self, ty: Type, stack_offset: i32, value: MCValue) InnerError!void {
     try self.register_manager.getReg(.rax, null);
     const abi_size = ty.abiSize(self.target.*);
-    const adj_off = stack_offset + abi_size;
+    const adj_off = stack_offset + @intCast(i32, abi_size);
     if (adj_off > 128) {
         return self.fail("TODO inline memset with large stack offset", .{});
     }
-    const negative_offset = @bitCast(u32, -@intCast(i32, adj_off));
+    const negative_offset = @bitCast(u32, -adj_off);
 
     // We are actually counting `abi_size` bytes; however, we reuse the index register
     // as both the counter and offset scaler, hence we need to subtract one from `abi_size`
@@ -3621,7 +3574,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             const ptr_abi_size = ty.abiSize(self.target.*);
             const elem_ty = ty.childType();
             const elem_abi_size = elem_ty.abiSize(self.target.*);
-            const off = unadjusted_off + elem_abi_size;
+            const off = unadjusted_off + @intCast(i32, elem_abi_size);
             if (off < std.math.minInt(i32) or off > std.math.maxInt(i32)) {
                 return self.fail("stack offset too large", .{});
             }
@@ -3631,7 +3584,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     .reg1 = registerAlias(reg, @intCast(u32, ptr_abi_size)),
                     .reg2 = .rbp,
                 }).encode(),
-                .data = .{ .imm = @bitCast(u32, -@intCast(i32, off)) },
+                .data = .{ .imm = @bitCast(u32, -off) },
             });
         },
         .ptr_embedded_in_code => unreachable,
@@ -3818,7 +3771,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         },
         .stack_offset => |unadjusted_off| {
             const abi_size = ty.abiSize(self.target.*);
-            const off = unadjusted_off + abi_size;
+            const off = unadjusted_off + @intCast(i32, abi_size);
             if (off < std.math.minInt(i32) or off > std.math.maxInt(i32)) {
                 return self.fail("stack offset too large", .{});
             }
@@ -3829,7 +3782,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     .reg2 = .rbp,
                     .flags = 0b01,
                 }).encode(),
-                .data = .{ .imm = @bitCast(u32, -@intCast(i32, off)) },
+                .data = .{ .imm = @bitCast(u32, -off) },
             });
         },
     }
@@ -3854,7 +3807,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
     const array_ty = ptr_ty.childType();
     const array_len = array_ty.arrayLenIncludingSentinel();
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else blk: {
-        const stack_offset = try self.allocMem(inst, 16, 16);
+        const stack_offset = @intCast(i32, try self.allocMem(inst, 16, 16));
         try self.genSetStack(ptr_ty, stack_offset + 8, ptr);
         try self.genSetStack(Type.initTag(.u64), stack_offset, .{ .immediate = array_len });
         break :blk .{ .stack_offset = stack_offset };
@@ -4235,6 +4188,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             var next_stack_offset: u32 = 0;
             var count: usize = param_types.len;
             while (count > 0) : (count -= 1) {
+                // for (param_types) |ty, i| {
                 const i = count - 1;
                 const ty = param_types[i];
                 if (!ty.hasCodeGenBits()) {
@@ -4253,7 +4207,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     // such as ptr and len of slices as separate registers.
                     // TODO: also we need to honor the C ABI for relevant types rather than passing on
                     // the stack here.
-                    result.args[i] = .{ .stack_offset = next_stack_offset };
+                    result.args[i] = .{ .stack_offset = @intCast(i32, next_stack_offset) };
                     next_stack_offset += param_size;
                 }
             }
