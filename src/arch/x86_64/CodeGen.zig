@@ -61,8 +61,6 @@ end_di_column: u32,
 /// which is a relative jump, based on the address following the reloc.
 exitlude_jump_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
 
-stack_args_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
-
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
 /// of the table of mappings from instructions to `MCValue` from within the branch.
@@ -286,7 +284,6 @@ pub fn generate(
     defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
     defer function.mir_instructions.deinit(bin_file.allocator);
     defer function.mir_extra.deinit(bin_file.allocator);
-    defer function.stack_args_relocs.deinit(bin_file.allocator);
     defer if (builtin.mode == .Debug) function.mir_to_air_map.deinit();
 
     var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
@@ -378,13 +375,6 @@ pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
 fn gen(self: *Self) InnerError!void {
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
-        // push the callee_preserved_regs that were used
-        const backpatch_push_callee_preserved_regs_i = try self.addInst(.{
-            .tag = .push_regs_from_callee_preserved_regs,
-            .ops = undefined,
-            .data = .{ .regs_to_push_or_pop = undefined }, // to be backpatched
-        });
-
         _ = try self.addInst(.{
             .tag = .push,
             .ops = (Mir.Ops{
@@ -416,6 +406,15 @@ fn gen(self: *Self) InnerError!void {
             .data = undefined,
         });
 
+        // push the callee_preserved_regs that were used
+        const backpatch_push_callee_preserved_regs_i = try self.addInst(.{
+            .tag = .push_regs_from_callee_preserved_regs,
+            .ops = (Mir.Ops{
+                .reg1 = .rbp,
+            }).encode(),
+            .data = .{ .payload = undefined }, // to be backpatched
+        });
+
         try self.genBody(self.air.getMainBody());
 
         // TODO can single exitlude jump reloc be elided? What if it is not at the end of the code?
@@ -428,6 +427,33 @@ fn gen(self: *Self) InnerError!void {
         for (self.exitlude_jump_relocs.items) |jmp_reloc| {
             self.mir_instructions.items(.data)[jmp_reloc].inst = @intCast(u32, self.mir_instructions.len);
         }
+
+        // calculate the data for callee_preserved_regs to be pushed and popped
+        const callee_preserved_regs_payload = blk: {
+            var data = Mir.RegsToPushOrPop{
+                .regs = 0,
+                .disp = mem.alignForwardGeneric(u32, self.next_stack_offset, 8),
+            };
+            inline for (callee_preserved_regs) |reg, i| {
+                if (self.register_manager.isRegAllocated(reg)) {
+                    data.regs |= 1 << @intCast(u5, i);
+                    self.max_end_stack += 8;
+                }
+            }
+            break :blk try self.addExtra(data);
+        };
+
+        const data = self.mir_instructions.items(.data);
+        // backpatch the push instruction
+        data[backpatch_push_callee_preserved_regs_i].payload = callee_preserved_regs_payload;
+        // pop the callee_preserved_regs
+        _ = try self.addInst(.{
+            .tag = .pop_regs_from_callee_preserved_regs,
+            .ops = (Mir.Ops{
+                .reg1 = .rbp,
+            }).encode(),
+            .data = .{ .payload = callee_preserved_regs_payload },
+        });
 
         _ = try self.addInst(.{
             .tag = .dbg_epilogue_begin,
@@ -450,34 +476,6 @@ fn gen(self: *Self) InnerError!void {
             .data = undefined,
         });
 
-        // calculate the data for callee_preserved_regs to be pushed and popped
-        var callee_preserved_regs_push_data: u32 = 0x0;
-        // TODO this is required on macOS since macOS actively checks for stack alignment
-        // at every extern call site. As far as I can tell, macOS accounts for the typical
-        // function prologue first 2 instructions of:
-        // ...
-        // push rbp
-        // mov rsp, rbp
-        // ...
-        // Thus we don't need to adjust the stack for the first push instruction. However,
-        // any subsequent push of values on the stack such as when preserving registers,
-        // needs to be taken into account here.
-        var stack_adjustment: u32 = 0;
-        inline for (callee_preserved_regs) |reg, i| {
-            if (self.register_manager.isRegAllocated(reg)) {
-                callee_preserved_regs_push_data |= 1 << @intCast(u5, i);
-                stack_adjustment += @divExact(reg.size(), 8);
-            }
-        }
-        const data = self.mir_instructions.items(.data);
-        // backpatch the push instruction
-        data[backpatch_push_callee_preserved_regs_i].regs_to_push_or_pop = callee_preserved_regs_push_data;
-        // pop the callee_preserved_regs
-        _ = try self.addInst(.{
-            .tag = .pop_regs_from_callee_preserved_regs,
-            .ops = undefined,
-            .data = .{ .regs_to_push_or_pop = callee_preserved_regs_push_data },
-        });
         _ = try self.addInst(.{
             .tag = .ret,
             .ops = (Mir.Ops{
@@ -488,35 +486,27 @@ fn gen(self: *Self) InnerError!void {
 
         // Adjust the stack
         const stack_end = self.max_end_stack;
-        if (stack_end > math.maxInt(i32) - stack_adjustment) {
+        if (stack_end > math.maxInt(i32)) {
             return self.failSymbol("too much stack used in call parameters", .{});
         }
         // TODO we should reuse this mechanism to align the stack when calling any function even if
         // we do not pass any args on the stack BUT we still push regs to stack with `push` inst.
         const aligned_stack_end = @intCast(u32, mem.alignForward(stack_end, self.stack_align));
-        if (aligned_stack_end > 0 or (stack_adjustment > 0 and self.target.isDarwin())) {
-            const imm = if (self.target.isDarwin()) aligned_stack_end + stack_adjustment else aligned_stack_end;
+        if (aligned_stack_end > 0) {
             self.mir_instructions.set(backpatch_stack_sub, .{
                 .tag = .sub,
                 .ops = (Mir.Ops{
                     .reg1 = .rsp,
                 }).encode(),
-                .data = .{ .imm = imm },
+                .data = .{ .imm = aligned_stack_end },
             });
             self.mir_instructions.set(backpatch_stack_add, .{
                 .tag = .add,
                 .ops = (Mir.Ops{
                     .reg1 = .rsp,
                 }).encode(),
-                .data = .{ .imm = imm },
+                .data = .{ .imm = aligned_stack_end },
             });
-        }
-        while (self.stack_args_relocs.popOrNull()) |index| {
-            // TODO like above, gotta figure out the alignment shenanigans for macOS, etc.
-            const adjustment = if (self.target.isDarwin()) 2 * stack_adjustment else stack_adjustment;
-            // +16 bytes to account for saved return address of the `call` instruction and
-            // `push rbp`.
-            self.mir_instructions.items(.data)[index].imm += adjustment + aligned_stack_end + 16;
         }
     } else {
         _ = try self.addInst(.{
@@ -2194,16 +2184,15 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 
                 if (abi_size <= 8) {
                     const reg = try self.register_manager.allocReg(inst, &.{});
-                    const reloc = try self.addInst(.{
+                    _ = try self.addInst(.{
                         .tag = .mov,
                         .ops = (Mir.Ops{
                             .reg1 = registerAlias(reg, @intCast(u32, abi_size)),
-                            .reg2 = .rsp,
+                            .reg2 = .rbp,
                             .flags = 0b01,
                         }).encode(),
-                        .data = .{ .imm = off },
+                        .data = .{ .imm = off + 16 },
                     });
-                    try self.stack_args_relocs.append(self.bin_file.allocator, reloc);
                     break :blk .{ .register = reg };
                 }
 
@@ -2217,15 +2206,14 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
                 try self.register_manager.getReg(.rax, null);
                 try self.register_manager.getReg(.rcx, null);
 
-                const reloc = try self.addInst(.{
+                _ = try self.addInst(.{
                     .tag = .lea,
                     .ops = (Mir.Ops{
                         .reg1 = addr_reg.to64(),
-                        .reg2 = .rsp,
+                        .reg2 = .rbp,
                     }).encode(),
-                    .data = .{ .imm = off },
+                    .data = .{ .imm = off + 16 },
                 });
-                try self.stack_args_relocs.append(self.bin_file.allocator, reloc);
 
                 // TODO allow for abi_size to be u64
                 try self.genSetReg(Type.initTag(.u32), count_reg, .{ .immediate = @intCast(u32, abi_size) });

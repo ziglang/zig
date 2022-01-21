@@ -251,23 +251,25 @@ fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
-    const callee_preserved_regs = bits.callee_preserved_regs;
-    const regs = emit.mir.instructions.items(.data)[inst].regs_to_push_or_pop;
-    if (tag == .push) {
-        for (callee_preserved_regs) |reg, i| {
-            if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
-            lowerToOEnc(.push, reg, emit.code) catch |err|
-                return emit.failWithLoweringError(err);
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const payload = emit.mir.instructions.items(.data)[inst].payload;
+    const data = emit.mir.extraData(Mir.RegsToPushOrPop, payload).data;
+    const regs = data.regs;
+    var disp: u32 = data.disp + 8;
+    for (bits.callee_preserved_regs) |reg, i| {
+        if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
+        if (tag == .push) {
+            lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
+                .disp = @bitCast(u32, -@intCast(i32, disp)),
+                .base = ops.reg1,
+            }), reg.to64(), emit.code) catch |err| return emit.failWithLoweringError(err);
+        } else {
+            lowerToRmEnc(.mov, reg.to64(), RegisterOrMemory.mem(.qword_ptr, .{
+                .disp = @bitCast(u32, -@intCast(i32, disp)),
+                .base = ops.reg1,
+            }), emit.code) catch |err| return emit.failWithLoweringError(err);
         }
-    } else {
-        // pop in the reverse direction
-        var i = callee_preserved_regs.len;
-        while (i > 0) : (i -= 1) {
-            const reg = callee_preserved_regs[i - 1];
-            if ((regs >> @intCast(u5, i - 1)) & 1 == 0) continue;
-            lowerToOEnc(.pop, reg, emit.code) catch |err|
-                return emit.failWithLoweringError(err);
-        }
+        disp += 8;
     }
 }
 
