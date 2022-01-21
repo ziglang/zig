@@ -3234,6 +3234,49 @@ static LLVMValueRef get_soft_f80_bin_op_func(CodeGen *g, const char *name, int p
     return LLVMAddFunction(g->module, name, fn_type);
 }
 
+enum SoftF80Icmp {
+    NONE,
+    EQ_ZERO,
+    NE_ZERO,
+    LE_ZERO,
+    EQ_NEG,
+    GE_ZERO,
+    EQ_ONE,
+};
+
+static LLVMValueRef add_f80_icmp(CodeGen *g, LLVMValueRef val, SoftF80Icmp kind) {
+    switch (kind) {
+        case NONE:
+            return val;
+        case EQ_ZERO: {
+            LLVMValueRef zero = LLVMConstInt(g->builtin_types.entry_i32->llvm_type, 0, true);
+            return LLVMBuildICmp(g->builder, LLVMIntEQ, val, zero, "");
+        }
+        case NE_ZERO: {
+            LLVMValueRef zero = LLVMConstInt(g->builtin_types.entry_i32->llvm_type, 0, true);
+            return LLVMBuildICmp(g->builder, LLVMIntNE, val, zero, "");
+        }
+        case LE_ZERO: {
+            LLVMValueRef zero = LLVMConstInt(g->builtin_types.entry_i32->llvm_type, 0, true);
+            return LLVMBuildICmp(g->builder, LLVMIntSLE, val, zero, "");
+        }
+        case EQ_NEG: {
+            LLVMValueRef zero = LLVMConstInt(g->builtin_types.entry_i32->llvm_type, -1, true);
+            return LLVMBuildICmp(g->builder, LLVMIntEQ, val, zero, "");
+        }
+        case GE_ZERO: {
+            LLVMValueRef zero = LLVMConstInt(g->builtin_types.entry_i32->llvm_type, 0, true);
+            return LLVMBuildICmp(g->builder, LLVMIntSGE, val, zero, "");
+        }
+        case EQ_ONE: {
+            LLVMValueRef zero = LLVMConstInt(g->builtin_types.entry_i32->llvm_type, 1, true);
+            return LLVMBuildICmp(g->builder, LLVMIntEQ, val, zero, "");
+        }
+        default:
+            zig_unreachable();
+    }
+}
+
 static LLVMValueRef ir_render_soft_f80_bin_op(CodeGen *g, Stage1Air *executable,
         Stage1AirInstBinOp *bin_op_instruction)
 {
@@ -3249,6 +3292,7 @@ static LLVMValueRef ir_render_soft_f80_bin_op(CodeGen *g, Stage1Air *executable,
     LLVMTypeRef return_type = g->builtin_types.entry_f80->llvm_type;
     int param_count = 2;
     const char *func_name;
+    SoftF80Icmp res_icmp = NONE;
     switch (op_id) {
         case IrBinOpInvalid:
         case IrBinOpArrayCat:
@@ -3274,20 +3318,32 @@ static LLVMValueRef ir_render_soft_f80_bin_op(CodeGen *g, Stage1Air *executable,
         case IrBinOpCmpEq:
             return_type = g->builtin_types.entry_i32->llvm_type;
             func_name = "__eqxf2";
+            res_icmp = EQ_ZERO;
             break;
         case IrBinOpCmpNotEq:
             return_type = g->builtin_types.entry_i32->llvm_type;
             func_name = "__nexf2";
+            res_icmp = NE_ZERO;
             break;
         case IrBinOpCmpLessOrEq:
+            return_type = g->builtin_types.entry_i32->llvm_type;
+            func_name = "__lexf2";
+            res_icmp = LE_ZERO;
+            break;
         case IrBinOpCmpLessThan:
             return_type = g->builtin_types.entry_i32->llvm_type;
             func_name = "__lexf2";
+            res_icmp = EQ_NEG;
             break;
         case IrBinOpCmpGreaterOrEq:
+            return_type = g->builtin_types.entry_i32->llvm_type;
+            func_name = "__gexf2";
+            res_icmp = GE_ZERO;
+            break;
         case IrBinOpCmpGreaterThan:
             return_type = g->builtin_types.entry_i32->llvm_type;
             func_name = "__gexf2";
+            res_icmp = EQ_ONE;
             break;
         case IrBinOpMaximum:
             func_name = "__fmaxx";
@@ -3338,8 +3394,11 @@ static LLVMValueRef ir_render_soft_f80_bin_op(CodeGen *g, Stage1Air *executable,
     if (vector_len == 0) {
         LLVMValueRef params[2] = {op1_value, op2_value};
         result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+        result = add_f80_icmp(g, result, res_icmp);
     } else {
-        result = build_alloca(g, op1->value->type, "", 0);
+        ZigType *alloca_ty = op1->value->type;
+        if (res_icmp != NONE) alloca_ty = get_vector_type(g, vector_len, g->builtin_types.entry_bool);
+        result = build_alloca(g, alloca_ty, "", 0);
     }
 
     LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
@@ -3350,6 +3409,7 @@ static LLVMValueRef ir_render_soft_f80_bin_op(CodeGen *g, Stage1Air *executable,
             LLVMBuildExtractElement(g->builder, op2_value, index_value, ""),
         };
         LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+        call_result = add_f80_icmp(g, call_result, res_icmp);
         LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
             call_result, index_value, "");
     }
