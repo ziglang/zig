@@ -477,7 +477,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .p_paddr = entry_addr,
             .p_memsz = file_size,
             .p_align = p_align,
-            .p_flags = elf.PF_X | elf.PF_R,
+            .p_flags = elf.PF_X | elf.PF_R | elf.PF_W,
         });
         self.entry_addr = null;
         self.phdr_table_dirty = true;
@@ -502,7 +502,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .p_paddr = got_addr,
             .p_memsz = file_size,
             .p_align = p_align,
-            .p_flags = elf.PF_R,
+            .p_flags = elf.PF_R | elf.PF_W,
         });
         self.phdr_table_dirty = true;
     }
@@ -525,7 +525,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .p_paddr = rodata_addr,
             .p_memsz = file_size,
             .p_align = p_align,
-            .p_flags = elf.PF_R,
+            .p_flags = elf.PF_R | elf.PF_W,
         });
         self.phdr_table_dirty = true;
     }
@@ -2097,7 +2097,6 @@ fn growTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBlock,
 fn allocateTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
     const phdr = &self.program_headers.items[block_list.phdr_index.?];
     const shdr = &self.sections.items[block_list.section_index.?];
-    const new_block_ideal_capacity = padToIdeal(new_block_size);
 
     // We use these to indicate our intention to update metadata, placing the new block,
     // and possibly removing a free list node.
@@ -2110,42 +2109,7 @@ fn allocateTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBl
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
     const vaddr = blk: {
-        var i: usize = 0;
-        while (i < block_list.free_list.items.len) {
-            const big_block = block_list.free_list.items[i];
-            // We now have a pointer to a live text block that has too much capacity.
-            // Is it enough that we could fit this new text block?
-            const sym = self.local_symbols.items[big_block.local_sym_index];
-            const capacity = big_block.capacity(self.*);
-            const ideal_capacity = padToIdeal(capacity);
-            const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
-            const capacity_end_vaddr = sym.st_value + capacity;
-            const new_start_vaddr_unaligned = capacity_end_vaddr - new_block_ideal_capacity;
-            const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);
-            if (new_start_vaddr < ideal_capacity_end_vaddr) {
-                // Additional bookkeeping here to notice if this free list node
-                // should be deleted because the block that it points to has grown to take up
-                // more of the extra capacity.
-                if (!big_block.freeListEligible(self.*)) {
-                    _ = block_list.free_list.swapRemove(i);
-                } else {
-                    i += 1;
-                }
-                continue;
-            }
-            // At this point we know that we will place the new block here. But the
-            // remaining question is whether there is still yet enough capacity left
-            // over for there to still be a free list node.
-            const remaining_capacity = new_start_vaddr - ideal_capacity_end_vaddr;
-            const keep_free_list_node = remaining_capacity >= min_text_capacity;
-
-            // Set up the metadata to be updated, after errors are no longer possible.
-            block_placement = big_block;
-            if (!keep_free_list_node) {
-                free_list_removal = i;
-            }
-            break :blk new_start_vaddr;
-        } else if (block_list.last_block) |last| {
+        if (block_list.last_block) |last| {
             const sym = self.local_symbols.items[last.local_sym_index];
             const ideal_capacity = padToIdeal(sym.st_size);
             const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
@@ -2318,37 +2282,12 @@ fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8
 
     assert(decl.link.elf.local_sym_index != 0); // Caller forgot to allocateDeclIndexes()
     const local_sym = &self.local_symbols.items[decl.link.elf.local_sym_index];
-    if (local_sym.st_size != 0) {
-        const capacity = decl.link.elf.capacity(self.*);
-        const need_realloc = code.len > capacity or
-            !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
-        if (need_realloc) {
-            const vaddr = try self.growTextBlock(block_list, &decl.link.elf, code.len, required_alignment);
-            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl.name, local_sym.st_value, vaddr });
-            if (vaddr != local_sym.st_value) {
-                local_sym.st_value = vaddr;
-
-                log.debug("  (writing new offset table entry)", .{});
-                self.offset_table.items[decl.link.elf.offset_table_index] = vaddr;
-                try self.writeOffsetTableEntry(decl.link.elf.offset_table_index);
-            }
-        } else if (code.len < local_sym.st_size) {
-            self.shrinkTextBlock(block_list, &decl.link.elf, code.len);
-        }
-        local_sym.st_size = code.len;
-        local_sym.st_name = try self.updateString(local_sym.st_name, mem.sliceTo(decl.name, 0));
-        local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
-        local_sym.st_other = 0;
-        local_sym.st_shndx = block_list.section_index.?;
-        // TODO this write could be avoided if no fields of the symbol were changed.
-        try self.writeSymbol(decl.link.elf.local_sym_index);
-    } else {
+    {
         const decl_name = mem.sliceTo(decl.name, 0);
         const name_str_index = try self.makeString(decl_name);
         const vaddr = try self.allocateTextBlock(block_list, &decl.link.elf, code.len, required_alignment);
         errdefer self.freeTextBlock(block_list, &decl.link.elf);
         log.debug("allocated text block for {s} at 0x{x}", .{ decl_name, vaddr });
-        errdefer self.freeTextBlock(block_list, &decl.link.elf);
 
         local_sym.* = .{
             .st_name = name_str_index,
@@ -2366,6 +2305,22 @@ fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8
 
     const section_offset = local_sym.st_value - self.program_headers.items[block_list.phdr_index.?].p_vaddr;
     const file_offset = self.sections.items[block_list.section_index.?].sh_offset + section_offset;
+
+    if (self.base.child_pid) |pid| {
+        var code_vec: [1]std.os.iovec_const = .{.{
+            .iov_base = code.ptr,
+            .iov_len = code.len,
+        }};
+        var remote_vec: [1]std.os.iovec_const = .{.{
+            .iov_base = @intToPtr([*]u8, local_sym.st_value),
+            .iov_len = code.len,
+        }};
+        const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
+        switch (std.os.errno(rc)) {
+            .SUCCESS => assert(rc == code.len),
+            else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
+        }
+    }
     try self.base.file.?.pwriteAll(code, file_offset);
 
     return local_sym;
@@ -3033,6 +2988,7 @@ fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
     }
     const endian = self.base.options.target.cpu.arch.endian();
     const off = shdr.sh_offset + @as(u64, entry_size) * index;
+    const vaddr = phdr.p_vaddr + @as(u64, entry_size) * index;
     switch (entry_size) {
         2 => {
             var buf: [2]u8 = undefined;
@@ -3048,6 +3004,22 @@ fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
             var buf: [8]u8 = undefined;
             mem.writeInt(u64, &buf, self.offset_table.items[index], endian);
             try self.base.file.?.pwriteAll(&buf, off);
+
+            if (self.base.child_pid) |pid| {
+                var local_vec: [1]std.os.iovec_const = .{.{
+                    .iov_base = &buf,
+                    .iov_len = buf.len,
+                }};
+                var remote_vec: [1]std.os.iovec_const = .{.{
+                    .iov_base = @intToPtr([*]u8, vaddr),
+                    .iov_len = buf.len,
+                }};
+                const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
+                switch (std.os.errno(rc)) {
+                    .SUCCESS => assert(rc == buf.len),
+                    else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
+                }
+            }
         },
         else => unreachable,
     }
