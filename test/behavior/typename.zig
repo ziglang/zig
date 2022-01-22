@@ -1,6 +1,6 @@
 //
 const std = @import("std");
-const expectEqualSlices = std.testing.expectEqualSlices;
+const expectEqualStrings = std.testing.expectEqualStrings;
 
 // Most tests here can be comptime but use runtime so that a stacktrace
 // can show failure location.
@@ -12,14 +12,13 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 // CAUTION: this test is source-location sensitive.
 test "anon fn param - source-location sensitive" {
     // https://github.com/ziglang/zig/issues/9339
-    try expectEqualSlices(u8, @typeName(TypeFromFn(struct {})), "behavior.typename.TypeFromFn(behavior.typename.struct:15:52)");
-    try expectEqualSlices(u8, @typeName(TypeFromFn(union { unused: u8 })), "behavior.typename.TypeFromFn(behavior.typename.union:16:52)");
-    try expectEqualSlices(u8, @typeName(TypeFromFn(enum { unused })), "behavior.typename.TypeFromFn(behavior.typename.enum:17:52)");
+    try expectEqualStrings(@typeName(TypeFromFn(struct {})), "behavior.typename.TypeFromFn(behavior.typename.struct:15:49)");
+    try expectEqualStrings(@typeName(TypeFromFn(union { unused: u8 })), "behavior.typename.TypeFromFn(behavior.typename.union:16:49)");
+    try expectEqualStrings(@typeName(TypeFromFn(enum { unused })), "behavior.typename.TypeFromFn(behavior.typename.enum:17:49)");
 
-    try expectEqualSlices(
-        u8,
+    try expectEqualStrings(
         @typeName(TypeFromFn3(struct {}, union { unused: u8 }, enum { unused })),
-        "behavior.typename.TypeFromFn3(behavior.typename.struct:21:31,behavior.typename.union:21:42,behavior.typename.enum:21:64)",
+        "behavior.typename.TypeFromFn3(behavior.typename.struct:20:31,behavior.typename.union:20:42,behavior.typename.enum:20:64)",
     );
 }
 
@@ -31,28 +30,28 @@ test "anon field init" {
         .T3 = enum { unused },
     };
 
-    try expectEqualSlices(u8, @typeName(Foo.T1), "behavior.typename.struct:29:15");
-    try expectEqualSlices(u8, @typeName(Foo.T2), "behavior.typename.union:30:15");
-    try expectEqualSlices(u8, @typeName(Foo.T3), "behavior.typename.enum:31:15");
+    try expectEqualStrings(@typeName(Foo.T1), "behavior.typename.struct:28:15");
+    try expectEqualStrings(@typeName(Foo.T2), "behavior.typename.union:29:15");
+    try expectEqualStrings(@typeName(Foo.T3), "behavior.typename.enum:30:15");
 }
 
 test "basic" {
-    try expectEqualSlices(u8, @typeName(i64), "i64");
-    try expectEqualSlices(u8, @typeName(*usize), "*usize");
-    try expectEqualSlices(u8, @typeName([]u8), "[]u8");
+    try expectEqualStrings(@typeName(i64), "i64");
+    try expectEqualStrings(@typeName(*usize), "*usize");
+    try expectEqualStrings(@typeName([]u8), "[]u8");
 }
 
 test "top level decl" {
-    try expectEqualSlices(u8, @typeName(A_Struct), "A_Struct");
-    try expectEqualSlices(u8, @typeName(A_Union), "A_Union");
-    try expectEqualSlices(u8, @typeName(A_Enum), "A_Enum");
+    try expectEqualStrings(@typeName(A_Struct), "A_Struct");
+    try expectEqualStrings(@typeName(A_Union), "A_Union");
+    try expectEqualStrings(@typeName(A_Enum), "A_Enum");
 
     // regular fn, without error
-    try expectEqualSlices(u8, @typeName(@TypeOf(regular)), "fn() void");
+    try expectEqualStrings(@typeName(@TypeOf(regular)), "fn() void");
     // regular fn inside struct, with error
-    try expectEqualSlices(u8, @typeName(@TypeOf(B.doTest)), "fn() @typeInfo(@typeInfo(@TypeOf(behavior.typename.B.doTest)).Fn.return_type.?).ErrorUnion.error_set!void");
+    try expectEqualStrings(@typeName(@TypeOf(B.doTest)), "fn() @typeInfo(@typeInfo(@TypeOf(behavior.typename.B.doTest)).Fn.return_type.?).ErrorUnion.error_set!void");
     // generic fn
-    try expectEqualSlices(u8, @typeName(@TypeOf(TypeFromFn)), "fn(type) anytype");
+    try expectEqualStrings(@typeName(@TypeOf(TypeFromFn)), "fn(type) anytype");
 }
 
 const A_Struct = struct {};
@@ -79,20 +78,20 @@ const B = struct {
             unused,
         };
 
-        try expectEqualSlices(u8, @typeName(B_Struct), "B_Struct");
-        try expectEqualSlices(u8, @typeName(B_Union), "B_Union");
-        try expectEqualSlices(u8, @typeName(B_Enum), "B_Enum");
+        try expectEqualStrings(@typeName(B_Struct), "B_Struct");
+        try expectEqualStrings(@typeName(B_Union), "B_Union");
+        try expectEqualStrings(@typeName(B_Enum), "B_Enum");
     }
 };
 
 test "fn param" {
     // https://github.com/ziglang/zig/issues/675
-    try expectEqualSlices(u8, @typeName(TypeFromFn(u8)), "behavior.typename.TypeFromFn(u8)");
-    try expectEqualSlices(u8, @typeName(TypeFromFn(A_Struct)), "behavior.typename.TypeFromFn(behavior.typename.A_Struct)");
-    try expectEqualSlices(u8, @typeName(TypeFromFn(A_Union)), "behavior.typename.TypeFromFn(behavior.typename.A_Union)");
-    try expectEqualSlices(u8, @typeName(TypeFromFn(A_Enum)), "behavior.typename.TypeFromFn(behavior.typename.A_Enum)");
+    try expectEqualStrings(@typeName(TypeFromFn(u8)), "behavior.typename.TypeFromFn(u8)");
+    try expectEqualStrings(@typeName(TypeFromFn(A_Struct)), "behavior.typename.TypeFromFn(behavior.typename.A_Struct)");
+    try expectEqualStrings(@typeName(TypeFromFn(A_Union)), "behavior.typename.TypeFromFn(behavior.typename.A_Union)");
+    try expectEqualStrings(@typeName(TypeFromFn(A_Enum)), "behavior.typename.TypeFromFn(behavior.typename.A_Enum)");
 
-    try expectEqualSlices(u8, @typeName(TypeFromFn2(u8, bool)), "behavior.typename.TypeFromFn2(u8,bool)");
+    try expectEqualStrings(@typeName(TypeFromFn2(u8, bool)), "behavior.typename.TypeFromFn2(u8,bool)");
 }
 
 fn TypeFromFn(comptime T: type) type {
