@@ -4106,11 +4106,46 @@ static LLVMValueRef ir_render_binary_not(CodeGen *g, Stage1Air *executable,
     return LLVMBuildNot(g->builder, operand, "");
 }
 
+static LLVMValueRef ir_gen_soft_f80_neg(CodeGen *g, ZigType *op_type, LLVMValueRef operand) {
+    uint32_t vector_len = op_type->id == ZigTypeIdVector ? op_type->data.vector.len : 0;
+
+    uint64_t buf[2] = {0, 0};
+    if (g->is_big_endian != native_is_big_endian) {
+        buf[1] = 0x8000000000000000;
+    } else {
+        buf[1] = 0x8000;
+    }
+    LLVMValueRef sign_mask = LLVMConstIntOfArbitraryPrecision(LLVMInt128Type(), 2, buf);
+
+    LLVMValueRef result;
+    if (vector_len == 0) {
+        result = LLVMBuildXor(g->builder, operand, sign_mask, "");
+    } else {
+        result = build_alloca(g, op_type, "", 0);
+    }
+
+    LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
+    for (uint32_t i = 0; i < vector_len; i++) {
+        LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
+        LLVMValueRef xor_operand = LLVMBuildExtractElement(g->builder, operand, index_value, "");
+        LLVMValueRef xor_result = LLVMBuildXor(g->builder, xor_operand, sign_mask, "");
+        LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
+            xor_result, index_value, "");
+    }
+    if (vector_len != 0) {
+        result = LLVMBuildLoad(g->builder, result, "");
+    }
+    return result;
+}
+
 static LLVMValueRef ir_gen_negation(CodeGen *g, Stage1AirInst *inst, Stage1AirInst *operand, bool wrapping) {
     LLVMValueRef llvm_operand = ir_llvm_value(g, operand);
     ZigType *operand_type = operand->value->type;
     ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ?
         operand_type->data.vector.elem_type : operand_type;
+
+    if (scalar_type == g->builtin_types.entry_f80 && !target_has_f80(g->zig_target))
+        return ir_gen_soft_f80_neg(g, operand_type, llvm_operand);
 
     if (scalar_type->id == ZigTypeIdFloat) {
         ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, inst));
