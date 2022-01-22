@@ -1053,9 +1053,46 @@ pub const DeclGen = struct {
                 return Result{ .appended = {} };
             },
             .Union => {
-                // TODO: Implement Union declarations
-                try writer.writeByteNTimes(0xaa, @intCast(usize, ty.abiSize(self.target())));
-                return Result{ .appended = {} };
+                const union_val = val.castTag(.@"union").?.data;
+                const layout = ty.unionGetLayout(self.target());
+
+                if (layout.payload_size == 0) {
+                    return self.genTypedValue(ty.unionTagType().?, union_val.tag, writer);
+                }
+
+                // Check if we should store the tag first, in which case, do so now:
+                if (layout.tag_align >= layout.payload_align) {
+                    switch (try self.genTypedValue(ty.unionTagType().?, union_val.tag, writer)) {
+                        .appended => {},
+                        .externally_managed => |payload| try writer.writeAll(payload),
+                    }
+                }
+
+                const union_ty = ty.cast(Type.Payload.Union).?.data;
+                const field_index = union_ty.tag_ty.enumTagFieldIndex(union_val.tag).?;
+                assert(union_ty.haveFieldTypes());
+                const field_ty = union_ty.fields.values()[field_index].ty;
+                if (!field_ty.hasCodeGenBits()) {
+                    try writer.writeByteNTimes(0xaa, layout.payload_size);
+                } else {
+                    switch (try self.genTypedValue(field_ty, union_val.val, writer)) {
+                        .appended => {},
+                        .externally_managed => |payload| try writer.writeAll(payload),
+                    }
+
+                    // Unions have the size of the largest field, so we must pad
+                    // whenever the active field has a smaller size.
+                    const diff = layout.payload_size - field_ty.abiSize(self.target());
+                    if (diff > 0) {
+                        try writer.writeByteNTimes(0xaa, diff);
+                    }
+                }
+
+                if (layout.tag_size == 0) {
+                    return Result{ .appended = {} };
+                }
+
+                return self.genTypedValue(union_ty.tag_ty, union_val.tag, writer);
             },
             .Pointer => switch (val.tag()) {
                 .variable => {
