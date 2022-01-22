@@ -9,6 +9,7 @@ pub const os = struct {
 pub const net = struct {
     pub const ip = @import("x/net/ip.zig");
     pub const tcp = @import("x/net/tcp.zig");
+    pub const bpf = @import("x/net/bpf.zig");
 };
 
 test {
