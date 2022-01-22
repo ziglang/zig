@@ -3740,21 +3740,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .data = .{ .payload = payload },
                     });
                 } else {
-                    // This requires two instructions; a move imm as used above, followed by an indirect load using the register
-                    // as the address and the register as the destination.
-                    //
-                    // This cannot be used if the lower three bits of the id are equal to four or five, as there
-                    // is no way to possibly encode it. This means that RSP, RBP, R12, and R13 cannot be used with
-                    // this instruction.
-                    const id3 = @truncate(u3, reg.id());
-                    assert(id3 != 4 and id3 != 5);
-
                     // Rather than duplicate the logic used for the move, we just use a self-call with a new MCValue.
                     try self.genSetReg(ty, reg, MCValue{ .immediate = x });
-
-                    // Now, the register contains the address of the value to load into it
-                    // Currently, we're only allowing 64-bit registers, so we need the `REX.W 8B /r` variant.
-                    // TODO: determine whether to allow other sized registers, and if so, handle them properly.
 
                     // mov reg, [reg + 0x0]
                     _ = try self.addInst(.{
