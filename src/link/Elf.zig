@@ -2118,7 +2118,7 @@ fn allocateTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBl
             const sym = self.local_symbols.items[big_block.local_sym_index];
             const capacity = big_block.capacity(self.*);
             const ideal_capacity = padToIdeal(capacity);
-            const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
+            const ideal_capacity_end_vaddr = std.math.add(u64, sym.st_value, ideal_capacity) catch ideal_capacity;
             const capacity_end_vaddr = sym.st_value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_block_ideal_capacity;
             const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);

@@ -5064,7 +5064,7 @@ fn allocateAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64, m
             const sym = self.locals.items[big_atom.local_sym_index];
             const capacity = big_atom.capacity(self.*);
             const ideal_capacity = if (needs_padding) padToIdeal(capacity) else capacity;
-            const ideal_capacity_end_vaddr = sym.n_value + ideal_capacity;
+            const ideal_capacity_end_vaddr = math.add(u64, sym.n_value, ideal_capacity) catch ideal_capacity;
             const capacity_end_vaddr = sym.n_value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_atom_ideal_capacity;
             const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);
