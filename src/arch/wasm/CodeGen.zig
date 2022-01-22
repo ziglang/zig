@@ -1419,6 +1419,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .dbg_stmt => WValue.none,
         .intcast => self.airIntcast(inst),
         .float_to_int => self.airFloatToInt(inst),
+        .get_union_tag => self.airGetUnionTag(inst),
 
         .is_err => self.airIsErr(inst, .i32_ne),
         .is_non_err => self.airIsErr(inst, .i32_eq),
@@ -1496,7 +1497,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .unwrap_errunion_payload_ptr,
         .unwrap_errunion_err_ptr,
 
-        .get_union_tag,
         .ptr_slice_len_ptr,
         .ptr_slice_ptr_ptr,
         .int_to_float,
@@ -3201,4 +3201,22 @@ fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     } else @as(u32, 0);
     try self.store(union_ptr, new_tag, tag_ty, offset);
     return WValue{ .none = {} };
+}
+
+fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const un_ty = self.air.typeOf(ty_op.operand);
+    const tag_ty = self.air.typeOfIndex(inst);
+    const layout = un_ty.unionGetLayout(self.target);
+    if (layout.tag_size == 0) return WValue{ .none = {} };
+    const operand = try self.resolveInst(ty_op.operand);
+
+    // when the tag alignment is smaller than the payload, the field will be stored
+    // after the payload.
+    const offset = if (layout.tag_align < layout.payload_align) blk: {
+        break :blk @intCast(u32, layout.payload_size);
+    } else @as(u32, 0);
+    return self.load(operand, tag_ty, offset);
 }
