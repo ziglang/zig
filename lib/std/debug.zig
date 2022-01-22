@@ -6,6 +6,7 @@ const io = std.io;
 const os = std.os;
 const fs = std.fs;
 const process = std.process;
+const testing = std.testing;
 const elf = std.elf;
 const DW = std.dwarf;
 const macho = std.macho;
@@ -559,7 +560,7 @@ pub const TTY = struct {
 
 fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const MachoSymbol {
     var min: usize = 0;
-    var max: usize = symbols.len;
+    var max: usize = symbols.len - 1;
     while (min < max) {
         const mid = min + (max - min) / 2;
         const curr = &symbols[mid];
@@ -572,7 +573,34 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
             return curr;
         }
     }
+
+    const max_sym = &symbols[symbols.len - 1];
+    if (address >= max_sym.address())
+        return max_sym;
+
     return null;
+}
+
+test "machoSearchSymbols" {
+    const symbols = [_]MachoSymbol{
+        .{ .addr = 100, .strx = undefined, .size = undefined, .ofile = undefined },
+        .{ .addr = 200, .strx = undefined, .size = undefined, .ofile = undefined },
+        .{ .addr = 300, .strx = undefined, .size = undefined, .ofile = undefined },
+    };
+
+    try testing.expectEqual(@as(?*const MachoSymbol, null), machoSearchSymbols(&symbols, 0));
+    try testing.expectEqual(@as(?*const MachoSymbol, null), machoSearchSymbols(&symbols, 99));
+    try testing.expectEqual(&symbols[0], machoSearchSymbols(&symbols, 100).?);
+    try testing.expectEqual(&symbols[0], machoSearchSymbols(&symbols, 150).?);
+    try testing.expectEqual(&symbols[0], machoSearchSymbols(&symbols, 199).?);
+
+    try testing.expectEqual(&symbols[1], machoSearchSymbols(&symbols, 200).?);
+    try testing.expectEqual(&symbols[1], machoSearchSymbols(&symbols, 250).?);
+    try testing.expectEqual(&symbols[1], machoSearchSymbols(&symbols, 299).?);
+
+    try testing.expectEqual(&symbols[2], machoSearchSymbols(&symbols, 300).?);
+    try testing.expectEqual(&symbols[2], machoSearchSymbols(&symbols, 301).?);
+    try testing.expectEqual(&symbols[2], machoSearchSymbols(&symbols, 5000).?);
 }
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
