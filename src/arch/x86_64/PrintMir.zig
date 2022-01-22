@@ -180,26 +180,28 @@ fn mirPushPop(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: a
     try w.writeByte('\n');
 }
 fn mirPushPopRegsFromCalleePreservedRegs(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
-    const callee_preserved_regs = bits.callee_preserved_regs;
-    // PUSH/POP reg
-
-    const regs = print.mir.instructions.items(.data)[inst].regs_to_push_or_pop;
-    if (regs == 0) return w.writeAll("push/pop no regs from callee_preserved_regs\n");
-    if (tag == .push) {
-        try w.writeAll("push ");
-        for (callee_preserved_regs) |reg, i| {
-            if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
-            try w.print("{s}, ", .{@tagName(reg)});
+    const ops = Mir.Ops.decode(print.mir.instructions.items(.ops)[inst]);
+    const payload = print.mir.instructions.items(.data)[inst].payload;
+    const data = print.mir.extraData(Mir.RegsToPushOrPop, payload).data;
+    const regs = data.regs;
+    var disp: u32 = data.disp + 8;
+    if (regs == 0) return w.writeAll("no regs from callee_preserved_regs\n");
+    for (bits.callee_preserved_regs) |reg, i| {
+        if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
+        if (tag == .push) {
+            try w.print("mov qword ptr [{s} + {d}], {s}", .{
+                @tagName(ops.reg1),
+                @bitCast(u32, -@intCast(i32, disp)),
+                @tagName(reg.to64()),
+            });
+        } else {
+            try w.print("mov {s}, qword ptr [{s} + {d}]", .{
+                @tagName(reg.to64()),
+                @tagName(ops.reg1),
+                @bitCast(u32, -@intCast(i32, disp)),
+            });
         }
-    } else {
-        // pop in the reverse direction
-        var i = callee_preserved_regs.len;
-        try w.writeAll("pop ");
-        while (i > 0) : (i -= 1) {
-            if ((regs >> @intCast(u5, i - 1)) & 1 == 0) continue;
-            const reg = callee_preserved_regs[i - 1];
-            try w.print("{s}, ", .{@tagName(reg)});
-        }
+        disp += 8;
     }
     try w.writeByte('\n');
 }

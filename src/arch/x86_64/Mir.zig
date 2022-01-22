@@ -333,8 +333,6 @@ pub const Inst = struct {
         got_entry: u32,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
         payload: u32,
-        /// A bitfield of which callee_preserved_regs to push
-        regs_to_push_or_pop: u32,
     };
 
     // Make sure we don't accidentally make instructions bigger than expected.
@@ -344,6 +342,11 @@ pub const Inst = struct {
             assert(@sizeOf(Inst) == 8);
         }
     }
+};
+
+pub const RegsToPushOrPop = struct {
+    regs: u32,
+    disp: u32,
 };
 
 pub const ImmPair = struct {
