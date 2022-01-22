@@ -32,11 +32,7 @@ pub fn toWords(section: Section) []Word {
 }
 
 /// Append the instructions from another section into this section.
-pub fn append(
-    section: *Section,
-    allocator: Allocator,
-    other_section: Section
-) !void {
+pub fn append(section: *Section, allocator: Allocator, other_section: Section) !void {
     try section.instructions.appendSlice(allocator, other_section.instructions.items);
 }
 
@@ -62,6 +58,34 @@ pub fn emit(
     try section.instructions.ensureUnusedCapacity(allocator, word_count);
     section.writeWord(@intCast(Word, word_count << 16) | @enumToInt(opcode));
     section.writeOperands(opcode.Operands(), operands);
+}
+
+/// Decorate a result-id.
+pub fn decorate(
+    section: *Section,
+    allocator: Allocator,
+    target: spec.IdRef,
+    decoration: spec.Decoration.Extended,
+) !void {
+    try section.emit(allocator, .OpDecorate, .{
+        .target = target,
+        .decoration = decoration,
+    });
+}
+
+/// Decorate a result-id which is a member of some struct.
+pub fn decorateMember(
+    section: *Section,
+    allocator: Allocator,
+    structure_type: spec.IdRef,
+    member: u32,
+    decoration: spec.Decoration.Extended,
+) !void {
+    try section.emit(allocator, .OpMemberDecorate, .{
+        .structure_type = structure_type,
+        .member = member,
+        .decoration = decoration,
+    });
 }
 
 pub fn writeWord(section: *Section, word: Word) void {
@@ -93,10 +117,7 @@ fn writeOperands(section: *Section, comptime Operands: type, operands: Operands)
 
 pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand) void {
     switch (Operand) {
-        spec.IdResultType,
-        spec.IdResult,
-        spec.IdRef
-        => section.writeWord(operand.id),
+        spec.IdResultType, spec.IdResult, spec.IdRef => section.writeWord(operand.id),
 
         spec.LiteralInteger => section.writeWord(operand),
 
@@ -320,8 +341,8 @@ test "SPIR-V Section emit() - simple" {
     defer section.deinit(std.testing.allocator);
 
     try section.emit(std.testing.allocator, .OpUndef, .{
-        .id_result_type = .{.id = 0},
-        .id_result = .{.id = 1},
+        .id_result_type = .{ .id = 0 },
+        .id_result = .{ .id = 1 },
     });
 
     try testing.expectEqualSlices(Word, &.{
@@ -338,7 +359,7 @@ test "SPIR-V Section emit() - string" {
     try section.emit(std.testing.allocator, .OpSource, .{
         .source_language = .Unknown,
         .version = 123,
-        .file = .{.id = 456},
+        .file = .{ .id = 456 },
         .source = "pub fn main() void {}",
     });
 
@@ -361,8 +382,8 @@ test "SPIR-V Section emit()- extended mask" {
     defer section.deinit(std.testing.allocator);
 
     try section.emit(std.testing.allocator, .OpLoopMerge, .{
-        .merge_block = .{.id = 10},
-        .continue_target = .{.id = 20},
+        .merge_block = .{ .id = 10 },
+        .continue_target = .{ .id = 20 },
         .loop_control = .{
             .Unroll = true,
             .DependencyLength = .{
@@ -375,7 +396,7 @@ test "SPIR-V Section emit()- extended mask" {
         (@as(Word, 5) << 16) | @enumToInt(Opcode.OpLoopMerge),
         10,
         20,
-        @bitCast(Word, spec.LoopControl{.Unroll = true, .DependencyLength = true}),
+        @bitCast(Word, spec.LoopControl{ .Unroll = true, .DependencyLength = true }),
         2,
     }, section.instructions.items);
 }
@@ -385,9 +406,9 @@ test "SPIR-V Section emit() - extended union" {
     defer section.deinit(std.testing.allocator);
 
     try section.emit(std.testing.allocator, .OpExecutionMode, .{
-        .entry_point = .{.id = 888},
+        .entry_point = .{ .id = 888 },
         .mode = .{
-            .LocalSize = .{.x_size = 4, .y_size = 8, .z_size = 16},
+            .LocalSize = .{ .x_size = 4, .y_size = 8, .z_size = 16 },
         },
     });
 
