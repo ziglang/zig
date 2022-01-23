@@ -768,7 +768,6 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) InnerError!void {
             emit.prev_di_pc = emit.code.items.len;
             emit.prev_di_line = line;
             emit.prev_di_column = column;
-            emit.prev_di_pc = emit.code.items.len;
         },
         .plan9 => |dbg_out| {
             if (delta_pc <= 0) return; // only do this when the pc changes
