@@ -2506,6 +2506,70 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAirBookkeeping();
 }
 
+fn genCondBrMir(self: *Self, ty: Type, mcv: MCValue) !u32 {
+    const abi_size = ty.abiSize(self.target.*);
+    switch (mcv) {
+        .compare_flags_unsigned,
+        .compare_flags_signed,
+        => |cmp_op| {
+            // Here we map the opposites since the jump is to the false branch.
+            const flags: u2 = switch (cmp_op) {
+                .gte => 0b10,
+                .gt => 0b11,
+                .neq => 0b01,
+                .lt => 0b00,
+                .lte => 0b01,
+                .eq => 0b00,
+            };
+            const tag: Mir.Inst.Tag = if (cmp_op == .neq or cmp_op == .eq)
+                .cond_jmp_eq_ne
+            else if (mcv == .compare_flags_unsigned)
+                Mir.Inst.Tag.cond_jmp_above_below
+            else
+                Mir.Inst.Tag.cond_jmp_greater_less;
+            return self.addInst(.{
+                .tag = tag,
+                .ops = (Mir.Ops{
+                    .flags = flags,
+                }).encode(),
+                .data = .{ .inst = undefined },
+            });
+        },
+        .register => |reg| {
+            _ = try self.addInst(.{
+                .tag = .@"test",
+                .ops = (Mir.Ops{
+                    .reg1 = reg,
+                    .flags = 0b00,
+                }).encode(),
+                .data = .{ .imm = 1 },
+            });
+            return self.addInst(.{
+                .tag = .cond_jmp_eq_ne,
+                .ops = (Mir.Ops{
+                    .flags = 0b01,
+                }).encode(),
+                .data = .{ .inst = undefined },
+            });
+        },
+        .immediate => {
+            if (abi_size <= 8) {
+                const reg = try self.copyToTmpRegister(ty, mcv);
+                return self.genCondBrMir(ty, .{ .register = reg });
+            }
+            return self.fail("TODO implement condbr when condition is immediate larger than 4 bytes", .{});
+        },
+        .stack_offset => {
+            if (abi_size <= 8) {
+                const reg = try self.copyToTmpRegister(ty, mcv);
+                return self.genCondBrMir(ty, .{ .register = reg });
+            }
+            return self.fail("TODO implement condbr when condition is stack offset with abi larger than 8 bytes", .{});
+        },
+        else => return self.fail("TODO implement condbr when condition is {s}", .{@tagName(mcv)}),
+    }
+}
+
 fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const cond = try self.resolveInst(pl_op.operand);
@@ -2515,97 +2579,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
     const liveness_condbr = self.liveness.getCondBr(inst);
 
-    const reloc: Mir.Inst.Index = reloc: {
-        switch (cond) {
-            .compare_flags_signed => |cmp_op| {
-                // Here we map the opposites since the jump is to the false branch.
-                const flags: u2 = switch (cmp_op) {
-                    .gte => 0b10,
-                    .gt => 0b11,
-                    .neq => 0b01,
-                    .lt => 0b00,
-                    .lte => 0b01,
-                    .eq => 0b00,
-                };
-                const tag: Mir.Inst.Tag = if (cmp_op == .neq or cmp_op == .eq)
-                    .cond_jmp_eq_ne
-                else
-                    .cond_jmp_greater_less;
-                const reloc = try self.addInst(.{
-                    .tag = tag,
-                    .ops = (Mir.Ops{
-                        .flags = flags,
-                    }).encode(),
-                    .data = .{ .inst = undefined },
-                });
-                break :reloc reloc;
-            },
-            .compare_flags_unsigned => |cmp_op| {
-                // Here we map the opposites since the jump is to the false branch.
-                const flags: u2 = switch (cmp_op) {
-                    .gte => 0b10,
-                    .gt => 0b11,
-                    .neq => 0b01,
-                    .lt => 0b00,
-                    .lte => 0b01,
-                    .eq => 0b00,
-                };
-                const tag: Mir.Inst.Tag = if (cmp_op == .neq or cmp_op == .eq)
-                    .cond_jmp_eq_ne
-                else
-                    .cond_jmp_above_below;
-                const reloc = try self.addInst(.{
-                    .tag = tag,
-                    .ops = (Mir.Ops{
-                        .flags = flags,
-                    }).encode(),
-                    .data = .{ .inst = undefined },
-                });
-                break :reloc reloc;
-            },
-            .register => |reg| {
-                _ = try self.addInst(.{
-                    .tag = .@"test",
-                    .ops = (Mir.Ops{
-                        .reg1 = reg,
-                        .flags = 0b00,
-                    }).encode(),
-                    .data = .{ .imm = 1 },
-                });
-                const reloc = try self.addInst(.{
-                    .tag = .cond_jmp_eq_ne,
-                    .ops = (Mir.Ops{
-                        .flags = 0b01,
-                    }).encode(),
-                    .data = .{ .inst = undefined },
-                });
-                break :reloc reloc;
-            },
-            .immediate => |imm| {
-                if (cond_ty.abiSize(self.target.*) <= 4) {
-                    const reg = try self.copyToTmpRegister(cond_ty, .{ .immediate = imm });
-                    _ = try self.addInst(.{
-                        .tag = .@"test",
-                        .ops = (Mir.Ops{
-                            .reg1 = reg,
-                            .flags = 0b00,
-                        }).encode(),
-                        .data = .{ .imm = 1 },
-                    });
-                    const reloc = try self.addInst(.{
-                        .tag = .cond_jmp_eq_ne,
-                        .ops = (Mir.Ops{
-                            .flags = 0b01,
-                        }).encode(),
-                        .data = .{ .inst = undefined },
-                    });
-                    break :reloc reloc;
-                }
-                return self.fail("TODO implement condbr when condition is immediate larger than 4 bytes", .{});
-            },
-            else => return self.fail("TODO implement condbr when condition is {s}", .{@tagName(cond)}),
-        }
-    };
+    const reloc = try self.genCondBrMir(cond_ty, cond);
 
     // Capture the state of register and stack allocation state so that we can revert to it.
     const parent_next_stack_offset = self.next_stack_offset;
@@ -3158,6 +3132,53 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
         .dead => unreachable,
         .ptr_embedded_in_code => unreachable,
         .unreach, .none => return,
+        .compare_flags_unsigned,
+        .compare_flags_signed,
+        => {
+            const reg = try self.copyToTmpRegister(ty, mcv);
+            return self.genSetStackArg(ty, stack_offset, .{ .register = reg });
+        },
+        .immediate => |imm| {
+            const off = stack_offset + @intCast(i32, abi_size);
+            switch (abi_size) {
+                1, 2, 4 => {
+                    // We have a positive stack offset value but we want a twos complement negative
+                    // offset from rbp, which is at the top of the stack frame.
+                    // mov [rbp+offset], immediate
+                    const payload = try self.addExtra(Mir.ImmPair{
+                        .dest_off = @bitCast(u32, -off),
+                        .operand = @truncate(u32, imm),
+                    });
+                    _ = try self.addInst(.{
+                        .tag = .mov_mem_imm,
+                        .ops = (Mir.Ops{
+                            .reg1 = .rsp,
+                            .flags = switch (abi_size) {
+                                1 => 0b00,
+                                2 => 0b01,
+                                4 => 0b10,
+                                else => unreachable,
+                            },
+                        }).encode(),
+                        .data = .{ .payload = payload },
+                    });
+                },
+                8 => {
+                    const reg = try self.copyToTmpRegister(ty, mcv);
+                    return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
+                },
+                else => return self.fail("TODO implement args on stack for {} with abi size > 8", .{mcv}),
+            }
+        },
+        .memory,
+        .embedded_in_code,
+        => {
+            if (abi_size <= 8) {
+                const reg = try self.copyToTmpRegister(ty, mcv);
+                return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
+            }
+            return self.fail("TODO implement memcpy for setting args on stack from {}", .{mcv});
+        },
         .register => |reg| {
             _ = try self.addInst(.{
                 .tag = .mov,
@@ -3227,13 +3248,11 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerErro
                 else => return self.genInlineMemset(ty, stack_offset, .{ .immediate = 0xaa }),
             }
         },
-        .compare_flags_unsigned => |op| {
-            _ = op;
-            return self.fail("TODO implement set stack variable with compare flags value (unsigned)", .{});
-        },
-        .compare_flags_signed => |op| {
-            _ = op;
-            return self.fail("TODO implement set stack variable with compare flags value (signed)", .{});
+        .compare_flags_unsigned,
+        .compare_flags_signed,
+        => {
+            const reg = try self.copyToTmpRegister(ty, mcv);
+            return self.genSetStack(ty, stack_offset, .{ .register = reg });
         },
         .immediate => |x_big| {
             const abi_size = ty.abiSize(self.target.*);
@@ -3321,7 +3340,9 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerErro
                 .data = .{ .imm = @bitCast(u32, -adj_off) },
             });
         },
-        .memory, .embedded_in_code => {
+        .memory,
+        .embedded_in_code,
+        => {
             if (ty.abiSize(self.target.*) <= 8) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
@@ -3605,7 +3626,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         .compare_flags_signed,
         => |op| {
             const tag: Mir.Inst.Tag = switch (op) {
-                .gte, .gt, .lt, .lte => .cond_set_byte_above_below,
+                .gte, .gt, .lt, .lte => if (mcv == .compare_flags_unsigned)
+                    Mir.Inst.Tag.cond_set_byte_above_below
+                else
+                    Mir.Inst.Tag.cond_set_byte_greater_less,
                 .eq, .neq => .cond_set_byte_eq_ne,
             };
             const flags: u2 = switch (op) {
