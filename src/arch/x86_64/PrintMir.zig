@@ -186,8 +186,11 @@ fn mirPushPopRegsFromCalleePreservedRegs(print: *const Print, tag: Mir.Inst.Tag,
     const regs = data.regs;
     var disp: u32 = data.disp + 8;
     if (regs == 0) return w.writeAll("no regs from callee_preserved_regs\n");
+    var printed_first_reg = false;
     for (bits.callee_preserved_regs) |reg, i| {
         if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
+        if (printed_first_reg) try w.writeAll("  ");
+        printed_first_reg = true;
         if (tag == .push) {
             try w.print("mov qword ptr [{s} + {d}], {s}", .{
                 @tagName(ops.reg1),
@@ -202,8 +205,8 @@ fn mirPushPopRegsFromCalleePreservedRegs(print: *const Print, tag: Mir.Inst.Tag,
             });
         }
         disp += 8;
+        try w.writeByte('\n');
     }
-    try w.writeByte('\n');
 }
 
 fn mirJmpCall(print: *const Print, tag: Mir.Inst.Tag, inst: Mir.Inst.Index, w: anytype) !void {
