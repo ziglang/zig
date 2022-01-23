@@ -841,15 +841,16 @@ fn mirArgDbgInfo(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const arg_dbg_info = emit.mir.extraData(Mir.ArgDbgInfo, payload).data;
     const mcv = emit.mir.function.args[arg_dbg_info.arg_index];
-    try emit.genArgDbgInfo(arg_dbg_info.air_inst, mcv);
+    try emit.genArgDbgInfo(arg_dbg_info.air_inst, mcv, arg_dbg_info.arg_index);
 }
 
-fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue) !void {
+fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32) !void {
     const ty_str = emit.mir.function.air.instructions.items(.data)[inst].ty_str;
     const zir = &emit.mir.function.mod_fn.owner_decl.getFileScope().zir;
     const name = zir.nullTerminatedString(ty_str.str);
     const name_with_null = name.ptr[0 .. name.len + 1];
     const ty = emit.mir.function.air.getRefType(ty_str.ty);
+    const abi_size = ty.abiSize(emit.bin_file.options.target);
 
     switch (mcv) {
         .register => |reg| {
@@ -871,7 +872,27 @@ fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue) !void {
         },
         .stack_offset => {
             switch (emit.debug_output) {
-                .dwarf => {},
+                .dwarf => |dbg_out| {
+                    // we add here +16 like we do in airArg in CodeGen since we refer directly to
+                    // rbp as the start of function frame minus 8 bytes for caller's rbp preserved in the
+                    // prologue, and 8 bytes for return address.
+                    // TODO we need to make this more generic if we don't use rbp as the frame pointer
+                    // for example when -fomit-frame-pointer is set.
+                    const disp = @intCast(i32, arg_index * abi_size + 16);
+                    try dbg_out.dbg_info.ensureUnusedCapacity(8);
+                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
+                    const fixup = dbg_out.dbg_info.items.len;
+                    dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                        1, // we will backpatch it after we encode the displacement in LEB128
+                        DW.OP.breg6, // .rbp TODO handle -fomit-frame-pointer
+                    });
+                    leb128.writeILEB128(dbg_out.dbg_info.writer(), disp) catch unreachable;
+                    dbg_out.dbg_info.items[fixup] += @intCast(u8, dbg_out.dbg_info.items.len - fixup - 2);
+                    try dbg_out.dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
+                    try emit.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
+                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+
+                },
                 .plan9 => {},
                 .none => {},
             }
