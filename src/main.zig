@@ -137,7 +137,7 @@ pub fn main() anyerror!void {
 
     var gpa_need_deinit = false;
     const gpa = gpa: {
-        if (!builtin.link_libc) {
+        if (build_options.force_gpa or !builtin.link_libc) {
             gpa_need_deinit = true;
             break :gpa general_purpose_allocator.allocator();
         }
