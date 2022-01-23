@@ -152,10 +152,17 @@ pub const Status = union(enum) {
         phrase: []const u8,
     };
 
+    pub fn code(self: Status) u16 {
+        return switch (self) {
+            .standard => |v| @enumToInt(v),
+            .unknown => |v| v.code,
+        };
+    }
+
     pub fn phrase(self: Status) []const u8 {
         return switch (self) {
             .standard => |v| v.phrase(),
-            .bare => |v| v.phrase,
+            .unknown => |v| v.phrase,
         };
     }
 
@@ -169,11 +176,7 @@ pub const Status = union(enum) {
     };
 
     pub fn class(self: Status) Class {
-        const code = switch (self) {
-            .standard => @enumToInt(self.standard),
-            .unknown => self.unknown.code,
-        };
-        return switch (code) {
+        return switch (self.code()) {
             100...199 => .informational,
             200...299 => .success,
             300...399 => .redirect,
@@ -185,9 +188,16 @@ pub const Status = union(enum) {
 };
 
 test {
-    try std.testing.expectEqualStrings("Continue", Status.Standard.@"continue".phrase());
-    try std.testing.expectEqualStrings("OK", Status.Standard.ok.phrase());
-    try std.testing.expectEqualStrings("Multiple Choice", Status.Standard.multiple_choice.phrase());
-    try std.testing.expectEqualStrings("Bad Request", Status.Standard.bad_request.phrase());
-    try std.testing.expectEqualStrings("Internal Server Error", Status.Standard.internal_server_error.phrase());
+    try std.testing.expectEqual(@as(u16, 200), (Status{ .standard = .ok }).code());
+    try std.testing.expectEqual(@as(u16, 404), (Status{ .standard = .not_found }).code());
+}
+
+test {
+    try std.testing.expectEqualStrings("OK", (Status{ .standard = .ok }).phrase());
+    try std.testing.expectEqualStrings("Not Found", (Status{ .standard = .not_found }).phrase());
+}
+
+test {
+    try std.testing.expectEqual(Status.Class.success, (Status{ .standard = .ok }).class());
+    try std.testing.expectEqual(Status.Class.client_error, (Status{ .standard = .not_found }).class());
 }
