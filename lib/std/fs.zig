@@ -193,7 +193,9 @@ pub const AtomicFile = struct {
         self.* = undefined;
     }
 
-    pub fn finish(self: *AtomicFile) !void {
+    pub const FinishError = std.os.RenameError;
+
+    pub fn finish(self: *AtomicFile) FinishError!void {
         assert(self.file_exists);
         if (self.file_open) {
             self.file.close();
@@ -2114,17 +2116,13 @@ pub const Dir = struct {
         return PrevStatus.stale;
     }
 
+    pub const CopyFileError = File.OpenError || File.StatError || AtomicFile.InitError || CopyFileRawError || AtomicFile.FinishError;
+
     /// Guaranteed to be atomic.
     /// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and readily available,
     /// there is a possibility of power loss or application termination leaving temporary files present
     /// in the same directory as dest_path.
-    pub fn copyFile(
-        source_dir: Dir,
-        source_path: []const u8,
-        dest_dir: Dir,
-        dest_path: []const u8,
-        options: CopyFileOptions,
-    ) !void {
+    pub fn copyFile(source_dir: Dir, source_path: []const u8, dest_dir: Dir, dest_path: []const u8, options: CopyFileOptions) CopyFileError!void {
         var in_file = try source_dir.openFile(source_path, .{});
         defer in_file.close();
 
@@ -2139,7 +2137,7 @@ pub const Dir = struct {
         defer atomic_file.deinit();
 
         try copy_file(in_file.handle, atomic_file.file.handle);
-        return atomic_file.finish();
+        return try atomic_file.finish();
     }
 
     pub const AtomicFileOptions = struct {
@@ -2619,12 +2617,12 @@ pub fn realpathAlloc(allocator: Allocator, pathname: []const u8) ![]u8 {
     return allocator.dupe(u8, try os.realpath(pathname, &buf));
 }
 
-const CopyFileError = error{SystemResources} || os.CopyFileRangeError || os.SendFileError;
+const CopyFileRawError = error{SystemResources} || os.CopyFileRangeError || os.SendFileError;
 
 // Transfer all the data between two file descriptors in the most efficient way.
 // The copy starts at offset 0, the initial offsets are preserved.
 // No metadata is transferred over.
-fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileError!void {
+fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileRawError!void {
     if (comptime builtin.target.isDarwin()) {
         const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE_DATA);
         switch (os.errno(rc)) {
