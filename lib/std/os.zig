@@ -163,6 +163,7 @@ pub const sigset_t = system.sigset_t;
 pub const sockaddr = system.sockaddr;
 pub const socklen_t = system.socklen_t;
 pub const stack_t = system.stack_t;
+pub const tcflag_t = system.tcflag_t;
 pub const termios = system.termios;
 pub const time_t = system.time_t;
 pub const timespec = system.timespec;
