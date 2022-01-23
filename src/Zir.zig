@@ -2767,7 +2767,11 @@ pub const Inst = struct {
         };
     };
 
-    /// Trailing: field_name: u32 // for every field: null terminated string index
+    /// Trailing:
+    /// { // for every fields_len
+    ///      field_name: u32 // null terminated string index
+    ///     doc_comment: u32 // null terminated string index
+    /// }
     pub const ErrorSetDecl = struct {
         fields_len: u32,
     };
@@ -2906,7 +2910,7 @@ pub const Inst = struct {
     pub const Param = struct {
         /// Null-terminated string index.
         name: u32,
-        /// 0 if no doc comment 
+        /// 0 if no doc comment
         doc_comment: u32,
         /// The body contains the type of the parameter.
         body_len: u32,

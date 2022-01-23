@@ -2120,6 +2120,14 @@ pub const full = struct {
             section_node: Node.Index,
             init_node: Node.Index,
         };
+
+        pub fn firstToken(var_decl: VarDecl) TokenIndex {
+            return var_decl.visib_token orelse
+                var_decl.extern_export_token orelse
+                var_decl.threadlocal_token orelse
+                var_decl.comptime_token orelse
+                var_decl.ast.mut_token;
+        }
     };
 
     pub const If = struct {
@@ -2168,6 +2176,10 @@ pub const full = struct {
             value_expr: Node.Index,
             align_expr: Node.Index,
         };
+
+        pub fn firstToken(cf: ContainerField) TokenIndex {
+            return cf.comptime_token orelse cf.ast.name_token;
+        }
     };
 
     pub const FnProto = struct {
@@ -2196,6 +2208,12 @@ pub const full = struct {
             anytype_ellipsis3: ?TokenIndex,
             type_expr: Node.Index,
         };
+
+        pub fn firstToken(fn_proto: FnProto) TokenIndex {
+            return fn_proto.visib_token orelse
+                fn_proto.extern_export_inline_token orelse
+                fn_proto.ast.fn_token;
+        }
 
         /// Abstracts over the fact that anytype and ... are not included
         /// in the params slice, since they are simple identifiers and
