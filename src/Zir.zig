@@ -2571,6 +2571,7 @@ pub const Inst = struct {
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
+    ///        doc_comment: u32, // 0 if no doc comment
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,
@@ -2588,6 +2589,7 @@ pub const Inst = struct {
     ///        field_name: u32,
     ///        field_type: Ref,
     ///        - if none, means `anytype`.
+    ///        doc_comment: u32, // 0 if no doc comment
     ///        align: Ref, // if corresponding bit is set
     ///        default_value: Ref, // if corresponding bit is set
     ///    }
@@ -2638,6 +2640,7 @@ pub const Inst = struct {
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
+    ///        doc_comment: u32, // 0 if no doc_comment
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,
@@ -2649,6 +2652,7 @@ pub const Inst = struct {
     ///    - the bit is whether corresponding field has an value expression
     /// 9. fields: { // for every fields_len
     ///        field_name: u32,
+    ///        doc_comment: u32, // 0 if no doc_comment
     ///        value: Ref, // if corresponding bit is set
     ///    }
     pub const EnumDecl = struct {
@@ -2686,6 +2690,7 @@ pub const Inst = struct {
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
+    ///        doc_comment: u32, // 0 if no doc comment
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,
@@ -2701,6 +2706,7 @@ pub const Inst = struct {
     ///      0bX000: unused
     /// 9. fields: { // for every fields_len
     ///        field_name: u32, // null terminated string index
+    ///        doc_comment: u32, // 0 if no doc comment
     ///        field_type: Ref, // if corresponding bit is set
     ///        - if none, means `anytype`.
     ///        align: Ref, // if corresponding bit is set
@@ -2745,6 +2751,7 @@ pub const Inst = struct {
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
+    ///        doc_comment: u32, // 0 if no doc comment,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,
@@ -2760,7 +2767,11 @@ pub const Inst = struct {
         };
     };
 
-    /// Trailing: field_name: u32 // for every field: null terminated string index
+    /// Trailing:
+    /// { // for every fields_len
+    ///      field_name: u32 // null terminated string index
+    ///     doc_comment: u32 // null terminated string index
+    /// }
     pub const ErrorSetDecl = struct {
         fields_len: u32,
     };
@@ -2899,6 +2910,8 @@ pub const Inst = struct {
     pub const Param = struct {
         /// Null-terminated string index.
         name: u32,
+        /// 0 if no doc comment
+        doc_comment: u32,
         /// The body contains the type of the parameter.
         body_len: u32,
     };
@@ -3001,7 +3014,7 @@ pub const DeclIterator = struct {
         const sub_index = @intCast(u32, it.extra_index);
         it.extra_index += 5; // src_hash(4) + line(1)
         const name = it.zir.nullTerminatedString(it.zir.extra[it.extra_index]);
-        it.extra_index += 2; // name(1) + value(1)
+        it.extra_index += 3; // name(1) + value(1) + doc_comment(1)
         it.extra_index += @truncate(u1, flags >> 2);
         it.extra_index += @truncate(u1, flags >> 3);
 

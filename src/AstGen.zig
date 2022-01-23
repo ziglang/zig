@@ -1171,7 +1171,7 @@ fn fnProtoExpr(
                 const main_tokens = tree.nodes.items(.main_token);
                 const name_token = param.name_token orelse main_tokens[param_type_node];
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
-                const param_inst = try block_scope.addParam(&param_gz, tag, name_token, param_name);
+                const param_inst = try block_scope.addParam(&param_gz, tag, name_token, param_name, param.first_doc_comment);
                 assert(param_inst_expected == param_inst);
             }
         }
@@ -3080,9 +3080,9 @@ const WipMembers = struct {
     /// struct, union, enum, and opaque decls all use same 4 bits per decl
     const bits_per_decl = 4;
     const decls_per_u32 = 32 / bits_per_decl;
-    /// struct, union, enum, and opaque decls all have maximum size of 10 u32 slots
-    /// (4 for src_hash + line + name + value + align + link_section + address_space)
-    const max_decl_size = 10;
+    /// struct, union, enum, and opaque decls all have maximum size of 11 u32 slots
+    /// (4 for src_hash + line + name + value + doc_comment + align + link_section + address_space )
+    const max_decl_size = 11;
 
     pub fn init(gpa: Allocator, payload: *ArrayListUnmanaged(u32), decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
         const payload_top = @intCast(u32, payload.items.len);
@@ -3236,6 +3236,9 @@ fn fnDecl(
         const maybe_inline_token = fn_proto.extern_export_inline_token orelse break :blk false;
         break :blk token_tags[maybe_inline_token] == .keyword_inline;
     };
+
+    const doc_comment_index = try astgen.docCommentAsString(fn_proto.firstToken());
+
     const has_section_or_addrspace = fn_proto.ast.section_expr != 0 or fn_proto.ast.addrspace_expr != 0;
     wip_members.nextDecl(is_pub, is_export, fn_proto.ast.align_expr != 0, has_section_or_addrspace);
 
@@ -3294,7 +3297,7 @@ fn fnDecl(
                 const main_tokens = tree.nodes.items(.main_token);
                 const name_token = param.name_token orelse main_tokens[param_type_node];
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
-                const param_inst = try decl_gz.addParam(&param_gz, tag, name_token, param_name);
+                const param_inst = try decl_gz.addParam(&param_gz, tag, name_token, param_name, param.first_doc_comment);
                 assert(param_inst_expected == param_inst);
                 break :param indexToRef(param_inst);
             };
@@ -3445,6 +3448,7 @@ fn fnDecl(
     }
     wip_members.appendToDecl(fn_name_str_index);
     wip_members.appendToDecl(block_inst);
+    wip_members.appendToDecl(doc_comment_index);
     if (align_inst != .none) {
         wip_members.appendToDecl(@enumToInt(align_inst));
     }
@@ -3518,6 +3522,8 @@ fn globalVarDecl(
         const lib_name_str = try astgen.strLitAsString(lib_name_token);
         break :blk lib_name_str.index;
     } else 0;
+
+    const doc_comment_index = try astgen.docCommentAsString(var_decl.firstToken());
 
     assert(var_decl.comptime_token == null); // handled by parser
 
@@ -3594,6 +3600,7 @@ fn globalVarDecl(
     }
     wip_members.appendToDecl(name_str_index);
     wip_members.appendToDecl(block_inst);
+    wip_members.appendToDecl(doc_comment_index); // doc_comment wip
     if (align_inst != .none) {
         wip_members.appendToDecl(@enumToInt(align_inst));
     }
@@ -3648,6 +3655,7 @@ fn comptimeDecl(
     }
     wip_members.appendToDecl(0);
     wip_members.appendToDecl(block_inst);
+    wip_members.appendToDecl(0); // no doc comments on comptime decls
 }
 
 fn usingnamespaceDecl(
@@ -3699,6 +3707,7 @@ fn usingnamespaceDecl(
     }
     wip_members.appendToDecl(0);
     wip_members.appendToDecl(block_inst);
+    wip_members.appendToDecl(0); // no doc comments on usingnamespace decls
 }
 
 fn testDecl(
@@ -3802,6 +3811,7 @@ fn testDecl(
     }
     wip_members.appendToDecl(test_name);
     wip_members.appendToDecl(block_inst);
+    wip_members.appendToDecl(0); // no doc comments on test decls
 }
 
 fn structDeclInner(
@@ -3857,7 +3867,7 @@ fn structDeclInner(
     const field_count = @intCast(u32, container_decl.ast.members.len - decl_count);
 
     const bits_per_field = 4;
-    const max_field_size = 4;
+    const max_field_size = 5;
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
@@ -3880,6 +3890,9 @@ fn structDeclInner(
         else
             try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
         wip_members.appendToField(@enumToInt(field_type));
+
+        const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
+        wip_members.appendToField(doc_comment_index);
 
         known_has_bits = known_has_bits or nodeImpliesRuntimeBits(tree, member.ast.type_expr);
 
@@ -3979,7 +3992,7 @@ fn unionDeclInner(
         .none;
 
     const bits_per_field = 4;
-    const max_field_size = 4;
+    const max_field_size = 5;
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
@@ -3994,6 +4007,9 @@ fn unionDeclInner(
 
         const field_name = try astgen.identAsString(member.ast.name_token);
         wip_members.appendToField(field_name);
+
+        const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
+        wip_members.appendToField(doc_comment_index);
 
         const have_type = member.ast.type_expr != 0;
         const have_align = member.ast.align_expr != 0;
@@ -4258,7 +4274,7 @@ fn containerDecl(
                 .none;
 
             const bits_per_field = 1;
-            const max_field_size = 2;
+            const max_field_size = 3;
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, @intCast(u32, counts.decls), @intCast(u32, counts.total_fields), bits_per_field, max_field_size);
             defer wip_members.deinit();
 
@@ -4275,6 +4291,9 @@ fn containerDecl(
 
                 const field_name = try astgen.identAsString(member.ast.name_token);
                 wip_members.appendToField(field_name);
+
+                const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
+                wip_members.appendToField(doc_comment_index);
 
                 const have_value = member.ast.value_expr != 0;
                 wip_members.nextField(bits_per_field, .{have_value});
@@ -4506,8 +4525,11 @@ fn errorSetDecl(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Zir
             switch (token_tags[tok_i]) {
                 .doc_comment, .comma => {},
                 .identifier => {
+                    try astgen.extra.ensureUnusedCapacity(gpa, 2);
                     const str_index = try astgen.identAsString(tok_i);
-                    try astgen.extra.append(gpa, str_index);
+                    astgen.extra.appendAssumeCapacity(str_index);
+                    const doc_comment_index = try astgen.docCommentAsString(tok_i);
+                    astgen.extra.appendAssumeCapacity(doc_comment_index);
                     fields_len += 1;
                 },
                 .r_brace => break,
@@ -8784,6 +8806,72 @@ fn identAsString(astgen: *AstGen, ident_token: Ast.TokenIndex) !u32 {
     }
 }
 
+/// Adds a doc comment block to `string_bytes` by walking backwards from `end_token`.
+/// `end_token` must point at the first token after the last doc coment line.
+/// Returns 0 if no doc comment is present.
+fn docCommentAsString(astgen: *AstGen, end_token: Ast.TokenIndex) !u32 {
+    if (end_token == 0) return @as(u32, 0);
+
+    const token_tags = astgen.tree.tokens.items(.tag);
+
+    var tok = end_token - 1;
+    while (token_tags[tok] == .doc_comment) {
+        if (tok == 0) break;
+        tok -= 1;
+    } else {
+        tok += 1;
+    }
+    return docCommentAsStringFromFirst(astgen, end_token, tok);
+}
+
+/// end_token must be > the index of the last doc comment.
+fn docCommentAsStringFromFirst(
+    astgen: *AstGen,
+    end_token: Ast.TokenIndex,
+    start_token: Ast.TokenIndex,
+) !u32 {
+    if (start_token == end_token) return 0;
+
+    const gpa = astgen.gpa;
+    const string_bytes = &astgen.string_bytes;
+    const str_index = @intCast(u32, string_bytes.items.len);
+    const token_starts = astgen.tree.tokens.items(.start);
+    const token_tags = astgen.tree.tokens.items(.tag);
+
+    const total_bytes = token_starts[end_token] - token_starts[start_token];
+    try string_bytes.ensureUnusedCapacity(gpa, total_bytes);
+
+    var current_token = start_token;
+    while (current_token < end_token) : (current_token += 1) {
+        switch (token_tags[current_token]) {
+            .doc_comment => {
+                const tok_bytes = astgen.tree.tokenSlice(current_token)[3..];
+                string_bytes.appendSliceAssumeCapacity(tok_bytes);
+                if (current_token != end_token - 1) {
+                    string_bytes.appendAssumeCapacity('\n');
+                }
+            },
+            else => break,
+        }
+    }
+
+    const key = string_bytes.items[str_index..];
+    const gop = try astgen.string_table.getOrPutContextAdapted(gpa, @as([]const u8, key), StringIndexAdapter{
+        .bytes = string_bytes,
+    }, StringIndexContext{
+        .bytes = string_bytes,
+    });
+
+    if (gop.found_existing) {
+        string_bytes.shrinkRetainingCapacity(str_index);
+        return gop.key_ptr.*;
+    } else {
+        gop.key_ptr.* = str_index;
+        try string_bytes.append(gpa, 0);
+        return str_index;
+    }
+}
+
 const IndexSlice = struct { index: u32, len: u32 };
 
 fn strLitAsString(astgen: *AstGen, str_lit_token: Ast.TokenIndex) !IndexSlice {
@@ -9629,6 +9717,7 @@ const GenZir = struct {
         /// Absolute token index. This function does the conversion to Decl offset.
         abs_tok_index: Ast.TokenIndex,
         name: u32,
+        first_doc_comment: ?Ast.TokenIndex,
     ) !Zir.Inst.Index {
         const gpa = gz.astgen.gpa;
         const param_body = param_gz.instructionsSlice();
@@ -9636,8 +9725,14 @@ const GenZir = struct {
         try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Param).Struct.fields.len +
             param_body.len);
 
+        const doc_comment_index = if (first_doc_comment) |first|
+            try gz.astgen.docCommentAsStringFromFirst(abs_tok_index, first)
+        else
+            0;
+
         const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Param{
             .name = name,
+            .doc_comment = doc_comment_index,
             .body_len = @intCast(u32, param_body.len),
         });
         gz.astgen.extra.appendSliceAssumeCapacity(param_body);

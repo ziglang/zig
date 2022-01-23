@@ -558,14 +558,14 @@ pub const Decl = struct {
         if (!decl.has_align) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.getFileScope().zir;
-        return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 7]);
+        return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 8]);
     }
 
     pub fn zirLinksectionRef(decl: Decl) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.getFileScope().zir;
-        const extra_index = decl.zir_decl_index + 7 + @boolToInt(decl.has_align);
+        const extra_index = decl.zir_decl_index + 8 + @boolToInt(decl.has_align);
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
     }
 
@@ -573,7 +573,7 @@ pub const Decl = struct {
         if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
         const zir = decl.getFileScope().zir;
-        const extra_index = decl.zir_decl_index + 7 + @boolToInt(decl.has_align) + 1;
+        const extra_index = decl.zir_decl_index + 8 + @boolToInt(decl.has_align) + 1;
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
     }
 
@@ -4011,7 +4011,7 @@ pub fn scanNamespace(
         cur_bit_bag >>= 4;
 
         const decl_sub_index = extra_index;
-        extra_index += 7; // src_hash(4) + line(1) + name(1) + value(1)
+        extra_index += 8; // src_hash(4) + line(1) + name(1) + value(1) + doc_comment(1)
         extra_index += @truncate(u1, flags >> 2); // Align
         extra_index += @as(u2, @truncate(u1, flags >> 3)) * 2; // Link section or address space, consists of 2 Refs
 

@@ -1916,6 +1916,9 @@ fn zirEnumDecl(
         const field_name_zir = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
         extra_index += 1;
 
+        // doc comment
+        extra_index += 1;
+
         // This string needs to outlive the ZIR code.
         const field_name = try new_decl_arena_allocator.dupe(u8, field_name_zir);
 
@@ -2103,7 +2106,6 @@ fn zirErrorSetDecl(
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.ErrorSetDecl, inst_data.payload_index);
-    const fields = sema.code.extra[extra.end..][0..extra.data.fields_len];
 
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
     errdefer new_decl_arena.deinit();
@@ -2121,8 +2123,12 @@ fn zirErrorSetDecl(
     errdefer sema.mod.abortAnonDecl(new_decl);
 
     var names = Module.ErrorSet.NameMap{};
-    try names.ensureUnusedCapacity(new_decl_arena_allocator, fields.len);
-    for (fields) |str_index| {
+    try names.ensureUnusedCapacity(new_decl_arena_allocator, extra.data.fields_len);
+
+    var extra_index = @intCast(u32, extra.end);
+    const extra_index_end = extra_index + (extra.data.fields_len * 2);
+    while (extra_index < extra_index_end) : (extra_index += 2) { // +2 to skip over doc_string
+        const str_index = sema.code.extra[extra_index];
         const name = try new_decl_arena_allocator.dupe(u8, sema.code.nullTerminatedString(str_index));
 
         // TODO: This check should be performed in AstGen instead.
@@ -16313,6 +16319,9 @@ fn semaStructFields(
         const field_type_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
         extra_index += 1;
 
+        // doc_comment
+        extra_index += 1;
+
         // This string needs to outlive the ZIR code.
         const field_name = try decl_arena_allocator.dupe(u8, field_name_zir);
         const field_ty: Type = if (field_type_ref == .none)
@@ -16500,6 +16509,9 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         _ = unused;
 
         const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
+        extra_index += 1;
+
+        // doc_comment
         extra_index += 1;
 
         const field_type_ref: Zir.Inst.Ref = if (has_type) blk: {

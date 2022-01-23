@@ -26,7 +26,9 @@ comptime {
     if (builtin.zig_backend == .stage1) {
         _ = @import("compiler_rt/atomics.zig");
     }
-    _ = @import("compiler_rt/clear_cache.zig").clear_cache;
+    if (builtin.zig_backend != .stage2_llvm) { // TODO
+        _ = @import("compiler_rt/clear_cache.zig").clear_cache;
+    }
 
     const __extenddftf2 = @import("compiler_rt/extendXfYf2.zig").__extenddftf2;
     @export(__extenddftf2, .{ .name = "__extenddftf2", .linkage = linkage });

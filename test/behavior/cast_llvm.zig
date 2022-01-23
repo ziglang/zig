@@ -1,8 +1,9 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
-const native_endian = @import("builtin").target.cpu.arch.endian();
+const native_endian = builtin.target.cpu.arch.endian();
 
 test "pointer reinterpret const float to int" {
     // The hex representation is 0x3fe3333333333303.
@@ -46,6 +47,7 @@ fn incrementVoidPtrArray(array: ?*anyopaque, len: usize) void {
 }
 
 test "compile time int to ptr of function" {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) return error.SkipZigTest; // TODO
     try foobar(FUNCTION_CONSTANT);
 }
 

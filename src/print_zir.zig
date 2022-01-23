@@ -785,6 +785,12 @@ const Writer = struct {
         try stream.print("\"{}\", ", .{
             std.zig.fmtEscapes(self.code.nullTerminatedString(extra.data.name)),
         });
+
+        if (extra.data.doc_comment != 0) {
+            try stream.writeAll("\n");
+            try self.writeDocComment(stream, extra.data.doc_comment);
+            try stream.writeByteNTimes(' ', self.indent);
+        }
         try self.writeBracedBody(stream, body);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
@@ -1207,6 +1213,10 @@ const Writer = struct {
                 extra_index += 1;
                 const field_type = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
                 extra_index += 1;
+                const doc_comment_index = self.code.extra[extra_index];
+                extra_index += 1;
+
+                try self.writeDocComment(stream, doc_comment_index);
 
                 try stream.writeByteNTimes(' ', self.indent);
                 try self.writeFlag(stream, "comptime ", is_comptime);
@@ -1332,6 +1342,10 @@ const Writer = struct {
 
             const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
             extra_index += 1;
+            const doc_comment_index = self.code.extra[extra_index];
+            extra_index += 1;
+
+            try self.writeDocComment(stream, doc_comment_index);
             try stream.writeByteNTimes(' ', self.indent);
             try stream.print("{}", .{std.zig.fmtId(field_name)});
 
@@ -1398,6 +1412,9 @@ const Writer = struct {
             extra_index += 1;
             const decl_index = self.code.extra[extra_index];
             extra_index += 1;
+            const doc_comment_index = self.code.extra[extra_index];
+            extra_index += 1;
+
             const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
                 const inst = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
                 extra_index += 1;
@@ -1416,12 +1433,13 @@ const Writer = struct {
 
             const pub_str = if (is_pub) "pub " else "";
             const hash_bytes = @bitCast([16]u8, hash_u32s.*);
-            try stream.writeByteNTimes(' ', self.indent);
             if (decl_name_index == 0) {
+                try stream.writeByteNTimes(' ', self.indent);
                 const name = if (is_exported) "usingnamespace" else "comptime";
                 try stream.writeAll(pub_str);
                 try stream.writeAll(name);
             } else if (decl_name_index == 1) {
+                try stream.writeByteNTimes(' ', self.indent);
                 try stream.writeAll("test");
             } else {
                 const raw_decl_name = self.code.nullTerminatedString(decl_name_index);
@@ -1431,6 +1449,10 @@ const Writer = struct {
                     raw_decl_name;
                 const test_str = if (raw_decl_name.len == 0) "test " else "";
                 const export_str = if (is_exported) "export " else "";
+
+                try self.writeDocComment(stream, doc_comment_index);
+
+                try stream.writeByteNTimes(' ', self.indent);
                 try stream.print("[{d}] {s}{s}{s}{}", .{
                     sub_index, pub_str, test_str, export_str, std.zig.fmtId(decl_name),
                 });
@@ -1556,6 +1578,11 @@ const Writer = struct {
                 const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
                 extra_index += 1;
 
+                const doc_comment_index = self.code.extra[extra_index];
+                extra_index += 1;
+
+                try self.writeDocComment(stream, doc_comment_index);
+
                 try stream.writeByteNTimes(' ', self.indent);
                 try stream.print("{}", .{std.zig.fmtId(field_name)});
 
@@ -1619,17 +1646,23 @@ const Writer = struct {
     ) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Zir.Inst.ErrorSetDecl, inst_data.payload_index);
-        const fields = self.code.extra[extra.end..][0..extra.data.fields_len];
 
         try stream.print("{s}, ", .{@tagName(name_strategy)});
 
         try stream.writeAll("{\n");
         self.indent += 2;
-        for (fields) |str_index| {
+
+        var extra_index = @intCast(u32, extra.end);
+        const extra_index_end = extra_index + (extra.data.fields_len * 2);
+        while (extra_index < extra_index_end) : (extra_index += 2) {
+            const str_index = self.code.extra[extra_index];
             const name = self.code.nullTerminatedString(str_index);
+            const doc_comment_index = self.code.extra[extra_index + 1];
+            try self.writeDocComment(stream, doc_comment_index);
             try stream.writeByteNTimes(' ', self.indent);
             try stream.print("{},\n", .{std.zig.fmtId(name)});
         }
+
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("}) ");
@@ -2118,6 +2151,17 @@ const Writer = struct {
             try stream.writeAll("..");
             try self.writeInstIndex(stream, body[body.len - 1]);
             try stream.writeByte('}');
+        }
+    }
+
+    fn writeDocComment(self: *Writer, stream: anytype, doc_comment_index: u32) !void {
+        if (doc_comment_index != 0) {
+            const doc_comment = self.code.nullTerminatedString(doc_comment_index);
+            var it = std.mem.tokenize(u8, doc_comment, "\n");
+            while (it.next()) |doc_line| {
+                try stream.writeByteNTimes(' ', self.indent);
+                try stream.print("///{s}\n", .{doc_line});
+            }
         }
     }
 
