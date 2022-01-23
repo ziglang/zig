@@ -362,6 +362,8 @@ pub const FooUnion = union(enum) {
 var glbl_array: [2]FooUnion = undefined;
 
 test "initialize global array of union" {
+    if (@import("builtin").zig_backend == .stage2_wasm) return error.SkipZigTest;
+
     glbl_array[1] = FooUnion{ .U1 = 2 };
     glbl_array[0] = FooUnion{ .U0 = 1 };
     try expect(glbl_array[0].U0 == 1);

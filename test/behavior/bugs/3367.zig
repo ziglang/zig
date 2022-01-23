@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const Foo = struct {
     usingnamespace Mixin;
 };
@@ -9,6 +10,9 @@ const Mixin = struct {
 };
 
 test "container member access usingnamespace decls" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     var foo = Foo{};
     foo.two();
 }

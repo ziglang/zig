@@ -327,6 +327,10 @@ pub const Inst = struct {
         /// Uses `tag`
         i32_div_u = 0x6E,
         /// Uses `tag`
+        i32_rem_s = 0x6F,
+        /// Uses `tag`
+        i32_rem_u = 0x70,
+        /// Uses `tag`
         i32_and = 0x71,
         /// Uses `tag`
         i32_or = 0x72,
@@ -348,6 +352,10 @@ pub const Inst = struct {
         i64_div_s = 0x7F,
         /// Uses `tag`
         i64_div_u = 0x80,
+        /// Uses `tag`
+        i64_rem_s = 0x81,
+        /// Uses `tag`
+        i64_rem_u = 0x82,
         /// Uses `tag`
         i64_and = 0x83,
         /// Uses `tag`

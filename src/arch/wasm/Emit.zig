@@ -173,6 +173,10 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .i64_trunc_f32_u => try emit.emitTag(tag),
             .i64_trunc_f64_s => try emit.emitTag(tag),
             .i64_trunc_f64_u => try emit.emitTag(tag),
+            .i32_rem_s => try emit.emitTag(tag),
+            .i32_rem_u => try emit.emitTag(tag),
+            .i64_rem_s => try emit.emitTag(tag),
+            .i64_rem_u => try emit.emitTag(tag),
 
             .extended => try emit.emitExtended(inst),
         }
