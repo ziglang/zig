@@ -3578,8 +3578,7 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
         if (debug_buffers) |dbg| {
             dbg.dbg_line_buffer.deinit();
             dbg.dbg_info_buffer.deinit();
-            var it = dbg.dbg_info_type_relocs.valueIterator();
-            while (it.next()) |value| {
+            for (dbg.dbg_info_type_relocs.values()) |*value| {
                 value.relocs.deinit(self.base.allocator);
             }
             dbg.dbg_info_type_relocs.deinit(self.base.allocator);
@@ -3659,8 +3658,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         if (debug_buffers) |dbg| {
             dbg.dbg_line_buffer.deinit();
             dbg.dbg_info_buffer.deinit();
-            var it = dbg.dbg_info_type_relocs.valueIterator();
-            while (it.next()) |value| {
+            for (dbg.dbg_info_type_relocs.values()) |*value| {
                 value.relocs.deinit(self.base.allocator);
             }
             dbg.dbg_info_type_relocs.deinit(self.base.allocator);
