@@ -19,7 +19,7 @@ pub fn build(b: *Builder) void {
 
     const exe = b.addExecutable("test", null);
     b.default_step.dependOn(&exe.step);
-    exe.addIncludeDir(".");
+    exe.addIncludePath(".");
     exe.addCSourceFile("Foo.mm", &[0][]const u8{});
     exe.addCSourceFile("test.mm", &[0][]const u8{});
     exe.setBuildMode(mode);

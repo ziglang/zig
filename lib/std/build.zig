@@ -1949,14 +1949,14 @@ pub const LibExeObjStep = struct {
         while (it.next()) |tok| {
             if (mem.eql(u8, tok, "-I")) {
                 const dir = it.next() orelse return error.PkgConfigInvalidOutput;
-                self.addIncludeDir(dir);
+                self.addIncludePath(dir);
             } else if (mem.startsWith(u8, tok, "-I")) {
-                self.addIncludeDir(tok["-I".len..]);
+                self.addIncludePath(tok["-I".len..]);
             } else if (mem.eql(u8, tok, "-L")) {
                 const dir = it.next() orelse return error.PkgConfigInvalidOutput;
-                self.addLibPath(dir);
+                self.addLibraryPath(dir);
             } else if (mem.startsWith(u8, tok, "-L")) {
-                self.addLibPath(tok["-L".len..]);
+                self.addLibraryPath(tok["-L".len..]);
             } else if (mem.eql(u8, tok, "-l")) {
                 const lib = it.next() orelse return error.PkgConfigInvalidOutput;
                 self.linkSystemLibraryName(lib);
@@ -2116,15 +2116,30 @@ pub const LibExeObjStep = struct {
         self.linkLibraryOrObject(obj);
     }
 
+    /// TODO deprecated, use `addSystemIncludePath`.
     pub fn addSystemIncludeDir(self: *LibExeObjStep, path: []const u8) void {
+        self.addSystemIncludePath(path);
+    }
+
+    pub fn addSystemIncludePath(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .raw_path_system = self.builder.dupe(path) }) catch unreachable;
     }
 
+    /// TODO deprecated, use `addIncludePath`.
     pub fn addIncludeDir(self: *LibExeObjStep, path: []const u8) void {
+        self.addIncludePath(path);
+    }
+
+    pub fn addIncludePath(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .raw_path = self.builder.dupe(path) }) catch unreachable;
     }
 
+    /// TODO deprecated, use `addLibraryPath`.
     pub fn addLibPath(self: *LibExeObjStep, path: []const u8) void {
+        self.addLibraryPath(path);
+    }
+
+    pub fn addLibraryPath(self: *LibExeObjStep, path: []const u8) void {
         self.lib_paths.append(self.builder.dupe(path)) catch unreachable;
     }
 
@@ -2132,7 +2147,12 @@ pub const LibExeObjStep = struct {
         self.rpaths.append(self.builder.dupe(path)) catch unreachable;
     }
 
+    /// TODO deprecated, use `addFrameworkPath`.
     pub fn addFrameworkDir(self: *LibExeObjStep, dir_path: []const u8) void {
+        self.addFrameworkPath(dir_path);
+    }
+
+    pub fn addFrameworkPath(self: *LibExeObjStep, dir_path: []const u8) void {
         self.framework_dirs.append(self.builder.dupe(dir_path)) catch unreachable;
     }
 
