@@ -60,7 +60,7 @@ pub const Tz = struct {
         if (legacy_header.version != 0 and legacy_header.version != '2' and legacy_header.version != '3') return error.BadVersion;
 
         if (builtin.target.cpu.arch.endian() != std.builtin.Endian.Big) {
-            std.mem.bswapAllFields(@TypeOf(legacy_header.counts), &legacy_header.counts);
+            std.mem.byteSwapAllFields(@TypeOf(legacy_header.counts), &legacy_header.counts);
         }
 
         if (legacy_header.version == 0) {
@@ -74,7 +74,7 @@ pub const Tz = struct {
             if (!std.mem.eql(u8, &header.magic, "TZif")) return error.BadHeader;
             if (header.version != '2' and header.version != '3') return error.BadVersion;
             if (builtin.target.cpu.arch.endian() != std.builtin.Endian.Big) {
-                std.mem.bswapAllFields(@TypeOf(header.counts), &header.counts);
+                std.mem.byteSwapAllFields(@TypeOf(header.counts), &header.counts);
             }
 
             return parseBlock(allocator, reader, header, false);

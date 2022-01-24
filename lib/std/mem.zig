@@ -1522,16 +1522,19 @@ test "writeIntBig and writeIntLittle" {
     try testing.expect(eql(u8, buf2[0..], &[_]u8{ 0xfc, 0xff }));
 }
 
+/// TODO delete this deprecated declaration after 0.10.0 is released
+pub const bswapAllFields = @compileError("bswapAllFields has been renamed to byteSwapAllFields");
+
 /// Swap the byte order of all the members of the fields of a struct
 /// (Changing their endianess)
-pub fn bswapAllFields(comptime S: type, ptr: *S) void {
-    if (@typeInfo(S) != .Struct) @compileError("bswapAllFields expects a struct as the first argument");
+pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
+    if (@typeInfo(S) != .Struct) @compileError("byteSwapAllFields expects a struct as the first argument");
     inline for (std.meta.fields(S)) |f| {
         @field(ptr, f.name) = @byteSwap(f.field_type, @field(ptr, f.name));
     }
 }
 
-test "bswapAllFields" {
+test "byteSwapAllFields" {
     const T = extern struct {
         f0: u8,
         f1: u16,
@@ -1542,7 +1545,7 @@ test "bswapAllFields" {
         .f1 = 0x1234,
         .f2 = 0x12345678,
     };
-    bswapAllFields(T, &s);
+    byteSwapAllFields(T, &s);
     try std.testing.expectEqual(T{
         .f0 = 0x12,
         .f1 = 0x3412,

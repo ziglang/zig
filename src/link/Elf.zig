@@ -1204,7 +1204,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
                 for (buf) |*phdr, i| {
                     phdr.* = progHeaderTo32(self.program_headers.items[i]);
                     if (foreign_endian) {
-                        mem.bswapAllFields(elf.Elf32_Phdr, phdr);
+                        mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
                     }
                 }
                 try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
@@ -1216,7 +1216,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
                 for (buf) |*phdr, i| {
                     phdr.* = self.program_headers.items[i];
                     if (foreign_endian) {
-                        mem.bswapAllFields(elf.Elf64_Phdr, phdr);
+                        mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
                     }
                 }
                 try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
@@ -1293,7 +1293,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
                     shdr.* = sectHeaderTo32(self.sections.items[i]);
                     log.debug("writing section {}", .{shdr.*});
                     if (foreign_endian) {
-                        mem.bswapAllFields(elf.Elf32_Shdr, shdr);
+                        mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
                     }
                 }
                 try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
@@ -1306,7 +1306,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
                     shdr.* = self.sections.items[i];
                     log.debug("writing section {}", .{shdr.*});
                     if (foreign_endian) {
-                        mem.bswapAllFields(elf.Elf64_Shdr, shdr);
+                        mem.byteSwapAllFields(elf.Elf64_Shdr, shdr);
                     }
                 }
                 try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
@@ -3097,14 +3097,14 @@ fn writeProgHeader(self: *Elf, index: usize) !void {
         .p32 => {
             var phdr = [1]elf.Elf32_Phdr{progHeaderTo32(self.program_headers.items[index])};
             if (foreign_endian) {
-                mem.bswapAllFields(elf.Elf32_Phdr, &phdr[0]);
+                mem.byteSwapAllFields(elf.Elf32_Phdr, &phdr[0]);
             }
             return self.base.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
         },
         .p64 => {
             var phdr = [1]elf.Elf64_Phdr{self.program_headers.items[index]};
             if (foreign_endian) {
-                mem.bswapAllFields(elf.Elf64_Phdr, &phdr[0]);
+                mem.byteSwapAllFields(elf.Elf64_Phdr, &phdr[0]);
             }
             return self.base.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
         },
@@ -3118,7 +3118,7 @@ fn writeSectHeader(self: *Elf, index: usize) !void {
             var shdr: [1]elf.Elf32_Shdr = undefined;
             shdr[0] = sectHeaderTo32(self.sections.items[index]);
             if (foreign_endian) {
-                mem.bswapAllFields(elf.Elf32_Shdr, &shdr[0]);
+                mem.byteSwapAllFields(elf.Elf32_Shdr, &shdr[0]);
             }
             const offset = self.shdr_table_offset.? + index * @sizeOf(elf.Elf32_Shdr);
             return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
@@ -3126,7 +3126,7 @@ fn writeSectHeader(self: *Elf, index: usize) !void {
         .p64 => {
             var shdr = [1]elf.Elf64_Shdr{self.sections.items[index]};
             if (foreign_endian) {
-                mem.bswapAllFields(elf.Elf64_Shdr, &shdr[0]);
+                mem.byteSwapAllFields(elf.Elf64_Shdr, &shdr[0]);
             }
             const offset = self.shdr_table_offset.? + index * @sizeOf(elf.Elf64_Shdr);
             return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
@@ -3224,7 +3224,7 @@ fn writeSymbol(self: *Elf, index: usize) !void {
                 },
             };
             if (foreign_endian) {
-                mem.bswapAllFields(elf.Elf32_Sym, &sym[0]);
+                mem.byteSwapAllFields(elf.Elf32_Sym, &sym[0]);
             }
             const off = syms_sect.sh_offset + @sizeOf(elf.Elf32_Sym) * index;
             try self.base.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
@@ -3232,7 +3232,7 @@ fn writeSymbol(self: *Elf, index: usize) !void {
         .p64 => {
             var sym = [1]elf.Elf64_Sym{self.local_symbols.items[index]};
             if (foreign_endian) {
-                mem.bswapAllFields(elf.Elf64_Sym, &sym[0]);
+                mem.byteSwapAllFields(elf.Elf64_Sym, &sym[0]);
             }
             const off = syms_sect.sh_offset + @sizeOf(elf.Elf64_Sym) * index;
             try self.base.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
@@ -3263,7 +3263,7 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
                     .st_shndx = self.global_symbols.items[i].st_shndx,
                 };
                 if (foreign_endian) {
-                    mem.bswapAllFields(elf.Elf32_Sym, sym);
+                    mem.byteSwapAllFields(elf.Elf32_Sym, sym);
                 }
             }
             try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), global_syms_off);
@@ -3282,7 +3282,7 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
                     .st_shndx = self.global_symbols.items[i].st_shndx,
                 };
                 if (foreign_endian) {
-                    mem.bswapAllFields(elf.Elf64_Sym, sym);
+                    mem.byteSwapAllFields(elf.Elf64_Sym, sym);
                 }
             }
             try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), global_syms_off);

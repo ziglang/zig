@@ -424,7 +424,7 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
                 if (self.elf_header.endian == native_endian) return phdr;
 
                 // Convert fields to native endianness.
-                mem.bswapAllFields(Elf64_Phdr, &phdr);
+                mem.byteSwapAllFields(Elf64_Phdr, &phdr);
                 return phdr;
             }
 
@@ -436,7 +436,7 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
             // ELF endianness does NOT match native endianness.
             if (self.elf_header.endian != native_endian) {
                 // Convert fields to native endianness.
-                mem.bswapAllFields(Elf32_Phdr, &phdr);
+                mem.byteSwapAllFields(Elf32_Phdr, &phdr);
             }
 
             // Convert 32-bit header to 64-bit.
@@ -474,7 +474,7 @@ pub fn SectionHeaderIterator(ParseSource: anytype) type {
                 if (self.elf_header.endian == native_endian) return shdr;
 
                 // Convert fields to native endianness.
-                mem.bswapAllFields(Elf64_Shdr, &shdr);
+                mem.byteSwapAllFields(Elf64_Shdr, &shdr);
                 return shdr;
             }
 
@@ -486,7 +486,7 @@ pub fn SectionHeaderIterator(ParseSource: anytype) type {
             // ELF endianness does NOT match native endianness.
             if (self.elf_header.endian != native_endian) {
                 // Convert fields to native endianness.
-                mem.bswapAllFields(Elf32_Shdr, &shdr);
+                mem.byteSwapAllFields(Elf32_Shdr, &shdr);
             }
 
             // Convert 32-bit header to 64-bit.

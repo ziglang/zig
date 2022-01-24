@@ -24,7 +24,7 @@ fn readFatStruct(reader: anytype, comptime T: type) !T {
     // disk in big endian order.
     var res = try reader.readStruct(T);
     if (native_endian != std.builtin.Endian.Big) {
-        mem.bswapAllFields(T, &res);
+        mem.byteSwapAllFields(T, &res);
     }
     return res;
 }
