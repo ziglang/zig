@@ -662,6 +662,7 @@ pub const DeclGen = struct {
                     new_global.setAlignment(global.getAlignment());
                     new_global.setInitializer(llvm_init);
                     global.replaceAllUsesWith(new_global);
+                    dg.object.decl_map.putAssumeCapacity(decl, new_global);
                     new_global.takeName(global);
                     global.deleteGlobal();
                 }
