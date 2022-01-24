@@ -34,6 +34,8 @@ pub const CValue = union(enum) {
     /// By-value
     decl: *Decl,
     decl_ref: *Decl,
+    /// Render the slice as an identifier (using fmtIdent)
+    identifier: []const u8,
     /// Render these bytes literally.
     /// TODO make this a [*:0]const u8 to save memory
     bytes: []const u8,
@@ -78,6 +80,7 @@ fn formatIdent(
 ) !void {
     _ = fmt;
     _ = options;
+    try writer.writeAll("__"); // Add double underscore to avoid conflicting with C's reserved keywords
     for (ident) |c, i| {
         switch (c) {
             'a'...'z', 'A'...'Z', '_' => try writer.writeByte(c),
@@ -741,7 +744,7 @@ pub const DeclGen = struct {
                 if (!field_ty.hasCodeGenBits()) continue;
 
                 const alignment = entry.value_ptr.abi_align;
-                const name: CValue = .{ .bytes = entry.key_ptr.* };
+                const name: CValue = .{ .identifier = entry.key_ptr.* };
                 try buffer.append(' ');
                 try dg.renderTypeAndName(buffer.writer(), field_ty, name, .Mut, alignment);
                 try buffer.appendSlice(";\n");
@@ -1033,6 +1036,7 @@ pub const DeclGen = struct {
                 try w.writeByte('&');
                 return dg.renderDeclName(decl, w);
             },
+            .identifier => |ident| return w.print("{}", .{fmtIdent(ident)}),
             .bytes => |bytes| return w.writeAll(bytes),
         }
     }
