@@ -2733,9 +2733,9 @@ pub const HRESULT = c_long;
 
 pub const KNOWNFOLDERID = GUID;
 pub const GUID = extern struct {
-    Data1: c_ulong,
-    Data2: c_ushort,
-    Data3: c_ushort,
+    Data1: u32,
+    Data2: u16,
+    Data3: u16,
     Data4: [8]u8,
 
     pub fn parse(str: []const u8) GUID {
@@ -2744,19 +2744,19 @@ pub const GUID = extern struct {
         assert(str[index] == '{');
         index += 1;
 
-        guid.Data1 = std.fmt.parseUnsigned(c_ulong, str[index .. index + 8], 16) catch unreachable;
+        guid.Data1 = std.fmt.parseUnsigned(u32, str[index .. index + 8], 16) catch unreachable;
         index += 8;
 
         assert(str[index] == '-');
         index += 1;
 
-        guid.Data2 = std.fmt.parseUnsigned(c_ushort, str[index .. index + 4], 16) catch unreachable;
+        guid.Data2 = std.fmt.parseUnsigned(u16, str[index .. index + 4], 16) catch unreachable;
         index += 4;
 
         assert(str[index] == '-');
         index += 1;
 
-        guid.Data3 = std.fmt.parseUnsigned(c_ushort, str[index .. index + 4], 16) catch unreachable;
+        guid.Data3 = std.fmt.parseUnsigned(u16, str[index .. index + 4], 16) catch unreachable;
         index += 4;
 
         assert(str[index] == '-');
