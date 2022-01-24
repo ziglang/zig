@@ -1230,8 +1230,7 @@ pub fn genDecl(o: *Object) !void {
             try fwd_decl_writer.writeAll("zig_threadlocal ");
         }
 
-        const decl_c_value: CValue = if (is_global) .{ .bytes = mem.span(o.dg.decl.name) }
-            else .{ .decl = o.dg.decl };
+        const decl_c_value: CValue = if (is_global) .{ .bytes = mem.span(o.dg.decl.name) } else .{ .decl = o.dg.decl };
 
         try o.dg.renderTypeAndName(fwd_decl_writer, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.align_val);
         try fwd_decl_writer.writeAll(";\n");
@@ -2770,7 +2769,7 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
     const writer = f.object.writer();
     const struct_ty = struct_ptr_ty.elemType();
     var field_name: []const u8 = undefined;
-    var field_val_ty: Type = undefined; 
+    var field_val_ty: Type = undefined;
 
     switch (struct_ty.tag()) {
         .@"struct" => {
@@ -3167,7 +3166,7 @@ fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
     const union_ty = f.air.typeOf(bin_op.lhs).childType();
     const target = f.object.dg.module.getTarget();
     const layout = union_ty.unionGetLayout(target);
-    if (layout.tag_size == 0)  return CValue.none;
+    if (layout.tag_size == 0) return CValue.none;
 
     try f.writeCValue(writer, union_ptr);
     try writer.writeAll("->tag = ");
@@ -3190,7 +3189,7 @@ fn airGetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const target = f.object.dg.module.getTarget();
     const layout = un_ty.unionGetLayout(target);
-    if (layout.tag_size == 0)  return CValue.none;
+    if (layout.tag_size == 0) return CValue.none;
 
     try writer.writeAll(" = ");
     try f.writeCValue(writer, operand);
