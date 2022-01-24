@@ -408,6 +408,18 @@ pub const DeclGen = struct {
                     try dg.renderValue(writer, Type.usize, slice.len);
                     try writer.writeAll("}");
                 },
+                .elem_ptr => {
+                    const elem_ptr = val.castTag(.elem_ptr).?.data;
+                    var arena = std.heap.ArenaAllocator.init(dg.module.gpa);
+                    defer arena.deinit();
+                    const elem_ptr_ty = try ty.elemPtrType(arena.allocator());
+
+                    try writer.writeAll("(&((");
+                    try dg.renderType(writer, ty);
+                    try writer.writeByte(')');
+                    try dg.renderValue(writer, elem_ptr_ty, elem_ptr.array_ptr);
+                    try writer.print(")[{d}])", .{elem_ptr.index});
+                },
                 .function => {
                     const func = val.castTag(.function).?.data;
                     try dg.renderDeclName(func.owner_decl, writer);
