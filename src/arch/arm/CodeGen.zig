@@ -43,7 +43,7 @@ err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
 fn_type: Type,
-arg_index: usize,
+arg_index: u32,
 src_loc: Module.SrcLoc,
 stack_align: u32,
 
@@ -302,6 +302,7 @@ pub fn generate(
     var emit = Emit{
         .mir = mir,
         .bin_file = bin_file,
+        .function = &function,
         .debug_output = debug_output,
         .target = &bin_file.options.target,
         .src_loc = src_loc,
@@ -704,29 +705,6 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
 fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
     const table = &self.branch_stack.items[self.branch_stack.items.len - 1].inst_table;
     try table.ensureUnusedCapacity(self.gpa, additional_count);
-}
-
-/// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
-/// after codegen for this symbol is done.
-fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            assert(ty.hasCodeGenBits());
-            const index = dbg_out.dbg_info.items.len;
-            try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
-
-            const gop = try dbg_out.dbg_info_type_relocs.getOrPut(self.gpa, ty);
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{
-                    .off = undefined,
-                    .relocs = .{},
-                };
-            }
-            try gop.value_ptr.relocs.append(self.gpa, @intCast(u32, index));
-        },
-        .plan9 => {},
-        .none => {},
-    }
 }
 
 fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u32 {
@@ -1171,6 +1149,9 @@ fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
         switch (mcv) {
             .dead, .unreach => unreachable,
             .register => unreachable, // a slice doesn't fit in one register
+            .stack_argument_offset => |off| {
+                break :result MCValue{ .stack_argument_offset = off };
+            },
             .stack_offset => |off| {
                 break :result MCValue{ .stack_offset = off };
             },
@@ -1190,6 +1171,9 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
         switch (mcv) {
             .dead, .unreach => unreachable,
             .register => unreachable, // a slice doesn't fit in one register
+            .stack_argument_offset => |off| {
+                break :result MCValue{ .stack_argument_offset = off + 4 };
+            },
             .stack_offset => |off| {
                 break :result MCValue{ .stack_offset = off + 4 };
             },
@@ -1208,7 +1192,6 @@ fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
         const mcv = try self.resolveInst(ty_op.operand);
         switch (mcv) {
             .dead, .unreach => unreachable,
-            .register => unreachable, // a slice doesn't fit in one register
             .ptr_stack_offset => |off| {
                 break :result MCValue{ .ptr_stack_offset = off + 4 };
             },
@@ -1224,7 +1207,6 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
         const mcv = try self.resolveInst(ty_op.operand);
         switch (mcv) {
             .dead, .unreach => unreachable,
-            .register => unreachable, // a slice doesn't fit in one register
             .ptr_stack_offset => |off| {
                 break :result MCValue{ .ptr_stack_offset = off };
             },
@@ -2135,66 +2117,6 @@ fn genArmInlineMemcpy(
     // end:
 }
 
-fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const ty_str = self.air.instructions.items(.data)[inst].ty_str;
-    const zir = &self.mod_fn.owner_decl.getFileScope().zir;
-    const name = zir.nullTerminatedString(ty_str.str);
-    const name_with_null = name.ptr[0 .. name.len + 1];
-    const ty = self.air.getRefType(ty_str.ty);
-
-    switch (mcv) {
-        .register => |reg| {
-            switch (self.debug_output) {
-                .dwarf => |dbg_out| {
-                    try dbg_out.dbg_info.ensureUnusedCapacity(3);
-                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                        1, // ULEB128 dwarf expression length
-                        reg.dwarfLocOp(),
-                    });
-                    try dbg_out.dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-                },
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        .stack_offset => |offset| {
-            switch (self.debug_output) {
-                .dwarf => |dbg_out| {
-                    const abi_size = math.cast(u32, ty.abiSize(self.target.*)) catch {
-                        return self.fail("type '{}' too big to fit into stack frame", .{ty});
-                    };
-                    const adjusted_stack_offset = math.negateCast(offset + abi_size) catch {
-                        return self.fail("Stack offset too large for arguments", .{});
-                    };
-
-                    try dbg_out.dbg_info.append(link.File.Elf.abbrev_parameter);
-
-                    // Get length of the LEB128 stack offset
-                    var counting_writer = std.io.countingWriter(std.io.null_writer);
-                    leb128.writeILEB128(counting_writer.writer(), adjusted_stack_offset) catch unreachable;
-
-                    // DW.AT.location, DW.FORM.exprloc
-                    // ULEB128 dwarf expression length
-                    try leb128.writeULEB128(dbg_out.dbg_info.writer(), counting_writer.bytes_written + 1);
-                    try dbg_out.dbg_info.append(DW.OP.breg11);
-                    try leb128.writeILEB128(dbg_out.dbg_info.writer(), adjusted_stack_offset);
-
-                    try dbg_out.dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-                },
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        .stack_argument_offset => return self.fail("TODO genArgDbgInfo for stack_argument_offset", .{}),
-        else => {},
-    }
-}
-
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const arg_index = self.arg_index;
     self.arg_index += 1;
@@ -2216,8 +2138,15 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
         },
         else => result,
     };
-    // TODO generate debug info
-    // try self.genArgDbgInfo(inst, mcv);
+
+    _ = try self.addInst(.{
+        .tag = .dbg_arg,
+        .cond = undefined,
+        .data = .{ .dbg_arg_info = .{
+            .air_inst = inst,
+            .arg_index = arg_index,
+        } },
+    });
 
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();
@@ -3496,7 +3425,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             }
         },
         .stack_argument_offset => |unadjusted_off| {
-            // TODO: maybe addressing from sp instead of fp
             const abi_size = ty.abiSize(self.target.*);
             const adj_off = unadjusted_off + abi_size;
 
