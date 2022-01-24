@@ -542,6 +542,15 @@ pub const DeclGen = struct {
                                     return writer.print("{d}", .{field_index});
                                 }
                             },
+                            .enum_numbered => {
+                                const enum_obj = ty.castTag(.enum_numbered).?.data;
+                                if (enum_obj.values.count() != 0) {
+                                    const tag_val = enum_obj.values.keys()[field_index];
+                                    return dg.renderValue(writer, enum_obj.tag_ty, tag_val);
+                                } else {
+                                    return writer.print("{d}", .{field_index});
+                                }
+                            },
                             else => unreachable,
                         }
                     },
