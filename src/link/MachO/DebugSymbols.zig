@@ -1112,8 +1112,7 @@ pub fn commitDeclDebugInfo(
 
     {
         // Now that we have the offset assigned we can finally perform type relocations.
-        var it = dbg_info_type_relocs.valueIterator();
-        while (it.next()) |value| {
+        for (dbg_info_type_relocs.values()) |value| {
             for (value.relocs.items) |off| {
                 mem.writeIntLittle(
                     u32,
