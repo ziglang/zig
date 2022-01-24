@@ -591,6 +591,7 @@ pub const DeclGen = struct {
             },
             .Union => {
                 const union_obj = val.castTag(.@"union").?.data;
+                const union_ty = ty.cast(Type.Payload.Union).?.data;
                 const target = dg.module.getTarget();
                 const layout = ty.unionGetLayout(target);
 
@@ -607,11 +608,7 @@ pub const DeclGen = struct {
                     try writer.writeAll(".payload = {");
                 }
 
-                const index = switch (ty.tag()) {
-                    .union_tagged => ty.castTag(.union_tagged).?.data.tag_ty.enumTagFieldIndex(union_obj.tag).?,
-                    .@"union" => ty.castTag(.@"union").?.data.tag_ty.enumTagFieldIndex(union_obj.tag).?,
-                    else => unreachable,
-                };
+                const index = union_ty.tag_ty.enumTagFieldIndex(union_obj.tag).?;
                 const field_ty = ty.unionFields().values()[index].ty;
                 const field_name = ty.unionFields().keys()[index];
                 if (field_ty.hasCodeGenBits()) {
@@ -815,11 +812,8 @@ pub const DeclGen = struct {
     }
 
     fn renderUnionTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
-        const fqn = switch (t.tag()) {
-            .@"union" => try t.castTag(.@"union").?.data.getFullyQualifiedName(dg.typedefs.allocator),
-            .union_tagged => try t.castTag(.union_tagged).?.data.getFullyQualifiedName(dg.typedefs.allocator),
-            else => unreachable,
-        };
+        const union_ty = t.cast(Type.Payload.Union).?.data;
+        const fqn = try union_ty.getFullyQualifiedName(dg.typedefs.allocator);
         defer dg.typedefs.allocator.free(fqn);
 
         const target = dg.module.getTarget();
