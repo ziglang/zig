@@ -16,7 +16,9 @@ const testing = std.testing;
 /// `.items(.<field_name>)` to obtain a slice of field values.
 pub fn MultiArrayList(comptime S: type) type {
     return struct {
-        bytes: [*]align(@alignOf(S)) u8 = undefined,
+        const alignS = if (@alignOf(S) == 0) 1 else @alignOf(S);
+
+        bytes: [*]align(alignS) u8 = undefined,
         len: usize = 0,
         capacity: usize = 0,
 
@@ -50,8 +52,8 @@ pub fn MultiArrayList(comptime S: type) type {
                     return .{};
                 }
                 const unaligned_ptr = self.ptrs[sizes.fields[0]];
-                const aligned_ptr = @alignCast(@alignOf(S), unaligned_ptr);
-                const casted_ptr = @ptrCast([*]align(@alignOf(S)) u8, aligned_ptr);
+                const aligned_ptr = @alignCast(alignS, unaligned_ptr);
+                const casted_ptr = @ptrCast([*]align(alignS) u8, aligned_ptr);
                 return .{
                     .bytes = casted_ptr,
                     .len = self.len,
@@ -261,7 +263,7 @@ pub fn MultiArrayList(comptime S: type) type {
 
             const other_bytes = gpa.allocAdvanced(
                 u8,
-                @alignOf(S),
+                alignS,
                 capacityInBytes(new_len),
                 .exact,
             ) catch {
@@ -339,7 +341,7 @@ pub fn MultiArrayList(comptime S: type) type {
             assert(new_capacity >= self.len);
             const new_bytes = try gpa.allocAdvanced(
                 u8,
-                @alignOf(S),
+                alignS,
                 capacityInBytes(new_capacity),
                 .exact,
             );
@@ -398,7 +400,7 @@ pub fn MultiArrayList(comptime S: type) type {
             return @reduce(.Add, capacity_vector * sizes_vector);
         }
 
-        fn allocatedBytes(self: Self) []align(@alignOf(S)) u8 {
+        fn allocatedBytes(self: Self) []align(alignS) u8 {
             return self.bytes[0..capacityInBytes(self.capacity)];
         }
 
@@ -620,4 +622,53 @@ test "insert elements" {
 
     try testing.expectEqualSlices(u8, &[_]u8{ 1, 2 }, list.items(.a));
     try testing.expectEqualSlices(u32, &[_]u32{ 2, 3 }, list.items(.b));
+}
+
+test "0 sized struct field" {
+    const ally = testing.allocator;
+
+    const Foo = struct {
+        a: u0,
+        b: f32,
+    };
+
+    var list = MultiArrayList(Foo){};
+    defer list.deinit(ally);
+
+    try testing.expectEqualSlices(u0, &[_]u0{}, list.items(.a));
+    try testing.expectEqualSlices(f32, &[_]f32{}, list.items(.b));
+
+    try list.append(ally, .{ .a = 0, .b = 42.0 });
+    try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
+    try testing.expectEqualSlices(f32, &[_]f32{42.0}, list.items(.b));
+
+    try list.insert(ally, 0, .{ .a = 0, .b = -1.0 });
+    try testing.expectEqualSlices(u0, &[_]u0{ 0, 0 }, list.items(.a));
+    try testing.expectEqualSlices(f32, &[_]f32{ -1.0, 42.0 }, list.items(.b));
+
+    list.swapRemove(list.len - 1);
+    try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
+    try testing.expectEqualSlices(f32, &[_]f32{-1.0}, list.items(.b));
+}
+
+test "0 sized struct" {
+    const ally = testing.allocator;
+
+    const Foo = struct {
+        a: u0,
+    };
+
+    var list = MultiArrayList(Foo){};
+    defer list.deinit(ally);
+
+    try testing.expectEqualSlices(u0, &[_]u0{}, list.items(.a));
+
+    try list.append(ally, .{ .a = 0 });
+    try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
+
+    try list.insert(ally, 0, .{ .a = 0 });
+    try testing.expectEqualSlices(u0, &[_]u0{ 0, 0 }, list.items(.a));
+
+    list.swapRemove(list.len - 1);
+    try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
 }
