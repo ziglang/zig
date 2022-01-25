@@ -34,6 +34,8 @@ pub const CValue = union(enum) {
     /// By-value
     decl: *Decl,
     decl_ref: *Decl,
+    /// Render the slice as an identifier (using fmtIdent)
+    identifier: []const u8,
     /// Render these bytes literally.
     /// TODO make this a [*:0]const u8 to save memory
     bytes: []const u8,
@@ -78,6 +80,7 @@ fn formatIdent(
 ) !void {
     _ = fmt;
     _ = options;
+    try writer.writeAll("__"); // Add double underscore to avoid conflicting with C's reserved keywords
     for (ident) |c, i| {
         switch (c) {
             'a'...'z', 'A'...'Z', '_' => try writer.writeByte(c),
@@ -408,6 +411,18 @@ pub const DeclGen = struct {
                     try dg.renderValue(writer, Type.usize, slice.len);
                     try writer.writeAll("}");
                 },
+                .elem_ptr => {
+                    const elem_ptr = val.castTag(.elem_ptr).?.data;
+                    var arena = std.heap.ArenaAllocator.init(dg.module.gpa);
+                    defer arena.deinit();
+                    const elem_ptr_ty = try ty.elemPtrType(arena.allocator());
+
+                    try writer.writeAll("(&((");
+                    try dg.renderType(writer, ty);
+                    try writer.writeByte(')');
+                    try dg.renderValue(writer, elem_ptr_ty, elem_ptr.array_ptr);
+                    try writer.print(")[{d}])", .{elem_ptr.index});
+                },
                 .function => {
                     const func = val.castTag(.function).?.data;
                     try dg.renderDeclName(func.owner_decl, writer);
@@ -527,6 +542,15 @@ pub const DeclGen = struct {
                                     return writer.print("{d}", .{field_index});
                                 }
                             },
+                            .enum_numbered => {
+                                const enum_obj = ty.castTag(.enum_numbered).?.data;
+                                if (enum_obj.values.count() != 0) {
+                                    const tag_val = enum_obj.values.keys()[field_index];
+                                    return dg.renderValue(writer, enum_obj.tag_ty, tag_val);
+                                } else {
+                                    return writer.print("{d}", .{field_index});
+                                }
+                            },
                             else => unreachable,
                         }
                     },
@@ -565,6 +589,37 @@ pub const DeclGen = struct {
 
                 try writer.writeAll("}");
             },
+            .Union => {
+                const union_obj = val.castTag(.@"union").?.data;
+                const union_ty = ty.cast(Type.Payload.Union).?.data;
+                const target = dg.module.getTarget();
+                const layout = ty.unionGetLayout(target);
+
+                try writer.writeAll("(");
+                try dg.renderType(writer, ty);
+                try writer.writeAll("){");
+
+                if (ty.unionTagType()) |tag_ty| {
+                    if (layout.tag_size != 0) {
+                        try writer.writeAll(".tag = ");
+                        try dg.renderValue(writer, tag_ty, union_obj.tag);
+                        try writer.writeAll(", ");
+                    }
+                    try writer.writeAll(".payload = {");
+                }
+
+                const index = union_ty.tag_ty.enumTagFieldIndex(union_obj.tag).?;
+                const field_ty = ty.unionFields().values()[index].ty;
+                const field_name = ty.unionFields().keys()[index];
+                if (field_ty.hasCodeGenBits()) {
+                    try writer.print(".{} = ", .{fmtIdent(field_name)});
+                    try dg.renderValue(writer, field_ty, union_obj.val);
+                }
+                if (ty.unionTagType()) |_| {
+                    try writer.writeAll("}");
+                }
+                try writer.writeAll("}");
+            },
 
             .ComptimeInt => unreachable,
             .ComptimeFloat => unreachable,
@@ -577,7 +632,6 @@ pub const DeclGen = struct {
             .BoundFn => unreachable,
             .Opaque => unreachable,
 
-            .Union,
             .Frame,
             .AnyFrame,
             .Vector,
@@ -609,22 +663,24 @@ pub const DeclGen = struct {
         try dg.renderDeclName(dg.decl, w);
         try w.writeAll("(");
         const param_len = dg.decl.ty.fnParamLen();
-        const is_var_args = dg.decl.ty.fnIsVarArgs();
-        if (param_len == 0 and !is_var_args)
-            try w.writeAll("void")
-        else {
-            var index: usize = 0;
-            while (index < param_len) : (index += 1) {
-                if (index > 0) {
-                    try w.writeAll(", ");
-                }
-                try dg.renderType(w, dg.decl.ty.fnParamType(index));
-                try w.print(" a{d}", .{index});
+
+        var index: usize = 0;
+        var params_written: usize = 0;
+        while (index < param_len) : (index += 1) {
+            if (dg.decl.ty.fnParamType(index).zigTypeTag() == .Void) continue;
+            if (params_written > 0) {
+                try w.writeAll(", ");
             }
+            try dg.renderType(w, dg.decl.ty.fnParamType(index));
+            try w.print(" a{d}", .{index});
+            params_written += 1;
         }
-        if (is_var_args) {
-            if (param_len != 0) try w.writeAll(", ");
+
+        if (dg.decl.ty.fnIsVarArgs()) {
+            if (params_written != 0) try w.writeAll(", ");
             try w.writeAll("...");
+        } else if (params_written == 0) {
+            try w.writeAll("void");
         }
         try w.writeByte(')');
     }
@@ -646,21 +702,23 @@ pub const DeclGen = struct {
         const name_end = buffer.items.len - 2;
 
         const param_len = fn_info.param_types.len;
-        const is_var_args = fn_info.is_var_args;
-        if (param_len == 0 and !is_var_args)
-            try bw.writeAll("void")
-        else {
-            var index: usize = 0;
-            while (index < param_len) : (index += 1) {
-                if (index > 0) {
-                    try bw.writeAll(", ");
-                }
-                try dg.renderType(bw, fn_info.param_types[index]);
+
+        var params_written: usize = 0;
+        var index: usize = 0;
+        while (index < param_len) : (index += 1) {
+            if (fn_info.param_types[index].zigTypeTag() == .Void) continue;
+            if (params_written > 0) {
+                try bw.writeAll(", ");
             }
+            try dg.renderType(bw, fn_info.param_types[index]);
+            params_written += 1;
         }
-        if (is_var_args) {
-            if (param_len != 0) try bw.writeAll(", ");
+
+        if (fn_info.is_var_args) {
+            if (params_written != 0) try bw.writeAll(", ");
             try bw.writeAll("...");
+        } else if (params_written == 0) {
+            try bw.writeAll("void");
         }
         try bw.writeAll(");\n");
 
@@ -729,7 +787,7 @@ pub const DeclGen = struct {
                 if (!field_ty.hasCodeGenBits()) continue;
 
                 const alignment = entry.value_ptr.abi_align;
-                const name: CValue = .{ .bytes = entry.key_ptr.* };
+                const name: CValue = .{ .identifier = entry.key_ptr.* };
                 try buffer.append(' ');
                 try dg.renderTypeAndName(buffer.writer(), field_ty, name, .Mut, alignment);
                 try buffer.appendSlice(";\n");
@@ -739,6 +797,62 @@ pub const DeclGen = struct {
 
         const name_start = buffer.items.len;
         try buffer.writer().print("zig_S_{s};\n", .{fmtIdent(fqn)});
+
+        const rendered = buffer.toOwnedSlice();
+        errdefer dg.typedefs.allocator.free(rendered);
+        const name = rendered[name_start .. rendered.len - 2];
+
+        try dg.typedefs.ensureUnusedCapacity(1);
+        dg.typedefs.putAssumeCapacityNoClobber(
+            try t.copy(dg.typedefs_arena),
+            .{ .name = name, .rendered = rendered },
+        );
+
+        return name;
+    }
+
+    fn renderUnionTypedef(dg: *DeclGen, t: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
+        const union_ty = t.cast(Type.Payload.Union).?.data;
+        const fqn = try union_ty.getFullyQualifiedName(dg.typedefs.allocator);
+        defer dg.typedefs.allocator.free(fqn);
+
+        const target = dg.module.getTarget();
+        const layout = t.unionGetLayout(target);
+
+        var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
+        defer buffer.deinit();
+
+        try buffer.appendSlice("typedef ");
+        if (t.unionTagType()) |tag_ty| {
+            const name: CValue = .{ .bytes = "tag" };
+            try buffer.appendSlice("struct {\n ");
+            if (layout.tag_size != 0) {
+                try dg.renderTypeAndName(buffer.writer(), tag_ty, name, .Mut, Value.initTag(.abi_align_default));
+                try buffer.appendSlice(";\n");
+            }
+        }
+
+        try buffer.appendSlice("union {\n");
+        {
+            var it = t.unionFields().iterator();
+            while (it.next()) |entry| {
+                const field_ty = entry.value_ptr.ty;
+                if (!field_ty.hasCodeGenBits()) continue;
+                const alignment = entry.value_ptr.abi_align;
+                const name: CValue = .{ .identifier = entry.key_ptr.* };
+                try buffer.append(' ');
+                try dg.renderTypeAndName(buffer.writer(), field_ty, name, .Mut, alignment);
+                try buffer.appendSlice(";\n");
+            }
+        }
+        try buffer.appendSlice("} ");
+
+        if (t.unionTagType()) |_| {
+            try buffer.appendSlice("payload;\n} ");
+        }
+
+        const name_start = buffer.items.len;
+        try buffer.writer().print("zig_U_{s};\n", .{fmtIdent(fqn)});
 
         const rendered = buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
@@ -931,6 +1045,12 @@ pub const DeclGen = struct {
 
                 return w.writeAll(name);
             },
+            .Union => {
+                const name = dg.getTypedefName(t) orelse
+                    try dg.renderUnionTypedef(t);
+
+                return w.writeAll(name);
+            },
             .Enum => {
                 // For enums, we simply use the integer tag type.
                 var int_tag_ty_buffer: Type.Payload.Bits = undefined;
@@ -939,7 +1059,6 @@ pub const DeclGen = struct {
                 try dg.renderType(w, int_tag_ty);
             },
 
-            .Union,
             .Frame,
             .AnyFrame,
             .Vector,
@@ -1021,6 +1140,7 @@ pub const DeclGen = struct {
                 try w.writeByte('&');
                 return dg.renderDeclName(decl, w);
             },
+            .identifier => |ident| return w.print("{}", .{fmtIdent(ident)}),
             .bytes => |bytes| return w.writeAll(bytes),
         }
     }
@@ -1103,13 +1223,10 @@ pub fn genDecl(o: *Object) !void {
         if (variable.is_threadlocal) {
             try fwd_decl_writer.writeAll("zig_threadlocal ");
         }
-        try o.dg.renderType(fwd_decl_writer, o.dg.decl.ty);
-        try fwd_decl_writer.writeAll(" ");
-        if (is_global) {
-            try fwd_decl_writer.writeAll(mem.span(o.dg.decl.name));
-        } else {
-            try o.dg.renderDeclName(o.dg.decl, fwd_decl_writer);
-        }
+
+        const decl_c_value: CValue = if (is_global) .{ .bytes = mem.span(o.dg.decl.name) } else .{ .decl = o.dg.decl };
+
+        try o.dg.renderTypeAndName(fwd_decl_writer, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.align_val);
         try fwd_decl_writer.writeAll(";\n");
 
         if (variable.init.isUndefDeep()) {
@@ -1118,13 +1235,7 @@ pub fn genDecl(o: *Object) !void {
 
         try o.indent_writer.insertNewline();
         const w = o.writer();
-        try o.dg.renderType(w, o.dg.decl.ty);
-        try w.writeAll(" ");
-        if (is_global) {
-            try w.writeAll(mem.span(o.dg.decl.name));
-        } else {
-            try o.dg.renderDeclName(o.dg.decl, w);
-        }
+        try o.dg.renderTypeAndName(w, o.dg.decl.ty, decl_c_value, .Mut, o.dg.decl.align_val);
         try w.writeAll(" = ");
         if (variable.init.tag() != .unreachable_value) {
             try o.dg.renderValue(w, tv.ty, variable.init);
@@ -2339,9 +2450,9 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, local);
     try writer.writeAll(", &");
     try f.writeCValue(writer, operand);
-    try writer.writeAll(", sizeof ");
+    try writer.writeAll(", sizeof(");
     try f.writeCValue(writer, local);
-    try writer.writeAll(");\n");
+    try writer.writeAll("));\n");
 
     return local;
 }
@@ -2650,21 +2761,36 @@ fn airStructFieldPtrIndex(f: *Function, inst: Air.Inst.Index, index: u8) !CValue
 
 fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struct_ptr: CValue, index: u32) !CValue {
     const writer = f.object.writer();
-    const struct_obj = struct_ptr_ty.elemType().castTag(.@"struct").?.data;
-    const field_name = struct_obj.fields.keys()[index];
-    const field_val = struct_obj.fields.values()[index];
-    const addrof = if (field_val.ty.zigTypeTag() == .Array) "" else "&";
+    const struct_ty = struct_ptr_ty.elemType();
+    var field_name: []const u8 = undefined;
+    var field_val_ty: Type = undefined;
+
+    switch (struct_ty.tag()) {
+        .@"struct" => {
+            const fields = struct_ty.structFields();
+            field_name = fields.keys()[index];
+            field_val_ty = fields.values()[index].ty;
+        },
+        .@"union", .union_tagged => {
+            const fields = struct_ty.unionFields();
+            field_name = fields.keys()[index];
+            field_val_ty = fields.values()[index].ty;
+        },
+        else => unreachable,
+    }
+    const addrof = if (field_val_ty.zigTypeTag() == .Array) "" else "&";
+    const payload = if (struct_ty.tag() == .union_tagged) "payload." else "";
 
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
     switch (struct_ptr) {
         .local_ref => |i| {
-            try writer.print(" = {s}t{d}.{};\n", .{ addrof, i, fmtIdent(field_name) });
+            try writer.print(" = {s}t{d}.{s}{};\n", .{ addrof, i, payload, fmtIdent(field_name) });
         },
         else => {
             try writer.print(" = {s}", .{addrof});
             try f.writeCValue(writer, struct_ptr);
-            try writer.print("->{};\n", .{fmtIdent(field_name)});
+            try writer.print("->{s}{};\n", .{ payload, fmtIdent(field_name) });
         },
     }
     return local;
@@ -2679,14 +2805,18 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
     const struct_byval = try f.resolveInst(extra.struct_operand);
     const struct_ty = f.air.typeOf(extra.struct_operand);
-    const struct_obj = struct_ty.castTag(.@"struct").?.data;
-    const field_name = struct_obj.fields.keys()[extra.field_index];
+    const field_name = switch (struct_ty.tag()) {
+        .@"struct" => struct_ty.structFields().keys()[extra.field_index],
+        .@"union", .union_tagged => struct_ty.unionFields().keys()[extra.field_index],
+        else => unreachable,
+    };
+    const payload = if (struct_ty.tag() == .union_tagged) "payload." else "";
 
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
     try writer.writeAll(" = ");
     try f.writeCValue(writer, struct_byval);
-    try writer.print(".{};\n", .{fmtIdent(field_name)});
+    try writer.print(".{s}{};\n", .{ payload, fmtIdent(field_name) });
     return local;
 }
 
@@ -3027,9 +3157,13 @@ fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
     const new_tag = try f.resolveInst(bin_op.rhs);
     const writer = f.object.writer();
 
-    try writer.writeAll("*");
+    const union_ty = f.air.typeOf(bin_op.lhs).childType();
+    const target = f.object.dg.module.getTarget();
+    const layout = union_ty.unionGetLayout(target);
+    if (layout.tag_size == 0) return CValue.none;
+
     try f.writeCValue(writer, union_ptr);
-    try writer.writeAll(" = ");
+    try writer.writeAll("->tag = ");
     try f.writeCValue(writer, new_tag);
     try writer.writeAll(";\n");
 
@@ -3043,12 +3177,17 @@ fn airGetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const un_ty = f.air.typeOf(ty_op.operand);
     const writer = f.object.writer();
     const operand = try f.resolveInst(ty_op.operand);
 
-    try writer.writeAll("get_union_tag(");
+    const target = f.object.dg.module.getTarget();
+    const layout = un_ty.unionGetLayout(target);
+    if (layout.tag_size == 0) return CValue.none;
+
+    try writer.writeAll(" = ");
     try f.writeCValue(writer, operand);
-    try writer.writeAll(");\n");
+    try writer.writeAll(".tag;\n");
     return local;
 }
 
