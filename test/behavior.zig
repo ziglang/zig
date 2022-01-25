@@ -3,18 +3,34 @@ const builtin = @import("builtin");
 test {
     // Tests that pass for stage1, llvm backend, C backend, wasm backend, arm backend and x86_64 backend.
     _ = @import("behavior/align.zig");
+    _ = @import("behavior/alignof.zig");
     _ = @import("behavior/array.zig");
+    _ = @import("behavior/bit_shifting.zig");
     _ = @import("behavior/bool.zig");
+    _ = @import("behavior/bugs/394.zig");
     _ = @import("behavior/bugs/655.zig");
+    _ = @import("behavior/bugs/656.zig");
     _ = @import("behavior/bugs/679.zig");
     _ = @import("behavior/bugs/1111.zig");
+    _ = @import("behavior/bugs/1277.zig");
+    _ = @import("behavior/bugs/1310.zig");
+    _ = @import("behavior/bugs/1381.zig");
+    _ = @import("behavior/bugs/1500.zig");
+    _ = @import("behavior/bugs/1735.zig");
+    _ = @import("behavior/bugs/2006.zig");
     _ = @import("behavior/bugs/2346.zig");
+    _ = @import("behavior/bugs/3112.zig");
+    _ = @import("behavior/bugs/3367.zig");
     _ = @import("behavior/bugs/6850.zig");
+    _ = @import("behavior/bugs/7250.zig");
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/comptime_memory.zig");
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
+    _ = @import("behavior/generics_llvm.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
+    _ = @import("behavior/namespace_depends_on_compile_var.zig");
+    _ = @import("behavior/optional_llvm.zig");
     _ = @import("behavior/prefetch.zig");
     _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
@@ -60,6 +76,7 @@ test {
         _ = @import("behavior/type_info.zig");
         _ = @import("behavior/undefined.zig");
         _ = @import("behavior/underscore.zig");
+        _ = @import("behavior/union.zig");
         _ = @import("behavior/usingnamespace.zig");
         _ = @import("behavior/void.zig");
         _ = @import("behavior/while.zig");
@@ -68,30 +85,16 @@ test {
             // Tests that pass for stage1, llvm backend, C backend
             _ = @import("behavior/cast_int.zig");
             _ = @import("behavior/int128.zig");
-            _ = @import("behavior/union.zig");
             _ = @import("behavior/translate_c_macros.zig");
 
             if (builtin.zig_backend != .stage2_c) {
                 // Tests that pass for stage1 and the llvm backend.
-                _ = @import("behavior/alignof.zig");
                 _ = @import("behavior/array_llvm.zig");
                 _ = @import("behavior/atomics.zig");
                 _ = @import("behavior/basic_llvm.zig");
-                _ = @import("behavior/bit_shifting.zig");
-                _ = @import("behavior/bugs/394.zig");
-                _ = @import("behavior/bugs/656.zig");
-                _ = @import("behavior/bugs/1277.zig");
-                _ = @import("behavior/bugs/1310.zig");
-                _ = @import("behavior/bugs/1381.zig");
-                _ = @import("behavior/bugs/1500.zig");
-                _ = @import("behavior/bugs/1735.zig");
                 _ = @import("behavior/bugs/1741.zig");
-                _ = @import("behavior/bugs/2006.zig");
                 _ = @import("behavior/bugs/2578.zig");
                 _ = @import("behavior/bugs/3007.zig");
-                _ = @import("behavior/bugs/3112.zig");
-                _ = @import("behavior/bugs/3367.zig");
-                _ = @import("behavior/bugs/7250.zig");
                 _ = @import("behavior/bugs/9584.zig");
                 _ = @import("behavior/cast_llvm.zig");
                 _ = @import("behavior/enum_llvm.zig");
@@ -99,13 +102,10 @@ test {
                 _ = @import("behavior/eval.zig");
                 _ = @import("behavior/floatop.zig");
                 _ = @import("behavior/fn.zig");
-                _ = @import("behavior/generics_llvm.zig");
                 _ = @import("behavior/math.zig");
                 _ = @import("behavior/maximum_minimum.zig");
                 _ = @import("behavior/merge_error_sets.zig");
-                _ = @import("behavior/namespace_depends_on_compile_var.zig");
                 _ = @import("behavior/null_llvm.zig");
-                _ = @import("behavior/optional_llvm.zig");
                 _ = @import("behavior/popcount.zig");
                 _ = @import("behavior/saturating_arithmetic.zig");
                 _ = @import("behavior/sizeof_and_typeof.zig");

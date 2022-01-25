@@ -1,10 +1,14 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const builtin = @import("builtin");
 
 const S = struct {
     p: *S,
 };
 test "bug 2006" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     var a: S = undefined;
     a = S{ .p = undefined };
     try expect(@sizeOf(S) != 0);

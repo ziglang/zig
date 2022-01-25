@@ -722,9 +722,9 @@ fn typeToValtype(ty: Type, target: std.Target) wasm.Valtype {
             if (info.bits > 32 and info.bits <= 64) break :blk wasm.Valtype.i64;
             break :blk wasm.Valtype.i32; // represented as pointer to stack
         },
-        .Enum => switch (ty.tag()) {
-            .enum_simple => wasm.Valtype.i32,
-            else => typeToValtype(ty.cast(Type.Payload.EnumFull).?.data.tag_ty, target),
+        .Enum => {
+            var buf: Type.Payload.Bits = undefined;
+            return typeToValtype(ty.intTagType(&buf), target);
         },
         else => wasm.Valtype.i32, // all represented as reference/immediate
     };
@@ -1033,14 +1033,21 @@ pub const DeclGen = struct {
                 return Result{ .appended = {} };
             },
             .Enum => {
-                try writer.writeByteNTimes(0xaa, @intCast(usize, ty.abiSize(self.target())));
-                return Result{ .appended = {} };
+                var int_buffer: Value.Payload.U64 = undefined;
+                const int_val = val.enumToInt(ty, &int_buffer);
+                var buf: Type.Payload.Bits = undefined;
+                const int_ty = ty.intTagType(&buf);
+                return self.genTypedValue(int_ty, int_val, writer);
             },
             .Bool => {
                 try writer.writeByte(@boolToInt(val.toBool()));
                 return Result{ .appended = {} };
             },
             .Struct => {
+                const struct_ty = ty.castTag(.@"struct").?.data;
+                if (struct_ty.layout == .Packed) {
+                    return self.fail("TODO: Packed structs for wasm", .{});
+                }
                 const field_vals = val.castTag(.@"struct").?.data;
                 for (field_vals) |field_val, index| {
                     const field_ty = ty.structFieldType(index);
@@ -1053,9 +1060,45 @@ pub const DeclGen = struct {
                 return Result{ .appended = {} };
             },
             .Union => {
-                // TODO: Implement Union declarations
-                try writer.writeByteNTimes(0xaa, @intCast(usize, ty.abiSize(self.target())));
-                return Result{ .appended = {} };
+                const union_val = val.castTag(.@"union").?.data;
+                const layout = ty.unionGetLayout(self.target());
+
+                if (layout.payload_size == 0) {
+                    return self.genTypedValue(ty.unionTagType().?, union_val.tag, writer);
+                }
+
+                // Check if we should store the tag first, in which case, do so now:
+                if (layout.tag_align >= layout.payload_align) {
+                    switch (try self.genTypedValue(ty.unionTagType().?, union_val.tag, writer)) {
+                        .appended => {},
+                        .externally_managed => |payload| try writer.writeAll(payload),
+                    }
+                }
+
+                const union_ty = ty.cast(Type.Payload.Union).?.data;
+                const field_index = union_ty.tag_ty.enumTagFieldIndex(union_val.tag).?;
+                assert(union_ty.haveFieldTypes());
+                const field_ty = union_ty.fields.values()[field_index].ty;
+                if (!field_ty.hasRuntimeBits()) {
+                    try writer.writeByteNTimes(0xaa, @intCast(usize, layout.payload_size));
+                } else {
+                    switch (try self.genTypedValue(field_ty, union_val.val, writer)) {
+                        .appended => {},
+                        .externally_managed => |payload| try writer.writeAll(payload),
+                    }
+
+                    // Unions have the size of the largest field, so we must pad
+                    // whenever the active field has a smaller size.
+                    const diff = layout.payload_size - field_ty.abiSize(self.target());
+                    if (diff > 0) {
+                        try writer.writeByteNTimes(0xaa, @intCast(usize, diff));
+                    }
+                }
+
+                if (layout.tag_size == 0) {
+                    return Result{ .appended = {} };
+                }
+                return self.genTypedValue(union_ty.tag_ty, union_val.tag, writer);
             },
             .Pointer => switch (val.tag()) {
                 .variable => {
@@ -1078,6 +1121,10 @@ pub const DeclGen = struct {
                         .externally_managed => |data| try writer.writeAll(data),
                         .appended => {},
                     }
+                    return Result{ .appended = {} };
+                },
+                .zero => {
+                    try writer.writeByteNTimes(0, @divExact(self.target().cpu.arch.ptrBitWidth(), 8));
                     return Result{ .appended = {} };
                 },
                 else => return self.fail("TODO: Implement zig decl gen for pointer type value: '{s}'", .{@tagName(val.tag())}),
@@ -1334,7 +1381,7 @@ fn isByRef(ty: Type, target: std.Target) bool {
         },
         .Pointer => {
             // Slices act like struct and will be passed by reference
-            if (ty.isSlice()) return ty.hasRuntimeBits();
+            if (ty.isSlice()) return true;
             return false;
         },
     }
@@ -1394,6 +1441,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .bit_or => self.airBinOp(inst, .@"or"),
         .bool_and => self.airBinOp(inst, .@"and"),
         .bool_or => self.airBinOp(inst, .@"or"),
+        .rem => self.airBinOp(inst, .rem),
         .shl => self.airBinOp(inst, .shl),
         .shr => self.airBinOp(inst, .shr),
         .xor => self.airBinOp(inst, .xor),
@@ -1419,6 +1467,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .dbg_stmt => WValue.none,
         .intcast => self.airIntcast(inst),
         .float_to_int => self.airFloatToInt(inst),
+        .get_union_tag => self.airGetUnionTag(inst),
 
         .is_err => self.airIsErr(inst, .i32_ne),
         .is_non_err => self.airIsErr(inst, .i32_eq),
@@ -1454,6 +1503,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .slice_ptr => self.airSlicePtr(inst),
         .store => self.airStore(inst),
 
+        .set_union_tag => self.airSetUnionTag(inst),
         .struct_field_ptr => self.airStructFieldPtr(inst),
         .struct_field_ptr_index_0 => self.airStructFieldPtrIndex(inst, 0),
         .struct_field_ptr_index_1 => self.airStructFieldPtrIndex(inst, 1),
@@ -1477,7 +1527,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .div_float,
         .div_floor,
         .div_exact,
-        .rem,
         .mod,
         .max,
         .min,
@@ -1494,8 +1543,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .fpext,
         .unwrap_errunion_payload_ptr,
         .unwrap_errunion_err_ptr,
-        .set_union_tag,
-        .get_union_tag,
+
         .ptr_slice_len_ptr,
         .ptr_slice_ptr_ptr,
         .int_to_float,
@@ -1518,7 +1566,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .sub_with_overflow,
         .mul_with_overflow,
         .shl_with_overflow,
-        => |tag| self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
+        => |tag| return self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
     };
 }
 
@@ -1596,6 +1644,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             break :blk func.data.owner_decl;
         } else if (func_val.castTag(.extern_fn)) |ext_fn| {
             break :blk ext_fn.data;
+        } else if (func_val.castTag(.decl_ref)) |decl_ref| {
+            break :blk decl_ref.data;
         }
         return self.fail("Expected a function, but instead found type '{s}'", .{func_val.tag()});
     };
@@ -1697,7 +1747,7 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
 
             return self.memCopy(ty, lhs, rhs);
         },
-        .Struct, .Array => {
+        .Struct, .Array, .Union => {
             return try self.memCopy(ty, lhs, rhs);
         },
         .Pointer => {
@@ -1720,18 +1770,8 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
     try self.emitWValue(lhs);
     try self.emitWValue(rhs);
     const valtype = typeToValtype(ty, self.target);
-    // check if we should pass by pointer or value based on ABI size
-    // TODO: Implement a way to get ABI values from a given type,
-    // that is portable across the backend, rather than copying logic.
-    const abi_size = switch (ty.zigTypeTag()) {
-        .Int,
-        .Float,
-        .ErrorSet,
-        .Enum,
-        .Bool,
-        => @intCast(u8, ty.abiSize(self.target)),
-        else => @as(u8, 4),
-    };
+    const abi_size = @intCast(u8, ty.abiSize(self.target));
+
     const opcode = buildOpcode(.{
         .valtype1 = valtype,
         .width = abi_size * 8, // use bitsize instead of byte size
@@ -1771,22 +1811,9 @@ fn load(self: *Self, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
         .unsigned
     else
         .signed;
-    // TODO: Implement a way to get ABI values from a given type,
-    // that is portable across the backend, rather than copying logic.
-    const abi_size = switch (ty.zigTypeTag()) {
-        .Int,
-        .Float,
-        .ErrorSet,
-        .Enum,
-        .Bool,
-        .ErrorUnion,
-        => @intCast(u8, ty.abiSize(self.target)),
-        .Optional => blk: {
-            if (ty.isPtrLikeOptional()) break :blk @intCast(u8, self.ptrSize());
-            break :blk @intCast(u8, ty.abiSize(self.target));
-        },
-        else => @as(u8, 4),
-    };
+
+    // TODO: Revisit below to determine if optional zero-sized pointers should still have abi-size 4.
+    const abi_size = if (ty.isPtrLikeOptional()) @as(u8, 4) else @intCast(u8, ty.abiSize(self.target));
 
     const opcode = buildOpcode(.{
         .valtype1 = typeToValtype(ty, self.target),
@@ -1952,7 +1979,13 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
                             return WValue{ .imm32 = field_index.data };
                         }
                     },
-                    else => unreachable,
+                    .enum_numbered => {
+                        const index = field_index.data;
+                        const enum_data = ty.castTag(.enum_numbered).?.data;
+                        const enum_val = enum_data.values.keys()[index];
+                        return self.lowerConstant(enum_val, enum_data.tag_ty);
+                    },
+                    else => return self.fail("TODO: lowerConstant for enum tag: {}", .{ty.tag()}),
                 }
             } else {
                 var int_tag_buffer: Type.Payload.Bits = undefined;
@@ -2724,7 +2757,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const elem_size = elem_ty.abiSize(self.target);
 
     // load pointer onto stack
-    const slice_ptr = try self.load(slice, slice_ty, 0);
+    const slice_ptr = try self.load(slice, Type.usize, 0);
     try self.addLabel(.local_get, slice_ptr.local);
 
     // calculate index into slice
@@ -2746,14 +2779,13 @@ fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue.none;
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const slice_ty = self.air.typeOf(bin_op.lhs);
     const elem_ty = self.air.getRefType(ty_pl.ty).childType();
     const elem_size = elem_ty.abiSize(self.target);
 
     const slice = try self.resolveInst(bin_op.lhs);
     const index = try self.resolveInst(bin_op.rhs);
 
-    const slice_ptr = try self.load(slice, slice_ty, 0);
+    const slice_ptr = try self.load(slice, Type.usize, 0);
     try self.addLabel(.local_get, slice_ptr.local);
 
     // calculate index into slice
@@ -3176,4 +3208,44 @@ fn cmpBigInt(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.ma
     try self.addTag(if (op == .eq) .i32_ne else .i32_eq);
     try self.addLabel(.local_set, result.local);
     return result;
+}
+
+fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const un_ty = self.air.typeOf(bin_op.lhs).childType();
+    const tag_ty = self.air.typeOf(bin_op.rhs);
+    const layout = un_ty.unionGetLayout(self.target);
+    if (layout.tag_size == 0) return WValue{ .none = {} };
+    const union_ptr = try self.resolveInst(bin_op.lhs);
+    const new_tag = try self.resolveInst(bin_op.rhs);
+    if (layout.payload_size == 0) {
+        try self.store(union_ptr, new_tag, tag_ty, 0);
+        return WValue{ .none = {} };
+    }
+
+    // when the tag alignment is smaller than the payload, the field will be stored
+    // after the payload.
+    const offset = if (layout.tag_align < layout.payload_align) blk: {
+        break :blk @intCast(u32, layout.payload_size);
+    } else @as(u32, 0);
+    try self.store(union_ptr, new_tag, tag_ty, offset);
+    return WValue{ .none = {} };
+}
+
+fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const un_ty = self.air.typeOf(ty_op.operand);
+    const tag_ty = self.air.typeOfIndex(inst);
+    const layout = un_ty.unionGetLayout(self.target);
+    if (layout.tag_size == 0) return WValue{ .none = {} };
+    const operand = try self.resolveInst(ty_op.operand);
+
+    // when the tag alignment is smaller than the payload, the field will be stored
+    // after the payload.
+    const offset = if (layout.tag_align < layout.payload_align) blk: {
+        break :blk @intCast(u32, layout.payload_size);
+    } else @as(u32, 0);
+    return self.load(operand, tag_ty, offset);
 }
