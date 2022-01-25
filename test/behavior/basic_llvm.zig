@@ -205,9 +205,11 @@ test "multiline string literal is null terminated" {
 }
 
 test "self reference through fn ptr field" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     const S = struct {
         const A = struct {
-            f: fn (A) u8,
+            f: *const fn (A) u8,
         };
 
         fn foo(a: A) u8 {

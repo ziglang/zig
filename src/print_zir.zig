@@ -1157,7 +1157,8 @@ const Writer = struct {
             break :blk decls_len;
         } else 0;
 
-        try self.writeFlag(stream, "known_has_bits, ", small.known_has_bits);
+        try self.writeFlag(stream, "known_non_opv, ", small.known_non_opv);
+        try self.writeFlag(stream, "known_comptime_only, ", small.known_comptime_only);
         try stream.print("{s}, {s}, ", .{
             @tagName(small.name_strategy), @tagName(small.layout),
         });

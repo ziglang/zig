@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -166,8 +167,10 @@ test "union with specified enum tag" {
 }
 
 test "packed union generates correctly aligned LLVM type" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     const U = packed union {
-        f1: fn () error{TestUnexpectedResult}!void,
+        f1: *const fn () error{TestUnexpectedResult}!void,
         f2: u32,
     };
     var foo = [_]U{

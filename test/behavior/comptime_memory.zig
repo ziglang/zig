@@ -1,8 +1,15 @@
-const endian = @import("builtin").cpu.arch.endian();
+const builtin = @import("builtin");
+const endian = builtin.cpu.arch.endian();
 const testing = @import("std").testing;
 const ptr_size = @sizeOf(usize);
 
 test "type pun signed and unsigned as single pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         var x: u32 = 0;
         const y = @ptrCast(*i32, &x);
@@ -12,6 +19,12 @@ test "type pun signed and unsigned as single pointer" {
 }
 
 test "type pun signed and unsigned as many pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         var x: u32 = 0;
         const y = @ptrCast([*]i32, &x);
@@ -21,6 +34,12 @@ test "type pun signed and unsigned as many pointer" {
 }
 
 test "type pun signed and unsigned as array pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         var x: u32 = 0;
         const y = @ptrCast(*[1]i32, &x);
@@ -30,6 +49,12 @@ test "type pun signed and unsigned as array pointer" {
 }
 
 test "type pun signed and unsigned as offset many pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         var x: u32 = 0;
         var y = @ptrCast([*]i32, &x);
@@ -40,6 +65,12 @@ test "type pun signed and unsigned as offset many pointer" {
 }
 
 test "type pun signed and unsigned as array pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         var x: u32 = 0;
         const y = @ptrCast([*]i32, &x) - 10;
@@ -50,6 +81,12 @@ test "type pun signed and unsigned as array pointer" {
 }
 
 test "type pun value and struct" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         const StructOfU32 = extern struct { x: u32 };
         var inst: StructOfU32 = .{ .x = 0 };
@@ -64,6 +101,12 @@ fn bigToNativeEndian(comptime T: type, v: T) T {
     return if (endian == .Big) v else @byteSwap(T, v);
 }
 test "type pun endianness" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         const StructOfBytes = extern struct { x: [4]u8 };
         var inst: StructOfBytes = .{ .x = [4]u8{ 0, 0, 0, 0 } };
@@ -155,6 +198,12 @@ fn doTypePunBitsTest(as_bits: *Bits) !void {
 }
 
 test "type pun bits" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         var v: u32 = undefined;
         try doTypePunBitsTest(@ptrCast(*Bits, &v));
@@ -167,6 +216,12 @@ const imports = struct {
 
 // Make sure lazy values work on their own, before getting into more complex tests
 test "basic pointer preservation" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         const lazy_address = @ptrToInt(&imports.global_u32);
         try testing.expectEqual(@ptrToInt(&imports.global_u32), lazy_address);
@@ -175,6 +230,12 @@ test "basic pointer preservation" {
 }
 
 test "byte copy preserves linker value" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     const ct_value = comptime blk: {
         const lazy = &imports.global_u32;
         var result: *u32 = undefined;
@@ -193,6 +254,12 @@ test "byte copy preserves linker value" {
 }
 
 test "unordered byte copy preserves linker value" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     const ct_value = comptime blk: {
         const lazy = &imports.global_u32;
         var result: *u32 = undefined;
@@ -212,6 +279,12 @@ test "unordered byte copy preserves linker value" {
 }
 
 test "shuffle chunks of linker value" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     const lazy_address = @ptrToInt(&imports.global_u32);
     const shuffled1_rt = shuffle(lazy_address, Bits, ShuffledBits);
     const unshuffled1_rt = shuffle(shuffled1_rt, ShuffledBits, Bits);
@@ -225,6 +298,12 @@ test "shuffle chunks of linker value" {
 }
 
 test "dance on linker values" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         var arr: [2]usize = undefined;
         arr[0] = @ptrToInt(&imports.global_u32);
@@ -251,6 +330,12 @@ test "dance on linker values" {
 }
 
 test "offset array ptr by element size" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         const VirtualStruct = struct { x: u32 };
         var arr: [4]VirtualStruct = .{
@@ -273,6 +358,12 @@ test "offset array ptr by element size" {
 }
 
 test "offset instance by field size" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         const VirtualStruct = struct { x: u32, y: u32, z: u32, w: u32 };
         var inst = VirtualStruct{ .x = 0, .y = 1, .z = 2, .w = 3 };
@@ -293,6 +384,12 @@ test "offset instance by field size" {
 }
 
 test "offset field ptr by enclosing array element size" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/9646
+        return error.SkipZigTest;
+    }
+
     comptime {
         const VirtualStruct = struct { x: u32 };
         var arr: [4]VirtualStruct = .{

@@ -2,22 +2,23 @@ const builtin = @import("builtin");
 
 test {
     // Tests that pass for stage1, llvm backend, C backend, wasm backend, arm backend and x86_64 backend.
+    _ = @import("behavior/align.zig");
+    _ = @import("behavior/array.zig");
+    _ = @import("behavior/bool.zig");
+    _ = @import("behavior/bugs/655.zig");
+    _ = @import("behavior/bugs/679.zig");
     _ = @import("behavior/bugs/1111.zig");
     _ = @import("behavior/bugs/2346.zig");
-    _ = @import("behavior/slice_sentinel_comptime.zig");
-    _ = @import("behavior/bugs/679.zig");
     _ = @import("behavior/bugs/6850.zig");
+    _ = @import("behavior/cast.zig");
+    _ = @import("behavior/comptime_memory.zig");
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/prefetch.zig");
     _ = @import("behavior/pub_enum.zig");
+    _ = @import("behavior/slice_sentinel_comptime.zig");
     _ = @import("behavior/type.zig");
-    _ = @import("behavior/bugs/655.zig");
-    _ = @import("behavior/bool.zig");
-    _ = @import("behavior/align.zig");
-    _ = @import("behavior/array.zig");
-    _ = @import("behavior/cast.zig");
 
     if (builtin.zig_backend != .stage2_arm and builtin.zig_backend != .stage2_x86_64) {
         // Tests that pass for stage1, llvm backend, C backend, wasm backend.
@@ -113,11 +114,7 @@ test {
                 _ = @import("behavior/switch.zig");
                 _ = @import("behavior/widening.zig");
 
-                if (builtin.zig_backend != .stage1) {
-                    // When all comptime_memory.zig tests pass, #9646 can be closed.
-                    // _ = @import("behavior/comptime_memory.zig");
-                    _ = @import("behavior/slice_stage2.zig");
-                } else {
+                if (builtin.zig_backend == .stage1) {
                     // Tests that only pass for the stage1 backend.
                     _ = @import("behavior/align_stage1.zig");
                     if (builtin.os.tag != .wasi) {

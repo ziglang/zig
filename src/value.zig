@@ -1225,7 +1225,7 @@ pub const Value = extern union {
 
     /// Asserts the value is an integer and not undefined.
     /// Returns the number of bits the value requires to represent stored in twos complement form.
-    pub fn intBitCountTwosComp(self: Value) usize {
+    pub fn intBitCountTwosComp(self: Value, target: Target) usize {
         switch (self.tag()) {
             .zero,
             .bool_false,
@@ -1243,6 +1243,15 @@ pub const Value = extern union {
             },
             .int_big_positive => return self.castTag(.int_big_positive).?.asBigInt().bitCountTwosComp(),
             .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt().bitCountTwosComp(),
+
+            .decl_ref_mut,
+            .extern_fn,
+            .decl_ref,
+            .function,
+            .variable,
+            .eu_payload_ptr,
+            .opt_payload_ptr,
+            => return target.cpu.arch.ptrBitWidth(),
 
             else => {
                 var buffer: BigIntSpace = undefined;
@@ -1333,6 +1342,20 @@ pub const Value = extern union {
                 return true;
             },
 
+            .decl_ref_mut,
+            .extern_fn,
+            .decl_ref,
+            .function,
+            .variable,
+            => {
+                const info = ty.intInfo(target);
+                const ptr_bits = target.cpu.arch.ptrBitWidth();
+                return switch (info.signedness) {
+                    .signed => info.bits > ptr_bits,
+                    .unsigned => info.bits >= ptr_bits,
+                };
+            },
+
             else => unreachable,
         }
     }
@@ -1397,6 +1420,11 @@ pub const Value = extern union {
 
             .one,
             .bool_true,
+            .decl_ref,
+            .decl_ref_mut,
+            .extern_fn,
+            .function,
+            .variable,
             => .gt,
 
             .int_u64 => std.math.order(lhs.castTag(.int_u64).?.data, 0),
@@ -1417,10 +1445,18 @@ pub const Value = extern union {
     pub fn order(lhs: Value, rhs: Value) std.math.Order {
         const lhs_tag = lhs.tag();
         const rhs_tag = rhs.tag();
-        const lhs_is_zero = lhs_tag == .zero;
-        const rhs_is_zero = rhs_tag == .zero;
-        if (lhs_is_zero) return rhs.orderAgainstZero().invert();
-        if (rhs_is_zero) return lhs.orderAgainstZero();
+        const lhs_against_zero = lhs.orderAgainstZero();
+        const rhs_against_zero = rhs.orderAgainstZero();
+        switch (lhs_against_zero) {
+            .lt => if (rhs_against_zero != .lt) return .lt,
+            .eq => return rhs_against_zero.invert(),
+            .gt => {},
+        }
+        switch (rhs_against_zero) {
+            .lt => if (lhs_against_zero != .lt) return .gt,
+            .eq => return lhs_against_zero,
+            .gt => {},
+        }
 
         const lhs_float = lhs.isFloat();
         const rhs_float = rhs.isFloat();
@@ -1451,6 +1487,27 @@ pub const Value = extern union {
     /// Asserts the value is comparable. Does not take a type parameter because it supports
     /// comparisons between heterogeneous types.
     pub fn compareHetero(lhs: Value, op: std.math.CompareOperator, rhs: Value) bool {
+        if (lhs.pointerDecl()) |lhs_decl| {
+            if (rhs.pointerDecl()) |rhs_decl| {
+                switch (op) {
+                    .eq => return lhs_decl == rhs_decl,
+                    .neq => return lhs_decl != rhs_decl,
+                    else => {},
+                }
+            } else {
+                switch (op) {
+                    .eq => return false,
+                    .neq => return true,
+                    else => {},
+                }
+            }
+        } else if (rhs.pointerDecl()) |_| {
+            switch (op) {
+                .eq => return false,
+                .neq => return true,
+                else => {},
+            }
+        }
         return order(lhs, rhs).compare(op);
     }
 
@@ -1520,6 +1577,11 @@ pub const Value = extern union {
                     }
                     return true;
                 },
+                .function => {
+                    const a_payload = a.castTag(.function).?.data;
+                    const b_payload = b.castTag(.function).?.data;
+                    return a_payload == b_payload;
+                },
                 else => {},
             }
         } else if (a_tag == .null_value or b_tag == .null_value) {
@@ -1573,6 +1635,7 @@ pub const Value = extern union {
     pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash) void {
         const zig_ty_tag = ty.zigTypeTag();
         std.hash.autoHash(hasher, zig_ty_tag);
+        if (val.isUndef()) return;
 
         switch (zig_ty_tag) {
             .BoundFn => unreachable, // TODO remove this from the language
@@ -1694,7 +1757,8 @@ pub const Value = extern union {
                 union_obj.val.hash(active_field_ty, hasher);
             },
             .Fn => {
-                @panic("TODO implement hashing function values");
+                const func = val.castTag(.function).?.data;
+                return std.hash.autoHash(hasher, func.owner_decl);
             },
             .Frame => {
                 @panic("TODO implement hashing frame values");
@@ -1703,7 +1767,8 @@ pub const Value = extern union {
                 @panic("TODO implement hashing anyframe values");
             },
             .EnumLiteral => {
-                @panic("TODO implement hashing enum literal values");
+                const bytes = val.castTag(.enum_literal).?.data;
+                hasher.update(bytes);
             },
         }
     }

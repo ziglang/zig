@@ -2599,10 +2599,11 @@ pub const Inst = struct {
             has_body_len: bool,
             has_fields_len: bool,
             has_decls_len: bool,
-            known_has_bits: bool,
+            known_non_opv: bool,
+            known_comptime_only: bool,
             name_strategy: NameStrategy,
             layout: std.builtin.TypeInfo.ContainerLayout,
-            _: u7 = undefined,
+            _: u6 = undefined,
         };
     };
 
@@ -3273,6 +3274,7 @@ fn findDeclsBody(
 
 pub const FnInfo = struct {
     param_body: []const Inst.Index,
+    param_body_inst: Inst.Index,
     ret_ty_body: []const Inst.Index,
     body: []const Inst.Index,
     total_params_len: u32,
@@ -3338,6 +3340,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     }
     return .{
         .param_body = param_body,
+        .param_body_inst = info.param_block,
         .ret_ty_body = info.ret_ty_body,
         .body = info.body,
         .total_params_len = total_params_len,

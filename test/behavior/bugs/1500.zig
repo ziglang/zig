@@ -2,7 +2,7 @@ const A = struct {
     b: B,
 };
 
-const B = fn (A) void;
+const B = *const fn (A) void;
 
 test "allow these dependencies" {
     var a: A = undefined;

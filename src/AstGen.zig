@@ -3240,7 +3240,8 @@ fn fnDecl(
     const doc_comment_index = try astgen.docCommentAsString(fn_proto.firstToken());
 
     const has_section_or_addrspace = fn_proto.ast.section_expr != 0 or fn_proto.ast.addrspace_expr != 0;
-    wip_members.nextDecl(is_pub, is_export, fn_proto.ast.align_expr != 0, has_section_or_addrspace);
+    // Alignment is passed in the func instruction in this case.
+    wip_members.nextDecl(is_pub, is_export, false, has_section_or_addrspace);
 
     var params_scope = &fn_gz.base;
     const is_var_args = is_var_args: {
@@ -3380,7 +3381,7 @@ fn fnDecl(
             .param_block = block_inst,
             .body_gz = null,
             .cc = cc,
-            .align_inst = .none, // passed in the per-decl data
+            .align_inst = align_inst,
             .lib_name = lib_name,
             .is_var_args = is_var_args,
             .is_inferred_error = false,
@@ -3423,7 +3424,7 @@ fn fnDecl(
             .ret_br = ret_br,
             .body_gz = &fn_gz,
             .cc = cc,
-            .align_inst = .none, // passed in the per-decl data
+            .align_inst = align_inst,
             .lib_name = lib_name,
             .is_var_args = is_var_args,
             .is_inferred_error = is_inferred_error,
@@ -3449,9 +3450,6 @@ fn fnDecl(
     wip_members.appendToDecl(fn_name_str_index);
     wip_members.appendToDecl(block_inst);
     wip_members.appendToDecl(doc_comment_index);
-    if (align_inst != .none) {
-        wip_members.appendToDecl(@enumToInt(align_inst));
-    }
     if (has_section_or_addrspace) {
         wip_members.appendToDecl(@enumToInt(section_inst));
         wip_members.appendToDecl(@enumToInt(addrspace_inst));
@@ -3830,7 +3828,8 @@ fn structDeclInner(
             .fields_len = 0,
             .body_len = 0,
             .decls_len = 0,
-            .known_has_bits = false,
+            .known_non_opv = false,
+            .known_comptime_only = false,
         });
         return indexToRef(decl_inst);
     }
@@ -3871,7 +3870,8 @@ fn structDeclInner(
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
-    var known_has_bits = false;
+    var known_non_opv = false;
+    var known_comptime_only = false;
     for (container_decl.ast.members) |member_node| {
         const member = switch (try containerMember(gz, &namespace.base, &wip_members, member_node)) {
             .decl => continue,
@@ -3894,7 +3894,10 @@ fn structDeclInner(
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
         wip_members.appendToField(doc_comment_index);
 
-        known_has_bits = known_has_bits or nodeImpliesRuntimeBits(tree, member.ast.type_expr);
+        known_non_opv = known_non_opv or
+            nodeImpliesMoreThanOnePossibleValue(tree, member.ast.type_expr);
+        known_comptime_only = known_comptime_only or
+            nodeImpliesComptimeOnly(tree, member.ast.type_expr);
 
         const have_align = member.ast.align_expr != 0;
         const have_value = member.ast.value_expr != 0;
@@ -3928,7 +3931,8 @@ fn structDeclInner(
         .body_len = @intCast(u32, body.len),
         .fields_len = field_count,
         .decls_len = decl_count,
-        .known_has_bits = known_has_bits,
+        .known_non_opv = known_non_opv,
+        .known_comptime_only = known_comptime_only,
     });
 
     wip_members.finishBits(bits_per_field);
@@ -8197,7 +8201,9 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
     }
 }
 
-fn nodeImpliesRuntimeBits(tree: *const Ast, start_node: Ast.Node.Index) bool {
+/// Returns `true` if it is known the type expression has more than one possible value;
+/// `false` otherwise.
+fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.Index) bool {
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
 
@@ -8243,7 +8249,6 @@ fn nodeImpliesRuntimeBits(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .multiline_string_literal,
             .char_literal,
             .unreachable_literal,
-            .identifier,
             .error_set_decl,
             .container_decl,
             .container_decl_trailing,
@@ -8357,6 +8362,11 @@ fn nodeImpliesRuntimeBits(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .builtin_call_comma,
             .builtin_call_two,
             .builtin_call_two_comma,
+            // these are function bodies, not pointers
+            .fn_proto_simple,
+            .fn_proto_multi,
+            .fn_proto_one,
+            .fn_proto,
             => return false,
 
             // Forward the question to the LHS sub-expression.
@@ -8368,10 +8378,6 @@ fn nodeImpliesRuntimeBits(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .unwrap_optional,
             => node = node_datas[node].lhs,
 
-            .fn_proto_simple,
-            .fn_proto_multi,
-            .fn_proto_one,
-            .fn_proto,
             .ptr_type_aligned,
             .ptr_type_sentinel,
             .ptr_type,
@@ -8380,6 +8386,301 @@ fn nodeImpliesRuntimeBits(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .anyframe_type,
             .array_type_sentinel,
             => return true,
+
+            .identifier => {
+                const main_tokens = tree.nodes.items(.main_token);
+                const ident_bytes = tree.tokenSlice(main_tokens[node]);
+                if (primitives.get(ident_bytes)) |primitive| switch (primitive) {
+                    .anyerror_type,
+                    .anyframe_type,
+                    .anyopaque_type,
+                    .bool_type,
+                    .c_int_type,
+                    .c_long_type,
+                    .c_longdouble_type,
+                    .c_longlong_type,
+                    .c_short_type,
+                    .c_uint_type,
+                    .c_ulong_type,
+                    .c_ulonglong_type,
+                    .c_ushort_type,
+                    .comptime_float_type,
+                    .comptime_int_type,
+                    .f128_type,
+                    .f16_type,
+                    .f32_type,
+                    .f64_type,
+                    .i16_type,
+                    .i32_type,
+                    .i64_type,
+                    .i128_type,
+                    .i8_type,
+                    .isize_type,
+                    .type_type,
+                    .u16_type,
+                    .u32_type,
+                    .u64_type,
+                    .u128_type,
+                    .u1_type,
+                    .u8_type,
+                    .usize_type,
+                    => return true,
+
+                    .void_type,
+                    .bool_false,
+                    .bool_true,
+                    .null_value,
+                    .undef,
+                    .noreturn_type,
+                    => return false,
+
+                    else => unreachable, // that's all the values from `primitives`.
+                } else {
+                    return false;
+                }
+            },
+        }
+    }
+}
+
+/// Returns `true` if it is known the expression is a type that cannot be used at runtime;
+/// `false` otherwise.
+fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
+    const node_tags = tree.nodes.items(.tag);
+    const node_datas = tree.nodes.items(.data);
+
+    var node = start_node;
+    while (true) {
+        switch (node_tags[node]) {
+            .root,
+            .@"usingnamespace",
+            .test_decl,
+            .switch_case,
+            .switch_case_one,
+            .container_field_init,
+            .container_field_align,
+            .container_field,
+            .asm_output,
+            .asm_input,
+            .global_var_decl,
+            .local_var_decl,
+            .simple_var_decl,
+            .aligned_var_decl,
+            => unreachable,
+
+            .@"return",
+            .@"break",
+            .@"continue",
+            .bit_not,
+            .bool_not,
+            .@"defer",
+            .@"errdefer",
+            .address_of,
+            .negation,
+            .negation_wrap,
+            .@"resume",
+            .array_type,
+            .@"suspend",
+            .@"anytype",
+            .fn_decl,
+            .anyframe_literal,
+            .integer_literal,
+            .float_literal,
+            .enum_literal,
+            .string_literal,
+            .multiline_string_literal,
+            .char_literal,
+            .unreachable_literal,
+            .error_set_decl,
+            .container_decl,
+            .container_decl_trailing,
+            .container_decl_two,
+            .container_decl_two_trailing,
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            .tagged_union,
+            .tagged_union_trailing,
+            .tagged_union_two,
+            .tagged_union_two_trailing,
+            .tagged_union_enum_tag,
+            .tagged_union_enum_tag_trailing,
+            .@"asm",
+            .asm_simple,
+            .add,
+            .add_wrap,
+            .add_sat,
+            .array_cat,
+            .array_mult,
+            .assign,
+            .assign_bit_and,
+            .assign_bit_or,
+            .assign_shl,
+            .assign_shl_sat,
+            .assign_shr,
+            .assign_bit_xor,
+            .assign_div,
+            .assign_sub,
+            .assign_sub_wrap,
+            .assign_sub_sat,
+            .assign_mod,
+            .assign_add,
+            .assign_add_wrap,
+            .assign_add_sat,
+            .assign_mul,
+            .assign_mul_wrap,
+            .assign_mul_sat,
+            .bang_equal,
+            .bit_and,
+            .bit_or,
+            .shl,
+            .shl_sat,
+            .shr,
+            .bit_xor,
+            .bool_and,
+            .bool_or,
+            .div,
+            .equal_equal,
+            .error_union,
+            .greater_or_equal,
+            .greater_than,
+            .less_or_equal,
+            .less_than,
+            .merge_error_sets,
+            .mod,
+            .mul,
+            .mul_wrap,
+            .mul_sat,
+            .switch_range,
+            .field_access,
+            .sub,
+            .sub_wrap,
+            .sub_sat,
+            .slice,
+            .slice_open,
+            .slice_sentinel,
+            .deref,
+            .array_access,
+            .error_value,
+            .while_simple,
+            .while_cont,
+            .for_simple,
+            .if_simple,
+            .@"catch",
+            .@"orelse",
+            .array_init_one,
+            .array_init_one_comma,
+            .array_init_dot_two,
+            .array_init_dot_two_comma,
+            .array_init_dot,
+            .array_init_dot_comma,
+            .array_init,
+            .array_init_comma,
+            .struct_init_one,
+            .struct_init_one_comma,
+            .struct_init_dot_two,
+            .struct_init_dot_two_comma,
+            .struct_init_dot,
+            .struct_init_dot_comma,
+            .struct_init,
+            .struct_init_comma,
+            .@"while",
+            .@"if",
+            .@"for",
+            .@"switch",
+            .switch_comma,
+            .call_one,
+            .call_one_comma,
+            .async_call_one,
+            .async_call_one_comma,
+            .call,
+            .call_comma,
+            .async_call,
+            .async_call_comma,
+            .block_two,
+            .block_two_semicolon,
+            .block,
+            .block_semicolon,
+            .builtin_call,
+            .builtin_call_comma,
+            .builtin_call_two,
+            .builtin_call_two_comma,
+            .ptr_type_aligned,
+            .ptr_type_sentinel,
+            .ptr_type,
+            .ptr_type_bit_range,
+            .optional_type,
+            .anyframe_type,
+            .array_type_sentinel,
+            => return false,
+
+            // these are function bodies, not pointers
+            .fn_proto_simple,
+            .fn_proto_multi,
+            .fn_proto_one,
+            .fn_proto,
+            => return true,
+
+            // Forward the question to the LHS sub-expression.
+            .grouped_expression,
+            .@"try",
+            .@"await",
+            .@"comptime",
+            .@"nosuspend",
+            .unwrap_optional,
+            => node = node_datas[node].lhs,
+
+            .identifier => {
+                const main_tokens = tree.nodes.items(.main_token);
+                const ident_bytes = tree.tokenSlice(main_tokens[node]);
+                if (primitives.get(ident_bytes)) |primitive| switch (primitive) {
+                    .anyerror_type,
+                    .anyframe_type,
+                    .anyopaque_type,
+                    .bool_type,
+                    .c_int_type,
+                    .c_long_type,
+                    .c_longdouble_type,
+                    .c_longlong_type,
+                    .c_short_type,
+                    .c_uint_type,
+                    .c_ulong_type,
+                    .c_ulonglong_type,
+                    .c_ushort_type,
+                    .f128_type,
+                    .f16_type,
+                    .f32_type,
+                    .f64_type,
+                    .i16_type,
+                    .i32_type,
+                    .i64_type,
+                    .i128_type,
+                    .i8_type,
+                    .isize_type,
+                    .u16_type,
+                    .u32_type,
+                    .u64_type,
+                    .u128_type,
+                    .u1_type,
+                    .u8_type,
+                    .usize_type,
+                    .void_type,
+                    .bool_false,
+                    .bool_true,
+                    .null_value,
+                    .undef,
+                    .noreturn_type,
+                    => return false,
+
+                    .comptime_float_type,
+                    .comptime_int_type,
+                    .type_type,
+                    => return true,
+
+                    else => unreachable, // that's all the values from `primitives`.
+                } else {
+                    return false;
+                }
+            },
         }
     }
 }
@@ -10120,7 +10421,8 @@ const GenZir = struct {
         fields_len: u32,
         decls_len: u32,
         layout: std.builtin.TypeInfo.ContainerLayout,
-        known_has_bits: bool,
+        known_non_opv: bool,
+        known_comptime_only: bool,
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
@@ -10150,7 +10452,8 @@ const GenZir = struct {
                     .has_body_len = args.body_len != 0,
                     .has_fields_len = args.fields_len != 0,
                     .has_decls_len = args.decls_len != 0,
-                    .known_has_bits = args.known_has_bits,
+                    .known_non_opv = args.known_non_opv,
+                    .known_comptime_only = args.known_comptime_only,
                     .name_strategy = gz.anon_name_strategy,
                     .layout = args.layout,
                 }),

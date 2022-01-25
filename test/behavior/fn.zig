@@ -57,7 +57,7 @@ test "assign inline fn to const variable" {
 
 inline fn inlineFn() void {}
 
-fn outer(y: u32) fn (u32) u32 {
+fn outer(y: u32) *const fn (u32) u32 {
     const Y = @TypeOf(y);
     const st = struct {
         fn get(z: u32) u32 {
@@ -68,6 +68,8 @@ fn outer(y: u32) fn (u32) u32 {
 }
 
 test "return inner function which references comptime variable of outer function" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     var func = outer(10);
     try expect(func(3) == 7);
 }
@@ -92,6 +94,8 @@ test "discard the result of a function that returns a struct" {
 }
 
 test "inline function call that calls optional function pointer, return pointer at callsite interacts correctly with callsite return type" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     const S = struct {
         field: u32,
 
@@ -113,7 +117,7 @@ test "inline function call that calls optional function pointer, return pointer 
             return bar2.?();
         }
 
-        var bar2: ?fn () u32 = null;
+        var bar2: ?*const fn () u32 = null;
 
         fn actualFn() u32 {
             return 1234;
@@ -135,8 +139,10 @@ fn fnWithUnreachable() noreturn {
 }
 
 test "extern struct with stdcallcc fn pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     const S = extern struct {
-        ptr: fn () callconv(if (builtin.target.cpu.arch == .i386) .Stdcall else .C) i32,
+        ptr: *const fn () callconv(if (builtin.target.cpu.arch == .i386) .Stdcall else .C) i32,
 
         fn foo() callconv(if (builtin.target.cpu.arch == .i386) .Stdcall else .C) i32 {
             return 1234;

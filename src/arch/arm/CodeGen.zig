@@ -1074,7 +1074,7 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
         const error_union_ty = self.air.typeOf(ty_op.operand);
         const payload_ty = error_union_ty.errorUnionPayload();
         const mcv = try self.resolveInst(ty_op.operand);
-        if (!payload_ty.hasCodeGenBits()) break :result mcv;
+        if (!payload_ty.hasRuntimeBits()) break :result mcv;
 
         return self.fail("TODO implement unwrap error union error for non-empty payloads", .{});
     };
@@ -1086,7 +1086,7 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.air.typeOf(ty_op.operand);
         const payload_ty = error_union_ty.errorUnionPayload();
-        if (!payload_ty.hasCodeGenBits()) break :result MCValue.none;
+        if (!payload_ty.hasRuntimeBits()) break :result MCValue.none;
 
         return self.fail("TODO implement unwrap error union payload for non-empty payloads", .{});
     };
@@ -1135,7 +1135,7 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
         const error_union_ty = self.air.getRefType(ty_op.ty);
         const payload_ty = error_union_ty.errorUnionPayload();
         const mcv = try self.resolveInst(ty_op.operand);
-        if (!payload_ty.hasCodeGenBits()) break :result mcv;
+        if (!payload_ty.hasRuntimeBits()) break :result mcv;
 
         return self.fail("TODO implement wrap errunion error for non-empty payloads", .{});
     };
@@ -1506,7 +1506,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const elem_ty = self.air.typeOfIndex(inst);
     const result: MCValue = result: {
-        if (!elem_ty.hasCodeGenBits())
+        if (!elem_ty.hasRuntimeBits())
             break :result MCValue.none;
 
         const ptr = try self.resolveInst(ty_op.operand);
@@ -2666,9 +2666,9 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     const error_type = ty.errorUnionSet();
     const payload_type = ty.errorUnionPayload();
 
-    if (!error_type.hasCodeGenBits()) {
+    if (!error_type.hasRuntimeBits()) {
         return MCValue{ .immediate = 0 }; // always false
-    } else if (!payload_type.hasCodeGenBits()) {
+    } else if (!payload_type.hasRuntimeBits()) {
         if (error_type.abiSize(self.target.*) <= 4) {
             const reg_mcv: MCValue = switch (operand) {
                 .register => operand,
@@ -2900,7 +2900,7 @@ fn airBoolOp(self: *Self, inst: Air.Inst.Index) !void {
 fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
     const block_data = self.blocks.getPtr(block).?;
 
-    if (self.air.typeOf(operand).hasCodeGenBits()) {
+    if (self.air.typeOf(operand).hasRuntimeBits()) {
         const operand_mcv = try self.resolveInst(operand);
         const block_mcv = block_data.mcv;
         if (block_mcv == .none) {
@@ -3658,7 +3658,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     const ref_int = @enumToInt(inst);
     if (ref_int < Air.Inst.Ref.typed_value_map.len) {
         const tv = Air.Inst.Ref.typed_value_map[ref_int];
-        if (!tv.ty.hasCodeGenBits()) {
+        if (!tv.ty.hasRuntimeBits()) {
             return MCValue{ .none = {} };
         }
         return self.genTypedValue(tv);
@@ -3666,7 +3666,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
 
     // If the type has no codegen bits, no need to store it.
     const inst_ty = self.air.typeOf(inst);
-    if (!inst_ty.hasCodeGenBits())
+    if (!inst_ty.hasRuntimeBits())
         return MCValue{ .none = {} };
 
     const inst_index = @intCast(Air.Inst.Index, ref_int - Air.Inst.Ref.typed_value_map.len);
@@ -3701,11 +3701,45 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
     }
 }
 
+fn lowerDeclRef(self: *Self, tv: TypedValue, decl: *Module.Decl) InnerError!MCValue {
+    const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+    const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+
+    decl.alive = true;
+    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+        const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
+        const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
+        return MCValue{ .memory = got_addr };
+    } else if (self.bin_file.cast(link.File.MachO)) |_| {
+        // TODO I'm hacking my way through here by repurposing .memory for storing
+        // index to the GOT target symbol index.
+        return MCValue{ .memory = decl.link.macho.local_sym_index };
+    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+        const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
+        return MCValue{ .memory = got_addr };
+    } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
+        try p9.seeDecl(decl);
+        const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
+        return MCValue{ .memory = got_addr };
+    } else {
+        return self.fail("TODO codegen non-ELF const Decl pointer", .{});
+    }
+
+    _ = tv;
+}
+
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     if (typed_value.val.isUndef())
         return MCValue{ .undef = {} };
     const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-    const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+
+    if (typed_value.val.castTag(.decl_ref)) |payload| {
+        return self.lowerDeclRef(typed_value, payload.data);
+    }
+    if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
+        return self.lowerDeclRef(typed_value, payload.data.decl);
+    }
+
     switch (typed_value.ty.zigTypeTag()) {
         .Pointer => switch (typed_value.ty.ptrSize()) {
             .Slice => {
@@ -3722,28 +3756,6 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                 return self.fail("TODO codegen for const slices", .{});
             },
             else => {
-                if (typed_value.val.castTag(.decl_ref)) |payload| {
-                    const decl = payload.data;
-                    decl.alive = true;
-                    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                        const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-                        const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
-                        return MCValue{ .memory = got_addr };
-                    } else if (self.bin_file.cast(link.File.MachO)) |_| {
-                        // TODO I'm hacking my way through here by repurposing .memory for storing
-                        // index to the GOT target symbol index.
-                        return MCValue{ .memory = decl.link.macho.local_sym_index };
-                    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-                        const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
-                        return MCValue{ .memory = got_addr };
-                    } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-                        try p9.seeDecl(decl);
-                        const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
-                        return MCValue{ .memory = got_addr };
-                    } else {
-                        return self.fail("TODO codegen non-ELF const Decl pointer", .{});
-                    }
-                }
                 if (typed_value.val.tag() == .int_u64) {
                     return MCValue{ .immediate = @intCast(u32, typed_value.val.toUnsignedInt()) };
                 }
@@ -3812,7 +3824,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             const payload_type = typed_value.ty.errorUnionPayload();
 
             if (typed_value.val.castTag(.eu_payload)) |pl| {
-                if (!payload_type.hasCodeGenBits()) {
+                if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     return MCValue{ .immediate = 0 };
                 }
@@ -3820,7 +3832,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
                 _ = pl;
                 return self.fail("TODO implement error union const of type '{}' (non-error)", .{typed_value.ty});
             } else {
-                if (!payload_type.hasCodeGenBits()) {
+                if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
                 }
@@ -3918,7 +3930,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
     if (ret_ty.zigTypeTag() == .NoReturn) {
         result.return_value = .{ .unreach = {} };
-    } else if (!ret_ty.hasCodeGenBits()) {
+    } else if (!ret_ty.hasRuntimeBits()) {
         result.return_value = .{ .none = {} };
     } else switch (cc) {
         .Naked => unreachable,
