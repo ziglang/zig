@@ -14014,6 +14014,23 @@ fn coerce(
                         const addr = try sema.coerce(block, ptr_size_ty, inst, inst_src);
                         return sema.coerceCompatiblePtrs(block, dest_ty, addr, inst_src);
                     },
+                    .Pointer => p: {
+                        const inst_info = inst_ty.ptrInfo().data;
+                        if (inst_info.size == .Slice) break :p;
+                        switch (try sema.coerceInMemoryAllowed(
+                            block,
+                            dest_info.pointee_type,
+                            inst_info.pointee_type,
+                            dest_info.mutable,
+                            target,
+                            dest_ty_src,
+                            inst_src,
+                        )) {
+                            .ok => {},
+                            .no_match => break :p,
+                        }
+                        return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
+                    },
                     else => {},
                 }
             }

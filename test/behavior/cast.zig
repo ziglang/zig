@@ -316,7 +316,8 @@ test "cast from ?[*]T to ??[*]T" {
 }
 
 test "peer type unsigned int to signed" {
-    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var w: u31 = 5;
     var x: u8 = 7;
@@ -324,4 +325,14 @@ test "peer type unsigned int to signed" {
     var a = w + y + x;
     comptime try expect(@TypeOf(a) == i32);
     try expect(a == 7);
+}
+
+test "expected [*c]const u8, found [*:0]const u8" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    var a: [*:0]const u8 = "hello";
+    var b: [*c]const u8 = a;
+    var c: [*:0]const u8 = b;
+    try expect(std.mem.eql(u8, c[0..5], "hello"));
 }
