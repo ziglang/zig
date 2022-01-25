@@ -905,8 +905,46 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
 
     const operand = try self.resolveInst(ty_op.operand);
-    _ = operand;
-    return self.fail("TODO implement trunc for {}", .{self.target.cpu.arch});
+
+    const src_ty = self.air.typeOf(ty_op.operand);
+    const dst_ty = self.air.typeOfIndex(inst);
+
+    const src_ty_size = src_ty.abiSize(self.target.*);
+    const dst_ty_size = dst_ty.abiSize(self.target.*);
+    if (src_ty_size > 8 or dst_ty_size > 8) {
+        return self.fail("TODO implement trunc for abi sizes larger than 8", .{});
+    }
+
+    const src_reg = if (operand == .register) operand.register else blk: {
+        const tmp_reg = try self.register_manager.allocReg(inst, &.{});
+        try self.genSetReg(dst_ty, tmp_reg, operand);
+        break :blk tmp_reg;
+    };
+    const dst_reg = try self.register_manager.allocReg(inst, &.{});
+
+    // "convert" the src register to the smaller type so only those bytes are moved
+    const small_src = MCValue{ .register = registerAlias(src_reg, @intCast(u32, dst_ty_size)) };
+
+    try self.genSetReg(dst_ty, dst_reg, small_src);
+
+    const result = MCValue{ .register = registerAlias(dst_reg, @intCast(u32, dst_ty_size)) };
+
+    // when truncating a `u16` to `u5`, for example, those top 3 bits in the result
+    // have to be removed. this only happens if the dst if not a power-of-two size.
+    const dst_bit_size = dst_ty.bitSize(self.target.*);
+    const is_power_of_two = (dst_bit_size & (dst_bit_size - 1)) == 0;
+    if (!is_power_of_two or dst_bit_size < 8) {
+        const mask = (~@as(u64, 0)) >> @intCast(u6, (64 - dst_ty.bitSize(self.target.*)));
+        try self.genBinMathOpMir(
+            .@"and",
+            dst_ty,
+            dst_ty.intInfo(self.target.*).signedness,
+            result,
+            .{ .immediate = mask },
+        );
+    }
+
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {
