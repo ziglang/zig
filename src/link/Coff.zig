@@ -949,6 +949,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         man.hash.add(self.base.options.tsaware);
         man.hash.add(self.base.options.nxcompat);
         man.hash.add(self.base.options.dynamicbase);
+        // strip does not need to go into the linker hash because it is part of the hash namespace
         man.hash.addOptional(self.base.options.major_subsystem_version);
         man.hash.addOptional(self.base.options.minor_subsystem_version);
 

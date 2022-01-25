@@ -1337,6 +1337,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.add(self.base.options.z_noexecstack);
         man.hash.add(self.base.options.z_now);
         man.hash.add(self.base.options.z_relro);
+        // strip does not need to go into the linker hash because it is part of the hash namespace
         if (self.base.options.link_libc) {
             man.hash.add(self.base.options.libc_installation != null);
             if (self.base.options.libc_installation) |libc_installation| {
@@ -1475,6 +1476,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
         if (self.base.options.rdynamic) {
             try argv.append("--export-dynamic");
+        }
+
+        if (self.base.options.strip) {
+            try argv.append("-s");
         }
 
         if (self.base.options.z_nodelete) {
