@@ -784,8 +784,10 @@ pub const abbrev_subprogram = 2;
 pub const abbrev_subprogram_retvoid = 3;
 pub const abbrev_base_type = 4;
 pub const abbrev_ptr_type = 5;
-pub const abbrev_pad1 = 6;
-pub const abbrev_parameter = 7;
+pub const abbrev_anon_struct_type = 6;
+pub const abbrev_struct_member = 7;
+pub const abbrev_pad1 = 8;
+pub const abbrev_parameter = 9;
 
 pub fn flush(self: *Elf, comp: *Compilation) !void {
     if (self.base.options.emit == null) {
@@ -880,6 +882,24 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
             DW.CHILDREN.no, // header
             DW.AT.type,
             DW.FORM.ref4,
+            0,
+            0, // table sentinel
+            abbrev_anon_struct_type,
+            DW.TAG.structure_type,
+            DW.CHILDREN.yes, // header
+            DW.AT.byte_size,
+            DW.FORM.sdata,
+            0,
+            0, // table sentinel
+            abbrev_struct_member,
+            DW.TAG.member,
+            DW.CHILDREN.no, // header
+            DW.AT.name,
+            DW.FORM.string,
+            DW.AT.type,
+            DW.FORM.ref4,
+            DW.AT.data_member_location,
+            DW.FORM.sdata,
             0,
             0, // table sentinel
             abbrev_pad1,
@@ -2395,6 +2415,16 @@ fn finishUpdateDecl(
     dbg_info_type_relocs: *File.DbgInfoTypeRelocsTable,
     dbg_info_buffer: *std.ArrayList(u8),
 ) !void {
+    // We need this for the duration of this function only so that for composite
+    // types such as []const u32, if the type *u32 is non-existent, we create
+    // it synthetically and store the backing bytes in this arena. After we are
+    // done with the relocations, we can safely deinit the entire memory slab.
+    // TODO currently, we do not store the relocations for future use, however,
+    // if that is the case, we should move memory management to a higher scope,
+    // such as linker scope, or whatnot.
+    var dbg_type_arena = std.heap.ArenaAllocator.init(self.base.allocator);
+    defer dbg_type_arena.deinit();
+
     // Now we emit the .debug_info types of the Decl. These will count towards the size of
     // the buffer, so we have to do it before computing the offset, and we can't perform the actual
     // relocations yet.
@@ -2404,7 +2434,7 @@ fn finishUpdateDecl(
             const ty = dbg_info_type_relocs.keys()[it];
             const value_ptr = dbg_info_type_relocs.getPtr(ty).?;
             value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
-            try self.addDbgInfoType(ty, dbg_info_buffer, dbg_info_type_relocs);
+            try self.addDbgInfoType(dbg_type_arena.allocator(), ty, dbg_info_buffer, dbg_info_type_relocs);
         }
     }
 
@@ -2721,11 +2751,12 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
 /// Asserts the type has codegen bits.
 fn addDbgInfoType(
     self: *Elf,
+    arena: Allocator,
     ty: Type,
     dbg_info_buffer: *std.ArrayList(u8),
     dbg_info_type_relocs: *File.DbgInfoTypeRelocsTable,
 ) error{OutOfMemory}!void {
-    var reloc: ?struct { ty: Type, reloc: u32 } = null;
+    var relocs = std.ArrayList(struct { ty: Type, reloc: u32 }).init(arena);
 
     switch (ty.zigTypeTag()) {
         .Void => unreachable,
@@ -2767,17 +2798,48 @@ fn addDbgInfoType(
                 try dbg_info_buffer.append(abbrev_pad1);
             }
         },
-        .Pointer => blk: {
+        .Pointer => {
             if (ty.isSlice()) {
-                log.debug("TODO implement .debug_info for type '{}'", .{ty});
-                try dbg_info_buffer.append(abbrev_pad1);
-                break :blk;
+                // Slices are anonymous structs: struct { .ptr = *, .len = N }
+                try dbg_info_buffer.ensureUnusedCapacity(23);
+                // DW.AT.structure_type
+                dbg_info_buffer.appendAssumeCapacity(abbrev_anon_struct_type);
+                // DW.AT.byte_size, DW.FORM.sdata
+                dbg_info_buffer.appendAssumeCapacity(16);
+                // DW.AT.member
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity("ptr");
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.type, DW.FORM.ref4
+                var index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                var buf = try arena.create(Type.SlicePtrFieldTypeBuffer);
+                const ptr_ty = ty.slicePtrFieldType(buf);
+                try relocs.append(.{ .ty = ptr_ty, .reloc = @intCast(u32, index) });
+                // DW.AT.data_member_location, DW.FORM.sdata
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.member
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity("len");
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.type, DW.FORM.ref4
+                index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try relocs.append(.{ .ty = Type.initTag(.usize), .reloc = @intCast(u32, index) });
+                // DW.AT.data_member_location, DW.FORM.sdata
+                dbg_info_buffer.appendAssumeCapacity(8);
+                // DW.AT.structure_type delimit children
+                dbg_info_buffer.appendAssumeCapacity(0);
+            } else {
+                try dbg_info_buffer.ensureUnusedCapacity(5);
+                dbg_info_buffer.appendAssumeCapacity(abbrev_ptr_type);
+                // DW.AT.type, DW.FORM.ref4
+                const index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try relocs.append(.{ .ty = ty.childType(), .reloc = @intCast(u32, index) });
             }
-            try dbg_info_buffer.ensureUnusedCapacity(5);
-            dbg_info_buffer.appendAssumeCapacity(abbrev_ptr_type);
-            const index = dbg_info_buffer.items.len;
-            try dbg_info_buffer.resize(index + 4); // DW.AT.type, DW.FORM.ref4
-            reloc = .{ .ty = ty.childType(), .reloc = @intCast(u32, index) };
         },
         else => {
             log.debug("TODO implement .debug_info for type '{}'", .{ty});
@@ -2785,7 +2847,7 @@ fn addDbgInfoType(
         },
     }
 
-    if (reloc) |rel| {
+    for (relocs.items) |rel| {
         const gop = try dbg_info_type_relocs.getOrPut(self.base.allocator, rel.ty);
         if (!gop.found_existing) {
             gop.value_ptr.* = .{
