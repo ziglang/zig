@@ -751,7 +751,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("function pointers", linux_arm);
         case.addCompareOutput(
-            \\const PrintFn = fn () void;
+            \\const PrintFn = *const fn () void;
             \\
             \\pub fn main() void {
             \\    var printFn: PrintFn = stopSayingThat;

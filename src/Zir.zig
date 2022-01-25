@@ -2599,10 +2599,11 @@ pub const Inst = struct {
             has_body_len: bool,
             has_fields_len: bool,
             has_decls_len: bool,
-            known_has_bits: bool,
+            known_non_opv: bool,
+            known_comptime_only: bool,
             name_strategy: NameStrategy,
             layout: std.builtin.TypeInfo.ContainerLayout,
-            _: u7 = undefined,
+            _: u6 = undefined,
         };
     };
 

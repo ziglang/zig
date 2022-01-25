@@ -852,7 +852,7 @@ pub const DeclGen = struct {
         try self.beginSPIRVBlock(label_id);
 
         // If this block didn't produce a value, simply return here.
-        if (!ty.hasCodeGenBits())
+        if (!ty.hasRuntimeBits())
             return null;
 
         // Combine the result from the blocks using the Phi instruction.
@@ -879,7 +879,7 @@ pub const DeclGen = struct {
         const block = self.blocks.get(br.block_inst).?;
         const operand_ty = self.air.typeOf(br.operand);
 
-        if (operand_ty.hasCodeGenBits()) {
+        if (operand_ty.hasRuntimeBits()) {
             const operand_id = try self.resolve(br.operand);
             // current_block_label_id should not be undefined here, lest there is a br or br_void in the function's body.
             try block.incoming_blocks.append(self.spv.gpa, .{ .src_label_id = self.current_block_label_id, .break_value_id = operand_id });
@@ -958,7 +958,7 @@ pub const DeclGen = struct {
     fn airRet(self: *DeclGen, inst: Air.Inst.Index) !void {
         const operand = self.air.instructions.items(.data)[inst].un_op;
         const operand_ty = self.air.typeOf(operand);
-        if (operand_ty.hasCodeGenBits()) {
+        if (operand_ty.hasRuntimeBits()) {
             const operand_id = try self.resolve(operand);
             try writeInstruction(&self.code, .OpReturnValue, &[_]Word{operand_id});
         } else {

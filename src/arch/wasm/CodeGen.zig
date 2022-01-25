@@ -598,7 +598,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!WValue {
     // means we must generate it from a constant.
     const val = self.air.value(ref).?;
     const ty = self.air.typeOf(ref);
-    if (!ty.hasCodeGenBits() and !ty.isInt()) return WValue{ .none = {} };
+    if (!ty.hasRuntimeBits() and !ty.isInt()) return WValue{ .none = {} };
 
     // When we need to pass the value by reference (such as a struct), we will
     // leverage `genTypedValue` to lower the constant to bytes and emit it
@@ -790,13 +790,13 @@ fn genFunctype(gpa: Allocator, fn_ty: Type, target: std.Target) !wasm.Type {
         defer gpa.free(fn_params);
         fn_ty.fnParamTypes(fn_params);
         for (fn_params) |param_type| {
-            if (!param_type.hasCodeGenBits()) continue;
+            if (!param_type.hasRuntimeBits()) continue;
             try params.append(typeToValtype(param_type, target));
         }
     }
 
     // return type
-    if (!want_sret and return_type.hasCodeGenBits()) {
+    if (!want_sret and return_type.hasRuntimeBits()) {
         try returns.append(typeToValtype(return_type, target));
     }
 
@@ -935,7 +935,7 @@ pub const DeclGen = struct {
                 const abi_size = @intCast(usize, ty.abiSize(self.target()));
                 const offset = abi_size - @intCast(usize, payload_type.abiSize(self.target()));
 
-                if (!payload_type.hasCodeGenBits()) {
+                if (!payload_type.hasRuntimeBits()) {
                     try writer.writeByteNTimes(@boolToInt(is_pl), abi_size);
                     return Result{ .appended = {} };
                 }
@@ -1044,7 +1044,7 @@ pub const DeclGen = struct {
                 const field_vals = val.castTag(.@"struct").?.data;
                 for (field_vals) |field_val, index| {
                     const field_ty = ty.structFieldType(index);
-                    if (!field_ty.hasCodeGenBits()) continue;
+                    if (!field_ty.hasRuntimeBits()) continue;
                     switch (try self.genTypedValue(field_ty, field_val, writer)) {
                         .appended => {},
                         .externally_managed => |payload| try writer.writeAll(payload),
@@ -1093,7 +1093,7 @@ pub const DeclGen = struct {
                     .appended => {},
                 }
 
-                if (payload_ty.hasCodeGenBits()) {
+                if (payload_ty.hasRuntimeBits()) {
                     const pl_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef);
                     switch (try self.genTypedValue(payload_ty, pl_val, writer)) {
                         .externally_managed => |data| try writer.writeAll(data),
@@ -1180,7 +1180,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
         .Naked => return result,
         .Unspecified, .C => {
             for (param_types) |ty, ty_index| {
-                if (!ty.hasCodeGenBits()) {
+                if (!ty.hasRuntimeBits()) {
                     result.args[ty_index] = .{ .none = {} };
                     continue;
                 }
@@ -1243,7 +1243,7 @@ fn moveStack(self: *Self, offset: u32, local: u32) !void {
 ///
 /// Asserts Type has codegenbits
 fn allocStack(self: *Self, ty: Type) !WValue {
-    assert(ty.hasCodeGenBits());
+    assert(ty.hasRuntimeBits());
 
     // calculate needed stack space
     const abi_size = std.math.cast(u32, ty.abiSize(self.target)) catch {
@@ -1319,22 +1319,22 @@ fn isByRef(ty: Type, target: std.Target) bool {
         .Struct,
         .Frame,
         .Union,
-        => return ty.hasCodeGenBits(),
+        => return ty.hasRuntimeBits(),
         .Int => return if (ty.intInfo(target).bits > 64) true else false,
         .ErrorUnion => {
-            const has_tag = ty.errorUnionSet().hasCodeGenBits();
-            const has_pl = ty.errorUnionPayload().hasCodeGenBits();
+            const has_tag = ty.errorUnionSet().hasRuntimeBits();
+            const has_pl = ty.errorUnionPayload().hasRuntimeBits();
             if (!has_tag or !has_pl) return false;
-            return ty.hasCodeGenBits();
+            return ty.hasRuntimeBits();
         },
         .Optional => {
             if (ty.isPtrLikeOptional()) return false;
             var buf: Type.Payload.ElemType = undefined;
-            return ty.optionalChild(&buf).hasCodeGenBits();
+            return ty.optionalChild(&buf).hasRuntimeBits();
         },
         .Pointer => {
             // Slices act like struct and will be passed by reference
-            if (ty.isSlice()) return ty.hasCodeGenBits();
+            if (ty.isSlice()) return ty.hasRuntimeBits();
             return false;
         },
     }
@@ -1563,7 +1563,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = try self.resolveInst(un_op);
     const ret_ty = self.air.typeOf(un_op).childType();
-    if (!ret_ty.hasCodeGenBits()) return WValue.none;
+    if (!ret_ty.hasRuntimeBits()) return WValue.none;
 
     if (!isByRef(ret_ty, self.target)) {
         const result = try self.load(operand, ret_ty, 0);
@@ -1611,7 +1611,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         const arg_val = try self.resolveInst(arg_ref);
 
         const arg_ty = self.air.typeOf(arg_ref);
-        if (!arg_ty.hasCodeGenBits()) continue;
+        if (!arg_ty.hasRuntimeBits()) continue;
         try self.emitWValue(arg_val);
     }
 
@@ -1631,7 +1631,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         try self.addLabel(.call_indirect, fn_type_index);
     }
 
-    if (self.liveness.isUnused(inst) or !ret_ty.hasCodeGenBits()) {
+    if (self.liveness.isUnused(inst) or !ret_ty.hasRuntimeBits()) {
         return WValue.none;
     } else if (ret_ty.isNoReturn()) {
         try self.addTag(.@"unreachable");
@@ -1653,7 +1653,7 @@ fn airAlloc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         try self.initializeStack();
     }
 
-    if (!pointee_type.hasCodeGenBits()) {
+    if (!pointee_type.hasRuntimeBits()) {
         // when the pointee is zero-sized, we still want to create a pointer.
         // but instead use a default pointer type as storage.
         const zero_ptr = try self.allocStack(Type.usize);
@@ -1678,7 +1678,7 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
         .ErrorUnion => {
             const err_ty = ty.errorUnionSet();
             const pl_ty = ty.errorUnionPayload();
-            if (!pl_ty.hasCodeGenBits()) {
+            if (!pl_ty.hasRuntimeBits()) {
                 const err_val = try self.load(rhs, err_ty, 0);
                 return self.store(lhs, err_val, err_ty, 0);
             }
@@ -1691,7 +1691,7 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
             }
             var buf: Type.Payload.ElemType = undefined;
             const pl_ty = ty.optionalChild(&buf);
-            if (!pl_ty.hasCodeGenBits()) {
+            if (!pl_ty.hasRuntimeBits()) {
                 return self.store(lhs, rhs, Type.initTag(.u8), 0);
             }
 
@@ -1750,7 +1750,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const operand = try self.resolveInst(ty_op.operand);
     const ty = self.air.getRefType(ty_op.ty);
 
-    if (!ty.hasCodeGenBits()) return WValue{ .none = {} };
+    if (!ty.hasRuntimeBits()) return WValue{ .none = {} };
 
     if (isByRef(ty, self.target)) {
         const new_local = try self.allocStack(ty);
@@ -2146,7 +2146,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) Inner
     if (operand_ty.zigTypeTag() == .Optional and !operand_ty.isPtrLikeOptional()) {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = operand_ty.optionalChild(&buf);
-        if (payload_ty.hasCodeGenBits()) {
+        if (payload_ty.hasRuntimeBits()) {
             // When we hit this case, we must check the value of optionals
             // that are not pointers. This means first checking against non-null for
             // both lhs and rhs, as well as checking the payload are matching of lhs and rhs
@@ -2190,7 +2190,7 @@ fn airBr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const block = self.blocks.get(br.block_inst).?;
 
     // if operand has codegen bits we should break with a value
-    if (self.air.typeOf(br.operand).hasCodeGenBits()) {
+    if (self.air.typeOf(br.operand).hasRuntimeBits()) {
         try self.emitWValue(try self.resolveInst(br.operand));
 
         if (block.value != .none) {
@@ -2282,7 +2282,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const operand = try self.resolveInst(struct_field.struct_operand);
     const field_index = struct_field.field_index;
     const field_ty = struct_ty.structFieldType(field_index);
-    if (!field_ty.hasCodeGenBits()) return WValue{ .none = {} };
+    if (!field_ty.hasRuntimeBits()) return WValue{ .none = {} };
     const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, self.target)) catch {
         return self.fail("Field type '{}' too big to fit into stack frame", .{field_ty});
     };
@@ -2452,7 +2452,7 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!W
 
     // load the error tag value
     try self.emitWValue(operand);
-    if (pl_ty.hasCodeGenBits()) {
+    if (pl_ty.hasRuntimeBits()) {
         try self.addMemArg(.i32_load16_u, .{
             .offset = 0,
             .alignment = err_ty.errorUnionSet().abiAlignment(self.target),
@@ -2474,7 +2474,7 @@ fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue
     const operand = try self.resolveInst(ty_op.operand);
     const err_ty = self.air.typeOf(ty_op.operand);
     const payload_ty = err_ty.errorUnionPayload();
-    if (!payload_ty.hasCodeGenBits()) return WValue{ .none = {} };
+    if (!payload_ty.hasRuntimeBits()) return WValue{ .none = {} };
     const offset = @intCast(u32, err_ty.errorUnionSet().abiSize(self.target));
     if (isByRef(payload_ty, self.target)) {
         return self.buildPointerOffset(operand, offset, .new);
@@ -2489,7 +2489,7 @@ fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const operand = try self.resolveInst(ty_op.operand);
     const err_ty = self.air.typeOf(ty_op.operand);
     const payload_ty = err_ty.errorUnionPayload();
-    if (!payload_ty.hasCodeGenBits()) {
+    if (!payload_ty.hasRuntimeBits()) {
         return operand;
     }
 
@@ -2502,7 +2502,7 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const operand = try self.resolveInst(ty_op.operand);
 
     const op_ty = self.air.typeOf(ty_op.operand);
-    if (!op_ty.hasCodeGenBits()) return operand;
+    if (!op_ty.hasRuntimeBits()) return operand;
     const err_ty = self.air.getRefType(ty_op.ty);
     const offset = err_ty.errorUnionSet().abiSize(self.target);
 
@@ -2580,7 +2580,7 @@ fn isNull(self: *Self, operand: WValue, optional_ty: Type, opcode: wasm.Opcode) 
         const payload_ty = optional_ty.optionalChild(&buf);
         // When payload is zero-bits, we can treat operand as a value, rather than
         // a pointer to the stack value
-        if (payload_ty.hasCodeGenBits()) {
+        if (payload_ty.hasRuntimeBits()) {
             try self.addMemArg(.i32_load8_u, .{ .offset = 0, .alignment = 1 });
         }
     }
@@ -2600,7 +2600,7 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const operand = try self.resolveInst(ty_op.operand);
     const opt_ty = self.air.typeOf(ty_op.operand);
     const payload_ty = self.air.typeOfIndex(inst);
-    if (!payload_ty.hasCodeGenBits()) return WValue{ .none = {} };
+    if (!payload_ty.hasRuntimeBits()) return WValue{ .none = {} };
     if (opt_ty.isPtrLikeOptional()) return operand;
 
     const offset = opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target);
@@ -2621,7 +2621,7 @@ fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     var buf: Type.Payload.ElemType = undefined;
     const payload_ty = opt_ty.optionalChild(&buf);
-    if (!payload_ty.hasCodeGenBits() or opt_ty.isPtrLikeOptional()) {
+    if (!payload_ty.hasRuntimeBits() or opt_ty.isPtrLikeOptional()) {
         return operand;
     }
 
@@ -2635,7 +2635,7 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue
     const opt_ty = self.air.typeOf(ty_op.operand).childType();
     var buf: Type.Payload.ElemType = undefined;
     const payload_ty = opt_ty.optionalChild(&buf);
-    if (!payload_ty.hasCodeGenBits()) {
+    if (!payload_ty.hasRuntimeBits()) {
         return self.fail("TODO: Implement OptionalPayloadPtrSet for optional with zero-sized type {}", .{payload_ty});
     }
 
@@ -2659,7 +2659,7 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const payload_ty = self.air.typeOf(ty_op.operand);
-    if (!payload_ty.hasCodeGenBits()) {
+    if (!payload_ty.hasRuntimeBits()) {
         const non_null_bit = try self.allocStack(Type.initTag(.u1));
         try self.addLabel(.local_get, non_null_bit.local);
         try self.addImm32(1);
@@ -2851,7 +2851,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const slice_local = try self.allocStack(slice_ty);
 
     // store the array ptr in the slice
-    if (array_ty.hasCodeGenBits()) {
+    if (array_ty.hasRuntimeBits()) {
         try self.store(slice_local, operand, ty, 0);
     }
 
@@ -3105,7 +3105,7 @@ fn airPrefetch(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 }
 
 fn cmpOptionals(self: *Self, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
-    assert(operand_ty.hasCodeGenBits());
+    assert(operand_ty.hasRuntimeBits());
     assert(op == .eq or op == .neq);
     var buf: Type.Payload.ElemType = undefined;
     const payload_ty = operand_ty.optionalChild(&buf);

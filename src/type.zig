@@ -1512,8 +1512,12 @@ pub const Type = extern union {
         }
     }
 
-    pub fn hasCodeGenBits(self: Type) bool {
-        return switch (self.tag()) {
+    /// true if and only if the type takes up space in memory at runtime.
+    /// There are two reasons a type will return false:
+    /// * the type is a comptime-only type. For example, the type `type` itself.
+    /// * the type has only one possible value, making its ABI size 0.
+    pub fn hasRuntimeBits(ty: Type) bool {
+        return switch (ty.tag()) {
             .u1,
             .u8,
             .i8,
@@ -1542,13 +1546,9 @@ pub const Type = extern union {
             .f128,
             .bool,
             .anyerror,
-            .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
             .array_u8_sentinel_0,
-            .optional,
-            .optional_single_mut_pointer,
-            .optional_single_const_pointer,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
@@ -1568,100 +1568,12 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .@"anyframe",
-            .anyframe_T,
             .anyopaque,
             .@"opaque",
-            .single_const_pointer,
-            .single_mut_pointer,
-            .many_const_pointer,
-            .many_mut_pointer,
-            .c_const_pointer,
-            .c_mut_pointer,
-            .const_slice,
-            .mut_slice,
-            .pointer,
             => true,
 
-            .function => !self.castTag(.function).?.data.is_generic,
-
-            .fn_noreturn_no_args,
-            .fn_void_no_args,
-            .fn_naked_noreturn_no_args,
-            .fn_ccc_void_no_args,
-            => true,
-
-            .@"struct" => {
-                const struct_obj = self.castTag(.@"struct").?.data;
-                if (struct_obj.known_has_bits) {
-                    return true;
-                }
-                assert(struct_obj.haveFieldTypes());
-                for (struct_obj.fields.values()) |value| {
-                    if (value.ty.hasCodeGenBits())
-                        return true;
-                } else {
-                    return false;
-                }
-            },
-            .enum_full => {
-                const enum_full = self.castTag(.enum_full).?.data;
-                return enum_full.fields.count() >= 2;
-            },
-            .enum_simple => {
-                const enum_simple = self.castTag(.enum_simple).?.data;
-                return enum_simple.fields.count() >= 2;
-            },
-            .enum_numbered, .enum_nonexhaustive => {
-                var buffer: Payload.Bits = undefined;
-                const int_tag_ty = self.intTagType(&buffer);
-                return int_tag_ty.hasCodeGenBits();
-            },
-            .@"union" => {
-                const union_obj = self.castTag(.@"union").?.data;
-                assert(union_obj.haveFieldTypes());
-                for (union_obj.fields.values()) |value| {
-                    if (value.ty.hasCodeGenBits())
-                        return true;
-                } else {
-                    return false;
-                }
-            },
-            .union_tagged => {
-                const union_obj = self.castTag(.union_tagged).?.data;
-                if (union_obj.tag_ty.hasCodeGenBits()) {
-                    return true;
-                }
-                assert(union_obj.haveFieldTypes());
-                for (union_obj.fields.values()) |value| {
-                    if (value.ty.hasCodeGenBits())
-                        return true;
-                } else {
-                    return false;
-                }
-            },
-
-            .array, .vector => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
-            .array_u8 => self.arrayLen() != 0,
-
-            .array_sentinel => self.childType().hasCodeGenBits(),
-
-            .int_signed, .int_unsigned => self.cast(Payload.Bits).?.data != 0,
-
-            .error_union => {
-                const payload = self.castTag(.error_union).?.data;
-                return payload.error_set.hasCodeGenBits() or payload.payload.hasCodeGenBits();
-            },
-
-            .tuple => {
-                const tuple = self.castTag(.tuple).?.data;
-                for (tuple.types) |ty, i| {
-                    const val = tuple.values[i];
-                    if (val.tag() != .unreachable_value) continue; // comptime field
-                    if (ty.hasCodeGenBits()) return true;
-                }
-                return false;
-            },
-
+            // These are false because they are comptime-only types.
+            .single_const_pointer_to_comptime_int,
             .void,
             .type,
             .comptime_int,
@@ -1674,13 +1586,132 @@ pub const Type = extern union {
             .empty_struct_literal,
             .type_info,
             .bound_fn,
+            // These are function *bodies*, not pointers.
+            // Special exceptions have to be made when emitting functions due to
+            // this returning false.
+            .function,
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
             => false,
+
+            // These types have more than one possible value, so the result is the same as
+            // asking whether they are comptime-only types.
+            .anyframe_T,
+            .optional,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .pointer,
+            => !ty.comptimeOnly(),
+
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                switch (struct_obj.requires_comptime) {
+                    .wip => unreachable,
+                    .yes => return false,
+                    .no => if (struct_obj.known_non_opv) return true,
+                    .unknown => {},
+                }
+                assert(struct_obj.haveFieldTypes());
+                for (struct_obj.fields.values()) |value| {
+                    if (value.ty.hasRuntimeBits())
+                        return true;
+                } else {
+                    return false;
+                }
+            },
+
+            .enum_full => {
+                const enum_full = ty.castTag(.enum_full).?.data;
+                return enum_full.fields.count() >= 2;
+            },
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                return enum_simple.fields.count() >= 2;
+            },
+            .enum_numbered, .enum_nonexhaustive => {
+                var buffer: Payload.Bits = undefined;
+                const int_tag_ty = ty.intTagType(&buffer);
+                return int_tag_ty.hasRuntimeBits();
+            },
+
+            .@"union" => {
+                const union_obj = ty.castTag(.@"union").?.data;
+                assert(union_obj.haveFieldTypes());
+                for (union_obj.fields.values()) |value| {
+                    if (value.ty.hasRuntimeBits())
+                        return true;
+                } else {
+                    return false;
+                }
+            },
+            .union_tagged => {
+                const union_obj = ty.castTag(.union_tagged).?.data;
+                if (union_obj.tag_ty.hasRuntimeBits()) {
+                    return true;
+                }
+                assert(union_obj.haveFieldTypes());
+                for (union_obj.fields.values()) |value| {
+                    if (value.ty.hasRuntimeBits())
+                        return true;
+                } else {
+                    return false;
+                }
+            },
+
+            .array, .vector => ty.arrayLen() != 0 and ty.elemType().hasRuntimeBits(),
+            .array_u8 => ty.arrayLen() != 0,
+            .array_sentinel => ty.childType().hasRuntimeBits(),
+
+            .int_signed, .int_unsigned => ty.cast(Payload.Bits).?.data != 0,
+
+            .error_union => {
+                const payload = ty.castTag(.error_union).?.data;
+                return payload.error_set.hasRuntimeBits() or payload.payload.hasRuntimeBits();
+            },
+
+            .tuple => {
+                const tuple = ty.castTag(.tuple).?.data;
+                for (tuple.types) |field_ty, i| {
+                    const val = tuple.values[i];
+                    if (val.tag() != .unreachable_value) continue; // comptime field
+                    if (field_ty.hasRuntimeBits()) return true;
+                }
+                return false;
+            },
 
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .var_args_param => unreachable,
             .generic_poison => unreachable,
         };
+    }
+
+    pub fn isFnOrHasRuntimeBits(ty: Type) bool {
+        switch (ty.zigTypeTag()) {
+            .Fn => {
+                const fn_info = ty.fnInfo();
+                if (fn_info.is_generic) return false;
+                if (fn_info.is_var_args) return true;
+                switch (fn_info.cc) {
+                    // If there was a comptime calling convention, it should also return false here.
+                    .Inline => return false,
+                    else => {},
+                }
+                if (fn_info.return_type.comptimeOnly()) return false;
+                return true;
+            },
+            else => return ty.hasRuntimeBits(),
+        }
     }
 
     pub fn isNoReturn(self: Type) bool {
@@ -1857,7 +1888,7 @@ pub const Type = extern union {
             .optional => {
                 var buf: Payload.ElemType = undefined;
                 const child_type = self.optionalChild(&buf);
-                if (!child_type.hasCodeGenBits()) return 1;
+                if (!child_type.hasRuntimeBits()) return 1;
 
                 if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr())
                     return @divExact(target.cpu.arch.ptrBitWidth(), 8);
@@ -1867,9 +1898,9 @@ pub const Type = extern union {
 
             .error_union => {
                 const data = self.castTag(.error_union).?.data;
-                if (!data.error_set.hasCodeGenBits()) {
+                if (!data.error_set.hasRuntimeBits()) {
                     return data.payload.abiAlignment(target);
-                } else if (!data.payload.hasCodeGenBits()) {
+                } else if (!data.payload.hasRuntimeBits()) {
                     return data.error_set.abiAlignment(target);
                 }
                 return @maximum(
@@ -1889,7 +1920,7 @@ pub const Type = extern union {
                 if (!is_packed) {
                     var big_align: u32 = 0;
                     for (fields.values()) |field| {
-                        if (!field.ty.hasCodeGenBits()) continue;
+                        if (!field.ty.hasRuntimeBits()) continue;
 
                         const field_align = field.normalAlignment(target);
                         big_align = @maximum(big_align, field_align);
@@ -1903,7 +1934,7 @@ pub const Type = extern union {
                 var running_bits: u16 = 0;
 
                 for (fields.values()) |field| {
-                    if (!field.ty.hasCodeGenBits()) continue;
+                    if (!field.ty.hasRuntimeBits()) continue;
 
                     const field_align = field.packedAlignment();
                     if (field_align == 0) {
@@ -1941,7 +1972,7 @@ pub const Type = extern union {
                 for (tuple.types) |field_ty, i| {
                     const val = tuple.values[i];
                     if (val.tag() != .unreachable_value) continue; // comptime field
-                    if (!field_ty.hasCodeGenBits()) continue;
+                    if (!field_ty.hasRuntimeBits()) continue;
 
                     const field_align = field_ty.abiAlignment(target);
                     big_align = @maximum(big_align, field_align);
@@ -1984,7 +2015,7 @@ pub const Type = extern union {
     }
 
     /// Asserts the type has the ABI size already resolved.
-    /// Types that return false for hasCodeGenBits() return 0.
+    /// Types that return false for hasRuntimeBits() return 0.
     pub fn abiSize(self: Type, target: Target) u64 {
         return switch (self.tag()) {
             .fn_noreturn_no_args => unreachable, // represents machine code; not a pointer
@@ -2071,24 +2102,8 @@ pub const Type = extern union {
             .usize,
             .@"anyframe",
             .anyframe_T,
-            => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
-
-            .const_slice,
-            .mut_slice,
-            => {
-                return @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2;
-            },
-            .const_slice_u8,
-            .const_slice_u8_sentinel_0,
-            => return @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2,
-
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
-            => {
-                if (!self.elemType().hasCodeGenBits()) return 1;
-                return @divExact(target.cpu.arch.ptrBitWidth(), 8);
-            },
-
             .single_const_pointer,
             .single_mut_pointer,
             .many_const_pointer,
@@ -2099,6 +2114,12 @@ pub const Type = extern union {
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
+
+            .const_slice,
+            .mut_slice,
+            .const_slice_u8,
+            .const_slice_u8_sentinel_0,
+            => return @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2,
 
             .pointer => switch (self.castTag(.pointer).?.data.size) {
                 .Slice => @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2,
@@ -2137,7 +2158,7 @@ pub const Type = extern union {
             .optional => {
                 var buf: Payload.ElemType = undefined;
                 const child_type = self.optionalChild(&buf);
-                if (!child_type.hasCodeGenBits()) return 1;
+                if (!child_type.hasRuntimeBits()) return 1;
 
                 if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr() and !child_type.isSlice())
                     return @divExact(target.cpu.arch.ptrBitWidth(), 8);
@@ -2151,11 +2172,11 @@ pub const Type = extern union {
 
             .error_union => {
                 const data = self.castTag(.error_union).?.data;
-                if (!data.error_set.hasCodeGenBits() and !data.payload.hasCodeGenBits()) {
+                if (!data.error_set.hasRuntimeBits() and !data.payload.hasRuntimeBits()) {
                     return 0;
-                } else if (!data.error_set.hasCodeGenBits()) {
+                } else if (!data.error_set.hasRuntimeBits()) {
                     return data.payload.abiSize(target);
-                } else if (!data.payload.hasCodeGenBits()) {
+                } else if (!data.payload.hasRuntimeBits()) {
                     return data.error_set.abiSize(target);
                 }
                 const code_align = abiAlignment(data.error_set, target);
@@ -2275,11 +2296,7 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
             => {
-                if (ty.elemType().hasCodeGenBits()) {
-                    return target.cpu.arch.ptrBitWidth();
-                } else {
-                    return 1;
-                }
+                return target.cpu.arch.ptrBitWidth();
             },
 
             .single_const_pointer,
@@ -2289,11 +2306,7 @@ pub const Type = extern union {
             .c_const_pointer,
             .c_mut_pointer,
             => {
-                if (ty.elemType().hasCodeGenBits()) {
-                    return target.cpu.arch.ptrBitWidth();
-                } else {
-                    return 0;
-                }
+                return target.cpu.arch.ptrBitWidth();
             },
 
             .pointer => switch (ty.castTag(.pointer).?.data.size) {
@@ -2329,7 +2342,7 @@ pub const Type = extern union {
             .optional => {
                 var buf: Payload.ElemType = undefined;
                 const child_type = ty.optionalChild(&buf);
-                if (!child_type.hasCodeGenBits()) return 8;
+                if (!child_type.hasRuntimeBits()) return 8;
 
                 if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr() and !child_type.isSlice())
                     return target.cpu.arch.ptrBitWidth();
@@ -2343,11 +2356,11 @@ pub const Type = extern union {
 
             .error_union => {
                 const payload = ty.castTag(.error_union).?.data;
-                if (!payload.error_set.hasCodeGenBits() and !payload.payload.hasCodeGenBits()) {
+                if (!payload.error_set.hasRuntimeBits() and !payload.payload.hasRuntimeBits()) {
                     return 0;
-                } else if (!payload.error_set.hasCodeGenBits()) {
+                } else if (!payload.error_set.hasRuntimeBits()) {
                     return payload.payload.bitSize(target);
-                } else if (!payload.payload.hasCodeGenBits()) {
+                } else if (!payload.payload.hasRuntimeBits()) {
                     return payload.error_set.bitSize(target);
                 }
                 @panic("TODO bitSize error union");
@@ -2589,7 +2602,7 @@ pub const Type = extern union {
                 var buf: Payload.ElemType = undefined;
                 const child_type = self.optionalChild(&buf);
                 // optionals of zero sized pointers behave like bools
-                if (!child_type.hasCodeGenBits()) return false;
+                if (!child_type.hasRuntimeBits()) return false;
                 if (child_type.zigTypeTag() != .Pointer) return false;
 
                 const info = child_type.ptrInfo().data;
@@ -2626,7 +2639,7 @@ pub const Type = extern union {
                 var buf: Payload.ElemType = undefined;
                 const child_type = self.optionalChild(&buf);
                 // optionals of zero sized types behave like bools, not pointers
-                if (!child_type.hasCodeGenBits()) return false;
+                if (!child_type.hasRuntimeBits()) return false;
                 if (child_type.zigTypeTag() != .Pointer) return false;
 
                 const info = child_type.ptrInfo().data;
@@ -3494,7 +3507,7 @@ pub const Type = extern union {
             },
             .enum_nonexhaustive => {
                 const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
-                if (!tag_ty.hasCodeGenBits()) {
+                if (!tag_ty.hasRuntimeBits()) {
                     return Value.zero;
                 } else {
                     return null;
@@ -3534,6 +3547,167 @@ pub const Type = extern union {
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .generic_poison => unreachable,
+        };
+    }
+
+    /// During semantic analysis, instead call `Sema.typeRequiresComptime` which
+    /// resolves field types rather than asserting they are already resolved.
+    pub fn comptimeOnly(ty: Type) bool {
+        return switch (ty.tag()) {
+            .u1,
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .u128,
+            .i128,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .anyopaque,
+            .bool,
+            .void,
+            .anyerror,
+            .noreturn,
+            .@"anyframe",
+            .@"null",
+            .@"undefined",
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .address_space,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .prefetch_options,
+            .export_options,
+            .extern_options,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .manyptr_const_u8_sentinel_0,
+            .const_slice_u8,
+            .const_slice_u8_sentinel_0,
+            .anyerror_void_error_union,
+            .empty_struct_literal,
+            .empty_struct,
+            .error_set,
+            .error_set_single,
+            .error_set_inferred,
+            .error_set_merged,
+            .@"opaque",
+            .generic_poison,
+            .array_u8,
+            .array_u8_sentinel_0,
+            .int_signed,
+            .int_unsigned,
+            .enum_simple,
+            => false,
+
+            .single_const_pointer_to_comptime_int,
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .enum_literal,
+            .type_info,
+            // These are function bodies, not function pointers.
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            => true,
+
+            .var_args_param => unreachable,
+            .inferred_alloc_mut => unreachable,
+            .inferred_alloc_const => unreachable,
+            .bound_fn => unreachable,
+
+            .array,
+            .array_sentinel,
+            .vector,
+            => return ty.childType().comptimeOnly(),
+
+            .pointer,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            => {
+                const child_ty = ty.childType();
+                if (child_ty.zigTypeTag() == .Fn) {
+                    return false;
+                } else {
+                    return child_ty.comptimeOnly();
+                }
+            },
+
+            .optional,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            => {
+                var buf: Type.Payload.ElemType = undefined;
+                return ty.optionalChild(&buf).comptimeOnly();
+            },
+
+            .tuple => {
+                const tuple = ty.castTag(.tuple).?.data;
+                for (tuple.types) |field_ty| {
+                    if (field_ty.comptimeOnly()) return true;
+                }
+                return false;
+            },
+
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                switch (struct_obj.requires_comptime) {
+                    .wip, .unknown => unreachable, // This function asserts types already resolved.
+                    .no => return false,
+                    .yes => return true,
+                }
+            },
+
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Type.Payload.Union).?.data;
+                switch (union_obj.requires_comptime) {
+                    .wip, .unknown => unreachable, // This function asserts types already resolved.
+                    .no => return false,
+                    .yes => return true,
+                }
+            },
+
+            .error_union => return ty.errorUnionPayload().comptimeOnly(),
+            .anyframe_T => {
+                const child_ty = ty.castTag(.anyframe_T).?.data;
+                return child_ty.comptimeOnly();
+            },
+            .enum_numbered => {
+                const tag_ty = ty.castTag(.enum_numbered).?.data.tag_ty;
+                return tag_ty.comptimeOnly();
+            },
+            .enum_full, .enum_nonexhaustive => {
+                const tag_ty = ty.cast(Type.Payload.EnumFull).?.data.tag_ty;
+                return tag_ty.comptimeOnly();
+            },
         };
     }
 
@@ -3814,7 +3988,7 @@ pub const Type = extern union {
 
             const field = it.struct_obj.fields.values()[it.field];
             defer it.field += 1;
-            if (!field.ty.hasCodeGenBits()) {
+            if (!field.ty.hasRuntimeBits()) {
                 return PackedFieldOffset{
                     .field = it.field,
                     .offset = it.offset,
@@ -3883,7 +4057,7 @@ pub const Type = extern union {
 
             const field = it.struct_obj.fields.values()[it.field];
             defer it.field += 1;
-            if (!field.ty.hasCodeGenBits())
+            if (!field.ty.hasRuntimeBits())
                 return FieldOffset{ .field = it.field, .offset = it.offset };
 
             const field_align = field.normalAlignment(it.target);

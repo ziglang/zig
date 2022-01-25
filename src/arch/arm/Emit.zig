@@ -372,7 +372,7 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
 fn addDbgInfoTypeReloc(self: *Emit, ty: Type) !void {
     switch (self.debug_output) {
         .dwarf => |dbg_out| {
-            assert(ty.hasCodeGenBits());
+            assert(ty.hasRuntimeBits());
             const index = dbg_out.dbg_info.items.len;
             try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
 

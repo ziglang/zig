@@ -507,7 +507,7 @@ pub const DeclGen = struct {
                 const error_type = ty.errorUnionSet();
                 const payload_type = ty.errorUnionPayload();
 
-                if (!payload_type.hasCodeGenBits()) {
+                if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     const err_val = if (val.errorUnionIsPayload()) Value.initTag(.zero) else val;
                     return dg.renderValue(writer, error_type, err_val);
@@ -581,7 +581,7 @@ pub const DeclGen = struct {
 
                 for (field_vals) |field_val, i| {
                     const field_ty = ty.structFieldType(i);
-                    if (!field_ty.hasCodeGenBits()) continue;
+                    if (!field_ty.hasRuntimeBits()) continue;
 
                     if (i != 0) try writer.writeAll(",");
                     try dg.renderValue(writer, field_ty, field_val);
@@ -611,7 +611,7 @@ pub const DeclGen = struct {
                 const index = union_ty.tag_ty.enumTagFieldIndex(union_obj.tag).?;
                 const field_ty = ty.unionFields().values()[index].ty;
                 const field_name = ty.unionFields().keys()[index];
-                if (field_ty.hasCodeGenBits()) {
+                if (field_ty.hasRuntimeBits()) {
                     try writer.print(".{} = ", .{fmtIdent(field_name)});
                     try dg.renderValue(writer, field_ty, union_obj.val);
                 }
@@ -652,7 +652,7 @@ pub const DeclGen = struct {
             }
         }
         const return_ty = dg.decl.ty.fnReturnType();
-        if (return_ty.hasCodeGenBits()) {
+        if (return_ty.hasRuntimeBits()) {
             try dg.renderType(w, return_ty);
         } else if (return_ty.zigTypeTag() == .NoReturn) {
             try w.writeAll("zig_noreturn void");
@@ -784,7 +784,7 @@ pub const DeclGen = struct {
             var it = struct_obj.fields.iterator();
             while (it.next()) |entry| {
                 const field_ty = entry.value_ptr.ty;
-                if (!field_ty.hasCodeGenBits()) continue;
+                if (!field_ty.hasRuntimeBits()) continue;
 
                 const alignment = entry.value_ptr.abi_align;
                 const name: CValue = .{ .identifier = entry.key_ptr.* };
@@ -837,7 +837,7 @@ pub const DeclGen = struct {
             var it = t.unionFields().iterator();
             while (it.next()) |entry| {
                 const field_ty = entry.value_ptr.ty;
-                if (!field_ty.hasCodeGenBits()) continue;
+                if (!field_ty.hasRuntimeBits()) continue;
                 const alignment = entry.value_ptr.abi_align;
                 const name: CValue = .{ .identifier = entry.key_ptr.* };
                 try buffer.append(' ');
@@ -1582,7 +1582,7 @@ fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const elem_type = inst_ty.elemType();
     const mutability: Mutability = if (inst_ty.isConstPtr()) .Const else .Mut;
-    if (!elem_type.hasCodeGenBits()) {
+    if (!elem_type.isFnOrHasRuntimeBits()) {
         const target = f.object.dg.module.getTarget();
         const literal = switch (target.cpu.arch.ptrBitWidth()) {
             32 => "(void *)0xaaaaaaaa",
@@ -1683,7 +1683,7 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airRet(f: *Function, inst: Air.Inst.Index) !CValue {
     const un_op = f.air.instructions.items(.data)[inst].un_op;
     const writer = f.object.writer();
-    if (f.air.typeOf(un_op).hasCodeGenBits()) {
+    if (f.air.typeOf(un_op).isFnOrHasRuntimeBits()) {
         const operand = try f.resolveInst(un_op);
         try writer.writeAll("return ");
         try f.writeCValue(writer, operand);
@@ -1699,7 +1699,7 @@ fn airRetLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
     const ptr_ty = f.air.typeOf(un_op);
     const ret_ty = ptr_ty.childType();
-    if (!ret_ty.hasCodeGenBits()) {
+    if (!ret_ty.isFnOrHasRuntimeBits()) {
         try writer.writeAll("return;\n");
     }
     const ptr = try f.resolveInst(un_op);
@@ -2315,7 +2315,7 @@ fn airCall(f: *Function, inst: Air.Inst.Index) !CValue {
 
     var result_local: CValue = .none;
     if (unused_result) {
-        if (ret_ty.hasCodeGenBits()) {
+        if (ret_ty.hasRuntimeBits()) {
             try writer.print("(void)", .{});
         }
     } else {
@@ -2832,7 +2832,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand_ty = f.air.typeOf(ty_op.operand);
 
     const payload_ty = operand_ty.errorUnionPayload();
-    if (!payload_ty.hasCodeGenBits()) {
+    if (!payload_ty.hasRuntimeBits()) {
         if (operand_ty.zigTypeTag() == .Pointer) {
             const local = try f.allocLocal(inst_ty, .Const);
             try writer.writeAll(" = *");
@@ -2864,7 +2864,7 @@ fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index, maybe_addrof: []cons
     const operand_ty = f.air.typeOf(ty_op.operand);
 
     const payload_ty = operand_ty.errorUnionPayload();
-    if (!payload_ty.hasCodeGenBits()) {
+    if (!payload_ty.hasRuntimeBits()) {
         return CValue.none;
     }
 
@@ -2908,7 +2908,7 @@ fn airWrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand = try f.resolveInst(ty_op.operand);
     const err_un_ty = f.air.typeOfIndex(inst);
     const payload_ty = err_un_ty.errorUnionPayload();
-    if (!payload_ty.hasCodeGenBits()) {
+    if (!payload_ty.hasRuntimeBits()) {
         return operand;
     }
 
@@ -2951,7 +2951,7 @@ fn airIsErr(
     const operand_ty = f.air.typeOf(un_op);
     const local = try f.allocLocal(Type.initTag(.bool), .Const);
     const payload_ty = operand_ty.errorUnionPayload();
-    if (!payload_ty.hasCodeGenBits()) {
+    if (!payload_ty.hasRuntimeBits()) {
         try writer.print(" = {s}", .{deref_prefix});
         try f.writeCValue(writer, operand);
         try writer.print(" {s} 0;\n", .{op_str});

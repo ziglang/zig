@@ -885,7 +885,7 @@ fn genArgDbgInfo(emit: *Emit, inst: Air.Inst.Index, mcv: MCValue) !void {
 fn addDbgInfoTypeReloc(emit: *Emit, ty: Type) !void {
     switch (emit.debug_output) {
         .dwarf => |dbg_out| {
-            assert(ty.hasCodeGenBits());
+            assert(ty.hasRuntimeBits());
             const index = dbg_out.dbg_info.items.len;
             try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
 

@@ -437,9 +437,10 @@ pub const Block = struct {
         }
     }
 
-    pub fn startAnonDecl(block: *Block) !WipAnonDecl {
+    pub fn startAnonDecl(block: *Block, src: LazySrcLoc) !WipAnonDecl {
         return WipAnonDecl{
             .block = block,
+            .src = src,
             .new_decl_arena = std.heap.ArenaAllocator.init(block.sema.gpa),
             .finished = false,
         };
@@ -447,6 +448,7 @@ pub const Block = struct {
 
     pub const WipAnonDecl = struct {
         block: *Block,
+        src: LazySrcLoc,
         new_decl_arena: std.heap.ArenaAllocator,
         finished: bool,
 
@@ -462,11 +464,15 @@ pub const Block = struct {
         }
 
         pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value) !*Decl {
-            const new_decl = try wad.block.sema.mod.createAnonymousDecl(wad.block, .{
+            const sema = wad.block.sema;
+            // Do this ahead of time because `createAnonymousDecl` depends on calling
+            // `type.hasRuntimeBits()`.
+            _ = try sema.typeHasRuntimeBits(wad.block, wad.src, ty);
+            const new_decl = try sema.mod.createAnonymousDecl(wad.block, .{
                 .ty = ty,
                 .val = val,
             });
-            errdefer wad.block.sema.mod.abortAnonDecl(new_decl);
+            errdefer sema.mod.abortAnonDecl(new_decl);
             try new_decl.finalizeNewArena(&wad.new_decl_arena);
             wad.finished = true;
             return new_decl;
@@ -1505,9 +1511,6 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const ptr = sema.resolveInst(bin_inst.rhs);
     const addr_space = target_util.defaultAddressSpace(sema.mod.getTarget(), .local);
 
-    // Needed for the call to `anon_decl.finish()` below which checks `ty.hasCodeGenBits()`.
-    _ = try sema.typeHasOnePossibleValue(block, src, pointee_ty);
-
     if (Air.refToIndex(ptr)) |ptr_inst| {
         if (sema.air_instructions.items(.tag)[ptr_inst] == .constant) {
             const air_datas = sema.air_instructions.items(.data);
@@ -1538,7 +1541,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     const iac = ptr_val.castTag(.inferred_alloc_comptime).?;
                     // There will be only one coerce_result_ptr because we are running at comptime.
                     // The alloc will turn into a Decl.
-                    var anon_decl = try block.startAnonDecl();
+                    var anon_decl = try block.startAnonDecl(src);
                     defer anon_decl.deinit();
                     iac.data.decl = try anon_decl.finish(
                         try pointee_ty.copy(anon_decl.arena()),
@@ -1657,7 +1660,10 @@ pub fn analyzeStructDecl(
     assert(extended.opcode == .struct_decl);
     const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
 
-    struct_obj.known_has_bits = small.known_has_bits;
+    struct_obj.known_non_opv = small.known_non_opv;
+    if (small.known_comptime_only) {
+        struct_obj.requires_comptime = .yes;
+    }
 
     var extra_index: usize = extended.operand;
     extra_index += @boolToInt(small.has_src_node);
@@ -1705,7 +1711,7 @@ fn zirStructDecl(
         .zir_index = inst,
         .layout = small.layout,
         .status = .none,
-        .known_has_bits = undefined,
+        .known_non_opv = undefined,
         .namespace = .{
             .parent = block.namespace,
             .ty = struct_ty,
@@ -2531,7 +2537,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 const bitcast_ty_ref = air_datas[bitcast_inst].ty_op.ty;
 
                 const new_decl = d: {
-                    var anon_decl = try block.startAnonDecl();
+                    var anon_decl = try block.startAnonDecl(src);
                     defer anon_decl.deinit();
                     const new_decl = try anon_decl.finish(
                         try final_elem_ty.copy(anon_decl.arena()),
@@ -3115,7 +3121,7 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
             if (operand_val.tag() == .variable) {
                 return sema.failWithNeededComptime(block, src);
             }
-            var anon_decl = try block.startAnonDecl();
+            var anon_decl = try block.startAnonDecl(src);
             defer anon_decl.deinit();
             iac.data.decl = try anon_decl.finish(
                 try operand_ty.copy(anon_decl.arena()),
@@ -3187,8 +3193,7 @@ fn addStrLit(sema: *Sema, block: *Block, zir_bytes: []const u8) CompileError!Air
     // after semantic analysis is complete, for example in the case of the initialization
     // expression of a variable declaration. We need the memory to be in the new
     // anonymous Decl's arena.
-
-    var anon_decl = try block.startAnonDecl();
+    var anon_decl = try block.startAnonDecl(LazySrcLoc.unneeded);
     defer anon_decl.deinit();
 
     const bytes = try anon_decl.arena().dupeZ(u8, zir_bytes);
@@ -5003,7 +5008,7 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
 
     // TODO do we really want to create a Decl for this?
     // The reason we do it right now is for memory management.
-    var anon_decl = try block.startAnonDecl();
+    var anon_decl = try block.startAnonDecl(src);
     defer anon_decl.deinit();
 
     var names = Module.ErrorSet.NameMap{};
@@ -5784,15 +5789,16 @@ fn zirPtrToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const ptr = sema.resolveInst(inst_data.operand);
     const ptr_ty = sema.typeOf(ptr);
     if (!ptr_ty.isPtrAtRuntime()) {
-        const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
         return sema.fail(block, ptr_src, "expected pointer, found '{}'", .{ptr_ty});
     }
-    // TODO handle known-pointer-address
-    const src = inst_data.src();
-    try sema.requireRuntimeBlock(block, src);
+    if (try sema.resolveMaybeUndefVal(block, ptr_src, ptr)) |ptr_val| {
+        return sema.addConstant(Type.usize, ptr_val);
+    }
+    try sema.requireRuntimeBlock(block, ptr_src);
     return block.addUnOp(.ptrtoint, ptr);
 }
 
@@ -7409,7 +7415,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         },
     };
 
-    var anon_decl = try block.startAnonDecl();
+    var anon_decl = try block.startAnonDecl(LazySrcLoc.unneeded);
     defer anon_decl.deinit();
 
     const bytes_including_null = embed_file.bytes[0 .. embed_file.bytes.len + 1];
@@ -7673,7 +7679,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const is_pointer = lhs_ty.zigTypeTag() == .Pointer;
             const lhs_sub_val = if (is_pointer) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
             const rhs_sub_val = if (is_pointer) (try sema.pointerDeref(block, rhs_src, rhs_val, rhs_ty)).? else rhs_val;
-            var anon_decl = try block.startAnonDecl();
+            var anon_decl = try block.startAnonDecl(LazySrcLoc.unneeded);
             defer anon_decl.deinit();
 
             const buf = try anon_decl.arena().alloc(Value, final_len_including_sent);
@@ -7757,7 +7763,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
         const lhs_sub_val = if (lhs_ty.zigTypeTag() == .Pointer) (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).? else lhs_val;
 
-        var anon_decl = try block.startAnonDecl();
+        var anon_decl = try block.startAnonDecl(src);
         defer anon_decl.deinit();
 
         const final_ty = if (mulinfo.sentinel) |sent|
@@ -9371,7 +9377,7 @@ fn zirBuiltinSrc(
     const func = sema.func orelse return sema.fail(block, src, "@src outside function", .{});
 
     const func_name_val = blk: {
-        var anon_decl = try block.startAnonDecl();
+        var anon_decl = try block.startAnonDecl(src);
         defer anon_decl.deinit();
         const name = std.mem.span(func.owner_decl.name);
         const bytes = try anon_decl.arena().dupe(u8, name[0 .. name.len + 1]);
@@ -9383,7 +9389,7 @@ fn zirBuiltinSrc(
     };
 
     const file_name_val = blk: {
-        var anon_decl = try block.startAnonDecl();
+        var anon_decl = try block.startAnonDecl(src);
         defer anon_decl.deinit();
         const name = try func.owner_decl.getFileScope().fullPathZ(anon_decl.arena());
         const new_decl = try anon_decl.finish(
@@ -9633,7 +9639,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const is_exhaustive = if (ty.isNonexhaustiveEnum()) Value.@"false" else Value.@"true";
 
-            var fields_anon_decl = try block.startAnonDecl();
+            var fields_anon_decl = try block.startAnonDecl(src);
             defer fields_anon_decl.deinit();
 
             const enum_field_ty = t: {
@@ -9664,7 +9670,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
                 const name = enum_fields.keys()[i];
                 const name_val = v: {
-                    var anon_decl = try block.startAnonDecl();
+                    var anon_decl = try block.startAnonDecl(src);
                     defer anon_decl.deinit();
                     const bytes = try anon_decl.arena().dupeZ(u8, name);
                     const new_decl = try anon_decl.finish(
@@ -9729,7 +9735,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .Union => {
             // TODO: look into memoizing this result.
 
-            var fields_anon_decl = try block.startAnonDecl();
+            var fields_anon_decl = try block.startAnonDecl(src);
             defer fields_anon_decl.deinit();
 
             const union_field_ty = t: {
@@ -9753,7 +9759,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const field = union_fields.values()[i];
                 const name = union_fields.keys()[i];
                 const name_val = v: {
-                    var anon_decl = try block.startAnonDecl();
+                    var anon_decl = try block.startAnonDecl(src);
                     defer anon_decl.deinit();
                     const bytes = try anon_decl.arena().dupeZ(u8, name);
                     const new_decl = try anon_decl.finish(
@@ -9824,7 +9830,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .Opaque => {
             // TODO: look into memoizing this result.
 
-            var fields_anon_decl = try block.startAnonDecl();
+            var fields_anon_decl = try block.startAnonDecl(src);
             defer fields_anon_decl.deinit();
 
             const opaque_ty = try sema.resolveTypeFields(block, src, ty);
@@ -9862,7 +9868,7 @@ fn typeInfoDecls(
     const decls_len = namespace.decls.count();
     if (decls_len == 0) return Value.initTag(.empty_array);
 
-    var decls_anon_decl = try block.startAnonDecl();
+    var decls_anon_decl = try block.startAnonDecl(src);
     defer decls_anon_decl.deinit();
 
     const declaration_ty = t: {
@@ -9883,7 +9889,7 @@ fn typeInfoDecls(
         const decl = namespace.decls.values()[i];
         const name = namespace.decls.keys()[i];
         const name_val = v: {
-            var anon_decl = try block.startAnonDecl();
+            var anon_decl = try block.startAnonDecl(src);
             defer anon_decl.deinit();
             const bytes = try anon_decl.arena().dupeZ(u8, name);
             const new_decl = try anon_decl.finish(
@@ -10668,7 +10674,7 @@ fn zirArrayInit(
     } else null;
 
     const runtime_src = opt_runtime_src orelse {
-        var anon_decl = try block.startAnonDecl();
+        var anon_decl = try block.startAnonDecl(src);
         defer anon_decl.deinit();
 
         const elem_vals = try anon_decl.arena().alloc(Value, resolved_args.len);
@@ -10754,7 +10760,7 @@ fn zirArrayInitAnon(
         const tuple_val = try Value.Tag.@"struct".create(sema.arena, values);
         if (!is_ref) return sema.addConstant(tuple_ty, tuple_val);
 
-        var anon_decl = try block.startAnonDecl();
+        var anon_decl = try block.startAnonDecl(src);
         defer anon_decl.deinit();
         const decl = try anon_decl.finish(
             try tuple_ty.copy(anon_decl.arena()),
@@ -11046,7 +11052,7 @@ fn zirTypeName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const ty = try sema.resolveType(block, ty_src, inst_data.operand);
 
-    var anon_decl = try block.startAnonDecl();
+    var anon_decl = try block.startAnonDecl(LazySrcLoc.unneeded);
     defer anon_decl.deinit();
 
     const bytes = try ty.nameAlloc(anon_decl.arena());
@@ -12867,7 +12873,7 @@ fn safetyPanic(
     const msg_inst = msg_inst: {
         // TODO instead of making a new decl for every panic in the entire compilation,
         // introduce the concept of a reference-counted decl for these
-        var anon_decl = try block.startAnonDecl();
+        var anon_decl = try block.startAnonDecl(src);
         defer anon_decl.deinit();
         break :msg_inst try sema.analyzeDeclRef(try anon_decl.finish(
             try Type.Tag.array_u8.create(anon_decl.arena(), msg.len),
@@ -13077,7 +13083,7 @@ fn fieldPtr(
     switch (inner_ty.zigTypeTag()) {
         .Array => {
             if (mem.eql(u8, field_name, "len")) {
-                var anon_decl = try block.startAnonDecl();
+                var anon_decl = try block.startAnonDecl(src);
                 defer anon_decl.deinit();
                 return sema.analyzeDeclRef(try anon_decl.finish(
                     Type.initTag(.comptime_int),
@@ -13103,7 +13109,7 @@ fn fieldPtr(
                 const slice_ptr_ty = inner_ty.slicePtrFieldType(buf);
 
                 if (try sema.resolveDefinedValue(block, object_ptr_src, inner_ptr)) |val| {
-                    var anon_decl = try block.startAnonDecl();
+                    var anon_decl = try block.startAnonDecl(src);
                     defer anon_decl.deinit();
 
                     return sema.analyzeDeclRef(try anon_decl.finish(
@@ -13122,7 +13128,7 @@ fn fieldPtr(
                 return block.addTyOp(.ptr_slice_ptr_ptr, result_ty, inner_ptr);
             } else if (mem.eql(u8, field_name, "len")) {
                 if (try sema.resolveDefinedValue(block, object_ptr_src, inner_ptr)) |val| {
-                    var anon_decl = try block.startAnonDecl();
+                    var anon_decl = try block.startAnonDecl(src);
                     defer anon_decl.deinit();
 
                     return sema.analyzeDeclRef(try anon_decl.finish(
@@ -13172,7 +13178,7 @@ fn fieldPtr(
                         });
                     } else (try sema.mod.getErrorValue(field_name)).key;
 
-                    var anon_decl = try block.startAnonDecl();
+                    var anon_decl = try block.startAnonDecl(src);
                     defer anon_decl.deinit();
                     return sema.analyzeDeclRef(try anon_decl.finish(
                         try child_type.copy(anon_decl.arena()),
@@ -13188,7 +13194,7 @@ fn fieldPtr(
                     if (child_type.unionTagType()) |enum_ty| {
                         if (enum_ty.enumFieldIndex(field_name)) |field_index| {
                             const field_index_u32 = @intCast(u32, field_index);
-                            var anon_decl = try block.startAnonDecl();
+                            var anon_decl = try block.startAnonDecl(src);
                             defer anon_decl.deinit();
                             return sema.analyzeDeclRef(try anon_decl.finish(
                                 try enum_ty.copy(anon_decl.arena()),
@@ -13208,7 +13214,7 @@ fn fieldPtr(
                         return sema.failWithBadMemberAccess(block, child_type, field_name_src, field_name);
                     };
                     const field_index_u32 = @intCast(u32, field_index);
-                    var anon_decl = try block.startAnonDecl();
+                    var anon_decl = try block.startAnonDecl(src);
                     defer anon_decl.deinit();
                     return sema.analyzeDeclRef(try anon_decl.finish(
                         try child_type.copy(anon_decl.arena()),
@@ -13464,7 +13470,7 @@ fn structFieldPtr(
         var offset: u64 = 0;
         var running_bits: u16 = 0;
         for (struct_obj.fields.values()) |f, i| {
-            if (!f.ty.hasCodeGenBits()) continue;
+            if (!(try sema.typeHasRuntimeBits(block, field_name_src, f.ty))) continue;
 
             const field_align = f.packedAlignment();
             if (field_align == 0) {
@@ -14022,7 +14028,6 @@ fn coerce(
 
             // This will give an extra hint on top of what the bottom of this func would provide.
             try sema.checkPtrOperand(block, dest_ty_src, inst_ty);
-            unreachable;
         },
         .Int, .ComptimeInt => switch (inst_ty.zigTypeTag()) {
             .Float, .ComptimeFloat => float: {
@@ -15340,7 +15345,7 @@ fn analyzeRef(
     const operand_ty = sema.typeOf(operand);
 
     if (try sema.resolveMaybeUndefVal(block, src, operand)) |val| {
-        var anon_decl = try block.startAnonDecl();
+        var anon_decl = try block.startAnonDecl(src);
         defer anon_decl.deinit();
         return sema.analyzeDeclRef(try anon_decl.finish(
             try operand_ty.copy(anon_decl.arena()),
@@ -15754,7 +15759,7 @@ fn cmpNumeric(
             lhs_bits = bigint.toConst().bitCountTwosComp();
             break :x (zcmp != .lt);
         } else x: {
-            lhs_bits = lhs_val.intBitCountTwosComp();
+            lhs_bits = lhs_val.intBitCountTwosComp(target);
             break :x (lhs_val.orderAgainstZero() != .lt);
         };
         lhs_bits += @boolToInt(is_unsigned and dest_int_is_signed);
@@ -15789,7 +15794,7 @@ fn cmpNumeric(
             rhs_bits = bigint.toConst().bitCountTwosComp();
             break :x (zcmp != .lt);
         } else x: {
-            rhs_bits = rhs_val.intBitCountTwosComp();
+            rhs_bits = rhs_val.intBitCountTwosComp(target);
             break :x (rhs_val.orderAgainstZero() != .lt);
         };
         rhs_bits += @boolToInt(is_unsigned and dest_int_is_signed);
@@ -16877,6 +16882,7 @@ fn getBuiltinType(
 /// in `Sema` is for calling during semantic analysis, and performs field resolution
 /// to get the answer. The one in `Type` is for calling during codegen and asserts
 /// that the types are already resolved.
+/// TODO assert the return value matches `ty.onePossibleValue`
 pub fn typeHasOnePossibleValue(
     sema: *Sema,
     block: *Block,
@@ -17024,7 +17030,7 @@ pub fn typeHasOnePossibleValue(
         },
         .enum_nonexhaustive => {
             const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
-            if (!tag_ty.hasCodeGenBits()) {
+            if (!(try sema.typeHasRuntimeBits(block, src, tag_ty))) {
                 return Value.zero;
             } else {
                 return null;
@@ -17288,7 +17294,7 @@ fn analyzeComptimeAlloc(
         .@"align" = alignment,
     });
 
-    var anon_decl = try block.startAnonDecl();
+    var anon_decl = try block.startAnonDecl(src);
     defer anon_decl.deinit();
 
     const align_val = if (alignment == 0)
@@ -17478,10 +17484,10 @@ fn typePtrOrOptionalPtrTy(
     }
 }
 
-/// Anything that reports hasCodeGenBits() false returns false here as well.
 /// `generic_poison` will return false.
 /// This function returns false negatives when structs and unions are having their
 /// field types resolved.
+/// TODO assert the return value matches `ty.comptimeOnly`
 fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!bool {
     return switch (ty.tag()) {
         .u1,
@@ -17671,4 +17677,26 @@ fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) C
             return sema.typeRequiresComptime(block, src, tag_ty);
         },
     };
+}
+
+pub fn typeHasRuntimeBits(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!bool {
+    if ((try sema.typeHasOnePossibleValue(block, src, ty)) != null) return false;
+    if (try sema.typeRequiresComptime(block, src, ty)) return false;
+    return true;
+}
+
+/// Synchronize logic with `Type.isFnOrHasRuntimeBits`.
+pub fn fnHasRuntimeBits(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!bool {
+    const fn_info = ty.fnInfo();
+    if (fn_info.is_generic) return false;
+    if (fn_info.is_var_args) return true;
+    switch (fn_info.cc) {
+        // If there was a comptime calling convention, it should also return false here.
+        .Inline => return false,
+        else => {},
+    }
+    if (try sema.typeRequiresComptime(block, src, fn_info.return_type)) {
+        return false;
+    }
+    return true;
 }

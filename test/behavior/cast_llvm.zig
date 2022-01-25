@@ -155,8 +155,12 @@ test "implicit cast *[0]T to E![]const u8" {
 }
 
 var global_array: [4]u8 = undefined;
-test "cast from array reference to fn" {
+test "cast from array reference to fn: comptime fn ptr" {
     const f = @ptrCast(*const fn () callconv(.C) void, &global_array);
+    try expect(@ptrToInt(f) == @ptrToInt(&global_array));
+}
+test "cast from array reference to fn: runtime fn ptr" {
+    var f = @ptrCast(*const fn () callconv(.C) void, &global_array);
     try expect(@ptrToInt(f) == @ptrToInt(&global_array));
 }
 

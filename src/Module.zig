@@ -848,9 +848,11 @@ pub const Struct = struct {
         // which `have_layout` does not ensure.
         fully_resolved,
     },
-    /// If true, definitely nonzero size at runtime. If false, resolving the fields
-    /// is necessary to determine whether it has bits at runtime.
-    known_has_bits: bool,
+    /// If true, has more than one possible value. However it may still be non-runtime type
+    /// if it is a comptime-only type.
+    /// If false, resolving the fields is necessary to determine whether the type has only
+    /// one possible value.
+    known_non_opv: bool,
     requires_comptime: RequiresComptime = .unknown,
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
@@ -1146,7 +1148,7 @@ pub const Union = struct {
     pub fn hasAllZeroBitFieldTypes(u: Union) bool {
         assert(u.haveFieldTypes());
         for (u.fields.values()) |field| {
-            if (field.ty.hasCodeGenBits()) return false;
+            if (field.ty.hasRuntimeBits()) return false;
         }
         return true;
     }
@@ -1156,7 +1158,7 @@ pub const Union = struct {
         var most_alignment: u32 = 0;
         var most_index: usize = undefined;
         for (u.fields.values()) |field, i| {
-            if (!field.ty.hasCodeGenBits()) continue;
+            if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = a: {
                 if (field.abi_align.tag() == .abi_align_default) {
@@ -1177,7 +1179,7 @@ pub const Union = struct {
         var max_align: u32 = 0;
         if (have_tag) max_align = u.tag_ty.abiAlignment(target);
         for (u.fields.values()) |field| {
-            if (!field.ty.hasCodeGenBits()) continue;
+            if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = a: {
                 if (field.abi_align.tag() == .abi_align_default) {
@@ -1230,7 +1232,7 @@ pub const Union = struct {
         var payload_size: u64 = 0;
         var payload_align: u32 = 0;
         for (u.fields.values()) |field, i| {
-            if (!field.ty.hasCodeGenBits()) continue;
+            if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = a: {
                 if (field.abi_align.tag() == .abi_align_default) {
@@ -3457,7 +3459,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         .zir_index = undefined, // set below
         .layout = .Auto,
         .status = .none,
-        .known_has_bits = undefined,
+        .known_non_opv = undefined,
         .namespace = .{
             .parent = null,
             .ty = struct_ty,
@@ -3694,7 +3696,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             var type_changed = true;
 
             if (decl.has_tv) {
-                prev_type_has_bits = decl.ty.hasCodeGenBits();
+                prev_type_has_bits = decl.ty.isFnOrHasRuntimeBits();
                 type_changed = !decl.ty.eql(decl_tv.ty);
                 if (decl.getFunction()) |prev_func| {
                     prev_is_inline = prev_func.state == .inline_only;
@@ -3714,8 +3716,9 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             decl.analysis = .complete;
             decl.generation = mod.generation;
 
-            const is_inline = decl_tv.ty.fnCallingConvention() == .Inline;
-            if (!is_inline and decl_tv.ty.hasCodeGenBits()) {
+            const has_runtime_bits = try sema.fnHasRuntimeBits(&block_scope, src, decl.ty);
+
+            if (has_runtime_bits) {
                 // We don't fully codegen the decl until later, but we do need to reserve a global
                 // offset table index for it. This allows us to codegen decls out of dependency
                 // order, increasing how many computations can be done in parallel.
@@ -3728,6 +3731,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
                 mod.comp.bin_file.freeDecl(decl);
             }
 
+            const is_inline = decl.ty.fnCallingConvention() == .Inline;
             if (decl.is_exported) {
                 const export_src = src; // TODO make this point at `export` token
                 if (is_inline) {
@@ -3748,6 +3752,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
     decl.owns_tv = false;
     var queue_linker_work = false;
+    var is_extern = false;
     switch (decl_tv.val.tag()) {
         .variable => {
             const variable = decl_tv.val.castTag(.variable).?.data;
@@ -3764,6 +3769,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             if (decl == owner_decl) {
                 decl.owns_tv = true;
                 queue_linker_work = true;
+                is_extern = true;
             }
         },
 
@@ -3789,7 +3795,10 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     decl.analysis = .complete;
     decl.generation = mod.generation;
 
-    if (queue_linker_work and decl.ty.hasCodeGenBits()) {
+    const has_runtime_bits = is_extern or
+        (queue_linker_work and try sema.typeHasRuntimeBits(&block_scope, src, decl.ty));
+
+    if (has_runtime_bits) {
         log.debug("queue linker work for {*} ({s})", .{ decl, decl.name });
 
         try mod.comp.bin_file.allocateDeclIndexes(decl);
@@ -4290,7 +4299,7 @@ pub fn clearDecl(
     mod.deleteDeclExports(decl);
 
     if (decl.has_tv) {
-        if (decl.ty.hasCodeGenBits()) {
+        if (decl.ty.isFnOrHasRuntimeBits()) {
             mod.comp.bin_file.freeDecl(decl);
 
             // TODO instead of a union, put this memory trailing Decl objects,
@@ -4343,7 +4352,7 @@ pub fn deleteUnusedDecl(mod: *Module, decl: *Decl) void {
     switch (mod.comp.bin_file.tag) {
         .c => {}, // this linker backend has already migrated to the new API
         else => if (decl.has_tv) {
-            if (decl.ty.hasCodeGenBits()) {
+            if (decl.ty.isFnOrHasRuntimeBits()) {
                 mod.comp.bin_file.freeDecl(decl);
             }
         },
@@ -4740,7 +4749,7 @@ pub fn createAnonymousDeclFromDeclNamed(
     // if the Decl is referenced by an instruction or another constant. Otherwise,
     // the Decl will be garbage collected by the `codegen_decl` task instead of sent
     // to the linker.
-    if (typed_value.ty.hasCodeGenBits()) {
+    if (typed_value.ty.isFnOrHasRuntimeBits()) {
         try mod.comp.bin_file.allocateDeclIndexes(new_decl);
         try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = new_decl });
     }

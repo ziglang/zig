@@ -2703,7 +2703,6 @@ fn processOneJob(comp: *Compilation, job: Job, main_progress_node: *std.Progress
 
                 const module = comp.bin_file.options.module.?;
                 assert(decl.has_tv);
-                assert(decl.ty.hasCodeGenBits());
 
                 if (decl.alive) {
                     try module.linkerUpdateDecl(decl);

@@ -377,7 +377,7 @@ pub fn generateSymbol(
             const field_vals = typed_value.val.castTag(.@"struct").?.data;
             for (field_vals) |field_val, index| {
                 const field_ty = typed_value.ty.structFieldType(index);
-                if (!field_ty.hasCodeGenBits()) continue;
+                if (!field_ty.hasRuntimeBits()) continue;
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = field_ty,
                     .val = field_val,
