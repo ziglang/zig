@@ -1287,6 +1287,7 @@ fn buildOutputType(
             var it = ClangArgIterator.init(arena, all_args);
             var emit_llvm = false;
             var needed = false;
+            var must_link = false;
             var force_static_libs = false;
             while (it.has_next) {
                 it.next() catch |err| {
@@ -1307,7 +1308,10 @@ fn buildOutputType(
                         switch (file_ext) {
                             .assembly, .c, .cpp, .ll, .bc, .h, .m, .mm => try c_source_files.append(.{ .src_path = it.only_arg }),
                             .unknown, .shared_library, .object, .static_library => {
-                                try link_objects.append(.{ .path = it.only_arg });
+                                try link_objects.append(.{
+                                    .path = it.only_arg,
+                                    .must_link = must_link,
+                                });
                             },
                             .zig => {
                                 if (root_src_file) |other| {
@@ -1372,6 +1376,14 @@ fn buildOutputType(
                                 needed = false;
                             } else if (mem.eql(u8, linker_arg, "--no-as-needed")) {
                                 needed = true;
+                            } else if (mem.eql(u8, linker_arg, "--whole-archive") or
+                                mem.eql(u8, linker_arg, "-whole-archive"))
+                            {
+                                must_link = true;
+                            } else if (mem.eql(u8, linker_arg, "--no-whole-archive") or
+                                mem.eql(u8, linker_arg, "-no-whole-archive"))
+                            {
+                                must_link = false;
                             } else if (mem.eql(u8, linker_arg, "-Bdynamic") or
                                 mem.eql(u8, linker_arg, "-dy") or
                                 mem.eql(u8, linker_arg, "-call_shared"))
@@ -1663,6 +1675,12 @@ fn buildOutputType(
                     // This option does not do anything.
                 } else if (mem.eql(u8, arg, "--export-all-symbols")) {
                     rdynamic = true;
+                } else if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip-all") or
+                    mem.eql(u8, arg, "-S") or mem.eql(u8, arg, "--strip-debug"))
+                {
+                    // -s, --strip-all             Strip all symbols
+                    // -S, --strip-debug           Strip debugging symbols
+                    strip = true;
                 } else if (mem.eql(u8, arg, "--start-group") or
                     mem.eql(u8, arg, "--end-group"))
                 {
