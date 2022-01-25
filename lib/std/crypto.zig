@@ -158,7 +158,7 @@ pub const nacl = struct {
 pub const utils = @import("crypto/utils.zig");
 
 /// This is a thread-local, cryptographically secure pseudo random number generator.
-pub const random = &@import("crypto/tlcsprng.zig").interface;
+pub const random = @import("crypto/tlcsprng.zig").interface;
 
 const std = @import("std.zig");
 
