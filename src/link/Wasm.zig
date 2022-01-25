@@ -1223,6 +1223,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         man.hash.addOptional(self.base.options.max_memory);
         man.hash.addOptional(self.base.options.global_base);
         man.hash.add(self.base.options.export_symbol_names.len);
+        // strip does not need to go into the linker hash because it is part of the hash namespace
         for (self.base.options.export_symbol_names) |symbol_name| {
             man.hash.addBytes(symbol_name);
         }
@@ -1309,6 +1310,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         if (self.base.options.export_table) {
             assert(!self.base.options.import_table);
             try argv.append("--export-table");
+        }
+
+        if (self.base.options.strip) {
+            try argv.append("-s");
         }
 
         if (self.base.options.initial_memory) |initial_memory| {
