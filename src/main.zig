@@ -672,6 +672,7 @@ fn buildOutputType(
     var enable_link_snapshots: bool = false;
     var native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null;
     var install_name: ?[]const u8 = null;
+    var hash_style: link.HashStyle = .both;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -1778,6 +1779,19 @@ fn buildOutputType(
                         .path = linker_args.items[i],
                         .must_link = true,
                     });
+                } else if (mem.eql(u8, arg, "-hash-style") or
+                    mem.eql(u8, arg, "--hash-style"))
+                {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    const next_arg = linker_args.items[i];
+                    hash_style = std.meta.stringToEnum(link.HashStyle, next_arg) orelse {
+                        fatal("expected [sysv|gnu|both] after --hash-style, found '{s}'", .{
+                            next_arg,
+                        });
+                    };
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
@@ -1847,8 +1861,12 @@ fn buildOutputType(
                     }
                 },
             }
-            if (c_source_files.items.len == 0 and link_objects.items.len == 0) {
+            if (c_source_files.items.len == 0 and
+                link_objects.items.len == 0 and
+                root_src_file == null)
+            {
                 // For example `zig cc` and no args should print the "no input files" message.
+                // There could be other reasons to punt to clang, for example, --help.
                 return punt_to_clang(arena, all_args);
             }
         },
@@ -2491,6 +2509,7 @@ fn buildOutputType(
         .use_lld = use_lld,
         .use_clang = use_clang,
         .use_stage1 = use_stage1,
+        .hash_style = hash_style,
         .rdynamic = rdynamic,
         .linker_script = linker_script,
         .version_script = version_script,

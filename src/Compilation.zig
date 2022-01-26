@@ -770,6 +770,7 @@ pub const InitOptions = struct {
     /// infinite recursion.
     skip_linker_dependencies: bool = false,
     parent_compilation_link_libc: bool = false,
+    hash_style: link.HashStyle = .both,
     entry: ?[]const u8 = null,
     stack_size_override: ?u64 = null,
     image_base_override: ?u64 = null,
@@ -1520,6 +1521,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .is_test = options.is_test,
             .wasi_exec_model = wasi_exec_model,
             .use_stage1 = use_stage1,
+            .hash_style = options.hash_style,
             .enable_link_snapshots = options.enable_link_snapshots,
             .native_darwin_sdk = options.native_darwin_sdk,
             .install_name = options.install_name,
