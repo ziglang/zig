@@ -186,6 +186,19 @@ pub const Inst = struct {
         mov_mem_index_imm,
 
         /// ops flags: form:
+        ///      0b00  reg1, reg2,
+        ///      0b01  reg1, byte ptr [reg2 + imm32]
+        ///      0b10  reg1, word ptr [reg2 + imm32]
+        ///      0b11  reg1, dword ptr [reg2 + imm32]
+        mov_sign_extend,
+
+        /// ops flags: form:
+        ///      0b00  reg1, reg2
+        ///      0b01  reg1, byte ptr [reg2 + imm32]
+        ///      0b10  reg1, word ptr [reg2 + imm32]
+        mov_zero_extend,
+
+        /// ops flags: form:
         ///      0b00  reg1, [reg2 + imm32]
         ///      0b00  reg1, [ds:imm32]
         ///      0b01  reg1, [rip + imm32]

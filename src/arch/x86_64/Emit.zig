@@ -125,6 +125,9 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .cmp_mem_index_imm => try emit.mirArithMemIndexImm(.cmp, inst),
             .mov_mem_index_imm => try emit.mirArithMemIndexImm(.mov, inst),
 
+            .mov_sign_extend => try emit.mirMovSignExtend(inst),
+            .mov_zero_extend => try emit.mirMovZeroExtend(inst),
+
             .movabs => try emit.mirMovabs(inst),
 
             .lea => try emit.mirLea(inst),
@@ -188,14 +191,6 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     return error.EmitFail;
 }
 
-fn failWithLoweringError(emit: *Emit, err: LoweringError) InnerError {
-    return switch (err) {
-        error.RaxOperandExpected => emit.fail("Register.rax expected as destination operand", .{}),
-        error.OperandSizeMismatch => emit.fail("operand size mismatch", .{}),
-        else => |e| e,
-    };
-}
-
 fn fixupRelocs(emit: *Emit) InnerError!void {
     // TODO this function currently assumes all relocs via JMP/CALL instructions are 32bit in size.
     // This should be reversed like it is done in aarch64 MIR emit code: start with the smallest
@@ -210,15 +205,15 @@ fn fixupRelocs(emit: *Emit) InnerError!void {
 }
 
 fn mirBrk(emit: *Emit) InnerError!void {
-    return lowerToZoEnc(.brk, emit.code) catch |err| emit.failWithLoweringError(err);
+    return lowerToZoEnc(.brk, emit.code);
 }
 
 fn mirNop(emit: *Emit) InnerError!void {
-    return lowerToZoEnc(.nop, emit.code) catch |err| emit.failWithLoweringError(err);
+    return lowerToZoEnc(.nop, emit.code);
 }
 
 fn mirSyscall(emit: *Emit) InnerError!void {
-    return lowerToZoEnc(.syscall, emit.code) catch |err| emit.failWithLoweringError(err);
+    return lowerToZoEnc(.syscall, emit.code);
 }
 
 fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
@@ -226,7 +221,7 @@ fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     switch (ops.flags) {
         0b00 => {
             // PUSH/POP reg
-            return lowerToOEnc(tag, ops.reg1, emit.code) catch |err| emit.failWithLoweringError(err);
+            return lowerToOEnc(tag, ops.reg1, emit.code);
         },
         0b01 => {
             // PUSH/POP r/m64
@@ -238,14 +233,13 @@ fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
             return lowerToMEnc(tag, RegisterOrMemory.mem(ptr_size, .{
                 .disp = imm,
                 .base = ops.reg1,
-            }), emit.code) catch |err| emit.failWithLoweringError(err);
+            }), emit.code);
         },
         0b10 => {
             // PUSH imm32
             assert(tag == .push);
             const imm = emit.mir.instructions.items(.data)[inst].imm;
-            return lowerToIEnc(.push, imm, emit.code) catch |err|
-                emit.failWithLoweringError(err);
+            return lowerToIEnc(.push, imm, emit.code);
         },
         0b11 => unreachable,
     }
@@ -259,15 +253,15 @@ fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.I
     for (bits.callee_preserved_regs) |reg, i| {
         if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
         if (tag == .push) {
-            lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
+            try lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
                 .disp = @bitCast(u32, -@intCast(i32, disp)),
                 .base = ops.reg1,
-            }), reg.to64(), emit.code) catch |err| return emit.failWithLoweringError(err);
+            }), reg.to64(), emit.code);
         } else {
-            lowerToRmEnc(.mov, reg.to64(), RegisterOrMemory.mem(.qword_ptr, .{
+            try lowerToRmEnc(.mov, reg.to64(), RegisterOrMemory.mem(.qword_ptr, .{
                 .disp = @bitCast(u32, -@intCast(i32, disp)),
                 .base = ops.reg1,
-            }), emit.code) catch |err| return emit.failWithLoweringError(err);
+            }), emit.code);
         }
         disp += 8;
     }
@@ -279,8 +273,7 @@ fn mirJmpCall(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
         0b00 => {
             const target = emit.mir.instructions.items(.data)[inst].inst;
             const source = emit.code.items.len;
-            lowerToDEnc(tag, 0, emit.code) catch |err|
-                return emit.failWithLoweringError(err);
+            try lowerToDEnc(tag, 0, emit.code);
             try emit.relocs.append(emit.bin_file.allocator, .{
                 .source = source,
                 .target = target,
@@ -296,11 +289,10 @@ fn mirJmpCall(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
                     16 => .word_ptr,
                     else => .qword_ptr,
                 };
-                return lowerToMEnc(tag, RegisterOrMemory.mem(ptr_size, .{ .disp = imm }), emit.code) catch |err|
-                    emit.failWithLoweringError(err);
+                return lowerToMEnc(tag, RegisterOrMemory.mem(ptr_size, .{ .disp = imm }), emit.code);
             }
             // JMP/CALL reg
-            return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1), emit.code) catch |err| emit.failWithLoweringError(err);
+            return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1), emit.code);
         },
         0b10 => {
             // JMP/CALL r/m64
@@ -308,7 +300,7 @@ fn mirJmpCall(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
             return lowerToMEnc(tag, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
                 .disp = imm,
                 .base = ops.reg1,
-            }), emit.code) catch |err| emit.failWithLoweringError(err);
+            }), emit.code);
         },
         0b11 => return emit.fail("TODO unused JMP/CALL variant 0b11", .{}),
     }
@@ -337,8 +329,7 @@ fn mirCondJmp(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerErr
         else => unreachable,
     };
     const source = emit.code.items.len;
-    lowerToDEnc(tag, 0, emit.code) catch |err|
-        return emit.failWithLoweringError(err);
+    try lowerToDEnc(tag, 0, emit.code);
     try emit.relocs.append(emit.bin_file.allocator, .{
         .source = source,
         .target = target,
@@ -368,8 +359,7 @@ fn mirCondSetByte(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) Inne
         },
         else => unreachable,
     };
-    return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1.to8()), emit.code) catch |err|
-        emit.failWithLoweringError(err);
+    return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1.to8()), emit.code);
 }
 
 fn mirTest(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
@@ -385,11 +375,9 @@ fn mirTest(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                 if (ops.reg1.to64() == .rax) {
                     // TEST rax, imm32
                     // I
-                    return lowerToIEnc(.@"test", imm, emit.code) catch |err|
-                        emit.failWithLoweringError(err);
+                    return lowerToIEnc(.@"test", imm, emit.code);
                 }
-                return lowerToMiEnc(.@"test", RegisterOrMemory.reg(ops.reg1), imm, emit.code) catch |err|
-                    emit.failWithLoweringError(err);
+                return lowerToMiEnc(.@"test", RegisterOrMemory.reg(ops.reg1), imm, emit.code);
             }
             // TEST r/m64, r64
             return emit.fail("TODO TEST r/m64, r64", .{});
@@ -407,19 +395,19 @@ fn mirRet(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             // RETF imm16
             // I
             const imm = emit.mir.instructions.items(.data)[inst].imm;
-            return lowerToIEnc(.ret_far, imm, emit.code) catch |err| emit.failWithLoweringError(err);
+            return lowerToIEnc(.ret_far, imm, emit.code);
         },
         0b01 => {
-            return lowerToZoEnc(.ret_far, emit.code) catch |err| emit.failWithLoweringError(err);
+            return lowerToZoEnc(.ret_far, emit.code);
         },
         0b10 => {
             // RET imm16
             // I
             const imm = emit.mir.instructions.items(.data)[inst].imm;
-            return lowerToIEnc(.ret_near, imm, emit.code) catch |err| emit.failWithLoweringError(err);
+            return lowerToIEnc(.ret_near, imm, emit.code);
         },
         0b11 => {
-            return lowerToZoEnc(.ret_near, emit.code) catch |err| emit.failWithLoweringError(err);
+            return lowerToZoEnc(.ret_near, emit.code);
         },
     }
 }
@@ -432,13 +420,11 @@ fn mirArith(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
                 // mov reg1, imm32
                 // MI
                 const imm = emit.mir.instructions.items(.data)[inst].imm;
-                return lowerToMiEnc(tag, RegisterOrMemory.reg(ops.reg1), imm, emit.code) catch |err|
-                    emit.failWithLoweringError(err);
+                return lowerToMiEnc(tag, RegisterOrMemory.reg(ops.reg1), imm, emit.code);
             }
             // mov reg1, reg2
             // RM
-            return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code) catch |err|
-                emit.failWithLoweringError(err);
+            return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
         },
         0b01 => {
             // mov reg1, [reg2 + imm32]
@@ -448,7 +434,7 @@ fn mirArith(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
             return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg1.size()), .{
                 .disp = imm,
                 .base = src_reg,
-            }), emit.code) catch |err| emit.failWithLoweringError(err);
+            }), emit.code);
         },
         0b10 => {
             if (ops.reg2 == .none) {
@@ -460,7 +446,7 @@ fn mirArith(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
             return lowerToMrEnc(tag, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg2.size()), .{
                 .disp = imm,
                 .base = ops.reg1,
-            }), ops.reg2, emit.code) catch |err| emit.failWithLoweringError(err);
+            }), ops.reg2, emit.code);
         },
         0b11 => {
             return emit.fail("TODO unused variant: mov reg1, reg2, 0b11", .{});
@@ -482,7 +468,7 @@ fn mirArithMemImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     return lowerToMiEnc(tag, RegisterOrMemory.mem(ptr_size, .{
         .disp = imm_pair.dest_off,
         .base = ops.reg1,
-    }), imm_pair.operand, emit.code) catch |err| emit.failWithLoweringError(err);
+    }), imm_pair.operand, emit.code);
 }
 
 inline fn setRexWRegister(reg: Register) bool {
@@ -517,7 +503,7 @@ fn mirArithScaleSrc(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
         .disp = imm,
         .base = ops.reg2,
         .scale_index = scale_index,
-    }), emit.code) catch |err| emit.failWithLoweringError(err);
+    }), emit.code);
 }
 
 fn mirArithScaleDst(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
@@ -534,14 +520,14 @@ fn mirArithScaleDst(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
             .disp = 0,
             .base = ops.reg1,
             .scale_index = scale_index,
-        }), imm, emit.code) catch |err| emit.failWithLoweringError(err);
+        }), imm, emit.code);
     }
     // OP [reg1 + scale*rax + imm32], reg2
     return lowerToMrEnc(tag, RegisterOrMemory.mem(Memory.PtrSize.fromBits(ops.reg2.size()), .{
         .disp = imm,
         .base = ops.reg1,
         .scale_index = scale_index,
-    }), ops.reg2, emit.code) catch |err| emit.failWithLoweringError(err);
+    }), ops.reg2, emit.code);
 }
 
 fn mirArithScaleImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
@@ -558,7 +544,7 @@ fn mirArithScaleImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
         .disp = imm_pair.dest_off,
         .base = ops.reg1,
         .scale_index = scale_index,
-    }), imm_pair.operand, emit.code) catch |err| emit.failWithLoweringError(err);
+    }), imm_pair.operand, emit.code);
 }
 
 fn mirArithMemIndexImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
@@ -581,7 +567,65 @@ fn mirArithMemIndexImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!v
         .disp = imm_pair.dest_off,
         .base = ops.reg1,
         .scale_index = scale_index,
-    }), imm_pair.operand, emit.code) catch |err| emit.failWithLoweringError(err);
+    }), imm_pair.operand, emit.code);
+}
+
+fn mirMovSignExtend(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const mir_tag = emit.mir.instructions.items(.tag)[inst];
+    assert(mir_tag == .mov_sign_extend);
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const imm = if (ops.flags != 0b00) emit.mir.instructions.items(.data)[inst].imm else undefined;
+    switch (ops.flags) {
+        0b00 => {
+            const tag: Tag = if (ops.reg2.size() == 32) .movsxd else .movsx;
+            return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
+        },
+        0b01 => {
+            return lowerToRmEnc(.movsx, ops.reg1, RegisterOrMemory.mem(.byte_ptr, .{
+                .disp = imm,
+                .base = ops.reg2,
+            }), emit.code);
+        },
+        0b10 => {
+            return lowerToRmEnc(.movsx, ops.reg1, RegisterOrMemory.mem(.word_ptr, .{
+                .disp = imm,
+                .base = ops.reg2,
+            }), emit.code);
+        },
+        0b11 => {
+            return lowerToRmEnc(.movsxd, ops.reg1, RegisterOrMemory.mem(.dword_ptr, .{
+                .disp = imm,
+                .base = ops.reg2,
+            }), emit.code);
+        },
+    }
+}
+
+fn mirMovZeroExtend(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const mir_tag = emit.mir.instructions.items(.tag)[inst];
+    assert(mir_tag == .mov_zero_extend);
+    const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
+    const imm = if (ops.flags != 0b00) emit.mir.instructions.items(.data)[inst].imm else undefined;
+    switch (ops.flags) {
+        0b00 => {
+            return lowerToRmEnc(.movzx, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
+        },
+        0b01 => {
+            return lowerToRmEnc(.movzx, ops.reg1, RegisterOrMemory.mem(.byte_ptr, .{
+                .disp = imm,
+                .base = ops.reg2,
+            }), emit.code);
+        },
+        0b10 => {
+            return lowerToRmEnc(.movzx, ops.reg1, RegisterOrMemory.mem(.word_ptr, .{
+                .disp = imm,
+                .base = ops.reg2,
+            }), emit.code);
+        },
+        0b11 => {
+            return emit.fail("TODO unused variant: movzx 0b11", .{});
+        },
+    }
 }
 
 fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
@@ -596,16 +640,16 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     if (ops.flags == 0b00) {
         // movabs reg, imm64
         // OI
-        return lowerToOiEnc(.mov, ops.reg1, imm, emit.code) catch |err| emit.failWithLoweringError(err);
+        return lowerToOiEnc(.mov, ops.reg1, imm, emit.code);
     }
     if (ops.reg1 == .none) {
         // movabs moffs64, rax
         // TD
-        return lowerToTdEnc(.mov, imm, ops.reg2, emit.code) catch |err| emit.failWithLoweringError(err);
+        return lowerToTdEnc(.mov, imm, ops.reg2, emit.code);
     }
     // movabs rax, moffs64
     // FD
-    return lowerToFdEnc(.mov, ops.reg1, imm, emit.code) catch |err| emit.failWithLoweringError(err);
+    return lowerToFdEnc(.mov, ops.reg1, imm, emit.code);
 }
 
 fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
@@ -614,13 +658,11 @@ fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = Mir.Ops.decode(emit.mir.instructions.items(.ops)[inst]);
     switch (ops.flags) {
         0b00 => {
-            return lowerToRmEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code) catch |err|
-                emit.failWithLoweringError(err);
+            return lowerToRmEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
         },
         0b10 => {
             const imm = emit.mir.instructions.items(.data)[inst].imm;
-            return lowerToRmiEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), imm, emit.code) catch |err|
-                emit.failWithLoweringError(err);
+            return lowerToRmiEnc(.imul, ops.reg1, RegisterOrMemory.reg(ops.reg2), imm, emit.code);
         },
         else => return emit.fail("TODO implement imul", .{}),
     }
@@ -644,18 +686,18 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                     .base = src_reg,
                 }),
                 emit.code,
-            ) catch |err| emit.failWithLoweringError(err);
+            );
         },
         0b01 => {
             // lea reg1, [rip + imm32]
             // RM
             const start_offset = emit.code.items.len;
-            lowerToRmEnc(
+            try lowerToRmEnc(
                 .lea,
                 ops.reg1,
                 RegisterOrMemory.rip(Memory.PtrSize.fromBits(ops.reg1.size()), 0),
                 emit.code,
-            ) catch |err| return emit.failWithLoweringError(err);
+            );
             const end_offset = emit.code.items.len;
             // Backpatch the displacement
             const payload = emit.mir.instructions.items(.data)[inst].payload;
@@ -666,12 +708,12 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         0b10 => {
             // lea reg1, [rip + reloc]
             // RM
-            lowerToRmEnc(
+            try lowerToRmEnc(
                 .lea,
                 ops.reg1,
                 RegisterOrMemory.rip(Memory.PtrSize.fromBits(ops.reg1.size()), 0),
                 emit.code,
-            ) catch |err| return emit.failWithLoweringError(err);
+            );
             const end_offset = emit.code.items.len;
             const got_entry = emit.mir.instructions.items(.data)[inst].got_entry;
             if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
@@ -710,7 +752,7 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                     .scale_index = scale_index,
                 }),
                 emit.code,
-            ) catch |err| emit.failWithLoweringError(err);
+            );
         },
     }
 }
@@ -721,8 +763,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const n_strx = emit.mir.instructions.items(.data)[inst].extern_fn;
     const offset = blk: {
         // callq
-        lowerToDEnc(.call_near, 0, emit.code) catch |err|
-            return emit.failWithLoweringError(err);
+        try lowerToDEnc(.call_near, 0, emit.code);
         break :blk @intCast(u32, emit.code.items.len) - 4;
     };
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
@@ -934,6 +975,9 @@ const Tag = enum {
     sbb,
     cmp,
     mov,
+    movsx,
+    movsxd,
+    movzx,
     lea,
     jmp_near,
     call_near,
@@ -1200,6 +1244,9 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) ?OpCode {
             .sbb => OpCode.oneByte(if (is_one_byte) 0x1a else 0x1b),
             .cmp => OpCode.oneByte(if (is_one_byte) 0x3a else 0x3b),
             .mov => OpCode.oneByte(if (is_one_byte) 0x8a else 0x8b),
+            .movsx => OpCode.twoByte(0x0f, if (is_one_byte) 0xbe else 0xbf),
+            .movsxd => OpCode.oneByte(0x63),
+            .movzx => OpCode.twoByte(0x0f, if (is_one_byte) 0xb6 else 0xb7),
             .lea => OpCode.oneByte(if (is_one_byte) 0x8c else 0x8d),
             .imul => OpCode.twoByte(0x0f, 0xaf),
             else => null,
@@ -1367,6 +1414,10 @@ const Memory = struct {
             encoder.disp32(@bitCast(i32, mem_op.disp));
         }
     }
+
+    fn size(memory: Memory) u64 {
+        return memory.ptr_size.size();
+    }
 };
 
 fn encodeImm(encoder: Encoder, imm: u32, size: u64) void {
@@ -1411,21 +1462,22 @@ const RegisterOrMemory = union(enum) {
             },
         };
     }
+
+    fn size(reg_or_mem: RegisterOrMemory) u64 {
+        return switch (reg_or_mem) {
+            .register => |reg| reg.size(),
+            .memory => |memory| memory.size(),
+        };
+    }
 };
 
-const LoweringError = error{
-    OutOfMemory,
-    OperandSizeMismatch,
-    RaxOperandExpected,
-};
-
-fn lowerToZoEnc(tag: Tag, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToZoEnc(tag: Tag, code: *std.ArrayList(u8)) InnerError!void {
     const opc = getOpCode(tag, .zo, false).?;
     const encoder = try Encoder.init(code, 1);
     opc.encode(encoder);
 }
 
-fn lowerToIEnc(tag: Tag, imm: u32, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToIEnc(tag: Tag, imm: u32, code: *std.ArrayList(u8)) InnerError!void {
     if (tag == .ret_far or tag == .ret_near) {
         const encoder = try Encoder.init(code, 3);
         const opc = getOpCode(tag, .i, false).?;
@@ -1442,10 +1494,7 @@ fn lowerToIEnc(tag: Tag, imm: u32, code: *std.ArrayList(u8)) LoweringError!void 
     encodeImm(encoder, imm, immOpSize(imm));
 }
 
-fn lowerToOEnc(tag: Tag, reg: Register, code: *std.ArrayList(u8)) LoweringError!void {
-    if (reg.size() != 16 and reg.size() != 64) {
-        return error.OperandSizeMismatch; // TODO correct for push/pop, but is it universal?
-    }
+fn lowerToOEnc(tag: Tag, reg: Register, code: *std.ArrayList(u8)) InnerError!void {
     const opc = getOpCode(tag, .o, false).?;
     const encoder = try Encoder.init(code, 3);
     if (reg.size() == 16) {
@@ -1458,26 +1507,18 @@ fn lowerToOEnc(tag: Tag, reg: Register, code: *std.ArrayList(u8)) LoweringError!
     opc.encodeWithReg(encoder, reg);
 }
 
-fn lowerToDEnc(tag: Tag, imm: u32, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToDEnc(tag: Tag, imm: u32, code: *std.ArrayList(u8)) InnerError!void {
     const opc = getOpCode(tag, .d, false).?;
     const encoder = try Encoder.init(code, 6);
     opc.encode(encoder);
     encoder.imm32(@bitCast(i32, imm));
 }
 
-fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8)) InnerError!void {
     const opc = getOpCode(tag, .m, false).?;
     const modrm_ext = getModRmExt(tag).?;
     switch (reg_or_mem) {
         .register => |reg| {
-            const op_size_mismatch = blk: {
-                if (tag.isSetCC() and reg.size() == 8)
-                    break :blk false;
-                break :blk reg.size() != 64 and reg.size() != 16;
-            };
-            if (op_size_mismatch) {
-                return error.OperandSizeMismatch;
-            }
             const encoder = try Encoder.init(code, 4);
             if (reg.size() == 16) {
                 encoder.prefix16BitMode();
@@ -1493,17 +1534,11 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
             encoder.modRm_direct(modrm_ext, reg.lowId());
         },
         .memory => |mem_op| {
-            if (mem_op.ptr_size != .qword_ptr and mem_op.ptr_size != .word_ptr) {
-                return error.OperandSizeMismatch;
-            }
             const encoder = try Encoder.init(code, 8);
             if (mem_op.ptr_size == .word_ptr) {
                 encoder.prefix16BitMode();
             }
             if (mem_op.base) |base| {
-                if (base.size() != 64) {
-                    return error.OperandSizeMismatch;
-                }
                 encoder.rex(.{
                     .w = false,
                     .b = base.isExtended(),
@@ -1515,18 +1550,15 @@ fn lowerToMEnc(tag: Tag, reg_or_mem: RegisterOrMemory, code: *std.ArrayList(u8))
     }
 }
 
-fn lowerToTdEnc(tag: Tag, moffs: u64, reg: Register, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToTdEnc(tag: Tag, moffs: u64, reg: Register, code: *std.ArrayList(u8)) InnerError!void {
     return lowerToTdFdEnc(tag, reg, moffs, code, true);
 }
 
-fn lowerToFdEnc(tag: Tag, reg: Register, moffs: u64, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToFdEnc(tag: Tag, reg: Register, moffs: u64, code: *std.ArrayList(u8)) InnerError!void {
     return lowerToTdFdEnc(tag, reg, moffs, code, false);
 }
 
-fn lowerToTdFdEnc(tag: Tag, reg: Register, moffs: u64, code: *std.ArrayList(u8), td: bool) LoweringError!void {
-    if (reg.lowId() != Register.rax.lowId()) {
-        return error.RaxOperandExpected;
-    }
+fn lowerToTdFdEnc(tag: Tag, reg: Register, moffs: u64, code: *std.ArrayList(u8), td: bool) InnerError!void {
     const opc = if (td)
         getOpCode(tag, .td, reg.size() == 8).?
     else
@@ -1548,7 +1580,7 @@ fn lowerToTdFdEnc(tag: Tag, reg: Register, moffs: u64, code: *std.ArrayList(u8),
     }
 }
 
-fn lowerToOiEnc(tag: Tag, reg: Register, imm: u64, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToOiEnc(tag: Tag, reg: Register, imm: u64, code: *std.ArrayList(u8)) InnerError!void {
     const opc = getOpCode(tag, .oi, reg.size() == 8).?;
     const encoder = try Encoder.init(code, 10);
     if (reg.size() == 16) {
@@ -1568,11 +1600,11 @@ fn lowerToOiEnc(tag: Tag, reg: Register, imm: u64, code: *std.ArrayList(u8)) Low
     }
 }
 
-fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: u32, code: *std.ArrayList(u8)) LoweringError!void {
+fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: u32, code: *std.ArrayList(u8)) InnerError!void {
     const modrm_ext = getModRmExt(tag).?;
+    const opc = getOpCode(tag, .mi, reg_or_mem.size() == 8).?;
     switch (reg_or_mem) {
         .register => |dst_reg| {
-            const opc = getOpCode(tag, .mi, dst_reg.size() == 8).?;
             const encoder = try Encoder.init(code, 7);
             if (dst_reg.size() == 16) {
                 // 0x66 prefix switches to the non-default size; here we assume a switch from
@@ -1589,15 +1621,11 @@ fn lowerToMiEnc(tag: Tag, reg_or_mem: RegisterOrMemory, imm: u32, code: *std.Arr
             encodeImm(encoder, imm, dst_reg.size());
         },
         .memory => |dst_mem| {
-            const opc = getOpCode(tag, .mi, dst_mem.ptr_size == .byte_ptr).?;
             const encoder = try Encoder.init(code, 12);
             if (dst_mem.ptr_size == .word_ptr) {
                 encoder.prefix16BitMode();
             }
             if (dst_mem.base) |base| {
-                if (base.size() != 64) {
-                    return error.OperandSizeMismatch;
-                }
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr,
                     .b = base.isExtended(),
@@ -1619,13 +1647,10 @@ fn lowerToRmEnc(
     reg: Register,
     reg_or_mem: RegisterOrMemory,
     code: *std.ArrayList(u8),
-) LoweringError!void {
-    const opc = getOpCode(tag, .rm, reg.size() == 8).?;
+) InnerError!void {
+    const opc = getOpCode(tag, .rm, reg.size() == 8 or reg_or_mem.size() == 8).?;
     switch (reg_or_mem) {
         .register => |src_reg| {
-            if (reg.size() != src_reg.size()) {
-                return error.OperandSizeMismatch;
-            }
             const encoder = try Encoder.init(code, 4);
             encoder.rex(.{
                 .w = setRexWRegister(reg) or setRexWRegister(src_reg),
@@ -1636,9 +1661,6 @@ fn lowerToRmEnc(
             encoder.modRm_direct(reg.lowId(), src_reg.lowId());
         },
         .memory => |src_mem| {
-            if (reg.size() != src_mem.ptr_size.size()) {
-                return error.OperandSizeMismatch;
-            }
             const encoder = try Encoder.init(code, 9);
             if (reg.size() == 16) {
                 encoder.prefix16BitMode();
@@ -1646,9 +1668,6 @@ fn lowerToRmEnc(
             if (src_mem.base) |base| {
                 // TODO handle 32-bit base register - requires prefix 0x67
                 // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
-                if (base.size() != 64) {
-                    return error.OperandSizeMismatch;
-                }
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
@@ -1671,13 +1690,10 @@ fn lowerToMrEnc(
     reg_or_mem: RegisterOrMemory,
     reg: Register,
     code: *std.ArrayList(u8),
-) LoweringError!void {
-    const opc = getOpCode(tag, .mr, reg.size() == 8).?;
+) InnerError!void {
+    const opc = getOpCode(tag, .mr, reg.size() == 8 or reg_or_mem.size() == 8).?;
     switch (reg_or_mem) {
         .register => |dst_reg| {
-            if (dst_reg.size() != reg.size()) {
-                return error.OperandSizeMismatch;
-            }
             const encoder = try Encoder.init(code, 3);
             encoder.rex(.{
                 .w = setRexWRegister(dst_reg) or setRexWRegister(reg),
@@ -1688,17 +1704,11 @@ fn lowerToMrEnc(
             encoder.modRm_direct(reg.lowId(), dst_reg.lowId());
         },
         .memory => |dst_mem| {
-            if (dst_mem.ptr_size.size() != reg.size()) {
-                return error.OperandSizeMismatch;
-            }
             const encoder = try Encoder.init(code, 9);
             if (reg.size() == 16) {
                 encoder.prefix16BitMode();
             }
             if (dst_mem.base) |base| {
-                if (base.size() != 64) {
-                    return error.OperandSizeMismatch;
-                }
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
                     .r = reg.isExtended(),
@@ -1722,10 +1732,7 @@ fn lowerToRmiEnc(
     reg_or_mem: RegisterOrMemory,
     imm: u32,
     code: *std.ArrayList(u8),
-) LoweringError!void {
-    if (reg.size() == 8) {
-        return error.OperandSizeMismatch;
-    }
+) InnerError!void {
     const opc = getOpCode(tag, .rmi, false).?;
     const encoder = try Encoder.init(code, 13);
     if (reg.size() == 16) {
@@ -1733,9 +1740,6 @@ fn lowerToRmiEnc(
     }
     switch (reg_or_mem) {
         .register => |src_reg| {
-            if (reg.size() != src_reg.size()) {
-                return error.OperandSizeMismatch;
-            }
             encoder.rex(.{
                 .w = setRexWRegister(reg) or setRexWRegister(src_reg),
                 .r = reg.isExtended(),
@@ -1748,12 +1752,6 @@ fn lowerToRmiEnc(
             if (src_mem.base) |base| {
                 // TODO handle 32-bit base register - requires prefix 0x67
                 // Intel Manual, Vol 1, chapter 3.6 and 3.6.1
-                if (base.size() != 64) {
-                    return error.OperandSizeMismatch;
-                }
-                if (src_mem.ptr_size == .byte_ptr) {
-                    return error.OperandSizeMismatch;
-                }
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
