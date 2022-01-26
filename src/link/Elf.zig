@@ -1413,7 +1413,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 1);
+        comptime assert(Compilation.link_hash_implementation_version == 2);
 
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
@@ -1447,6 +1447,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.add(self.base.options.z_noexecstack);
         man.hash.add(self.base.options.z_now);
         man.hash.add(self.base.options.z_relro);
+        man.hash.add(self.base.options.hash_style);
         // strip does not need to go into the linker hash because it is part of the hash namespace
         if (self.base.options.link_libc) {
             man.hash.add(self.base.options.libc_installation != null);
@@ -1556,6 +1557,12 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         if (self.base.options.entry) |entry| {
             try argv.append("--entry");
             try argv.append(entry);
+        }
+
+        switch (self.base.options.hash_style) {
+            .gnu => try argv.append("--hash-style=gnu"),
+            .sysv => try argv.append("--hash-style=sysv"),
+            .both => {}, // this is the default
         }
 
         if (self.base.options.output_mode == .Exe) {

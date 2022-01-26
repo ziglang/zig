@@ -941,7 +941,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 1);
+        comptime assert(Compilation.link_hash_implementation_version == 2);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
