@@ -2137,7 +2137,7 @@ pub const Dir = struct {
         defer atomic_file.deinit();
 
         try copy_file(in_file.handle, atomic_file.file.handle);
-        return try atomic_file.finish();
+        try atomic_file.finish();
     }
 
     pub const AtomicFileOptions = struct {
