@@ -16,34 +16,20 @@ pub const Method = enum {
     PATCH,
 
     /// Returns true if a request of this method is allowed to have a body
-    /// Returns null if it also depends on other conditions
-    pub fn requestHasBody(self: Method) ?bool {
+    /// Actual behavior from servers may vary and should still be checked
+    pub fn requestHasBody(self: Method) bool {
         return switch (self) {
-            .GET => false,
-            .HEAD => false,
-            .POST => true,
-            .PUT => true,
-            .DELETE => null,
-            .CONNECT => false,
-            .OPTIONS => false,
-            .TRACE => false,
-            .PATCH => true,
+            .POST, .PUT, .PATCH => true,
+            .GET, .HEAD, .DELETE, .CONNECT, .OPTIONS, .TRACE => false,
         };
     }
 
     /// Returns true if a response to this method is allowed to have a body
-    /// Returns null if it also depends on other conditions
-    pub fn responseHasBody(self: Method) ?bool {
+    /// Actual behavior from clients may vary and should still be checked
+    pub fn responseHasBody(self: Method) bool {
         return switch (self) {
-            .GET => true,
-            .HEAD => false,
-            .POST => true,
-            .PUT => false,
-            .DELETE => null,
-            .CONNECT => true,
-            .OPTIONS => true,
-            .TRACE => false,
-            .PATCH => true,
+            .GET, .POST, .DELETE, .CONNECT, .OPTIONS, .PATCH => true,
+            .HEAD, .PUT, .TRACE => false,
         };
     }
 
