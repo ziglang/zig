@@ -72,15 +72,129 @@ pub fn typeToCIdentifier(t: Type) std.fmt.Formatter(formatTypeAsCIdentifier) {
     return .{ .data = t };
 }
 
+const reserved_idents = std.ComptimeStringMap(void, .{
+    .{ "_Alignas", {
+        @setEvalBranchQuota(4000);
+    } },
+    .{ "_Alignof", {} },
+    .{ "_Atomic", {} },
+    .{ "_Bool", {} },
+    .{ "_Complex", {} },
+    .{ "_Decimal128", {} },
+    .{ "_Decimal32", {} },
+    .{ "_Decimal64", {} },
+    .{ "_Generic", {} },
+    .{ "_Imaginary", {} },
+    .{ "_Noreturn", {} },
+    .{ "_Pragma", {} },
+    .{ "_Static_assert", {} },
+    .{ "_Thread_local", {} },
+    .{ "alignas", {} },
+    .{ "alignof", {} },
+    .{ "asm", {} },
+    .{ "atomic_bool", {} },
+    .{ "atomic_char", {} },
+    .{ "atomic_char16_t", {} },
+    .{ "atomic_char32_t", {} },
+    .{ "atomic_int", {} },
+    .{ "atomic_int_fast16_t", {} },
+    .{ "atomic_int_fast32_t", {} },
+    .{ "atomic_int_fast64_t", {} },
+    .{ "atomic_int_fast8_t", {} },
+    .{ "atomic_int_least16_t", {} },
+    .{ "atomic_int_least32_t", {} },
+    .{ "atomic_int_least64_t", {} },
+    .{ "atomic_int_least8_t", {} },
+    .{ "atomic_intmax_t", {} },
+    .{ "atomic_intptr_t", {} },
+    .{ "atomic_llong", {} },
+    .{ "atomic_long", {} },
+    .{ "atomic_ptrdiff_t", {} },
+    .{ "atomic_schar", {} },
+    .{ "atomic_short", {} },
+    .{ "atomic_size_t", {} },
+    .{ "atomic_uchar", {} },
+    .{ "atomic_uint", {} },
+    .{ "atomic_uint_fast16_t", {} },
+    .{ "atomic_uint_fast32_t", {} },
+    .{ "atomic_uint_fast64_t", {} },
+    .{ "atomic_uint_fast8_t", {} },
+    .{ "atomic_uint_least16_t", {} },
+    .{ "atomic_uint_least32_t", {} },
+    .{ "atomic_uint_least64_t", {} },
+    .{ "atomic_uint_least8_t", {} },
+    .{ "atomic_uintmax_t", {} },
+    .{ "atomic_uintptr_t", {} },
+    .{ "atomic_ullong", {} },
+    .{ "atomic_ulong", {} },
+    .{ "atomic_ushort", {} },
+    .{ "atomic_wchar_t", {} },
+    .{ "auto", {} },
+    .{ "bool", {} },
+    .{ "break", {} },
+    .{ "case", {} },
+    .{ "char", {} },
+    .{ "complex", {} },
+    .{ "const", {} },
+    .{ "continue", {} },
+    .{ "default", {} },
+    .{ "do", {} },
+    .{ "double", {} },
+    .{ "else", {} },
+    .{ "enum", {} },
+    .{ "extern ", {} },
+    .{ "float", {} },
+    .{ "for", {} },
+    .{ "fortran", {} },
+    .{ "goto", {} },
+    .{ "if", {} },
+    .{ "imaginary", {} },
+    .{ "inline", {} },
+    .{ "int", {} },
+    .{ "int16_t", {} },
+    .{ "int32_t", {} },
+    .{ "int64_t", {} },
+    .{ "int8_t", {} },
+    .{ "intptr_t", {} },
+    .{ "long", {} },
+    .{ "noreturn", {} },
+    .{ "register", {} },
+    .{ "restrict", {} },
+    .{ "return", {} },
+    .{ "short ", {} },
+    .{ "signed", {} },
+    .{ "size_t", {} },
+    .{ "sizeof", {} },
+    .{ "ssize_t", {} },
+    .{ "static", {} },
+    .{ "static_assert", {} },
+    .{ "struct", {} },
+    .{ "switch", {} },
+    .{ "thread_local", {} },
+    .{ "typedef", {} },
+    .{ "uint16_t", {} },
+    .{ "uint32_t", {} },
+    .{ "uint64_t", {} },
+    .{ "uint8_t", {} },
+    .{ "uintptr_t", {} },
+    .{ "union", {} },
+    .{ "unsigned", {} },
+    .{ "void", {} },
+    .{ "volatile", {} },
+    .{ "while ", {} },
+});
+
 fn formatIdent(
     ident: []const u8,
     comptime fmt: []const u8,
     options: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
-    _ = fmt;
     _ = options;
-    try writer.writeAll("__"); // Add double underscore to avoid conflicting with C's reserved keywords
+    const solo = fmt.len != 0 and fmt[0] == ' '; // space means solo; not part of a bigger ident.
+    if (solo and reserved_idents.has(ident)) {
+        try writer.writeAll("zig_e_");
+    }
     for (ident) |c, i| {
         switch (c) {
             'a'...'z', 'A'...'Z', '_' => try writer.writeByte(c),
@@ -612,7 +726,7 @@ pub const DeclGen = struct {
                 const field_ty = ty.unionFields().values()[index].ty;
                 const field_name = ty.unionFields().keys()[index];
                 if (field_ty.hasRuntimeBits()) {
-                    try writer.print(".{} = ", .{fmtIdent(field_name)});
+                    try writer.print(".{ } = ", .{fmtIdent(field_name)});
                     try dg.renderValue(writer, field_ty, union_obj.val);
                 }
                 if (ty.unionTagType()) |_| {
@@ -796,7 +910,7 @@ pub const DeclGen = struct {
         try buffer.appendSlice("} ");
 
         const name_start = buffer.items.len;
-        try buffer.writer().print("zig_S_{s};\n", .{fmtIdent(fqn)});
+        try buffer.writer().print("zig_S_{};\n", .{fmtIdent(fqn)});
 
         const rendered = buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
@@ -852,7 +966,7 @@ pub const DeclGen = struct {
         }
 
         const name_start = buffer.items.len;
-        try buffer.writer().print("zig_U_{s};\n", .{fmtIdent(fqn)});
+        try buffer.writer().print("zig_U_{};\n", .{fmtIdent(fqn)});
 
         const rendered = buffer.toOwnedSlice();
         errdefer dg.typedefs.allocator.free(rendered);
@@ -1140,7 +1254,7 @@ pub const DeclGen = struct {
                 try w.writeByte('&');
                 return dg.renderDeclName(decl, w);
             },
-            .identifier => |ident| return w.print("{}", .{fmtIdent(ident)}),
+            .identifier => |ident| return w.print("{ }", .{fmtIdent(ident)}),
             .bytes => |bytes| return w.writeAll(bytes),
         }
     }
@@ -1154,7 +1268,7 @@ pub const DeclGen = struct {
             const gpa = dg.module.gpa;
             const name = try decl.getFullyQualifiedName(gpa);
             defer gpa.free(name);
-            return writer.print("{}", .{fmtIdent(name)});
+            return writer.print("{ }", .{fmtIdent(name)});
         }
     }
 };
@@ -2785,12 +2899,14 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
     const local = try f.allocLocal(inst_ty, .Const);
     switch (struct_ptr) {
         .local_ref => |i| {
-            try writer.print(" = {s}t{d}.{s}{};\n", .{ addrof, i, payload, fmtIdent(field_name) });
+            try writer.print(" = {s}t{d}.{s}{ };\n", .{
+                addrof, i, payload, fmtIdent(field_name),
+            });
         },
         else => {
             try writer.print(" = {s}", .{addrof});
             try f.writeCValue(writer, struct_ptr);
-            try writer.print("->{s}{};\n", .{ payload, fmtIdent(field_name) });
+            try writer.print("->{s}{ };\n", .{ payload, fmtIdent(field_name) });
         },
     }
     return local;
@@ -2816,7 +2932,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocLocal(inst_ty, .Const);
     try writer.writeAll(" = ");
     try f.writeCValue(writer, struct_byval);
-    try writer.print(".{s}{};\n", .{ payload, fmtIdent(field_name) });
+    try writer.print(".{s}{ };\n", .{ payload, fmtIdent(field_name) });
     return local;
 }
 
