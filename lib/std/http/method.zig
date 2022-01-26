@@ -38,15 +38,8 @@ pub const Method = enum {
     /// https://datatracker.ietf.org/doc/html/rfc7231#section-4.2.1
     pub fn safe(self: Method) bool {
         return switch (self) {
-            .GET => true,
-            .HEAD => true,
-            .POST => false,
-            .PUT => false,
-            .DELETE => false,
-            .CONNECT => false,
-            .OPTIONS => true,
-            .TRACE => true,
-            .PATCH => false,
+            .GET, .HEAD, .OPTIONS, .TRACE => true,
+            .POST, .PUT, .DELETE, .CONNECT, .PATCH => false,
         };
     }
 
@@ -55,15 +48,8 @@ pub const Method = enum {
     /// https://datatracker.ietf.org/doc/html/rfc7231#section-4.2.2
     pub fn idempotent(self: Method) bool {
         return switch (self) {
-            .GET => true,
-            .HEAD => true,
-            .POST => false,
-            .PUT => true,
-            .DELETE => true,
-            .CONNECT => false,
-            .OPTIONS => true,
-            .TRACE => true,
-            .PATCH => false,
+            .GET, .HEAD, .PUT, .DELETE, .OPTIONS, .TRACE => true,
+            .CONNECT, .POST, .PATCH => false,
         };
     }
 
@@ -72,15 +58,8 @@ pub const Method = enum {
     /// https://datatracker.ietf.org/doc/html/rfc7231#section-4.2.3
     pub fn cacheable(self: Method) bool {
         return switch (self) {
-            .GET => true,
-            .HEAD => true,
-            .POST => false,
-            .PUT => false,
-            .DELETE => false,
-            .CONNECT => false,
-            .OPTIONS => false,
-            .TRACE => false,
-            .PATCH => false,
+            .GET, .HEAD => true,
+            .POST, .PUT, .DELETE, .CONNECT, .OPTIONS, .TRACE, .PATCH => false,
         };
     }
 };
