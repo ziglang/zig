@@ -328,6 +328,16 @@ pub const Context = struct {
 
     pattern_list: PatternList,
 
+    /// This is used to emit different code depending on whether
+    /// the output zig source code is intended to be compiled with stage1 or stage2.
+    /// Ideally we will have stage1 and stage2 support the exact same Zig language,
+    /// but for now they diverge because I would rather focus on finishing and shipping
+    /// stage2 than implementing the features in stage1.
+    /// The list of differences are currently:
+    /// * function pointers in stage1 are e.g. `fn()void`
+    ///          but in stage2 they are `*const fn()void`.
+    zig_is_stage1: bool,
+
     fn getMangle(c: *Context) u32 {
         c.mangle_count += 1;
         return c.mangle_count;
@@ -356,6 +366,7 @@ pub fn translate(
     args_end: [*]?[*]const u8,
     errors: *[]ClangErrMsg,
     resources_path: [*:0]const u8,
+    zig_is_stage1: bool,
 ) !std.zig.Ast {
     const ast_unit = clang.LoadFromCommandLine(
         args_begin,
@@ -383,6 +394,7 @@ pub fn translate(
         .global_scope = try arena_allocator.create(Scope.Root),
         .clang_context = ast_unit.getASTContext(),
         .pattern_list = try PatternList.init(gpa),
+        .zig_is_stage1 = zig_is_stage1,
     };
     context.global_scope.* = Scope.Root.init(&context);
     defer {
@@ -3630,7 +3642,7 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
         else
             return transCreatePreCrement(c, scope, stmt, .sub_assign, used),
         .AddrOf => {
-            if (cIsFunctionDeclRef(op_expr)) {
+            if (c.zig_is_stage1 and cIsFunctionDeclRef(op_expr)) {
                 return transExpr(c, scope, op_expr, used);
             }
             return Tag.address_of.create(c.arena, try transExpr(c, scope, op_expr, used));
@@ -4656,18 +4668,27 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
         },
         .Pointer => {
             const child_qt = ty.getPointeeType();
-            if (qualTypeChildIsFnProto(child_qt)) {
+            const is_fn_proto = qualTypeChildIsFnProto(child_qt);
+            if (c.zig_is_stage1 and is_fn_proto) {
                 return Tag.optional_type.create(c.arena, try transQualType(c, scope, child_qt, source_loc));
             }
-            const is_const = child_qt.isConstQualified();
+            const is_const = is_fn_proto or child_qt.isConstQualified();
             const is_volatile = child_qt.isVolatileQualified();
             const elem_type = try transQualType(c, scope, child_qt, source_loc);
-            if (typeIsOpaque(c, child_qt.getTypePtr(), source_loc) or qualTypeWasDemotedToOpaque(c, child_qt)) {
-                const ptr = try Tag.single_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
+            const ptr_info = .{
+                .is_const = is_const,
+                .is_volatile = is_volatile,
+                .elem_type = elem_type,
+            };
+            if (is_fn_proto or
+                typeIsOpaque(c, child_qt.getTypePtr(), source_loc) or
+                qualTypeWasDemotedToOpaque(c, child_qt))
+            {
+                const ptr = try Tag.single_pointer.create(c.arena, ptr_info);
                 return Tag.optional_type.create(c.arena, ptr);
             }
 
-            return Tag.c_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
+            return Tag.c_pointer.create(c.arena, ptr_info);
         },
         .ConstantArray => {
             const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, ty);
@@ -6517,8 +6538,16 @@ fn getFnProto(c: *Context, ref: Node) ?*ast.Payload.Func {
         return null;
     if (getContainerTypeOf(c, init)) |ty_node| {
         if (ty_node.castTag(.optional_type)) |prefix| {
-            if (prefix.data.castTag(.func)) |fn_proto| {
-                return fn_proto;
+            if (c.zig_is_stage1) {
+                if (prefix.data.castTag(.func)) |fn_proto| {
+                    return fn_proto;
+                }
+            } else {
+                if (prefix.data.castTag(.single_pointer)) |sp| {
+                    if (sp.data.elem_type.castTag(.func)) |fn_proto| {
+                        return fn_proto;
+                    }
+                }
             }
         }
     }

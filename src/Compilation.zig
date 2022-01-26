@@ -3305,7 +3305,10 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     var man = comp.obtainCObjectCacheManifest();
     defer man.deinit();
 
+    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
+
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
+    man.hash.add(use_stage1);
     man.hash.addBytes(c_src);
 
     // If the previous invocation resulted in clang errors, we will see a hit
@@ -3369,6 +3372,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
             new_argv.ptr + new_argv.len,
             &clang_errors,
             c_headers_dir_path_z,
+            use_stage1,
         ) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ASTUnitFailure => {
