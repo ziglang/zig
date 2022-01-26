@@ -75,12 +75,14 @@ pub const Status = enum(u10) {
 
     pub fn phrase(self: Status) ?[]const u8 {
         return switch (self) {
+            // 1xx statuses
             .@"continue" => "Continue",
             .switching_protcols => "Switching Protocols",
             .processing => "Processing",
             .early_hints => "Early Hints",
-            .ok => "OK",
 
+            // 2xx statuses
+            .ok => "OK",
             .created => "Created",
             .accepted => "Accepted",
             .non_authoritative_info => "Non-Authoritative Information",
@@ -91,6 +93,7 @@ pub const Status = enum(u10) {
             .already_reported => "Already Reported",
             .im_used => "IM Used",
 
+            // 3xx statuses
             .multiple_choice => "Multiple Choice",
             .moved_permanently => "Moved Permanently",
             .found => "Found",
@@ -100,6 +103,7 @@ pub const Status = enum(u10) {
             .temporary_redirect => "Temporary Redirect",
             .permanent_redirect => "Permanent Redirect",
 
+            // 4xx statuses
             .bad_request => "Bad Request",
             .unauthorized => "Unauthorized",
             .payment_required => "Payment Required",
@@ -130,6 +134,7 @@ pub const Status = enum(u10) {
             .header_fields_too_large => "Request Header Fields Too Large",
             .unavailable_for_legal_reasons => "Unavailable For Legal Reasons",
 
+            // 5xx statuses
             .internal_server_error => "Internal Server Error",
             .not_implemented => "Not Implemented",
             .bad_gateway => "Bad Gateway",
