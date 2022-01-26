@@ -2,18 +2,14 @@ const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const leb128 = std.leb;
 const link = @import("../../link.zig");
 const log = std.log.scoped(.codegen);
 const math = std.math;
 const mem = std.mem;
-const trace = @import("../../tracy.zig").trace;
 
 const Air = @import("../../Air.zig");
 const Allocator = mem.Allocator;
-const Compilation = @import("../../Compilation.zig");
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
-const DW = std.dwarf;
 const ErrorMsg = Module.ErrorMsg;
 const FnResult = @import("../../codegen.zig").FnResult;
 const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
@@ -22,10 +18,8 @@ const Liveness = @import("../../Liveness.zig");
 const Mir = @import("Mir.zig");
 const Module = @import("../../Module.zig");
 const RegisterManager = @import("../../register_manager.zig").RegisterManager;
-const Target = std.Target;
 const Type = @import("../../type.zig").Type;
 const TypedValue = @import("../../TypedValue.zig");
-const Value = @import("../../value.zig").Value;
 const Zir = @import("../../Zir.zig");
 
 const InnerError = error{
@@ -4286,10 +4280,6 @@ fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerErro
 }
 
 const Register = @import("bits.zig").Register;
-
-const Instruction = void;
-
-const Condition = void;
 
 const callee_preserved_regs = @import("bits.zig").callee_preserved_regs;
 

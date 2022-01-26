@@ -4,7 +4,6 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
-const Type = @import("../type.zig").Type;
 const Allocator = std.mem.Allocator;
 
 pub const Node = extern union {

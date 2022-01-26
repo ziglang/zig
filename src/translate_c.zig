@@ -5,7 +5,6 @@ const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 const clang = @import("clang.zig");
-const ctok = std.c.tokenizer;
 const CToken = std.c.Token;
 const mem = std.mem;
 const math = std.math;

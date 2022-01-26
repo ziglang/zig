@@ -1,7 +1,6 @@
 const Dylib = @This();
 
 const std = @import("std");
-const assert = std.debug.assert;
 const fs = std.fs;
 const fmt = std.fmt;
 const log = std.log.scoped(.link);
@@ -12,7 +11,6 @@ const fat = @import("fat.zig");
 
 const Allocator = mem.Allocator;
 const LibStub = @import("../tapi.zig").LibStub;
-const MachO = @import("../MachO.zig");
 
 file: fs.File,
 name: []const u8,

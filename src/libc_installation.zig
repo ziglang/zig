@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Target = std.Target;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const Batch = std.event.Batch;

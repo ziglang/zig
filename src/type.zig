@@ -4,7 +4,6 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Target = std.Target;
 const Module = @import("Module.zig");
-const log = std.log.scoped(.Type);
 const target_util = @import("target.zig");
 
 const file_struct = @This();

@@ -6,7 +6,6 @@ state: State = .lhs,
 
 const std = @import("std");
 const testing = std.testing;
-const assert = std.debug.assert;
 
 pub fn next(self: *Tokenizer) ?Token {
     var start = self.index;

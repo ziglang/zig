@@ -2,15 +2,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
-const log = std.log.scoped(.c);
 
-const link = @import("../link.zig");
 const Module = @import("../Module.zig");
-const Compilation = @import("../Compilation.zig");
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 const TypedValue = @import("../TypedValue.zig");
-const C = link.File.C;
 const Decl = Module.Decl;
 const trace = @import("../tracy.zig").trace;
 const LazySrcLoc = Module.LazySrcLoc;

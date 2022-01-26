@@ -33,7 +33,6 @@ const Trie = @This();
 const std = @import("std");
 const mem = std.mem;
 const leb = std.leb;
-const log = std.log.scoped(.link);
 const macho = std.macho;
 const testing = std.testing;
 const assert = std.debug.assert;

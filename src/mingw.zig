@@ -1,8 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const mem = std.mem;
 const path = std.fs.path;
-const assert = std.debug.assert;
 const log = std.log.scoped(.mingw);
 
 const target_util = @import("target.zig");

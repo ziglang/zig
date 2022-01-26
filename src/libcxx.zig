@@ -1,5 +1,4 @@
 const std = @import("std");
-const path = std.fs.path;
 const assert = std.debug.assert;
 
 const target_util = @import("target.zig");

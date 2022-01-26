@@ -1,7 +1,6 @@
 const Atom = @This();
 
 const std = @import("std");
-const build_options = @import("build_options");
 const aarch64 = @import("../../arch/aarch64/bits.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
@@ -12,7 +11,6 @@ const meta = std.meta;
 const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
-const Arch = std.Target.Cpu.Arch;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const StringIndexAdapter = std.hash_map.StringIndexAdapter;

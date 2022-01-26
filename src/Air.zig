@@ -7,7 +7,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
-const Module = @import("Module.zig");
 const assert = std.debug.assert;
 const Air = @This();
 

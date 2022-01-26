@@ -7,7 +7,6 @@ const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 
 const Compilation = @import("Compilation.zig");
-const Module = @import("Module.zig");
 
 pub const Table = std.StringHashMapUnmanaged(*Package);
 

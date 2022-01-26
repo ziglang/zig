@@ -5,8 +5,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
-const CrossTarget = std.zig.CrossTarget;
-const Target = std.Target;
 const builtin = @import("builtin");
 
 const build_options = @import("build_options");

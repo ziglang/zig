@@ -1,7 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Target = std.Target;
-const log = std.log.scoped(.codegen);
 const assert = std.debug.assert;
 
 const spec = @import("spirv/spec.zig");

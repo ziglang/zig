@@ -15,7 +15,6 @@ const assert = std.debug.assert;
 const DW = std.dwarf;
 const leb128 = std.leb;
 const Instruction = bits.Instruction;
-const Register = bits.Register;
 const log = std.log.scoped(.aarch64_emit);
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const CodeGen = @import("CodeGen.zig");

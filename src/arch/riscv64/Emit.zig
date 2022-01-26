@@ -3,7 +3,6 @@
 
 const Emit = @This();
 const std = @import("std");
-const math = std.math;
 const Mir = @import("Mir.zig");
 const bits = @import("bits.zig");
 const link = @import("../../link.zig");
@@ -13,7 +12,6 @@ const assert = std.debug.assert;
 const DW = std.dwarf;
 const leb128 = std.leb;
 const Instruction = bits.Instruction;
-const Register = bits.Register;
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 
 mir: Mir,

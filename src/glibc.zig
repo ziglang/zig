@@ -12,7 +12,6 @@ const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
 const Cache = @import("Cache.zig");
-const Package = @import("Package.zig");
 
 pub const Lib = struct {
     name: []const u8,

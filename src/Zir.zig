@@ -12,11 +12,8 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const BigIntConst = std.math.big.int.Const;
-const BigIntMutable = std.math.big.int.Mutable;
 const Ast = std.zig.Ast;
 
 const Zir = @This();

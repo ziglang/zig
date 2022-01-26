@@ -8,8 +8,6 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.compilation);
 const Target = std.Target;
 
-const Value = @import("value.zig").Value;
-const Type = @import("type.zig").Type;
 const target_util = @import("target.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");

@@ -8,8 +8,6 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const assert = std.debug.assert;
 const log = std.log.scoped(.module);
-const BigIntConst = std.math.big.int.Const;
-const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Ast = std.zig.Ast;
 

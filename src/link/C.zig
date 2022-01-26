@@ -1,8 +1,6 @@
 const std = @import("std");
-const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const fs = std.fs;
 
 const C = @This();
 const Module = @import("../Module.zig");

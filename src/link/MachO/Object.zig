@@ -1,7 +1,6 @@
 const Object = @This();
 
 const std = @import("std");
-const build_options = @import("build_options");
 const assert = std.debug.assert;
 const dwarf = std.dwarf;
 const fs = std.fs;

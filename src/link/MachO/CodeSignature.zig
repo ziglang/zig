@@ -3,7 +3,6 @@ const CodeSignature = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const fs = std.fs;
-const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;

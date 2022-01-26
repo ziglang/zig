@@ -1239,7 +1239,7 @@ pub const Value = extern union {
             .int_u64 => {
                 const x = self.castTag(.int_u64).?.data;
                 if (x == 0) return 0;
-                return @intCast(usize, std.math.log2(x) + 1);
+                return @intCast(usize, log2(x) + 1);
             },
             .int_big_positive => return self.castTag(.int_big_positive).?.asBigInt().bitCountTwosComp(),
             .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt().bitCountTwosComp(),
@@ -1301,7 +1301,7 @@ pub const Value = extern union {
                     const x = self.castTag(.int_u64).?.data;
                     if (x == 0) return true;
                     const info = ty.intInfo(target);
-                    const needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
+                    const needed_bits = log2(x) + 1 + @boolToInt(info.signedness == .signed);
                     return info.bits >= needed_bits;
                 },
                 .ComptimeInt => return true,
@@ -2186,7 +2186,7 @@ pub const Value = extern union {
         }
 
         const w_value = std.math.fabs(scalar);
-        return @divFloor(@floatToInt(std.math.big.Limb, std.math.log2(w_value)), @typeInfo(std.math.big.Limb).Int.bits) + 1;
+        return @divFloor(@floatToInt(std.math.big.Limb, log2(w_value)), @typeInfo(std.math.big.Limb).Int.bits) + 1;
     }
 
     pub const OverflowArithmeticResult = struct {

@@ -4,20 +4,16 @@ const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const fmt = std.fmt;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
-const meta = std.meta;
 
 const aarch64 = @import("../arch/aarch64/bits.zig");
 const bind = @import("MachO/bind.zig");
 const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
-const llvm_backend = @import("../codegen/llvm.zig");
-const target_util = @import("../target.zig");
 const trace = @import("../tracy.zig").trace;
 
 const Air = @import("../Air.zig");
@@ -231,12 +227,6 @@ decls: std.AutoArrayHashMapUnmanaged(*Module.Decl, ?MatchingSection) = .{},
 /// to codegen.genSetReg() or alternatively move PIE displacement for MCValue{ .memory = x }
 /// somewhere else in the codegen.
 active_decl: ?*Module.Decl = null,
-
-const PendingUpdate = union(enum) {
-    resolve_undef: u32,
-    add_stub_entry: u32,
-    add_got_entry: u32,
-};
 
 const SymbolWithLoc = struct {
     // Table where the symbol can be found.

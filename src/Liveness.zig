@@ -8,7 +8,6 @@
 const Liveness = @This();
 const std = @import("std");
 const trace = @import("tracy.zig").trace;
-const log = std.log.scoped(.liveness);
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Air = @import("Air.zig");

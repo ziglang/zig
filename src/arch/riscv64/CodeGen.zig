@@ -9,17 +9,12 @@ const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
 const Type = @import("../../type.zig").Type;
-const Value = @import("../../value.zig").Value;
 const TypedValue = @import("../../TypedValue.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
-const Compilation = @import("../../Compilation.zig");
 const ErrorMsg = Module.ErrorMsg;
-const Target = std.Target;
 const Allocator = mem.Allocator;
-const trace = @import("../../tracy.zig").trace;
 const DW = std.dwarf;
-const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 const RegisterManager = @import("../../register_manager.zig").RegisterManager;
@@ -2434,7 +2429,6 @@ fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerErro
 }
 
 const Register = @import("bits.zig").Register;
-const Instruction = @import("bits.zig").Instruction;
 const callee_preserved_regs = @import("bits.zig").callee_preserved_regs;
 
 fn parseRegName(name: []const u8) ?Register {

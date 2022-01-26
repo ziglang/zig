@@ -5,7 +5,6 @@ const path = std.fs.path;
 const Allocator = std.mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
-const target_util = @import("target.zig");
 const musl = @import("musl.zig");
 
 pub const CRTFile = enum {

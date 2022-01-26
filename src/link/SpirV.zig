@@ -25,7 +25,6 @@ const SpirV = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const log = std.log.scoped(.link);
 
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");

@@ -12,7 +12,6 @@ const warn = std.log.warn;
 
 const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
-const link = @import("link.zig");
 const Package = @import("Package.zig");
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");

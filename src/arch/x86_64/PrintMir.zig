@@ -5,23 +5,10 @@ const Print = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const bits = @import("bits.zig");
-const leb128 = std.leb;
 const link = @import("../../link.zig");
-const log = std.log.scoped(.codegen);
-const math = std.math;
-const mem = std.mem;
 
 const Air = @import("../../Air.zig");
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
-const DW = std.dwarf;
-const Encoder = bits.Encoder;
-const ErrorMsg = Module.ErrorMsg;
-const MCValue = @import("CodeGen.zig").MCValue;
 const Mir = @import("Mir.zig");
-const Module = @import("../../Module.zig");
-const Instruction = bits.Instruction;
-const Register = bits.Register;
-const Type = @import("../../type.zig").Type;
 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
 mir: Mir,

@@ -1,5 +1,4 @@
 const std = @import("std");
-const Order = std.math.Order;
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const RangeSet = @This();

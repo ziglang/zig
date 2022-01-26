@@ -11,7 +11,6 @@ const DW = std.dwarf;
 const leb = std.leb;
 const Allocator = mem.Allocator;
 
-const build_options = @import("build_options");
 const trace = @import("../../tracy.zig").trace;
 const Module = @import("../../Module.zig");
 const Type = @import("../../type.zig").Type;

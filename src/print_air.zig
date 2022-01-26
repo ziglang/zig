@@ -2,7 +2,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
-const Module = @import("Module.zig");
 const Value = @import("value.zig").Value;
 const Zir = @import("Zir.zig");
 const Air = @import("Air.zig");

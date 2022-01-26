@@ -9,7 +9,6 @@ const assert = std.debug.assert;
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
 const trace = @import("tracy.zig").trace;
-const Package = @import("Package.zig");
 const Type = @import("type.zig").Type;
 const Cache = @import("Cache.zig");
 const build_options = @import("build_options");

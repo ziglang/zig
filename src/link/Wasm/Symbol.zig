@@ -3,7 +3,6 @@
 const Symbol = @This();
 
 const std = @import("std");
-const types = @import("types.zig");
 
 /// Bitfield containings flags for a symbol
 /// Can contain any of the flags defined in `Flag`
