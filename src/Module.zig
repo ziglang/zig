@@ -935,6 +935,8 @@ pub const Struct = struct {
             .tagged_union_enum_tag_trailing,
             => return queryFieldSrc(tree.*, query, file, tree.taggedUnionEnumTag(node)),
 
+            .root => return queryFieldSrc(tree.*, query, file, tree.containerDeclRoot()),
+
             else => unreachable,
         }
     }

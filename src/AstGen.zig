@@ -131,20 +131,11 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     };
     defer gz_instructions.deinit(gpa);
 
-    const container_decl: Ast.full.ContainerDecl = .{
-        .layout_token = null,
-        .ast = .{
-            .main_token = undefined,
-            .enum_token = null,
-            .members = tree.rootDecls(),
-            .arg = 0,
-        },
-    };
     if (AstGen.structDeclInner(
         &gen_scope,
         &gen_scope.base,
         0,
-        container_decl,
+        tree.containerDeclRoot(),
         .Auto,
     )) |struct_decl_ref| {
         assert(refToIndex(struct_decl_ref).? == 0);
