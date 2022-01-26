@@ -13,15 +13,14 @@ pub fn ZlibStream(comptime ReaderType: type) type {
         const Self = @This();
 
         pub const Error = ReaderType.Error ||
-            deflate.InflateStream(ReaderType).Error ||
+            deflate.Decompressor(ReaderType).Error ||
             error{ WrongChecksum, Unsupported };
         pub const Reader = io.Reader(*Self, Error, read);
 
         allocator: mem.Allocator,
-        inflater: deflate.InflateStream(ReaderType),
+        inflater: deflate.Decompressor(ReaderType),
         in_reader: ReaderType,
         hasher: std.hash.Adler32,
-        window_slice: []u8,
 
         fn init(allocator: mem.Allocator, source: ReaderType) !Self {
             // Zlib header format is specified in RFC1950
@@ -38,28 +37,25 @@ pub fn ZlibStream(comptime ReaderType: type) type {
 
             // The CM field must be 8 to indicate the use of DEFLATE
             if (CM != 8) return error.InvalidCompression;
-            // CINFO is the base-2 logarithm of the window size, minus 8.
+            // CINFO is the base-2 logarithm of the LZ77 window size, minus 8.
             // Values above 7 are unspecified and therefore rejected.
             if (CINFO > 7) return error.InvalidWindowSize;
-            const window_size: u16 = @as(u16, 1) << (CINFO + 8);
 
+            const dictionary = null;
             // TODO: Support this case
             if (FDICT != 0)
                 return error.Unsupported;
 
-            var window_slice = try allocator.alloc(u8, window_size);
-
             return Self{
                 .allocator = allocator,
-                .inflater = deflate.inflateStream(source, window_slice),
+                .inflater = try deflate.decompressor(allocator, source, dictionary),
                 .in_reader = source,
                 .hasher = std.hash.Adler32.init(),
-                .window_slice = window_slice,
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.allocator.free(self.window_slice);
+            self.inflater.deinit();
         }
 
         // Implements the io.Reader interface
@@ -92,7 +88,7 @@ pub fn zlibStream(allocator: mem.Allocator, reader: anytype) !ZlibStream(@TypeOf
     return ZlibStream(@TypeOf(reader)).init(allocator, reader);
 }
 
-fn testReader(data: []const u8, comptime expected: []const u8) !void {
+fn testReader(data: []const u8, expected: []const u8) !void {
     var in_stream = io.fixedBufferStream(data);
 
     var zlib_stream = try zlibStream(testing.allocator, in_stream.reader());
@@ -101,56 +97,45 @@ fn testReader(data: []const u8, comptime expected: []const u8) !void {
     // Read and decompress the whole file
     const buf = try zlib_stream.reader().readAllAlloc(testing.allocator, std.math.maxInt(usize));
     defer testing.allocator.free(buf);
-    // Calculate its SHA256 hash and check it against the reference
-    var hash: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(buf, hash[0..], .{});
 
-    try assertEqual(expected, &hash);
+    // Check against the reference
+    try testing.expectEqualSlices(u8, buf, expected);
 }
 
-// Assert `expected` == `input` where `input` is a bytestring.
-pub fn assertEqual(comptime expected: []const u8, input: []const u8) !void {
-    var expected_bytes: [expected.len / 2]u8 = undefined;
-    for (expected_bytes) |*r, i| {
-        r.* = std.fmt.parseInt(u8, expected[2 * i .. 2 * i + 2], 16) catch unreachable;
-    }
-
-    try testing.expectEqualSlices(u8, &expected_bytes, input);
-}
-
-// All the test cases are obtained by compressing the RFC1950 text
+// All the test cases are obtained by compressing the RFC1951 text
 //
-// https://tools.ietf.org/rfc/rfc1950.txt length=36944 bytes
+// https://tools.ietf.org/rfc/rfc1951.txt length=36944 bytes
 // SHA256=5ebf4b5b7fe1c3a0c0ab9aa3ac8c0f3853a7dc484905e76e03b0b0f301350009
 test "compressed data" {
+    const rfc1951_txt = @embedFile("rfc1951.txt");
+
     // Compressed with compression level = 0
     try testReader(
         @embedFile("rfc1951.txt.z.0"),
-        "5ebf4b5b7fe1c3a0c0ab9aa3ac8c0f3853a7dc484905e76e03b0b0f301350009",
+        rfc1951_txt,
     );
     // Compressed with compression level = 9
     try testReader(
         @embedFile("rfc1951.txt.z.9"),
-        "5ebf4b5b7fe1c3a0c0ab9aa3ac8c0f3853a7dc484905e76e03b0b0f301350009",
+        rfc1951_txt,
     );
     // Compressed with compression level = 9 and fixed Huffman codes
     try testReader(
         @embedFile("rfc1951.txt.fixed.z.9"),
-        "5ebf4b5b7fe1c3a0c0ab9aa3ac8c0f3853a7dc484905e76e03b0b0f301350009",
+        rfc1951_txt,
     );
 }
 
 test "don't read past deflate stream's end" {
-    try testReader(
-        &[_]u8{
-            0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0xc0, 0x00, 0xc1, 0xff,
-            0xff, 0x43, 0x30, 0x03, 0x03, 0xc3, 0xff, 0xff, 0xff, 0x01,
-            0x83, 0x95, 0x0b, 0xf5,
-        },
-        // SHA256 of
-        // 00ff 0000 00ff 0000 00ff 00ff ffff 00ff ffff 0000 0000 ffff ff
-        "3bbba1cc65408445c81abb61f3d2b86b1b60ee0d70b4c05b96d1499091a08c93",
-    );
+    try testReader(&[_]u8{
+        0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0xc0, 0x00, 0xc1, 0xff,
+        0xff, 0x43, 0x30, 0x03, 0x03, 0xc3, 0xff, 0xff, 0xff, 0x01,
+        0x83, 0x95, 0x0b, 0xf5,
+    }, &[_]u8{
+        0x00, 0xff, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0xff,
+        0x00, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0xff, 0x00, 0x00,
+        0x00, 0x00, 0xff, 0xff, 0xff,
+    });
 }
 
 test "sanity checks" {

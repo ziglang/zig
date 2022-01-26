@@ -5,6 +5,7 @@ pub const gzip = @import("compress/gzip.zig");
 pub const zlib = @import("compress/zlib.zig");
 
 test {
+    _ = deflate;
     _ = gzip;
     _ = zlib;
 }
