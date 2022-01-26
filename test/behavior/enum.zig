@@ -1,7 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
-const mem = std.mem;
 const Tag = std.meta.Tag;
 
 const Number = enum { Zero, One, Two, Three, Four };

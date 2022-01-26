@@ -1,5 +1,3 @@
-const std = @import("std");
-
 test "@prefetch()" {
     var a: u32 = 42;
 

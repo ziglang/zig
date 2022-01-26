@@ -592,8 +592,6 @@ pub const StackTracesContext = struct {
     test_filter: ?[]const u8,
     modes: []const Mode,
 
-    const Expect = [@typeInfo(Mode).Enum.fields.len][]const u8;
-
     pub fn addCase(self: *StackTracesContext, config: anytype) void {
         if (@hasField(@TypeOf(config), "exclude")) {
             if (config.exclude.exclude()) return;

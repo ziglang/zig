@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const testing = std.testing;
 const mem = std.mem;
 const expect = testing.expect;
-const expectEqual = testing.expectEqual;
 
 test "array to slice" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -80,9 +79,6 @@ test "array dot len const expr" {
     });
 }
 
-const ArrayDotLenConstExpr = struct {
-    y: [some_array.len]u8,
-};
 const some_array = [_]u8{ 0, 1, 2, 3 };
 
 test "array literal with specified size" {

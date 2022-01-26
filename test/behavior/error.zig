@@ -1,9 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
-const expectError = std.testing.expectError;
-const expectEqual = std.testing.expectEqual;
-const mem = std.mem;
 
 test "error values" {
     const a = @errorToInt(error.err1);

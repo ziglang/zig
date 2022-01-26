@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
 const expect = std.testing.expect;
-const expectEqualStrings = std.testing.expectEqualStrings;
 
 // normal comment
 

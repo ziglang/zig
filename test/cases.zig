@@ -1,4 +1,3 @@
-const std = @import("std");
 const TestContext = @import("../src/test.zig").TestContext;
 
 // Self-hosted has differing levels of support for various architectures. For now we pass explicit

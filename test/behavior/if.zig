@@ -1,7 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
 
 test "if statements" {
     shouldBeEqual(1, 1);

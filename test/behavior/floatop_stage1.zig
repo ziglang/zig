@@ -1,7 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const math = std.math;
-const pi = std.math.pi;
 const e = std.math.e;
 const Vector = std.meta.Vector;
 

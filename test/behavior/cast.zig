@@ -1,6 +1,5 @@
 const std = @import("std");
 const expect = std.testing.expect;
-const mem = std.mem;
 const maxInt = std.math.maxInt;
 const builtin = @import("builtin");
 

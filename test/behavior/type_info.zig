@@ -1,12 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const mem = std.mem;
-
-const TypeInfo = std.builtin.TypeInfo;
-const TypeId = std.builtin.TypeId;
-
 const expect = std.testing.expect;
-const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "type info: integer, floating point type info" {
     try testIntFloat();

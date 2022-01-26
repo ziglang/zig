@@ -1,11 +1,5 @@
 const std = @import("std");
 const expect = std.testing.expect;
-const math = std.math;
-const pi = std.math.pi;
-const e = std.math.e;
-const Vector = std.meta.Vector;
-
-const epsilon = 0.000001;
 
 test "floating point comparisons" {
     try testFloatComparisons();

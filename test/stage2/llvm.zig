@@ -1,6 +1,5 @@
 const std = @import("std");
 const TestContext = @import("../../src/test.zig").TestContext;
-const build_options = @import("build_options");
 
 // These tests should work with all platforms, but we're using linux_x64 for
 // now for consistency. Will be expanded eventually.

@@ -1,7 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const mem = std.mem;
-const Tag = std.meta.Tag;
 
 test "@tagName" {
     try expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));

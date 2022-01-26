@@ -1,7 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;
-const expectEqual = testing.expectEqual;
 
 test "passing an optional integer as a parameter" {
     const S = struct {

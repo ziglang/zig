@@ -1,10 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const native_endian = builtin.target.cpu.arch.endian();
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-const expectEqualSlices = std.testing.expectEqualSlices;
-const maxInt = std.math.maxInt;
 
 top_level_field: i32,
 
@@ -74,11 +70,6 @@ test "return empty struct instance" {
 fn returnEmptyStructInstance() StructWithNoFields {
     return empty_global_instance;
 }
-
-const Node = struct {
-    val: Val,
-    next: *Node,
-};
 
 const Val = struct {
     x: i32,

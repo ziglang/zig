@@ -1,10 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
-const mem = std.mem;
 
 test "assignment operators" {
     var i: u32 = 0;

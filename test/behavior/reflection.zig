@@ -1,6 +1,5 @@
 const std = @import("std");
 const expect = std.testing.expect;
-const mem = std.mem;
 const reflection = @This();
 
 test "reflection: function return type, var args, and param types" {

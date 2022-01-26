@@ -1,5 +1,3 @@
-const std = @import("std");
-const os = std.os;
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.StackTracesContext) void {

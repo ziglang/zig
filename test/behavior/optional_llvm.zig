@@ -1,7 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;
-const expectEqual = testing.expectEqual;
 const builtin = @import("builtin");
 
 test "self-referential struct through a slice of optional" {

@@ -1,7 +1,5 @@
 const std = @import("std");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-const Vector = std.meta.Vector;
 
 test "@popCount integers" {
     comptime try testPopCountIntegers();

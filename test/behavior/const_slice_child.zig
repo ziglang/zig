@@ -1,5 +1,4 @@
 const std = @import("std");
-const debug = std.debug;
 const testing = std.testing;
 const expect = testing.expect;
 

@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const TypeInfo = std.builtin.TypeInfo;
 const testing = std.testing;
 

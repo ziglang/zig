@@ -1,7 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;
-const expectError = testing.expectError;
 
 test "dereference pointer" {
     comptime try testDerefPtr();

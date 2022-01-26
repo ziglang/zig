@@ -1,7 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
 test "continue in for loop" {

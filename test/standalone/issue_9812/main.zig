@@ -1,5 +1,4 @@
 const std = @import("std");
-const testing = std.testing;
 
 const c = @cImport({
     @cInclude("zip.h");

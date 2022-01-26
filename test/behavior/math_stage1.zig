@@ -3,7 +3,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
-const minInt = std.math.minInt;
 const mem = std.mem;
 
 test "allow signed integer division/remainder when values are comptime known and positive or exact" {

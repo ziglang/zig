@@ -1,5 +1,4 @@
 const expect = @import("std").testing.expect;
-const builtin = @import("builtin");
 
 test "@hasField" {
     const struc = struct {

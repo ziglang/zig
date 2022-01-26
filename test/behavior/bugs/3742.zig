@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub const GET = struct {
     key: []const u8,
 

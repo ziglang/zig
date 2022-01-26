@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 const expect = testing.expect;
-const expectEqual = testing.expectEqual;
 
 test "one param, explicit comptime" {
     var x: usize = 0;

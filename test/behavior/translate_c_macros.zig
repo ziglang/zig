@@ -1,7 +1,3 @@
-const std = @import("std");
-const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-
 const h = @cImport(@cInclude("behavior/translate_c_macros.h"));
 
 test "casting to void with a macro" {

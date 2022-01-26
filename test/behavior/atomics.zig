@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
 
 test "cmpxchg" {
     try testCmpxchg();

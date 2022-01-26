@@ -1,9 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
-const expectEqualSlices = std.testing.expectEqualSlices;
 const expectEqualStrings = std.testing.expectEqualStrings;
 const mem = std.mem;
-const builtin = @import("builtin");
 
 // can't really run this test but we can make sure it has no compile error
 // and generates code

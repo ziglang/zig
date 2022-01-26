@@ -1,5 +1,4 @@
 const std = @import("std");
-const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
 
 // Most tests here can be comptime but use runtime so that a stacktrace

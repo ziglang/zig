@@ -1,5 +1,4 @@
 const std = @import("std");
-const mem = std.mem;
 const expect = std.testing.expect;
 const Keys = struct {
     up: bool,

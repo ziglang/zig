@@ -1,8 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-const expectError = std.testing.expectError;
 
 test "break and continue inside loop inside defer expression" {
     testBreakContInDefer(10);
