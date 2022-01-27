@@ -4198,7 +4198,10 @@ pub fn hasCppExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".C") or
         mem.endsWith(u8, filename, ".cc") or
         mem.endsWith(u8, filename, ".cpp") or
-        mem.endsWith(u8, filename, ".cxx");
+        mem.endsWith(u8, filename, ".cxx") or
+        mem.endsWith(u8, filename, ".cu") or
+        // .stub files are compiled by nvcc when using `zig c++` as the host compiler. They contain C++ code.
+        mem.endsWith(u8, filename, ".stub");
 }
 
 pub fn hasObjCExt(filename: []const u8) bool {
