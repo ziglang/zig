@@ -298,6 +298,7 @@ const usage_build_generic =
     \\                      .m    Objective-C source code (requires LLVM extensions)
     \\                     .mm    Objective-C++ source code (requires LLVM extensions)
     \\                     .bc    LLVM IR Module (requires LLVM extensions)
+    \\               .cu .stub    Cuda source code (requires LLVM extensions)
     \\
     \\General Options:
     \\  -h, --help                Print this help and exit
@@ -1247,7 +1248,7 @@ fn buildOutputType(
                     .object, .static_library, .shared_library => {
                         try link_objects.append(.{ .path = arg });
                     },
-                    .assembly, .c, .cpp, .h, .ll, .bc, .m, .mm => {
+                    .assembly, .c, .cpp, .h, .ll, .bc, .m, .mm, .cuda => {
                         try c_source_files.append(.{
                             .src_path = arg,
                             .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
@@ -1315,7 +1316,9 @@ fn buildOutputType(
                     .positional => {
                         const file_ext = Compilation.classifyFileExt(mem.sliceTo(it.only_arg, 0));
                         switch (file_ext) {
-                            .assembly, .c, .cpp, .ll, .bc, .h, .m, .mm => try c_source_files.append(.{ .src_path = it.only_arg }),
+                            .assembly, .c, .cpp, .ll, .bc, .h, .m, .mm, .cuda => {
+                                try c_source_files.append(.{ .src_path = it.only_arg });
+                            },
                             .unknown, .shared_library, .object, .static_library => {
                                 try link_objects.append(.{
                                     .path = it.only_arg,

@@ -3854,7 +3854,7 @@ pub fn addCCArgs(
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
     switch (ext) {
-        .c, .cpp, .m, .mm, .h => {
+        .c, .cpp, .m, .mm, .h, .cuda => {
             try argv.appendSlice(&[_][]const u8{
                 "-nostdinc",
                 "-fno-spell-checking",
@@ -4153,6 +4153,7 @@ fn failCObjWithOwnedErrorMsg(
 pub const FileExt = enum {
     c,
     cpp,
+    cuda,
     h,
     m,
     mm,
@@ -4167,7 +4168,7 @@ pub const FileExt = enum {
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
-            .c, .cpp, .h, .m, .mm => true,
+            .c, .cpp, .h, .m, .mm, .cuda => true,
 
             .ll,
             .bc,
@@ -4198,10 +4199,11 @@ pub fn hasCppExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".C") or
         mem.endsWith(u8, filename, ".cc") or
         mem.endsWith(u8, filename, ".cpp") or
-        mem.endsWith(u8, filename, ".cxx") or
-        mem.endsWith(u8, filename, ".cu") or
-        // .stub files are compiled by nvcc when using `zig c++` as the host compiler. They contain C++ code.
-        mem.endsWith(u8, filename, ".stub");
+        mem.endsWith(u8, filename, ".cxx");
+}
+
+pub fn hasCudaExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".cu") or mem.endsWith(u8, filename, ".stub");
 }
 
 pub fn hasObjCExt(filename: []const u8) bool {
@@ -4268,6 +4270,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .static_library;
     } else if (hasObjectExt(filename)) {
         return .object;
+    } else if (hasCudaExt(filename)) {
+        return .cuda;
     } else {
         return .unknown;
     }
