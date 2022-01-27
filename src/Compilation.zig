@@ -791,6 +791,7 @@ pub const InitOptions = struct {
     /// infinite recursion.
     skip_linker_dependencies: bool = false,
     parent_compilation_link_libc: bool = false,
+    hash_style: link.HashStyle = .both,
     entry: ?[]const u8 = null,
     stack_size_override: ?u64 = null,
     image_base_override: ?u64 = null,
@@ -1610,6 +1611,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .is_test = options.is_test,
             .wasi_exec_model = wasi_exec_model,
             .use_stage1 = use_stage1,
+            .hash_style = options.hash_style,
             .enable_link_snapshots = options.enable_link_snapshots,
             .native_darwin_sdk = options.native_darwin_sdk,
             .install_name = options.install_name,
@@ -2227,7 +2229,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 1;
+pub const link_hash_implementation_version = 2;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2237,7 +2239,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 1);
+    comptime assert(link_hash_implementation_version == 2);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
@@ -2308,6 +2310,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.z_noexecstack);
     man.hash.add(comp.bin_file.options.z_now);
     man.hash.add(comp.bin_file.options.z_relro);
+    man.hash.add(comp.bin_file.options.hash_style);
     man.hash.add(comp.bin_file.options.include_compiler_rt);
     if (comp.bin_file.options.link_libc) {
         man.hash.add(comp.bin_file.options.libc_installation != null);
@@ -3851,7 +3854,7 @@ pub fn addCCArgs(
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
     switch (ext) {
-        .c, .cpp, .m, .mm, .h => {
+        .c, .cpp, .m, .mm, .h, .cu => {
             try argv.appendSlice(&[_][]const u8{
                 "-nostdinc",
                 "-fno-spell-checking",
@@ -4150,6 +4153,7 @@ fn failCObjWithOwnedErrorMsg(
 pub const FileExt = enum {
     c,
     cpp,
+    cu,
     h,
     m,
     mm,
@@ -4164,7 +4168,7 @@ pub const FileExt = enum {
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
-            .c, .cpp, .h, .m, .mm => true,
+            .c, .cpp, .h, .m, .mm, .cu => true,
 
             .ll,
             .bc,
@@ -4195,7 +4199,8 @@ pub fn hasCppExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".C") or
         mem.endsWith(u8, filename, ".cc") or
         mem.endsWith(u8, filename, ".cpp") or
-        mem.endsWith(u8, filename, ".cxx");
+        mem.endsWith(u8, filename, ".cxx") or
+        mem.endsWith(u8, filename, ".stub");
 }
 
 pub fn hasObjCExt(filename: []const u8) bool {
@@ -4262,6 +4267,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .static_library;
     } else if (hasObjectExt(filename)) {
         return .object;
+    } else if (mem.endsWith(u8, filename, ".cu")) {
+        return .cu;
     } else {
         return .unknown;
     }

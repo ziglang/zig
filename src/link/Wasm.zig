@@ -1203,7 +1203,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 1);
+        comptime assert(Compilation.link_hash_implementation_version == 2);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);

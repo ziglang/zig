@@ -146,6 +146,7 @@ pub const Options = struct {
     disable_lld_caching: bool,
     is_test: bool,
     use_stage1: bool,
+    hash_style: HashStyle,
     major_subsystem_version: ?u32,
     minor_subsystem_version: ?u32,
     gc_sections: ?bool = null,
@@ -190,6 +191,8 @@ pub const Options = struct {
         return copied_state;
     }
 };
+
+pub const HashStyle = enum { sysv, gnu, both };
 
 pub const File = struct {
     tag: Tag,

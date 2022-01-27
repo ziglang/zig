@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -15,4 +16,34 @@ test "casting to void with a macro" {
     h.IGNORE_ME_8(42);
     h.IGNORE_ME_9(42);
     h.IGNORE_ME_10(42);
+}
+
+test "initializer list expression" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    try expectEqual(h.Color{
+        .r = 200,
+        .g = 200,
+        .b = 200,
+        .a = 255,
+    }, h.LIGHTGRAY);
+}
+
+test "sizeof in macros" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    try expectEqual(@as(c_int, @sizeOf(u32)), h.MY_SIZEOF(u32));
+    try expectEqual(@as(c_int, @sizeOf(u32)), h.MY_SIZEOF2(u32));
+}
+
+test "reference to a struct type" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    try expectEqual(@sizeOf(h.struct_Foo), h.SIZE_OF_FOO);
+}
+
+test "cast negative integer to pointer" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    try expectEqual(@intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))), h.MAP_FAILED);
 }

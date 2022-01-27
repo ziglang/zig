@@ -1642,6 +1642,18 @@ pub fn containerDeclArg(tree: Ast, node: Node.Index) full.ContainerDecl {
     });
 }
 
+pub fn containerDeclRoot(tree: Ast) full.ContainerDecl {
+    return .{
+        .layout_token = null,
+        .ast = .{
+            .main_token = undefined,
+            .enum_token = null,
+            .members = tree.rootDecls(),
+            .arg = 0,
+        },
+    };
+}
+
 pub fn taggedUnionTwo(tree: Ast, buffer: *[2]Node.Index, node: Node.Index) full.ContainerDecl {
     assert(tree.nodes.items(.tag)[node] == .tagged_union_two or
         tree.nodes.items(.tag)[node] == .tagged_union_two_trailing);

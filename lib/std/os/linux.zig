@@ -738,7 +738,11 @@ pub fn fchmod(fd: i32, mode: mode_t) usize {
 }
 
 pub fn fchown(fd: i32, owner: uid_t, group: gid_t) usize {
-    return syscall3(.fchown, @bitCast(usize, @as(isize, fd)), owner, group);
+    if (@hasField(SYS, "fchown32")) {
+        return syscall3(.fchown32, @bitCast(usize, @as(isize, fd)), owner, group);
+    } else {
+        return syscall3(.fchown, @bitCast(usize, @as(isize, fd)), owner, group);
+    }
 }
 
 /// Can only be called on 32 bit systems. For 64 bit see `lseek`.
