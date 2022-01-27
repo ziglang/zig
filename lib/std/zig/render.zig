@@ -151,7 +151,8 @@ fn renderMember(gpa: Allocator, ais: *Ais, tree: Ast, decl: Ast.Node.Index, spac
         .test_decl => {
             const test_token = main_tokens[decl];
             try renderToken(ais, tree, test_token, .space);
-            if (token_tags[test_token + 1] == .string_literal) {
+            const test_name_tag = token_tags[test_token + 1];
+            if (test_name_tag == .string_literal or test_name_tag == .identifier) {
                 try renderToken(ais, tree, test_token + 1, .space);
             }
             try renderExpression(gpa, ais, tree, datas[decl].rhs, space);

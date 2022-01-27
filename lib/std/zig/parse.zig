@@ -500,10 +500,16 @@ const Parser = struct {
         }
     }
 
-    /// TestDecl <- KEYWORD_test STRINGLITERALSINGLE? Block
+    /// TestDecl <- KEYWORD_test (STRINGLITERALSINGLE / IDENTIFIER)? Block
     fn expectTestDecl(p: *Parser) !Node.Index {
         const test_token = p.assertToken(.keyword_test);
-        const name_token = p.eatToken(.string_literal);
+        const name_token = switch (p.token_tags[p.nextToken()]) {
+            .string_literal, .identifier => p.tok_i - 1,
+            else => blk: {
+                p.tok_i -= 1;
+                break :blk null;
+            },
+        };
         const block_node = try p.parseBlock();
         if (block_node == 0) return p.fail(.expected_block);
         return p.addNode(.{

@@ -49,6 +49,11 @@ test {
     _ = @import("behavior/type.zig");
     _ = @import("behavior/var_args.zig");
 
+    // tests that don't pass for stage1
+    if (builtin.zig_backend != .stage1) {
+        _ = @import("behavior/decltest.zig");
+    }
+
     if (builtin.zig_backend != .stage2_arm and builtin.zig_backend != .stage2_x86_64) {
         // Tests that pass (partly) for stage1, llvm backend, C backend, wasm backend.
         _ = @import("behavior/bitcast.zig");
