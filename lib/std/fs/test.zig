@@ -180,10 +180,7 @@ test "Dir.Iterator" {
     try testing.expect(contains(&entries, Dir.Entry{ .name = "some_dir", .kind = Dir.Entry.Kind.Directory }));
 }
 
-// TODO Only passes on Windows, see https://github.com/ziglang/zig/issues/10317
 test "Dir.Iterator twice" {
-    if (builtin.os.tag != .windows) return error.SkipZigTest;
-
     var tmp_dir = tmpDir(.{ .iterate = true });
     defer tmp_dir.cleanup();
 
