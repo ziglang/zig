@@ -2521,7 +2521,7 @@ pub const Node = struct {
         root,
         /// `usingnamespace lhs;`. rhs unused. main_token is `usingnamespace`.
         @"usingnamespace",
-        /// lhs is test name token (must be string literal), if any.
+        /// lhs is test name token (must be string literal or identifier), if any.
         /// rhs is the body node.
         test_decl,
         /// lhs is the index into extra_data.

@@ -103,8 +103,8 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     };
     defer astgen.deinit(gpa);
 
-    // String table indexes 0 and 1 are reserved for special meaning.
-    try astgen.string_bytes.appendSlice(gpa, &[_]u8{ 0, 0 });
+    // String table indexes 0, 1, 2 are reserved for special meaning.
+    try astgen.string_bytes.appendSlice(gpa, &[_]u8{ 0, 0, 0 });
 
     // We expect at least as many ZIR instructions and extra data items
     // as AST nodes.
@@ -3728,13 +3728,78 @@ fn testDecl(
     };
     defer decl_block.unstack();
 
+    const main_tokens = tree.nodes.items(.main_token);
+    const token_tags = tree.tokens.items(.tag);
+    const test_token = main_tokens[node];
+    const test_name_token = test_token + 1;
+    const test_name_token_tag = token_tags[test_name_token];
+    const is_decltest = test_name_token_tag == .identifier;
     const test_name: u32 = blk: {
-        const main_tokens = tree.nodes.items(.main_token);
-        const token_tags = tree.tokens.items(.tag);
-        const test_token = main_tokens[node];
-        const str_lit_token = test_token + 1;
-        if (token_tags[str_lit_token] == .string_literal) {
-            break :blk try astgen.testNameString(str_lit_token);
+        if (test_name_token_tag == .string_literal) {
+            break :blk try astgen.testNameString(test_name_token);
+        } else if (test_name_token_tag == .identifier) {
+            const ident_name_raw = tree.tokenSlice(test_name_token);
+
+            if (mem.eql(u8, ident_name_raw, "_")) return astgen.failTok(test_name_token, "'_' used as an identifier without @\"_\" syntax", .{});
+
+            // if not @"" syntax, just use raw token slice
+            if (ident_name_raw[0] != '@') {
+                if (primitives.get(ident_name_raw)) |_| return astgen.failTok(test_name_token, "cannot test a primitive", .{});
+
+                if (ident_name_raw.len >= 2) integer: {
+                    const first_c = ident_name_raw[0];
+                    if (first_c == 'i' or first_c == 'u') {
+                        _ = switch (first_c == 'i') {
+                            true => .signed,
+                            false => .unsigned,
+                        };
+                        _ = parseBitCount(ident_name_raw[1..]) catch |err| switch (err) {
+                            error.Overflow => return astgen.failTok(
+                                test_name_token,
+                                "primitive integer type '{s}' exceeds maximum bit width of 65535",
+                                .{ident_name_raw},
+                            ),
+                            error.InvalidCharacter => break :integer,
+                        };
+                        return astgen.failTok(test_name_token, "cannot test a primitive", .{});
+                    }
+                }
+            }
+
+            // Local variables, including function parameters.
+            const name_str_index = try astgen.identAsString(test_name_token);
+            var s = scope;
+            var found_already: ?Ast.Node.Index = null; // we have found a decl with the same name already
+            var num_namespaces_out: u32 = 0;
+            var capturing_namespace: ?*Scope.Namespace = null;
+            while (true) switch (s.tag) {
+                .local_val, .local_ptr => unreachable, // a test cannot be in a local scope
+                .gen_zir => s = s.cast(GenZir).?.parent,
+                .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
+                .namespace => {
+                    const ns = s.cast(Scope.Namespace).?;
+                    if (ns.decls.get(name_str_index)) |i| {
+                        if (found_already) |f| {
+                            return astgen.failTokNotes(test_name_token, "ambiguous reference", .{}, &.{
+                                try astgen.errNoteNode(f, "declared here", .{}),
+                                try astgen.errNoteNode(i, "also declared here", .{}),
+                            });
+                        }
+                        // We found a match but must continue looking for ambiguous references to decls.
+                        found_already = i;
+                    }
+                    num_namespaces_out += 1;
+                    capturing_namespace = ns;
+                    s = ns.parent;
+                },
+                .top => break,
+            };
+            if (found_already == null) {
+                const ident_name = try astgen.identifierTokenString(test_name_token);
+                return astgen.failTok(test_name_token, "use of undeclared identifier '{s}'", .{ident_name});
+            }
+
+            break :blk name_str_index;
         }
         // String table index 1 has a special meaning here of test decl with no name.
         break :blk 1;
@@ -3798,9 +3863,15 @@ fn testDecl(
         const line_delta = decl_block.decl_line - gz.decl_line;
         wip_members.appendToDecl(line_delta);
     }
-    wip_members.appendToDecl(test_name);
+    if (is_decltest)
+        wip_members.appendToDecl(2) // 2 here means that it is a decltest, look at doc comment for name
+    else
+        wip_members.appendToDecl(test_name);
     wip_members.appendToDecl(block_inst);
-    wip_members.appendToDecl(0); // no doc comments on test decls
+    if (is_decltest)
+        wip_members.appendToDecl(test_name) // the doc comment on a decltest represents it's name
+    else
+        wip_members.appendToDecl(0); // no doc comments on test decls
 }
 
 fn structDeclInner(

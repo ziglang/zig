@@ -2568,10 +2568,11 @@ pub const Inst = struct {
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        - 1 means test decl with no name.
+    ///        - 2 means that the test is a decltest, doc_comment gives the name of the identifier
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
-    ///        doc_comment: u32, // 0 if no doc comment
+    ///        doc_comment: u32, 0 if no doc comment, if this is a decltest, doc_comment references the decl name in the string table
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,

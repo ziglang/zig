@@ -1442,20 +1442,24 @@ const Writer = struct {
             } else if (decl_name_index == 1) {
                 try stream.writeByteNTimes(' ', self.indent);
                 try stream.writeAll("test");
+            } else if (decl_name_index == 2) {
+                try stream.writeByteNTimes(' ', self.indent);
+                try stream.print("[{d}] decltest {s}", .{ sub_index, self.code.nullTerminatedString(doc_comment_index) });
             } else {
                 const raw_decl_name = self.code.nullTerminatedString(decl_name_index);
                 const decl_name = if (raw_decl_name.len == 0)
                     self.code.nullTerminatedString(decl_name_index + 1)
                 else
                     raw_decl_name;
-                const test_str = if (raw_decl_name.len == 0) "test " else "";
+                const test_str = if (raw_decl_name.len == 0) "test \"" else "";
                 const export_str = if (is_exported) "export " else "";
 
                 try self.writeDocComment(stream, doc_comment_index);
 
                 try stream.writeByteNTimes(' ', self.indent);
-                try stream.print("[{d}] {s}{s}{s}{}", .{
-                    sub_index, pub_str, test_str, export_str, std.zig.fmtId(decl_name),
+                const endquote_if_test: []const u8 = if (raw_decl_name.len == 0) "\"" else "";
+                try stream.print("[{d}] {s}{s}{s}{}{s}", .{
+                    sub_index, pub_str, test_str, export_str, std.zig.fmtId(decl_name), endquote_if_test,
                 });
                 if (align_inst != .none) {
                     try stream.writeAll(" align(");

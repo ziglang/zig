@@ -4124,6 +4124,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
 
     const line = iter.parent_decl.relativeToLine(zir.extra[decl_sub_index + 4]);
     const decl_name_index = zir.extra[decl_sub_index + 5];
+    const decl_doccomment_index = zir.extra[decl_sub_index + 7];
     const decl_index = zir.extra[decl_sub_index + 6];
     const decl_block_inst_data = zir.instructions.items(.data)[decl_index].pl_node;
     const decl_node = iter.parent_decl.relativeToNodeIndex(decl_block_inst_data.src_node);
@@ -4146,6 +4147,11 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
             const i = iter.unnamed_test_index;
             iter.unnamed_test_index += 1;
             break :name try std.fmt.allocPrintZ(gpa, "test_{d}", .{i});
+        },
+        2 => name: {
+            is_named_test = true;
+            const test_name = zir.nullTerminatedString(decl_doccomment_index);
+            break :name try std.fmt.allocPrintZ(gpa, "decltest.{s}", .{test_name});
         },
         else => name: {
             const raw_name = zir.nullTerminatedString(decl_name_index);
