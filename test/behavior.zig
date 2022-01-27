@@ -1,7 +1,6 @@
 const builtin = @import("builtin");
 
 test {
-    // Tests that pass for stage1, llvm backend, C backend, wasm backend, arm backend and x86_64 backend.
     _ = @import("behavior/align.zig");
     _ = @import("behavior/alignof.zig");
     _ = @import("behavior/array.zig");
@@ -26,7 +25,6 @@ test {
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/comptime_memory.zig");
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
-    _ = @import("behavior/generics_llvm.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
@@ -43,6 +41,7 @@ test {
         _ = @import("behavior/bitcast.zig");
         _ = @import("behavior/bugs/624.zig");
         _ = @import("behavior/bugs/704.zig");
+        _ = @import("behavior/bugs/1076.zig");
         _ = @import("behavior/bugs/1486.zig");
         _ = @import("behavior/bugs/2692.zig");
         _ = @import("behavior/bugs/2889.zig");
@@ -128,7 +127,6 @@ test {
                     _ = @import("behavior/bugs/726.zig");
                     _ = @import("behavior/bugs/828.zig");
                     _ = @import("behavior/bugs/920.zig");
-                    _ = @import("behavior/bugs/1076.zig");
                     _ = @import("behavior/bugs/1120.zig");
                     _ = @import("behavior/bugs/1421.zig");
                     _ = @import("behavior/bugs/1442.zig");
@@ -150,9 +148,7 @@ test {
                     _ = @import("behavior/bugs/7047.zig");
                     _ = @import("behavior/bugs/10147.zig");
                     _ = @import("behavior/byteswap.zig");
-                    _ = @import("behavior/call_stage1.zig");
                     _ = @import("behavior/const_slice_child.zig");
-                    _ = @import("behavior/error_stage1.zig");
                     _ = @import("behavior/field_parent_ptr.zig");
                     _ = @import("behavior/floatop_stage1.zig");
                     _ = @import("behavior/fn_delegation.zig");
@@ -164,14 +160,12 @@ test {
                     _ = @import("behavior/optional_stage1.zig");
                     _ = @import("behavior/popcount_stage1.zig");
                     _ = @import("behavior/reflection.zig");
-                    _ = @import("behavior/saturating_arithmetic_stage1.zig");
                     _ = @import("behavior/select.zig");
                     _ = @import("behavior/shuffle.zig");
                     _ = @import("behavior/sizeof_and_typeof_stage1.zig");
                     _ = @import("behavior/slice_stage1.zig");
                     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
                     _ = @import("behavior/struct_contains_slice_of_itself.zig");
-                    _ = @import("behavior/struct_stage1.zig");
                     _ = @import("behavior/switch_prong_err_enum.zig");
                     _ = @import("behavior/switch_prong_implicit_cast.zig");
                     _ = @import("behavior/truncate_stage1.zig");
@@ -185,7 +179,6 @@ test {
                     if (builtin.target.cpu.arch == .wasm32) {
                         _ = @import("behavior/wasm.zig");
                     }
-                    _ = @import("behavior/translate_c_macros_stage1.zig");
                 }
             }
         }
