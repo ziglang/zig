@@ -98,7 +98,6 @@ test {
                 _ = @import("behavior/bugs/3007.zig");
                 _ = @import("behavior/bugs/9584.zig");
                 _ = @import("behavior/cast_llvm.zig");
-                _ = @import("behavior/enum_llvm.zig");
                 _ = @import("behavior/error_llvm.zig");
                 _ = @import("behavior/eval.zig");
                 _ = @import("behavior/floatop.zig");
@@ -163,9 +162,7 @@ test {
                     _ = @import("behavior/muladd.zig");
                     _ = @import("behavior/null_stage1.zig");
                     _ = @import("behavior/optional_stage1.zig");
-                    _ = @import("behavior/pointers_stage1.zig");
                     _ = @import("behavior/popcount_stage1.zig");
-                    _ = @import("behavior/ptrcast_stage1.zig");
                     _ = @import("behavior/reflection.zig");
                     _ = @import("behavior/saturating_arithmetic_stage1.zig");
                     _ = @import("behavior/select.zig");
