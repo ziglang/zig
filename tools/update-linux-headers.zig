@@ -55,7 +55,7 @@ const linux_targets = [_]LibCTarget{
     },
     LibCTarget{
         .name = "arm64",
-        .arch = .arm64,
+        .arch = .{ .specific = .aarch64 },
     },
     LibCTarget{
         .name = "csky",
