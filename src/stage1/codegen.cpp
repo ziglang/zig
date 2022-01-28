@@ -8094,10 +8094,18 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                 case 64:
                     return LLVMConstReal(get_llvm_type(g, type_entry), const_val->data.x_f64);
                 case 80: {
-                    uint64_t buf[2];
-                    memcpy(&buf, &const_val->data.x_f80, 16);
-                    LLVMValueRef as_int = LLVMConstIntOfArbitraryPrecision(LLVMInt128Type(), 2, buf);
-                    return LLVMConstBitCast(as_int, get_llvm_type(g, type_entry));
+                    LLVMTypeRef llvm_i80 = LLVMIntType(80);
+                    LLVMValueRef x;
+                    if (g->is_big_endian) {
+                        x = LLVMConstInt(llvm_i80, const_val->data.x_f80.signExp, false);
+                        x = LLVMConstShl(x, LLVMConstInt(llvm_i80, 64, false));
+                        x = LLVMConstOr(x, LLVMConstInt(llvm_i80, const_val->data.x_f80.signif, false));
+                    } else {
+                        x = LLVMConstInt(llvm_i80, const_val->data.x_f80.signif, false);
+                        x = LLVMConstShl(x, LLVMConstInt(llvm_i80, 16, false));
+                        x = LLVMConstOr(x, LLVMConstInt(llvm_i80, const_val->data.x_f80.signExp, false));
+                    }
+                    return LLVMConstBitCast(x, get_llvm_type(g, type_entry));
                 }
                 case 128:
                     {
