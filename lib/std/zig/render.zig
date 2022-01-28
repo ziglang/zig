@@ -1930,15 +1930,24 @@ fn renderContainerDecl(
 
     const src_has_trailing_comma = token_tags[rbrace - 1] == .comma;
     if (!src_has_trailing_comma) one_line: {
-        // We can only print all the members in-line if there are no comments or multiline strings,
-        // and all the members are fields.
+        // We print all the members in-line unless one of the following conditions are true:
+
+        // 1. The container has comments or multiline strings.
         if (hasComment(tree, lbrace, rbrace) or hasMultilineString(tree, lbrace, rbrace)) {
             break :one_line;
         }
+
+        // 2. A member of the container has a doc comment.
+        for (token_tags[lbrace + 1 .. rbrace - 1]) |tag| {
+            if (tag == .doc_comment) break :one_line;
+        }
+
+        // 3. The container has non-field members.
         for (container_decl.ast.members) |member| {
             if (!node_tags[member].isContainerField()) break :one_line;
         }
-        // All the declarations on the same line.
+
+        // Print all the declarations on the same line.
         try renderToken(ais, tree, lbrace, .space); // lbrace
         for (container_decl.ast.members) |member| {
             try renderMember(gpa, ais, tree, member, .space);
