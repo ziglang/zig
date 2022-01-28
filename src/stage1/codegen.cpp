@@ -8094,33 +8094,32 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                 case 64:
                     return LLVMConstReal(get_llvm_type(g, type_entry), const_val->data.x_f64);
                 case 80: {
-                    LLVMTypeRef llvm_i80 = LLVMIntType(80);
-                    LLVMValueRef x;
-                    if (g->is_big_endian) {
-                        x = LLVMConstInt(llvm_i80, const_val->data.x_f80.signExp, false);
-                        x = LLVMConstShl(x, LLVMConstInt(llvm_i80, 64, false));
-                        x = LLVMConstOr(x, LLVMConstInt(llvm_i80, const_val->data.x_f80.signif, false));
-                    } else {
-                        x = LLVMConstInt(llvm_i80, const_val->data.x_f80.signif, false);
-                        x = LLVMConstShl(x, LLVMConstInt(llvm_i80, 16, false));
-                        x = LLVMConstOr(x, LLVMConstInt(llvm_i80, const_val->data.x_f80.signExp, false));
-                    }
-                    return LLVMConstBitCast(x, get_llvm_type(g, type_entry));
+                    uint64_t buf[2];
+                    memcpy(&buf, &const_val->data.x_f80, 16);
+#if ZIG_BYTE_ORDER == ZIG_BIG_ENDIAN
+                    uint64_t tmp = buf[0];
+                    buf[0] = buf[1];
+                    buf[1] = tmp;
+#endif
+                    LLVMValueRef as_i128 = LLVMConstIntOfArbitraryPrecision(LLVMInt128Type(), 2, buf);
+                    LLVMValueRef as_int = LLVMConstTrunc(as_i128, LLVMIntType(80));
+                    return LLVMConstBitCast(as_int, get_llvm_type(g, type_entry));
                 }
                 case 128:
                     {
                         uint64_t buf[2];
 
-                        // LLVM seems to require that the lower half of the f128 be placed first in the buffer.
-                        #if defined(ZIG_BYTE_ORDER) && ZIG_BYTE_ORDER == ZIG_LITTLE_ENDIAN
-                            buf[0] = const_val->data.x_f128.v[0];
-                            buf[1] = const_val->data.x_f128.v[1];
-                        #elif defined(ZIG_BYTE_ORDER) && ZIG_BYTE_ORDER == ZIG_BIG_ENDIAN
-                            buf[0] = const_val->data.x_f128.v[1];
-                            buf[1] = const_val->data.x_f128.v[0];
-                        #else
-                            #error Unsupported endian
-                        #endif
+                        // LLVM seems to require that the lower half of the f128 be
+                        // placed first in the buffer.
+#if ZIG_BYTE_ORDER == ZIG_LITTLE_ENDIAN
+                        buf[0] = const_val->data.x_f128.v[0];
+                        buf[1] = const_val->data.x_f128.v[1];
+#elif ZIG_BYTE_ORDER == ZIG_BIG_ENDIAN
+                        buf[0] = const_val->data.x_f128.v[1];
+                        buf[1] = const_val->data.x_f128.v[0];
+#else
+#error Unsupported endian
+#endif
 
                         LLVMValueRef as_int = LLVMConstIntOfArbitraryPrecision(LLVMInt128Type(), 2, buf);
                         return LLVMConstBitCast(as_int, get_llvm_type(g, type_entry));
