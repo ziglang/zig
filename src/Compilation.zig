@@ -35,6 +35,7 @@ const ThreadPool = @import("ThreadPool.zig");
 const WaitGroup = @import("WaitGroup.zig");
 const libtsan = @import("libtsan.zig");
 const Zir = @import("Zir.zig");
+const Autodoc = @import("Autodoc.zig");
 const Color = @import("main.zig").Color;
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
@@ -2648,6 +2649,13 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             try self.thread_pool.spawn(workerUpdateCObject, .{
                 self, c_object, &c_obj_prog_node, &self.work_queue_wait_group,
             });
+        }
+    }
+
+    if (self.emit_docs) |doc_location| {
+        if (self.bin_file.options.module) |module| {
+            var autodoc = Autodoc.init(module, doc_location);
+            try autodoc.generateZirData();
         }
     }
 
