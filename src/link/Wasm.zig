@@ -1233,9 +1233,20 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         }
 
         // Positional arguments to the linker such as object files.
-        try argv.ensureUnusedCapacity(self.base.options.objects.len);
+        var whole_archive = false;
         for (self.base.options.objects) |obj| {
-            argv.appendAssumeCapacity(obj.path);
+            if (obj.must_link and !whole_archive) {
+                try argv.append("-whole-archive");
+                whole_archive = true;
+            } else if (!obj.must_link and whole_archive) {
+                try argv.append("-no-whole-archive");
+                whole_archive = false;
+            }
+            try argv.append(obj.path);
+        }
+        if (whole_archive) {
+            try argv.append("-no-whole-archive");
+            whole_archive = false;
         }
 
         for (comp.c_object_table.keys()) |key| {

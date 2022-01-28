@@ -1099,7 +1099,11 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
 
         try argv.ensureUnusedCapacity(self.base.options.objects.len);
         for (self.base.options.objects) |obj| {
-            argv.appendAssumeCapacity(obj.path);
+            if (obj.must_link) {
+                argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{s}", .{obj.path}));
+            } else {
+                argv.appendAssumeCapacity(obj.path);
+            }
         }
 
         for (comp.c_object_table.keys()) |key| {
