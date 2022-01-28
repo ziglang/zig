@@ -26,9 +26,16 @@ pub fn generateZirData(self: Autodoc) !void {
         std.debug.print("basename: {s}\n", .{loc.basename});
     }
 
-    // const root_file_path = self.module.main_pkg.root_src_path;
-    const root_file_path = "/home/kristoff/test/test.zig";
-    const zir = self.module.import_table.get(root_file_path).?.zir;
+    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const dir =
+        if (self.module.main_pkg.root_src_directory.path) |rp|
+        std.os.realpath(rp, &buf) catch unreachable
+    else
+        std.os.getcwd(&buf) catch unreachable;
+    const root_file_path = self.module.main_pkg.root_src_path;
+    const abs_root_path = try std.fs.path.join(gpa, &.{ dir, root_file_path });
+    defer gpa.free(abs_root_path);
+    const zir = self.module.import_table.get(abs_root_path).?.zir;
 
     var types = std.ArrayList(DocData.Type).init(gpa);
     var decls = std.ArrayList(DocData.Decl).init(gpa);
