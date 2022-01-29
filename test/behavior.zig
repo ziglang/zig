@@ -153,7 +153,6 @@ test {
                     _ = @import("behavior/floatop_stage1.zig");
                     _ = @import("behavior/fn_delegation.zig");
                     _ = @import("behavior/ir_block_deps.zig");
-                    _ = @import("behavior/math_stage1.zig");
                     _ = @import("behavior/misc.zig");
                     _ = @import("behavior/muladd.zig");
                     _ = @import("behavior/null_stage1.zig");

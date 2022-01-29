@@ -8674,7 +8674,6 @@ fn analyzeArithmetic(
                 // For integers:
                 // Either operand being undef is a compile error because there exists
                 // a possible value (TODO what is it?) that would invoke illegal behavior.
-                // TODO: can lhs zero be handled better?
                 // TODO: can lhs undef be handled better?
                 //
                 // For floats:
@@ -8690,8 +8689,8 @@ fn analyzeArithmetic(
                         if (lhs_val.isUndef()) {
                             return sema.failWithUseOfUndef(block, lhs_src);
                         }
-                        if (lhs_val.compareWithZero(.lt)) {
-                            return sema.failWithModRemNegative(block, lhs_src, lhs_ty, rhs_ty);
+                        if (lhs_val.compareWithZero(.eq)) {
+                            return sema.addConstant(scalar_type, Value.zero);
                         }
                     } else if (lhs_ty.isSignedInt()) {
                         return sema.failWithModRemNegative(block, lhs_src, lhs_ty, rhs_ty);
@@ -8703,14 +8702,24 @@ fn analyzeArithmetic(
                         if (rhs_val.compareWithZero(.eq)) {
                             return sema.failWithDivideByZero(block, rhs_src);
                         }
-                        if (rhs_val.compareWithZero(.lt)) {
-                            return sema.failWithModRemNegative(block, rhs_src, lhs_ty, rhs_ty);
-                        }
                         if (maybe_lhs_val) |lhs_val| {
-                            return sema.addConstant(
-                                scalar_type,
-                                try lhs_val.intRem(rhs_val, sema.arena),
-                            );
+                            const rem_result = try lhs_val.intRem(rhs_val, sema.arena);
+                            // If this answer could possibly be different by doing `intMod`,
+                            // we must emit a compile error. Otherwise, it's OK.
+                            if (rhs_val.compareWithZero(.lt) != lhs_val.compareWithZero(.lt) and
+                                !rem_result.compareWithZero(.eq))
+                            {
+                                const bad_src = if (lhs_val.compareWithZero(.lt))
+                                    lhs_src
+                                else
+                                    rhs_src;
+                                return sema.failWithModRemNegative(block, bad_src, lhs_ty, rhs_ty);
+                            }
+                            if (lhs_val.compareWithZero(.lt)) {
+                                // Negative
+                                return sema.addConstant(scalar_type, Value.zero);
+                            }
+                            return sema.addConstant(scalar_type, rem_result);
                         }
                         break :rs .{ .src = lhs_src, .air_tag = .rem };
                     } else if (rhs_ty.isSignedInt()) {
