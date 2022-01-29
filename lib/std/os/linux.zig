@@ -91,6 +91,7 @@ pub const tls = @import("linux/tls.zig");
 pub const pie = @import("linux/start_pie.zig");
 pub const BPF = @import("linux/bpf.zig");
 pub const IOCTL = @import("linux/ioctl.zig");
+pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const MAP = struct {
     pub usingnamespace arch_bits.MAP;
@@ -1665,6 +1666,10 @@ pub fn perf_event_open(
         @bitCast(usize, @as(isize, group_fd)),
         flags,
     );
+}
+
+pub fn seccomp(operation: u32, flags: u32, args: ?*const anyopaque) usize {
+    return syscall3(.seccomp, operation, flags, @ptrToInt(args));
 }
 
 pub const E = switch (native_arch) {
