@@ -629,6 +629,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
             // zig fmt: on
         }
+
+        assert(!self.register_manager.frozenRegsExist());
+
         if (std.debug.runtime_safety) {
             if (self.air_bookkeeping < old_air_bookkeeping + 1) {
                 std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[inst] });
@@ -1233,18 +1236,21 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
         // of two (includes elem_size == 1)
         const offset_mcv = try self.genArmMulConstant(inst, bin_op.rhs, 1, @intCast(u32, elem_size));
         assert(offset_mcv == .register); // result of multiplication should always be register
+        self.register_manager.freezeRegs(&.{offset_mcv.register});
+        defer self.register_manager.unfreezeRegs(&.{offset_mcv.register});
 
         const base_mcv: MCValue = switch (slice_mcv) {
-            .stack_offset => |off| blk: {
-                const reg = try self.register_manager.allocReg(null, &.{offset_mcv.register});
-                try self.genSetReg(slice_ptr_field_type, reg, MCValue{ .stack_offset = off });
-                break :blk MCValue{ .register = reg };
-            },
+            .stack_offset => .{ .register = try self.copyToTmpRegister(slice_ptr_field_type, slice_mcv) },
             else => return self.fail("TODO slice_elem_val when slice is {}", .{slice_mcv}),
         };
+        self.register_manager.freezeRegs(&.{base_mcv.register});
+        defer self.register_manager.unfreezeRegs(&.{base_mcv.register});
 
         if (elem_size <= 4) {
-            const dst_reg = try self.register_manager.allocReg(inst, &.{ base_mcv.register, offset_mcv.register });
+            const dst_reg = try self.register_manager.allocReg(inst, &.{});
+            self.register_manager.freezeRegs(&.{dst_reg});
+            defer self.register_manager.unfreezeRegs(&.{dst_reg});
+
             switch (elem_size) {
                 1, 4 => {
                     const tag: Mir.Inst.Tag = switch (elem_size) {
@@ -1278,9 +1284,20 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
             break :result MCValue{ .register = dst_reg };
         } else {
             const dst_mcv = try self.allocRegOrMem(inst, false);
-            const addr_reg = try self.register_manager.allocReg(null, &.{ base_mcv.register, offset_mcv.register });
+
+            const addr_reg = try self.register_manager.allocReg(null, &.{});
+            self.register_manager.freezeRegs(&.{addr_reg});
+            defer self.register_manager.unfreezeRegs(&.{addr_reg});
 
             try self.genArmBinOpCode(addr_reg, base_mcv, offset_mcv, false, .add, .unsigned);
+
+            // I know we will unfreeze these registers at the end of
+            // the scope of :result. However, at this point in time,
+            // neither the base register nor the offset register
+            // contains any valuable data anymore. In order to reduce
+            // register pressure, unfreeze them prematurely
+            self.register_manager.unfreezeRegs(&.{ base_mcv.register, offset_mcv.register });
+
             try self.load(dst_mcv, .{ .register = addr_reg }, slice_ptr_field_type);
 
             break :result dst_mcv;
@@ -1400,6 +1417,9 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
             return self.fail("TODO implement loading from MCValue.embedded_in_code", .{});
         },
         .register => |reg| {
+            self.register_manager.freezeRegs(&.{reg});
+            defer self.register_manager.unfreezeRegs(&.{reg});
+
             switch (dst_mcv) {
                 .dead => unreachable,
                 .undef => unreachable,
@@ -1417,7 +1437,10 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 },
                 .stack_offset => |off| {
                     if (elem_ty.abiSize(self.target.*) <= 4) {
-                        const tmp_reg = try self.register_manager.allocReg(null, &.{reg});
+                        const tmp_reg = try self.register_manager.allocReg(null, &.{});
+                        self.register_manager.freezeRegs(&.{tmp_reg});
+                        defer self.register_manager.unfreezeRegs(&.{tmp_reg});
+
                         try self.load(.{ .register = tmp_reg }, ptr, ptr_ty);
                         try self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg });
                     } else if (elem_ty.abiSize(self.target.*) == 8) {
@@ -1428,7 +1451,10 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         // larger
 
                         const usize_ty = Type.initTag(.usize);
-                        const tmp_regs = try self.register_manager.allocRegs(2, .{ null, null }, &.{reg});
+                        const tmp_regs = try self.register_manager.allocRegs(2, .{ null, null }, &.{});
+                        self.register_manager.freezeRegs(&tmp_regs);
+                        defer self.register_manager.unfreezeRegs(&tmp_regs);
+
                         _ = try self.addInst(.{
                             .tag = .ldr,
                             .data = .{ .rr_offset = .{
@@ -1449,7 +1475,10 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         try self.genSetStack(usize_ty, off + 4, MCValue{ .register = tmp_regs[1] });
                     } else {
                         // TODO optimize the register allocation
-                        const regs = try self.register_manager.allocRegs(4, .{ null, null, null, null }, &.{reg});
+                        const regs = try self.register_manager.allocRegs(4, .{ null, null, null, null }, &.{});
+                        self.register_manager.freezeRegs(&regs);
+                        defer self.register_manager.unfreezeRegs(&regs);
+
                         const src_reg = reg;
                         const dst_reg = regs[0];
                         const len_reg = regs[1];
@@ -1496,6 +1525,9 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .stack_argument_offset,
         => {
             const reg = try self.register_manager.allocReg(null, &.{});
+            self.register_manager.freezeRegs(&.{reg});
+            defer self.register_manager.unfreezeRegs(&.{reg});
+
             try self.genSetReg(ptr_ty, reg, ptr);
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
         },
@@ -1550,6 +1582,9 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             return self.fail("TODO implement storing to MCValue.embedded_in_code", .{});
         },
         .register => |addr_reg| {
+            self.register_manager.freezeRegs(&.{addr_reg});
+            defer self.register_manager.unfreezeRegs(&.{addr_reg});
+
             switch (value) {
                 .register => |value_reg| {
                     _ = try self.addInst(.{
@@ -1563,9 +1598,11 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 },
                 else => {
                     if (value_ty.abiSize(self.target.*) <= 4) {
-                        const tmp_reg = try self.register_manager.allocReg(null, &.{addr_reg});
-                        try self.genSetReg(value_ty, tmp_reg, value);
+                        const tmp_reg = try self.register_manager.allocReg(null, &.{});
+                        self.register_manager.freezeRegs(&.{tmp_reg});
+                        defer self.register_manager.unfreezeRegs(&.{tmp_reg});
 
+                        try self.genSetReg(value_ty, tmp_reg, value);
                         try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                     } else {
                         return self.fail("TODO implement memcpy", .{});
@@ -1723,6 +1760,11 @@ fn genArmBinIntOp(
         else => true,
     };
 
+    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
+    defer if (lhs_is_register) self.register_manager.unfreezeRegs(&.{lhs.register});
+    if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
+    defer if (rhs_is_register) self.register_manager.unfreezeRegs(&.{rhs.register});
+
     // Destination must be a register
     var dst_mcv: MCValue = undefined;
     var lhs_mcv = lhs;
@@ -1734,14 +1776,14 @@ fn genArmBinIntOp(
     if (reuse_lhs) {
         // Allocate 0 or 1 registers
         if (!rhs_is_register and rhs_should_be_register) {
-            rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_rhs).?, &.{lhs.register}) };
+            rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_rhs).?, &.{}) };
             branch.inst_table.putAssumeCapacity(Air.refToIndex(op_rhs).?, rhs_mcv);
         }
         dst_mcv = lhs;
     } else if (reuse_rhs and can_swap_lhs_and_rhs) {
         // Allocate 0 or 1 registers
         if (!lhs_is_register and lhs_should_be_register) {
-            lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_lhs).?, &.{rhs.register}) };
+            lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_lhs).?, &.{}) };
             branch.inst_table.putAssumeCapacity(Air.refToIndex(op_lhs).?, lhs_mcv);
         }
         dst_mcv = rhs;
@@ -1751,14 +1793,14 @@ fn genArmBinIntOp(
         // Allocate 1 or 2 registers
         if (lhs_should_be_register and rhs_should_be_register) {
             if (lhs_is_register and rhs_is_register) {
-                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{ lhs.register, rhs.register }) };
+                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
             } else if (lhs_is_register) {
                 // Move RHS to register
-                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{lhs.register}) };
+                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
                 rhs_mcv = dst_mcv;
             } else if (rhs_is_register) {
                 // Move LHS to register
-                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{rhs.register}) };
+                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
                 lhs_mcv = dst_mcv;
             } else {
                 // Move LHS and RHS to register
@@ -1772,7 +1814,7 @@ fn genArmBinIntOp(
         } else if (lhs_should_be_register) {
             // RHS is immediate
             if (lhs_is_register) {
-                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{lhs.register}) };
+                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
             } else {
                 dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
                 lhs_mcv = dst_mcv;
@@ -1780,7 +1822,7 @@ fn genArmBinIntOp(
         } else if (rhs_should_be_register and can_swap_lhs_and_rhs) {
             // LHS is immediate
             if (rhs_is_register) {
-                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{rhs.register}) };
+                dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
             } else {
                 dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
                 rhs_mcv = dst_mcv;
@@ -1926,6 +1968,11 @@ fn genArmMul(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Ai
     const reuse_lhs = lhs_is_register and self.reuseOperand(inst, op_lhs, 0, lhs);
     const reuse_rhs = !reuse_lhs and rhs_is_register and self.reuseOperand(inst, op_rhs, 1, rhs);
 
+    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
+    defer if (lhs_is_register) self.register_manager.unfreezeRegs(&.{lhs.register});
+    if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
+    defer if (rhs_is_register) self.register_manager.unfreezeRegs(&.{rhs.register});
+
     // Destination must be a register
     // LHS must be a register
     // RHS must be a register
@@ -1938,28 +1985,28 @@ fn genArmMul(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Ai
     if (reuse_lhs) {
         // Allocate 0 or 1 registers
         if (!rhs_is_register) {
-            rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_rhs).?, &.{lhs.register}) };
+            rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_rhs).?, &.{}) };
             branch.inst_table.putAssumeCapacity(Air.refToIndex(op_rhs).?, rhs_mcv);
         }
         dst_mcv = lhs;
     } else if (reuse_rhs) {
         // Allocate 0 or 1 registers
         if (!lhs_is_register) {
-            lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_lhs).?, &.{rhs.register}) };
+            lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(Air.refToIndex(op_lhs).?, &.{}) };
             branch.inst_table.putAssumeCapacity(Air.refToIndex(op_lhs).?, lhs_mcv);
         }
         dst_mcv = rhs;
     } else {
         // Allocate 1 or 2 registers
         if (lhs_is_register and rhs_is_register) {
-            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{ lhs.register, rhs.register }) };
+            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
         } else if (lhs_is_register) {
             // Move RHS to register
-            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{lhs.register}) };
+            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
             rhs_mcv = dst_mcv;
         } else if (rhs_is_register) {
             // Move LHS to register
-            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{rhs.register}) };
+            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
             lhs_mcv = dst_mcv;
         } else {
             // Move LHS and RHS to register
@@ -1992,29 +2039,32 @@ fn genArmMul(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs: Ai
 }
 
 fn genArmMulConstant(self: *Self, inst: Air.Inst.Index, op: Air.Inst.Ref, op_index: Liveness.OperandInt, imm: u32) !MCValue {
-    const mcv = try self.resolveInst(op);
+    const lhs = try self.resolveInst(op);
     const rhs = MCValue{ .immediate = imm };
 
-    const lhs_is_register = mcv == .register;
-    const reuse_lhs = lhs_is_register and self.reuseOperand(inst, op, op_index, mcv);
+    const lhs_is_register = lhs == .register;
+    const reuse_lhs = lhs_is_register and self.reuseOperand(inst, op, op_index, lhs);
+
+    if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
+    defer if (lhs_is_register) self.register_manager.unfreezeRegs(&.{lhs.register});
 
     // Destination must be a register
     // LHS must be a register
     // RHS must be a register
     var dst_mcv: MCValue = undefined;
-    var lhs_mcv: MCValue = mcv;
+    var lhs_mcv: MCValue = lhs;
     var rhs_mcv: MCValue = rhs;
 
     // Allocate registers for operands and/or destination
     if (reuse_lhs) {
         // Allocate 1 register
-        rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(null, &.{mcv.register}) };
-        dst_mcv = mcv;
+        rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(null, &.{}) };
+        dst_mcv = lhs;
     } else {
         // Allocate 1 or 2 registers
         if (lhs_is_register) {
             // Move RHS to register
-            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(null, &.{mcv.register}) };
+            dst_mcv = MCValue{ .register = try self.register_manager.allocReg(null, &.{}) };
             rhs_mcv = dst_mcv;
         } else {
             // Move LHS and RHS to register
@@ -2027,7 +2077,7 @@ fn genArmMulConstant(self: *Self, inst: Air.Inst.Index, op: Air.Inst.Ref, op_ind
 
     // Move the operands to the newly allocated registers
     if (!lhs_is_register) {
-        try self.genSetReg(self.air.typeOf(op), lhs_mcv.register, mcv);
+        try self.genSetReg(self.air.typeOf(op), lhs_mcv.register, lhs);
     }
     try self.genSetReg(Type.initTag(.usize), rhs_mcv.register, rhs);
 
@@ -2374,6 +2424,11 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         const rhs_is_register = rhs == .register;
         // lhs should always be a register
         const rhs_should_be_register = try self.armOperandShouldBeRegister(rhs);
+
+        if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
+        defer if (lhs_is_register) self.register_manager.unfreezeRegs(&.{lhs.register});
+        if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
+        defer if (rhs_is_register) self.register_manager.unfreezeRegs(&.{rhs.register});
 
         var lhs_mcv = lhs;
         var rhs_mcv = rhs;
