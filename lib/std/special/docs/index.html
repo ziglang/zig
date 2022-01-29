@@ -43,8 +43,6 @@
 
       /* layout */
       .canvas {
-        display: flex;
-        flex-direction: column;
         width: 100vw;
         height: 100vh;
         overflow: hidden;
@@ -55,21 +53,12 @@
         background-color: var(--bg-color);
       }
 
-      .banner {
-        background-color: darkred;
-        text-align: center;
-        color: white;
-        padding: 15px 5px;
-      }
-
-      .banner a {
-        color: bisque;
-        text-decoration: underline;
-      }
-
       .flex-main {
         display: flex;
-        overflow-y: hidden;
+        width: 100%;
+        height: 100%;
+        justify-content: center;
+        
         z-index: 100;
       }
 
@@ -526,7 +515,6 @@
     </style>
   </head>
   <body class="canvas">
-    <div class="banner">These docs are experimental. <a href="https://kristoff.it/blog/zig-new-relationship-llvm/">Progress depends on the self-hosted compiler</a>, <a href="https://github.com/ziglang/zig/wiki/How-to-read-the-standard-library-source-code">consider reading the stdlib source in the meantime</a>.</div>
     <div class="flex-main">
       <div class="flex-filler"></div>
       <div class="flex-left sidebar">
@@ -541,8 +529,14 @@
               </g>
             </svg>
           </div>
+          <div id="sectMainPkg" class="hidden">
+            <h2><span>Main Package</span></h2>
+            <ul class="packages">
+              <li><a id="mainPkg" class="" href=""></a></li>
+            </ul>
+          </div>
           <div id="sectPkgs" class="hidden">
-            <h2><span>Packages</span></h2>
+            <h2><span>Dependencies</span></h2>
             <ul id="listPkgs" class="packages"></ul>
           </div>
           <div id="sectInfo" class="hidden">
@@ -588,7 +582,6 @@
             <div id="sectSearchResults" class="hidden">
               <h2>Search Results</h2>
               <ul id="listSearchResults"></ul>
-              <p id="sectSearchAllResultsLink" class="hidden"><a href="">show all results</a></p>
             </div>
             <div id="sectSearchNoResults" class="hidden">
               <h2>No Results Found</h2>
