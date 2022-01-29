@@ -24,6 +24,7 @@ const SpirV = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 
@@ -31,19 +32,21 @@ const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
 const codegen = @import("../codegen/spirv.zig");
-const Word = codegen.Word;
-const ResultId = codegen.ResultId;
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
-const spec = @import("../codegen/spirv/spec.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
+const Value = @import("../value.zig").Value;
+
+const SpvModule = @import("../codegen/spirv/Module.zig");
+const spec = @import("../codegen/spirv/spec.zig");
+const IdResult = spec.IdResult;
 
 // TODO: Should this struct be used at all rather than just a hashmap of aux data for every decl?
 pub const FnData = struct {
     // We're going to fill these in flushModule, and we're going to fill them unconditionally,
     // so just set it to undefined.
-    id: ResultId = undefined,
+    id: IdResult = undefined,
 };
 
 base: link.File,
@@ -55,7 +58,15 @@ decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, DeclGenContext) = .{},
 
 const DeclGenContext = struct {
     air: Air,
+    air_value_arena: ArenaAllocator.State,
     liveness: Liveness,
+
+    fn deinit(self: *DeclGenContext, gpa: Allocator) void {
+        self.air.deinit(gpa);
+        self.liveness.deinit(gpa);
+        self.air_value_arena.promote(gpa).deinit();
+        self.* = undefined;
+    }
 };
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
@@ -113,12 +124,27 @@ pub fn updateFunc(self: *SpirV, module: *Module, func: *Module.Fn, air: Air, liv
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
     _ = module;
-    // Keep track of all decls so we can iterate over them on flush().
-    _ = try self.decl_table.getOrPut(self.base.allocator, func.owner_decl);
 
-    _ = air;
-    _ = liveness;
-    @panic("TODO SPIR-V needs to keep track of Air and Liveness so it can use them later");
+    // Keep track of all decls so we can iterate over them on flush().
+    const result = try self.decl_table.getOrPut(self.base.allocator, func.owner_decl);
+    if (result.found_existing) {
+        result.value_ptr.deinit(self.base.allocator);
+    }
+
+    var arena = ArenaAllocator.init(self.base.allocator);
+    errdefer arena.deinit();
+
+    var new_air = try cloneAir(air, self.base.allocator, arena.allocator());
+    errdefer new_air.deinit(self.base.allocator);
+
+    var new_liveness = try cloneLiveness(liveness, self.base.allocator);
+    errdefer new_liveness.deinit(self.base.allocator);
+
+    result.value_ptr.* = .{
+        .air = new_air,
+        .air_value_arena = arena.state,
+        .liveness = new_liveness,
+    };
 }
 
 pub fn updateDecl(self: *SpirV, module: *Module, decl: *Module.Decl) !void {
@@ -143,7 +169,11 @@ pub fn updateDeclExports(
 }
 
 pub fn freeDecl(self: *SpirV, decl: *Module.Decl) void {
-    assert(self.decl_table.swapRemove(decl));
+    const index = self.decl_table.getIndex(decl).?;
+    if (decl.val.tag() == .function) {
+        self.decl_table.values()[index].deinit(self.base.allocator);
+    }
+    self.decl_table.swapRemoveAt(index);
 }
 
 pub fn flush(self: *SpirV, comp: *Compilation) !void {
@@ -165,7 +195,10 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     const module = self.base.options.module.?;
     const target = comp.getTarget();
 
-    var spv = codegen.SPIRVModule.init(self.base.allocator, module);
+    var arena = std.heap.ArenaAllocator.init(self.base.allocator);
+    defer arena.deinit();
+
+    var spv = SpvModule.init(self.base.allocator, arena.allocator());
     defer spv.deinit();
 
     // Allocate an ID for every declaration before generating code,
@@ -173,73 +206,38 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     // TODO: We're allocating an ID unconditionally now, are there
     // declarations which don't generate a result?
     // TODO: fn_link is used here, but thats probably not the right field. It will work anyway though.
-    {
-        for (self.decl_table.keys()) |decl| {
-            if (!decl.has_tv) continue;
-
-            decl.fn_link.spirv.id = spv.allocResultId();
+    for (self.decl_table.keys()) |decl| {
+        if (decl.has_tv) {
+            decl.fn_link.spirv.id = spv.allocId();
         }
     }
 
     // Now, actually generate the code for all declarations.
-    {
-        var decl_gen = codegen.DeclGen.init(&spv);
-        defer decl_gen.deinit();
+    var decl_gen = codegen.DeclGen.init(module, &spv);
+    defer decl_gen.deinit();
 
-        var it = self.decl_table.iterator();
-        while (it.next()) |entry| {
-            const decl = entry.key_ptr.*;
-            if (!decl.has_tv) continue;
+    var it = self.decl_table.iterator();
+    while (it.next()) |entry| {
+        const decl = entry.key_ptr.*;
+        if (!decl.has_tv) continue;
 
-            const air = entry.value_ptr.air;
-            const liveness = entry.value_ptr.liveness;
+        const air = entry.value_ptr.air;
+        const liveness = entry.value_ptr.liveness;
 
-            if (try decl_gen.gen(decl, air, liveness)) |msg| {
-                try module.failed_decls.put(module.gpa, decl, msg);
-                return; // TODO: Attempt to generate more decls?
-            }
+        // Note, if `decl` is not a function, air/liveness may be undefined.
+        if (try decl_gen.gen(decl, air, liveness)) |msg| {
+            try module.failed_decls.put(module.gpa, decl, msg);
+            return; // TODO: Attempt to generate more decls?
         }
     }
 
-    try writeCapabilities(&spv.binary.capabilities_and_extensions, target);
-    try writeMemoryModel(&spv.binary.capabilities_and_extensions, target);
+    try writeCapabilities(&spv, target);
+    try writeMemoryModel(&spv, target);
 
-    const header = [_]Word{
-        spec.magic_number,
-        (spec.version.major << 16) | (spec.version.minor << 8),
-        0, // TODO: Register Zig compiler magic number.
-        spv.resultIdBound(),
-        0, // Schema (currently reserved for future use in the SPIR-V spec).
-    };
-
-    // Note: The order of adding sections to the final binary
-    // follows the SPIR-V logical module format!
-    const buffers = &[_][]const Word{
-        &header,
-        spv.binary.capabilities_and_extensions.items,
-        spv.binary.debug_strings.items,
-        spv.binary.types_globals_constants.items,
-        spv.binary.fn_decls.items,
-    };
-
-    var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
-    for (iovc_buffers) |*iovc, i| {
-        const bytes = std.mem.sliceAsBytes(buffers[i]);
-        iovc.* = .{ .iov_base = bytes.ptr, .iov_len = bytes.len };
-    }
-
-    var file_size: u64 = 0;
-    for (iovc_buffers) |iov| {
-        file_size += iov.iov_len;
-    }
-
-    const file = self.base.file.?;
-    try file.seekTo(0);
-    try file.setEndPos(file_size);
-    try file.pwritevAll(&iovc_buffers, 0);
+    try spv.flush(self.base.file.?);
 }
 
-fn writeCapabilities(binary: *std.ArrayList(Word), target: std.Target) !void {
+fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
     const cap: spec.Capability = switch (target.os.tag) {
         .opencl => .Kernel,
@@ -248,10 +246,12 @@ fn writeCapabilities(binary: *std.ArrayList(Word), target: std.Target) !void {
         else => unreachable, // TODO
     };
 
-    try codegen.writeInstruction(binary, .OpCapability, &[_]Word{@enumToInt(cap)});
+    try spv.sections.capabilities.emit(spv.gpa, .OpCapability, .{
+        .capability = cap,
+    });
 }
 
-fn writeMemoryModel(binary: *std.ArrayList(Word), target: std.Target) !void {
+fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
     const addressing_model = switch (target.os.tag) {
         .opencl => switch (target.cpu.arch) {
             .spirv32 => spec.AddressingModel.Physical32,
@@ -269,7 +269,41 @@ fn writeMemoryModel(binary: *std.ArrayList(Word), target: std.Target) !void {
         else => unreachable,
     };
 
-    try codegen.writeInstruction(binary, .OpMemoryModel, &[_]Word{
-        @enumToInt(addressing_model), @enumToInt(memory_model),
+    // TODO: Put this in a proper section.
+    try spv.sections.capabilities.emit(spv.gpa, .OpMemoryModel, .{
+        .addressing_model = addressing_model,
+        .memory_model = memory_model,
     });
+}
+
+fn cloneLiveness(l: Liveness, gpa: Allocator) !Liveness {
+    const tomb_bits = try gpa.dupe(usize, l.tomb_bits);
+    errdefer gpa.free(tomb_bits);
+
+    const extra = try gpa.dupe(u32, l.extra);
+    errdefer gpa.free(extra);
+
+    return Liveness{
+        .tomb_bits = tomb_bits,
+        .extra = extra,
+        .special = try l.special.clone(gpa),
+    };
+}
+
+fn cloneAir(air: Air, gpa: Allocator, value_arena: Allocator) !Air {
+    const values = try gpa.alloc(Value, air.values.len);
+    errdefer gpa.free(values);
+
+    for (values) |*value, i| {
+        value.* = try air.values[i].copy(value_arena);
+    }
+
+    var instructions = try air.instructions.toMultiArrayList().clone(gpa);
+    errdefer instructions.deinit(gpa);
+
+    return Air{
+        .instructions = instructions.slice(),
+        .extra = try gpa.dupe(u32, air.extra),
+        .values = values,
+    };
 }
