@@ -2765,20 +2765,12 @@ pub const GUID = extern struct {
         assert(s[13] == '-');
         assert(s[18] == '-');
         assert(s[23] == '-');
-        const GuidUnion = extern union {
-            typed: GUID,
-            bytes: [16]u8,
-        };
-        // GuidUnion only works if @sizeOf(GUID) == 16
-        comptime {
-            std.debug.assert(@sizeOf(GUID) == 16);
-        }
-        var guid = GuidUnion{ .bytes = undefined };
+        var bytes: [16]u8 = undefined;
         for (hex_offsets) |hex_offset, i| {
-            guid.bytes[i] = (try std.fmt.charToDigit(s[hex_offset], 16)) << 4 |
+            bytes[i] = (try std.fmt.charToDigit(s[hex_offset], 16)) << 4 |
                 try std.fmt.charToDigit(s[hex_offset + 1], 16);
         }
-        return guid.typed;
+        return @bitCast(GUID, bytes);
     }
 };
 
