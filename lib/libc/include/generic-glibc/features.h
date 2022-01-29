@@ -222,8 +222,13 @@
 # define _DEFAULT_SOURCE	1
 # undef  _ATFILE_SOURCE
 # define _ATFILE_SOURCE	1
+
+/* Zig patch */
+# if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34) || __GLIBC__ > 2
 # undef  _DYNAMIC_STACK_SIZE_SOURCE
 # define _DYNAMIC_STACK_SIZE_SOURCE 1
+# endif
+
 #endif
 
 /* If nothing (other than _GNU_SOURCE and _DEFAULT_SOURCE) is defined,
