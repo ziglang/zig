@@ -938,10 +938,10 @@ pub const Dir = struct {
         const w = os.wasi;
         var fdflags: w.fdflags_t = 0x0;
         var base: w.rights_t = 0x0;
-        if (flags.read) {
+        if (flags.isRead()) {
             base |= w.RIGHT.FD_READ | w.RIGHT.FD_TELL | w.RIGHT.FD_SEEK | w.RIGHT.FD_FILESTAT_GET;
         }
-        if (flags.write) {
+        if (flags.isWrite()) {
             fdflags |= w.FDFLAG.APPEND;
             base |= w.RIGHT.FD_WRITE |
                 w.RIGHT.FD_TELL |
@@ -988,12 +988,11 @@ pub const Dir = struct {
         if (!flags.allow_ctty) {
             os_flags |= os.O.NOCTTY;
         }
-        os_flags |= if (flags.write and flags.read)
-            @as(u32, os.O.RDWR)
-        else if (flags.write)
-            @as(u32, os.O.WRONLY)
-        else
-            @as(u32, os.O.RDONLY);
+        os_flags |= switch (flags.mode) {
+            .read_only => @as(u32, os.O.RDONLY),
+            .write_only => @as(u32, os.O.WRONLY),
+            .read_write => @as(u32, os.O.RDWR),
+        };
         const fd = if (flags.intended_io_mode != .blocking)
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
         else
@@ -1045,8 +1044,8 @@ pub const Dir = struct {
             .handle = try w.OpenFile(sub_path_w, .{
                 .dir = self.fd,
                 .access_mask = w.SYNCHRONIZE |
-                    (if (flags.read) @as(u32, w.GENERIC_READ) else 0) |
-                    (if (flags.write) @as(u32, w.GENERIC_WRITE) else 0),
+                    (if (flags.isRead()) @as(u32, w.GENERIC_READ) else 0) |
+                    (if (flags.isWrite()) @as(u32, w.GENERIC_WRITE) else 0),
                 .creation = w.FILE_OPEN,
                 .io_mode = flags.intended_io_mode,
             }),
@@ -2042,12 +2041,11 @@ pub const Dir = struct {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path);
             return self.accessW(sub_path_w.span().ptr, flags);
         }
-        const os_mode = if (flags.write and flags.read)
-            @as(u32, os.R_OK | os.W_OK)
-        else if (flags.write)
-            @as(u32, os.W_OK)
-        else
-            @as(u32, os.F_OK);
+        const os_mode = switch (flags.mode) {
+            .read_only => @as(u32, os.F_OK),
+            .write_only => @as(u32, os.W_OK),
+            .read_write => @as(u32, os.R_OK | os.W_OK),
+        };
         const result = if (need_async_thread and flags.intended_io_mode != .blocking)
             std.event.Loop.instance.?.faccessatZ(self.fd, sub_path, os_mode, 0)
         else

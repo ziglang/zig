@@ -69,12 +69,17 @@ pub const File = struct {
         Unexpected,
     } || os.OpenError || os.FlockError;
 
+    pub const OpenMode = enum {
+        read_only,
+        write_only,
+        read_write,
+    };
+
     pub const Lock = enum { None, Shared, Exclusive };
 
     /// TODO https://github.com/ziglang/zig/issues/3802
     pub const OpenFlags = struct {
-        read: bool = true,
-        write: bool = false,
+        mode: OpenMode = .read_only,
 
         /// Open the file with an advisory lock to coordinate with other processes
         /// accessing it at the same time. An exclusive lock will prevent other
@@ -118,6 +123,14 @@ pub const File = struct {
         /// Set this to allow the opened file to automatically become the
         /// controlling TTY for the current process.
         allow_ctty: bool = false,
+
+        pub fn isRead(self: OpenFlags) bool {
+            return self.mode != .write_only;
+        }
+
+        pub fn isWrite(self: OpenFlags) bool {
+            return self.mode != .read_only;
+        }
     };
 
     /// TODO https://github.com/ziglang/zig/issues/3802

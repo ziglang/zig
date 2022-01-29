@@ -308,8 +308,7 @@ pub const Manifest = struct {
             // comparing the hashes on the files used for the cached item
             while (true) {
                 if (self.cache.manifest_dir.openFile(&manifest_file_path, .{
-                    .read = true,
-                    .write = true,
+                    .mode = .read_write,
                     .lock = .Exclusive,
                     .lock_nonblocking = self.want_shared_lock,
                 })) |manifest_file| {
@@ -410,7 +409,7 @@ pub const Manifest = struct {
                 cache_hash_file.path = try self.cache.gpa.dupe(u8, file_path);
             }
 
-            const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch |err| switch (err) {
+            const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .mode = .read_only }) catch |err| switch (err) {
                 error.FileNotFound => {
                     try self.upgradeToExclusiveLock();
                     return false;

@@ -958,14 +958,14 @@ pub const TestContext = struct {
 
             switch (update.case) {
                 .Header => |expected_output| {
-                    var file = try tmp.dir.openFile("test_case.h", .{ .read = true });
+                    var file = try tmp.dir.openFile("test_case.h", .{ .mode = .read_only });
                     defer file.close();
                     const out = try file.reader().readAllAlloc(arena, 5 * 1024 * 1024);
 
                     try std.testing.expectEqualStrings(expected_output, out);
                 },
                 .CompareObjectFile => |expected_output| {
-                    var file = try tmp.dir.openFile(bin_name, .{ .read = true });
+                    var file = try tmp.dir.openFile(bin_name, .{ .mode = .read_only });
                     defer file.close();
                     const out = try file.reader().readAllAlloc(arena, 5 * 1024 * 1024);
 
