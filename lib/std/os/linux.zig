@@ -440,26 +440,30 @@ pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
 }
 
 pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: i64) usize {
-    const offset_halves = splitValueLE64(offset);
+    const offset_u = @bitCast(u64, offset);
     return syscall5(
         .preadv,
         @bitCast(usize, @as(isize, fd)),
         @ptrToInt(iov),
         count,
-        offset_halves[0],
-        offset_halves[1],
+        // Kernel expects the offset is splitted into largest natural word-size.
+        // See following link for detail:
+        // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=601cc11d054ae4b5e9b5babec3d8e4667a2cb9b5
+        @truncate(usize, offset_u),
+        if (usize_bits < 64) @truncate(usize, offset_u >> 32) else 0,
     );
 }
 
 pub fn preadv2(fd: i32, iov: [*]const iovec, count: usize, offset: i64, flags: kernel_rwf) usize {
-    const offset_halves = splitValue64(offset);
+    const offset_u = @bitCast(u64, offset);
     return syscall6(
         .preadv2,
         @bitCast(usize, @as(isize, fd)),
         @ptrToInt(iov),
         count,
-        offset_halves[0],
-        offset_halves[1],
+        // See comments in preadv
+        @truncate(usize, offset_u),
+        if (usize_bits < 64) @truncate(usize, offset_u >> 32) else 0,
         flags,
     );
 }
@@ -473,26 +477,28 @@ pub fn writev(fd: i32, iov: [*]const iovec_const, count: usize) usize {
 }
 
 pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: i64) usize {
-    const offset_halves = splitValueLE64(offset);
+    const offset_u = @bitCast(u64, offset);
     return syscall5(
         .pwritev,
         @bitCast(usize, @as(isize, fd)),
         @ptrToInt(iov),
         count,
-        offset_halves[0],
-        offset_halves[1],
+        // See comments in preadv
+        @truncate(usize, offset_u),
+        if (usize_bits < 64) @truncate(usize, offset_u >> 32) else 0,
     );
 }
 
 pub fn pwritev2(fd: i32, iov: [*]const iovec_const, count: usize, offset: i64, flags: kernel_rwf) usize {
-    const offset_halves = splitValue64(offset);
+    const offset_u = @bitCast(u64, offset);
     return syscall6(
         .pwritev2,
         @bitCast(usize, @as(isize, fd)),
         @ptrToInt(iov),
         count,
-        offset_halves[0],
-        offset_halves[1],
+        // See comments in preadv
+        @truncate(usize, offset_u),
+        if (usize_bits < 64) @truncate(usize, offset_u >> 32) else 0,
         flags,
     );
 }
