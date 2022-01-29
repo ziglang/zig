@@ -5,21 +5,28 @@ const Module = @import("Module.zig");
 const Zir = @import("Zir.zig");
 
 module: *Module,
-doc_location: Compilation.EmitLoc,
+doc_location: ?Compilation.EmitLoc,
+arena: std.mem.Allocator,
+types: std.ArrayListUnmanaged(DocData.Type) = .{},
+decls: std.ArrayListUnmanaged(DocData.Decl) = .{},
+ast_nodes: std.ArrayListUnmanaged(DocData.AstNode) = .{},
 
-pub fn init(m: *Module, dl: Compilation.EmitLoc) Autodoc {
+var arena_allocator: std.heap.ArenaAllocator = undefined;
+pub fn init(m: *Module, doc_location: ?Compilation.EmitLoc) Autodoc {
+    arena_allocator = std.heap.ArenaAllocator.init(m.gpa);
     return .{
-        .doc_location = dl,
         .module = m,
+        .doc_location = doc_location,
+        .arena = arena_allocator.allocator(),
     };
 }
 
-pub fn generateZirData(self: Autodoc) !void {
-    const gpa = self.module.gpa;
-    std.debug.print("yay, you called me!\n", .{});
-    if (self.doc_location.directory) |dir| {
-        if (dir.path) |path| {
-            std.debug.print("path: {s}\n", .{path});
+pub fn generateZirData(self: *Autodoc) !void {
+    if (self.doc_location) |loc| {
+        if (loc.directory) |dir| {
+            if (dir.path) |path| {
+                std.debug.print("path: {s}\n", .{path});
+            }
         }
     }
     std.debug.print("basename: {s}\n", .{self.doc_location.basename});
@@ -31,28 +38,21 @@ pub fn generateZirData(self: Autodoc) !void {
     else
         std.os.getcwd(&buf) catch unreachable;
     const root_file_path = self.module.main_pkg.root_src_path;
-    const abs_root_path = try std.fs.path.join(gpa, &.{ dir, root_file_path });
-    defer gpa.free(abs_root_path);
+    const abs_root_path = try std.fs.path.join(self.arena, &.{ dir, root_file_path });
+    defer self.arena.free(abs_root_path);
     const zir = self.module.import_table.get(abs_root_path).?.zir;
-
-    var types = std.ArrayList(DocData.Type).init(gpa);
-    var decls = std.ArrayList(DocData.Decl).init(gpa);
-    var ast_nodes = std.ArrayList(DocData.AstNode).init(gpa);
 
     // var decl_map = std.AutoHashMap(Zir.Inst.Index, usize); // values are positions in the `decls` array
 
-    try types.append(.{
-        .kind = 0,
-        .name = "type",
-    });
     // append all the types in Zir.Inst.Ref
     {
-        // we don't count .none
+
+        // TODO: we don't want to add .none, but the index math has to check out
         var i: u32 = 1;
         while (i <= @enumToInt(Zir.Inst.Ref.anyerror_void_error_union_type)) : (i += 1) {
-            var tmpbuf = std.ArrayList(u8).init(gpa);
+            var tmpbuf = std.ArrayList(u8).init(self.arena);
             try Zir.Inst.Ref.typed_value_map[i].val.format("", .{}, tmpbuf.writer());
-            try types.append(.{
+            try self.types.append(self.arena, .{
                 .kind = 0,
                 .name = tmpbuf.toOwnedSlice(),
             });
@@ -60,14 +60,14 @@ pub fn generateZirData(self: Autodoc) !void {
     }
 
     var root_scope: Scope = .{ .parent = null };
-    try ast_nodes.append(.{ .name = "(root)" });
-    const main_type_index = try walkInstruction(zir, gpa, &root_scope, &types, &decls, &ast_nodes, Zir.main_struct_inst);
+    try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
+    const main_type_index = try self.walkInstruction(zir, &root_scope, Zir.main_struct_inst);
 
     var data = DocData{
         .files = &[1][]const u8{root_file_path},
-        .types = types.items,
-        .decls = decls.items,
-        .astNodes = ast_nodes.items,
+        .types = self.types.items,
+        .decls = self.decls.items,
+        .astNodes = self.ast_nodes.items,
     };
 
     data.packages[0].main = main_type_index.type;
@@ -122,11 +122,11 @@ const Scope = struct {
 
     pub fn insertDeclRef(
         self: *Scope,
-        gpa: std.mem.Allocator,
+        arena: std.mem.Allocator,
         decl_name_index: u32, // decl name
         decls_slot_index: usize,
     ) !void {
-        try self.map.put(gpa, decl_name_index, decls_slot_index);
+        try self.map.put(arena, decl_name_index, decls_slot_index);
     }
 };
 
@@ -221,19 +221,16 @@ const DocData = struct {
 };
 
 fn walkInstruction(
+    self: *Autodoc,
     zir: Zir,
-    gpa: std.mem.Allocator,
     parent_scope: *Scope,
-    types: *std.ArrayList(DocData.Type),
-    decls: *std.ArrayList(DocData.Decl),
-    ast_nodes: *std.ArrayList(DocData.AstNode),
     inst_index: usize,
 ) error{OutOfMemory}!DocData.WalkResult {
     const tags = zir.instructions.items(.tag);
     const data = zir.instructions.items(.data);
 
     // We assume that the topmost ast_node entry corresponds to our decl
-    const self_ast_node_index = ast_nodes.items.len - 1;
+    const self_ast_node_index = self.ast_nodes.items.len - 1;
 
     switch (tags[inst_index]) {
         else => {
@@ -252,13 +249,13 @@ fn walkInstruction(
             const int_type = data[inst_index].int_type;
             const sign = if (int_type.signedness == .unsigned) "u" else "i";
             const bits = int_type.bit_count;
-            const name = try std.fmt.allocPrint(gpa, "{s}{}", .{ sign, bits });
+            const name = try std.fmt.allocPrint(self.arena, "{s}{}", .{ sign, bits });
 
-            try types.append(.{
+            try self.types.append(self.arena, .{
                 .kind = @enumToInt(std.builtin.TypeId.Int),
                 .name = name,
             });
-            return DocData.WalkResult{ .type = types.items.len - 1 };
+            return DocData.WalkResult{ .type = self.types.items.len - 1 };
         },
         .block_inline => {
             const pl_node = data[inst_index].pl_node;
@@ -273,7 +270,7 @@ fn walkInstruction(
 
             const break_operand = data[break_index].@"break".operand;
             return if (Zir.refToIndex(break_operand)) |bi|
-                walkInstruction(zir, gpa, parent_scope, types, decls, ast_nodes, bi)
+                self.walkInstruction(zir, parent_scope, bi)
             else if (@enumToInt(break_operand) <= @enumToInt(Zir.Inst.Ref.anyerror_void_error_union_type))
                 // we append all the types in ref first, so we can just do this if we encounter a ref that is a type
                 return DocData.WalkResult{ .type = @enumToInt(break_operand) }
@@ -322,58 +319,50 @@ fn walkInstruction(
                         break :blk decls_len;
                     } else 0;
 
-                    var decl_indexes = std.ArrayList(usize).init(gpa);
-                    var priv_decl_indexes = std.ArrayList(usize).init(gpa);
+                    var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
+                    var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 
-                    const decls_first_index = decls.items.len;
+                    const decls_first_index = self.decls.items.len;
                     // Decl name lookahead for reserving slots in `scope` (and `decls`).
                     // Done to make sure that all decl refs can be resolved correctly,
                     // even if we haven't fully analyzed the decl yet.
                     {
                         var it = zir.declIterator(@intCast(u32, inst_index));
-                        try decls.resize(decls_first_index + it.decls_len);
+                        try self.decls.resize(self.arena, decls_first_index + it.decls_len);
                         var decls_slot_index = decls_first_index;
                         while (it.next()) |d| : (decls_slot_index += 1) {
                             const decl_name_index = zir.extra[d.sub_index + 5];
-                            try scope.insertDeclRef(gpa, decl_name_index, decls_slot_index);
+                            try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
                         }
                     }
 
-                    extra_index = try walkDecls(
+                    extra_index = try self.walkDecls(
                         zir,
-                        gpa,
                         &scope,
-                        decls,
                         decls_first_index,
                         decls_len,
                         &decl_indexes,
                         &priv_decl_indexes,
-                        types,
-                        ast_nodes,
                         extra_index,
                     );
 
                     // const body = zir.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
-                    var field_type_indexes = std.ArrayList(DocData.WalkResult).init(gpa);
-                    var field_name_indexes = std.ArrayList(usize).init(gpa);
-                    try collectFieldInfo(
+                    var field_type_indexes: std.ArrayListUnmanaged(DocData.WalkResult) = .{};
+                    var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
+                    try self.collectFieldInfo(
                         zir,
-                        gpa,
                         &scope,
-                        types,
-                        decls,
                         fields_len,
                         &field_type_indexes,
                         &field_name_indexes,
-                        ast_nodes,
                         extra_index,
                     );
 
-                    ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
+                    self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
 
-                    try types.append(.{
+                    try self.types.append(self.arena, .{
                         .kind = @enumToInt(std.builtin.TypeId.Struct),
                         .name = "todo_name",
                         .src = self_ast_node_index,
@@ -382,7 +371,7 @@ fn walkInstruction(
                         .fields = field_type_indexes.items,
                     });
 
-                    return DocData.WalkResult{ .type = types.items.len - 1 };
+                    return DocData.WalkResult{ .type = self.types.items.len - 1 };
                 },
             }
         },
@@ -390,16 +379,13 @@ fn walkInstruction(
 }
 
 fn walkDecls(
+    self: *Autodoc,
     zir: Zir,
-    gpa: std.mem.Allocator,
     scope: *Scope,
-    decls: *std.ArrayList(DocData.Decl),
     decls_first_index: usize,
     decls_len: u32,
-    decl_indexes: *std.ArrayList(usize),
-    priv_decl_indexes: *std.ArrayList(usize),
-    types: *std.ArrayList(DocData.Type),
-    ast_nodes: *std.ArrayList(DocData.AstNode),
+    decl_indexes: *std.ArrayListUnmanaged(usize),
+    priv_decl_indexes: *std.ArrayListUnmanaged(usize),
     extra_start: usize,
 ) error{OutOfMemory}!usize {
     const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
@@ -478,8 +464,8 @@ fn walkDecls(
 
         // astnode
         const ast_node_index = idx: {
-            const idx = ast_nodes.items.len;
-            try ast_nodes.append(.{
+            const idx = self.ast_nodes.items.len;
+            try self.ast_nodes.append(self.arena, .{
                 .file = 0,
                 .line = 0,
                 .col = 0,
@@ -489,16 +475,16 @@ fn walkDecls(
             break :idx idx;
         };
 
-        const walk_result = try walkInstruction(zir, gpa, scope, types, decls, ast_nodes, decl_index);
+        const walk_result = try self.walkInstruction(zir, scope, decl_index);
         const type_index = walk_result.type;
 
         if (is_pub) {
-            try decl_indexes.append(decls_slot_index);
+            try decl_indexes.append(self.arena, decls_slot_index);
         } else {
-            try priv_decl_indexes.append(decls_slot_index);
+            try priv_decl_indexes.append(self.arena, decls_slot_index);
         }
 
-        decls.items[decls_slot_index] = .{
+        self.decls.items[decls_slot_index] = .{
             .name = name,
             .src = ast_node_index,
             .type = 0,
@@ -511,15 +497,12 @@ fn walkDecls(
 }
 
 fn collectFieldInfo(
+    self: *Autodoc,
     zir: Zir,
-    gpa: std.mem.Allocator,
     scope: *Scope,
-    types: *std.ArrayList(DocData.Type),
-    decls: *std.ArrayList(DocData.Decl),
     fields_len: usize,
-    field_type_indexes: *std.ArrayList(DocData.WalkResult),
-    field_name_indexes: *std.ArrayList(usize),
-    ast_nodes: *std.ArrayList(DocData.AstNode),
+    field_type_indexes: *std.ArrayListUnmanaged(DocData.WalkResult),
+    field_name_indexes: *std.ArrayListUnmanaged(usize),
     ei: usize,
 ) !void {
     if (fields_len == 0) return;
@@ -559,15 +542,17 @@ fn collectFieldInfo(
         {
             switch (field_type) {
                 .void_type => {
-                    try field_type_indexes.append(.{ .type = types.items.len });
-                    try types.append(.{
+                    try field_type_indexes.append(self.arena, .{
+                        .type = self.types.items.len,
+                    });
+                    try self.types.append(self.arena, .{
                         .kind = @enumToInt(std.builtin.TypeId.Void),
                         .name = "void",
                     });
                 },
                 .usize_type => {
-                    try field_type_indexes.append(.{ .type = types.items.len });
-                    try types.append(.{
+                    try field_type_indexes.append(self.arena, .{ .type = self.types.items.len });
+                    try self.types.append(self.arena, .{
                         .kind = @enumToInt(std.builtin.TypeId.Int),
                         .name = "usize",
                     });
@@ -580,19 +565,18 @@ fn collectFieldInfo(
                             "TODO: handle ref type: {s}",
                             .{@tagName(field_type)},
                         );
-                        try field_type_indexes.append(DocData.WalkResult{ .failure = true });
+                        try field_type_indexes.append(
+                            self.arena,
+                            DocData.WalkResult{ .failure = true },
+                        );
                     } else {
                         const zir_index = enum_value - Zir.Inst.Ref.typed_value_map.len;
-                        const walk_result = try walkInstruction(
+                        const walk_result = try self.walkInstruction(
                             zir,
-                            gpa,
                             scope,
-                            types,
-                            decls,
-                            ast_nodes,
                             zir_index,
                         );
-                        try field_type_indexes.append(walk_result);
+                        try field_type_indexes.append(self.arena, walk_result);
                     }
                 },
             }
@@ -600,12 +584,12 @@ fn collectFieldInfo(
 
         // ast node
         {
-            try field_name_indexes.append(ast_nodes.items.len);
+            try field_name_indexes.append(self.arena, self.ast_nodes.items.len);
             const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
                 zir.nullTerminatedString(doc_comment_index)
             else
                 null;
-            try ast_nodes.append(.{
+            try self.ast_nodes.append(self.arena, .{
                 .name = field_name,
                 .docs = doc_comment,
             });
