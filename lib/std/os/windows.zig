@@ -1760,14 +1760,16 @@ pub fn peb() *PEB {
     return teb().ProcessEnvironmentBlock;
 }
 
-/// A file time is a 64-bit value that represents the number of 100-nanosecond
-/// intervals that have elapsed since 12:00 A.M. January 1, 1601 Coordinated
-/// Universal Time (UTC).
+/// A file time (or "SysTime" as this function is named) is a 64-bit value that
+/// represents the number of 100-nanosecond intervals that have elapsed since
+/// 12:00 A.M. January 1, 1601 Coordinated Universal Time (UTC).
 /// This function returns the number of nanoseconds since the canonical epoch,
 /// which is the POSIX one (Jan 01, 1970 AD).
 pub fn fromSysTime(hns: i64) i128 {
-    const adjusted_epoch: i128 = hns + std.time.epoch.windows * (std.time.ns_per_s / 100);
-    return adjusted_epoch * 100;
+    // Note that we can't assign the expression `hns + std.time.epoch.windows * (std.time.ns_per_s / 100)`
+    // into a temporary variable because it causes a segfault on Windows.
+    // See https://github.com/ziglang/zig/issues/10719
+    return @intCast(i128, hns + std.time.epoch.windows * (std.time.ns_per_s / 100)) * 100;
 }
 
 pub fn toSysTime(ns: i128) i64 {
