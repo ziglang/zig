@@ -11,6 +11,7 @@ const windows = std.os.windows;
 const linux = std.os.linux;
 const Mutex = std.Thread.Mutex;
 const assert = std.debug.assert;
+const testing = std.testing;
 
 pub fn wait(cond: *Condition, mutex: *Mutex) void {
     cond.impl.wait(mutex);
@@ -193,3 +194,47 @@ pub const AtomicCondition = struct {
             waiter.data.notify();
     }
 };
+
+test "Thread.Condition" {
+    if (builtin.single_threaded) {
+        return error.SkipZigTest;
+    }
+
+    const TestContext = struct {
+        cond: *Condition,
+        cond_main: *Condition,
+        mutex: *Mutex,
+        n: *i32,
+        fn worker(ctx: *@This()) void {
+            ctx.mutex.lock();
+            ctx.n.* += 1;
+            ctx.cond_main.signal();
+            ctx.cond.wait(ctx.mutex);
+            ctx.n.* -= 1;
+            ctx.cond_main.signal();
+            ctx.mutex.unlock();
+        }
+    };
+    const num_threads = 3;
+    var threads: [num_threads]std.Thread = undefined;
+    var cond = Condition{};
+    var cond_main = Condition{};
+    var mut = Mutex{};
+    var n: i32 = 0;
+    var ctx = TestContext{ .cond = &cond, .cond_main = &cond_main, .mutex = &mut, .n = &n };
+
+    mut.lock();
+    for (threads) |*t| t.* = try std.Thread.spawn(.{}, TestContext.worker, .{&ctx});
+    cond_main.wait(&mut);
+    while (n < num_threads) cond_main.wait(&mut);
+
+    cond.signal();
+    cond_main.wait(&mut);
+    try testing.expect(n == (num_threads - 1));
+
+    cond.broadcast();
+    while (n > 0) cond_main.wait(&mut);
+    try testing.expect(n == 0);
+
+    for (threads) |t| t.join();
+}
