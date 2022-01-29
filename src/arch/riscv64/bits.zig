@@ -71,9 +71,9 @@ pub const Instruction = union(enum) {
                 .opcode = op,
                 .funct3 = fn3,
                 .funct7 = fn7,
-                .rd = @enumToInt(rd),
-                .rs1 = @enumToInt(r1),
-                .rs2 = @enumToInt(r2),
+                .rd = rd.id(),
+                .rs1 = r1.id(),
+                .rs2 = r2.id(),
             },
         };
     }
@@ -86,8 +86,8 @@ pub const Instruction = union(enum) {
             .I = .{
                 .opcode = op,
                 .funct3 = fn3,
-                .rd = @enumToInt(rd),
-                .rs1 = @enumToInt(r1),
+                .rd = rd.id(),
+                .rs1 = r1.id(),
                 .imm0_11 = umm,
             },
         };
@@ -100,8 +100,8 @@ pub const Instruction = union(enum) {
             .S = .{
                 .opcode = op,
                 .funct3 = fn3,
-                .rs1 = @enumToInt(r1),
-                .rs2 = @enumToInt(r2),
+                .rs1 = r1.id(),
+                .rs2 = r2.id(),
                 .imm0_4 = @truncate(u5, umm),
                 .imm5_11 = @truncate(u7, umm >> 5),
             },
@@ -118,8 +118,8 @@ pub const Instruction = union(enum) {
             .B = .{
                 .opcode = op,
                 .funct3 = fn3,
-                .rs1 = @enumToInt(r1),
-                .rs2 = @enumToInt(r2),
+                .rs1 = r1.id(),
+                .rs2 = r2.id(),
                 .imm1_4 = @truncate(u4, umm >> 1),
                 .imm5_10 = @truncate(u6, umm >> 5),
                 .imm11 = @truncate(u1, umm >> 11),
@@ -135,7 +135,7 @@ pub const Instruction = union(enum) {
         return Instruction{
             .U = .{
                 .opcode = op,
-                .rd = @enumToInt(rd),
+                .rd = rd.id(),
                 .imm12_31 = umm,
             },
         };
@@ -148,7 +148,7 @@ pub const Instruction = union(enum) {
         return Instruction{
             .J = .{
                 .opcode = op,
-                .rd = @enumToInt(rd),
+                .rd = rd.id(),
                 .imm1_10 = @truncate(u10, umm >> 1),
                 .imm11 = @truncate(u1, umm >> 11),
                 .imm12_19 = @truncate(u8, umm >> 12),
@@ -382,20 +382,13 @@ pub const Instruction = union(enum) {
     pub const ebreak = iType(0b1110011, 0b000, .zero, .zero, 0x001);
 };
 
-// zig fmt: off
-pub const RawRegister = enum(u5) {
+pub const Register = enum(u6) {
+    // zig fmt: off
     x0,  x1,  x2,  x3,  x4,  x5,  x6,  x7,
     x8,  x9,  x10, x11, x12, x13, x14, x15,
     x16, x17, x18, x19, x20, x21, x22, x23,
     x24, x25, x26, x27, x28, x29, x30, x31,
 
-    pub fn dwarfLocOp(reg: RawRegister) u8 {
-        return @enumToInt(reg) + DW.OP.reg0;
-    }
-};
-
-pub const Register = enum(u5) {
-    // 64 bit registers
     zero, // zero
     ra, // return address. caller saved
     sp, // stack pointer. callee saved.
@@ -408,23 +401,24 @@ pub const Register = enum(u5) {
     a2, a3, a4, a5, a6, a7, // fn args. caller saved.
     s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, // saved registers. callee saved.
     t3, t4, t5, t6, // caller saved
-    
-    pub fn parseRegName(name: []const u8) ?Register {
-        if(std.meta.stringToEnum(Register, name)) |reg| return reg;
-        if(std.meta.stringToEnum(RawRegister, name)) |rawreg| return @intToEnum(Register, @enumToInt(rawreg));
-        return null;
+    // zig fmt: on
+
+    /// Returns the unique 4-bit ID of this register which is used in
+    /// the machine code
+    pub fn id(self: Register) u5 {
+        return @truncate(u5, @enumToInt(self));
     }
 
     /// Returns the index into `callee_preserved_regs`.
     pub fn allocIndex(self: Register) ?u4 {
-        inline for(callee_preserved_regs) |cpreg, i| {
-            if(self == cpreg) return i;
+        inline for (callee_preserved_regs) |cpreg, i| {
+            if (self.id() == cpreg.id()) return i;
         }
         return null;
     }
 
     pub fn dwarfLocOp(reg: Register) u8 {
-        return @as(u8, @enumToInt(reg)) + DW.OP.reg0;
+        return @as(u8, reg.id()) + DW.OP.reg0;
     }
 };
 
