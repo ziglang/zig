@@ -441,7 +441,7 @@ test "deflate/inflate string" {
     };
 
     for (deflate_inflate_string_tests) |t| {
-        const golden_file = try testdata_dir.openFile(t.filename, .{ .read = true });
+        const golden_file = try testdata_dir.openFile(t.filename, .{});
         defer golden_file.close();
         var golden = try golden_file.reader().readAllAlloc(testing.allocator, math.maxInt(usize));
         defer testing.allocator.free(golden);

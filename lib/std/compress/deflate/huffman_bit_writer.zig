@@ -892,9 +892,9 @@ fn testBlockHuff(in_name: []const u8, want_name: []const u8) !void {
 
     const current_dir = try std.fs.openDirAbsolute(std.fs.path.dirname(@src().file).?, .{});
     const testdata_dir = try current_dir.openDir("testdata", .{});
-    const in_file = try testdata_dir.openFile(in_name, .{ .read = true });
+    const in_file = try testdata_dir.openFile(in_name, .{});
     defer in_file.close();
-    const want_file = try testdata_dir.openFile(want_name, .{ .read = true });
+    const want_file = try testdata_dir.openFile(want_name, .{});
     defer want_file.close();
 
     var in = try in_file.reader().readAllAlloc(testing.allocator, math.maxInt(usize));
@@ -1630,11 +1630,11 @@ fn testBlock(comptime ht: HuffTest, ttype: TestType) !void {
     defer testing.allocator.free(want_name);
 
     if (!mem.eql(u8, ht.input, "")) {
-        const in_file = try testdata_dir.openFile(ht.input, .{ .read = true });
+        const in_file = try testdata_dir.openFile(ht.input, .{});
         input = try in_file.reader().readAllAlloc(testing.allocator, math.maxInt(usize));
         defer testing.allocator.free(input);
 
-        const want_file = try testdata_dir.openFile(want_name, .{ .read = true });
+        const want_file = try testdata_dir.openFile(want_name, .{});
         want = try want_file.reader().readAllAlloc(testing.allocator, math.maxInt(usize));
         defer testing.allocator.free(want);
 
@@ -1663,7 +1663,7 @@ fn testBlock(comptime ht: HuffTest, ttype: TestType) !void {
     want_name_no_input = try fmt.allocPrint(testing.allocator, ht.want_no_input, .{ttype.to_s()});
     defer testing.allocator.free(want_name_no_input);
 
-    const want_no_input_file = try testdata_dir.openFile(want_name_no_input, .{ .read = true });
+    const want_no_input_file = try testdata_dir.openFile(want_name_no_input, .{});
     want_ni = try want_no_input_file.reader().readAllAlloc(testing.allocator, math.maxInt(usize));
     defer testing.allocator.free(want_ni);
 
