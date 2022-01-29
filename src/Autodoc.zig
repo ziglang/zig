@@ -242,11 +242,15 @@ fn walkInstruction(
         },
         .block_inline => {
             const pl_node = data[inst_index].pl_node;
-            const body_len = zir.extra[pl_node.payload_index];
+            const extra = zir.extraData(Zir.Inst.Block, pl_node.payload_index);
+            const break_index = zir.extra[extra.end..][extra.data.body_len - 1];
 
-            std.debug.print("body len: {}\n", .{body_len});
+            std.debug.print("[instr: {}] body len: {} last instr idx: {}\n", .{
+                inst_index,
+                extra.data.body_len,
+                break_index,
+            });
 
-            const break_index = inst_index + body_len;
             const break_operand = data[break_index].@"break".operand;
             return if (Zir.refToIndex(break_operand)) |bi|
                 walkInstruction(zir, gpa, parent_scope, types, decls, ast_nodes, bi)
@@ -559,7 +563,15 @@ fn collectFieldInfo(
                         try field_type_indexes.append(DocData.WalkResult{ .failure = true });
                     } else {
                         const zir_index = enum_value - Zir.Inst.Ref.typed_value_map.len;
-                        const walk_result = try walkInstruction(zir, gpa, scope, types, decls, ast_nodes, zir_index);
+                        const walk_result = try walkInstruction(
+                            zir,
+                            gpa,
+                            scope,
+                            types,
+                            decls,
+                            ast_nodes,
+                            zir_index,
+                        );
                         try field_type_indexes.append(walk_result);
                     }
                 },
