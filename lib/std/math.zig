@@ -46,8 +46,10 @@ pub const f128_toint = 1.0 / f128_epsilon;
 pub const F80Repr = if (@import("builtin").cpu.arch.endian() == .Little) extern struct {
     fraction: u64,
     exp: u16,
+    _pad: u32 = undefined,
 } else extern struct {
     exp: u16,
+    _pad: u32 = undefined, // TODO verify compatibility with hardware
     fraction: u64,
 };
 

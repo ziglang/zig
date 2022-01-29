@@ -8197,6 +8197,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                     buf[1] = tmp;
 #endif
                     LLVMValueRef as_i128 = LLVMConstIntOfArbitraryPrecision(LLVMInt128Type(), 2, buf);
+                    if (!target_has_f80(g->zig_target)) return as_i128;
                     LLVMValueRef as_int = LLVMConstTrunc(as_i128, LLVMIntType(80));
                     return LLVMConstBitCast(as_int, get_llvm_type(g, type_entry));
                 }
@@ -9420,13 +9421,15 @@ static void define_builtin_types(CodeGen *g) {
     add_fp_entry(g, "f64", 64, LLVMDoubleType(), &g->builtin_types.entry_f64);
     add_fp_entry(g, "f128", 128, LLVMFP128Type(), &g->builtin_types.entry_f128);
 
-    if (target_has_f80(g->zig_target)) {
-        add_fp_entry(g, "f80", 80, LLVMX86FP80Type(), &g->builtin_types.entry_f80);
-    } else {
+    {
         ZigType *entry = new_type_table_entry(ZigTypeIdFloat);
-        entry->llvm_type = get_int_type(g, false, 128)->llvm_type;
-        entry->size_in_bits = 8 * LLVMStoreSizeOfType(g->target_data_ref, entry->llvm_type);
-        entry->abi_size = LLVMABISizeOfType(g->target_data_ref, entry->llvm_type);
+        if (target_has_f80(g->zig_target)) {
+            entry->llvm_type = LLVMX86FP80Type();
+        } else {
+            entry->llvm_type = get_int_type(g, false, 128)->llvm_type;
+        }
+        entry->size_in_bits = 8 * 16;
+        entry->abi_size = 16;
         entry->abi_align = 16;
         buf_init_from_str(&entry->name, "f80");
         entry->data.floating.bit_count = 80;
