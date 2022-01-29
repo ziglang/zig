@@ -2738,49 +2738,53 @@ pub const GUID = extern struct {
     Data3: u16,
     Data4: [8]u8,
 
-    pub fn parse(str: []const u8) GUID {
-        var guid: GUID = undefined;
-        var index: usize = 0;
-        assert(str[index] == '{');
-        index += 1;
+    const hex_offsets = switch (builtin.target.cpu.arch.endian()) {
+        .Big => [16]u6{
+            0,  2,  4,  6,
+            9,  11, 14, 16,
+            19, 21, 24, 26,
+            28, 30, 32, 34,
+        },
+        .Little => [16]u6{
+            6,  4,  2,  0,
+            11, 9,  16, 14,
+            19, 21, 24, 26,
+            28, 30, 32, 34,
+        },
+    };
 
-        guid.Data1 = std.fmt.parseUnsigned(u32, str[index .. index + 8], 16) catch unreachable;
-        index += 8;
+    pub fn parse(s: []const u8) GUID {
+        assert(s[0] == '{');
+        assert(s[37] == '}');
+        return parseNoBraces(s[1 .. s.len - 1]) catch @panic("invalid GUID string");
+    }
 
-        assert(str[index] == '-');
-        index += 1;
-
-        guid.Data2 = std.fmt.parseUnsigned(u16, str[index .. index + 4], 16) catch unreachable;
-        index += 4;
-
-        assert(str[index] == '-');
-        index += 1;
-
-        guid.Data3 = std.fmt.parseUnsigned(u16, str[index .. index + 4], 16) catch unreachable;
-        index += 4;
-
-        assert(str[index] == '-');
-        index += 1;
-
-        guid.Data4[0] = std.fmt.parseUnsigned(u8, str[index .. index + 2], 16) catch unreachable;
-        index += 2;
-        guid.Data4[1] = std.fmt.parseUnsigned(u8, str[index .. index + 2], 16) catch unreachable;
-        index += 2;
-
-        assert(str[index] == '-');
-        index += 1;
-
-        var i: usize = 2;
-        while (i < guid.Data4.len) : (i += 1) {
-            guid.Data4[i] = std.fmt.parseUnsigned(u8, str[index .. index + 2], 16) catch unreachable;
-            index += 2;
+    pub fn parseNoBraces(s: []const u8) !GUID {
+        assert(s.len == 36);
+        assert(s[8] == '-');
+        assert(s[13] == '-');
+        assert(s[18] == '-');
+        assert(s[23] == '-');
+        var bytes: [16]u8 = undefined;
+        for (hex_offsets) |hex_offset, i| {
+            bytes[i] = (try std.fmt.charToDigit(s[hex_offset], 16)) << 4 |
+                try std.fmt.charToDigit(s[hex_offset + 1], 16);
         }
-
-        assert(str[index] == '}');
-        index += 1;
-        return guid;
+        return @bitCast(GUID, bytes);
     }
 };
+
+test "GUID" {
+    try std.testing.expectEqual(
+        GUID{
+            .Data1 = 0x01234567,
+            .Data2 = 0x89ab,
+            .Data3 = 0xef10,
+            .Data4 = "\x32\x54\x76\x98\xba\xdc\xfe\x91".*,
+        },
+        GUID.parse("{01234567-89AB-EF10-3254-7698badcfe91}"),
+    );
+}
 
 pub const FOLDERID_LocalAppData = GUID.parse("{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}");
 
