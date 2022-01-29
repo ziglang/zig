@@ -26,9 +26,16 @@ pub fn generateZirData(self: Autodoc) !void {
         std.debug.print("basename: {s}\n", .{loc.basename});
     }
 
-    // const root_file_path = self.module.main_pkg.root_src_path;
-    const root_file_path = "/home/kristoff/test/test.zig";
-    const zir = self.module.import_table.get(root_file_path).?.zir;
+    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const dir =
+        if (self.module.main_pkg.root_src_directory.path) |rp|
+        std.os.realpath(rp, &buf) catch unreachable
+    else
+        std.os.getcwd(&buf) catch unreachable;
+    const root_file_path = self.module.main_pkg.root_src_path;
+    const abs_root_path = try std.fs.path.join(gpa, &.{ dir, root_file_path });
+    defer gpa.free(abs_root_path);
+    const zir = self.module.import_table.get(abs_root_path).?.zir;
 
     var types = std.ArrayList(DocData.Type).init(gpa);
     var decls = std.ArrayList(DocData.Decl).init(gpa);
@@ -40,6 +47,19 @@ pub fn generateZirData(self: Autodoc) !void {
         .kind = 0,
         .name = "type",
     });
+    // append all the types in Zir.Inst.Ref
+    {
+        // we don't count .none
+        var i: u32 = 1;
+        while (i <= @enumToInt(Zir.Inst.Ref.anyerror_void_error_union_type)) : (i += 1) {
+            var tmpbuf = std.ArrayList(u8).init(gpa);
+            try Zir.Inst.Ref.typed_value_map[i].val.format("", .{}, tmpbuf.writer());
+            try types.append(.{
+                .kind = 0,
+                .name = tmpbuf.toOwnedSlice(),
+            });
+        }
+    }
 
     var root_scope: Scope = .{ .parent = null };
     try ast_nodes.append(.{ .name = "(root)" });
@@ -226,8 +246,15 @@ fn walkInstruction(
 
             std.debug.print("body len: {}\n", .{body_len});
 
-            const result_index = inst_index + body_len - 1;
-            return walkInstruction(zir, gpa, parent_scope, types, decls, ast_nodes, result_index);
+            const break_index = inst_index + body_len;
+            const break_operand = data[break_index].@"break".operand;
+            return if (Zir.refToIndex(break_operand)) |bi|
+                walkInstruction(zir, gpa, parent_scope, types, decls, ast_nodes, bi)
+            else if (@enumToInt(break_operand) <= @enumToInt(Zir.Inst.Ref.anyerror_void_error_union_type))
+                // we append all the types in ref first, so we can just do this if we encounter a ref that is a type
+                return DocData.WalkResult{ .type = @enumToInt(break_operand) }
+            else
+                std.debug.todo("generate WalkResults for refs that are not types");
         },
         .extended => {
             const extended = data[inst_index].extended;
