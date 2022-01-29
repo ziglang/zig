@@ -100,7 +100,7 @@ pub fn generateZirData(self: *Autodoc) !void {
     ) catch unreachable;
     out.print(";", .{}) catch unreachable;
     // copy main.js, index.html
-    const special = try self.module.comp.zig_lib_directory.join(gpa, &.{ "std", "special", "docs", std.fs.path.sep_str });
+    const special = try self.module.comp.zig_lib_directory.join(self.arena, &.{ "std", "special", "docs", std.fs.path.sep_str });
     var special_dir = std.fs.openDirAbsolute(special, .{}) catch unreachable;
     defer special_dir.close();
     special_dir.copyFile("main.js", output_dir, "main.js", .{}) catch unreachable;
