@@ -92,7 +92,10 @@ pub fn errol3(value: f64, buffer: []u8) FloatDecimal {
         };
     }
 
-    return errol3u(value, buffer);
+    // We generate digits starting at index 1. If rounding a buffer later then it may be
+    // required to generate a preceding digit in some cases (9.999) in which case we use
+    // the 0-index for this extra digit.
+    return errol3u(value, buffer[1..]);
 }
 
 /// Uncorrected Errol3 double to ASCII conversion.
@@ -162,11 +165,7 @@ fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     }
 
     // digit generation
-
-    // We generate digits starting at index 1. If rounding a buffer later then it may be
-    // required to generate a preceding digit in some cases (9.999) in which case we use
-    // the 0-index for this extra digit.
-    var buf_index: usize = 1;
+    var buf_index: usize = 0;
     while (true) {
         var hdig = @floatToInt(u8, math.floor(high.val));
         if ((high.val == @intToFloat(f64, hdig)) and (high.off < 0)) hdig -= 1;
@@ -192,7 +191,7 @@ fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     buf_index += 1;
 
     return FloatDecimal{
-        .digits = buffer[1..buf_index],
+        .digits = buffer[0..buf_index],
         .exp = exp,
     };
 }
