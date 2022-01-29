@@ -2259,6 +2259,7 @@ test "float.decimal" {
     try expectFmt("f64: 0.00030000", "f64: {d:.8}", .{@as(f64, 0.0003)});
     try expectFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 1.40130e-45)});
     try expectFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 9.999960e-40)});
+    try expectFmt("f64: 10000000000000.00", "f64: {d:.2}", .{@as(f64, 9999999999999.999)});
 }
 
 test "float.libc.sanity" {
