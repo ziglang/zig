@@ -34,6 +34,10 @@ test "math.isNormal" {
     try expect(!isNormal(math.nan(f32)));
     try expect(!isNormal(math.nan(f64)));
     try expect(!isNormal(math.nan(f128)));
+    try expect(!isNormal(-math.nan(f16)));
+    try expect(!isNormal(-math.nan(f32)));
+    try expect(!isNormal(-math.nan(f64)));
+    try expect(!isNormal(-math.nan(f128)));
     try expect(!isNormal(math.inf(f16)));
     try expect(!isNormal(math.inf(f32)));
     try expect(!isNormal(math.inf(f64)));
