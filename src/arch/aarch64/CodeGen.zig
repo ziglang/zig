@@ -637,6 +637,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
             // zig fmt: on
         }
+
+        assert(!self.register_manager.frozenRegsExist());
+
         if (std.debug.runtime_safety) {
             if (self.air_bookkeeping < old_air_bookkeeping + 1) {
                 std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[inst] });
@@ -1264,13 +1267,15 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .register => {
             return self.fail("TODO implement loading from MCValue.register for {}", .{self.target.cpu.arch});
         },
-        .memory => |addr| {
+        .memory,
+        .stack_offset,
+        => {
             const reg = try self.register_manager.allocReg(null, &.{});
-            try self.genSetReg(ptr_ty, reg, .{ .memory = addr });
+            self.register_manager.freezeRegs(&.{reg});
+            defer self.register_manager.unfreezeRegs(&.{reg});
+
+            try self.genSetReg(ptr_ty, reg, ptr);
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
-        },
-        .stack_offset => {
-            return self.fail("TODO implement loading from MCValue.stack_offset", .{});
         },
     }
 }
@@ -1710,6 +1715,11 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
             .immediate => |imm| imm < 0 or imm > std.math.maxInt(u12),
             else => true,
         };
+
+        if (lhs_is_register) self.register_manager.freezeRegs(&.{lhs.register});
+        defer if (lhs_is_register) self.register_manager.unfreezeRegs(&.{lhs.register});
+        if (rhs_is_register) self.register_manager.freezeRegs(&.{rhs.register});
+        defer if (rhs_is_register) self.register_manager.unfreezeRegs(&.{rhs.register});
 
         var lhs_mcv = lhs;
         var rhs_mcv = rhs;
