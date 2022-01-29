@@ -5647,6 +5647,9 @@ static uint32_t hash_combine_const_val(uint32_t hash_val, ZigValue *const_val) {
                 case 16:  return hash_combine(hash_val, &const_val->data.x_f16);
                 case 32:  return hash_combine(hash_val, &const_val->data.x_f32);
                 case 64:  return hash_combine(hash_val, &const_val->data.x_f64);
+                case 80:
+                    hash_val = hash_combine(hash_val, &const_val->data.x_f80.signExp);
+                    return hash_combine(hash_val, &const_val->data.x_f80.signif);
                 case 128: return hash_combine(hash_val, &const_val->data.x_f128);
                 default:  zig_unreachable();
             }
@@ -6325,6 +6328,7 @@ void init_const_float(ZigValue *const_val, ZigType *type, double value) {
             case 64:
                 const_val->data.x_f64 = value;
                 break;
+            case 80:
             case 128:
                 // if we need this, we should add a function that accepts a float128_t param
                 zig_unreachable();
@@ -7218,6 +7222,8 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
                     return a->data.x_f32 == b->data.x_f32;
                 case 64:
                     return a->data.x_f64 == b->data.x_f64;
+                case 80:
+                    return extF80M_eq(&a->data.x_f80, &b->data.x_f80);
                 case 128:
                     return f128M_eq(&a->data.x_f128, &b->data.x_f128);
                 default:
@@ -7470,6 +7476,13 @@ void render_const_value(CodeGen *g, Buf *buf, ZigValue *const_val) {
                 case 64:
                     buf_appendf(buf, "%f", const_val->data.x_f64);
                     return;
+                case 80: {
+                    float64_t f64_value = extF80M_to_f64(&const_val->data.x_f80);
+                    double double_value;
+                    memcpy(&double_value, &f64_value, sizeof(double));
+                    buf_appendf(buf, "%f", double_value);
+                    return;
+                }
                 case 128:
                     {
                         const size_t extra_len = 100;

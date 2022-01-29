@@ -738,6 +738,11 @@ pub fn main() void {
           <td>64-bit floating point (52-bit mantissa) IEEE-754-2008 binary64</td>
         </tr>
         <tr>
+            <th scope="row">{#syntax#}f80{#endsyntax#}</th>
+          <td><code class="c">double</code></td>
+          <td>64-bit floating point (64-bit mantissa) IEEE-754-2008 80-bit extended precision</td>
+        </tr>
+        <tr>
             <th scope="row">{#syntax#}f128{#endsyntax#}</th>
             <td><code class="c">_Float128</code></td>
           <td>128-bit floating point (112-bit mantissa) IEEE-754-2008 binary128</td>
@@ -1500,6 +1505,7 @@ fn divide(a: i32, b: i32) i32 {
           <li>{#syntax#}f16{#endsyntax#} - IEEE-754-2008 binary16</li>
           <li>{#syntax#}f32{#endsyntax#} - IEEE-754-2008 binary32</li>
           <li>{#syntax#}f64{#endsyntax#} - IEEE-754-2008 binary64</li>
+          <li>{#syntax#}f80{#endsyntax#} - IEEE-754-2008 80-bit extended precision</li>
           <li>{#syntax#}f128{#endsyntax#} - IEEE-754-2008 binary128</li>
           <li>{#syntax#}c_longdouble{#endsyntax#} - matches <code class="c">long double</code> for the target C ABI</li>
       </ul>

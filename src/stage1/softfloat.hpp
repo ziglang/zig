@@ -56,4 +56,8 @@ static inline bool zig_f128_isNaN(float128_t *aPtr) {
             || ((absA64 == UINT64_C(0x7FFF000000000000)) && lo);
 }
 
+static inline bool zig_extF80_isNaN(extFloat80_t *aPtr) {
+    return (aPtr->signExp & 0x7FFF) == 0x7FFF && aPtr->signif & UINT64_C(0x7FFFFFFFFFFFFFFF);
+}
+
 #endif

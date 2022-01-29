@@ -13,8 +13,9 @@ test "Type.Float" {
     try testing.expect(f16 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 16 } }));
     try testing.expect(f32 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 32 } }));
     try testing.expect(f64 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 64 } }));
+    try testing.expect(f80 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 80 } }));
     try testing.expect(f128 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 128 } }));
-    try testTypes(&[_]type{ f16, f32, f64, f128 });
+    try testTypes(&[_]type{ f16, f32, f64, f80, f128 });
 }
 
 test "Type.Array" {

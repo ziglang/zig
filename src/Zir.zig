@@ -1639,6 +1639,7 @@ pub const Inst = struct {
         f16_type,
         f32_type,
         f64_type,
+        f80_type,
         f128_type,
         anyopaque_type,
         bool_type,
@@ -1808,6 +1809,10 @@ pub const Inst = struct {
             .f64_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.f64_type),
+            },
+            .f80_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.f80_type),
             },
             .f128_type = .{
                 .ty = Type.initTag(.type),
