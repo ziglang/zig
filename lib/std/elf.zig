@@ -1480,6 +1480,12 @@ pub const EM = enum(u16) {
     /// Linux kernel bpf virtual machine
     _BPF = 247,
 
+    /// C-SKY
+    _CSKY = 252,
+
+    /// Fujitsu FR-V
+    _FRV = 0x5441,
+
     _,
 };
 
