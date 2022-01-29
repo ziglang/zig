@@ -16,7 +16,7 @@ pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
     const mode = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
-    const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode") orelse false;
+    const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
