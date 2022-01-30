@@ -300,6 +300,7 @@ pub const Dir = struct {
             buf: [8192]u8, // TODO align(@alignOf(os.system.dirent)),
             index: usize,
             end_index: usize,
+            first_iter: bool,
 
             const Self = @This();
 
@@ -319,6 +320,10 @@ pub const Dir = struct {
             fn nextDarwin(self: *Self) !?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
+                        if (self.first_iter) {
+                            std.os.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
+                            self.first_iter = false;
+                        }
                         const rc = os.system.__getdirentries64(
                             self.dir.fd,
                             &self.buf,
@@ -369,6 +374,10 @@ pub const Dir = struct {
             fn nextSolaris(self: *Self) !?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
+                        if (self.first_iter) {
+                            std.os.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
+                            self.first_iter = false;
+                        }
                         const rc = os.system.getdents(self.dir.fd, &self.buf, self.buf.len);
                         switch (os.errno(rc)) {
                             .SUCCESS => {},
@@ -423,6 +432,10 @@ pub const Dir = struct {
             fn nextBsd(self: *Self) !?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
+                        if (self.first_iter) {
+                            std.os.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
+                            self.first_iter = false;
+                        }
                         const rc = if (builtin.os.tag == .netbsd)
                             os.system.__getdents30(self.dir.fd, &self.buf, self.buf.len)
                         else
@@ -479,6 +492,7 @@ pub const Dir = struct {
             buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
             index: usize,
             end_index: usize,
+            first_iter: bool,
 
             const Self = @This();
 
@@ -491,6 +505,10 @@ pub const Dir = struct {
                     // TODO: find a better max
                     const HAIKU_MAX_COUNT = 10000;
                     if (self.index >= self.end_index) {
+                        if (self.first_iter) {
+                            std.os.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
+                            self.first_iter = false;
+                        }
                         const rc = os.system._kern_read_dir(
                             self.dir.fd,
                             &self.buf,
@@ -563,6 +581,7 @@ pub const Dir = struct {
             buf: [8192]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(linux.dirent64)),
             index: usize,
             end_index: usize,
+            first_iter: bool,
 
             const Self = @This();
             const linux = os.linux;
@@ -574,6 +593,10 @@ pub const Dir = struct {
             pub fn next(self: *Self) Error!?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
+                        if (self.first_iter) {
+                            std.os.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
+                            self.first_iter = false;
+                        }
                         const rc = linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
                         switch (linux.getErrno(rc)) {
                             .SUCCESS => {},
@@ -620,7 +643,7 @@ pub const Dir = struct {
             buf: [8192]u8 align(@alignOf(os.windows.FILE_BOTH_DIR_INFORMATION)),
             index: usize,
             end_index: usize,
-            first: bool,
+            first_iter: bool,
             name_data: [256]u8,
 
             const Self = @This();
@@ -645,9 +668,9 @@ pub const Dir = struct {
                             .FileBothDirectoryInformation,
                             w.FALSE,
                             null,
-                            if (self.first) @as(w.BOOLEAN, w.TRUE) else @as(w.BOOLEAN, w.FALSE),
+                            if (self.first_iter) @as(w.BOOLEAN, w.TRUE) else @as(w.BOOLEAN, w.FALSE),
                         );
-                        self.first = false;
+                        self.first_iter = false;
                         if (io.Information == 0) return null;
                         self.index = 0;
                         self.end_index = io.Information;
@@ -769,18 +792,20 @@ pub const Dir = struct {
                 .index = 0,
                 .end_index = 0,
                 .buf = undefined,
+                .first_iter = true,
             },
             .linux, .haiku => return Iterator{
                 .dir = self,
                 .index = 0,
                 .end_index = 0,
                 .buf = undefined,
+                .first_iter = true,
             },
             .windows => return Iterator{
                 .dir = self,
                 .index = 0,
                 .end_index = 0,
-                .first = true,
+                .first_iter = true,
                 .buf = undefined,
                 .name_data = undefined,
             },

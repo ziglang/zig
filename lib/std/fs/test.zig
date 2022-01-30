@@ -180,6 +180,39 @@ test "Dir.Iterator" {
     try testing.expect(contains(&entries, Dir.Entry{ .name = "some_dir", .kind = Dir.Entry.Kind.Directory }));
 }
 
+test "Dir.Iterator twice" {
+    var tmp_dir = tmpDir(.{ .iterate = true });
+    defer tmp_dir.cleanup();
+
+    // First, create a couple of entries to iterate over.
+    const file = try tmp_dir.dir.createFile("some_file", .{});
+    file.close();
+
+    try tmp_dir.dir.makeDir("some_dir");
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var i: u8 = 0;
+    while (i < 2) : (i += 1) {
+        var entries = std.ArrayList(Dir.Entry).init(allocator);
+
+        // Create iterator.
+        var iter = tmp_dir.dir.iterate();
+        while (try iter.next()) |entry| {
+            // We cannot just store `entry` as on Windows, we're re-using the name buffer
+            // which means we'll actually share the `name` pointer between entries!
+            const name = try allocator.dupe(u8, entry.name);
+            try entries.append(Dir.Entry{ .name = name, .kind = entry.kind });
+        }
+
+        try testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
+        try testing.expect(contains(&entries, Dir.Entry{ .name = "some_file", .kind = Dir.Entry.Kind.File }));
+        try testing.expect(contains(&entries, Dir.Entry{ .name = "some_dir", .kind = Dir.Entry.Kind.Directory }));
+    }
+}
+
 fn entryEql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
     return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
 }
