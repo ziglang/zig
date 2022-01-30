@@ -2870,6 +2870,7 @@ pub fn performAllTheWork(
     if (comp.emit_docs) |doc_location| {
         if (comp.bin_file.options.module) |module| {
             var autodoc = Autodoc.init(module, doc_location);
+            defer autodoc.deinit();
             try autodoc.generateZirData();
         }
     }
