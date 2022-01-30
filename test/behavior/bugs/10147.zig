@@ -1,6 +1,9 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 test "uses correct LLVM builtin" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     var x: u32 = 0x1;
     var y: @Vector(4, u32) = [_]u32{ 0x1, 0x1, 0x1, 0x1 };
     // The stage1 compiler used to call the same builtin function for both

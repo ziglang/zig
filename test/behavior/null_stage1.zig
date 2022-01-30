@@ -1,6 +1,10 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const builtin = @import("builtin");
+const expect = std.testing.expect;
 
 test "if var maybe pointer" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try expect(shouldBeAPlus1(Particle{
         .a = 14,
         .b = 1,
@@ -26,6 +30,8 @@ const Particle = struct {
 };
 
 test "optional types" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime {
         const opt_type_struct = StructWithOptionalType{ .t = u8 };
         try expect(opt_type_struct.t != null and opt_type_struct.t.? == u8);

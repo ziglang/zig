@@ -10,6 +10,8 @@ fn testTypes(comptime types: []const type) !void {
 }
 
 test "Type.Float" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try testing.expect(f16 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 16 } }));
     try testing.expect(f32 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 32 } }));
     try testing.expect(f64 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 64 } }));
@@ -19,6 +21,8 @@ test "Type.Float" {
 }
 
 test "Type.Array" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try testing.expect([123]u8 == @Type(TypeInfo{
         .Array = TypeInfo.Array{
             .len = 123,
@@ -44,6 +48,8 @@ test "Type.Array" {
 }
 
 test "@Type create slice with null sentinel" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Slice = @Type(TypeInfo{
         .Pointer = .{
             .size = .Slice,
@@ -60,6 +66,8 @@ test "@Type create slice with null sentinel" {
 }
 
 test "@Type picks up the sentinel value from TypeInfo" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try testTypes(&[_]type{
         [11:0]u8,                            [4:10]u8,
         [*:0]u8,                             [*:0]const u8,
@@ -88,6 +96,8 @@ test "@Type picks up the sentinel value from TypeInfo" {
 }
 
 test "Type.Optional" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try testTypes(&[_]type{
         ?u8,
         ?*u8,
@@ -98,6 +108,8 @@ test "Type.Optional" {
 }
 
 test "Type.ErrorUnion" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try testTypes(&[_]type{
         error{}!void,
         error{Error}!void,
@@ -105,6 +117,8 @@ test "Type.ErrorUnion" {
 }
 
 test "Type.Opaque" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Opaque = @Type(.{
         .Opaque = .{
             .decls = &[_]TypeInfo.Declaration{},
@@ -119,6 +133,8 @@ test "Type.Opaque" {
 }
 
 test "Type.Vector" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try testTypes(&[_]type{
         @Vector(0, u8),
         @Vector(4, u8),
@@ -130,6 +146,8 @@ test "Type.Vector" {
 }
 
 test "Type.AnyFrame" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try testTypes(&[_]type{
         anyframe,
         anyframe->u8,
@@ -142,12 +160,16 @@ fn add(a: i32, b: i32) i32 {
 }
 
 test "Type.Frame" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try testTypes(&[_]type{
         @Frame(add),
     });
 }
 
 test "Type.ErrorSet" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     // error sets don't compare equal so just check if they compile
     _ = @Type(@typeInfo(error{}));
     _ = @Type(@typeInfo(error{A}));
@@ -155,6 +177,8 @@ test "Type.ErrorSet" {
 }
 
 test "Type.Struct" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const A = @Type(@typeInfo(struct { x: u8, y: u32 }));
     const infoA = @typeInfo(A).Struct;
     try testing.expectEqual(TypeInfo.ContainerLayout.Auto, infoA.layout);
@@ -199,6 +223,8 @@ test "Type.Struct" {
 }
 
 test "Type.Enum" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Foo = @Type(.{
         .Enum = .{
             .layout = .Auto,
@@ -233,6 +259,8 @@ test "Type.Enum" {
 }
 
 test "Type.Union" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Untagged = @Type(.{
         .Union = .{
             .layout = .Auto,
@@ -294,6 +322,8 @@ test "Type.Union" {
 }
 
 test "Type.Union from Type.Enum" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Tag = @Type(.{
         .Enum = .{
             .layout = .Auto,
@@ -320,6 +350,8 @@ test "Type.Union from Type.Enum" {
 }
 
 test "Type.Union from regular enum" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const E = enum { working_as_expected };
     const T = @Type(.{
         .Union = .{
@@ -336,6 +368,8 @@ test "Type.Union from regular enum" {
 }
 
 test "Type.Fn" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     // wasm doesn't support align attributes on functions
     if (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64) return error.SkipZigTest;
 
@@ -352,6 +386,8 @@ test "Type.Fn" {
 }
 
 test "Type.BoundFn" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     // wasm doesn't support align attributes on functions
     if (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64) return error.SkipZigTest;
 

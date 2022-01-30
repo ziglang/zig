@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
 
@@ -11,6 +12,8 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 
 // CAUTION: this test is source-location sensitive.
 test "anon fn param - source-location sensitive" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     // https://github.com/ziglang/zig/issues/9339
     try expectEqualSlices(u8, @typeName(TypeFromFn(struct {})), "behavior.typename.TypeFromFn(behavior.typename.struct:15:52)");
     try expectEqualSlices(u8, @typeName(TypeFromFn(union { unused: u8 })), "behavior.typename.TypeFromFn(behavior.typename.union:16:52)");
@@ -25,6 +28,8 @@ test "anon fn param - source-location sensitive" {
 
 // CAUTION: this test is source-location sensitive.
 test "anon field init" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Foo = .{
         .T1 = struct {},
         .T2 = union { unused: u8 },
@@ -37,12 +42,16 @@ test "anon field init" {
 }
 
 test "basic" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try expectEqualSlices(u8, @typeName(i64), "i64");
     try expectEqualSlices(u8, @typeName(*usize), "*usize");
     try expectEqualSlices(u8, @typeName([]u8), "[]u8");
 }
 
 test "top level decl" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try expectEqualSlices(u8, @typeName(A_Struct), "A_Struct");
     try expectEqualSlices(u8, @typeName(A_Union), "A_Union");
     try expectEqualSlices(u8, @typeName(A_Enum), "A_Enum");
@@ -66,6 +75,8 @@ const A_Enum = enum {
 fn regular() void {}
 
 test "fn body decl" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try B.doTest();
 }
 
@@ -86,6 +97,8 @@ const B = struct {
 };
 
 test "fn param" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     // https://github.com/ziglang/zig/issues/675
     try expectEqualSlices(u8, @typeName(TypeFromFn(u8)), "behavior.typename.TypeFromFn(u8)");
     try expectEqualSlices(u8, @typeName(TypeFromFn(A_Struct)), "behavior.typename.TypeFromFn(behavior.typename.A_Struct)");

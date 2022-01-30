@@ -2,6 +2,8 @@ const builtin = @import("builtin");
 const expect = @import("std").testing.expect;
 
 test "@mulAdd" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testMulAdd();
     try testMulAdd();
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 const segfault = true;
@@ -61,6 +62,8 @@ pub const JournalHeader = packed struct {
 };
 
 test "fixed" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     var buffer = [_]u8{0} ** 65536;
     var entry = std.mem.bytesAsValue(JournalHeader, buffer[0..@sizeOf(JournalHeader)]);
     entry.* = .{

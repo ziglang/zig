@@ -1,11 +1,17 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const expect = std.testing.expect;
+const builtin = @import("builtin");
 
 test "@fieldParentPtr non-first field" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try testParentFieldPtr(&foo.c);
     comptime try testParentFieldPtr(&foo.c);
 }
 
 test "@fieldParentPtr first field" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try testParentFieldPtrFirst(&foo.a);
     comptime try testParentFieldPtrFirst(&foo.a);
 }

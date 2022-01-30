@@ -1,10 +1,13 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
 test "slice string literal has correct type" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime {
         try expect(@TypeOf("aoeu"[0..]) == *const [4:0]u8);
         const array = [_]i32{ 1, 2, 3, 4 };
@@ -17,6 +20,8 @@ test "slice string literal has correct type" {
 }
 
 test "result location zero sized array inside struct field implicit cast to slice" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const E = struct {
         entries: []u32,
     };
@@ -26,7 +31,10 @@ test "result location zero sized array inside struct field implicit cast to slic
 
 const x = @intToPtr([*]i32, 0x1000)[0..0x500];
 const y = x[0x100..];
+
 test "compile time slice of pointer to hard coded address" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try expect(@ptrToInt(x) == 0x1000);
     try expect(x.len == 0x500);
 
@@ -35,6 +43,8 @@ test "compile time slice of pointer to hard coded address" {
 }
 
 test "runtime safety lets us slice from len..len" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     var an_array = [_]u8{ 1, 2, 3 };
     try expect(mem.eql(u8, sliceFromLenToLen(an_array[0..], 3, 3), ""));
 }
@@ -44,6 +54,8 @@ fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) []u8 {
 }
 
 test "C pointer" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     var buf: [*c]const u8 = "kjdhfkjdhfdkjhfkfjhdfkjdhfkdjhfdkjhf";
     var len: u32 = 10;
     var slice = buf[0..len];
@@ -51,6 +63,8 @@ test "C pointer" {
 }
 
 test "C pointer slice access" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     var buf: [10]u32 = [1]u32{42} ** 10;
     const c_ptr = @ptrCast([*c]const u32, &buf);
 
@@ -72,11 +86,15 @@ fn sliceSum(comptime q: []const u8) i32 {
 }
 
 test "comptime slices are disambiguated" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try expect(sliceSum(&[_]u8{ 1, 2 }) == 3);
     try expect(sliceSum(&[_]u8{ 3, 4 }) == 7);
 }
 
 test "slice type with custom alignment" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const LazilyResolvedType = struct {
         anything: i32,
     };
@@ -88,6 +106,8 @@ test "slice type with custom alignment" {
 }
 
 test "obtaining a null terminated slice" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     // here we have a normal array
     var buf: [50]u8 = undefined;
 
@@ -110,6 +130,8 @@ test "obtaining a null terminated slice" {
 }
 
 test "empty array to slice" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             const empty: []align(16) u8 = &[_]u8{};
@@ -127,6 +149,8 @@ test "empty array to slice" {
 }
 
 test "@ptrCast slice to pointer" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var array align(@alignOf(u16)) = [5]u8{ 0xff, 0xff, 0xff, 0xff, 0xff };
@@ -141,6 +165,8 @@ test "@ptrCast slice to pointer" {
 }
 
 test "slice syntax resulting in pointer-to-array" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             try testArray();
@@ -287,6 +313,8 @@ test "slice syntax resulting in pointer-to-array" {
 }
 
 test "type coercion of pointer to anon struct literal to pointer to slice" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         const U = union {
             a: u32,
@@ -318,6 +346,8 @@ test "type coercion of pointer to anon struct literal to pointer to slice" {
 }
 
 test "array concat of slices gives slice" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime {
         var a: []const u8 = "aoeu";
         var b: []const u8 = "asdf";
@@ -327,6 +357,8 @@ test "array concat of slices gives slice" {
 }
 
 test "slice bounds in comptime concatenation" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const bs = comptime blk: {
         const b = "........1........";
         break :blk b[8..9];
@@ -341,6 +373,8 @@ test "slice bounds in comptime concatenation" {
 }
 
 test "slice sentinel access at comptime" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     {
         const str0 = &[_:0]u8{ '1', '2', '3' };
         const slice0: [:0]const u8 = str0;

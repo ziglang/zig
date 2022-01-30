@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const GET = struct {
     key: []const u8,
@@ -34,5 +35,7 @@ pub const ArgSerializer = struct {
 };
 
 test "fixed" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     ArgSerializer.serializeCommand(GET.init("banana"));
 }

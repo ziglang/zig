@@ -1,4 +1,6 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const builtin = @import("builtin");
+const expect = std.testing.expect;
 
 const Node = struct {
     payload: i32,
@@ -11,6 +13,8 @@ const NodeAligned = struct {
 };
 
 test "struct contains slice of itself" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     var other_nodes = [_]Node{
         Node{
             .payload = 31,
@@ -48,6 +52,8 @@ test "struct contains slice of itself" {
 }
 
 test "struct contains aligned slice of itself" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     var other_nodes = [_]NodeAligned{
         NodeAligned{
             .payload = 31,

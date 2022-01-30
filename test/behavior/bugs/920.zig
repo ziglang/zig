@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const Random = std.rand.Random;
 
@@ -57,6 +58,8 @@ const NormalDist = blk: {
 };
 
 test "bug 920 fixed" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const NormalDist1 = blk: {
         break :blk ZigTableGen(true, norm_r, norm_v, norm_f, norm_f_inv, norm_zero_case);
     };

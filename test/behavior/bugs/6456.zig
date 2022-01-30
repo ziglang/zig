@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const StructField = std.builtin.TypeInfo.StructField;
 const Declaration = std.builtin.TypeInfo.Declaration;
@@ -10,6 +11,8 @@ const text =
 ;
 
 test "issue 6456" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime {
         var fields: []const StructField = &[0]StructField{};
 

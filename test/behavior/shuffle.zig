@@ -5,6 +5,8 @@ const expect = std.testing.expect;
 const Vector = std.meta.Vector;
 
 test "@shuffle" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var v: Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };

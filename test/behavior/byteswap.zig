@@ -1,7 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "@byteSwap integers" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const ByteSwapIntTest = struct {
         fn run() !void {
             try t(u0, 0, 0);
@@ -39,6 +42,8 @@ test "@byteSwap integers" {
 }
 
 test "@byteSwap vectors" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const ByteSwapVectorTest = struct {
         fn run() !void {
             try t(u8, 2, [_]u8{ 0x12, 0x13 }, [_]u8{ 0x12, 0x13 });

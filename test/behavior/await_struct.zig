@@ -10,6 +10,8 @@ var await_a_promise: anyframe = undefined;
 var await_final_result = Foo{ .x = 0 };
 
 test "coroutine await struct" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     await_seq('a');
     var p = async await_amain();
     _ = p;
@@ -19,6 +21,7 @@ test "coroutine await struct" {
     try expect(await_final_result.x == 1234);
     try expect(std.mem.eql(u8, &await_points, "abcdefghi"));
 }
+
 fn await_amain() callconv(.Async) void {
     await_seq('b');
     var p = async await_another();
@@ -26,6 +29,7 @@ fn await_amain() callconv(.Async) void {
     await_final_result = await p;
     await_seq('h');
 }
+
 fn await_another() callconv(.Async) Foo {
     await_seq('c');
     suspend {

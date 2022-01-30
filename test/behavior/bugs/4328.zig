@@ -1,4 +1,6 @@
-const expectEqual = @import("std").testing.expectEqual;
+const std = @import("std");
+const builtin = @import("builtin");
+const expectEqual = std.testing.expectEqual;
 
 const FILE = extern struct {
     dummy_field: u8,
@@ -16,6 +18,8 @@ const S = extern struct {
 };
 
 test "Extern function calls in @TypeOf" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Test = struct {
         fn test_fn_1(a: anytype, b: anytype) @TypeOf(printf("%d %s\n", a, b)) {
             return 0;
@@ -36,6 +40,8 @@ test "Extern function calls in @TypeOf" {
 }
 
 test "Peer resolution of extern function calls in @TypeOf" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Test = struct {
         fn test_fn() @TypeOf(ftell(null), fputs(null, null)) {
             return 0;
@@ -51,6 +57,8 @@ test "Peer resolution of extern function calls in @TypeOf" {
 }
 
 test "Extern function calls, dereferences and field access in @TypeOf" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Test = struct {
         fn test_fn_1(a: c_long) @TypeOf(fopen("test", "r").*) {
             _ = a;

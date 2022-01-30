@@ -1,6 +1,10 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const builtin = @import("builtin");
+const expect = std.testing.expect;
 
 test "bitCast to array" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testBitCastArray();
     try testBitCastArray();
 }

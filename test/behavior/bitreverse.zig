@@ -1,8 +1,11 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const minInt = std.math.minInt;
 
 test "@bitReverse" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testBitReverse();
     try testBitReverse();
 }

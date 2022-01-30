@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 
 pub const Mesh = struct {
@@ -18,6 +19,8 @@ pub const Renderable = struct {
 var renderable: Renderable = undefined;
 
 test "assignment of field with padding" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     renderable = Renderable{
         .mesh = Mesh{ .id = 0 },
         .material = Material{

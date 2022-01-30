@@ -143,6 +143,7 @@ test "@offsetOf packed struct, array length not power of 2 or multiple of native
 }
 
 test "@bitOffsetOf" {
+
     // Packed structs have fixed memory layout
     try expect(@bitOffsetOf(P, "a") == 0);
     try expect(@bitOffsetOf(P, "b") == 8);

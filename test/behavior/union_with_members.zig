@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const mem = std.mem;
 const fmt = std.fmt;
@@ -16,6 +17,8 @@ const ET = union(enum) {
 };
 
 test "enum with members" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const a = ET{ .SINT = -42 };
     const b = ET{ .UINT = 42 };
     var buf: [20]u8 = undefined;

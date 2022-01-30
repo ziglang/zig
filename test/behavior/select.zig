@@ -5,6 +5,8 @@ const expect = std.testing.expect;
 const Vector = std.meta.Vector;
 
 test "@select" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var a: Vector(4, bool) = [4]bool{ true, false, true, false };

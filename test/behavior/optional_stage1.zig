@@ -1,9 +1,12 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "assigning to an unwrapped optional field in an inline loop" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime var maybe_pos_arg: ?comptime_int = null;
     inline for ("ab") |x| {
         _ = x;
@@ -16,6 +19,8 @@ test "assigning to an unwrapped optional field in an inline loop" {
 }
 
 test "coerce an anon struct literal to optional struct" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         const Struct = struct {
             field: u32,
@@ -31,6 +36,8 @@ test "coerce an anon struct literal to optional struct" {
 }
 
 test "0-bit child type coerced to optional return ptr result location" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var y = Foo{};
@@ -53,6 +60,8 @@ test "0-bit child type coerced to optional return ptr result location" {
 }
 
 test "0-bit child type coerced to optional" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var it: Foo = .{
@@ -76,6 +85,8 @@ test "0-bit child type coerced to optional" {
 }
 
 test "array of optional unaligned types" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Enum = enum { one, two, three };
 
     const SomeUnion = union(enum) {

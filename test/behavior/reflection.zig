@@ -1,9 +1,12 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const mem = std.mem;
 const reflection = @This();
 
 test "reflection: function return type, var args, and param types" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime {
         const info = @typeInfo(@TypeOf(dummy)).Fn;
         try expect(info.return_type.? == i32);
@@ -25,6 +28,8 @@ fn dummy(a: bool, b: i32, c: f32) i32 {
 }
 
 test "reflection: @field" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     var f = Foo{
         .one = 42,
         .two = true,

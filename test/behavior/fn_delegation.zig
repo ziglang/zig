@@ -1,4 +1,6 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const builtin = @import("builtin");
+const expect = std.testing.expect;
 
 const Foo = struct {
     a: u64 = 10,
@@ -31,6 +33,8 @@ fn custom(comptime T: type, comptime num: u64) fn (T) u64 {
 }
 
 test "fn delegation" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const foo = Foo{};
     try expect(foo.one() == 11);
     try expect(foo.two() == 12);

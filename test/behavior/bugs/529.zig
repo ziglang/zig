@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 const A = extern struct {
     field: c_int,
 };
@@ -9,6 +11,8 @@ comptime {
 }
 
 test "issue 529 fixed" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     @import("529_other_file.zig").issue529(null);
     issue529(null);
 }

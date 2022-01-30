@@ -1,9 +1,12 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "tuple concatenation" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var a: i32 = 1;
@@ -20,6 +23,8 @@ test "tuple concatenation" {
 }
 
 test "tuple multiplication" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             {
@@ -40,8 +45,12 @@ test "tuple multiplication" {
     };
     try S.doTheTest();
     comptime try S.doTheTest();
+}
 
-    const T = struct {
+test "more tuple concatenation" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
+    const S = struct {
         fn consume_tuple(tuple: anytype, len: usize) !void {
             try expect(tuple.len == len);
         }
@@ -76,11 +85,13 @@ test "tuple multiplication" {
         }
     };
 
-    try T.doTheTest();
-    comptime try T.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "pass tuple to comptime var parameter" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn Foo(comptime args: anytype) !void {
             try expect(args[0] == 1);
@@ -95,6 +106,8 @@ test "pass tuple to comptime var parameter" {
 }
 
 test "tuple initializer for var" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() void {
             const Bytes = struct {
@@ -114,6 +127,8 @@ test "tuple initializer for var" {
 }
 
 test "array-like initializer for tuple types" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const T = @Type(std.builtin.TypeInfo{
         .Struct = std.builtin.TypeInfo.Struct{
             .is_tuple = true,

@@ -1,4 +1,6 @@
-const io = @import("std").io;
+const std = @import("std");
+const builtin = @import("builtin");
+const io = std.io;
 
 pub fn write(_: void, bytes: []const u8) !usize {
     _ = bytes;
@@ -9,5 +11,7 @@ pub fn writer() io.Writer(void, @typeInfo(@typeInfo(@TypeOf(write)).Fn.return_ty
 }
 
 test "crash" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     _ = io.multiWriter(.{writer()});
 }

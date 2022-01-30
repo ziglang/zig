@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const math = std.math;
 
@@ -7,6 +8,8 @@ fn ctz(x: anytype) usize {
 }
 
 test "fixed" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try testClz();
     comptime try testClz();
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const Tag = std.meta.Tag;
@@ -16,6 +17,8 @@ const MultipleChoice2 = union(enum(u32)) {
 };
 
 test "union(enum(u32)) with specified and unspecified tag values" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try expect(Tag(Tag(MultipleChoice2)) == u32);
     try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
     comptime try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
@@ -37,6 +40,8 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
 }
 
 test "switch on union with only 1 field" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     var r: PartialInst = undefined;
     r = PartialInst.Compiled;
     switch (r) {
@@ -63,6 +68,8 @@ const PartialInstWithPayload = union(enum) {
 };
 
 test "union with only 1 field casted to its enum type which has enum value specified" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Literal = union(enum) {
         Number: f64,
         Bool: bool,
@@ -85,6 +92,8 @@ test "union with only 1 field casted to its enum type which has enum value speci
 }
 
 test "@enumToInt works on unions" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Bar = union(enum) {
         A: bool,
         B: u8,
@@ -117,6 +126,8 @@ fn Setter(attr: Attribute) type {
 }
 
 test "comptime union field value equality" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const a0 = Setter(Attribute{ .A = false });
     const a1 = Setter(Attribute{ .A = true });
     const a2 = Setter(Attribute{ .A = false });
@@ -139,6 +150,8 @@ test "comptime union field value equality" {
 }
 
 test "return union init with void payload" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn entry() !void {
             try expect(func().state == State.one);
@@ -159,6 +172,8 @@ test "return union init with void payload" {
 }
 
 test "@unionInit can modify a union type" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const UnionInitEnum = union(enum) {
         Boolean: bool,
         Byte: u8,
@@ -178,6 +193,8 @@ test "@unionInit can modify a union type" {
 }
 
 test "@unionInit can modify a pointer value" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const UnionInitEnum = union(enum) {
         Boolean: bool,
         Byte: u8,
@@ -194,6 +211,8 @@ test "@unionInit can modify a pointer value" {
 }
 
 test "union no tag with struct member" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Struct = struct {};
     const Union = union {
         s: Struct,
@@ -206,6 +225,8 @@ test "union no tag with struct member" {
 }
 
 test "union with comptime_int tag" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Union = union(enum(comptime_int)) {
         X: u32,
         Y: u16,
@@ -215,6 +236,8 @@ test "union with comptime_int tag" {
 }
 
 test "extern union doesn't trigger field check at comptime" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const U = extern union {
         x: u32,
         y: u8,
@@ -225,6 +248,8 @@ test "extern union doesn't trigger field check at comptime" {
 }
 
 test "anonymous union literal syntax" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         const Number = union {
             int: i32,
@@ -247,6 +272,8 @@ test "anonymous union literal syntax" {
 }
 
 test "function call result coerces from tagged union to the tag" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         const Arch = union(enum) {
             One,
@@ -276,6 +303,8 @@ test "function call result coerces from tagged union to the tag" {
 }
 
 test "cast from anonymous struct to union" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         const U = union(enum) {
             A: u32,
@@ -303,6 +332,8 @@ test "cast from anonymous struct to union" {
 }
 
 test "cast from pointer to anonymous struct to pointer to union" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         const U = union(enum) {
             A: u32,
@@ -330,6 +361,8 @@ test "cast from pointer to anonymous struct to pointer to union" {
 }
 
 test "switching on non exhaustive union" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         const E = enum(u8) {
             a,
@@ -353,6 +386,8 @@ test "switching on non exhaustive union" {
 }
 
 test "containers with single-field enums" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         const A = union(enum) { f1 };
         const B = union(enum) { f1: void };
@@ -377,6 +412,8 @@ test "containers with single-field enums" {
 }
 
 test "@unionInit on union w/ tag but no fields" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         const Type = enum(u8) { no_op = 105 };
 
@@ -406,6 +443,8 @@ test "@unionInit on union w/ tag but no fields" {
 }
 
 test "union enum type gets a separate scope" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         const U = union(enum) {
             a: u8,
@@ -421,6 +460,8 @@ test "union enum type gets a separate scope" {
 }
 
 test "anytype union field: issue #9233" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const Quux = union(enum) { bar: anytype };
     _ = Quux;
 }

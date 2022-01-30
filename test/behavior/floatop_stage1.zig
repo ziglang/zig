@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const math = std.math;
 const pi = std.math.pi;
@@ -9,6 +10,8 @@ const has_f80_rt = @import("builtin").cpu.arch == .x86_64;
 const epsilon = 0.000001;
 
 test "@sqrt" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testSqrt();
     try testSqrt();
 }
@@ -52,6 +55,8 @@ fn testSqrt() !void {
 }
 
 test "more @sqrt f16 tests" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     // TODO these are not all passing at comptime
     try expect(@sqrt(@as(f16, 0.0)) == 0.0);
     try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 2.0)), 1.414214, epsilon));
@@ -72,6 +77,8 @@ test "more @sqrt f16 tests" {
 }
 
 test "@sin" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testSin();
     try testSin();
 }
@@ -106,6 +113,8 @@ fn testSin() !void {
 }
 
 test "@cos" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testCos();
     try testCos();
 }
@@ -140,6 +149,8 @@ fn testCos() !void {
 }
 
 test "@exp" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testExp();
     try testExp();
 }
@@ -174,6 +185,8 @@ fn testExp() !void {
 }
 
 test "@exp2" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testExp2();
     try testExp2();
 }
@@ -208,6 +221,8 @@ fn testExp2() !void {
 }
 
 test "@log" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     // Old musl (and glibc?), and our current math.ln implementation do not return 1
     // so also accept those values.
     comptime try testLog();
@@ -244,6 +259,8 @@ fn testLog() !void {
 }
 
 test "@log2" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testLog2();
     try testLog2();
 }
@@ -278,6 +295,8 @@ fn testLog2() !void {
 }
 
 test "@log10" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testLog10();
     try testLog10();
 }
@@ -312,6 +331,8 @@ fn testLog10() !void {
 }
 
 test "@fabs" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testFabs();
     try testFabs();
 }
@@ -354,6 +375,8 @@ fn testFabs() !void {
 }
 
 test "@floor" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testFloor();
     try testFloor();
 }
@@ -388,6 +411,8 @@ fn testFloor() !void {
 }
 
 test "@ceil" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testCeil();
     try testCeil();
 }
@@ -422,6 +447,8 @@ fn testCeil() !void {
 }
 
 test "@trunc" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     comptime try testTrunc();
     try testTrunc();
 }
@@ -456,6 +483,8 @@ fn testTrunc() !void {
 }
 
 test "floating point comparisons" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     if (has_f80_rt) try testFloatComparisons();
     comptime try testFloatComparisons();
 }

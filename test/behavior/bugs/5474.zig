@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 // baseline (control) struct with array of scalar
 const Box0 = struct {
@@ -52,6 +53,8 @@ fn doTest() !void {
 }
 
 test "pointer-to-array constness for zero-size elements" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try doTest();
     comptime try doTest();
 }

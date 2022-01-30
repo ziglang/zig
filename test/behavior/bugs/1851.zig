@@ -1,7 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "allocation and looping over 3-byte integer" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try expect(@sizeOf(u24) == 4);
     try expect(@sizeOf([1]u24) == 4);
     try expect(@alignOf(u24) == 4);

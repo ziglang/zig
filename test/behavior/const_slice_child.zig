@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const debug = std.debug;
 const testing = std.testing;
 const expect = testing.expect;
@@ -6,6 +7,8 @@ const expect = testing.expect;
 var argv: [*]const [*]const u8 = undefined;
 
 test "const slice child" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const strs = [_][*]const u8{ "one", "two", "three" };
     argv = &strs;
     try bar(strs.len);

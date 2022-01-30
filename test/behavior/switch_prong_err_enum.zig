@@ -1,4 +1,6 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const builtin = @import("builtin");
+const expect = std.testing.expect;
 
 var read_count: u64 = 0;
 
@@ -20,6 +22,8 @@ fn doThing(form_id: u64) anyerror!FormValue {
 }
 
 test "switch prong returns error enum" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     switch (doThing(17) catch unreachable) {
         FormValue.Address => |payload| {
             try expect(payload == 1);

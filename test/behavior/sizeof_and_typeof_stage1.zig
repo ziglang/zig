@@ -1,8 +1,11 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 test "@sizeOf(T) == 0 doesn't force resolving struct size" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         const Foo = struct {
             y: if (@sizeOf(Foo) == 0) u64 else u32,
@@ -18,6 +21,8 @@ test "@sizeOf(T) == 0 doesn't force resolving struct size" {
 }
 
 test "@TypeOf() has no runtime side effects" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         fn foo(comptime T: type, ptr: *T) T {
             ptr.* += 1;
@@ -31,6 +36,8 @@ test "@TypeOf() has no runtime side effects" {
 }
 
 test "branching logic inside @TypeOf" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S = struct {
         var data: i32 = 0;
         fn foo() anyerror!i32 {
@@ -44,6 +51,8 @@ test "branching logic inside @TypeOf" {
 }
 
 test "@bitSizeOf" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     try expect(@bitSizeOf(u2) == 2);
     try expect(@bitSizeOf(u8) == @sizeOf(u8) * 8);
     try expect(@bitSizeOf(struct {
@@ -55,6 +64,8 @@ test "@bitSizeOf" {
 }
 
 test "@sizeOf comparison against zero" {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
     const S0 = struct {
         f: *@This(),
     };
