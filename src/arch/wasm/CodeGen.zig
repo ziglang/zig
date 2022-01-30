@@ -1442,8 +1442,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .bool_and => self.airBinOp(inst, .@"and"),
         .bool_or => self.airBinOp(inst, .@"or"),
         .rem => self.airBinOp(inst, .rem),
-        .shl => self.airBinOp(inst, .shl),
-        .shr => self.airBinOp(inst, .shr),
+        .shl, .shl_exact => self.airBinOp(inst, .shl),
+        .shr, .shr_exact => self.airBinOp(inst, .shr),
         .xor => self.airBinOp(inst, .xor),
 
         .cmp_eq => self.airCmp(inst, .eq),
@@ -1531,7 +1531,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .max,
         .min,
         .assembly,
-        .shl_exact,
         .shl_sat,
         .ret_addr,
         .clz,

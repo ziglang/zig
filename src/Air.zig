@@ -179,6 +179,9 @@ pub const Inst = struct {
         /// Shift right. `>>`
         /// Uses the `bin_op` field.
         shr,
+        /// Shift right. The shift produces a poison value if it shifts out any non-zero bits.
+        /// Uses the `bin_op` field.
+        shr_exact,
         /// Shift left. `<<`
         /// Uses the `bin_op` field.
         shl,
@@ -738,6 +741,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ptr_add,
         .ptr_sub,
         .shr,
+        .shr_exact,
         .shl,
         .shl_exact,
         .shl_sat,

@@ -1470,7 +1470,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .bit_and         => try airBinOp(f, inst, " & "),
             .bit_or          => try airBinOp(f, inst, " | "),
             .xor             => try airBinOp(f, inst, " ^ "),
-            .shr             => try airBinOp(f, inst, " >> "),
+            .shr, .shr_exact => try airBinOp(f, inst, " >> "),
             .shl, .shl_exact => try airBinOp(f, inst, " << "),
             .not             => try airNot  (f, inst),
 

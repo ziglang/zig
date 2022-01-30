@@ -138,6 +138,7 @@ const Writer = struct {
             .shl_exact,
             .shl_sat,
             .shr,
+            .shr_exact,
             .set_union_tag,
             .min,
             .max,

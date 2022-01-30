@@ -261,6 +261,7 @@ fn analyzeInst(
         .shl_exact,
         .shl_sat,
         .shr,
+        .shr_exact,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,

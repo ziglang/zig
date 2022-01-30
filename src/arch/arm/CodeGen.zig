@@ -527,12 +527,12 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .cmp_gt  => try self.airCmp(inst, .gt),
             .cmp_neq => try self.airCmp(inst, .neq),
 
-            .bool_and => try self.airBoolOp(inst),
-            .bool_or  => try self.airBoolOp(inst),
-            .bit_and  => try self.airBitAnd(inst),
-            .bit_or   => try self.airBitOr(inst),
-            .xor      => try self.airXor(inst),
-            .shr      => try self.airShr(inst),
+            .bool_and        => try self.airBoolOp(inst),
+            .bool_or         => try self.airBoolOp(inst),
+            .bit_and         => try self.airBitAnd(inst),
+            .bit_or          => try self.airBitOr(inst),
+            .xor             => try self.airXor(inst),
+            .shr, .shr_exact => try self.airShr(inst),
 
             .alloc           => try self.airAlloc(inst),
             .ret_ptr         => try self.airRetPtr(inst),

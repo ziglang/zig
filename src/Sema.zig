@@ -666,7 +666,8 @@ fn analyzeBodyInner(
             .ptr_type_simple              => try sema.zirPtrTypeSimple(block, inst),
             .ref                          => try sema.zirRef(block, inst),
             .ret_err_value_code           => try sema.zirRetErrValueCode(block, inst),
-            .shr                          => try sema.zirShr(block, inst),
+            .shr                          => try sema.zirShr(block, inst, .shr),
+            .shr_exact                    => try sema.zirShr(block, inst, .shr_exact),
             .slice_end                    => try sema.zirSliceEnd(block, inst),
             .slice_sentinel               => try sema.zirSliceSentinel(block, inst),
             .slice_start                  => try sema.zirSliceStart(block, inst),
@@ -721,7 +722,6 @@ fn analyzeBodyInner(
             .pop_count                    => try sema.zirPopCount(block, inst),
             .byte_swap                    => try sema.zirByteSwap(block, inst),
             .bit_reverse                  => try sema.zirBitReverse(block, inst),
-            .shr_exact                    => try sema.zirShrExact(block, inst),
             .bit_offset_of                => try sema.zirBitOffsetOf(block, inst),
             .offset_of                    => try sema.zirOffsetOf(block, inst),
             .cmpxchg_strong               => try sema.zirCmpxchg(block, inst, .cmpxchg_strong),
@@ -7472,18 +7472,30 @@ fn zirShl(
         if (rhs_val.compareWithZero(.eq)) {
             return sema.addConstant(lhs_ty, lhs_val);
         }
+        const target = sema.mod.getTarget();
         const val = switch (air_tag) {
-            .shl_exact => return sema.fail(block, lhs_src, "TODO implement Sema for comptime shl_exact", .{}),
+            .shl_exact => val: {
+                const shifted = try lhs_val.shl(rhs_val, sema.arena);
+                if (lhs_ty.zigTypeTag() == .ComptimeInt) {
+                    break :val shifted;
+                }
+                const int_info = lhs_ty.intInfo(target);
+                const truncated = try shifted.intTrunc(sema.arena, int_info.signedness, int_info.bits);
+                if (truncated.compareHetero(.eq, shifted)) {
+                    break :val shifted;
+                }
+                return sema.addConstUndef(lhs_ty);
+            },
 
             .shl_sat => if (lhs_ty.zigTypeTag() == .ComptimeInt)
                 try lhs_val.shl(rhs_val, sema.arena)
             else
-                try lhs_val.shlSat(rhs_val, lhs_ty, sema.arena, sema.mod.getTarget()),
+                try lhs_val.shlSat(rhs_val, lhs_ty, sema.arena, target),
 
             .shl => if (lhs_ty.zigTypeTag() == .ComptimeInt)
                 try lhs_val.shl(rhs_val, sema.arena)
             else
-                try lhs_val.shlTrunc(rhs_val, lhs_ty, sema.arena, sema.mod.getTarget()),
+                try lhs_val.shlTrunc(rhs_val, lhs_ty, sema.arena, target),
 
             else => unreachable,
         };
@@ -7502,19 +7514,23 @@ fn zirShl(
     return block.addBinOp(air_tag, lhs, rhs);
 }
 
-fn zirShr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirShr(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    air_tag: Air.Inst.Tag,
+) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const lhs = sema.resolveInst(extra.lhs);
     const rhs = sema.resolveInst(extra.rhs);
 
-    if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| {
+    const runtime_src = if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| rs: {
         if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lhs_val| {
             const lhs_ty = sema.typeOf(lhs);
             if (lhs_val.isUndef() or rhs_val.isUndef()) {
@@ -7524,19 +7540,29 @@ fn zirShr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
             if (rhs_val.compareWithZero(.eq)) {
                 return sema.addConstant(lhs_ty, lhs_val);
             }
+            if (air_tag == .shr_exact) {
+                // Detect if any ones would be shifted out.
+                const bits = @intCast(u16, rhs_val.toUnsignedInt());
+                const truncated = try lhs_val.intTrunc(sema.arena, .unsigned, bits);
+                if (!truncated.compareWithZero(.eq)) {
+                    return sema.addConstUndef(lhs_ty);
+                }
+            }
             const val = try lhs_val.shr(rhs_val, sema.arena);
             return sema.addConstant(lhs_ty, val);
+        } else {
+            // Even if lhs is not comptime known, we can still deduce certain things based
+            // on rhs.
+            // If rhs is 0, return lhs without doing any calculations.
+            if (rhs_val.compareWithZero(.eq)) {
+                return lhs;
+            }
+            break :rs lhs_src;
         }
-        // Even if lhs is not comptime known, we can still deduce certain things based
-        // on rhs.
-        // If rhs is 0, return lhs without doing any calculations.
-        else if (rhs_val.compareWithZero(.eq)) {
-            return lhs;
-        }
-    }
+    } else rhs_src;
 
-    try sema.requireRuntimeBlock(block, src);
-    return block.addBinOp(.shr, lhs, rhs);
+    try sema.requireRuntimeBlock(block, runtime_src);
+    return block.addBinOp(air_tag, lhs, rhs);
 }
 
 fn zirBitwise(
@@ -11446,12 +11472,6 @@ fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     return sema.fail(block, src, "TODO: Sema.zirBitReverse", .{});
-}
-
-fn zirShrExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirShrExact", .{});
 }
 
 fn zirBitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

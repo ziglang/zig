@@ -2047,7 +2047,8 @@ pub const FuncGen = struct {
                 .bit_and, .bool_and => try self.airAnd(inst),
                 .bit_or, .bool_or   => try self.airOr(inst),
                 .xor                => try self.airXor(inst),
-                .shr                => try self.airShr(inst),
+                .shr                => try self.airShr(inst, false),
+                .shr_exact          => try self.airShr(inst, true),
 
                 .cmp_eq  => try self.airCmp(inst, .eq),
                 .cmp_gt  => try self.airCmp(inst, .gt),
@@ -3633,7 +3634,7 @@ pub const FuncGen = struct {
         return self.builder.buildUShlSat(lhs, casted_rhs, "");
     }
 
-    fn airShr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+    fn airShr(self: *FuncGen, inst: Air.Inst.Index, is_exact: bool) !?*const llvm.Value {
         if (self.liveness.isUnused(inst))
             return null;
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
@@ -3645,11 +3646,20 @@ pub const FuncGen = struct {
             self.builder.buildZExt(rhs, try self.dg.llvmType(lhs_type), "")
         else
             rhs;
+        const is_signed_int = self.air.typeOfIndex(inst).isSignedInt();
 
-        if (self.air.typeOfIndex(inst).isSignedInt()) {
-            return self.builder.buildAShr(lhs, casted_rhs, "");
+        if (is_exact) {
+            if (is_signed_int) {
+                return self.builder.buildAShrExact(lhs, casted_rhs, "");
+            } else {
+                return self.builder.buildLShrExact(lhs, casted_rhs, "");
+            }
         } else {
-            return self.builder.buildLShr(lhs, casted_rhs, "");
+            if (is_signed_int) {
+                return self.builder.buildAShr(lhs, casted_rhs, "");
+            } else {
+                return self.builder.buildLShr(lhs, casted_rhs, "");
+            }
         }
     }
 
