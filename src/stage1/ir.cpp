@@ -5166,9 +5166,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             continue;
         }
 
-        if (prev_type->id == ZigTypeIdEnum && cur_type->id == ZigTypeIdUnion &&
-            (cur_type->data.unionation.decl_node->data.container_decl.auto_enum || cur_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
-        {
+        if (prev_type->id == ZigTypeIdEnum && is_tagged_union(cur_type)) {
             if ((err = type_resolve(ira->codegen, cur_type, ResolveStatusZeroBitsKnown)))
                 return ira->codegen->builtin_types.entry_invalid;
             if (cur_type->data.unionation.tag_type == prev_type) {
@@ -5176,9 +5174,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             }
         }
 
-        if (cur_type->id == ZigTypeIdEnum && prev_type->id == ZigTypeIdUnion &&
-            (prev_type->data.unionation.decl_node->data.container_decl.auto_enum || prev_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
-        {
+        if (cur_type->id == ZigTypeIdEnum && is_tagged_union(prev_type)) {
             if ((err = type_resolve(ira->codegen, prev_type, ResolveStatusZeroBitsKnown)))
                 return ira->codegen->builtin_types.entry_invalid;
             if (prev_type->data.unionation.tag_type == cur_type) {
@@ -15816,10 +15812,7 @@ static Stage1AirInst *ir_analyze_instruction_field_ptr(IrAnalyze *ira, Stage1Zir
                 }
                 return ir_analyze_decl_ref(ira, field_ptr_instruction->base.scope, field_ptr_instruction->base.source_node, tld);
             }
-            if (child_type->id == ZigTypeIdUnion &&
-                    (child_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr ||
-                    child_type->data.unionation.decl_node->data.container_decl.auto_enum))
-            {
+            if (is_tagged_union(child_type)) {
                 if ((err = type_resolve(ira->codegen, child_type, ResolveStatusSizeKnown)))
                     return ira->codegen->invalid_inst_gen;
                 TypeUnionField *field = find_union_type_field(child_type, field_name);
