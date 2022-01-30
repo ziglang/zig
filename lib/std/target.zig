@@ -1179,10 +1179,12 @@ pub const Target = struct {
             /// Returns whether this architecture supports the address space
             pub fn supportsAddressSpace(arch: Arch, address_space: std.builtin.AddressSpace) bool {
                 const is_nvptx = arch == .nvptx or arch == .nvptx64;
+                const is_spirv = arch == .spirv32 or arch == .spirv64;
+                const is_gpu = is_nvptx or is_spirv or arch == .amdgcn;
                 return switch (address_space) {
                     .generic => true,
                     .fs, .gs, .ss => arch == .x86_64 or arch == .x86,
-                    .global, .constant, .local, .shared => arch == .amdgcn or is_nvptx,
+                    .global, .constant, .local, .shared => is_gpu,
                     .param => is_nvptx,
                 };
             }
