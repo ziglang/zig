@@ -2655,6 +2655,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     if (self.emit_docs) |doc_location| {
         if (self.bin_file.options.module) |module| {
             var autodoc = Autodoc.init(module, doc_location);
+            defer autodoc.deinit();
             try autodoc.generateZirData();
         }
     }
