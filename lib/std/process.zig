@@ -356,7 +356,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
         /// cmd_line_utf16le MUST be encoded UTF16-LE, and is converted to UTF-8 in an internal buffer
         pub fn initUtf16le(allocator: Allocator, cmd_line_utf16le: [*:0]const u16) InitUtf16leError!Self {
             var utf16le_slice = mem.sliceTo(cmd_line_utf16le, 0);
-            var cmd_line = std.unicode.utf16leToUtf8AllocZ(allocator, utf16le_slice) catch |err| switch (err) {
+            var cmd_line = std.unicode.utf16leToUtf8Alloc(allocator, utf16le_slice) catch |err| switch (err) {
                 error.ExpectedSecondSurrogateHalf,
                 error.DanglingSurrogateHalf,
                 error.UnexpectedSecondSurrogateHalf,
