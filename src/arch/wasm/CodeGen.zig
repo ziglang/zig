@@ -39,6 +39,14 @@ const WValue = union(enum) {
     /// Note: The value contains the symbol index, rather than the actual address
     /// as we use this to perform the relocation.
     memory: u32,
+    /// A value that represents a parent pointer and an offset
+    /// from that pointer. i.e. when slicing with constant values.
+    memory_offset: struct {
+        /// The symbol of the parent pointer
+        pointer: u32,
+        /// Offset will be set as 'addend' when relocating
+        offset: u32,
+    },
     /// Represents a function pointer
     /// In wasm function pointers are indexes into a function table,
     /// rather than an address in the data section.
@@ -754,7 +762,14 @@ fn emitWValue(self: *Self, value: WValue) InnerError!void {
         .imm64 => |val| try self.addImm64(val),
         .float32 => |val| try self.addInst(.{ .tag = .f32_const, .data = .{ .float32 = val } }),
         .float64 => |val| try self.addFloat64(val),
-        .memory => |ptr| try self.addLabel(.memory_address, ptr), // write sybol address and generate relocation
+        .memory => |ptr| {
+            const extra_index = try self.addExtra(Mir.Memory{ .pointer = ptr, .offset = 0 });
+            try self.addInst(.{ .tag = .memory_address, .data = .{ .payload = extra_index } });
+        },
+        .memory_offset => |mem_off| {
+            const extra_index = try self.addExtra(Mir.Memory{ .pointer = mem_off.pointer, .offset = mem_off.offset });
+            try self.addInst(.{ .tag = .memory_address, .data = .{ .payload = extra_index } });
+        },
         .function_index => |index| try self.addLabel(.function_index, index), // write function index and generate relocation
     }
 }
@@ -927,7 +942,7 @@ pub const DeclGen = struct {
                     .function => val.castTag(.function).?.data.owner_decl,
                     else => unreachable,
                 };
-                return try self.lowerDeclRef(ty, val, fn_decl);
+                return try self.lowerDeclRefValue(ty, val, fn_decl, 0);
             },
             .Optional => {
                 var opt_buf: Type.Payload.ElemType = undefined;
@@ -1115,11 +1130,11 @@ pub const DeclGen = struct {
             .Pointer => switch (val.tag()) {
                 .variable => {
                     const decl = val.castTag(.variable).?.data.owner_decl;
-                    return self.lowerDeclRef(ty, val, decl);
+                    return self.lowerDeclRefValue(ty, val, decl, 0);
                 },
                 .decl_ref => {
                     const decl = val.castTag(.decl_ref).?.data;
-                    return self.lowerDeclRef(ty, val, decl);
+                    return self.lowerDeclRefValue(ty, val, decl, writer, 0);
                 },
                 .slice => {
                     const slice = val.castTag(.slice).?.data;
@@ -1139,6 +1154,13 @@ pub const DeclGen = struct {
                     try writer.writeByteNTimes(0, @divExact(self.target().cpu.arch.ptrBitWidth(), 8));
                     return Result{ .appended = {} };
                 },
+                .elem_ptr => {
+                    const elem_ptr = val.castTag(.elem_ptr).?.data;
+                    const elem_size = ty.childType().abiSize(self.target());
+                    const offset = elem_ptr.index * elem_size;
+                    return self.lowerParentPtr(elem_ptr.array_ptr, writer, offset);
+                },
+                .int_u64 => return self.genTypedValue(Type.usize, val, writer),
                 else => return self.fail("TODO: Implement zig decl gen for pointer type value: '{s}'", .{@tagName(val.tag())}),
             },
             .ErrorUnion => {
@@ -1179,7 +1201,36 @@ pub const DeclGen = struct {
         }
     }
 
-    fn lowerDeclRef(self: *DeclGen, ty: Type, val: Value, decl: *Module.Decl) InnerError!Result {
+    fn lowerParentPtr(self: *DeclGen, ptr_value: Value, offset: usize) InnerError!Result {
+        switch (ptr_value.tag()) {
+            .decl_ref => {
+                const decl = ptr_value.castTag(.decl_ref).?.data;
+                return self.lowerParentPtrDecl(ptr_value, decl, offset);
+            },
+            else => |tag| return self.fail("TODO: Implement lowerParentPtr for pointer value tag: {s}", .{tag}),
+        }
+    }
+
+    fn lowerParentPtrDecl(self: *DeclGen, ptr_val: Value, decl: *Module.Decl, offset: usize) InnerError!Result {
+        decl.markAlive();
+        var ptr_ty_payload: Type.Payload.ElemType = .{
+            .base = .{ .tag = .single_mut_pointer },
+            .data = decl.ty,
+        };
+        const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+        return self.lowerDeclRefValue(ptr_ty, ptr_val, decl, offset);
+    }
+
+    fn lowerDeclRefValue(
+        self: *DeclGen,
+        ty: Type,
+        val: Value,
+        /// The target decl that is being pointed to
+        decl: *Module.Decl,
+        /// When lowering to an indexed pointer, we can specify the offset
+        /// which will then be used as 'addend' to the relocation.
+        offset: usize,
+    ) InnerError!Result {
         const writer = self.code.writer();
         if (ty.isSlice()) {
             var buf: Type.SlicePtrFieldTypeBuffer = undefined;
@@ -1202,6 +1253,7 @@ pub const DeclGen = struct {
             self.symbol_index, // source symbol index
             decl.link.wasm.sym_index, // target symbol index
             @intCast(u32, self.code.items.len), // offset
+            @intCast(u32, offset), // addend
         ));
         return Result{ .appended = {} };
     }
@@ -1973,6 +2025,17 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
                     try self.bin_file.addTableFunction(target_sym_index);
                     return WValue{ .function_index = target_sym_index };
                 } else return WValue{ .memory = target_sym_index };
+            },
+            .elem_ptr => {
+                const elem_ptr = val.castTag(.elem_ptr).?.data;
+                const index = elem_ptr.index;
+                const offset = index * ty.childType().abiSize(self.target);
+                const array_ptr = try self.lowerConstant(elem_ptr.array_ptr, ty);
+
+                return WValue{ .memory_offset = .{
+                    .pointer = array_ptr.memory,
+                    .offset = @intCast(u32, offset),
+                } };
             },
             .int_u64, .one => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt()) },
             .zero, .null_value => return WValue{ .imm32 = 0 },

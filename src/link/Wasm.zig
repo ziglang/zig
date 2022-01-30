@@ -345,10 +345,19 @@ pub fn updateLocalSymbolCode(self: *Wasm, decl: *Module.Decl, symbol_index: u32,
 
 /// For a given decl, find the given symbol index's atom, and create a relocation for the type.
 /// Returns the given pointer address
-pub fn getDeclVAddr(self: *Wasm, decl: *Module.Decl, ty: Type, symbol_index: u32, target_symbol_index: u32, offset: u32) !u32 {
+pub fn getDeclVAddr(
+    self: *Wasm,
+    decl: *Module.Decl,
+    ty: Type,
+    symbol_index: u32,
+    target_symbol_index: u32,
+    offset: u32,
+    addend: u32,
+) !u32 {
     const atom = decl.link.wasm.symbolAtom(symbol_index);
     const is_wasm32 = self.base.options.target.cpu.arch == .wasm32;
     if (ty.zigTypeTag() == .Fn) {
+        std.debug.assert(addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
         // as function pointers are not allowed to be stored inside the data section.
         // They are instead stored in a function table which are called by index.
@@ -363,6 +372,7 @@ pub fn getDeclVAddr(self: *Wasm, decl: *Module.Decl, ty: Type, symbol_index: u32
             .index = target_symbol_index,
             .offset = offset,
             .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_I32 else .R_WASM_MEMORY_ADDR_I64,
+            .addend = addend,
         });
     }
     // we do not know the final address at this point,
