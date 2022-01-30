@@ -15,14 +15,14 @@ test "anon fn param - source-location sensitive" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/9339
-    try expectEqualSlices(u8, @typeName(TypeFromFn(struct {})), "behavior.typename.TypeFromFn(behavior.typename.struct:15:52)");
-    try expectEqualSlices(u8, @typeName(TypeFromFn(union { unused: u8 })), "behavior.typename.TypeFromFn(behavior.typename.union:16:52)");
-    try expectEqualSlices(u8, @typeName(TypeFromFn(enum { unused })), "behavior.typename.TypeFromFn(behavior.typename.enum:17:52)");
+    try expectEqualSlices(u8, @typeName(TypeFromFn(struct {})), "behavior.typename.TypeFromFn(behavior.typename.struct:18:52)");
+    try expectEqualSlices(u8, @typeName(TypeFromFn(union { unused: u8 })), "behavior.typename.TypeFromFn(behavior.typename.union:19:52)");
+    try expectEqualSlices(u8, @typeName(TypeFromFn(enum { unused })), "behavior.typename.TypeFromFn(behavior.typename.enum:20:52)");
 
     try expectEqualSlices(
         u8,
         @typeName(TypeFromFn3(struct {}, union { unused: u8 }, enum { unused })),
-        "behavior.typename.TypeFromFn3(behavior.typename.struct:21:31,behavior.typename.union:21:42,behavior.typename.enum:21:64)",
+        "behavior.typename.TypeFromFn3(behavior.typename.struct:24:31,behavior.typename.union:24:42,behavior.typename.enum:24:64)",
     );
 }
 
@@ -36,9 +36,9 @@ test "anon field init" {
         .T3 = enum { unused },
     };
 
-    try expectEqualSlices(u8, @typeName(Foo.T1), "behavior.typename.struct:29:15");
-    try expectEqualSlices(u8, @typeName(Foo.T2), "behavior.typename.union:30:15");
-    try expectEqualSlices(u8, @typeName(Foo.T3), "behavior.typename.enum:31:15");
+    try expectEqualSlices(u8, @typeName(Foo.T1), "behavior.typename.struct:34:15");
+    try expectEqualSlices(u8, @typeName(Foo.T2), "behavior.typename.union:35:15");
+    try expectEqualSlices(u8, @typeName(Foo.T3), "behavior.typename.enum:36:15");
 }
 
 test "basic" {
