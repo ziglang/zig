@@ -2883,6 +2883,19 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
+    pub fn shlTrunc(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !Value {
+        const shifted = try lhs.shl(rhs, arena);
+        const int_info = ty.intInfo(target);
+        const truncated = try shifted.intTrunc(arena, int_info.signedness, int_info.bits);
+        return truncated;
+    }
+
     pub fn shr(lhs: Value, rhs: Value, allocator: Allocator) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.

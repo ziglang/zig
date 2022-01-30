@@ -7474,11 +7474,17 @@ fn zirShl(
         }
         const val = switch (air_tag) {
             .shl_exact => return sema.fail(block, lhs_src, "TODO implement Sema for comptime shl_exact", .{}),
+
             .shl_sat => if (lhs_ty.zigTypeTag() == .ComptimeInt)
                 try lhs_val.shl(rhs_val, sema.arena)
             else
                 try lhs_val.shlSat(rhs_val, lhs_ty, sema.arena, sema.mod.getTarget()),
-            .shl => try lhs_val.shl(rhs_val, sema.arena),
+
+            .shl => if (lhs_ty.zigTypeTag() == .ComptimeInt)
+                try lhs_val.shl(rhs_val, sema.arena)
+            else
+                try lhs_val.shlTrunc(rhs_val, lhs_ty, sema.arena, sema.mod.getTarget()),
+
             else => unreachable,
         };
 

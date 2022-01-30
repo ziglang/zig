@@ -632,7 +632,10 @@ test "allow signed integer division/remainder when values are comptime known and
 }
 
 test "quad hex float literal parsing accurate" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend != .stage1) {
+        // TODO https://github.com/ziglang/zig/issues/10737
+        return error.SkipZigTest;
+    }
 
     const a: f128 = 0x1.1111222233334444555566667777p+0;
 
@@ -724,8 +727,6 @@ test "quad hex float literal parsing accurate" {
 }
 
 test "truncating shift left" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     try testShlTrunc(maxInt(u16));
     comptime try testShlTrunc(maxInt(u16));
 }
