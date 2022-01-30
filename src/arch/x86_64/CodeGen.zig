@@ -1740,6 +1740,24 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 .data = .{ .payload = payload },
                             });
                         },
+                        8 => {
+                            // TODO: optimization: if the imm is only using the lower
+                            // 4 bytes and can be sign extended we can use a normal mov
+                            // with indirect addressing (mov [reg64], imm32).
+
+                            // movabs does not support indirect register addressing
+                            // so we need an extra register and an extra mov.
+                            const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                            _ = try self.addInst(.{
+                                .tag = .mov,
+                                .ops = (Mir.Ops{
+                                    .reg1 = reg.to64(),
+                                    .reg2 = tmp_reg.to64(),
+                                    .flags = 0b10,
+                                }).encode(),
+                                .data = .{ .imm = 0 },
+                            });
+                        },
                         else => {
                             return self.fail("TODO implement set pointee with immediate of ABI size {d}", .{abi_size});
                         },
