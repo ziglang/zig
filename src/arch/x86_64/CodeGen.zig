@@ -1762,8 +1762,19 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 },
             }
         },
-        .memory => {
-            return self.fail("TODO implement storing to MCValue.memory", .{});
+        .memory => |addr| {
+            const reg = try self.copyToTmpRegister(ptr_ty, .{ .memory = addr });
+            // mov reg, [reg]
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .reg1 = reg.to64(),
+                    .reg2 = reg.to64(),
+                    .flags = 0b10,
+                }).encode(),
+                .data = .{ .imm = 0 },
+            });
+            return self.store(.{ .register = reg }, value, ptr_ty, value_ty);
         },
         .stack_offset => {
             return self.fail("TODO implement storing to MCValue.stack_offset", .{});
