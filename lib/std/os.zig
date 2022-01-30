@@ -218,9 +218,13 @@ pub const socket_t = if (builtin.os.tag == .windows) windows.ws2_32.SOCKET else 
 pub var environ: [][*:0]u8 = undefined;
 
 /// Populated by startup code before main().
-/// Not available on Windows. See `std.process.args`
-/// for obtaining the process arguments.
-pub var argv: [][*:0]u8 = undefined;
+/// Not available on WASI or Windows without libc. See `std.process.argsAlloc`
+/// or `std.process.argsWithAllocator` for a cross-platform alternative.
+pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (builtin.os.tag) {
+    .windows => @compileError("argv isn't supported on Windows: use std.process.argsAlloc instead"),
+    .wasi => @compileError("argv isn't supported on WASI: use std.process.argsAlloc instead"),
+    else => undefined,
+};
 
 /// To obtain errno, call this function with the return value of the
 /// system function call. For some systems this will obtain the value directly
