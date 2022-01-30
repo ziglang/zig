@@ -21,6 +21,10 @@ pub fn init(m: *Module, doc_location: ?Compilation.EmitLoc) Autodoc {
     };
 }
 
+pub fn deinit(_: *Autodoc) void {
+    arena_allocator.deinit();
+}
+
 pub fn generateZirData(self: *Autodoc) !void {
     if (self.doc_location) |loc| {
         if (loc.directory) |dir| {
@@ -48,13 +52,51 @@ pub fn generateZirData(self: *Autodoc) !void {
     {
 
         // TODO: we don't want to add .none, but the index math has to check out
-        var i: u32 = 1;
+        var i: u32 = 0;
         while (i <= @enumToInt(Zir.Inst.Ref.anyerror_void_error_union_type)) : (i += 1) {
             var tmpbuf = std.ArrayList(u8).init(self.arena);
             try Zir.Inst.Ref.typed_value_map[i].val.format("", .{}, tmpbuf.writer());
             try self.types.append(self.arena, .{
-                .kind = 0,
                 .name = tmpbuf.toOwnedSlice(),
+                .kind = switch (@intToEnum(Zir.Inst.Ref, i)) {
+                    else => |t| blk: {
+                        std.debug.print("TODO: categorize `{s}` in typeKinds\n", .{
+                            @tagName(t),
+                        });
+                        break :blk 7;
+                    },
+                    .u1_type,
+                    .u8_type,
+                    .i8_type,
+                    .u16_type,
+                    .i16_type,
+                    .u32_type,
+                    .i32_type,
+                    .u64_type,
+                    .i64_type,
+                    .u128_type,
+                    .i128_type,
+                    .usize_type,
+                    .isize_type,
+                    .c_short_type,
+                    .c_ushort_type,
+                    .c_int_type,
+                    .c_uint_type,
+                    .c_long_type,
+                    .c_ulong_type,
+                    .c_longlong_type,
+                    .c_ulonglong_type,
+                    .c_longdouble_type,
+                    => @enumToInt(std.builtin.TypeId.Int),
+                    .f16_type,
+                    .f32_type,
+                    .f64_type,
+                    .f128_type,
+                    => @enumToInt(std.builtin.TypeId.Float),
+                    .bool_type => @enumToInt(std.builtin.TypeId.Bool),
+                    .void_type => @enumToInt(std.builtin.TypeId.Void),
+                    .type_type => @enumToInt(std.builtin.TypeId.Type),
+                },
             });
         }
     }
@@ -167,7 +209,7 @@ const DocData = struct {
         kind: []const u8, // TODO: where do we find this info?
         src: usize, // index into astNodes
         type: usize, // index into types
-        value: usize,
+        value: WalkResult,
     };
 
     const AstNode = struct {
@@ -476,7 +518,6 @@ fn walkDecls(
         };
 
         const walk_result = try self.walkInstruction(zir, scope, decl_index);
-        const type_index = walk_result.type;
 
         if (is_pub) {
             try decl_indexes.append(self.arena, decls_slot_index);
@@ -487,8 +528,8 @@ fn walkDecls(
         self.decls.items[decls_slot_index] = .{
             .name = name,
             .src = ast_node_index,
-            .type = 0,
-            .value = type_index,
+            .type = @enumToInt(Zir.Inst.Ref.type_type),
+            .value = walk_result,
             .kind = "const", // find where this information can be found
         };
     }
@@ -561,13 +602,9 @@ fn collectFieldInfo(
                 else => {
                     const enum_value = @enumToInt(field_type);
                     if (enum_value < Zir.Inst.Ref.typed_value_map.len) {
-                        std.debug.print(
-                            "TODO: handle ref type: {s}",
-                            .{@tagName(field_type)},
-                        );
                         try field_type_indexes.append(
                             self.arena,
-                            DocData.WalkResult{ .failure = true },
+                            DocData.WalkResult{ .type = enum_value },
                         );
                     } else {
                         const zir_index = enum_value - Zir.Inst.Ref.typed_value_map.len;
