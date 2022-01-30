@@ -203,6 +203,8 @@ pub const ArgIteratorPosix = struct {
     index: usize,
     count: usize,
 
+    pub const InitError = error{};
+
     pub fn init() ArgIteratorPosix {
         return ArgIteratorPosix{
             .index = 0,
@@ -299,195 +301,268 @@ pub const ArgIteratorWasi = struct {
     }
 };
 
-pub const ArgIteratorWindows = struct {
-    index: usize,
-    cmd_line: [*]const u16,
-
-    pub const NextError = error{ OutOfMemory, InvalidCmdLine };
-
-    pub fn init() ArgIteratorWindows {
-        return initWithCmdLine(os.windows.kernel32.GetCommandLineW());
-    }
-
-    pub fn initWithCmdLine(cmd_line: [*]const u16) ArgIteratorWindows {
-        return ArgIteratorWindows{
-            .index = 0,
-            .cmd_line = cmd_line,
-        };
-    }
-
-    fn getPointAtIndex(self: *ArgIteratorWindows) u16 {
-        // According to
-        // https://docs.microsoft.com/en-us/windows/win32/intl/using-byte-order-marks
-        // Microsoft uses UTF16-LE. So we just read assuming it's little
-        // endian.
-        return std.mem.littleToNative(u16, self.cmd_line[self.index]);
-    }
-
-    /// You must free the returned memory when done.
-    pub fn next(self: *ArgIteratorWindows, allocator: Allocator) NextError!?[:0]u8 {
-        // march forward over whitespace
-        while (true) : (self.index += 1) {
-            const character = self.getPointAtIndex();
-            switch (character) {
-                0 => return null,
-                ' ', '\t' => continue,
-                else => break,
-            }
-        }
-
-        return try self.internalNext(allocator);
-    }
-
-    pub fn skip(self: *ArgIteratorWindows) bool {
-        // march forward over whitespace
-        while (true) : (self.index += 1) {
-            const character = self.getPointAtIndex();
-            switch (character) {
-                0 => return false,
-                ' ', '\t' => continue,
-                else => break,
-            }
-        }
-
-        var backslash_count: usize = 0;
-        var in_quote = false;
-        while (true) : (self.index += 1) {
-            const character = self.getPointAtIndex();
-            switch (character) {
-                0 => return true,
-                '"' => {
-                    const quote_is_real = backslash_count % 2 == 0;
-                    if (quote_is_real) {
-                        in_quote = !in_quote;
-                    }
-                },
-                '\\' => {
-                    backslash_count += 1;
-                },
-                ' ', '\t' => {
-                    if (!in_quote) {
-                        return true;
-                    }
-                    backslash_count = 0;
-                },
-                else => {
-                    backslash_count = 0;
-                    continue;
-                },
-            }
-        }
-    }
-
-    fn internalNext(self: *ArgIteratorWindows, allocator: Allocator) NextError![:0]u8 {
-        var buf = std.ArrayList(u16).init(allocator);
-        defer buf.deinit();
-
-        var backslash_count: usize = 0;
-        var in_quote = false;
-        while (true) : (self.index += 1) {
-            const character = self.getPointAtIndex();
-            switch (character) {
-                0 => {
-                    return convertFromWindowsCmdLineToUTF8(allocator, buf.items);
-                },
-                '"' => {
-                    const quote_is_real = backslash_count % 2 == 0;
-                    try emitBackslashes(&buf, backslash_count / 2);
-                    backslash_count = 0;
-
-                    if (quote_is_real) {
-                        in_quote = !in_quote;
-                    } else {
-                        try buf.append(std.mem.nativeToLittle(u16, '"'));
-                    }
-                },
-                '\\' => {
-                    backslash_count += 1;
-                },
-                ' ', '\t' => {
-                    try emitBackslashes(&buf, backslash_count);
-                    backslash_count = 0;
-                    if (in_quote) {
-                        try buf.append(std.mem.nativeToLittle(u16, character));
-                    } else {
-                        return convertFromWindowsCmdLineToUTF8(allocator, buf.items);
-                    }
-                },
-                else => {
-                    try emitBackslashes(&buf, backslash_count);
-                    backslash_count = 0;
-                    try buf.append(std.mem.nativeToLittle(u16, character));
-                },
-            }
-        }
-    }
-
-    fn convertFromWindowsCmdLineToUTF8(allocator: Allocator, buf: []u16) NextError![:0]u8 {
-        return std.unicode.utf16leToUtf8AllocZ(allocator, buf) catch |err| switch (err) {
-            error.ExpectedSecondSurrogateHalf,
-            error.DanglingSurrogateHalf,
-            error.UnexpectedSecondSurrogateHalf,
-            => return error.InvalidCmdLine,
-
-            error.OutOfMemory => return error.OutOfMemory,
-        };
-    }
-    fn emitBackslashes(buf: *std.ArrayList(u16), emit_count: usize) !void {
-        var i: usize = 0;
-        while (i < emit_count) : (i += 1) {
-            try buf.append(std.mem.nativeToLittle(u16, '\\'));
-        }
-    }
+/// Optional parameters for `ArgIteratorGeneral`
+pub const ArgIteratorGeneralOptions = struct {
+    comments_supported: bool = false,
 };
 
+/// A general Iterator to parse a string into a set of arguments
+pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
+    return struct {
+        allocator: Allocator,
+        index: usize = 0,
+        cmd_line: []const u8,
+
+        /// Should the cmd_line field be free'd (using the allocator) on deinit()?
+        free_cmd_line_on_deinit: bool,
+
+        /// buffer MUST be long enough to hold the cmd_line plus a null terminator.
+        /// buffer will we free'd (using the allocator) on deinit()
+        buffer: []u8,
+        start: usize = 0,
+        end: usize = 0,
+
+        pub const Self = @This();
+
+        pub const InitError = error{OutOfMemory};
+        pub const InitUtf16leError = error{ OutOfMemory, InvalidCmdLine };
+
+        /// cmd_line_utf8 MUST remain valid and constant while using this instance
+        pub fn init(allocator: Allocator, cmd_line_utf8: []const u8) InitError!Self {
+            var buffer = try allocator.alloc(u8, cmd_line_utf8.len + 1);
+            errdefer allocator.free(buffer);
+
+            return Self{
+                .allocator = allocator,
+                .cmd_line = cmd_line_utf8,
+                .free_cmd_line_on_deinit = false,
+                .buffer = buffer,
+            };
+        }
+
+        /// cmd_line_utf8 will be free'd (with the allocator) on deinit()
+        pub fn initTakeOwnership(allocator: Allocator, cmd_line_utf8: []const u8) InitError!Self {
+            var buffer = try allocator.alloc(u8, cmd_line_utf8.len + 1);
+            errdefer allocator.free(buffer);
+
+            return Self{
+                .allocator = allocator,
+                .cmd_line = cmd_line_utf8,
+                .free_cmd_line_on_deinit = true,
+                .buffer = buffer,
+            };
+        }
+
+        /// cmd_line_utf16le MUST be encoded UTF16-LE, and is converted to UTF-8 in an internal buffer
+        pub fn initUtf16le(allocator: Allocator, cmd_line_utf16le: [*:0]const u16) InitUtf16leError!Self {
+            var utf16le_slice = mem.sliceTo(cmd_line_utf16le, 0);
+            var cmd_line = std.unicode.utf16leToUtf8Alloc(allocator, utf16le_slice) catch |err| switch (err) {
+                error.ExpectedSecondSurrogateHalf,
+                error.DanglingSurrogateHalf,
+                error.UnexpectedSecondSurrogateHalf,
+                => return error.InvalidCmdLine,
+
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+            errdefer allocator.free(cmd_line);
+
+            var buffer = try allocator.alloc(u8, cmd_line.len + 1);
+            errdefer allocator.free(buffer);
+
+            return Self{
+                .allocator = allocator,
+                .cmd_line = cmd_line,
+                .free_cmd_line_on_deinit = true,
+                .buffer = buffer,
+            };
+        }
+
+        // Skips over whitespace in the cmd_line.
+        // Returns false if the terminating sentinel is reached, true otherwise.
+        // Also skips over comments (if supported).
+        fn skipWhitespace(self: *Self) bool {
+            while (true) : (self.index += 1) {
+                const character = if (self.index != self.cmd_line.len) self.cmd_line[self.index] else 0;
+                switch (character) {
+                    0 => return false,
+                    ' ', '\t', '\r', '\n' => continue,
+                    '#' => {
+                        if (options.comments_supported) {
+                            while (true) : (self.index += 1) {
+                                switch (self.cmd_line[self.index]) {
+                                    '\n' => break,
+                                    0 => return false,
+                                    else => continue,
+                                }
+                            }
+                            continue;
+                        } else {
+                            break;
+                        }
+                    },
+                    else => break,
+                }
+            }
+            return true;
+        }
+
+        pub fn skip(self: *Self) bool {
+            if (!self.skipWhitespace()) {
+                return false;
+            }
+
+            var backslash_count: usize = 0;
+            var in_quote = false;
+            while (true) : (self.index += 1) {
+                const character = if (self.index != self.cmd_line.len) self.cmd_line[self.index] else 0;
+                switch (character) {
+                    0 => return true,
+                    '"' => {
+                        const quote_is_real = backslash_count % 2 == 0;
+                        if (quote_is_real) {
+                            in_quote = !in_quote;
+                        }
+                    },
+                    '\\' => {
+                        backslash_count += 1;
+                    },
+                    ' ', '\t', '\r', '\n' => {
+                        if (!in_quote) {
+                            return true;
+                        }
+                        backslash_count = 0;
+                    },
+                    else => {
+                        backslash_count = 0;
+                        continue;
+                    },
+                }
+            }
+        }
+
+        /// Returns a slice of the internal buffer that contains the next argument.
+        /// Returns null when it reaches the end.
+        pub fn next(self: *Self) ?[:0]const u8 {
+            if (!self.skipWhitespace()) {
+                return null;
+            }
+
+            var backslash_count: usize = 0;
+            var in_quote = false;
+            while (true) : (self.index += 1) {
+                const character = if (self.index != self.cmd_line.len) self.cmd_line[self.index] else 0;
+                switch (character) {
+                    0 => {
+                        self.emitBackslashes(backslash_count);
+                        self.buffer[self.end] = 0;
+                        var token = self.buffer[self.start..self.end :0];
+                        self.end += 1;
+                        self.start = self.end;
+                        return token;
+                    },
+                    '"' => {
+                        const quote_is_real = backslash_count % 2 == 0;
+                        self.emitBackslashes(backslash_count / 2);
+                        backslash_count = 0;
+
+                        if (quote_is_real) {
+                            in_quote = !in_quote;
+                        } else {
+                            self.emitCharacter('"');
+                        }
+                    },
+                    '\\' => {
+                        backslash_count += 1;
+                    },
+                    ' ', '\t', '\r', '\n' => {
+                        self.emitBackslashes(backslash_count);
+                        backslash_count = 0;
+                        if (in_quote) {
+                            self.emitCharacter(character);
+                        } else {
+                            self.buffer[self.end] = 0;
+                            var token = self.buffer[self.start..self.end :0];
+                            self.end += 1;
+                            self.start = self.end;
+                            return token;
+                        }
+                    },
+                    else => {
+                        self.emitBackslashes(backslash_count);
+                        backslash_count = 0;
+                        self.emitCharacter(character);
+                    },
+                }
+            }
+        }
+
+        fn emitBackslashes(self: *Self, emit_count: usize) void {
+            var i: usize = 0;
+            while (i < emit_count) : (i += 1) {
+                self.emitCharacter('\\');
+            }
+        }
+
+        fn emitCharacter(self: *Self, char: u8) void {
+            self.buffer[self.end] = char;
+            self.end += 1;
+        }
+
+        /// Call to free the internal buffer of the iterator.
+        pub fn deinit(self: *Self) void {
+            self.allocator.free(self.buffer);
+
+            if (self.free_cmd_line_on_deinit) {
+                self.allocator.free(self.cmd_line);
+            }
+        }
+    };
+}
+
+/// Cross-platform command line argument iterator.
 pub const ArgIterator = struct {
     const InnerType = switch (builtin.os.tag) {
-        .windows => ArgIteratorWindows,
+        .windows => ArgIteratorGeneral(.{ .comments_supported = false }),
         .wasi => if (builtin.link_libc) ArgIteratorPosix else ArgIteratorWasi,
         else => ArgIteratorPosix,
     };
 
     inner: InnerType,
 
-    /// Initialize the args iterator.
+    /// Initialize the args iterator. Consider using initWithAllocator() instead
+    /// for cross-platform compatibility.
     pub fn init() ArgIterator {
         if (builtin.os.tag == .wasi) {
             @compileError("In WASI, use initWithAllocator instead.");
+        }
+        if (builtin.os.tag == .windows) {
+            @compileError("In Windows, use initWithAllocator instead.");
         }
 
         return ArgIterator{ .inner = InnerType.init() };
     }
 
-    pub const InitError = ArgIteratorWasi.InitError;
+    pub const InitError = switch (builtin.os.tag) {
+        .windows => InnerType.InitUtf16leError,
+        else => InnerType.InitError,
+    };
 
     /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
     pub fn initWithAllocator(allocator: mem.Allocator) InitError!ArgIterator {
         if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return ArgIterator{ .inner = try InnerType.init(allocator) };
         }
+        if (builtin.os.tag == .windows) {
+            const cmd_line_w = os.windows.kernel32.GetCommandLineW();
+            return ArgIterator{ .inner = try InnerType.initUtf16le(allocator, cmd_line_w) };
+        }
 
         return ArgIterator{ .inner = InnerType.init() };
     }
 
-    pub const NextError = ArgIteratorWindows.NextError;
-
-    /// You must free the returned memory when done.
-    pub fn next(self: *ArgIterator, allocator: Allocator) NextError!?[:0]u8 {
-        if (builtin.os.tag == .windows) {
-            return self.inner.next(allocator);
-        } else {
-            return try allocator.dupeZ(u8, self.inner.next() orelse return null);
-        }
-    }
-
-    /// If you only are targeting posix you can call this and not need an allocator.
-    pub fn nextPosix(self: *ArgIterator) ?[:0]const u8 {
-        return self.inner.next();
-    }
-
-    /// If you only are targeting WASI, you can call this and not need an allocator.
-    pub fn nextWasi(self: *ArgIterator) ?[:0]const u8 {
+    /// Get the next argument. Returns 'null' if we are at the end.
+    /// Returned slice is pointing to the iterator's internal buffer.
+    pub fn next(self: *ArgIterator) ?([:0]const u8) {
         return self.inner.next();
     }
 
@@ -500,13 +575,18 @@ pub const ArgIterator = struct {
     /// Call this to free the iterator's internal buffer if the iterator
     /// was created with `initWithAllocator` function.
     pub fn deinit(self: *ArgIterator) void {
-        // Unless we're targeting WASI, this is a no-op.
+        // Unless we're targeting WASI or Windows, this is a no-op.
         if (builtin.os.tag == .wasi and !builtin.link_libc) {
+            self.inner.deinit();
+        }
+
+        if (builtin.os.tag == .windows) {
             self.inner.deinit();
         }
     }
 };
 
+/// Use argsWithAllocator() for cross-platform code
 pub fn args() ArgIterator {
     return ArgIterator.init();
 }
@@ -518,12 +598,10 @@ pub fn argsWithAllocator(allocator: mem.Allocator) ArgIterator.InitError!ArgIter
 
 test "args iterator" {
     var ga = std.testing.allocator;
-    var it = if (builtin.os.tag == .wasi) try argsWithAllocator(ga) else args();
-    defer it.deinit(); // no-op unless WASI
+    var it = try argsWithAllocator(ga);
+    defer it.deinit(); // no-op unless WASI or Windows
 
-    const prog_name = (try it.next(ga)) orelse unreachable;
-    defer ga.free(prog_name);
-
+    const prog_name = it.next() orelse unreachable;
     const expected_suffix = switch (builtin.os.tag) {
         .wasi => "test.wasm",
         .windows => "test.exe",
@@ -533,14 +611,14 @@ test "args iterator" {
 
     try testing.expect(mem.eql(u8, expected_suffix, given_suffix));
     try testing.expect(it.skip()); // Skip over zig_exe_path, passed to the test runner
-    try testing.expect((try it.next(ga)) == null);
+    try testing.expect(it.next() == null);
     try testing.expect(!it.skip());
 }
 
 /// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: mem.Allocator) ![][:0]u8 {
     // TODO refactor to only make 1 allocation.
-    var it = if (builtin.os.tag == .wasi) try argsWithAllocator(allocator) else args();
+    var it = try argsWithAllocator(allocator);
     defer it.deinit();
 
     var contents = std.ArrayList(u8).init(allocator);
@@ -549,8 +627,7 @@ pub fn argsAlloc(allocator: mem.Allocator) ![][:0]u8 {
     var slice_list = std.ArrayList(usize).init(allocator);
     defer slice_list.deinit();
 
-    while (try it.next(allocator)) |arg| {
-        defer allocator.free(arg);
+    while (it.next()) |arg| {
         try contents.appendSlice(arg[0 .. arg.len + 1]);
         try slice_list.append(arg.len);
     }
@@ -586,16 +663,17 @@ pub fn argsFree(allocator: mem.Allocator, args_alloc: []const [:0]u8) void {
     return allocator.free(aligned_allocated_buf);
 }
 
-test "windows arg parsing" {
-    const utf16Literal = std.unicode.utf8ToUtf16LeStringLiteral;
-    try testWindowsCmdLine(utf16Literal("a   b\tc d"), &[_][]const u8{ "a", "b", "c", "d" });
-    try testWindowsCmdLine(utf16Literal("\"abc\" d e"), &[_][]const u8{ "abc", "d", "e" });
-    try testWindowsCmdLine(utf16Literal("a\\\\\\b d\"e f\"g h"), &[_][]const u8{ "a\\\\\\b", "de fg", "h" });
-    try testWindowsCmdLine(utf16Literal("a\\\\\\\"b c d"), &[_][]const u8{ "a\\\"b", "c", "d" });
-    try testWindowsCmdLine(utf16Literal("a\\\\\\\\\"b c\" d e"), &[_][]const u8{ "a\\\\b c", "d", "e" });
-    try testWindowsCmdLine(utf16Literal("a   b\tc \"d f"), &[_][]const u8{ "a", "b", "c", "d f" });
+test "general arg parsing" {
+    try testGeneralCmdLine("a   b\tc d", &[_][]const u8{ "a", "b", "c", "d" });
+    try testGeneralCmdLine("\"abc\" d e", &[_][]const u8{ "abc", "d", "e" });
+    try testGeneralCmdLine("a\\\\\\b d\"e f\"g h", &[_][]const u8{ "a\\\\\\b", "de fg", "h" });
+    try testGeneralCmdLine("a\\\\\\\"b c d", &[_][]const u8{ "a\\\"b", "c", "d" });
+    try testGeneralCmdLine("a\\\\\\\\\"b c\" d e", &[_][]const u8{ "a\\\\b c", "d", "e" });
+    try testGeneralCmdLine("a   b\tc \"d f", &[_][]const u8{ "a", "b", "c", "d f" });
+    try testGeneralCmdLine("j k l\\", &[_][]const u8{ "j", "k", "l\\" });
+    try testGeneralCmdLine("\"\" x y z\\\\", &[_][]const u8{ "", "x", "y", "z\\\\" });
 
-    try testWindowsCmdLine(utf16Literal("\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\""), &[_][]const u8{
+    try testGeneralCmdLine("\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", &[_][]const u8{
         ".\\..\\zig-cache\\build",
         "bin\\zig.exe",
         ".\\..",
@@ -604,14 +682,52 @@ test "windows arg parsing" {
     });
 }
 
-fn testWindowsCmdLine(input_cmd_line: [*]const u16, expected_args: []const []const u8) !void {
-    var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
+fn testGeneralCmdLine(input_cmd_line: []const u8, expected_args: []const []const u8) !void {
+    var it = try ArgIteratorGeneral(.{ .comments_supported = false })
+        .init(std.testing.allocator, input_cmd_line);
+    defer it.deinit();
     for (expected_args) |expected_arg| {
-        const arg = (it.next(std.testing.allocator) catch unreachable).?;
-        defer std.testing.allocator.free(arg);
+        const arg = it.next().?;
         try testing.expectEqualStrings(expected_arg, arg);
     }
-    try testing.expect((try it.next(std.testing.allocator)) == null);
+    try testing.expect(it.next() == null);
+}
+
+test "response file arg parsing" {
+    try testResponseFileCmdLine(
+        \\a b
+        \\c d\
+    , &[_][]const u8{ "a", "b", "c", "d\\" });
+    try testResponseFileCmdLine("a b c d\\", &[_][]const u8{ "a", "b", "c", "d\\" });
+
+    try testResponseFileCmdLine(
+        \\j
+        \\ k l # this is a comment \\ \\\ \\\\ "none" "\\" "\\\"
+        \\ "m" #another comment
+        \\
+    , &[_][]const u8{ "j", "k", "l", "m" });
+
+    try testResponseFileCmdLine(
+        \\ "" q ""
+        \\ "r s # t" "u\" v" #another comment
+        \\
+    , &[_][]const u8{ "", "q", "", "r s # t", "u\" v" });
+
+    try testResponseFileCmdLine(
+        \\ -l"advapi32" a# b#c d#
+        \\e\\\
+    , &[_][]const u8{ "-ladvapi32", "a#", "b#c", "d#", "e\\\\\\" });
+}
+
+fn testResponseFileCmdLine(input_cmd_line: []const u8, expected_args: []const []const u8) !void {
+    var it = try ArgIteratorGeneral(.{ .comments_supported = true })
+        .init(std.testing.allocator, input_cmd_line);
+    defer it.deinit();
+    for (expected_args) |expected_arg| {
+        const arg = it.next().?;
+        try testing.expectEqualStrings(expected_arg, arg);
+    }
+    try testing.expect(it.next() == null);
 }
 
 pub const UserInfo = struct {

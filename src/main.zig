@@ -4148,7 +4148,8 @@ pub const ClangArgIterator = struct {
     argv: []const []const u8,
     next_index: usize,
     root_args: ?*Args,
-    allocator: Allocator,
+    arg_iterator_response_file: ArgIteratorResponseFile,
+    arena: Allocator,
 
     pub const ZigEquivalent = enum {
         target,
@@ -4210,7 +4211,7 @@ pub const ClangArgIterator = struct {
         argv: []const []const u8,
     };
 
-    fn init(allocator: Allocator, argv: []const []const u8) ClangArgIterator {
+    fn init(arena: Allocator, argv: []const []const u8) ClangArgIterator {
         return .{
             .next_index = 2, // `zig cc foo` this points to `foo`
             .has_next = argv.len > 2,
@@ -4220,8 +4221,20 @@ pub const ClangArgIterator = struct {
             .other_args = undefined,
             .argv = argv,
             .root_args = null,
-            .allocator = allocator,
+            .arg_iterator_response_file = undefined,
+            .arena = arena,
         };
+    }
+
+    const ArgIteratorResponseFile = process.ArgIteratorGeneral(.{ .comments_supported = true });
+
+    /// Initialize the arguments from a Response File. "*.rsp"
+    fn initArgIteratorResponseFile(allocator: Allocator, resp_file_path: []const u8) !ArgIteratorResponseFile {
+        const max_bytes = 10 * 1024 * 1024; // 10 MiB of command line arguments is a reasonable limit
+        var cmd_line = try fs.cwd().readFileAlloc(allocator, resp_file_path, max_bytes);
+        errdefer allocator.free(cmd_line);
+
+        return ArgIteratorResponseFile.initTakeOwnership(allocator, cmd_line);
     }
 
     fn next(self: *ClangArgIterator) !void {
@@ -4239,31 +4252,25 @@ pub const ClangArgIterator = struct {
 
             // This is a "compiler response file". We must parse the file and treat its
             // contents as command line parameters.
-            const allocator = self.allocator;
-            const max_bytes = 10 * 1024 * 1024; // 10 MiB of command line arguments is a reasonable limit
+            const arena = self.arena;
             const resp_file_path = arg[1..];
-            const resp_contents = fs.cwd().readFileAlloc(allocator, resp_file_path, max_bytes) catch |err| {
+
+            self.arg_iterator_response_file =
+                initArgIteratorResponseFile(arena, resp_file_path) catch |err| {
                 fatal("unable to read response file '{s}': {s}", .{ resp_file_path, @errorName(err) });
             };
-            defer allocator.free(resp_contents);
-            // TODO is there a specification for this file format? Let's find it and make this parsing more robust
-            // at the very least I'm guessing this needs to handle quotes and `#` comments.
-            var it = mem.tokenize(u8, resp_contents, " \t\r\n");
-            var resp_arg_list = std.ArrayList([]const u8).init(allocator);
+            // NOTE: The ArgIteratorResponseFile returns tokens from next() that are slices of an
+            // internal buffer. This internal buffer is arena allocated, so it is not cleaned up here.
+
+            var resp_arg_list = std.ArrayList([]const u8).init(arena);
             defer resp_arg_list.deinit();
             {
-                errdefer {
-                    for (resp_arg_list.items) |item| {
-                        allocator.free(mem.span(item));
-                    }
+                while (self.arg_iterator_response_file.next()) |token| {
+                    try resp_arg_list.append(token);
                 }
-                while (it.next()) |token| {
-                    const dupe_token = try allocator.dupeZ(u8, token);
-                    errdefer allocator.free(dupe_token);
-                    try resp_arg_list.append(dupe_token);
-                }
-                const args = try allocator.create(Args);
-                errdefer allocator.destroy(args);
+
+                const args = try arena.create(Args);
+                errdefer arena.destroy(args);
                 args.* = .{
                     .next_index = self.next_index,
                     .argv = self.argv,
@@ -4284,6 +4291,7 @@ pub const ClangArgIterator = struct {
             arg = mem.span(self.argv[self.next_index]);
             self.incrementArgIndex();
         }
+
         if (mem.eql(u8, arg, "-") or !mem.startsWith(u8, arg, "-")) {
             self.zig_equivalent = .positional;
             self.only_arg = arg;
@@ -4383,13 +4391,13 @@ pub const ClangArgIterator = struct {
     }
 
     fn resolveRespFileArgs(self: *ClangArgIterator) void {
-        const allocator = self.allocator;
+        const arena = self.arena;
         if (self.next_index >= self.argv.len) {
             if (self.root_args) |root_args| {
                 self.next_index = root_args.next_index;
                 self.argv = root_args.argv;
 
-                allocator.destroy(root_args);
+                arena.destroy(root_args);
                 self.root_args = null;
             }
             if (self.next_index >= self.argv.len) {

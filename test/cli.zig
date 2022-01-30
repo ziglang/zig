@@ -11,18 +11,17 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var arg_it = process.args();
+    a = arena.allocator();
+    var arg_it = try process.argsWithAllocator(a);
 
     // skip my own exe name
     _ = arg_it.skip();
 
-    a = arena.allocator();
-
-    const zig_exe_rel = (try arg_it.next(a)) orelse {
+    const zig_exe_rel = arg_it.next() orelse {
         std.debug.print("Expected first argument to be path to zig compiler\n", .{});
         return error.InvalidArgs;
     };
-    const cache_root = (try arg_it.next(a)) orelse {
+    const cache_root = arg_it.next() orelse {
         std.debug.print("Expected second argument to be cache root directory path\n", .{});
         return error.InvalidArgs;
     };

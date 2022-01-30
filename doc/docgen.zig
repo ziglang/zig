@@ -23,21 +23,21 @@ pub fn main() !void {
 
     const allocator = arena.allocator();
 
-    var args_it = process.args();
+    var args_it = try process.argsWithAllocator(allocator);
 
     if (!args_it.skip()) @panic("expected self arg");
 
-    const zig_exe = (try args_it.next(allocator)) orelse @panic("expected zig exe arg");
+    const zig_exe = args_it.next() orelse @panic("expected zig exe arg");
     defer allocator.free(zig_exe);
 
-    const in_file_name = (try args_it.next(allocator)) orelse @panic("expected input arg");
+    const in_file_name = args_it.next() orelse @panic("expected input arg");
     defer allocator.free(in_file_name);
 
-    const out_file_name = (try args_it.next(allocator)) orelse @panic("expected output arg");
+    const out_file_name = args_it.next() orelse @panic("expected output arg");
     defer allocator.free(out_file_name);
 
     var do_code_tests = true;
-    if (try args_it.next(allocator)) |arg| {
+    if (args_it.next()) |arg| {
         if (mem.eql(u8, arg, "--skip-code-tests")) {
             do_code_tests = false;
         } else {
