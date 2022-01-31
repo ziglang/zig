@@ -1568,7 +1568,6 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         .dead => unreachable,
         .compare_flags_unsigned => unreachable,
         .compare_flags_signed => unreachable,
-        .stack_argument_offset => unreachable,
         .immediate => |imm| {
             try self.setRegOrMem(value_ty, .{ .memory = imm }, value);
         },
@@ -1610,13 +1609,12 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 },
             }
         },
-        .memory => {
-            // const addr_reg = try self.copyToTmpRegister(ptr_ty, ptr);
-            // try self.store(.{ .register = addr_reg }, value, ptr_ty, value_ty);
-            return self.fail("TODO implement storing to MCValue.memory", .{});
-        },
-        .stack_offset => {
-            return self.fail("TODO implement storing to MCValue.stack_offset", .{});
+        .memory,
+        .stack_offset,
+        .stack_argument_offset,
+        => {
+            const addr_reg = try self.copyToTmpRegister(ptr_ty, ptr);
+            try self.store(.{ .register = addr_reg }, value, ptr_ty, value_ty);
         },
     }
 }
@@ -2275,6 +2273,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                 .memory => unreachable,
                 .compare_flags_signed => unreachable,
                 .compare_flags_unsigned => unreachable,
+                .ptr_stack_offset => unreachable,
+                .ptr_embedded_in_code => unreachable,
                 .register => |reg| {
                     try self.register_manager.getReg(reg, null);
                     try self.genSetReg(arg_ty, reg, arg_mcv);
@@ -2285,12 +2285,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
                     info.stack_byte_count - offset,
                     arg_mcv,
                 ),
-                .ptr_stack_offset => {
-                    return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
-                },
-                .ptr_embedded_in_code => {
-                    return self.fail("TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
-                },
             }
         }
 
@@ -3250,7 +3244,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
 fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
     switch (mcv) {
         .dead => unreachable,
-        .ptr_stack_offset => unreachable,
         .ptr_embedded_in_code => unreachable,
         .unreach, .none => return, // Nothing to do.
         .undef => {
@@ -3258,6 +3251,24 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 return; // The already existing value will do just fine.
             // Write the debug undefined value.
             return self.genSetReg(ty, reg, .{ .immediate = 0xaaaaaaaa });
+        },
+        .ptr_stack_offset => |unadjusted_off| {
+            // TODO: maybe addressing from sp instead of fp
+            const elem_ty = ty.childType();
+            const abi_size = @intCast(u32, elem_ty.abiSize(self.target.*));
+            const adj_off = unadjusted_off + abi_size;
+
+            const op = Instruction.Operand.fromU32(adj_off) orelse
+                return self.fail("TODO larger stack offsets", .{});
+
+            _ = try self.addInst(.{
+                .tag = .sub,
+                .data = .{ .rr_op = .{
+                    .rd = reg,
+                    .rn = .fp,
+                    .op = op,
+                } },
+            });
         },
         .compare_flags_unsigned,
         .compare_flags_signed,
@@ -3575,7 +3586,8 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
             }
         },
         .ptr_stack_offset => {
-            return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+            const reg = try self.copyToTmpRegister(ty, mcv);
+            return self.genSetStackArgument(ty, stack_offset, MCValue{ .register = reg });
         },
         .ptr_embedded_in_code => {
             return self.fail("TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
