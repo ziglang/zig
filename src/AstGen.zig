@@ -27,9 +27,11 @@ string_bytes: ArrayListUnmanaged(u8) = .{},
 /// to avoid starting over the line/column scan for every declaration, which
 /// would be O(N^2).
 source_offset: u32 = 0,
-/// Tracks the current line of `source_offset`.
+/// Tracks the corresponding line of `source_offset`.
+/// This value is absolute.
 source_line: u32 = 0,
-/// Tracks the current column of `source_offset`.
+/// Tracks the corresponding column of `source_offset`.
+/// This value is absolute.
 source_column: u32 = 0,
 /// Used for temporary allocations; freed after AstGen is complete.
 /// The resulting ZIR code has no references to anything in this arena.
@@ -2511,7 +2513,7 @@ fn makeDeferScope(
     const token_starts = tree.tokens.items(.start);
     const node_start = token_starts[tree.firstToken(expr_node)];
     const defer_scope = try block_arena.create(Scope.Defer);
-    astgen.advanceSourceCursor(tree.source, node_start);
+    astgen.advanceSourceCursor(node_start);
 
     defer_scope.* = .{
         .base = .{ .tag = scope_tag },
@@ -2775,14 +2777,9 @@ fn emitDbgNode(gz: *GenZir, node: Ast.Node.Index) !void {
     if (gz.force_comptime) return;
 
     const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const source = tree.source;
-    const token_starts = tree.tokens.items(.start);
-    const node_start = token_starts[tree.firstToken(node)];
-
-    astgen.advanceSourceCursor(source, node_start);
-    const line = @intCast(u32, astgen.source_line);
-    const column = @intCast(u32, astgen.source_column);
+    astgen.advanceSourceCursorToNode(node);
+    const line = astgen.source_line - gz.decl_line;
+    const column = astgen.source_column;
 
     _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
         .dbg_stmt = .{
@@ -3188,12 +3185,13 @@ fn fnDecl(
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
     const block_inst = try gz.makeBlockInst(.block_inline, fn_proto.ast.proto_node);
+    astgen.advanceSourceCursorToNode(decl_node);
 
     var decl_gz: GenZir = .{
         .force_comptime = true,
         .in_defer = false,
         .decl_node_index = fn_proto.ast.proto_node,
-        .decl_line = gz.calcLine(decl_node),
+        .decl_line = astgen.source_line,
         .parent = scope,
         .astgen = astgen,
         .instructions = gz.instructions,
@@ -3391,11 +3389,9 @@ fn fnDecl(
         astgen.fn_block = &fn_gz;
         defer astgen.fn_block = prev_fn_block;
 
-        const token_starts = tree.tokens.items(.start);
-        const lbrace_start = token_starts[tree.firstToken(body_node)];
-        astgen.advanceSourceCursor(tree.source, lbrace_start);
-        const lbrace_line = @intCast(u32, astgen.source_line);
-        const lbrace_column = @intCast(u32, astgen.source_column);
+        astgen.advanceSourceCursorToNode(body_node);
+        const lbrace_line = astgen.source_line - decl_gz.decl_line;
+        const lbrace_column = astgen.source_column;
 
         _ = try expr(&fn_gz, params_scope, .none, body_node);
         try checkUsed(gz, &fn_gz.base, params_scope);
@@ -3465,11 +3461,12 @@ fn globalVarDecl(
 
     const name_token = var_decl.ast.mut_token + 1;
     const name_str_index = try astgen.identAsString(name_token);
+    astgen.advanceSourceCursorToNode(node);
 
     var block_scope: GenZir = .{
         .parent = scope,
         .decl_node_index = node,
-        .decl_line = gz.calcLine(node),
+        .decl_line = astgen.source_line,
         .astgen = astgen,
         .force_comptime = true,
         .in_defer = false,
@@ -3614,12 +3611,13 @@ fn comptimeDecl(
     // top-level declaration.
     const block_inst = try gz.makeBlockInst(.block_inline, node);
     wip_members.nextDecl(false, false, false, false);
+    astgen.advanceSourceCursorToNode(node);
 
     var decl_block: GenZir = .{
         .force_comptime = true,
         .in_defer = false,
         .decl_node_index = node,
-        .decl_line = gz.calcLine(node),
+        .decl_line = astgen.source_line,
         .parent = scope,
         .astgen = astgen,
         .instructions = gz.instructions,
@@ -3668,12 +3666,13 @@ fn usingnamespaceDecl(
     // top-level declaration.
     const block_inst = try gz.makeBlockInst(.block_inline, node);
     wip_members.nextDecl(is_pub, true, false, false);
+    astgen.advanceSourceCursorToNode(node);
 
     var decl_block: GenZir = .{
         .force_comptime = true,
         .in_defer = false,
         .decl_node_index = node,
-        .decl_line = gz.calcLine(node),
+        .decl_line = astgen.source_line,
         .parent = scope,
         .astgen = astgen,
         .instructions = gz.instructions,
@@ -3715,12 +3714,13 @@ fn testDecl(
     const block_inst = try gz.makeBlockInst(.block_inline, node);
 
     wip_members.nextDecl(false, false, false, false);
+    astgen.advanceSourceCursorToNode(node);
 
     var decl_block: GenZir = .{
         .force_comptime = true,
         .in_defer = false,
         .decl_node_index = node,
-        .decl_line = gz.calcLine(node),
+        .decl_line = astgen.source_line,
         .parent = scope,
         .astgen = astgen,
         .instructions = gz.instructions,
@@ -3756,11 +3756,9 @@ fn testDecl(
     astgen.fn_block = &fn_block;
     defer astgen.fn_block = prev_fn_block;
 
-    const token_starts = tree.tokens.items(.start);
-    const lbrace_start = token_starts[tree.firstToken(body_node)];
-    astgen.advanceSourceCursor(tree.source, lbrace_start);
-    const lbrace_line = @intCast(u32, astgen.source_line);
-    const lbrace_column = @intCast(u32, astgen.source_column);
+    astgen.advanceSourceCursorToNode(body_node);
+    const lbrace_line = astgen.source_line - decl_block.decl_line;
+    const lbrace_column = astgen.source_column;
 
     const block_result = try expr(&fn_block, &fn_block.base, .none, body_node);
     if (fn_block.isEmpty() or !fn_block.refIsNoReturn(block_result)) {
@@ -3841,10 +3839,11 @@ fn structDeclInner(
     // The struct_decl instruction introduces a scope in which the decls of the struct
     // are in scope, so that field types, alignments, and default value expressions
     // can refer to decls within the struct itself.
+    astgen.advanceSourceCursorToNode(node);
     var block_scope: GenZir = .{
         .parent = &namespace.base,
         .decl_node_index = node,
-        .decl_line = gz.calcLine(node),
+        .decl_line = astgen.source_line,
         .astgen = astgen,
         .force_comptime = true,
         .in_defer = false,
@@ -3966,10 +3965,11 @@ fn unionDeclInner(
     // The union_decl instruction introduces a scope in which the decls of the union
     // are in scope, so that field types, alignments, and default value expressions
     // can refer to decls within the union itself.
+    astgen.advanceSourceCursorToNode(node);
     var block_scope: GenZir = .{
         .parent = &namespace.base,
         .decl_node_index = node,
-        .decl_line = gz.calcLine(node),
+        .decl_line = astgen.source_line,
         .astgen = astgen,
         .force_comptime = true,
         .in_defer = false,
@@ -4249,10 +4249,11 @@ fn containerDecl(
 
             // The enum_decl instruction introduces a scope in which the decls of the enum
             // are in scope, so that tag values can refer to decls within the enum itself.
+            astgen.advanceSourceCursorToNode(node);
             var block_scope: GenZir = .{
                 .parent = &namespace.base,
                 .decl_node_index = node,
-                .decl_line = gz.calcLine(node),
+                .decl_line = astgen.source_line,
                 .astgen = astgen,
                 .force_comptime = true,
                 .in_defer = false,
@@ -6980,7 +6981,7 @@ fn builtinCall(
             const token_starts = tree.tokens.items(.start);
             const node_start = token_starts[tree.firstToken(node)];
 
-            astgen.advanceSourceCursor(tree.source, node_start);
+            astgen.advanceSourceCursor(node_start);
 
             const result = try gz.addExtendedPayload(.builtin_src, Zir.Inst.LineColumn{
                 .line = @intCast(u32, astgen.source_line),
@@ -9558,18 +9559,6 @@ const GenZir = struct {
         return false;
     }
 
-    fn calcLine(gz: GenZir, node: Ast.Node.Index) u32 {
-        const astgen = gz.astgen;
-        const tree = astgen.tree;
-        const source = tree.source;
-        const token_starts = tree.tokens.items(.start);
-        const node_start = token_starts[tree.firstToken(node)];
-
-        astgen.advanceSourceCursor(source, node_start);
-
-        return @intCast(u32, gz.decl_line + astgen.source_line);
-    }
-
     fn nodeIndexToRelative(gz: GenZir, node_index: Ast.Node.Index) i32 {
         return @bitCast(i32, node_index) - @bitCast(i32, gz.decl_node_index);
     }
@@ -9702,8 +9691,8 @@ const GenZir = struct {
             assert(node_tags[fn_decl] == .fn_decl or node_tags[fn_decl] == .test_decl);
             const block = node_datas[fn_decl].rhs;
             const rbrace_start = token_starts[tree.lastToken(block)];
-            astgen.advanceSourceCursor(tree.source, rbrace_start);
-            const rbrace_line = @intCast(u32, astgen.source_line);
+            astgen.advanceSourceCursor(rbrace_start);
+            const rbrace_line = @intCast(u32, astgen.source_line - gz.decl_line);
             const rbrace_column = @intCast(u32, astgen.source_column);
 
             const columns = args.lbrace_column | (rbrace_column << 16);
@@ -10734,7 +10723,17 @@ fn detectLocalShadowing(
     };
 }
 
-fn advanceSourceCursor(astgen: *AstGen, source: []const u8, end: usize) void {
+/// Advances the source cursor to the beginning of `node`.
+fn advanceSourceCursorToNode(astgen: *AstGen, node: Ast.Node.Index) void {
+    const tree = astgen.tree;
+    const token_starts = tree.tokens.items(.start);
+    const node_start = token_starts[tree.firstToken(node)];
+    astgen.advanceSourceCursor(node_start);
+}
+
+/// Advances the source cursor to an absolute byte offset `end` in the file.
+fn advanceSourceCursor(astgen: *AstGen, end: usize) void {
+    const source = astgen.tree.source;
     var i = astgen.source_offset;
     var line = astgen.source_line;
     var column = astgen.source_column;

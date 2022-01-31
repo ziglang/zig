@@ -375,6 +375,7 @@ pub const Decl = struct {
     src_node: Ast.Node.Index,
     /// Line number corresponding to `src_node`. Stored separately so that source files
     /// do not need to be loaded into memory in order to compute debug line numbers.
+    /// This value is absolute.
     src_line: u32,
     /// Index to ZIR `extra` array to the entry in the parent's decl structure
     /// (the part that says "for every decls_len"). The first item at this index is
@@ -4122,7 +4123,8 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
     const has_linksection_or_addrspace = (flags & 0b1000) != 0;
     // zig fmt: on
 
-    const line = iter.parent_decl.relativeToLine(zir.extra[decl_sub_index + 4]);
+    const line_off = zir.extra[decl_sub_index + 4];
+    const line = iter.parent_decl.relativeToLine(line_off);
     const decl_name_index = zir.extra[decl_sub_index + 5];
     const decl_index = zir.extra[decl_sub_index + 6];
     const decl_block_inst_data = zir.instructions.items(.data)[decl_index].pl_node;
