@@ -768,8 +768,6 @@ test "shift left/right on u0 operand" {
 }
 
 test "comptime float rem int" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime {
         var x = @as(f32, 1) % 2;
         try expect(x == 1.0);

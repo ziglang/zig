@@ -8187,7 +8187,7 @@ fn analyzeArithmetic(
                         } else {
                             return sema.addConstant(
                                 scalar_type,
-                                try lhs_val.floatAdd(rhs_val, scalar_type, sema.arena),
+                                try lhs_val.floatAdd(rhs_val, scalar_type, sema.arena, target),
                             );
                         }
                     } else break :rs .{ .src = rhs_src, .air_tag = .add };
@@ -8280,7 +8280,7 @@ fn analyzeArithmetic(
                         } else {
                             return sema.addConstant(
                                 scalar_type,
-                                try lhs_val.floatSub(rhs_val, scalar_type, sema.arena),
+                                try lhs_val.floatSub(rhs_val, scalar_type, sema.arena, target),
                             );
                         }
                     } else break :rs .{ .src = rhs_src, .air_tag = .sub };
@@ -8396,7 +8396,7 @@ fn analyzeArithmetic(
                         } else {
                             return sema.addConstant(
                                 scalar_type,
-                                try lhs_val.floatDiv(rhs_val, scalar_type, sema.arena),
+                                try lhs_val.floatDiv(rhs_val, scalar_type, sema.arena, target),
                             );
                         }
                     } else {
@@ -8471,7 +8471,7 @@ fn analyzeArithmetic(
                         } else {
                             return sema.addConstant(
                                 scalar_type,
-                                try lhs_val.floatDivTrunc(rhs_val, scalar_type, sema.arena),
+                                try lhs_val.floatDivTrunc(rhs_val, scalar_type, sema.arena, target),
                             );
                         }
                     } else break :rs .{ .src = rhs_src, .air_tag = .div_trunc };
@@ -8534,7 +8534,7 @@ fn analyzeArithmetic(
                         } else {
                             return sema.addConstant(
                                 scalar_type,
-                                try lhs_val.floatDivFloor(rhs_val, scalar_type, sema.arena),
+                                try lhs_val.floatDivFloor(rhs_val, scalar_type, sema.arena, target),
                             );
                         }
                     } else break :rs .{ .src = rhs_src, .air_tag = .div_floor };
@@ -8586,7 +8586,7 @@ fn analyzeArithmetic(
                             // TODO: emit compile error if there is a remainder
                             return sema.addConstant(
                                 scalar_type,
-                                try lhs_val.floatDiv(rhs_val, scalar_type, sema.arena),
+                                try lhs_val.floatDiv(rhs_val, scalar_type, sema.arena, target),
                             );
                         }
                     } else break :rs .{ .src = rhs_src, .air_tag = .div_exact };
@@ -8641,7 +8641,7 @@ fn analyzeArithmetic(
                         } else {
                             return sema.addConstant(
                                 scalar_type,
-                                try lhs_val.floatMul(rhs_val, scalar_type, sema.arena),
+                                try lhs_val.floatMul(rhs_val, scalar_type, sema.arena, target),
                             );
                         }
                     } else break :rs .{ .src = lhs_src, .air_tag = .mul };
@@ -8797,7 +8797,7 @@ fn analyzeArithmetic(
                         }
                         return sema.addConstant(
                             scalar_type,
-                            try lhs_val.floatRem(rhs_val, sema.arena),
+                            try lhs_val.floatRem(rhs_val, scalar_type, sema.arena, target),
                         );
                     } else {
                         return sema.failWithModRemNegative(block, lhs_src, lhs_ty, rhs_ty);
@@ -8858,7 +8858,7 @@ fn analyzeArithmetic(
                     if (maybe_rhs_val) |rhs_val| {
                         return sema.addConstant(
                             scalar_type,
-                            try lhs_val.floatRem(rhs_val, sema.arena),
+                            try lhs_val.floatRem(rhs_val, scalar_type, sema.arena, target),
                         );
                     } else break :rs .{ .src = rhs_src, .air_tag = .rem };
                 } else break :rs .{ .src = lhs_src, .air_tag = .rem };
@@ -8915,7 +8915,7 @@ fn analyzeArithmetic(
                     if (maybe_rhs_val) |rhs_val| {
                         return sema.addConstant(
                             scalar_type,
-                            try lhs_val.floatMod(rhs_val, sema.arena),
+                            try lhs_val.floatMod(rhs_val, scalar_type, sema.arena, target),
                         );
                     } else break :rs .{ .src = rhs_src, .air_tag = .mod };
                 } else break :rs .{ .src = lhs_src, .air_tag = .mod };
@@ -14195,12 +14195,12 @@ fn coerce(
         .Float, .ComptimeFloat => switch (inst_ty.zigTypeTag()) {
             .ComptimeFloat => {
                 const val = try sema.resolveConstValue(block, inst_src, inst);
-                const result_val = try val.floatCast(sema.arena, dest_ty);
+                const result_val = try val.floatCast(sema.arena, dest_ty, target);
                 return try sema.addConstant(dest_ty, result_val);
             },
             .Float => {
                 if (try sema.resolveDefinedValue(block, inst_src, inst)) |val| {
-                    const result_val = try val.floatCast(sema.arena, dest_ty);
+                    const result_val = try val.floatCast(sema.arena, dest_ty, target);
                     if (!val.eql(result_val, dest_ty)) {
                         return sema.fail(
                             block,

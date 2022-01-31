@@ -138,6 +138,7 @@ pub const Value = extern union {
         float_16,
         float_32,
         float_64,
+        float_80,
         float_128,
         enum_literal,
         /// A specific enum tag, indicated by the field index (declaration order).
@@ -295,6 +296,7 @@ pub const Value = extern union {
                 .float_16 => Payload.Float_16,
                 .float_32 => Payload.Float_32,
                 .float_64 => Payload.Float_64,
+                .float_80 => Payload.Float_80,
                 .float_128 => Payload.Float_128,
                 .@"error" => Payload.Error,
                 .inferred_alloc => Payload.InferredAlloc,
@@ -546,6 +548,7 @@ pub const Value = extern union {
             .float_16 => return self.copyPayloadShallow(arena, Payload.Float_16),
             .float_32 => return self.copyPayloadShallow(arena, Payload.Float_32),
             .float_64 => return self.copyPayloadShallow(arena, Payload.Float_64),
+            .float_80 => return self.copyPayloadShallow(arena, Payload.Float_80),
             .float_128 => return self.copyPayloadShallow(arena, Payload.Float_128),
             .enum_literal => {
                 const payload = self.castTag(.enum_literal).?;
@@ -733,6 +736,7 @@ pub const Value = extern union {
             .float_16 => return out_stream.print("{}", .{val.castTag(.float_16).?.data}),
             .float_32 => return out_stream.print("{}", .{val.castTag(.float_32).?.data}),
             .float_64 => return out_stream.print("{}", .{val.castTag(.float_64).?.data}),
+            .float_80 => return out_stream.print("{}", .{val.castTag(.float_80).?.data}),
             .float_128 => return out_stream.print("{}", .{val.castTag(.float_128).?.data}),
             .@"error" => return out_stream.print("error.{s}", .{val.castTag(.@"error").?.data.name}),
             // TODO to print this it should be error{ Set, Items }!T(val), but we need the type for that
@@ -1083,6 +1087,7 @@ pub const Value = extern union {
                 16 => return Value.Tag.float_16.create(arena, floatReadFromMemory(f16, target, buffer)),
                 32 => return Value.Tag.float_32.create(arena, floatReadFromMemory(f32, target, buffer)),
                 64 => return Value.Tag.float_64.create(arena, floatReadFromMemory(f64, target, buffer)),
+                80 => return Value.Tag.float_80.create(arena, floatReadFromMemory(f80, target, buffer)),
                 128 => return Value.Tag.float_128.create(arena, floatReadFromMemory(f128, target, buffer)),
                 else => unreachable,
             },
@@ -1100,6 +1105,12 @@ pub const Value = extern union {
     }
 
     fn floatReadFromMemory(comptime F: type, target: Target, buffer: []const u8) F {
+        if (F == f80) {
+            // TODO: use std.math.F80Repr
+            const big_int = std.mem.readInt(u128, buffer[0..16], target.cpu.arch.endian());
+            const int = @truncate(u80, big_int);
+            return @bitCast(F, int);
+        }
         const Int = @Type(.{ .Int = .{
             .signedness = .unsigned,
             .bits = @typeInfo(F).Float.bits,
@@ -1114,6 +1125,7 @@ pub const Value = extern union {
             .float_16 => @floatCast(T, val.castTag(.float_16).?.data),
             .float_32 => @floatCast(T, val.castTag(.float_32).?.data),
             .float_64 => @floatCast(T, val.castTag(.float_64).?.data),
+            .float_80 => @floatCast(T, val.castTag(.float_80).?.data),
             .float_128 => @floatCast(T, val.castTag(.float_128).?.data),
 
             .zero => 0,
@@ -1367,14 +1379,13 @@ pub const Value = extern union {
 
     /// Converts an integer or a float to a float. May result in a loss of information.
     /// Caller can find out by equality checking the result against the operand.
-    pub fn floatCast(self: Value, arena: Allocator, dest_ty: Type) !Value {
-        switch (dest_ty.tag()) {
-            .f16 => return Value.Tag.float_16.create(arena, self.toFloat(f16)),
-            .f32 => return Value.Tag.float_32.create(arena, self.toFloat(f32)),
-            .f64 => return Value.Tag.float_64.create(arena, self.toFloat(f64)),
-            .f128, .comptime_float, .c_longdouble => {
-                return Value.Tag.float_128.create(arena, self.toFloat(f128));
-            },
+    pub fn floatCast(self: Value, arena: Allocator, dest_ty: Type, target: Target) !Value {
+        switch (dest_ty.floatBits(target)) {
+            16 => return Value.Tag.float_16.create(arena, self.toFloat(f16)),
+            32 => return Value.Tag.float_32.create(arena, self.toFloat(f32)),
+            64 => return Value.Tag.float_64.create(arena, self.toFloat(f64)),
+            80 => return Value.Tag.float_80.create(arena, self.toFloat(f80)),
+            128 => return Value.Tag.float_128.create(arena, self.toFloat(f128)),
             else => unreachable,
         }
     }
@@ -1389,8 +1400,8 @@ pub const Value = extern union {
             .float_16 => @rem(self.castTag(.float_16).?.data, 1) != 0,
             .float_32 => @rem(self.castTag(.float_32).?.data, 1) != 0,
             .float_64 => @rem(self.castTag(.float_64).?.data, 1) != 0,
-            // .float_128 => @rem(self.castTag(.float_128).?.data, 1) != 0,
-            .float_128 => @panic("TODO lld: error: undefined symbol: fmodl"),
+            .float_80 => @rem(self.castTag(.float_80).?.data, 1) != 0,
+            .float_128 => @rem(self.castTag(.float_128).?.data, 1) != 0,
 
             else => unreachable,
         };
@@ -1408,6 +1419,7 @@ pub const Value = extern union {
             .float_16 => self.castTag(.float_16).?.data == 0,
             .float_32 => self.castTag(.float_32).?.data == 0,
             .float_64 => self.castTag(.float_64).?.data == 0,
+            .float_80 => self.castTag(.float_80).?.data == 0,
             .float_128 => self.castTag(.float_128).?.data == 0,
 
             .int_big_positive => self.castTag(.int_big_positive).?.asBigInt().eqZero(),
@@ -1440,6 +1452,7 @@ pub const Value = extern union {
             .float_16 => std.math.order(lhs.castTag(.float_16).?.data, 0),
             .float_32 => std.math.order(lhs.castTag(.float_32).?.data, 0),
             .float_64 => std.math.order(lhs.castTag(.float_64).?.data, 0),
+            .float_80 => std.math.order(lhs.castTag(.float_80).?.data, 0),
             .float_128 => std.math.order(lhs.castTag(.float_128).?.data, 0),
 
             else => unreachable,
@@ -1471,6 +1484,7 @@ pub const Value = extern union {
                     .float_16 => return std.math.order(lhs.castTag(.float_16).?.data, rhs.castTag(.float_16).?.data),
                     .float_32 => return std.math.order(lhs.castTag(.float_32).?.data, rhs.castTag(.float_32).?.data),
                     .float_64 => return std.math.order(lhs.castTag(.float_64).?.data, rhs.castTag(.float_64).?.data),
+                    .float_80 => return std.math.order(lhs.castTag(.float_80).?.data, rhs.castTag(.float_80).?.data),
                     .float_128 => return std.math.order(lhs.castTag(.float_128).?.data, rhs.castTag(.float_128).?.data),
                     else => unreachable,
                 };
@@ -2139,6 +2153,7 @@ pub const Value = extern union {
             .float_16,
             .float_32,
             .float_64,
+            .float_80,
             .float_128,
             => true,
             else => false,
@@ -2174,6 +2189,7 @@ pub const Value = extern union {
             16 => return Value.Tag.float_16.create(arena, @intToFloat(f16, x)),
             32 => return Value.Tag.float_32.create(arena, @intToFloat(f32, x)),
             64 => return Value.Tag.float_64.create(arena, @intToFloat(f64, x)),
+            80 => return Value.Tag.float_80.create(arena, @intToFloat(f80, x)),
             128 => return Value.Tag.float_128.create(arena, @intToFloat(f128, x)),
             else => unreachable,
         }
@@ -2184,6 +2200,7 @@ pub const Value = extern union {
             16 => return Value.Tag.float_16.create(arena, @floatCast(f16, float)),
             32 => return Value.Tag.float_32.create(arena, @floatCast(f32, float)),
             64 => return Value.Tag.float_64.create(arena, @floatCast(f64, float)),
+            80 => return Value.Tag.float_80.create(arena, @floatCast(f80, float)),
             128 => return Value.Tag.float_128.create(arena, float),
             else => unreachable,
         }
@@ -2281,7 +2298,7 @@ pub const Value = extern union {
         }
 
         if (ty.isAnyFloat()) {
-            return floatAdd(lhs, rhs, ty, arena);
+            return floatAdd(lhs, rhs, ty, arena, target);
         }
 
         const overflow_result = try intAddWithOverflow(lhs, rhs, ty, arena, target);
@@ -2371,7 +2388,7 @@ pub const Value = extern union {
         }
 
         if (ty.isAnyFloat()) {
-            return floatSub(lhs, rhs, ty, arena);
+            return floatSub(lhs, rhs, ty, arena, target);
         }
 
         const overflow_result = try intSubWithOverflow(lhs, rhs, ty, arena, target);
@@ -2454,7 +2471,7 @@ pub const Value = extern union {
         }
 
         if (ty.isAnyFloat()) {
-            return floatMul(lhs, rhs, ty, arena);
+            return floatMul(lhs, rhs, ty, arena, target);
         }
 
         const overflow_result = try intMulWithOverflow(lhs, rhs, ty, arena, target);
@@ -2753,23 +2770,72 @@ pub const Value = extern union {
             .float_16 => std.math.isNan(val.castTag(.float_16).?.data),
             .float_32 => std.math.isNan(val.castTag(.float_32).?.data),
             .float_64 => std.math.isNan(val.castTag(.float_64).?.data),
+            .float_80 => std.math.isNan(val.castTag(.float_80).?.data),
             .float_128 => std.math.isNan(val.castTag(.float_128).?.data),
             else => false,
         };
     }
 
-    pub fn floatRem(lhs: Value, rhs: Value, allocator: Allocator) !Value {
-        _ = lhs;
-        _ = rhs;
-        _ = allocator;
-        @panic("TODO implement Value.floatRem");
+    pub fn floatRem(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, target: Target) !Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @rem(lhs_val, rhs_val));
+            },
+            32 => {
+                const lhs_val = lhs.toFloat(f32);
+                const rhs_val = rhs.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @rem(lhs_val, rhs_val));
+            },
+            64 => {
+                const lhs_val = lhs.toFloat(f64);
+                const rhs_val = rhs.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @rem(lhs_val, rhs_val));
+            },
+            80 => {
+                const lhs_val = lhs.toFloat(f80);
+                const rhs_val = rhs.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @rem(lhs_val, rhs_val));
+            },
+            128 => {
+                const lhs_val = lhs.toFloat(f128);
+                const rhs_val = rhs.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @rem(lhs_val, rhs_val));
+            },
+            else => unreachable,
+        }
     }
 
-    pub fn floatMod(lhs: Value, rhs: Value, allocator: Allocator) !Value {
-        _ = lhs;
-        _ = rhs;
-        _ = allocator;
-        @panic("TODO implement Value.floatMod");
+    pub fn floatMod(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, target: Target) !Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const lhs_val = lhs.toFloat(f16);
+                const rhs_val = rhs.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @mod(lhs_val, rhs_val));
+            },
+            32 => {
+                const lhs_val = lhs.toFloat(f32);
+                const rhs_val = rhs.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @mod(lhs_val, rhs_val));
+            },
+            64 => {
+                const lhs_val = lhs.toFloat(f64);
+                const rhs_val = rhs.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @mod(lhs_val, rhs_val));
+            },
+            80 => {
+                const lhs_val = lhs.toFloat(f80);
+                const rhs_val = rhs.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @mod(lhs_val, rhs_val));
+            },
+            128 => {
+                const lhs_val = lhs.toFloat(f128);
+                const rhs_val = rhs.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @mod(lhs_val, rhs_val));
+            },
+            else => unreachable,
+        }
     }
 
     pub fn intMul(lhs: Value, rhs: Value, allocator: Allocator) !Value {
@@ -2929,24 +2995,30 @@ pub const Value = extern union {
         rhs: Value,
         float_type: Type,
         arena: Allocator,
+        target: Target,
     ) !Value {
-        switch (float_type.tag()) {
-            .f16 => {
+        switch (float_type.floatBits(target)) {
+            16 => {
                 const lhs_val = lhs.toFloat(f16);
                 const rhs_val = rhs.toFloat(f16);
                 return Value.Tag.float_16.create(arena, lhs_val + rhs_val);
             },
-            .f32 => {
+            32 => {
                 const lhs_val = lhs.toFloat(f32);
                 const rhs_val = rhs.toFloat(f32);
                 return Value.Tag.float_32.create(arena, lhs_val + rhs_val);
             },
-            .f64 => {
+            64 => {
                 const lhs_val = lhs.toFloat(f64);
                 const rhs_val = rhs.toFloat(f64);
                 return Value.Tag.float_64.create(arena, lhs_val + rhs_val);
             },
-            .f128, .comptime_float, .c_longdouble => {
+            80 => {
+                const lhs_val = lhs.toFloat(f80);
+                const rhs_val = rhs.toFloat(f80);
+                return Value.Tag.float_80.create(arena, lhs_val + rhs_val);
+            },
+            128 => {
                 const lhs_val = lhs.toFloat(f128);
                 const rhs_val = rhs.toFloat(f128);
                 return Value.Tag.float_128.create(arena, lhs_val + rhs_val);
@@ -2960,24 +3032,30 @@ pub const Value = extern union {
         rhs: Value,
         float_type: Type,
         arena: Allocator,
+        target: Target,
     ) !Value {
-        switch (float_type.tag()) {
-            .f16 => {
+        switch (float_type.floatBits(target)) {
+            16 => {
                 const lhs_val = lhs.toFloat(f16);
                 const rhs_val = rhs.toFloat(f16);
                 return Value.Tag.float_16.create(arena, lhs_val - rhs_val);
             },
-            .f32 => {
+            32 => {
                 const lhs_val = lhs.toFloat(f32);
                 const rhs_val = rhs.toFloat(f32);
                 return Value.Tag.float_32.create(arena, lhs_val - rhs_val);
             },
-            .f64 => {
+            64 => {
                 const lhs_val = lhs.toFloat(f64);
                 const rhs_val = rhs.toFloat(f64);
                 return Value.Tag.float_64.create(arena, lhs_val - rhs_val);
             },
-            .f128, .comptime_float, .c_longdouble => {
+            80 => {
+                const lhs_val = lhs.toFloat(f80);
+                const rhs_val = rhs.toFloat(f80);
+                return Value.Tag.float_80.create(arena, lhs_val - rhs_val);
+            },
+            128 => {
                 const lhs_val = lhs.toFloat(f128);
                 const rhs_val = rhs.toFloat(f128);
                 return Value.Tag.float_128.create(arena, lhs_val - rhs_val);
@@ -2991,24 +3069,30 @@ pub const Value = extern union {
         rhs: Value,
         float_type: Type,
         arena: Allocator,
+        target: Target,
     ) !Value {
-        switch (float_type.tag()) {
-            .f16 => {
+        switch (float_type.floatBits(target)) {
+            16 => {
                 const lhs_val = lhs.toFloat(f16);
                 const rhs_val = rhs.toFloat(f16);
                 return Value.Tag.float_16.create(arena, lhs_val / rhs_val);
             },
-            .f32 => {
+            32 => {
                 const lhs_val = lhs.toFloat(f32);
                 const rhs_val = rhs.toFloat(f32);
                 return Value.Tag.float_32.create(arena, lhs_val / rhs_val);
             },
-            .f64 => {
+            64 => {
                 const lhs_val = lhs.toFloat(f64);
                 const rhs_val = rhs.toFloat(f64);
                 return Value.Tag.float_64.create(arena, lhs_val / rhs_val);
             },
-            .f128, .comptime_float, .c_longdouble => {
+            80 => {
+                const lhs_val = lhs.toFloat(f80);
+                const rhs_val = rhs.toFloat(f80);
+                return Value.Tag.float_80.create(arena, lhs_val / rhs_val);
+            },
+            128 => {
                 const lhs_val = lhs.toFloat(f128);
                 const rhs_val = rhs.toFloat(f128);
                 return Value.Tag.float_128.create(arena, lhs_val / rhs_val);
@@ -3022,24 +3106,30 @@ pub const Value = extern union {
         rhs: Value,
         float_type: Type,
         arena: Allocator,
+        target: Target,
     ) !Value {
-        switch (float_type.tag()) {
-            .f16 => {
+        switch (float_type.floatBits(target)) {
+            16 => {
                 const lhs_val = lhs.toFloat(f16);
                 const rhs_val = rhs.toFloat(f16);
                 return Value.Tag.float_16.create(arena, @divFloor(lhs_val, rhs_val));
             },
-            .f32 => {
+            32 => {
                 const lhs_val = lhs.toFloat(f32);
                 const rhs_val = rhs.toFloat(f32);
                 return Value.Tag.float_32.create(arena, @divFloor(lhs_val, rhs_val));
             },
-            .f64 => {
+            64 => {
                 const lhs_val = lhs.toFloat(f64);
                 const rhs_val = rhs.toFloat(f64);
                 return Value.Tag.float_64.create(arena, @divFloor(lhs_val, rhs_val));
             },
-            .f128, .comptime_float, .c_longdouble => {
+            80 => {
+                const lhs_val = lhs.toFloat(f80);
+                const rhs_val = rhs.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @divFloor(lhs_val, rhs_val));
+            },
+            128 => {
                 const lhs_val = lhs.toFloat(f128);
                 const rhs_val = rhs.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @divFloor(lhs_val, rhs_val));
@@ -3053,24 +3143,30 @@ pub const Value = extern union {
         rhs: Value,
         float_type: Type,
         arena: Allocator,
+        target: Target,
     ) !Value {
-        switch (float_type.tag()) {
-            .f16 => {
+        switch (float_type.floatBits(target)) {
+            16 => {
                 const lhs_val = lhs.toFloat(f16);
                 const rhs_val = rhs.toFloat(f16);
                 return Value.Tag.float_16.create(arena, @divTrunc(lhs_val, rhs_val));
             },
-            .f32 => {
+            32 => {
                 const lhs_val = lhs.toFloat(f32);
                 const rhs_val = rhs.toFloat(f32);
                 return Value.Tag.float_32.create(arena, @divTrunc(lhs_val, rhs_val));
             },
-            .f64 => {
+            64 => {
                 const lhs_val = lhs.toFloat(f64);
                 const rhs_val = rhs.toFloat(f64);
                 return Value.Tag.float_64.create(arena, @divTrunc(lhs_val, rhs_val));
             },
-            .f128, .comptime_float, .c_longdouble => {
+            80 => {
+                const lhs_val = lhs.toFloat(f80);
+                const rhs_val = rhs.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @divTrunc(lhs_val, rhs_val));
+            },
+            128 => {
                 const lhs_val = lhs.toFloat(f128);
                 const rhs_val = rhs.toFloat(f128);
                 return Value.Tag.float_128.create(arena, @divTrunc(lhs_val, rhs_val));
@@ -3084,24 +3180,30 @@ pub const Value = extern union {
         rhs: Value,
         float_type: Type,
         arena: Allocator,
+        target: Target,
     ) !Value {
-        switch (float_type.tag()) {
-            .f16 => {
+        switch (float_type.floatBits(target)) {
+            16 => {
                 const lhs_val = lhs.toFloat(f16);
                 const rhs_val = rhs.toFloat(f16);
                 return Value.Tag.float_16.create(arena, lhs_val * rhs_val);
             },
-            .f32 => {
+            32 => {
                 const lhs_val = lhs.toFloat(f32);
                 const rhs_val = rhs.toFloat(f32);
                 return Value.Tag.float_32.create(arena, lhs_val * rhs_val);
             },
-            .f64 => {
+            64 => {
                 const lhs_val = lhs.toFloat(f64);
                 const rhs_val = rhs.toFloat(f64);
                 return Value.Tag.float_64.create(arena, lhs_val * rhs_val);
             },
-            .f128, .comptime_float, .c_longdouble => {
+            80 => {
+                const lhs_val = lhs.toFloat(f80);
+                const rhs_val = rhs.toFloat(f80);
+                return Value.Tag.float_80.create(arena, lhs_val * rhs_val);
+            },
+            128 => {
                 const lhs_val = lhs.toFloat(f128);
                 const rhs_val = rhs.toFloat(f128);
                 return Value.Tag.float_128.create(arena, lhs_val * rhs_val);
@@ -3248,6 +3350,13 @@ pub const Value = extern union {
 
             base: Payload = .{ .tag = base_tag },
             data: f64,
+        };
+
+        pub const Float_80 = struct {
+            pub const base_tag = Tag.float_80;
+
+            base: Payload = .{ .tag = base_tag },
+            data: f80,
         };
 
         pub const Float_128 = struct {
