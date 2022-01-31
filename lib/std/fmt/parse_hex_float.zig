@@ -202,18 +202,21 @@ pub fn parseHexFloat(comptime T: type, s: []const u8) !T {
         exponent += 1;
     }
 
-    // There are two cases to handle:
-    // - We've truncated more than 0.5ULP (R=S=1), increase the mantissa.
-    // - We've truncated exactly 0.5ULP (R=1 S=0), increase the mantissa if the
-    //   result is odd (G=1).
-    // The two checks can be neatly folded as follows.
-    mantissa |= @boolToInt(mantissa & 0b100 != 0);
-    mantissa += 1;
-
+    // Whenever the guard bit is one (G=1) and:
+    //   - we've truncated more than 0.5ULP (R=S=1)
+    //   - we've truncated exactly 0.5ULP (R=1 S=0)
+    // Were are going to increase the mantissa (round up)
+    var exactly_half = (mantissa & 0b11) == 0b10;
+    var more_than_half = (mantissa & 0b11) == 0b11;
     mantissa >>= 2;
+    var guardBit = mantissa & 1 == 1;
     exponent += 2;
 
-    if (mantissa & (1 << (mantissa_bits + 1)) != 0) {
+    if (guardBit and (exactly_half or more_than_half)) {
+        mantissa += 1;
+    }
+
+    if (mantissa == (1 << (mantissa_bits + 1))) {
         // Renormalize, if the exponent overflows we'll catch that below.
         mantissa >>= 1;
         exponent += 1;
@@ -338,6 +341,7 @@ test "f128" {
         // // Min denormalized value.
         .{ .s = "0x1p-16494", .v = math.f128_true_min },
         .{ .s = "-0x1p-16494", .v = -math.f128_true_min },
+        .{ .s = "0x1.edcb34a235253948765432134674fp-1", .v = 0x1.edcb34a235253948765432134674fp-1 },
     };
 
     for (cases) |case| {
