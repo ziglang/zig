@@ -131,7 +131,13 @@ pub const default_max_load_percentage = 80;
 /// If you are passing a context to a *Adapted function, PseudoKey is the type
 /// of the key parameter.  Otherwise, when creating a HashMap or HashMapUnmanaged
 /// type, PseudoKey = Key = K.
-pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, comptime Key: type, comptime Hash: type) void {
+pub fn verifyContext(
+    comptime RawContext: type,
+    comptime PseudoKey: type,
+    comptime Key: type,
+    comptime Hash: type,
+    comptime is_array: bool,
+) void {
     comptime {
         var allow_const_ptr = false;
         var allow_mutable_ptr = false;
@@ -166,7 +172,9 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
             const prefix = "\n  ";
             const deep_prefix = prefix ++ "  ";
             const hash_signature = "fn (self, " ++ @typeName(PseudoKey) ++ ") " ++ @typeName(Hash);
-            const eql_signature = "fn (self, " ++ @typeName(PseudoKey) ++ ", " ++ @typeName(Key) ++ ") bool";
+            const index_param = if (is_array) ", b_index: usize" else "";
+            const eql_signature = "fn (self, " ++ @typeName(PseudoKey) ++ ", " ++
+                @typeName(Key) ++ index_param ++ ") bool";
             const err_invalid_hash_signature = prefix ++ @typeName(Context) ++ ".hash must be " ++ hash_signature ++
                 deep_prefix ++ "but is actually " ++ @typeName(@TypeOf(Context.hash));
             const err_invalid_eql_signature = prefix ++ @typeName(Context) ++ ".eql must be " ++ eql_signature ++
@@ -255,7 +263,8 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
             const info = @typeInfo(@TypeOf(eql));
             if (info == .Fn) {
                 const func = info.Fn;
-                if (func.args.len != 3) {
+                const args_len = if (is_array) 4 else 3;
+                if (func.args.len != args_len) {
                     errors = errors ++ lazy.err_invalid_eql_signature;
                 } else {
                     var emitted_signature = false;
@@ -360,7 +369,7 @@ pub fn HashMap(
     comptime Context: type,
     comptime max_load_percentage: u64,
 ) type {
-    comptime verifyContext(Context, K, K, u64);
+    comptime verifyContext(Context, K, K, u64, false);
     return struct {
         unmanaged: Unmanaged,
         allocator: Allocator,
@@ -683,7 +692,7 @@ pub fn HashMapUnmanaged(
 ) type {
     if (max_load_percentage <= 0 or max_load_percentage >= 100)
         @compileError("max_load_percentage must be between 0 and 100.");
-    comptime verifyContext(Context, K, K, u64);
+    comptime verifyContext(Context, K, K, u64, false);
 
     return struct {
         const Self = @This();
@@ -1108,7 +1117,7 @@ pub fn HashMapUnmanaged(
         /// from this function.  To encourage that, this function is
         /// marked as inline.
         inline fn getIndex(self: Self, key: anytype, ctx: anytype) ?usize {
-            comptime verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash);
+            comptime verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash, false);
 
             if (self.size == 0) {
                 return null;
@@ -1291,7 +1300,7 @@ pub fn HashMapUnmanaged(
             return result;
         }
         pub fn getOrPutAssumeCapacityAdapted(self: *Self, key: anytype, ctx: anytype) GetOrPutResult {
-            comptime verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash);
+            comptime verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash, false);
 
             // If you get a compile error on this line, it means that your generic hash
             // function is invalid for these parameters.

@@ -37,8 +37,9 @@ pub const StringContext = struct {
         _ = self;
         return hashString(s);
     }
-    pub fn eql(self: @This(), a: []const u8, b: []const u8) bool {
+    pub fn eql(self: @This(), a: []const u8, b: []const u8, b_index: usize) bool {
         _ = self;
+        _ = b_index;
         return eqlString(a, b);
     }
 };
@@ -76,7 +77,7 @@ pub fn ArrayHashMap(
     comptime Context: type,
     comptime store_hash: bool,
 ) type {
-    comptime std.hash_map.verifyContext(Context, K, K, u32);
+    comptime std.hash_map.verifyContext(Context, K, K, u32, true);
     return struct {
         unmanaged: Unmanaged,
         allocator: Allocator,
@@ -462,7 +463,7 @@ pub fn ArrayHashMapUnmanaged(
     comptime Context: type,
     comptime store_hash: bool,
 ) type {
-    comptime std.hash_map.verifyContext(Context, K, K, u32);
+    comptime std.hash_map.verifyContext(Context, K, K, u32, true);
     return struct {
         /// It is permitted to access this field directly.
         entries: DataList = .{},
@@ -700,7 +701,7 @@ pub fn ArrayHashMapUnmanaged(
                 const hashes_array = slice.items(.hash);
                 const keys_array = slice.items(.key);
                 for (keys_array) |*item_key, i| {
-                    if (hashes_array[i] == h and checkedEql(ctx, key, item_key.*)) {
+                    if (hashes_array[i] == h and checkedEql(ctx, key, item_key.*, i)) {
                         return GetOrPutResult{
                             .key_ptr = item_key,
                             // workaround for #6974
@@ -933,7 +934,7 @@ pub fn ArrayHashMapUnmanaged(
                 const hashes_array = slice.items(.hash);
                 const keys_array = slice.items(.key);
                 for (keys_array) |*item_key, i| {
-                    if (hashes_array[i] == h and checkedEql(ctx, key, item_key.*)) {
+                    if (hashes_array[i] == h and checkedEql(ctx, key, item_key.*, i)) {
                         return i;
                     }
                 }
@@ -1245,7 +1246,7 @@ pub fn ArrayHashMapUnmanaged(
                 const keys_array = slice.items(.key);
                 for (keys_array) |*item_key, i| {
                     const hash_match = if (store_hash) hashes_array[i] == key_hash else true;
-                    if (hash_match and key_ctx.eql(key, item_key.*)) {
+                    if (hash_match and key_ctx.eql(key, item_key.*, i)) {
                         const removed_entry: KV = .{
                             .key = keys_array[i],
                             .value = slice.items(.value)[i],
@@ -1286,7 +1287,7 @@ pub fn ArrayHashMapUnmanaged(
                 const keys_array = slice.items(.key);
                 for (keys_array) |*item_key, i| {
                     const hash_match = if (store_hash) hashes_array[i] == key_hash else true;
-                    if (hash_match and key_ctx.eql(key, item_key.*)) {
+                    if (hash_match and key_ctx.eql(key, item_key.*, i)) {
                         switch (removal_type) {
                             .swap => self.entries.swapRemove(i),
                             .ordered => self.entries.orderedRemove(i),
@@ -1483,8 +1484,9 @@ pub fn ArrayHashMapUnmanaged(
 
                 // This pointer survives the following append because we call
                 // entries.ensureTotalCapacity before getOrPutInternal.
-                const hash_match = if (store_hash) h == hashes_array[slot_data.entry_index] else true;
-                if (hash_match and checkedEql(ctx, key, keys_array[slot_data.entry_index])) {
+                const i = slot_data.entry_index;
+                const hash_match = if (store_hash) h == hashes_array[i] else true;
+                if (hash_match and checkedEql(ctx, key, keys_array[i], i)) {
                     return .{
                         .found_existing = true,
                         .key_ptr = &keys_array[slot_data.entry_index],
@@ -1571,8 +1573,9 @@ pub fn ArrayHashMapUnmanaged(
                 if (slot_data.isEmpty() or slot_data.distance_from_start_index < distance_from_start_index)
                     return null;
 
-                const hash_match = if (store_hash) h == hashes_array[slot_data.entry_index] else true;
-                if (hash_match and checkedEql(ctx, key, keys_array[slot_data.entry_index]))
+                const i = slot_data.entry_index;
+                const hash_match = if (store_hash) h == hashes_array[i] else true;
+                if (hash_match and checkedEql(ctx, key, keys_array[i], i))
                     return slot;
             }
             unreachable;
@@ -1624,7 +1627,7 @@ pub fn ArrayHashMapUnmanaged(
         }
 
         inline fn checkedHash(ctx: anytype, key: anytype) u32 {
-            comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(key), K, u32);
+            comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(key), K, u32, true);
             // If you get a compile error on the next line, it means that
             const hash = ctx.hash(key); // your generic hash function doesn't accept your key
             if (@TypeOf(hash) != u32) {
@@ -1633,10 +1636,10 @@ pub fn ArrayHashMapUnmanaged(
             }
             return hash;
         }
-        inline fn checkedEql(ctx: anytype, a: anytype, b: K) bool {
-            comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(a), K, u32);
+        inline fn checkedEql(ctx: anytype, a: anytype, b: K, b_index: usize) bool {
+            comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(a), K, u32, true);
             // If you get a compile error on the next line, it means that
-            const eql = ctx.eql(a, b); // your generic eql function doesn't accept (self, adapt key, K)
+            const eql = ctx.eql(a, b, b_index); // your generic eql function doesn't accept (self, adapt key, K, index)
             if (@TypeOf(eql) != bool) {
                 @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type!\n" ++
                     @typeName(bool) ++ " was expected, but found " ++ @typeName(@TypeOf(eql)));
@@ -2255,9 +2258,10 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
     }.hash;
 }
 
-pub fn getAutoEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K) bool) {
+pub fn getAutoEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K, usize) bool) {
     return struct {
-        fn eql(ctx: Context, a: K, b: K) bool {
+        fn eql(ctx: Context, a: K, b: K, b_index: usize) bool {
+            _ = b_index;
             _ = ctx;
             return meta.eql(a, b);
         }
