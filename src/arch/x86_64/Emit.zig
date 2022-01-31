@@ -787,12 +787,14 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     assert(tag == .dbg_line);
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const dbg_line_column = emit.mir.extraData(Mir.DbgLineColumn, payload).data;
+    log.debug("mirDbgLine", .{});
     try emit.dbgAdvancePCAndLine(dbg_line_column.line, dbg_line_column.column);
 }
 
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) InnerError!void {
     const delta_line = @intCast(i32, line) - @intCast(i32, emit.prev_di_line);
     const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
+    log.debug("  (advance pc={d} and line={d})", .{ delta_line, delta_pc });
     switch (emit.debug_output) {
         .dwarf => |dbg_out| {
             // TODO Look into using the DWARF special opcodes to compress this data.
@@ -806,7 +808,6 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) InnerError!void {
                 leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
             }
             dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
-            emit.prev_di_pc = emit.code.items.len;
             emit.prev_di_line = line;
             emit.prev_di_column = column;
             emit.prev_di_pc = emit.code.items.len;
@@ -856,6 +857,7 @@ fn mirDbgPrologueEnd(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     switch (emit.debug_output) {
         .dwarf => |dbg_out| {
             try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
+            log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{ emit.prev_di_line, emit.prev_di_column });
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
@@ -869,6 +871,7 @@ fn mirDbgEpilogueBegin(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     switch (emit.debug_output) {
         .dwarf => |dbg_out| {
             try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
+            log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{ emit.prev_di_line, emit.prev_di_column });
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},

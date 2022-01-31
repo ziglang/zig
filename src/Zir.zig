@@ -2309,9 +2309,9 @@ pub const Inst = struct {
         body_len: u32,
 
         pub const SrcLocs = struct {
-            /// Absolute line index in the source file.
+            /// Line index in the source file relative to the parent decl.
             lbrace_line: u32,
-            /// Absolute line index in the source file.
+            /// Line index in the source file relative to the parent decl.
             rbrace_line: u32,
             /// lbrace_column is least significant bits u16
             /// rbrace_column is most significant bits u16

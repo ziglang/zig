@@ -2507,7 +2507,13 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     defer deinitRelocs(self.base.allocator, &dbg_info_type_relocs);
 
     const decl = func.owner_decl;
-    const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
+    log.debug("updateFunc {s}{*}", .{ decl.name, func.owner_decl });
+    log.debug("  (decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d})", .{
+        decl.src_line,
+        func.lbrace_line,
+        func.rbrace_line,
+    });
+    const line = @intCast(u28, decl.src_line + func.lbrace_line);
 
     const ptr_width_bytes = self.ptrWidthBytes();
     dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{
@@ -2524,7 +2530,7 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     // to this function's begin curly.
     assert(self.getRelocDbgLineOff() == dbg_line_buffer.items.len);
     // Here we use a ULEB128-fixed-4 to make sure this field can be overwritten later.
-    leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), line_off);
+    leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), line);
 
     dbg_line_buffer.appendAssumeCapacity(DW.LNS.set_file);
     assert(self.getRelocDbgFileIndex() == dbg_line_buffer.items.len);
@@ -3070,15 +3076,22 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
     const tracy = trace(@src());
     defer tracy.end();
 
+    log.debug("updateDeclLineNumber {s}{*}", .{ decl.name, decl });
+
     if (self.llvm_object) |_| return;
 
     const func = decl.val.castTag(.function).?.data;
-    const casted_line_off = @intCast(u28, decl.src_line + func.lbrace_line);
+    log.debug("  (decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d})", .{
+        decl.src_line,
+        func.lbrace_line,
+        func.rbrace_line,
+    });
+    const line = @intCast(u28, decl.src_line + func.lbrace_line);
 
     const shdr = &self.sections.items[self.debug_line_section_index.?];
     const file_pos = shdr.sh_offset + decl.fn_link.elf.off + self.getRelocDbgLineOff();
     var data: [4]u8 = undefined;
-    leb128.writeUnsignedFixed(4, &data, casted_line_off);
+    leb128.writeUnsignedFixed(4, &data, line);
     try self.base.file.?.pwriteAll(&data, file_pos);
 }
 
