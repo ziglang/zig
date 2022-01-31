@@ -238,7 +238,7 @@ pub fn close(fd: fd_t) void {
     if (builtin.os.tag == .windows) {
         return windows.CloseHandle(fd);
     }
-    if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         _ = wasi.fd_close(fd);
         return;
     }
@@ -1395,7 +1395,7 @@ pub fn openW(file_path_w: []const u16, flags: u32, perm: mode_t) OpenError!fd_t 
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openatZ`.
 pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) OpenError!fd_t {
-    if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("use openatWasi instead");
     }
     if (builtin.os.tag == .windows) {
@@ -1760,7 +1760,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
     if (builtin.os.tag == .windows) {
         return windows.GetCurrentDirectory(out_buffer);
     }
-    if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("WASI doesn't have a concept of cwd(); use std.fs.wasi.PreopenList to get available Dir handles instead");
     }
 
@@ -1804,7 +1804,7 @@ pub const SymLinkError = error{
 /// If `sym_link_path` exists, it will not be overwritten.
 /// See also `symlinkZ.
 pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!void {
-    if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("symlink is not supported in WASI; use symlinkat instead");
     }
     if (builtin.os.tag == .windows) {
@@ -2021,7 +2021,7 @@ pub const UnlinkError = error{
 /// Delete a name and possibly the file it refers to.
 /// See also `unlinkZ`.
 pub fn unlink(file_path: []const u8) UnlinkError!void {
-    if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("unlink is not supported in WASI; use unlinkat instead");
     } else if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
@@ -2175,7 +2175,7 @@ pub const RenameError = error{
 
 /// Change the name or location of a file.
 pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
-    if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("rename is not supported in WASI; use renameat instead");
     } else if (builtin.os.tag == .windows) {
         const old_path_w = try windows.sliceToPrefixedFileW(old_path);
@@ -2469,7 +2469,7 @@ pub const MakeDirError = error{
 /// Create a directory.
 /// `mode` is ignored on Windows.
 pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
-    if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("mkdir is not supported in WASI; use mkdirat instead");
     } else if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
@@ -2539,7 +2539,7 @@ pub const DeleteDirError = error{
 
 /// Deletes an empty directory.
 pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
-    if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("rmdir is not supported in WASI; use unlinkat instead");
     } else if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
@@ -2600,7 +2600,7 @@ pub const ChangeCurDirError = error{
 /// Changes the current working directory of the calling process.
 /// `dir_path` is recommended to be a UTF-8 encoded string.
 pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
-    if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("chdir is not supported in WASI");
     } else if (builtin.os.tag == .windows) {
         var utf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
@@ -2684,7 +2684,7 @@ pub const ReadLinkError = error{
 /// Read value of a symbolic link.
 /// The return value is a slice of `out_buffer` from index 0.
 pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
-    if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("readlink is not supported in WASI; use readlinkat instead");
     } else if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
@@ -4631,7 +4631,7 @@ pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathE
         const pathname_w = try windows.sliceToPrefixedFileW(pathname);
         return realpathW(pathname_w.span(), out_buffer);
     }
-    if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("Use std.fs.wasi.PreopenList to obtain valid Dir handles instead of using absolute paths");
     }
     const pathname_c = try toPosixPath(pathname);
