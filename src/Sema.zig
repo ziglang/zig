@@ -10775,7 +10775,7 @@ fn zirArrayInit(
         const elem_ptr_ty_ref = try sema.addType(elem_ptr_ty);
 
         for (resolved_args) |arg, i| {
-            const index = try sema.addIntUnsigned(Type.u64, i);
+            const index = try sema.addIntUnsigned(Type.usize, i);
             const elem_ptr = try block.addPtrElemPtrTypeRef(alloc, index, elem_ptr_ty_ref);
             _ = try block.addBinOp(.store, elem_ptr, arg);
         }
