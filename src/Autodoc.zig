@@ -3,6 +3,7 @@ const Autodoc = @This();
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
 const Zir = @import("Zir.zig");
+const Ref = Zir.Inst.Ref;
 
 module: *Module,
 doc_location: ?Compilation.EmitLoc,
@@ -53,12 +54,12 @@ pub fn generateZirData(self: *Autodoc) !void {
 
         // TODO: we don't want to add .none, but the index math has to check out
         var i: u32 = 0;
-        while (i <= @enumToInt(Zir.Inst.Ref.anyerror_void_error_union_type)) : (i += 1) {
+        while (i <= @enumToInt(Ref.anyerror_void_error_union_type)) : (i += 1) {
             var tmpbuf = std.ArrayList(u8).init(self.arena);
-            try Zir.Inst.Ref.typed_value_map[i].val.format("", .{}, tmpbuf.writer());
+            try Ref.typed_value_map[i].val.format("", .{}, tmpbuf.writer());
             try self.types.append(self.arena, .{
                 .name = tmpbuf.toOwnedSlice(),
-                .kind = switch (@intToEnum(Zir.Inst.Ref, i)) {
+                .kind = switch (@intToEnum(Ref, i)) {
                     else => |t| blk: {
                         std.debug.print("TODO: categorize `{s}` in typeKinds\n", .{
                             @tagName(t),
@@ -87,6 +88,7 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .c_longlong_type,
                     .c_ulonglong_type,
                     .c_longdouble_type,
+                    .comptime_int_type,
                     => @enumToInt(std.builtin.TypeId.Int),
                     .f16_type,
                     .f32_type,
@@ -234,7 +236,11 @@ const DocData = struct {
         failure: bool,
         type: usize, // index in `types`
         decl_ref: usize, // index in `decls`
-
+        int: struct {
+            type: usize, // index in `types`
+            value: usize, // direct value
+            negated: bool = false,
+        },
         pub fn jsonStringify(
             self: WalkResult,
             _: std.json.StringifyOptions,
@@ -250,6 +256,12 @@ const DocData = struct {
                     try w.print(
                         \\{{ "{s}":{} }}
                     , .{ @tagName(self), v });
+                },
+                .int => |v| {
+                    const neg = if (v.negated) "-" else "";
+                    try w.print(
+                        \\{{ "int": {{ "type": {}, "value": {s}{} }} }}
+                    , .{ v.type, neg, v.value });
                 },
 
                 // .decl_ref => |v| {
@@ -282,6 +294,31 @@ fn walkInstruction(
             );
             return DocData.WalkResult{ .failure = true };
         },
+        .int => {
+            const int = data[inst_index].int;
+            return DocData.WalkResult{
+                .int = .{
+                    .type = @enumToInt(Ref.comptime_int_type),
+                    .value = int,
+                },
+            };
+        },
+        .negate => {
+            const un_node = data[inst_index].un_node;
+            var operand = try self.walkRef(zir, parent_scope, un_node.operand);
+            operand.int.negated = true; // only support ints for now
+            return operand;
+        },
+        .as_node => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = zir.extraData(Zir.Inst.As, pl_node.payload_index);
+            const dest_type_walk = try self.walkRef(zir, parent_scope, extra.data.dest_type);
+            const dest_type = dest_type_walk.type; // asserts that we got a type
+
+            var operand = try self.walkRef(zir, parent_scope, extra.data.operand);
+            operand.int.type = dest_type; // only support ints for now
+            return operand;
+        },
         .decl_val => {
             const str_tok = data[inst_index].str_tok;
             const decls_slot_index = parent_scope.resolveDeclName(str_tok.start);
@@ -313,7 +350,7 @@ fn walkInstruction(
             const break_operand = data[break_index].@"break".operand;
             return if (Zir.refToIndex(break_operand)) |bi|
                 self.walkInstruction(zir, parent_scope, bi)
-            else if (@enumToInt(break_operand) <= @enumToInt(Zir.Inst.Ref.anyerror_void_error_union_type))
+            else if (@enumToInt(break_operand) <= @enumToInt(Ref.anyerror_void_error_union_type))
                 // we append all the types in ref first, so we can just do this if we encounter a ref that is a type
                 return DocData.WalkResult{ .type = @enumToInt(break_operand) }
             else
@@ -525,10 +562,15 @@ fn walkDecls(
             try priv_decl_indexes.append(self.arena, decls_slot_index);
         }
 
+        const decl_type = switch (walk_result) {
+            .int => |i| i.type,
+            else => @enumToInt(Ref.type_type),
+        };
+
         self.decls.items[decls_slot_index] = .{
             .name = name,
             .src = ast_node_index,
-            .type = @enumToInt(Zir.Inst.Ref.type_type),
+            .type = decl_type,
             .value = walk_result,
             .kind = "const", // find where this information can be found
         };
@@ -581,42 +623,8 @@ fn collectFieldInfo(
 
         // type
         {
-            switch (field_type) {
-                .void_type => {
-                    try field_type_indexes.append(self.arena, .{
-                        .type = self.types.items.len,
-                    });
-                    try self.types.append(self.arena, .{
-                        .kind = @enumToInt(std.builtin.TypeId.Void),
-                        .name = "void",
-                    });
-                },
-                .usize_type => {
-                    try field_type_indexes.append(self.arena, .{ .type = self.types.items.len });
-                    try self.types.append(self.arena, .{
-                        .kind = @enumToInt(std.builtin.TypeId.Int),
-                        .name = "usize",
-                    });
-                },
-
-                else => {
-                    const enum_value = @enumToInt(field_type);
-                    if (enum_value < Zir.Inst.Ref.typed_value_map.len) {
-                        try field_type_indexes.append(
-                            self.arena,
-                            DocData.WalkResult{ .type = enum_value },
-                        );
-                    } else {
-                        const zir_index = enum_value - Zir.Inst.Ref.typed_value_map.len;
-                        const walk_result = try self.walkInstruction(
-                            zir,
-                            scope,
-                            zir_index,
-                        );
-                        try field_type_indexes.append(self.arena, walk_result);
-                    }
-                },
-            }
+            const walk_result = try self.walkRef(zir, scope, field_type);
+            try field_type_indexes.append(self.arena, walk_result);
         }
 
         // ast node
@@ -631,5 +639,21 @@ fn collectFieldInfo(
                 .docs = doc_comment,
             });
         }
+    }
+}
+
+fn walkRef(
+    self: *Autodoc,
+    zir: Zir,
+    parent_scope: *Scope,
+    ref: Ref,
+) !DocData.WalkResult {
+    const enum_value = @enumToInt(ref);
+    if (enum_value < Zir.Inst.Ref.typed_value_map.len) {
+        // TODO: well... Refs are not all types
+        return DocData.WalkResult{ .type = enum_value };
+    } else {
+        const zir_index = enum_value - Ref.typed_value_map.len;
+        return self.walkInstruction(zir, parent_scope, zir_index);
     }
 }
