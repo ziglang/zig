@@ -1163,7 +1163,7 @@ fn resolveConstBool(
     zir_ref: Zir.Inst.Ref,
 ) !bool {
     const air_inst = sema.resolveInst(zir_ref);
-    const wanted_type = Type.initTag(.bool);
+    const wanted_type = Type.bool;
     const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
     const val = try sema.resolveConstValue(block, src, coerced_inst);
     return val.toBool();
@@ -8058,7 +8058,7 @@ fn zirOverflowArithmetic(
     return switch (result.overflowed) {
         .yes => Air.Inst.Ref.bool_true,
         .no => Air.Inst.Ref.bool_false,
-        .undef => try sema.addConstUndef(Type.initTag(.bool)),
+        .undef => try sema.addConstUndef(Type.bool),
     };
 }
 
@@ -9125,7 +9125,7 @@ fn zirCmpEq(
             if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lval| {
                 if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rval| {
                     if (lval.isUndef() or rval.isUndef()) {
-                        return sema.addConstUndef(Type.initTag(.bool));
+                        return sema.addConstUndef(Type.bool);
                     }
                     // TODO optimisation opportunity: evaluate if mem.eql is faster with the names,
                     // or calling to Module.getErrorValue to get the values and then compare them is
@@ -9244,9 +9244,9 @@ fn cmpSelf(
     const resolved_type = sema.typeOf(casted_lhs);
     const runtime_src: LazySrcLoc = src: {
         if (try sema.resolveMaybeUndefVal(block, lhs_src, casted_lhs)) |lhs_val| {
-            if (lhs_val.isUndef()) return sema.addConstUndef(resolved_type);
+            if (lhs_val.isUndef()) return sema.addConstUndef(Type.bool);
             if (try sema.resolveMaybeUndefVal(block, rhs_src, casted_rhs)) |rhs_val| {
-                if (rhs_val.isUndef()) return sema.addConstUndef(resolved_type);
+                if (rhs_val.isUndef()) return sema.addConstUndef(Type.bool);
 
                 if (lhs_val.compare(op, rhs_val, resolved_type)) {
                     return Air.Inst.Ref.bool_true;
@@ -9265,7 +9265,7 @@ fn cmpSelf(
             // bool eq/neq more efficiently.
             if (resolved_type.zigTypeTag() == .Bool) {
                 if (try sema.resolveMaybeUndefVal(block, rhs_src, casted_rhs)) |rhs_val| {
-                    if (rhs_val.isUndef()) return sema.addConstUndef(resolved_type);
+                    if (rhs_val.isUndef()) return sema.addConstUndef(Type.bool);
                     return sema.runtimeBoolCmp(block, op, casted_lhs, rhs_val.toBool(), lhs_src);
                 }
             }
@@ -9300,7 +9300,7 @@ fn runtimeBoolCmp(
 ) CompileError!Air.Inst.Ref {
     if ((op == .neq) == rhs) {
         try sema.requireRuntimeBlock(block, runtime_src);
-        return block.addTyOp(.not, Type.initTag(.bool), lhs);
+        return block.addTyOp(.not, Type.bool, lhs);
     } else {
         return lhs;
     }
@@ -9545,9 +9545,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // alignment: comptime_int,
             field_values[1] = try Value.Tag.int_u64.create(sema.arena, ty.abiAlignment(target));
             // is_generic: bool,
-            field_values[2] = if (info.is_generic) Value.initTag(.bool_true) else Value.initTag(.bool_false);
+            field_values[2] = if (info.is_generic) Value.@"true" else Value.@"false";
             // is_var_args: bool,
-            field_values[3] = if (info.is_var_args) Value.initTag(.bool_true) else Value.initTag(.bool_false);
+            field_values[3] = if (info.is_var_args) Value.@"true" else Value.@"false";
             // return_type: ?type,
             field_values[4] = try Value.Tag.ty.create(sema.arena, ty.fnReturnType());
             // args: []const FnArg,
@@ -9599,9 +9599,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // size: Size,
             field_values[0] = try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.size));
             // is_const: bool,
-            field_values[1] = if (!info.mutable) Value.initTag(.bool_true) else Value.initTag(.bool_false);
+            field_values[1] = if (!info.mutable) Value.@"true" else Value.@"false";
             // is_volatile: bool,
-            field_values[2] = if (info.@"volatile") Value.initTag(.bool_true) else Value.initTag(.bool_false);
+            field_values[2] = if (info.@"volatile") Value.@"true" else Value.@"false";
             // alignment: comptime_int,
             field_values[3] = try Value.Tag.int_u64.create(sema.arena, info.@"align");
             // address_space: AddressSpace
@@ -9609,7 +9609,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // child: type,
             field_values[5] = try Value.Tag.ty.create(sema.arena, info.pointee_type);
             // is_allowzero: bool,
-            field_values[6] = if (info.@"allowzero") Value.initTag(.bool_true) else Value.initTag(.bool_false);
+            field_values[6] = if (info.@"allowzero") Value.@"true" else Value.@"false";
             // sentinel: anytype,
             field_values[7] = if (info.sentinel) |some| try Value.Tag.opt_payload.create(sema.arena, some) else Value.@"null";
 
@@ -10060,18 +10060,17 @@ fn zirBoolNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const operand_src = src; // TODO put this on the operand, not the `!`
     const uncasted_operand = sema.resolveInst(inst_data.operand);
 
-    const bool_type = Type.initTag(.bool);
-    const operand = try sema.coerce(block, bool_type, uncasted_operand, operand_src);
+    const operand = try sema.coerce(block, Type.bool, uncasted_operand, operand_src);
     if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
         return if (val.isUndef())
-            sema.addConstUndef(bool_type)
+            sema.addConstUndef(Type.bool)
         else if (val.toBool())
             Air.Inst.Ref.bool_false
         else
             Air.Inst.Ref.bool_true;
     }
     try sema.requireRuntimeBlock(block, src);
-    return block.addTyOp(.not, bool_type, operand);
+    return block.addTyOp(.not, Type.bool, operand);
 }
 
 fn zirBoolBr(
@@ -10229,7 +10228,7 @@ fn zirCondbr(
     const else_body = sema.code.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
 
     const uncasted_cond = sema.resolveInst(extra.data.condition);
-    const cond = try sema.coerce(parent_block, Type.initTag(.bool), uncasted_cond, cond_src);
+    const cond = try sema.coerce(parent_block, Type.bool, uncasted_cond, cond_src);
 
     if (try sema.resolveDefinedValue(parent_block, src, cond)) |cond_val| {
         const body = if (cond_val.toBool()) then_body else else_body;
@@ -15537,7 +15536,7 @@ fn analyzeIsNull(
     operand: Air.Inst.Ref,
     invert_logic: bool,
 ) CompileError!Air.Inst.Ref {
-    const result_ty = Type.initTag(.bool);
+    const result_ty = Type.bool;
     if (try sema.resolveMaybeUndefVal(block, src, operand)) |opt_val| {
         if (opt_val.isUndef()) {
             return sema.addConstUndef(result_ty);
@@ -15566,7 +15565,7 @@ fn analyzeIsNonErr(
     if (ot != .ErrorSet and ot != .ErrorUnion) return Air.Inst.Ref.bool_true;
     if (ot == .ErrorSet) return Air.Inst.Ref.bool_false;
     assert(ot == .ErrorUnion);
-    const result_ty = Type.initTag(.bool);
+    const result_ty = Type.bool;
     if (try sema.resolveMaybeUndefVal(block, src, operand)) |err_union| {
         if (err_union.isUndef()) {
             return sema.addConstUndef(result_ty);
@@ -15769,7 +15768,7 @@ fn cmpNumeric(
         if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lhs_val| {
             if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| {
                 if (lhs_val.isUndef() or rhs_val.isUndef()) {
-                    return sema.addConstUndef(Type.initTag(.bool));
+                    return sema.addConstUndef(Type.bool);
                 }
                 if (Value.compareHetero(lhs_val, op, rhs_val)) {
                     return Air.Inst.Ref.bool_true;
@@ -15840,7 +15839,7 @@ fn cmpNumeric(
     var lhs_bits: usize = undefined;
     if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lhs_val| {
         if (lhs_val.isUndef())
-            return sema.addConstUndef(Type.initTag(.bool));
+            return sema.addConstUndef(Type.bool);
         const is_unsigned = if (lhs_is_float) x: {
             var bigint_space: Value.BigIntSpace = undefined;
             var bigint = try lhs_val.toBigInt(&bigint_space).toManaged(sema.gpa);
@@ -15875,7 +15874,7 @@ fn cmpNumeric(
     var rhs_bits: usize = undefined;
     if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| {
         if (rhs_val.isUndef())
-            return sema.addConstUndef(Type.initTag(.bool));
+            return sema.addConstUndef(Type.bool);
         const is_unsigned = if (rhs_is_float) x: {
             var bigint_space: Value.BigIntSpace = undefined;
             var bigint = try rhs_val.toBigInt(&bigint_space).toManaged(sema.gpa);

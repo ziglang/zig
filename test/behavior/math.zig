@@ -1024,8 +1024,6 @@ test "vector comparison" {
 }
 
 test "compare undefined literal with comptime_int" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     var x = undefined == 1;
     // x is now undefined with type bool
     x = true;
