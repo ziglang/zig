@@ -81,7 +81,6 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         .NoReturn,
         .Opaque,
         .Undefined,
-        .Void,
         .Null,
         .ComptimeFloat,
         .ComptimeInt,
@@ -90,6 +89,8 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         .Frame,
         .Float,
         => @compileError("unable to hash type " ++ @typeName(Key)),
+
+        .Void => return,
 
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.

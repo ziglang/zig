@@ -1765,7 +1765,8 @@ pub const Value = extern union {
             const other_context: HashContext = .{ .ty = self.ty };
             return @truncate(u32, other_context.hash(val));
         }
-        pub fn eql(self: @This(), a: Value, b: Value) bool {
+        pub fn eql(self: @This(), a: Value, b: Value, b_index: usize) bool {
+            _ = b_index;
             return a.eql(b, self.ty);
         }
     };

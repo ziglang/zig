@@ -798,8 +798,9 @@ pub const Type = extern union {
             _ = self;
             return @truncate(u32, t.hash());
         }
-        pub fn eql(self: @This(), a: Type, b: Type) bool {
+        pub fn eql(self: @This(), a: Type, b: Type, b_index: usize) bool {
             _ = self;
+            _ = b_index;
             return a.eql(b);
         }
     };
