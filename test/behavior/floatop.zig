@@ -696,3 +696,53 @@ test "f128 at compile time is lossy" {
 
     try expect(@as(f128, 10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
 }
+
+test "f128 special values" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .i386) return error.SkipZigTest; // TODO
+
+    const f128_true_min = @bitCast(f128, @as(u128, 0x00000000000000000000000000000001));
+    const f128_min = @bitCast(f128, @as(u128, 0x00010000000000000000000000000000));
+    const f128_max = @bitCast(f128, @as(u128, 0x7ffeffffffffffffffffffffffffffff));
+    const f128_inf = @bitCast(f128, @as(u128, 0x7fff0000000000000000000000000000));
+    const f128_nan = @bitCast(f128, @as(u128, 0x7fff0000000000000000000000000001));
+
+    var buf = f128_true_min;
+    try expect(f128_true_min == buf);
+
+    buf = f128_min;
+    try expect(f128_min == buf);
+
+    buf = f128_max;
+    try expect(f128_max == buf);
+
+    buf = -f128_max;
+    try expect(-f128_max == buf);
+
+    buf = 0;
+    try expect(@as(f128, 0) == buf);
+
+    buf = -0;
+    try expect(@as(f128, -0) == buf);
+
+    buf = -1;
+    try expect(@as(f128, -1) == buf);
+
+    buf = @as(f128, math.f64_max) + 42.0;
+    try expect(@floatCast(f64, buf - 42.0) == math.f64_max);
+
+    buf = @as(f128, math.f64_min) - f128_min;
+    try expect(@floatCast(f64, buf + f128_min) == math.f64_min);
+
+    buf = f128_inf;
+    try expect(f128_inf == buf);
+
+    buf = -f128_inf;
+    try expect(-f128_inf == buf);
+
+    buf = f128_nan;
+    try expect(math.isNan(buf));
+}

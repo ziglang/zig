@@ -154,6 +154,7 @@ const reserved_idents = std.ComptimeStringMap(void, .{
     .{ "enum", {} },
     .{ "extern ", {} },
     .{ "float", {} },
+    .{ "float128_t", {} },
     .{ "for", {} },
     .{ "fortran", {} },
     .{ "goto", {} },
@@ -420,6 +421,7 @@ pub const DeclGen = struct {
         const int_info = @typeInfo(@TypeOf(int_val)).Int;
         const is_signed = int_info.signedness == .signed;
         const is_neg = int_val < 0;
+
         comptime assert(int_info.bits > 64 and int_info.bits <= 128);
 
         // TODO support big endian arch
@@ -433,13 +435,27 @@ pub const DeclGen = struct {
         const low = @truncate(u64, magnitude);
 
         // (int128_t)/<->( ( (uint128_t)( val_high << 64 )u ) + (uint128_t)val_low/u )
-        if (is_signed) try writer.writeAll("(int128_t)");
-        if (is_neg) try writer.writeByte('-');
+        if (is_signed) {
+            try writer.writeAll("(int128_t)");
+            if (is_neg)
+                try writer.writeByte('-');
+        } else {
+            try writer.writeAll("(uint128_t)");
+        }
 
-        try writer.print("(((uint128_t)0x{x}u<<64)", .{high});
+        if (magnitude == 0)
+            return writer.print("0", .{});
+
+        try writer.print("(", .{});
+
+        if (high > 0)
+            try writer.print("((uint128_t)0x{x}u << 64)", .{high});
+
+        if (high > 0 and low > 0)
+            try writer.print(" + ", .{});
 
         if (low > 0)
-            try writer.print("+(uint128_t)0x{x}u", .{low});
+            try writer.print("(uint128_t)0x{x}u", .{low});
 
         return writer.writeByte(')');
     }
@@ -539,6 +555,35 @@ pub const DeclGen = struct {
         }
     }
 
+    fn renderSmallFloat(
+        dg: *DeclGen,
+        comptime T: type,
+        writer: anytype,
+        val: Value,
+    ) error{ OutOfMemory, AnalysisFail }!void {
+        const v = val.toFloat(T);
+        if (std.math.isNan(v) or std.math.isInf(v)) {
+            // just generate a bit cast (exactly like we do in airBitcast)
+            switch (T) {
+                f16 => return dg.fail("TODO: C backend: implement 16-bit float lowering", .{}),
+                f32 => return writer.print("zig_bitcast_f32_u32(0x{x})", .{v}),
+                f64 => return writer.print("zig_bitcast_f64_u64(0x{x})", .{v}),
+                else => unreachable,
+            }
+        } else {
+            return writer.print("{x}", .{v});
+        }
+    }
+
+    fn renderFloat128(
+        writer: anytype,
+        val: f128,
+    ) error{ OutOfMemory, AnalysisFail }!void {
+        try writer.print("zig_bitcast_f128_u128(", .{});
+        try renderInt128(writer, @bitCast(u128, val));
+        try writer.print(")", .{});
+    }
+
     fn renderValue(
         dg: *DeclGen,
         writer: anytype,
@@ -605,19 +650,13 @@ pub const DeclGen = struct {
                 },
             },
             .Float => {
-                if (ty.floatBits(dg.module.getTarget()) <= 64) {
-                    if (std.math.isNan(val.toFloat(f64)) or std.math.isInf(val.toFloat(f64))) {
-                        // just generate a bit cast (exactly like we do in airBitcast)
-                        switch (ty.tag()) {
-                            .f32 => return writer.print("zig_bitcast_f32_u32(0x{x})", .{@bitCast(u32, val.toFloat(f32))}),
-                            .f64 => return writer.print("zig_bitcast_f64_u64(0x{x})", .{@bitCast(u64, val.toFloat(f64))}),
-                            else => return dg.fail("TODO float types > 64 bits are not support in renderValue() as of now", .{}),
-                        }
-                    } else {
-                        return writer.print("{x}", .{val.toFloat(f64)});
-                    }
+                switch (ty.tag()) {
+                    .f16 => return dg.renderSmallFloat(f16, writer, val),
+                    .f32 => return dg.renderSmallFloat(f32, writer, val),
+                    .f64 => return dg.renderSmallFloat(f64, writer, val),
+                    .f128 => return renderFloat128(writer, val.toFloat(f128)),
+                    else => unreachable,
                 }
-                return dg.fail("TODO: C backend: implement lowering large float values", .{});
             },
             .Pointer => switch (val.tag()) {
                 .null_value => try writer.writeAll("NULL"),
@@ -1295,11 +1334,11 @@ pub const DeclGen = struct {
             },
             .Float => {
                 switch (t.tag()) {
+                    .f16 => return dg.fail("TODO: C backend: implement float type f16", .{}),
                     .f32 => try w.writeAll("float"),
                     .f64 => try w.writeAll("double"),
+                    .f128 => try w.writeAll("float128_t"),
                     .c_longdouble => try w.writeAll("long double"),
-                    .f16 => return dg.fail("TODO: C backend: implement float type f16", .{}),
-                    .f128 => return dg.fail("TODO: C backend: implement float type f128", .{}),
                     else => unreachable,
                 }
             },

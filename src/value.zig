@@ -2897,7 +2897,7 @@ pub const Value = extern union {
     pub fn floatToIntScalar(val: Value, arena: Allocator, int_ty: Type, target: Target) error{ FloatCannotFit, OutOfMemory }!Value {
         const Limb = std.math.big.Limb;
 
-        var value = val.toFloat(f64); // TODO: f128 ?
+        var value = val.toFloat(f128);
         if (std.math.isNan(value) or std.math.isInf(value)) {
             return error.FloatCannotFit;
         }
@@ -2909,7 +2909,7 @@ pub const Value = extern union {
 
         var rational = try std.math.big.Rational.init(arena);
         defer rational.deinit();
-        rational.setFloat(f64, floored) catch |err| switch (err) {
+        rational.setFloat(f128, floored) catch |err| switch (err) {
             error.NonFiniteFloat => unreachable,
             error.OutOfMemory => return error.OutOfMemory,
         };

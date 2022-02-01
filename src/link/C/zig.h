@@ -165,6 +165,17 @@
 
 #define int128_t __int128
 #define uint128_t unsigned __int128
+
+#if defined(__aarch64__)
+#define ZIG_HAS_FLOAT128
+#define float128_t long double
+#elif defined(__FreeBSD__) || defined(__APPLE__)
+#define float128_t ZIG_UNSUPPORTED_SYMBOL_ON_TARGET_float128_t
+#else
+#define ZIG_HAS_FLOAT128
+#define float128_t __float128
+#endif
+
 ZIG_EXTERN_C void *memcpy (void *ZIG_RESTRICT, const void *ZIG_RESTRICT, size_t);
 ZIG_EXTERN_C void *memset (void *, int, size_t);
 
@@ -407,6 +418,14 @@ static inline double zig_bitcast_f64_u64(uint64_t arg) {
     memcpy(&dest, &arg, sizeof dest);
     return dest;
 }
+
+#if defined(ZIG_HAS_FLOAT128)
+static inline float128_t zig_bitcast_f128_u128(uint128_t arg) {
+    float128_t dest;
+    memcpy(&dest, &arg, sizeof dest);
+    return dest;
+}
+#endif
 
 #define zig_add_sat_u(ZT, T) static inline T zig_adds_##ZT(T x, T y, T max) { \
     return (x > max - y) ? max : x + y; \
