@@ -286,10 +286,6 @@ fn testStruct() !void {
     try expect(struct_info.Struct.fields[3].alignment == 1);
     try expect(struct_info.Struct.decls.len == 2);
     try expect(struct_info.Struct.decls[0].is_pub);
-    try expect(!struct_info.Struct.decls[0].data.Fn.is_extern);
-    try expect(struct_info.Struct.decls[0].data.Fn.lib_name == null);
-    try expect(struct_info.Struct.decls[0].data.Fn.return_type == void);
-    try expect(struct_info.Struct.decls[0].data.Fn.fn_type == fn (*const TestStruct) void);
 }
 
 const TestUnpackedStruct = struct {
@@ -418,34 +414,6 @@ test "type info: TypeId -> TypeInfo impl cast" {
 
     _ = passTypeInfo(TypeId.Void);
     _ = comptime passTypeInfo(TypeId.Void);
-}
-
-test "type info: extern fns with and without lib names" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        extern fn bar1() void;
-        extern "cool" fn bar2() void;
-    };
-    const info = @typeInfo(S);
-    comptime {
-        for (info.Struct.decls) |decl| {
-            if (std.mem.eql(u8, decl.name, "bar1")) {
-                try expect(decl.data.Fn.lib_name == null);
-            } else {
-                try expectEqualStrings("cool", decl.data.Fn.lib_name.?);
-            }
-        }
-    }
-}
-
-test "data field is a compile-time value" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        const Bar = @as(isize, -1);
-    };
-    comptime try expect(@typeInfo(S).Struct.decls[0].data.Var == isize);
 }
 
 test "sentinel of opaque pointer type" {

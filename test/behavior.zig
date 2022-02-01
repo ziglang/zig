@@ -149,6 +149,7 @@ test {
                     _ = @import("behavior/bugs/10147.zig");
                     _ = @import("behavior/byteswap.zig");
                     _ = @import("behavior/const_slice_child.zig");
+                    _ = @import("behavior/export_self_referential_type_info.zig");
                     _ = @import("behavior/field_parent_ptr.zig");
                     _ = @import("behavior/floatop_stage1.zig");
                     _ = @import("behavior/fn_delegation.zig");
