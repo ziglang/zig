@@ -15772,7 +15772,7 @@ fn cmpNumeric(
                     return sema.addConstUndef(Type.initTag(.bool));
                 }
                 if (lhs_val.isNan() or rhs_val.isNan()) {
-                    if(op == std.math.CompareOperator.neq) {
+                    if (op == std.math.CompareOperator.neq) {
                         return Air.Inst.Ref.bool_true;
                     } else {
                         return Air.Inst.Ref.bool_false;
