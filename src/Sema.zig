@@ -9952,14 +9952,12 @@ fn typeInfoDecls(
 
         const is_pub = if (decl.is_pub) Value.@"true" else Value.@"false";
 
-        const fields = try decls_anon_decl.arena().create([3]Value);
+        const fields = try decls_anon_decl.arena().create([2]Value);
         fields.* = .{
             //name: []const u8,
             name_val,
             //is_pub: bool,
             is_pub,
-            //data: Data,
-            Value.undef, // TODO
         };
         decls_val.* = try Value.Tag.@"struct".create(decls_anon_decl.arena(), fields);
     }
