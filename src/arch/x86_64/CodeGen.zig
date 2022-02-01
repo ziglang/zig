@@ -812,7 +812,7 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
     const stack_mcv = try self.allocRegOrMem(inst, false);
     log.debug("spilling {d} to stack mcv {any}", .{ inst, stack_mcv });
     const reg_mcv = self.getResolvedInstValue(inst);
-    assert(reg == reg_mcv.register.to64());
+    assert(reg.to64() == reg_mcv.register.to64());
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     try branch.inst_table.put(self.gpa, inst, stack_mcv);
     try self.genSetStack(self.air.typeOfIndex(inst), stack_mcv.stack_offset, reg_mcv);
@@ -1791,22 +1791,50 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
 }
 
 fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
-    return if (self.liveness.isUnused(inst)) .dead else result: {
-        const mcv = try self.resolveInst(operand);
-        const struct_ty = self.air.typeOf(operand).childType();
-        const struct_size = @intCast(i32, struct_ty.abiSize(self.target.*));
-        const struct_field_offset = @intCast(i32, struct_ty.structFieldOffset(index, self.target.*));
-        const struct_field_ty = struct_ty.structFieldType(index);
-        const struct_field_size = @intCast(i32, struct_field_ty.abiSize(self.target.*));
+    if (self.liveness.isUnused(inst)) {
+        return MCValue.dead;
+    }
+    const mcv = try self.resolveInst(operand);
+    const struct_ty = self.air.typeOf(operand).childType();
+    const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
+    const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+    const struct_field_ty = struct_ty.structFieldType(index);
+    const struct_field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
+    const offset_to_field = struct_size - struct_field_offset - struct_field_size;
 
+    const dst_mcv: MCValue = result: {
         switch (mcv) {
             .ptr_stack_offset => |off| {
-                const ptr_stack_offset = off + struct_size - struct_field_offset - struct_field_size;
+                const ptr_stack_offset = off + @intCast(i32, offset_to_field);
                 break :result MCValue{ .ptr_stack_offset = ptr_stack_offset };
+            },
+            .register => |reg| {
+                const offset_reg = try self.copyToTmpRegister(Type.usize, .{
+                    .immediate = offset_to_field,
+                });
+                self.register_manager.freezeRegs(&.{offset_reg});
+                defer self.register_manager.unfreezeRegs(&.{offset_reg});
+
+                const can_reuse_operand = self.reuseOperand(inst, operand, 0, mcv);
+                const result_reg = blk: {
+                    if (can_reuse_operand) {
+                        break :blk reg;
+                    } else {
+                        self.register_manager.freezeRegs(&.{reg});
+                        const result_reg = try self.register_manager.allocReg(inst, &.{});
+                        try self.genSetReg(Type.usize, result_reg, mcv);
+                        break :blk result_reg;
+                    }
+                };
+                defer if (!can_reuse_operand) self.register_manager.unfreezeRegs(&.{reg});
+
+                try self.genBinMathOpMir(.add, Type.usize, .{ .register = result_reg }, .{ .register = offset_reg });
+                break :result MCValue{ .register = result_reg };
             },
             else => return self.fail("TODO implement codegen struct_field_ptr for {}", .{mcv}),
         }
     };
+    return dst_mcv;
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {

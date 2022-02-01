@@ -2367,6 +2367,7 @@ fn deinitRelocs(gpa: Allocator, table: *File.DbgInfoTypeRelocsTable) void {
 }
 
 fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8) !*elf.Elf64_Sym {
+    log.debug("updateDeclCode {s}{*}", .{ mem.sliceTo(decl.name, 0), decl });
     const required_alignment = decl.ty.abiAlignment(self.base.options.target);
 
     const block_list = self.getDeclBlockList(decl);
