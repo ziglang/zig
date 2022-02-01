@@ -632,11 +632,6 @@ test "allow signed integer division/remainder when values are comptime known and
 }
 
 test "quad hex float literal parsing accurate" {
-    if (builtin.zig_backend != .stage1) {
-        // TODO https://github.com/ziglang/zig/issues/10737
-        return error.SkipZigTest;
-    }
-
     const a: f128 = 0x1.1111222233334444555566667777p+0;
 
     // implied 1 is dropped, with an exponent of 0 (0x3fff) after biasing.
