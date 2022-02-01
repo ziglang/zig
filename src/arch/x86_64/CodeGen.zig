@@ -1795,7 +1795,8 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
         return MCValue.dead;
     }
     const mcv = try self.resolveInst(operand);
-    const struct_ty = self.air.typeOf(operand).childType();
+    const ptr_ty = self.air.typeOf(operand);
+    const struct_ty = ptr_ty.childType();
     const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
     const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
     const struct_field_ty = struct_ty.structFieldType(index);
@@ -1804,12 +1805,23 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
 
     const dst_mcv: MCValue = result: {
         switch (mcv) {
+            .stack_offset => {
+                const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
+                    .immediate = offset_to_field,
+                });
+                self.register_manager.freezeRegs(&.{offset_reg});
+                defer self.register_manager.unfreezeRegs(&.{offset_reg});
+
+                const dst_mcv = try self.copyToNewRegister(inst, ptr_ty, mcv);
+                try self.genBinMathOpMir(.add, ptr_ty, dst_mcv, .{ .register = offset_reg });
+                break :result dst_mcv;
+            },
             .ptr_stack_offset => |off| {
                 const ptr_stack_offset = off + @intCast(i32, offset_to_field);
                 break :result MCValue{ .ptr_stack_offset = ptr_stack_offset };
             },
             .register => |reg| {
-                const offset_reg = try self.copyToTmpRegister(Type.usize, .{
+                const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
                     .immediate = offset_to_field,
                 });
                 self.register_manager.freezeRegs(&.{offset_reg});
@@ -1822,13 +1834,13 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
                     } else {
                         self.register_manager.freezeRegs(&.{reg});
                         const result_reg = try self.register_manager.allocReg(inst, &.{});
-                        try self.genSetReg(Type.usize, result_reg, mcv);
+                        try self.genSetReg(ptr_ty, result_reg, mcv);
                         break :blk result_reg;
                     }
                 };
                 defer if (!can_reuse_operand) self.register_manager.unfreezeRegs(&.{reg});
 
-                try self.genBinMathOpMir(.add, Type.usize, .{ .register = result_reg }, .{ .register = offset_reg });
+                try self.genBinMathOpMir(.add, ptr_ty, .{ .register = result_reg }, .{ .register = offset_reg });
                 break :result MCValue{ .register = result_reg };
             },
             else => return self.fail("TODO implement codegen struct_field_ptr for {}", .{mcv}),
