@@ -187,8 +187,9 @@ pub fn deinit(ia: *InternArena, gpa: Allocator) void {
 }
 
 pub fn indexToKey(ia: InternArena, index: Index) Key {
-    const data = ia.items.items(.data)[@enumToInt(index)];
-    return switch (ia.items.items(.tag)[@enumToInt(index)]) {
+    const item = ia.items.get(@enumToInt(index));
+    const data = item.data;
+    return switch (item.tag) {
         .type_int_signed => .{
             .int_type = .{
                 .signedness = .signed,
