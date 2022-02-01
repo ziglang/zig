@@ -1301,8 +1301,64 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .embedded_in_code => {
             return self.fail("TODO implement loading from MCValue.embedded_in_code", .{});
         },
-        .register => {
-            return self.fail("TODO implement loading from MCValue.register for {}", .{self.target.cpu.arch});
+        .register => |addr_reg| {
+            self.register_manager.freezeRegs(&.{addr_reg});
+            defer self.register_manager.unfreezeRegs(&.{addr_reg});
+
+            switch (dst_mcv) {
+                .dead => unreachable,
+                .undef => unreachable,
+                .compare_flags_signed, .compare_flags_unsigned => unreachable,
+                .embedded_in_code => unreachable,
+                .stack_offset => |off| {
+                    if (elem_ty.abiSize(self.target.*) <= 8) {
+                        const tmp_reg = try self.register_manager.allocReg(null);
+                        self.register_manager.freezeRegs(&.{tmp_reg});
+                        defer self.register_manager.unfreezeRegs(&.{tmp_reg});
+
+                        try self.load(.{ .register = tmp_reg }, ptr, ptr_ty);
+                        try self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg });
+                    } else {
+                        // TODO optimize the register allocation
+                        const regs = try self.register_manager.allocRegs(4, .{ null, null, null, null });
+                        self.register_manager.freezeRegs(&regs);
+                        defer self.register_manager.unfreezeRegs(&regs);
+
+                        const src_reg = addr_reg;
+                        const dst_reg = regs[0];
+                        const len_reg = regs[1];
+                        const count_reg = regs[2];
+                        const tmp_reg = regs[3];
+
+                        // sub dst_reg, fp, #off
+                        const elem_size = @intCast(u32, elem_ty.abiSize(self.target.*));
+                        const adj_off = off + elem_size;
+                        const offset = math.cast(u12, adj_off) catch return self.fail("TODO load: larger stack offsets", .{});
+                        _ = try self.addInst(.{
+                            .tag = .sub_immediate,
+                            .data = .{ .rr_imm12_sh = .{
+                                .rd = dst_reg,
+                                .rn = .x29,
+                                .imm12 = offset,
+                            } },
+                        });
+
+                        // mov len, #elem_size
+                        const len_imm = math.cast(u16, elem_size) catch return self.fail("TODO load: larger stack offsets", .{});
+                        _ = try self.addInst(.{
+                            .tag = .movk,
+                            .data = .{ .r_imm16_sh = .{
+                                .rd = len_reg,
+                                .imm16 = len_imm,
+                            } },
+                        });
+
+                        // memcpy(src, dst, len)
+                        try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
+                    }
+                },
+                else => return self.fail("TODO load from register into {}", .{dst_mcv}),
+            }
         },
         .memory,
         .stack_offset,
@@ -1315,6 +1371,84 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
         },
     }
+}
+
+fn genInlineMemcpy(
+    self: *Self,
+    src: Register,
+    dst: Register,
+    len: Register,
+    count: Register,
+    tmp: Register,
+) !void {
+    // movk count, #0
+    _ = try self.addInst(.{
+        .tag = .movk,
+        .data = .{ .r_imm16_sh = .{
+            .rd = count,
+            .imm16 = 0,
+        } },
+    });
+
+    // loop:
+    // cmp count, len
+    _ = try self.addInst(.{
+        .tag = .cmp_shifted_register,
+        .data = .{ .rrr_imm6_shift = .{
+            .rd = .xzr,
+            .rn = count,
+            .rm = len,
+            .imm6 = 0,
+            .shift = .lsl,
+        } },
+    });
+
+    // bge end
+    _ = try self.addInst(.{
+        .tag = .b_cond,
+        .data = .{ .inst_cond = .{
+            .inst = @intCast(u32, self.mir_instructions.len + 5),
+            .cond = .ge,
+        } },
+    });
+
+    // ldrb tmp, [src, count]
+    _ = try self.addInst(.{
+        .tag = .ldrb_register,
+        .data = .{ .load_store_register_register = .{
+            .rt = tmp,
+            .rn = src,
+            .offset = Instruction.LoadStoreOffset.reg(count).register,
+        } },
+    });
+
+    // strb tmp, [dest, count]
+    _ = try self.addInst(.{
+        .tag = .strb_register,
+        .data = .{ .load_store_register_register = .{
+            .rt = tmp,
+            .rn = dst,
+            .offset = Instruction.LoadStoreOffset.reg(count).register,
+        } },
+    });
+
+    // add count, count, #1
+    _ = try self.addInst(.{
+        .tag = .add_immediate,
+        .data = .{ .rr_imm12_sh = .{
+            .rd = count,
+            .rn = count,
+            .imm12 = 1,
+        } },
+    });
+
+    // b loop
+    _ = try self.addInst(.{
+        .tag = .b,
+        .data = .{ .inst = @intCast(u32, self.mir_instructions.len - 5) },
+    });
+
+    // end:
 }
 
 fn airLoad(self: *Self, inst: Air.Inst.Index) !void {

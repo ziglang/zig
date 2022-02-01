@@ -224,7 +224,7 @@ pub const Inst = struct {
         },
         /// A registers and a stack offset
         ///
-        /// Used by e.g. str_register
+        /// Used by e.g. str_stack
         load_store_stack: struct {
             rt: Register,
             offset: u32,
