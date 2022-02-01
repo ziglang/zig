@@ -221,7 +221,8 @@ pub fn build(b: *Builder) !void {
         test_stage2.linkLibC();
     }
 
-    const enable_logging = b.option(bool, "log", "Whether to enable logging") orelse false;
+    const is_debug = mode == .Debug;
+    const enable_logging = b.option(bool, "log", "Enable debug logging with --debug-log") orelse is_debug;
     const enable_link_snapshots = b.option(bool, "link-snapshot", "Whether to enable linker state snapshots") orelse false;
 
     const opt_version_string = b.option([]const u8, "version-string", "Override Zig version string. Default is to find out with git.");
