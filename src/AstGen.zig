@@ -1872,7 +1872,8 @@ fn checkLabelRedefinition(astgen: *AstGen, parent_scope: *Scope, label: Ast.Toke
                 if (gen_zir.label) |prev_label| {
                     if (try astgen.tokenIdentEql(label, prev_label.token)) {
                         const label_name = try astgen.identifierTokenString(label);
-                        return astgen.failTokNotes(label, "redefinition of label '{s}'", .{
+                        const messageFormat = if (scope != parent_scope) "name '{s}' shadows name from outer scope" else "redefinition of label '{s}'";
+                        return astgen.failTokNotes(label, messageFormat, .{
                             label_name,
                         }, &[_]u32{
                             try astgen.errNoteTok(

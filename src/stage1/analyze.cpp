@@ -3923,8 +3923,11 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
                 if (var != nullptr && var->var_type != nullptr && type_is_invalid(var->var_type)) {
                     return; // already reported compile error
                 }
-            }
-            ErrorMsg *msg = add_node_error(g, tld->source_node, buf_sprintf("redefinition of '%s'", buf_ptr(tld->name)));
+            }            
+            const char * messageFormat = tld->parent_scope != other_tld->parent_scope 
+                ? "name '%s' shadows name from outer scope" 
+                : "redefinition of label '%s'";
+            ErrorMsg *msg = add_node_error(g, tld->source_node, buf_sprintf(messageFormat, buf_ptr(tld->name)));
             add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition here"));
             return;
         }

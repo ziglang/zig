@@ -655,11 +655,11 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    blk: for(@as([0]void, undefined)) |_| {}
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:12: error: redefinition of label 'blk'",
+        "tmp.zig:2:12: error: name 'blk' shadows name from outer scope",
         "tmp.zig:2:5: note: previous definition here",
-        "tmp.zig:5:26: error: redefinition of label 'blk'",
+        "tmp.zig:5:26: error: name label 'blk' shadows name from outer scope",
         "tmp.zig:5:5: note: previous definition here",
-        "tmp.zig:8:46: error: redefinition of label 'blk'",
+        "tmp.zig:8:46: error: name label 'blk' shadows name from outer scope",
         "tmp.zig:8:5: note: previous definition here",
         "tmp.zig:11:5: error: unused block label",
         "tmp.zig:14:5: error: unused while loop label",
