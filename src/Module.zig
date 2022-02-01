@@ -853,7 +853,7 @@ pub const Struct = struct {
     /// Index of the struct_decl ZIR instruction.
     zir_index: Zir.Inst.Index,
 
-    layout: std.builtin.TypeInfo.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
     status: enum {
         none,
         field_types_wip,
@@ -1105,7 +1105,7 @@ pub const Union = struct {
     /// Index of the union_decl ZIR instruction.
     zir_index: Zir.Inst.Index,
 
-    layout: std.builtin.TypeInfo.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
     status: enum {
         none,
         field_types_wip,

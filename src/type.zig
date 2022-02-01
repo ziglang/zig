@@ -1527,7 +1527,7 @@ pub const Type = extern union {
                 .prefetch_options => return writer.writeAll("std.builtin.PrefetchOptions"),
                 .export_options => return writer.writeAll("std.builtin.ExportOptions"),
                 .extern_options => return writer.writeAll("std.builtin.ExternOptions"),
-                .type_info => return writer.writeAll("std.builtin.TypeInfo"),
+                .type_info => return writer.writeAll("std.builtin.Type"),
                 .function => {
                     const payload = ty.castTag(.function).?.data;
                     try writer.writeAll("fn(");
@@ -1866,7 +1866,7 @@ pub const Type = extern union {
             .prefetch_options => return "PrefetchOptions",
             .export_options => return "ExportOptions",
             .extern_options => return "ExternOptions",
-            .type_info => return "TypeInfo",
+            .type_info => return "Type",
 
             else => {
                 // TODO this is wasteful and also an incorrect implementation of `@typeName`
@@ -2856,7 +2856,7 @@ pub const Type = extern union {
     }
 
     /// Asserts the `Type` is a pointer.
-    pub fn ptrSize(self: Type) std.builtin.TypeInfo.Pointer.Size {
+    pub fn ptrSize(self: Type) std.builtin.Type.Pointer.Size {
         return switch (self.tag()) {
             .const_slice,
             .mut_slice,
@@ -3392,7 +3392,7 @@ pub const Type = extern union {
         }
     }
 
-    pub fn containerLayout(ty: Type) std.builtin.TypeInfo.ContainerLayout {
+    pub fn containerLayout(ty: Type) std.builtin.Type.ContainerLayout {
         return switch (ty.tag()) {
             .tuple, .empty_struct_literal, .anon_struct => .Auto,
             .@"struct" => ty.castTag(.@"struct").?.data.layout,
@@ -5165,7 +5165,7 @@ pub const Type = extern union {
                 @"allowzero": bool = false,
                 mutable: bool = true, // TODO rename this to const, not mutable
                 @"volatile": bool = false,
-                size: std.builtin.TypeInfo.Pointer.Size = .One,
+                size: std.builtin.Type.Pointer.Size = .One,
             };
         };
 

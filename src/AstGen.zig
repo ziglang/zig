@@ -3940,7 +3940,7 @@ fn structDeclInner(
     scope: *Scope,
     node: Ast.Node.Index,
     container_decl: Ast.full.ContainerDecl,
-    layout: std.builtin.TypeInfo.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
 ) InnerError!Zir.Inst.Ref {
     const decl_inst = try gz.reserveInstructionIndex();
 
@@ -4076,7 +4076,7 @@ fn unionDeclInner(
     scope: *Scope,
     node: Ast.Node.Index,
     members: []const Ast.Node.Index,
-    layout: std.builtin.TypeInfo.ContainerLayout,
+    layout: std.builtin.Type.ContainerLayout,
     arg_node: Ast.Node.Index,
     have_auto_enum: bool,
 ) InnerError!Zir.Inst.Ref {
@@ -4242,10 +4242,10 @@ fn containerDecl(
     switch (token_tags[container_decl.ast.main_token]) {
         .keyword_struct => {
             const layout = if (container_decl.layout_token) |t| switch (token_tags[t]) {
-                .keyword_packed => std.builtin.TypeInfo.ContainerLayout.Packed,
-                .keyword_extern => std.builtin.TypeInfo.ContainerLayout.Extern,
+                .keyword_packed => std.builtin.Type.ContainerLayout.Packed,
+                .keyword_extern => std.builtin.Type.ContainerLayout.Extern,
                 else => unreachable,
-            } else std.builtin.TypeInfo.ContainerLayout.Auto;
+            } else std.builtin.Type.ContainerLayout.Auto;
 
             assert(container_decl.ast.arg == 0);
 
@@ -4254,10 +4254,10 @@ fn containerDecl(
         },
         .keyword_union => {
             const layout = if (container_decl.layout_token) |t| switch (token_tags[t]) {
-                .keyword_packed => std.builtin.TypeInfo.ContainerLayout.Packed,
-                .keyword_extern => std.builtin.TypeInfo.ContainerLayout.Extern,
+                .keyword_packed => std.builtin.Type.ContainerLayout.Packed,
+                .keyword_extern => std.builtin.Type.ContainerLayout.Extern,
                 else => unreachable,
-            } else std.builtin.TypeInfo.ContainerLayout.Auto;
+            } else std.builtin.Type.ContainerLayout.Auto;
 
             const have_auto_enum = container_decl.ast.enum_token != null;
 
@@ -10495,7 +10495,7 @@ const GenZir = struct {
         body_len: u32,
         fields_len: u32,
         decls_len: u32,
-        layout: std.builtin.TypeInfo.ContainerLayout,
+        layout: std.builtin.Type.ContainerLayout,
         known_non_opv: bool,
         known_comptime_only: bool,
     }) !void {
@@ -10543,7 +10543,7 @@ const GenZir = struct {
         body_len: u32,
         fields_len: u32,
         decls_len: u32,
-        layout: std.builtin.TypeInfo.ContainerLayout,
+        layout: std.builtin.Type.ContainerLayout,
         auto_enum_tag: bool,
     }) !void {
         const astgen = gz.astgen;

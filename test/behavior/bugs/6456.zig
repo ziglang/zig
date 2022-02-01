@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
-const StructField = std.builtin.TypeInfo.StructField;
-const Declaration = std.builtin.TypeInfo.Declaration;
+const StructField = std.builtin.Type.StructField;
+const Declaration = std.builtin.Type.Declaration;
 
 const text =
     \\f1

@@ -120,7 +120,7 @@ pub fn fixedBufferStream(buffer: anytype) FixedBufferStream(NonSentinelSpan(@Typ
 fn NonSentinelSpan(comptime T: type) type {
     var ptr_info = @typeInfo(mem.Span(T)).Pointer;
     ptr_info.sentinel = null;
-    return @Type(std.builtin.TypeInfo{ .Pointer = ptr_info });
+    return @Type(.{ .Pointer = ptr_info });
 }
 
 test "FixedBufferStream output" {

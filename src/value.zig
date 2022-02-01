@@ -673,7 +673,7 @@ pub const Value = extern union {
             .prefetch_options_type => return out_stream.writeAll("std.builtin.PrefetchOptions"),
             .export_options_type => return out_stream.writeAll("std.builtin.ExportOptions"),
             .extern_options_type => return out_stream.writeAll("std.builtin.ExternOptions"),
-            .type_info_type => return out_stream.writeAll("std.builtin.TypeInfo"),
+            .type_info_type => return out_stream.writeAll("std.builtin.Type"),
             .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),

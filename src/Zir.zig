@@ -2157,7 +2157,7 @@ pub const Inst = struct {
             is_allowzero: bool,
             is_mutable: bool,
             is_volatile: bool,
-            size: std.builtin.TypeInfo.Pointer.Size,
+            size: std.builtin.Type.Pointer.Size,
             elem_type: Ref,
         },
         ptr_type: struct {
@@ -2171,7 +2171,7 @@ pub const Inst = struct {
                 has_bit_range: bool,
                 _: u1 = undefined,
             },
-            size: std.builtin.TypeInfo.Pointer.Size,
+            size: std.builtin.Type.Pointer.Size,
             /// Index into extra. See `PtrType`.
             payload_index: u32,
         },
@@ -2659,7 +2659,7 @@ pub const Inst = struct {
             known_non_opv: bool,
             known_comptime_only: bool,
             name_strategy: NameStrategy,
-            layout: std.builtin.TypeInfo.ContainerLayout,
+            layout: std.builtin.Type.ContainerLayout,
             _: u6 = undefined,
         };
     };
@@ -2778,7 +2778,7 @@ pub const Inst = struct {
             has_fields_len: bool,
             has_decls_len: bool,
             name_strategy: NameStrategy,
-            layout: std.builtin.TypeInfo.ContainerLayout,
+            layout: std.builtin.Type.ContainerLayout,
             /// has_tag_type | auto_enum_tag | result
             /// -------------------------------------
             ///    false     | false         |  union { }

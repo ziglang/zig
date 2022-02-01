@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const TypeInfo = std.builtin.TypeInfo;
+const Type = std.builtin.Type;
 const testing = std.testing;
 
 fn testTypes(comptime types: []const type) !void {
@@ -10,32 +10,32 @@ fn testTypes(comptime types: []const type) !void {
 }
 
 test "Type.MetaType" {
-    try testing.expect(type == @Type(TypeInfo{ .Type = undefined }));
+    try testing.expect(type == @Type(.{ .Type = {} }));
     try testTypes(&[_]type{type});
 }
 
 test "Type.Void" {
-    try testing.expect(void == @Type(TypeInfo{ .Void = undefined }));
+    try testing.expect(void == @Type(.{ .Void = {} }));
     try testTypes(&[_]type{void});
 }
 
 test "Type.Bool" {
-    try testing.expect(bool == @Type(TypeInfo{ .Bool = undefined }));
+    try testing.expect(bool == @Type(.{ .Bool = {} }));
     try testTypes(&[_]type{bool});
 }
 
 test "Type.NoReturn" {
-    try testing.expect(noreturn == @Type(TypeInfo{ .NoReturn = undefined }));
+    try testing.expect(noreturn == @Type(.{ .NoReturn = {} }));
     try testTypes(&[_]type{noreturn});
 }
 
 test "Type.Int" {
-    try testing.expect(u1 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .unsigned, .bits = 1 } }));
-    try testing.expect(i1 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .signed, .bits = 1 } }));
-    try testing.expect(u8 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .unsigned, .bits = 8 } }));
-    try testing.expect(i8 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .signed, .bits = 8 } }));
-    try testing.expect(u64 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .unsigned, .bits = 64 } }));
-    try testing.expect(i64 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .signed, .bits = 64 } }));
+    try testing.expect(u1 == @Type(.{ .Int = .{ .signedness = .unsigned, .bits = 1 } }));
+    try testing.expect(i1 == @Type(.{ .Int = .{ .signedness = .signed, .bits = 1 } }));
+    try testing.expect(u8 == @Type(.{ .Int = .{ .signedness = .unsigned, .bits = 8 } }));
+    try testing.expect(i8 == @Type(.{ .Int = .{ .signedness = .signed, .bits = 8 } }));
+    try testing.expect(u64 == @Type(.{ .Int = .{ .signedness = .unsigned, .bits = 64 } }));
+    try testing.expect(i64 == @Type(.{ .Int = .{ .signedness = .signed, .bits = 64 } }));
     try testTypes(&[_]type{ u8, u32, i64 });
 }
 
@@ -104,31 +104,31 @@ test "Type.Pointer" {
 }
 
 test "Type.Float" {
-    try testing.expect(f16 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 16 } }));
-    try testing.expect(f32 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 32 } }));
-    try testing.expect(f64 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 64 } }));
-    try testing.expect(f80 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 80 } }));
-    try testing.expect(f128 == @Type(TypeInfo{ .Float = TypeInfo.Float{ .bits = 128 } }));
+    try testing.expect(f16 == @Type(.{ .Float = .{ .bits = 16 } }));
+    try testing.expect(f32 == @Type(.{ .Float = .{ .bits = 32 } }));
+    try testing.expect(f64 == @Type(.{ .Float = .{ .bits = 64 } }));
+    try testing.expect(f80 == @Type(.{ .Float = .{ .bits = 80 } }));
+    try testing.expect(f128 == @Type(.{ .Float = .{ .bits = 128 } }));
     try testTypes(&[_]type{ f16, f32, f64, f80, f128 });
 }
 
 test "Type.Array" {
-    try testing.expect([123]u8 == @Type(TypeInfo{
-        .Array = TypeInfo.Array{
+    try testing.expect([123]u8 == @Type(.{
+        .Array = .{
             .len = 123,
             .child = u8,
             .sentinel = null,
         },
     }));
-    try testing.expect([2]u32 == @Type(TypeInfo{
-        .Array = TypeInfo.Array{
+    try testing.expect([2]u32 == @Type(.{
+        .Array = .{
             .len = 2,
             .child = u32,
             .sentinel = null,
         },
     }));
-    try testing.expect([2:0]u32 == @Type(TypeInfo{
-        .Array = TypeInfo.Array{
+    try testing.expect([2:0]u32 == @Type(.{
+        .Array = .{
             .len = 2,
             .child = u32,
             .sentinel = &@as(u32, 0),
@@ -138,7 +138,7 @@ test "Type.Array" {
 }
 
 test "@Type create slice with null sentinel" {
-    const Slice = @Type(TypeInfo{
+    const Slice = @Type(.{
         .Pointer = .{
             .size = .Slice,
             .is_const = true,
@@ -153,7 +153,7 @@ test "@Type create slice with null sentinel" {
     try testing.expect(Slice == []align(8) const *i32);
 }
 
-test "@Type picks up the sentinel value from TypeInfo" {
+test "@Type picks up the sentinel value from Type" {
     try testTypes(&[_]type{
         [11:0]u8,                            [4:10]u8,
         [*:0]u8,                             [*:0]const u8,
@@ -203,13 +203,13 @@ test "Type.Opaque" {
 
     const Opaque = @Type(.{
         .Opaque = .{
-            .decls = &[_]TypeInfo.Declaration{},
+            .decls = &.{},
         },
     });
     try testing.expect(Opaque != opaque {});
     try testing.expectEqualSlices(
-        TypeInfo.Declaration,
-        &[_]TypeInfo.Declaration{},
+        Type.Declaration,
+        &.{},
         @typeInfo(Opaque).Opaque.decls,
     );
 }
@@ -240,14 +240,14 @@ fn add(a: i32, b: i32) i32 {
 }
 
 test "Type.ErrorSet" {
-    try testing.expect(@Type(TypeInfo{ .ErrorSet = null }) == anyerror);
+    try testing.expect(@Type(.{ .ErrorSet = null }) == anyerror);
 
     // error sets don't compare equal so just check if they compile
     _ = @Type(@typeInfo(error{}));
     _ = @Type(@typeInfo(error{A}));
     _ = @Type(@typeInfo(error{ A, B, C }));
-    _ = @Type(TypeInfo{
-        .ErrorSet = &[_]TypeInfo.Error{
+    _ = @Type(.{
+        .ErrorSet = &[_]Type.Error{
             .{ .name = "A" },
             .{ .name = "B" },
             .{ .name = "C" },
@@ -260,14 +260,14 @@ test "Type.Struct" {
 
     const A = @Type(@typeInfo(struct { x: u8, y: u32 }));
     const infoA = @typeInfo(A).Struct;
-    try testing.expectEqual(TypeInfo.ContainerLayout.Auto, infoA.layout);
+    try testing.expectEqual(Type.ContainerLayout.Auto, infoA.layout);
     try testing.expectEqualSlices(u8, "x", infoA.fields[0].name);
     try testing.expectEqual(u8, infoA.fields[0].field_type);
     try testing.expectEqual(@as(?*const anyopaque, null), infoA.fields[0].default_value);
     try testing.expectEqualSlices(u8, "y", infoA.fields[1].name);
     try testing.expectEqual(u32, infoA.fields[1].field_type);
     try testing.expectEqual(@as(?*const anyopaque, null), infoA.fields[1].default_value);
-    try testing.expectEqualSlices(TypeInfo.Declaration, &[_]TypeInfo.Declaration{}, infoA.decls);
+    try testing.expectEqualSlices(Type.Declaration, &.{}, infoA.decls);
     try testing.expectEqual(@as(bool, false), infoA.is_tuple);
 
     var a = A{ .x = 0, .y = 1 };
@@ -278,7 +278,7 @@ test "Type.Struct" {
 
     const B = @Type(@typeInfo(extern struct { x: u8, y: u32 = 5 }));
     const infoB = @typeInfo(B).Struct;
-    try testing.expectEqual(TypeInfo.ContainerLayout.Extern, infoB.layout);
+    try testing.expectEqual(Type.ContainerLayout.Extern, infoB.layout);
     try testing.expectEqualSlices(u8, "x", infoB.fields[0].name);
     try testing.expectEqual(u8, infoB.fields[0].field_type);
     try testing.expectEqual(@as(?*const anyopaque, null), infoB.fields[0].default_value);
@@ -290,7 +290,7 @@ test "Type.Struct" {
 
     const C = @Type(@typeInfo(packed struct { x: u8 = 3, y: u32 = 5 }));
     const infoC = @typeInfo(C).Struct;
-    try testing.expectEqual(TypeInfo.ContainerLayout.Packed, infoC.layout);
+    try testing.expectEqual(Type.ContainerLayout.Packed, infoC.layout);
     try testing.expectEqualSlices(u8, "x", infoC.fields[0].name);
     try testing.expectEqual(u8, infoC.fields[0].field_type);
     try testing.expectEqual(@as(u8, 3), @ptrCast(*const u8, infoC.fields[0].default_value.?).*);
@@ -308,11 +308,11 @@ test "Type.Enum" {
         .Enum = .{
             .layout = .Auto,
             .tag_type = u8,
-            .fields = &[_]TypeInfo.EnumField{
+            .fields = &.{
                 .{ .name = "a", .value = 1 },
                 .{ .name = "b", .value = 5 },
             },
-            .decls = &[_]TypeInfo.Declaration{},
+            .decls = &.{},
             .is_exhaustive = true,
         },
     });
@@ -323,11 +323,11 @@ test "Type.Enum" {
         .Enum = .{
             .layout = .Extern,
             .tag_type = u32,
-            .fields = &[_]TypeInfo.EnumField{
+            .fields = &.{
                 .{ .name = "a", .value = 1 },
                 .{ .name = "b", .value = 5 },
             },
-            .decls = &[_]TypeInfo.Declaration{},
+            .decls = &.{},
             .is_exhaustive = false,
         },
     });
@@ -344,11 +344,11 @@ test "Type.Union" {
         .Union = .{
             .layout = .Auto,
             .tag_type = null,
-            .fields = &[_]TypeInfo.UnionField{
+            .fields = &.{
                 .{ .name = "int", .field_type = i32, .alignment = @alignOf(f32) },
                 .{ .name = "float", .field_type = f32, .alignment = @alignOf(f32) },
             },
-            .decls = &[_]TypeInfo.Declaration{},
+            .decls = &.{},
         },
     });
     var untagged = Untagged{ .int = 1 };
@@ -360,11 +360,11 @@ test "Type.Union" {
         .Union = .{
             .layout = .Packed,
             .tag_type = null,
-            .fields = &[_]TypeInfo.UnionField{
+            .fields = &.{
                 .{ .name = "signed", .field_type = i32, .alignment = @alignOf(i32) },
                 .{ .name = "unsigned", .field_type = u32, .alignment = @alignOf(u32) },
             },
-            .decls = &[_]TypeInfo.Declaration{},
+            .decls = &.{},
         },
     });
     var packed_untagged = PackedUntagged{ .signed = -1 };
@@ -375,11 +375,11 @@ test "Type.Union" {
         .Enum = .{
             .layout = .Auto,
             .tag_type = u1,
-            .fields = &[_]TypeInfo.EnumField{
+            .fields = &.{
                 .{ .name = "signed", .value = 0 },
                 .{ .name = "unsigned", .value = 1 },
             },
-            .decls = &[_]TypeInfo.Declaration{},
+            .decls = &.{},
             .is_exhaustive = true,
         },
     });
@@ -387,11 +387,11 @@ test "Type.Union" {
         .Union = .{
             .layout = .Auto,
             .tag_type = Tag,
-            .fields = &[_]TypeInfo.UnionField{
+            .fields = &.{
                 .{ .name = "signed", .field_type = i32, .alignment = @alignOf(i32) },
                 .{ .name = "unsigned", .field_type = u32, .alignment = @alignOf(u32) },
             },
-            .decls = &[_]TypeInfo.Declaration{},
+            .decls = &.{},
         },
     });
     var tagged = Tagged{ .signed = -1 };
@@ -407,10 +407,10 @@ test "Type.Union from Type.Enum" {
         .Enum = .{
             .layout = .Auto,
             .tag_type = u0,
-            .fields = &[_]TypeInfo.EnumField{
+            .fields = &.{
                 .{ .name = "working_as_expected", .value = 0 },
             },
-            .decls = &[_]TypeInfo.Declaration{},
+            .decls = &.{},
             .is_exhaustive = true,
         },
     });
@@ -418,10 +418,10 @@ test "Type.Union from Type.Enum" {
         .Union = .{
             .layout = .Auto,
             .tag_type = Tag,
-            .fields = &[_]TypeInfo.UnionField{
+            .fields = &.{
                 .{ .name = "working_as_expected", .field_type = u32, .alignment = @alignOf(u32) },
             },
-            .decls = &[_]TypeInfo.Declaration{},
+            .decls = &.{},
         },
     });
     _ = T;
@@ -436,10 +436,10 @@ test "Type.Union from regular enum" {
         .Union = .{
             .layout = .Auto,
             .tag_type = E,
-            .fields = &[_]TypeInfo.UnionField{
+            .fields = &.{
                 .{ .name = "working_as_expected", .field_type = u32, .alignment = @alignOf(u32) },
             },
-            .decls = &[_]TypeInfo.Declaration{},
+            .decls = &.{},
         },
     });
     _ = T;
