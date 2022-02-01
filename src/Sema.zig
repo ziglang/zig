@@ -9244,9 +9244,9 @@ fn cmpSelf(
     const resolved_type = sema.typeOf(casted_lhs);
     const runtime_src: LazySrcLoc = src: {
         if (try sema.resolveMaybeUndefVal(block, lhs_src, casted_lhs)) |lhs_val| {
-            if (lhs_val.isUndef()) return sema.addConstUndef(resolved_type);
+            if (lhs_val.isUndef()) return sema.addConstUndef(Type.initTag(.bool));
             if (try sema.resolveMaybeUndefVal(block, rhs_src, casted_rhs)) |rhs_val| {
-                if (rhs_val.isUndef()) return sema.addConstUndef(resolved_type);
+                if (rhs_val.isUndef()) return sema.addConstUndef(Type.initTag(.bool));
 
                 if (lhs_val.compare(op, rhs_val, resolved_type)) {
                     return Air.Inst.Ref.bool_true;
@@ -9265,7 +9265,7 @@ fn cmpSelf(
             // bool eq/neq more efficiently.
             if (resolved_type.zigTypeTag() == .Bool) {
                 if (try sema.resolveMaybeUndefVal(block, rhs_src, casted_rhs)) |rhs_val| {
-                    if (rhs_val.isUndef()) return sema.addConstUndef(resolved_type);
+                    if (rhs_val.isUndef()) return sema.addConstUndef(Type.initTag(.bool));
                     return sema.runtimeBoolCmp(block, op, casted_lhs, rhs_val.toBool(), lhs_src);
                 }
             }
