@@ -164,31 +164,93 @@ const std = @import("std.zig");
 
 pub const errors = @import("crypto/errors.zig");
 
-test "crypto" {
+test {
     const please_windows_dont_oom = @import("builtin").os.tag == .windows;
     if (please_windows_dont_oom) return error.SkipZigTest;
 
-    inline for (std.meta.declarations(@This())) |decl| {
-        switch (decl.data) {
-            .Type => |t| {
-                if (@typeInfo(t) != .ErrorSet) {
-                    std.testing.refAllDecls(t);
-                }
-            },
-            .Var => |v| {
-                _ = v;
-            },
-            .Fn => |f| {
-                _ = f;
-            },
-        }
-    }
+    _ = aead.aegis.Aegis128L;
+    _ = aead.aegis.Aegis256;
 
-    _ = @import("crypto/aegis.zig");
-    _ = @import("crypto/aes_gcm.zig");
-    _ = @import("crypto/aes_ocb.zig");
-    _ = @import("crypto/blake2.zig");
-    _ = @import("crypto/chacha20.zig");
+    _ = aead.aes_gcm.Aes128Gcm;
+    _ = aead.aes_gcm.Aes256Gcm;
+
+    _ = aead.aes_ocb.Aes128Ocb;
+    _ = aead.aes_ocb.Aes256Ocb;
+
+    _ = aead.Gimli;
+
+    _ = aead.chacha_poly.ChaCha20Poly1305;
+    _ = aead.chacha_poly.ChaCha12Poly1305;
+    _ = aead.chacha_poly.ChaCha8Poly1305;
+    _ = aead.chacha_poly.XChaCha20Poly1305;
+    _ = aead.chacha_poly.XChaCha12Poly1305;
+    _ = aead.chacha_poly.XChaCha8Poly1305;
+
+    _ = aead.isap;
+    _ = aead.salsa_poly.XSalsa20Poly1305;
+
+    _ = auth.hmac;
+    _ = auth.siphash;
+
+    _ = core.aes;
+    _ = core.Gimli;
+    _ = core.modes;
+
+    _ = dh.X25519;
+
+    _ = ecc.Curve25519;
+    _ = ecc.Edwards25519;
+    _ = ecc.P256;
+    _ = ecc.Ristretto255;
+
+    _ = hash.blake2;
+    _ = hash.Blake3;
+    _ = hash.Gimli;
+    _ = hash.Md5;
+    _ = hash.Sha1;
+    _ = hash.sha2;
+    _ = hash.sha3;
+
+    _ = kdf.hkdf;
+
+    _ = onetimeauth.Ghash;
+    _ = onetimeauth.Poly1305;
+
+    _ = pwhash.Encoding;
+
+    _ = pwhash.Error;
+    _ = pwhash.HasherError;
+    _ = pwhash.KdfError;
+
+    _ = pwhash.argon2;
+    _ = pwhash.bcrypt;
+    _ = pwhash.scrypt;
+    _ = pwhash.pbkdf2;
+
+    _ = pwhash.phc_format;
+
+    _ = sign.Ed25519;
+
+    _ = stream.chacha.ChaCha20IETF;
+    _ = stream.chacha.ChaCha12IETF;
+    _ = stream.chacha.ChaCha8IETF;
+    _ = stream.chacha.ChaCha20With64BitNonce;
+    _ = stream.chacha.ChaCha12With64BitNonce;
+    _ = stream.chacha.ChaCha8With64BitNonce;
+    _ = stream.chacha.XChaCha20IETF;
+    _ = stream.chacha.XChaCha12IETF;
+    _ = stream.chacha.XChaCha8IETF;
+
+    _ = stream.salsa.Salsa20;
+    _ = stream.salsa.XSalsa20;
+
+    _ = nacl.Box;
+    _ = nacl.SecretBox;
+    _ = nacl.SealedBox;
+
+    _ = utils;
+    _ = random;
+    _ = errors;
 }
 
 test "CSPRNG" {

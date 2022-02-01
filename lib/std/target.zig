@@ -1236,7 +1236,7 @@ pub const Target = struct {
             }
 
             fn allCpusFromDecls(comptime cpus: type) []const *const Cpu.Model {
-                const decls = std.meta.declarations(cpus);
+                const decls = @typeInfo(cpus).Struct.decls;
                 var array: [decls.len]*const Cpu.Model = undefined;
                 for (decls) |decl, i| {
                     array[i] = &@field(cpus, decl.name);
