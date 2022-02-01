@@ -361,6 +361,8 @@ test "std.meta.containerLayout" {
     try testing.expect(containerLayout(U3) == .Extern);
 }
 
+/// Instead of this function, prefer to use e.g. `@TypeInfo(foo).Struct.decls`
+/// directly when you know what kind of type it is.
 pub fn declarations(comptime T: type) []const TypeInfo.Declaration {
     return switch (@typeInfo(T)) {
         .Struct => |info| info.decls,

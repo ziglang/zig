@@ -465,7 +465,7 @@ test {
 /// Given a type, reference all the declarations inside, so that the semantic analyzer sees them.
 pub fn refAllDecls(comptime T: type) void {
     if (!builtin.is_test) return;
-    inline for (std.meta.declarations(T)) |decl| {
+    inline for (comptime std.meta.declarations(T)) |decl| {
         _ = decl;
     }
 }

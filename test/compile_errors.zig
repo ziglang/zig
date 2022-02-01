@@ -1199,12 +1199,6 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:5:22: error: expected type 'fn([*c]u8, ...) callconv(.C) void', found 'fn([*:0]u8, ...) callconv(.C) void'",
     });
 
-    ctx.testErrStage1("dependency loop in top-level decl with @TypeInfo when accessing the decls",
-        \\export const foo = @typeInfo(@This()).Struct.decls;
-    , &[_][]const u8{
-        "tmp.zig:1:20: error: dependency loop detected",
-    });
-
     ctx.objErrStage1("function call assigned to incorrect type",
         \\export fn entry() void {
         \\    var arr: [4]f32 = undefined;

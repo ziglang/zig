@@ -3861,7 +3861,6 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         fn_table_entry->fndef_scope = create_fndef_scope(g, source_node, tld_fn->base.parent_scope, fn_table_entry);
         fn_table_entry->type_entry = get_test_fn_type(g);
         fn_table_entry->body_node = source_node->data.test_decl.body;
-        fn_table_entry->is_test = true;
 
         g->fn_defs.append(fn_table_entry);
         g->test_fns.append(fn_table_entry);

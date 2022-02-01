@@ -171,6 +171,7 @@ pub const TypeId = std.meta.Tag(TypeInfo);
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+/// TODO: rename to `Type` because "info" is redundant.
 pub const TypeInfo = union(enum) {
     Type: void,
     Void: void,
@@ -338,6 +339,7 @@ pub const TypeInfo = union(enum) {
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
+    /// TODO rename to Param and put inside `Fn`.
     pub const FnArg = struct {
         is_generic: bool,
         is_noalias: bool,
@@ -385,28 +387,6 @@ pub const TypeInfo = union(enum) {
     pub const Declaration = struct {
         name: []const u8,
         is_pub: bool,
-        data: Data,
-
-        /// This data structure is used by the Zig language code generation and
-        /// therefore must be kept in sync with the compiler implementation.
-        pub const Data = union(enum) {
-            Type: type,
-            Var: type,
-            Fn: FnDecl,
-
-            /// This data structure is used by the Zig language code generation and
-            /// therefore must be kept in sync with the compiler implementation.
-            pub const FnDecl = struct {
-                fn_type: type,
-                is_noinline: bool,
-                is_var_args: bool,
-                is_extern: bool,
-                is_export: bool,
-                lib_name: ?[]const u8,
-                return_type: type,
-                arg_names: []const []const u8,
-            };
-        };
     };
 };
 
