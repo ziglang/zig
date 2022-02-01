@@ -520,6 +520,137 @@ comptime {
         if (os_tag == .linux) {
             const __aeabi_read_tp = @import("compiler_rt/arm.zig").__aeabi_read_tp;
             @export(__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = linkage });
+
+            const __sync_synchronize = @import("compiler_rt/arm.zig").__sync_synchronize;
+            @export(__sync_synchronize, .{ .name = "__sync_synchronize", .linkage = linkage });
+
+            if (arch.endian() == .Little) {
+                const __sync_val_compare_and_swap_1 = @import("compiler_rt/arm.zig").__sync_val_compare_and_swap_1;
+                @export(__sync_val_compare_and_swap_1, .{ .name = "__sync_val_compare_and_swap_1", .linkage = linkage });
+                const __sync_val_compare_and_swap_2 = @import("compiler_rt/arm.zig").__sync_val_compare_and_swap_2;
+                @export(__sync_val_compare_and_swap_2, .{ .name = "__sync_val_compare_and_swap_2", .linkage = linkage });
+                const __sync_val_compare_and_swap_4 = @import("compiler_rt/arm.zig").__sync_val_compare_and_swap_4;
+                @export(__sync_val_compare_and_swap_4, .{ .name = "__sync_val_compare_and_swap_4", .linkage = linkage });
+
+                const __sync_add_and_fetch_1 = @import("compiler_rt/arm.zig").__sync_add_and_fetch_1;
+                @export(__sync_add_and_fetch_1, .{ .name = "__sync_add_and_fetch_1", .linkage = linkage });
+                const __sync_add_and_fetch_2 = @import("compiler_rt/arm.zig").__sync_add_and_fetch_2;
+                @export(__sync_add_and_fetch_2, .{ .name = "__sync_add_and_fetch_2", .linkage = linkage });
+                const __sync_add_and_fetch_4 = @import("compiler_rt/arm.zig").__sync_add_and_fetch_4;
+                @export(__sync_add_and_fetch_4, .{ .name = "__sync_add_and_fetch_4", .linkage = linkage });
+
+                const __sync_sub_and_fetch_1 = @import("compiler_rt/arm.zig").__sync_sub_and_fetch_1;
+                @export(__sync_sub_and_fetch_1, .{ .name = "__sync_sub_and_fetch_1", .linkage = linkage });
+                const __sync_sub_and_fetch_2 = @import("compiler_rt/arm.zig").__sync_sub_and_fetch_2;
+                @export(__sync_sub_and_fetch_2, .{ .name = "__sync_sub_and_fetch_2", .linkage = linkage });
+                const __sync_sub_and_fetch_4 = @import("compiler_rt/arm.zig").__sync_sub_and_fetch_4;
+                @export(__sync_sub_and_fetch_4, .{ .name = "__sync_sub_and_fetch_4", .linkage = linkage });
+
+                const __sync_or_and_fetch_1 = @import("compiler_rt/arm.zig").__sync_or_and_fetch_1;
+                @export(__sync_or_and_fetch_1, .{ .name = "__sync_or_and_fetch_1", .linkage = linkage });
+                const __sync_or_and_fetch_2 = @import("compiler_rt/arm.zig").__sync_or_and_fetch_2;
+                @export(__sync_or_and_fetch_2, .{ .name = "__sync_or_and_fetch_2", .linkage = linkage });
+                const __sync_or_and_fetch_4 = @import("compiler_rt/arm.zig").__sync_or_and_fetch_4;
+                @export(__sync_or_and_fetch_4, .{ .name = "__sync_or_and_fetch_4", .linkage = linkage });
+
+                const __sync_and_and_fetch_1 = @import("compiler_rt/arm.zig").__sync_and_and_fetch_1;
+                @export(__sync_and_and_fetch_1, .{ .name = "__sync_and_and_fetch_1", .linkage = linkage });
+                const __sync_and_and_fetch_2 = @import("compiler_rt/arm.zig").__sync_and_and_fetch_2;
+                @export(__sync_and_and_fetch_2, .{ .name = "__sync_and_and_fetch_2", .linkage = linkage });
+                const __sync_and_and_fetch_4 = @import("compiler_rt/arm.zig").__sync_and_and_fetch_4;
+                @export(__sync_and_and_fetch_4, .{ .name = "__sync_and_and_fetch_4", .linkage = linkage });
+
+                const __sync_xor_and_fetch_1 = @import("compiler_rt/arm.zig").__sync_xor_and_fetch_1;
+                @export(__sync_xor_and_fetch_1, .{ .name = "__sync_xor_and_fetch_1", .linkage = linkage });
+                const __sync_xor_and_fetch_2 = @import("compiler_rt/arm.zig").__sync_xor_and_fetch_2;
+                @export(__sync_xor_and_fetch_2, .{ .name = "__sync_xor_and_fetch_2", .linkage = linkage });
+                const __sync_xor_and_fetch_4 = @import("compiler_rt/arm.zig").__sync_xor_and_fetch_4;
+                @export(__sync_xor_and_fetch_4, .{ .name = "__sync_xor_and_fetch_4", .linkage = linkage });
+
+                const __sync_nand_and_fetch_1 = @import("compiler_rt/arm.zig").__sync_nand_and_fetch_1;
+                @export(__sync_nand_and_fetch_1, .{ .name = "__sync_nand_and_fetch_1", .linkage = linkage });
+                const __sync_nand_and_fetch_2 = @import("compiler_rt/arm.zig").__sync_nand_and_fetch_2;
+                @export(__sync_nand_and_fetch_2, .{ .name = "__sync_nand_and_fetch_2", .linkage = linkage });
+                const __sync_nand_and_fetch_4 = @import("compiler_rt/arm.zig").__sync_nand_and_fetch_4;
+                @export(__sync_nand_and_fetch_4, .{ .name = "__sync_nand_and_fetch_4", .linkage = linkage });
+
+                const __sync_fetch_and_add_1 = @import("compiler_rt/arm.zig").__sync_fetch_and_add_1;
+                @export(__sync_fetch_and_add_1, .{ .name = "__sync_fetch_and_add_1", .linkage = linkage });
+                const __sync_fetch_and_add_2 = @import("compiler_rt/arm.zig").__sync_fetch_and_add_2;
+                @export(__sync_fetch_and_add_2, .{ .name = "__sync_fetch_and_add_2", .linkage = linkage });
+                const __sync_fetch_and_add_4 = @import("compiler_rt/arm.zig").__sync_fetch_and_add_4;
+                @export(__sync_fetch_and_add_4, .{ .name = "__sync_fetch_and_add_4", .linkage = linkage });
+
+                const __sync_fetch_and_sub_1 = @import("compiler_rt/arm.zig").__sync_fetch_and_sub_1;
+                @export(__sync_fetch_and_sub_1, .{ .name = "__sync_fetch_and_sub_1", .linkage = linkage });
+                const __sync_fetch_and_sub_2 = @import("compiler_rt/arm.zig").__sync_fetch_and_sub_2;
+                @export(__sync_fetch_and_sub_2, .{ .name = "__sync_fetch_and_sub_2", .linkage = linkage });
+                const __sync_fetch_and_sub_4 = @import("compiler_rt/arm.zig").__sync_fetch_and_sub_4;
+                @export(__sync_fetch_and_sub_4, .{ .name = "__sync_fetch_and_sub_4", .linkage = linkage });
+
+                const __sync_fetch_and_or_1 = @import("compiler_rt/arm.zig").__sync_fetch_and_or_1;
+                @export(__sync_fetch_and_or_1, .{ .name = "__sync_fetch_and_or_1", .linkage = linkage });
+                const __sync_fetch_and_or_2 = @import("compiler_rt/arm.zig").__sync_fetch_and_or_2;
+                @export(__sync_fetch_and_or_2, .{ .name = "__sync_fetch_and_or_2", .linkage = linkage });
+                const __sync_fetch_and_or_4 = @import("compiler_rt/arm.zig").__sync_fetch_and_or_4;
+                @export(__sync_fetch_and_or_4, .{ .name = "__sync_fetch_and_or_4", .linkage = linkage });
+
+                const __sync_fetch_and_and_1 = @import("compiler_rt/arm.zig").__sync_fetch_and_and_1;
+                @export(__sync_fetch_and_and_1, .{ .name = "__sync_fetch_and_and_1", .linkage = linkage });
+                const __sync_fetch_and_and_2 = @import("compiler_rt/arm.zig").__sync_fetch_and_and_2;
+                @export(__sync_fetch_and_and_2, .{ .name = "__sync_fetch_and_and_2", .linkage = linkage });
+                const __sync_fetch_and_and_4 = @import("compiler_rt/arm.zig").__sync_fetch_and_and_4;
+                @export(__sync_fetch_and_and_4, .{ .name = "__sync_fetch_and_and_4", .linkage = linkage });
+
+                const __sync_fetch_and_xor_1 = @import("compiler_rt/arm.zig").__sync_fetch_and_xor_1;
+                @export(__sync_fetch_and_xor_1, .{ .name = "__sync_fetch_and_xor_1", .linkage = linkage });
+                const __sync_fetch_and_xor_2 = @import("compiler_rt/arm.zig").__sync_fetch_and_xor_2;
+                @export(__sync_fetch_and_xor_2, .{ .name = "__sync_fetch_and_xor_2", .linkage = linkage });
+                const __sync_fetch_and_xor_4 = @import("compiler_rt/arm.zig").__sync_fetch_and_xor_4;
+                @export(__sync_fetch_and_xor_4, .{ .name = "__sync_fetch_and_xor_4", .linkage = linkage });
+
+                const __sync_fetch_and_nand_1 = @import("compiler_rt/arm.zig").__sync_fetch_and_nand_1;
+                @export(__sync_fetch_and_nand_1, .{ .name = "__sync_fetch_and_nand_1", .linkage = linkage });
+                const __sync_fetch_and_nand_2 = @import("compiler_rt/arm.zig").__sync_fetch_and_nand_2;
+                @export(__sync_fetch_and_nand_2, .{ .name = "__sync_fetch_and_nand_2", .linkage = linkage });
+                const __sync_fetch_and_nand_4 = @import("compiler_rt/arm.zig").__sync_fetch_and_nand_4;
+                @export(__sync_fetch_and_nand_4, .{ .name = "__sync_fetch_and_nand_4", .linkage = linkage });
+
+                const __sync_fetch_and_max_1 = @import("compiler_rt/arm.zig").__sync_fetch_and_max_1;
+                @export(__sync_fetch_and_max_1, .{ .name = "__sync_fetch_and_max_1", .linkage = linkage });
+                const __sync_fetch_and_max_2 = @import("compiler_rt/arm.zig").__sync_fetch_and_max_2;
+                @export(__sync_fetch_and_max_2, .{ .name = "__sync_fetch_and_max_2", .linkage = linkage });
+                const __sync_fetch_and_max_4 = @import("compiler_rt/arm.zig").__sync_fetch_and_max_4;
+                @export(__sync_fetch_and_max_4, .{ .name = "__sync_fetch_and_max_4", .linkage = linkage });
+
+                const __sync_fetch_and_umax_1 = @import("compiler_rt/arm.zig").__sync_fetch_and_umax_1;
+                @export(__sync_fetch_and_umax_1, .{ .name = "__sync_fetch_and_umax_1", .linkage = linkage });
+                const __sync_fetch_and_umax_2 = @import("compiler_rt/arm.zig").__sync_fetch_and_umax_2;
+                @export(__sync_fetch_and_umax_2, .{ .name = "__sync_fetch_and_umax_2", .linkage = linkage });
+                const __sync_fetch_and_umax_4 = @import("compiler_rt/arm.zig").__sync_fetch_and_umax_4;
+                @export(__sync_fetch_and_umax_4, .{ .name = "__sync_fetch_and_umax_4", .linkage = linkage });
+
+                const __sync_fetch_and_min_1 = @import("compiler_rt/arm.zig").__sync_fetch_and_min_1;
+                @export(__sync_fetch_and_min_1, .{ .name = "__sync_fetch_and_min_1", .linkage = linkage });
+                const __sync_fetch_and_min_2 = @import("compiler_rt/arm.zig").__sync_fetch_and_min_2;
+                @export(__sync_fetch_and_min_2, .{ .name = "__sync_fetch_and_min_2", .linkage = linkage });
+                const __sync_fetch_and_min_4 = @import("compiler_rt/arm.zig").__sync_fetch_and_min_4;
+                @export(__sync_fetch_and_min_4, .{ .name = "__sync_fetch_and_min_4", .linkage = linkage });
+
+                const __sync_fetch_and_umin_1 = @import("compiler_rt/arm.zig").__sync_fetch_and_umin_1;
+                @export(__sync_fetch_and_umin_1, .{ .name = "__sync_fetch_and_umin_1", .linkage = linkage });
+                const __sync_fetch_and_umin_2 = @import("compiler_rt/arm.zig").__sync_fetch_and_umin_2;
+                @export(__sync_fetch_and_umin_2, .{ .name = "__sync_fetch_and_umin_2", .linkage = linkage });
+                const __sync_fetch_and_umin_4 = @import("compiler_rt/arm.zig").__sync_fetch_and_umin_4;
+                @export(__sync_fetch_and_umin_4, .{ .name = "__sync_fetch_and_umin_4", .linkage = linkage });
+
+                const __sync_lock_test_and_set_1 = @import("compiler_rt/arm.zig").__sync_lock_test_and_set_1;
+                @export(__sync_lock_test_and_set_1, .{ .name = "__sync_lock_test_and_set_1", .linkage = linkage });
+                const __sync_lock_test_and_set_2 = @import("compiler_rt/arm.zig").__sync_lock_test_and_set_2;
+                @export(__sync_lock_test_and_set_2, .{ .name = "__sync_lock_test_and_set_2", .linkage = linkage });
+                const __sync_lock_test_and_set_4 = @import("compiler_rt/arm.zig").__sync_lock_test_and_set_4;
+                @export(__sync_lock_test_and_set_4, .{ .name = "__sync_lock_test_and_set_4", .linkage = linkage });
+            }
         }
 
         const __aeabi_f2d = @import("compiler_rt/extendXfYf2.zig").__aeabi_f2d;

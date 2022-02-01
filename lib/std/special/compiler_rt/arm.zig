@@ -1,4 +1,5 @@
 // ARM specific builtins
+const std = @import("std");
 const builtin = @import("builtin");
 
 const __divmodsi4 = @import("int.zig").__divmodsi4;
@@ -113,3 +114,227 @@ pub fn __aeabi_ldivmod() callconv(.Naked) void {
         ::: "memory");
     unreachable;
 }
+
+// atomic operations for ARMv5 and lower
+inline fn __kuser_cmpxchg(old_value: u32, new_value: u32, ptr: *u32) bool {
+    @setRuntimeSafety(false);
+    return @intToPtr(fn (u32, u32, *u32) callconv(.C) u32, 0xffff0fc0)(old_value, new_value, ptr) == 0;
+}
+
+inline fn __kuser_memory_barrier() void {
+    @setRuntimeSafety(false);
+    return @intToPtr(fn () callconv(.C) void, 0xffff0fc0)();
+}
+
+fn generateBitMask(comptime T: type) u32 {
+    return std.math.maxInt(std.meta.Int(.unsigned, @bitSizeOf(T)));
+}
+
+fn generateShift(comptime T: type) comptime_int {
+    _ = T;
+    return 0; // TODO: big endian
+}
+
+fn TypeToUnsigned(comptime T: type) type {
+    return std.meta.Int(.unsigned, @bitSizeOf(T));
+}
+
+fn extractValue(comptime T: type, value: u32) T {
+    const mask = generateBitMask(T);
+    const shift = generateShift(T);
+
+    return @bitCast(T, @truncate(TypeToUnsigned(T), (value >> shift) & mask));
+}
+
+fn injectValue(comptime T: type, oldValue: u32, newValue: T) u32 {
+    const mask = generateBitMask(T);
+    const shift = generateShift(T);
+
+    return (oldValue & ~(mask << shift)) | (@as(u32, @bitCast(TypeToUnsigned(T), newValue)) << shift);
+}
+
+fn atomicCmpxchg(comptime T: type) fn (*T, T, T) callconv(.C) T {
+    return struct {
+        pub fn f(ptr: *T, expected_value: T, new_value: T) callconv(.C) T {
+            @setRuntimeSafety(false);
+
+            switch (@sizeOf(T)) {
+                // shortcut for 32-bit types
+                4 => {
+                    while (true) {
+                        const old_value_32 = @atomicLoad(u32, ptr, .Unordered);
+                        if (old_value_32 != expected_value) {
+                            return old_value_32;
+                        }
+                        if (__kuser_cmpxchg(old_value_32, new_value, ptr)) return expected_value;
+                    }
+                },
+                1, 2 => {
+                    const aligned_ptr: *u32 = @intToPtr(*u32, @ptrToInt(ptr) & (0xffffffff - 3));
+
+                    while (true) {
+                        const old_value_32 = @atomicLoad(u32, aligned_ptr, .Unordered);
+                        const old_value = extractValue(T, old_value_32);
+                        if (old_value != expected_value) {
+                            return old_value;
+                        }
+                        const new_value_32 = injectValue(T, old_value, new_value);
+                        if (__kuser_cmpxchg(old_value_32, new_value_32, aligned_ptr)) {
+                            return expected_value;
+                        }
+                    }
+                },
+                else => @compileError("atomicCmpxchg support only 8, 16 and 32 bits integers"),
+            }
+        }
+    }.f;
+}
+
+fn atomicRmw(comptime T: type, comptime op: anytype, comptime return_current_value: bool) fn (*T, T) callconv(.C) T {
+    return struct {
+        const UnsignedType = TypeToUnsigned(T);
+        fn f(ptr: *T, value: T) callconv(.C) T {
+            @setRuntimeSafety(false);
+            switch (@sizeOf(T)) {
+                // shortcut for 32-bit types
+                4 => {
+                    while (true) {
+                        const old = ptr.*;
+                        const new = @call(.{ .modifier = .always_inline }, op, .{ T, old, value });
+                        if (__kuser_cmpxchg(@bitCast(UnsignedType, old), @bitCast(UnsignedType, new), @ptrCast(*UnsignedType, ptr))) return old;
+                    }
+                },
+                1, 2 => {
+                    const aligned_ptr: *u32 = @intToPtr(*u32, @ptrToInt(ptr) & (0xffffffff - 3));
+
+                    while (true) {
+                        const current_value_32 = @atomicLoad(u32, aligned_ptr, .Unordered);
+                        const current_value = extractValue(T, current_value_32);
+                        const new_value = @call(.{ .modifier = .always_inline }, op, .{ T, current_value, value });
+                        const new_value_32 = injectValue(T, current_value_32, new_value);
+                        if (__kuser_cmpxchg(current_value_32, new_value_32, aligned_ptr)) {
+                            return if (!return_current_value)
+                                current_value
+                            else
+                                new_value;
+                        }
+                    }
+                },
+                else => @compileError("atomicRmw support only 8, 16 and 32 bits integers"),
+            }
+        }
+    }.f;
+}
+
+inline fn add(comptime T: type, a: T, b: T) T {
+    return a + b;
+}
+
+inline fn sub(comptime T: type, a: T, b: T) T {
+    return a + b;
+}
+
+inline fn bitwiseAnd(comptime T: type, a: T, b: T) T {
+    return a & b;
+}
+
+inline fn bitwiseOr(comptime T: type, a: T, b: T) T {
+    return a | b;
+}
+
+inline fn bitwiseXor(comptime T: type, a: T, b: T) T {
+    return a ^ b;
+}
+
+inline fn bitwiseNand(comptime T: type, a: T, b: T) T {
+    return ~a & b;
+}
+
+inline fn min(comptime T: type, a: T, b: T) T {
+    return if (a < b) a else b;
+}
+
+inline fn max(comptime T: type, a: T, b: T) T {
+    return if (a > b) a else b;
+}
+
+inline fn set(comptime T: type, _: T, b: T) T {
+    return b;
+}
+
+pub fn __sync_synchronize() callconv(.C) void {
+    __kuser_memory_barrier();
+}
+
+// TODO: __type_bool_compare_and_swap
+pub const __sync_val_compare_and_swap_1 = atomicCmpxchg(u8);
+pub const __sync_val_compare_and_swap_2 = atomicCmpxchg(u16);
+pub const __sync_val_compare_and_swap_4 = atomicCmpxchg(u32);
+
+pub const __sync_add_and_fetch_1 = atomicRmw(u8, add, false);
+pub const __sync_add_and_fetch_2 = atomicRmw(u16, add, false);
+pub const __sync_add_and_fetch_4 = atomicRmw(u32, add, false);
+
+pub const __sync_sub_and_fetch_1 = atomicRmw(u8, sub, false);
+pub const __sync_sub_and_fetch_2 = atomicRmw(u16, sub, false);
+pub const __sync_sub_and_fetch_4 = atomicRmw(u32, sub, false);
+
+pub const __sync_or_and_fetch_1 = atomicRmw(u8, bitwiseOr, false);
+pub const __sync_or_and_fetch_2 = atomicRmw(u16, bitwiseOr, false);
+pub const __sync_or_and_fetch_4 = atomicRmw(u32, bitwiseOr, false);
+
+pub const __sync_and_and_fetch_1 = atomicRmw(u8, bitwiseAnd, false);
+pub const __sync_and_and_fetch_2 = atomicRmw(u16, bitwiseAnd, false);
+pub const __sync_and_and_fetch_4 = atomicRmw(u32, bitwiseAnd, false);
+
+pub const __sync_xor_and_fetch_1 = atomicRmw(u8, bitwiseXor, false);
+pub const __sync_xor_and_fetch_2 = atomicRmw(u16, bitwiseXor, false);
+pub const __sync_xor_and_fetch_4 = atomicRmw(u32, bitwiseXor, false);
+
+pub const __sync_nand_and_fetch_1 = atomicRmw(u8, bitwiseNand, false);
+pub const __sync_nand_and_fetch_2 = atomicRmw(u16, bitwiseNand, false);
+pub const __sync_nand_and_fetch_4 = atomicRmw(u32, bitwiseNand, false);
+
+pub const __sync_fetch_and_add_1 = atomicRmw(u8, add, true);
+pub const __sync_fetch_and_add_2 = atomicRmw(u16, add, true);
+pub const __sync_fetch_and_add_4 = atomicRmw(u32, add, true);
+
+pub const __sync_fetch_and_sub_1 = atomicRmw(u8, sub, true);
+pub const __sync_fetch_and_sub_2 = atomicRmw(u16, sub, true);
+pub const __sync_fetch_and_sub_4 = atomicRmw(u32, sub, true);
+
+pub const __sync_fetch_and_or_1 = atomicRmw(u8, bitwiseOr, true);
+pub const __sync_fetch_and_or_2 = atomicRmw(u16, bitwiseOr, true);
+pub const __sync_fetch_and_or_4 = atomicRmw(u32, bitwiseOr, true);
+
+pub const __sync_fetch_and_and_1 = atomicRmw(u8, bitwiseAnd, true);
+pub const __sync_fetch_and_and_2 = atomicRmw(u16, bitwiseAnd, true);
+pub const __sync_fetch_and_and_4 = atomicRmw(u32, bitwiseAnd, true);
+
+pub const __sync_fetch_and_xor_1 = atomicRmw(u8, bitwiseXor, true);
+pub const __sync_fetch_and_xor_2 = atomicRmw(u16, bitwiseXor, true);
+pub const __sync_fetch_and_xor_4 = atomicRmw(u32, bitwiseXor, true);
+
+pub const __sync_fetch_and_nand_1 = atomicRmw(u8, bitwiseNand, true);
+pub const __sync_fetch_and_nand_2 = atomicRmw(u16, bitwiseNand, true);
+pub const __sync_fetch_and_nand_4 = atomicRmw(u32, bitwiseNand, true);
+
+pub const __sync_fetch_and_max_1 = atomicRmw(i8, max, true);
+pub const __sync_fetch_and_max_2 = atomicRmw(i16, max, true);
+pub const __sync_fetch_and_max_4 = atomicRmw(i32, max, true);
+
+pub const __sync_fetch_and_umax_1 = atomicRmw(u8, max, true);
+pub const __sync_fetch_and_umax_2 = atomicRmw(u16, max, true);
+pub const __sync_fetch_and_umax_4 = atomicRmw(u32, max, true);
+
+pub const __sync_fetch_and_min_1 = atomicRmw(i8, min, true);
+pub const __sync_fetch_and_min_2 = atomicRmw(i16, min, true);
+pub const __sync_fetch_and_min_4 = atomicRmw(i32, min, true);
+
+pub const __sync_fetch_and_umin_1 = atomicRmw(u8, min, true);
+pub const __sync_fetch_and_umin_2 = atomicRmw(u16, min, true);
+pub const __sync_fetch_and_umin_4 = atomicRmw(u32, min, true);
+
+pub const __sync_lock_test_and_set_1 = atomicRmw(u8, set, true);
+pub const __sync_lock_test_and_set_2 = atomicRmw(u16, set, true);
+pub const __sync_lock_test_and_set_4 = atomicRmw(u32, set, true);
