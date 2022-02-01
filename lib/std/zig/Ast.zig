@@ -1961,7 +1961,7 @@ fn fullPtrType(tree: Ast, info: full.PtrType.Components) full.PtrType {
     const token_tags = tree.tokens.items(.tag);
     // TODO: looks like stage1 isn't quite smart enough to handle enum
     // literals in some places here
-    const Size = std.builtin.TypeInfo.Pointer.Size;
+    const Size = std.builtin.Type.Pointer.Size;
     const size: Size = switch (token_tags[info.main_token]) {
         .asterisk,
         .asterisk_asterisk,
@@ -2392,7 +2392,7 @@ pub const full = struct {
     };
 
     pub const PtrType = struct {
-        size: std.builtin.TypeInfo.Pointer.Size,
+        size: std.builtin.Type.Pointer.Size,
         allowzero_token: ?TokenIndex,
         const_token: ?TokenIndex,
         volatile_token: ?TokenIndex,

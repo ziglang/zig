@@ -138,11 +138,10 @@ const AggregateContainerType = enum(u1) { object, array };
 fn AggregateContainerStack(comptime n: usize) type {
     return struct {
         const Self = @This();
-        const TypeInfo = std.builtin.TypeInfo;
 
         const element_bitcount = 8 * @sizeOf(usize);
         const element_count = n / element_bitcount;
-        const ElementType = @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .unsigned, .bits = element_bitcount } });
+        const ElementType = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = element_bitcount } });
         const ElementShiftAmountType = std.math.Log2Int(ElementType);
 
         comptime {

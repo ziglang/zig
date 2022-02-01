@@ -10068,7 +10068,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const ty = try sema.resolveType(block, src, inst_data.operand);
-    const type_info_ty = try sema.getBuiltinType(block, src, "TypeInfo");
+    const type_info_ty = try sema.getBuiltinType(block, src, "Type");
     const target = sema.mod.getTarget();
 
     switch (ty.zigTypeTag()) {
@@ -10413,7 +10413,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :v try Value.Tag.opt_payload.create(sema.arena, slice_val);
             } else Value.@"null";
 
-            // Construct TypeInfo{ .ErrorSet = errors_val }
+            // Construct Type{ .ErrorSet = errors_val }
             return sema.addConstant(
                 type_info_ty,
                 try Value.Tag.@"union".create(sema.arena, .{
@@ -10516,7 +10516,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 // layout: ContainerLayout,
                 try Value.Tag.enum_field_index.create(
                     sema.arena,
-                    @enumToInt(std.builtin.TypeInfo.ContainerLayout.Auto),
+                    @enumToInt(std.builtin.Type.ContainerLayout.Auto),
                 ),
 
                 // tag_type: type,
@@ -12186,7 +12186,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const type_info_ty = try sema.resolveBuiltinTypeFields(block, src, "TypeInfo");
+    const type_info_ty = try sema.resolveBuiltinTypeFields(block, src, "Type");
     const uncasted_operand = sema.resolveInst(inst_data.operand);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const type_info = try sema.coerce(block, type_info_ty, uncasted_operand, operand_src);
@@ -12265,7 +12265,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             var buffer: Value.ToTypeBuffer = undefined;
             const child_ty = child_val.toType(&buffer);
 
-            const ptr_size = size_val.toEnum(std.builtin.TypeInfo.Pointer.Size);
+            const ptr_size = size_val.toEnum(std.builtin.Type.Pointer.Size);
 
             var actual_sentinel: ?Value = null;
             if (!sentinel_val.isNull()) {
@@ -18850,7 +18850,7 @@ fn resolveTypeFields(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) Comp
             try sema.resolveTypeFieldsUnion(block, src, ty, union_obj);
             return ty;
         },
-        .type_info => return sema.resolveBuiltinTypeFields(block, src, "TypeInfo"),
+        .type_info => return sema.resolveBuiltinTypeFields(block, src, "Type"),
         .extern_options => return sema.resolveBuiltinTypeFields(block, src, "ExternOptions"),
         .export_options => return sema.resolveBuiltinTypeFields(block, src, "ExportOptions"),
         .atomic_order => return sema.resolveBuiltinTypeFields(block, src, "AtomicOrder"),

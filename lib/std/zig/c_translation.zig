@@ -88,7 +88,7 @@ fn castToPtr(comptime DestType: type, comptime SourceType: type, target: anytype
     return @as(DestType, target);
 }
 
-fn ptrInfo(comptime PtrType: type) std.builtin.TypeInfo.Pointer {
+fn ptrInfo(comptime PtrType: type) std.builtin.Type.Pointer {
     return switch (@typeInfo(PtrType)) {
         .Optional => |opt_info| @typeInfo(opt_info.child).Pointer,
         .Pointer => |ptr_info| ptr_info,

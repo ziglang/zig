@@ -174,12 +174,14 @@ pub const SourceLocation = struct {
     column: u32,
 };
 
-pub const TypeId = std.meta.Tag(TypeInfo);
+pub const TypeId = std.meta.Tag(Type);
+
+/// TODO deprecated, use `Type`
+pub const TypeInfo = Type;
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-/// TODO: rename to `Type` because "info" is redundant.
-pub const TypeInfo = union(enum) {
+pub const Type = union(enum) {
     Type: void,
     Void: void,
     Bool: void,
