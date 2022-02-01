@@ -408,7 +408,7 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
-    inline for (meta.declarations(std.zig.c_builtins)) |decl| {
+    inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
         if (decl.is_pub) {
             const builtin = try Tag.pub_var_simple.create(context.arena, .{
                 .name = decl.name,
@@ -2009,7 +2009,7 @@ fn transImplicitCastExpr(
 }
 
 fn isBuiltinDefined(name: []const u8) bool {
-    inline for (meta.declarations(std.zig.c_builtins)) |decl| {
+    inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
         if (!decl.is_pub) continue;
         if (std.mem.eql(u8, name, decl.name)) return true;
     }

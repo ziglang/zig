@@ -17934,7 +17934,6 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, AstNode *source_node, ZigVa
 
     ensure_field_index(type_info_declaration_type, "name", 0);
     ensure_field_index(type_info_declaration_type, "is_pub", 1);
-    ensure_field_index(type_info_declaration_type, "data", 2);
 
     if (!resolve_types) {
         ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, type_info_declaration_type,
@@ -17954,60 +17953,26 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, AstNode *source_node, ZigVa
         return ErrorNone;
     }
 
-    ZigType *type_info_declaration_data_type = ir_type_info_get_type(ira, "Data", type_info_declaration_type);
-    if ((err = type_resolve(ira->codegen, type_info_declaration_data_type, ResolveStatusSizeKnown)))
-        return err;
-
-    ZigType *type_info_fn_decl_type = ir_type_info_get_type(ira, "FnDecl", type_info_declaration_data_type);
-    if ((err = type_resolve(ira->codegen, type_info_fn_decl_type, ResolveStatusSizeKnown)))
-        return err;
-
     resolve_container_usingnamespace_decls(ira->codegen, decls_scope);
 
-    // The unresolved declarations are collected in a separate queue to avoid
-    // modifying decl_table while iterating over it
-    ZigList<Tld*> resolve_decl_queue{};
-
+    // Loop through our declarations once to figure out how many declarations
+    // we will generate info for.
+    int declaration_count = 0;
     auto decl_it = decls_scope->decl_table.entry_iterator();
     decltype(decls_scope->decl_table)::Entry *curr_entry = nullptr;
-    while ((curr_entry = decl_it.next()) != nullptr) {
-        if (curr_entry->value->resolution == TldResolutionInvalid) {
-            return ErrorSemanticAnalyzeFail;
-        }
-
-        if (curr_entry->value->resolution == TldResolutionResolving) {
-            ir_error_dependency_loop(ira, source_node);
-            return ErrorSemanticAnalyzeFail;
-        }
-
-        // If the declaration is unresolved, force it to be resolved again.
-        if (curr_entry->value->resolution == TldResolutionUnresolved)
-            resolve_decl_queue.append(curr_entry->value);
-    }
-
-    for (size_t i = 0; i < resolve_decl_queue.length; i++) {
-        Tld *decl = resolve_decl_queue.at(i);
-        resolve_top_level_decl(ira->codegen, decl, decl->source_node, false);
-        if (decl->resolution == TldResolutionInvalid) {
-            return ErrorSemanticAnalyzeFail;
-        }
-    }
-
-    resolve_decl_queue.deinit();
-
-    // Loop through our declarations once to figure out how many declarations we will generate info for.
-    int declaration_count = 0;
-    decl_it = decls_scope->decl_table.entry_iterator();
     while ((curr_entry = decl_it.next()) != nullptr) {
         // Skip comptime blocks and test functions.
         if (curr_entry->value->id == TldIdCompTime)
             continue;
 
-        if (curr_entry->value->id == TldIdFn) {
-            ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
-            if (fn_entry->is_test)
-                continue;
+        if (curr_entry->value->id == TldIdFn &&
+            curr_entry->value->source_node->type == NodeTypeTestDecl)
+        {
+            continue;
         }
+
+        if (curr_entry->value->resolution == TldResolutionInvalid)
+            return ErrorSemanticAnalyzeFail;
 
         declaration_count += 1;
     }
@@ -18027,10 +17992,11 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, AstNode *source_node, ZigVa
         // Skip comptime blocks and test functions.
         if (curr_entry->value->id == TldIdCompTime) {
             continue;
-        } else if (curr_entry->value->id == TldIdFn) {
-            ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
-            if (fn_entry->is_test)
-                continue;
+        }
+        if (curr_entry->value->id == TldIdFn &&
+            curr_entry->value->source_node->type == NodeTypeTestDecl)
+        {
+            continue;
         }
 
         ZigValue *declaration_val = &declaration_array->data.x_array.data.s_none.elements[declaration_index];
@@ -18038,143 +18004,12 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, AstNode *source_node, ZigVa
         declaration_val->special = ConstValSpecialStatic;
         declaration_val->type = type_info_declaration_type;
 
-        ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 3);
+        ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 2);
         ZigValue *name = create_const_str_lit(ira->codegen, curr_entry->key)->data.x_ptr.data.ref.pointee;
         init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(curr_entry->key), true, nullptr);
         inner_fields[1]->special = ConstValSpecialStatic;
         inner_fields[1]->type = ira->codegen->builtin_types.entry_bool;
         inner_fields[1]->data.x_bool = curr_entry->value->visib_mod == VisibModPub;
-        inner_fields[2]->special = ConstValSpecialStatic;
-        inner_fields[2]->type = type_info_declaration_data_type;
-        inner_fields[2]->parent.id = ConstParentIdStruct;
-        inner_fields[2]->parent.data.p_struct.struct_val = declaration_val;
-        inner_fields[2]->parent.data.p_struct.field_index = 1;
-
-        switch (curr_entry->value->id) {
-            case TldIdVar:
-                {
-                    ZigVar *var = ((TldVar *)curr_entry->value)->var;
-                    assert(var != nullptr);
-
-                    if ((err = type_resolve(ira->codegen, var->const_value->type, ResolveStatusSizeKnown)))
-                        return ErrorSemanticAnalyzeFail;
-
-                    if (var->const_value->type->id == ZigTypeIdMetaType) {
-                        // We have a variable of type 'type', so it's actually a type declaration.
-                        // 0: Data.Type: type
-                        bigint_init_unsigned(&inner_fields[2]->data.x_union.tag, 0);
-                        inner_fields[2]->data.x_union.payload = var->const_value;
-                    } else {
-                        // We have a variable of another type, so we store the type of the variable.
-                        // 1: Data.Var: type
-                        bigint_init_unsigned(&inner_fields[2]->data.x_union.tag, 1);
-
-                        ZigValue *payload = ira->codegen->pass1_arena->create<ZigValue>();
-                        payload->special = ConstValSpecialStatic;
-                        payload->type = ira->codegen->builtin_types.entry_type;
-                        payload->data.x_type = var->const_value->type;
-
-                        inner_fields[2]->data.x_union.payload = payload;
-                    }
-
-                    break;
-                }
-            case TldIdFn:
-                {
-                    // 2: Data.Fn: Data.FnDecl
-                    bigint_init_unsigned(&inner_fields[2]->data.x_union.tag, 2);
-
-                    ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
-                    assert(!fn_entry->is_test);
-                    assert(fn_entry->type_entry != nullptr);
-
-                    AstNodeFnProto *fn_node = &fn_entry->proto_node->data.fn_proto;
-
-                    ZigValue *fn_decl_val = ira->codegen->pass1_arena->create<ZigValue>();
-                    fn_decl_val->special = ConstValSpecialStatic;
-                    fn_decl_val->type = type_info_fn_decl_type;
-                    fn_decl_val->parent.id = ConstParentIdUnion;
-                    fn_decl_val->parent.data.p_union.union_val = inner_fields[2];
-
-                    ZigValue **fn_decl_fields = alloc_const_vals_ptrs(ira->codegen, 9);
-                    fn_decl_val->data.x_struct.fields = fn_decl_fields;
-
-                    // fn_type: type
-                    ensure_field_index(fn_decl_val->type, "fn_type", 0);
-                    fn_decl_fields[0]->special = ConstValSpecialStatic;
-                    fn_decl_fields[0]->type = ira->codegen->builtin_types.entry_type;
-                    fn_decl_fields[0]->data.x_type = fn_entry->type_entry;
-                    // is_noinline: bool
-                    ensure_field_index(fn_decl_val->type, "is_noinline", 1);
-                    fn_decl_fields[1]->special = ConstValSpecialStatic;
-                    fn_decl_fields[1]->type = ira->codegen->builtin_types.entry_bool;
-                    fn_decl_fields[1]->data.x_bool = fn_entry->is_noinline;
-                    // is_var_args: bool
-                    ensure_field_index(fn_decl_val->type, "is_var_args", 2);
-                    bool is_varargs = fn_node->is_var_args;
-                    fn_decl_fields[2]->special = ConstValSpecialStatic;
-                    fn_decl_fields[2]->type = ira->codegen->builtin_types.entry_bool;
-                    fn_decl_fields[2]->data.x_bool = is_varargs;
-                    // is_extern: bool
-                    ensure_field_index(fn_decl_val->type, "is_extern", 3);
-                    fn_decl_fields[3]->special = ConstValSpecialStatic;
-                    fn_decl_fields[3]->type = ira->codegen->builtin_types.entry_bool;
-                    fn_decl_fields[3]->data.x_bool = fn_node->is_extern;
-                    // is_export: bool
-                    ensure_field_index(fn_decl_val->type, "is_export", 4);
-                    fn_decl_fields[4]->special = ConstValSpecialStatic;
-                    fn_decl_fields[4]->type = ira->codegen->builtin_types.entry_bool;
-                    fn_decl_fields[4]->data.x_bool = fn_node->is_export;
-                    // lib_name: ?[]const u8
-                    ensure_field_index(fn_decl_val->type, "lib_name", 5);
-                    fn_decl_fields[5]->special = ConstValSpecialStatic;
-                    ZigType *u8_ptr = get_pointer_to_type_extra(
-                        ira->codegen, ira->codegen->builtin_types.entry_u8,
-                        true, false, PtrLenUnknown,
-                        0, 0, 0, false);
-                    fn_decl_fields[5]->type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
-                    if (fn_node->is_extern && fn_node->lib_name != nullptr && buf_len(fn_node->lib_name) > 0) {
-                        ZigValue *slice_val = ira->codegen->pass1_arena->create<ZigValue>();
-                        ZigValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name)->data.x_ptr.data.ref.pointee;
-                        init_const_slice(ira->codegen, slice_val, lib_name, 0, buf_len(fn_node->lib_name), true, nullptr);
-                        set_optional_payload(fn_decl_fields[5], slice_val);
-                    } else {
-                        set_optional_payload(fn_decl_fields[5], nullptr);
-                    }
-                    // return_type: type
-                    ensure_field_index(fn_decl_val->type, "return_type", 6);
-                    fn_decl_fields[6]->special = ConstValSpecialStatic;
-                    fn_decl_fields[6]->type = ira->codegen->builtin_types.entry_type;
-                    fn_decl_fields[6]->data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
-                    // arg_names: [][] const u8
-                    ensure_field_index(fn_decl_val->type, "arg_names", 7);
-                    size_t fn_arg_count = fn_entry->variable_list.length;
-                    ZigValue *fn_arg_name_array = ira->codegen->pass1_arena->create<ZigValue>();
-                    fn_arg_name_array->special = ConstValSpecialStatic;
-                    fn_arg_name_array->type = get_array_type(ira->codegen,
-                            get_slice_type(ira->codegen, u8_ptr), fn_arg_count, nullptr);
-                    fn_arg_name_array->data.x_array.special = ConstArraySpecialNone;
-                    fn_arg_name_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(fn_arg_count);
-
-                    init_const_slice(ira->codegen, fn_decl_fields[7], fn_arg_name_array, 0, fn_arg_count, false, nullptr);
-
-                    for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++) {
-                        ZigVar *arg_var = fn_entry->variable_list.at(fn_arg_index);
-                        ZigValue *fn_arg_name_val = &fn_arg_name_array->data.x_array.data.s_none.elements[fn_arg_index];
-                        ZigValue *arg_name = create_const_str_lit(ira->codegen,
-                                buf_create_from_str(arg_var->name))->data.x_ptr.data.ref.pointee;
-                        init_const_slice(ira->codegen, fn_arg_name_val, arg_name, 0, strlen(arg_var->name), true, nullptr);
-                        fn_arg_name_val->parent.id = ConstParentIdArray;
-                        fn_arg_name_val->parent.data.p_array.array_val = fn_arg_name_array;
-                        fn_arg_name_val->parent.data.p_array.elem_index = fn_arg_index;
-                    }
-
-                    inner_fields[2]->data.x_union.payload = fn_decl_val;
-                    break;
-                }
-            default:
-                zig_unreachable();
-        }
 
         declaration_val->data.x_struct.fields = inner_fields;
         declaration_index += 1;

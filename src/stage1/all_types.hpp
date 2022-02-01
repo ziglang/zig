@@ -1713,9 +1713,12 @@ struct ZigFn {
 
     bool calls_or_awaits_errorable_fn;
     bool is_cold;
-    bool is_test;
     bool is_noinline;
 };
+
+static inline bool fn_is_test(const ZigFn *fn) {
+    return fn->proto_node->type == NodeTypeTestDecl;
+}
 
 uint32_t fn_table_entry_hash(ZigFn*);
 bool fn_table_entry_eql(ZigFn *a, ZigFn *b);
