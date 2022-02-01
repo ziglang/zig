@@ -41,10 +41,28 @@ pub fn __aeabi_unwind_cpp_pr2() callconv(.C) void {}
 // This function can only clobber r0 according to the ABI
 pub fn __aeabi_read_tp() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    asm volatile (
-        \\ mrc p15, 0, r0, c13, c0, 3
-        \\ bx lr
-    );
+
+    // for thumb2, ARMv2, ARMv3, ARMv4 and ARMv5 use the kuser_get_tls linux helper which is at address 0xffff0fe0
+    if (comptime builtin.cpu.arch.isThumb() and std.Target.arm.featureSetHas(builtin.cpu.features, .thumb2)) {
+        asm volatile (
+            \\ movt r0, #0xffff
+            \\ movw r0, #0x0fe0
+            \\ bx r0
+        );
+    } else if (comptime builtin.cpu.arch.isARM() and
+        std.Target.arm.featureSetHasAny(builtin.cpu.features, .{ .v2, .v2a, .v3, .v3m, .v4, .v4t, .v5t, .v5te, .v5tej, .v6, .v6j, .v6m, .v6sm, .v6t2 }))
+    {
+        asm volatile (
+            \\ mov r0, #0xffff0fff
+            \\ sub pc, r0, #0x1f
+        );
+    } else {
+        // TODO: checks if the target support cp15 register and move this to the beginning
+        asm volatile (
+            \\ mrc p15, 0, r0, c13, c0, 3
+            \\ bx lr
+        );
+    }
     unreachable;
 }
 

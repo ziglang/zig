@@ -384,18 +384,6 @@ fn posixCallMainAndExit() noreturn {
             std.os.linux.pie.relocate(phdrs);
         }
 
-        // ARMv6 targets (and earlier) have no support for TLS in hardware.
-        // FIXME: Elide the check for targets >= ARMv7 when the target feature API
-        // becomes less verbose (and more usable).
-        if (comptime native_arch.isARM()) {
-            if (at_hwcap & std.os.linux.HWCAP.TLS == 0) {
-                // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
-                // For the time being use a simple abort instead of a @panic call to
-                // keep the binary bloat under control.
-                std.os.abort();
-            }
-        }
-
         // Initialize the TLS area.
         std.os.linux.tls.initStaticTLS(phdrs);
 
