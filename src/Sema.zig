@@ -15771,6 +15771,13 @@ fn cmpNumeric(
                 if (lhs_val.isUndef() or rhs_val.isUndef()) {
                     return sema.addConstUndef(Type.initTag(.bool));
                 }
+                if (lhs_val.isNan() or rhs_val.isNan()) {
+                    if(op == std.math.CompareOperator.neq) {
+                        return Air.Inst.Ref.bool_true;
+                    } else {
+                        return Air.Inst.Ref.bool_false;
+                    }
+                }
                 if (Value.compareHetero(lhs_val, op, rhs_val)) {
                     return Air.Inst.Ref.bool_true;
                 } else {
