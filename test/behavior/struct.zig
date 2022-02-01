@@ -18,6 +18,39 @@ test "top level fields" {
     try expect(@as(i32, 1235) == instance.top_level_field);
 }
 
+const StructWithFields = struct {
+    a: u8,
+    b: u32,
+    c: u64,
+    d: u32,
+
+    fn first(self: *const StructWithFields) u8 {
+        return self.a;
+    }
+
+    fn second(self: *const StructWithFields) u32 {
+        return self.b;
+    }
+
+    fn third(self: *const StructWithFields) u64 {
+        return self.c;
+    }
+
+    fn fourth(self: *const StructWithFields) u32 {
+        return self.d;
+    }
+};
+
+test "non-packed struct has fields padded out to the required alignment" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const foo = StructWithFields{ .a = 5, .b = 1, .c = 10, .d = 2 };
+    try expect(foo.first() == 5);
+    try expect(foo.second() == 1);
+    try expect(foo.third() == 10);
+    try expect(foo.fourth() == 2);
+}
+
 const StructWithNoFields = struct {
     fn add(a: i32, b: i32) i32 {
         return a + b;

@@ -1801,13 +1801,12 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
     const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
     const struct_field_ty = struct_ty.structFieldType(index);
     const struct_field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
-    const offset_to_field = struct_size - struct_field_offset - struct_field_size;
 
     const dst_mcv: MCValue = result: {
         switch (mcv) {
             .stack_offset => {
                 const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
-                    .immediate = offset_to_field,
+                    .immediate = struct_field_offset,
                 });
                 self.register_manager.freezeRegs(&.{offset_reg});
                 defer self.register_manager.unfreezeRegs(&.{offset_reg});
@@ -1817,12 +1816,13 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
                 break :result dst_mcv;
             },
             .ptr_stack_offset => |off| {
+                const offset_to_field = struct_size - struct_field_offset - struct_field_size;
                 const ptr_stack_offset = off + @intCast(i32, offset_to_field);
                 break :result MCValue{ .ptr_stack_offset = ptr_stack_offset };
             },
             .register => |reg| {
                 const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
-                    .immediate = offset_to_field,
+                    .immediate = struct_field_offset,
                 });
                 self.register_manager.freezeRegs(&.{offset_reg});
                 defer self.register_manager.unfreezeRegs(&.{offset_reg});
