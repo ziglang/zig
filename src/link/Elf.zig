@@ -56,6 +56,11 @@ phdr_load_re_index: ?u16 = null,
 phdr_got_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Read flag
 phdr_load_ro_index: ?u16 = null,
+/// The index into the program headers of a PT_LOAD program header with Write flag
+phdr_load_rw_index: ?u16 = null,
+
+phdr_shdr_table: std.AutoHashMapUnmanaged(u16, u16) = .{},
+
 entry_addr: ?u64 = null,
 
 debug_strtab: std.ArrayListUnmanaged(u8) = std.ArrayListUnmanaged(u8){},
@@ -63,7 +68,10 @@ shstrtab: std.ArrayListUnmanaged(u8) = std.ArrayListUnmanaged(u8){},
 shstrtab_index: ?u16 = null,
 
 symtab_section_index: ?u16 = null,
+text_section_index: ?u16 = null,
+rodata_section_index: ?u16 = null,
 got_section_index: ?u16 = null,
+data_section_index: ?u16 = null,
 debug_info_section_index: ?u16 = null,
 debug_abbrev_section_index: ?u16 = null,
 debug_str_section_index: ?u16 = null,
@@ -116,8 +124,9 @@ error_flags: File.ErrorFlags = File.ErrorFlags{},
 /// overcapacity can be negative. A simple way to have negative overcapacity is to
 /// allocate a fresh text block, which will have ideal capacity, and then grow it
 /// by 1 byte. It will then have -1 overcapacity.
-text_block_list: TextBlockList = .{},
-rodata_block_list: TextBlockList = .{},
+atoms: std.AutoHashMapUnmanaged(u16, *TextBlock) = .{},
+atom_free_lists: std.AutoHashMapUnmanaged(u16, std.ArrayListUnmanaged(*TextBlock)) = .{},
+decls: std.AutoHashMapUnmanaged(*Module.Decl, ?u16) = .{},
 
 /// A list of `SrcFn` whose Line Number Programs have surplus capacity.
 /// This is the same concept as `text_block_free_list`; see those doc comments.
@@ -203,14 +212,6 @@ pub const TextBlock = struct {
         const surplus = cap - ideal_cap;
         return surplus >= min_text_capacity;
     }
-};
-
-/// A list of text blocks in a specific section
-const TextBlockList = struct {
-    free_list: std.ArrayListUnmanaged(*TextBlock) = .{},
-    last_block: ?*TextBlock = null,
-    phdr_index: ?u16 = null,
-    section_index: ?u16 = null,
 };
 
 pub const Export = struct {
@@ -326,11 +327,20 @@ pub fn deinit(self: *Elf) void {
     self.global_symbol_free_list.deinit(self.base.allocator);
     self.local_symbol_free_list.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
-    self.text_block_list.free_list.deinit(self.base.allocator);
-    self.rodata_block_list.free_list.deinit(self.base.allocator);
     self.dbg_line_fn_free_list.deinit(self.base.allocator);
     self.dbg_info_decl_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
+    self.phdr_shdr_table.deinit(self.base.allocator);
+    self.decls.deinit(self.base.allocator);
+
+    self.atoms.deinit(self.base.allocator);
+    {
+        var it = self.atom_free_lists.valueIterator();
+        while (it.next()) |free_list| {
+            free_list.deinit(self.base.allocator);
+        }
+        self.atom_free_lists.deinit(self.base.allocator);
+    }
 }
 
 pub fn getDeclVAddr(self: *Elf, decl: *const Module.Decl) u64 {
@@ -463,11 +473,10 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     const ptr_size: u8 = self.ptrWidthBytes();
     if (self.phdr_load_re_index == null) {
         self.phdr_load_re_index = @intCast(u16, self.program_headers.items.len);
-        self.text_block_list.phdr_index = self.phdr_load_re_index;
         const file_size = self.base.options.program_code_size_hint;
         const p_align = 0x1000;
         const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD free space 0x{x} to 0x{x}", .{ off, off + file_size });
+        log.debug("found PT_LOAD RE free space 0x{x} to 0x{x}", .{ off, off + file_size });
         const entry_addr: u64 = self.entry_addr orelse if (self.base.options.target.cpu.arch == .spu_2) @as(u64, 0) else default_entry_addr;
         try self.program_headers.append(self.base.allocator, .{
             .p_type = elf.PT_LOAD,
@@ -479,6 +488,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .p_align = p_align,
             .p_flags = elf.PF_X | elf.PF_R,
         });
+        try self.atom_free_lists.putNoClobber(self.base.allocator, self.phdr_load_re_index.?, .{});
         self.entry_addr = null;
         self.phdr_table_dirty = true;
     }
@@ -489,7 +499,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         // page align.
         const p_align = if (self.base.options.target.os.tag == .linux) 0x1000 else @as(u16, ptr_size);
         const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD free space 0x{x} to 0x{x}", .{ off, off + file_size });
+        log.debug("found PT_LOAD GOT free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
         // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
         // else in virtual memory.
@@ -508,15 +518,14 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
     if (self.phdr_load_ro_index == null) {
         self.phdr_load_ro_index = @intCast(u16, self.program_headers.items.len);
-        self.rodata_block_list.phdr_index = self.phdr_load_ro_index;
         // TODO Find a hint about how much data need to be in rodata ?
         const file_size = 1024;
         // Same reason as for GOT
         const p_align = if (self.base.options.target.os.tag == .linux) 0x1000 else @as(u16, ptr_size);
         const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+        log.debug("found PT_LOAD RO free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
         // TODO Same as for GOT
-        const rodata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x6000000 else 0xD000;
+        const rodata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x5000000 else 0xa000;
         try self.program_headers.append(self.base.allocator, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -527,6 +536,30 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .p_align = p_align,
             .p_flags = elf.PF_R,
         });
+        try self.atom_free_lists.putNoClobber(self.base.allocator, self.phdr_load_ro_index.?, .{});
+        self.phdr_table_dirty = true;
+    }
+    if (self.phdr_load_rw_index == null) {
+        self.phdr_load_rw_index = @intCast(u16, self.program_headers.items.len);
+        // TODO Find a hint about how much data need to be in data ?
+        const file_size = 1024;
+        // Same reason as for GOT
+        const p_align = if (self.base.options.target.os.tag == .linux) 0x1000 else @as(u16, ptr_size);
+        const off = self.findFreeSpace(file_size, p_align);
+        log.debug("found PT_LOAD RW free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+        // TODO Same as for GOT
+        const rwdata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x6000000 else 0xc000;
+        try self.program_headers.append(self.base.allocator, .{
+            .p_type = elf.PT_LOAD,
+            .p_offset = off,
+            .p_filesz = file_size,
+            .p_vaddr = rwdata_addr,
+            .p_paddr = rwdata_addr,
+            .p_memsz = file_size,
+            .p_align = p_align,
+            .p_flags = elf.PF_R | elf.PF_W,
+        });
+        try self.atom_free_lists.putNoClobber(self.base.allocator, self.phdr_load_rw_index.?, .{});
         self.phdr_table_dirty = true;
     }
     if (self.shstrtab_index == null) {
@@ -550,8 +583,8 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.shstrtab_dirty = true;
         self.shdr_table_dirty = true;
     }
-    if (self.text_block_list.section_index == null) {
-        self.text_block_list.section_index = @intCast(u16, self.sections.items.len);
+    if (self.text_section_index == null) {
+        self.text_section_index = @intCast(u16, self.sections.items.len);
         const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
 
         try self.sections.append(self.base.allocator, .{
@@ -566,6 +599,11 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .sh_addralign = phdr.p_align,
             .sh_entsize = 0,
         });
+        try self.phdr_shdr_table.putNoClobber(
+            self.base.allocator,
+            self.phdr_load_re_index.?,
+            self.text_section_index.?,
+        );
         self.shdr_table_dirty = true;
     }
     if (self.got_section_index == null) {
@@ -584,10 +622,15 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .sh_addralign = phdr.p_align,
             .sh_entsize = 0,
         });
+        try self.phdr_shdr_table.putNoClobber(
+            self.base.allocator,
+            self.phdr_got_index.?,
+            self.got_section_index.?,
+        );
         self.shdr_table_dirty = true;
     }
-    if (self.rodata_block_list.section_index == null) {
-        self.rodata_block_list.section_index = @intCast(u16, self.sections.items.len);
+    if (self.rodata_section_index == null) {
+        self.rodata_section_index = @intCast(u16, self.sections.items.len);
         const phdr = &self.program_headers.items[self.phdr_load_ro_index.?];
 
         try self.sections.append(self.base.allocator, .{
@@ -602,6 +645,34 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .sh_addralign = phdr.p_align,
             .sh_entsize = 0,
         });
+        try self.phdr_shdr_table.putNoClobber(
+            self.base.allocator,
+            self.phdr_load_ro_index.?,
+            self.rodata_section_index.?,
+        );
+        self.shdr_table_dirty = true;
+    }
+    if (self.data_section_index == null) {
+        self.data_section_index = @intCast(u16, self.sections.items.len);
+        const phdr = &self.program_headers.items[self.phdr_load_rw_index.?];
+
+        try self.sections.append(self.base.allocator, .{
+            .sh_name = try self.makeString(".data"),
+            .sh_type = elf.SHT_PROGBITS,
+            .sh_flags = elf.SHF_WRITE | elf.SHF_ALLOC,
+            .sh_addr = phdr.p_vaddr,
+            .sh_offset = phdr.p_offset,
+            .sh_size = phdr.p_filesz,
+            .sh_link = 0,
+            .sh_info = 0,
+            .sh_addralign = phdr.p_align,
+            .sh_entsize = 0,
+        });
+        try self.phdr_shdr_table.putNoClobber(
+            self.base.allocator,
+            self.phdr_load_rw_index.?,
+            self.data_section_index.?,
+        );
         self.shdr_table_dirty = true;
     }
     if (self.symtab_section_index == null) {
@@ -2072,17 +2143,18 @@ fn writeElfHeader(self: *Elf) !void {
     try self.base.file.?.pwriteAll(hdr_buf[0..index], 0);
 }
 
-fn freeTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBlock) void {
+fn freeTextBlock(self: *Elf, text_block: *TextBlock, phdr_index: u16) void {
+    const free_list = self.atom_free_lists.getPtr(phdr_index).?;
     var already_have_free_list_node = false;
     {
         var i: usize = 0;
-        // TODO turn text_block_free_list into a hash map
-        while (i < block_list.free_list.items.len) {
-            if (block_list.free_list.items[i] == text_block) {
-                _ = block_list.free_list.swapRemove(i);
+        // TODO turn free_list into a hash map
+        while (i < free_list.items.len) {
+            if (free_list.items[i] == text_block) {
+                _ = free_list.swapRemove(i);
                 continue;
             }
-            if (block_list.free_list.items[i] == text_block.prev) {
+            if (free_list.items[i] == text_block.prev) {
                 already_have_free_list_node = true;
             }
             i += 1;
@@ -2090,10 +2162,17 @@ fn freeTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBlock)
     }
     // TODO process free list for dbg info just like we do above for vaddrs
 
-    if (block_list.last_block == text_block) {
-        // TODO shrink the .text section size here
-        block_list.last_block = text_block.prev;
+    if (self.atoms.getPtr(phdr_index)) |last_block| {
+        if (last_block.* == text_block) {
+            if (text_block.prev) |prev| {
+                // TODO shrink the section size here
+                last_block.* = prev;
+            } else {
+                _ = self.atoms.fetchRemove(phdr_index);
+            }
+        }
     }
+
     if (self.dbg_info_decl_first == text_block) {
         self.dbg_info_decl_first = text_block.dbg_info_next;
     }
@@ -2108,7 +2187,7 @@ fn freeTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBlock)
         if (!already_have_free_list_node and prev.freeListEligible(self.*)) {
             // The free list is heuristics, it doesn't have to be perfect, so we can
             // ignore the OOM here.
-            block_list.free_list.append(self.base.allocator, prev) catch {};
+            free_list.append(self.base.allocator, prev) catch {};
         }
     } else {
         text_block.prev = null;
@@ -2135,24 +2214,25 @@ fn freeTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBlock)
     }
 }
 
-fn shrinkTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBlock, new_block_size: u64) void {
+fn shrinkTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, phdr_index: u16) void {
     _ = self;
-    _ = block_list;
     _ = text_block;
     _ = new_block_size;
+    _ = phdr_index;
 }
 
-fn growTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
+fn growTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, alignment: u64, phdr_index: u16) !u64 {
     const sym = self.local_symbols.items[text_block.local_sym_index];
     const align_ok = mem.alignBackwardGeneric(u64, sym.st_value, alignment) == sym.st_value;
     const need_realloc = !align_ok or new_block_size > text_block.capacity(self.*);
     if (!need_realloc) return sym.st_value;
-    return self.allocateTextBlock(block_list, text_block, new_block_size, alignment);
+    return self.allocateTextBlock(text_block, new_block_size, alignment, phdr_index);
 }
 
-fn allocateTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
-    const phdr = &self.program_headers.items[block_list.phdr_index.?];
-    const shdr = &self.sections.items[block_list.section_index.?];
+fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, alignment: u64, phdr_index: u16) !u64 {
+    const shdr_index = self.phdr_shdr_table.get(phdr_index).?;
+    const phdr = &self.program_headers.items[phdr_index];
+    const shdr = &self.sections.items[shdr_index];
     const new_block_ideal_capacity = padToIdeal(new_block_size);
 
     // We use these to indicate our intention to update metadata, placing the new block,
@@ -2162,13 +2242,14 @@ fn allocateTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBl
     // is actually carried out at the end of the function, when errors are no longer possible.
     var block_placement: ?*TextBlock = null;
     var free_list_removal: ?usize = null;
+    var free_list = self.atom_free_lists.get(phdr_index).?;
 
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
     const vaddr = blk: {
         var i: usize = 0;
-        while (i < block_list.free_list.items.len) {
-            const big_block = block_list.free_list.items[i];
+        while (i < free_list.items.len) {
+            const big_block = free_list.items[i];
             // We now have a pointer to a live text block that has too much capacity.
             // Is it enough that we could fit this new text block?
             const sym = self.local_symbols.items[big_block.local_sym_index];
@@ -2183,7 +2264,7 @@ fn allocateTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBl
                 // should be deleted because the block that it points to has grown to take up
                 // more of the extra capacity.
                 if (!big_block.freeListEligible(self.*)) {
-                    _ = block_list.free_list.swapRemove(i);
+                    _ = free_list.swapRemove(i);
                 } else {
                     i += 1;
                 }
@@ -2201,7 +2282,7 @@ fn allocateTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBl
                 free_list_removal = i;
             }
             break :blk new_start_vaddr;
-        } else if (block_list.last_block) |last| {
+        } else if (self.atoms.get(phdr_index)) |last| {
             const sym = self.local_symbols.items[last.local_sym_index];
             const ideal_capacity = padToIdeal(sym.st_size);
             const ideal_capacity_end_vaddr = sym.st_value + ideal_capacity;
@@ -2221,7 +2302,7 @@ fn allocateTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBl
         if (needed_size > text_capacity) {
             // Must move the entire text section.
             const new_offset = self.findFreeSpace(needed_size, 0x1000);
-            const text_size = if (block_list.last_block) |last| blk: {
+            const text_size = if (self.atoms.get(phdr_index)) |last| blk: {
                 const sym = self.local_symbols.items[last.local_sym_index];
                 break :blk (sym.st_value + sym.st_size) - phdr.p_vaddr;
             } else 0;
@@ -2230,7 +2311,7 @@ fn allocateTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBl
             shdr.sh_offset = new_offset;
             phdr.p_offset = new_offset;
         }
-        block_list.last_block = text_block;
+        _ = try self.atoms.put(self.base.allocator, phdr_index, text_block);
 
         shdr.sh_size = needed_size;
         phdr.p_memsz = needed_size;
@@ -2268,17 +2349,9 @@ fn allocateTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBl
         text_block.next = null;
     }
     if (free_list_removal) |i| {
-        _ = block_list.free_list.swapRemove(i);
+        _ = free_list.swapRemove(i);
     }
     return vaddr;
-}
-
-/// Get the block list corresponding to a specific decl
-/// For example, if the decl is a function, it returns the list of the section .text
-fn getDeclBlockList(self: *Elf, decl: *const Module.Decl) *TextBlockList {
-    // const is_fn = decl.val.tag() == .function;
-    const is_fn = decl.ty.zigTypeTag() == .Fn;
-    return if (is_fn) &self.text_block_list else &self.rodata_block_list;
 }
 
 pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
@@ -2288,6 +2361,7 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
 
     try self.local_symbols.ensureUnusedCapacity(self.base.allocator, 1);
     try self.offset_table.ensureUnusedCapacity(self.base.allocator, 1);
+    try self.decls.putNoClobber(self.base.allocator, decl, null);
 
     if (self.local_symbol_free_list.popOrNull()) |i| {
         log.debug("reusing symbol index {d} for {s}", .{ i, decl.name });
@@ -2306,14 +2380,12 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
         self.offset_table_count_dirty = true;
     }
 
-    const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-
     self.local_symbols.items[decl.link.elf.local_sym_index] = .{
         .st_name = 0,
         .st_info = 0,
         .st_other = 0,
         .st_shndx = 0,
-        .st_value = phdr.p_vaddr,
+        .st_value = 0,
         .st_size = 0,
     };
     self.offset_table.items[decl.link.elf.offset_table_index] = 0;
@@ -2324,10 +2396,12 @@ pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
         if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl);
     }
 
-    const block_list = self.getDeclBlockList(decl);
+    const kv = self.decls.fetchRemove(decl);
+    if (kv.?.value) |index| {
+        self.freeTextBlock(&decl.link.elf, index);
+    }
 
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
-    self.freeTextBlock(block_list, &decl.link.elf);
     if (decl.link.elf.local_sym_index != 0) {
         self.local_symbol_free_list.append(self.base.allocator, decl.link.elf.local_sym_index) catch {};
         self.offset_table_free_list.append(self.base.allocator, decl.link.elf.offset_table_index) catch {};
@@ -2366,11 +2440,39 @@ fn deinitRelocs(gpa: Allocator, table: *File.DbgInfoTypeRelocsTable) void {
     table.deinit(gpa);
 }
 
+fn getDeclPhdrIndex(self: *Elf, decl: *Module.Decl) !u16 {
+    const ty = decl.ty;
+    const zig_ty = ty.zigTypeTag();
+    const val = decl.val;
+    const phdr_index: u16 = blk: {
+        if (val.isUndefDeep()) {
+            // TODO in release-fast and release-small, we should put undef in .bss
+            break :blk self.phdr_load_rw_index.?;
+        }
+
+        switch (zig_ty) {
+            .Fn => break :blk self.phdr_load_re_index.?,
+            else => {
+                if (val.castTag(.variable)) |_| {
+                    break :blk self.phdr_load_rw_index.?;
+                }
+                break :blk self.phdr_load_ro_index.?;
+            },
+        }
+    };
+    return phdr_index;
+}
+
 fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8) !*elf.Elf64_Sym {
     log.debug("updateDeclCode {s}{*}", .{ mem.sliceTo(decl.name, 0), decl });
     const required_alignment = decl.ty.abiAlignment(self.base.options.target);
 
-    const block_list = self.getDeclBlockList(decl);
+    const decl_ptr = self.decls.getPtr(decl).?;
+    if (decl_ptr.* == null) {
+        decl_ptr.* = try self.getDeclPhdrIndex(decl);
+    }
+    const phdr_index = decl_ptr.*.?;
+    const shdr_index = self.phdr_shdr_table.get(phdr_index).?;
 
     assert(decl.link.elf.local_sym_index != 0); // Caller forgot to allocateDeclIndexes()
     const local_sym = &self.local_symbols.items[decl.link.elf.local_sym_index];
@@ -2379,7 +2481,7 @@ fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8
         const need_realloc = code.len > capacity or
             !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
         if (need_realloc) {
-            const vaddr = try self.growTextBlock(block_list, &decl.link.elf, code.len, required_alignment);
+            const vaddr = try self.growTextBlock(&decl.link.elf, code.len, required_alignment, phdr_index);
             log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl.name, local_sym.st_value, vaddr });
             if (vaddr != local_sym.st_value) {
                 local_sym.st_value = vaddr;
@@ -2389,28 +2491,28 @@ fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8
                 try self.writeOffsetTableEntry(decl.link.elf.offset_table_index);
             }
         } else if (code.len < local_sym.st_size) {
-            self.shrinkTextBlock(block_list, &decl.link.elf, code.len);
+            self.shrinkTextBlock(&decl.link.elf, code.len, phdr_index);
         }
         local_sym.st_size = code.len;
         local_sym.st_name = try self.updateString(local_sym.st_name, mem.sliceTo(decl.name, 0));
         local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
         local_sym.st_other = 0;
-        local_sym.st_shndx = block_list.section_index.?;
+        local_sym.st_shndx = shdr_index;
         // TODO this write could be avoided if no fields of the symbol were changed.
         try self.writeSymbol(decl.link.elf.local_sym_index);
     } else {
         const decl_name = mem.sliceTo(decl.name, 0);
         const name_str_index = try self.makeString(decl_name);
-        const vaddr = try self.allocateTextBlock(block_list, &decl.link.elf, code.len, required_alignment);
-        errdefer self.freeTextBlock(block_list, &decl.link.elf);
+        const vaddr = try self.allocateTextBlock(&decl.link.elf, code.len, required_alignment, phdr_index);
+        errdefer self.freeTextBlock(&decl.link.elf, phdr_index);
         log.debug("allocated text block for {s} at 0x{x}", .{ decl_name, vaddr });
-        errdefer self.freeTextBlock(block_list, &decl.link.elf);
+        errdefer self.freeTextBlock(&decl.link.elf, phdr_index);
 
         local_sym.* = .{
             .st_name = name_str_index,
             .st_info = (elf.STB_LOCAL << 4) | stt_bits,
             .st_other = 0,
-            .st_shndx = block_list.section_index.?,
+            .st_shndx = shdr_index,
             .st_value = vaddr,
             .st_size = code.len,
         };
@@ -2420,8 +2522,8 @@ fn updateDeclCode(self: *Elf, decl: *Module.Decl, code: []const u8, stt_bits: u8
         try self.writeOffsetTableEntry(decl.link.elf.offset_table_index);
     }
 
-    const section_offset = local_sym.st_value - self.program_headers.items[block_list.phdr_index.?].p_vaddr;
-    const file_offset = self.sections.items[block_list.section_index.?].sh_offset + section_offset;
+    const section_offset = local_sym.st_value - self.program_headers.items[phdr_index].p_vaddr;
+    const file_offset = self.sections.items[shdr_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 
     return local_sym;
@@ -3008,7 +3110,12 @@ pub fn updateDeclExports(
     if (decl.link.elf.local_sym_index == 0) return;
     const decl_sym = self.local_symbols.items[decl.link.elf.local_sym_index];
 
-    const block_list = self.getDeclBlockList(decl);
+    const decl_ptr = self.decls.getPtr(decl).?;
+    if (decl_ptr.* == null) {
+        decl_ptr.* = try self.getDeclPhdrIndex(decl);
+    }
+    const phdr_index = decl_ptr.*.?;
+    const shdr_index = self.phdr_shdr_table.get(phdr_index).?;
 
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
@@ -3047,7 +3154,7 @@ pub fn updateDeclExports(
                 .st_name = try self.updateString(sym.st_name, exp.options.name),
                 .st_info = (stb_bits << 4) | stt_bits,
                 .st_other = 0,
-                .st_shndx = block_list.section_index.?,
+                .st_shndx = shdr_index,
                 .st_value = decl_sym.st_value,
                 .st_size = decl_sym.st_size,
             };
@@ -3061,7 +3168,7 @@ pub fn updateDeclExports(
                 .st_name = name,
                 .st_info = (stb_bits << 4) | stt_bits,
                 .st_other = 0,
-                .st_shndx = block_list.section_index.?,
+                .st_shndx = shdr_index,
                 .st_value = decl_sym.st_value,
                 .st_size = decl_sym.st_size,
             };
