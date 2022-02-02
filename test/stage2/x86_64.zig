@@ -328,7 +328,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 .macos => {
                     // While loops
                     case.addCompareOutput(
-                        \\extern fn write(usize, usize, usize) usize;
+                        \\extern "c" fn write(usize, usize, usize) usize;
                         \\
                         \\pub fn main() void {
                         \\    var i: u32 = 0;
@@ -349,7 +349,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
                     // inline while requires the condition to be comptime known.
                     case.addError(
-                        \\extern fn write(usize, usize, usize) usize;
+                        \\extern "c" fn write(usize, usize, usize) usize;
                         \\
                         \\pub fn main() void {
                         \\    var i: u32 = 0;
@@ -652,7 +652,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 .macos => {
                     // Basic for loop
                     case.addCompareOutput(
-                        \\extern fn write(usize, usize, usize) usize;
+                        \\extern "c" fn write(usize, usize, usize) usize;
                         \\
                         \\pub fn main() void {
                         \\    for ("hello") |_| print();
@@ -736,7 +736,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 }),
                 .macos => try case.files.append(.{
                     .src = 
-                    \\extern fn write(usize, usize, usize) usize;
+                    \\extern "c" fn write(usize, usize, usize) usize;
                     \\
                     \\pub fn print() void {
                     \\    _ = write(1, @ptrToInt("Hello, World!\n"), 14);
@@ -814,7 +814,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 }),
                 .macos => try case.files.append(.{
                     .src = 
-                    \\extern fn write(usize, usize, usize) usize;
+                    \\extern "c" fn write(usize, usize, usize) usize;
                     \\fn print() void {
                     \\    _ = write(1, @ptrToInt("Hello, World!\n"), 14);
                     \\}
@@ -1478,7 +1478,7 @@ pub fn addCases(ctx: *TestContext) !void {
                     \\}
                 , "HelloHello, World!\n"),
                 .macos => case.addCompareOutput(
-                    \\extern fn write(usize, usize, usize) usize;
+                    \\extern "c" fn write(usize, usize, usize) usize;
                     \\
                     \\pub fn main() void {
                     \\    comptime var len: u32 = 5;
@@ -1550,7 +1550,7 @@ pub fn addCases(ctx: *TestContext) !void {
                     \\}
                 , "HeHelHellHello"),
                 .macos => case.addCompareOutput(
-                    \\extern fn write(usize, usize, usize) usize;
+                    \\extern "c" fn write(usize, usize, usize) usize;
                     \\
                     \\pub fn main() void {
                     \\    comptime var i: u64 = 2;
@@ -1877,8 +1877,8 @@ fn addMacOsTestCases(ctx: *TestContext) !void {
 
         // Regular old hello world
         case.addCompareOutput(
-            \\extern fn write(usize, usize, usize) usize;
-            \\extern fn exit(usize) noreturn;
+            \\extern "c" fn write(usize, usize, usize) usize;
+            \\extern "c" fn exit(usize) noreturn;
             \\
             \\pub export fn main() noreturn {
             \\    print();
@@ -1897,7 +1897,7 @@ fn addMacOsTestCases(ctx: *TestContext) !void {
 
         // Now using start.zig without an explicit extern exit fn
         case.addCompareOutput(
-            \\extern fn write(usize, usize, usize) usize;
+            \\extern "c" fn write(usize, usize, usize) usize;
             \\
             \\pub fn main() void {
             \\    print();
@@ -1914,7 +1914,7 @@ fn addMacOsTestCases(ctx: *TestContext) !void {
 
         // Print it 4 times and force growth and realloc.
         case.addCompareOutput(
-            \\extern fn write(usize, usize, usize) usize;
+            \\extern "c" fn write(usize, usize, usize) usize;
             \\
             \\pub fn main() void {
             \\    print();
@@ -1938,7 +1938,7 @@ fn addMacOsTestCases(ctx: *TestContext) !void {
 
         // Print it once, and change the message.
         case.addCompareOutput(
-            \\extern fn write(usize, usize, usize) usize;
+            \\extern "c" fn write(usize, usize, usize) usize;
             \\
             \\pub fn main() void {
             \\    print();
@@ -1955,7 +1955,7 @@ fn addMacOsTestCases(ctx: *TestContext) !void {
 
         // Now we print it twice.
         case.addCompareOutput(
-            \\extern fn write(usize, usize, usize) usize;
+            \\extern "c" fn write(usize, usize, usize) usize;
             \\
             \\pub fn main() void {
             \\    print();
