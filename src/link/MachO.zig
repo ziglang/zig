@@ -144,9 +144,6 @@ objc_data_section_index: ?u16 = null,
 rustc_section_index: ?u16 = null,
 rustc_section_size: u64 = 0,
 
-bss_file_offset: u32 = 0,
-tlv_bss_file_offset: u32 = 0,
-
 locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 globals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 undefs: std.ArrayListUnmanaged(macho.nlist_64) = .{},
@@ -383,7 +380,8 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     // Adhoc code signature is required when targeting aarch64-macos either directly or indirectly via the simulator
     // ABI such as aarch64-ios-simulator, etc.
     const requires_adhoc_codesig = cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator);
-    const needs_prealloc = !(build_options.is_stage1 and options.use_stage1);
+    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    const needs_prealloc = !(use_stage1 or options.cache_mode == .whole);
 
     const self = try gpa.create(MachO);
     errdefer gpa.destroy(self);
@@ -401,7 +399,6 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     };
 
     const use_llvm = build_options.have_llvm and options.use_llvm;
-    const use_stage1 = build_options.is_stage1 and options.use_stage1;
     if (use_llvm and !use_stage1) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
@@ -2158,7 +2155,8 @@ fn writeAtoms(self: *MachO) !void {
         const sect = seg.sections.items[match.sect];
         var atom: *Atom = entry.value_ptr.*;
 
-        if (sect.flags == macho.S_ZEROFILL or sect.flags == macho.S_THREAD_LOCAL_ZEROFILL) continue;
+        // TODO handle zerofill in stage2
+        // if (sect.flags == macho.S_ZEROFILL or sect.flags == macho.S_THREAD_LOCAL_ZEROFILL) continue;
 
         log.debug("writing atoms in {s},{s}", .{ sect.segName(), sect.sectName() });
 
@@ -4756,9 +4754,12 @@ fn allocateSegment(self: *MachO, index: u16, offset: u64) !void {
     var start: u64 = offset;
     for (seg.sections.items) |*sect, sect_id| {
         const is_zerofill = sect.flags == macho.S_ZEROFILL or sect.flags == macho.S_THREAD_LOCAL_ZEROFILL;
+        const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
         const alignment = try math.powi(u32, 2, sect.@"align");
         const start_aligned = mem.alignForwardGeneric(u64, start, alignment);
-        sect.offset = if (is_zerofill) 0 else @intCast(u32, seg.inner.fileoff + start_aligned);
+
+        // TODO handle zerofill sections in stage2
+        sect.offset = if (is_zerofill and use_stage1) 0 else @intCast(u32, seg.inner.fileoff + start_aligned);
         sect.addr = seg.inner.vmaddr + start_aligned;
 
         // Recalculate section size given the allocated start address
@@ -4786,7 +4787,7 @@ fn allocateSegment(self: *MachO, index: u16, offset: u64) !void {
 
         start = start_aligned + sect.size;
 
-        if (!is_zerofill) {
+        if (!(is_zerofill and use_stage1)) {
             seg.inner.filesize = start;
         }
         seg.inner.vmsize = start;
@@ -4834,7 +4835,11 @@ fn initSection(
 
         sect.addr = seg.inner.vmaddr + off - seg.inner.fileoff;
 
-        if (opts.flags != macho.S_ZEROFILL and opts.flags != macho.S_THREAD_LOCAL_ZEROFILL) {
+        const is_zerofill = opts.flags == macho.S_ZEROFILL or opts.flags == macho.S_THREAD_LOCAL_ZEROFILL;
+        const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
+
+        // TODO handle zerofill in stage2
+        if (!(is_zerofill and use_stage1)) {
             sect.offset = @intCast(u32, off);
         }
     }
