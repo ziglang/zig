@@ -4207,16 +4207,6 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:5:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
     });
 
-    ctx.objErrStage1("var makes structs required to be comptime known",
-        \\export fn entry() void {
-        \\   const S = struct{v: anytype};
-        \\   var s = S{.v=@as(i32, 10)};
-        \\   _ = s;
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:3:4: error: variable of type 'S' must be const or comptime",
-    });
-
     ctx.objErrStage1("@ptrCast discards const qualifier",
         \\export fn entry() void {
         \\    const x: i32 = 1234;

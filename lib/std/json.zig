@@ -1791,8 +1791,9 @@ fn parseInternal(
             }
             inline for (structInfo.fields) |field, i| {
                 if (!fields_seen[i]) {
-                    if (field.default_value) |default| {
+                    if (field.default_value) |default_ptr| {
                         if (!field.is_comptime) {
+                            const default = @ptrCast(*const field.field_type, default_ptr).*;
                             @field(r, field.name) = default;
                         }
                     } else {

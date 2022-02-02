@@ -366,7 +366,6 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .builtin_call,
         .builtin_call_comma,
         .error_set_decl,
-        .@"anytype",
         .@"comptime",
         .@"nosuspend",
         .asm_simple,
@@ -729,7 +728,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .error_value,
         => return datas[n].rhs + end_offset,
 
-        .@"anytype",
         .anyframe_literal,
         .char_literal,
         .integer_literal,
@@ -2935,9 +2933,6 @@ pub const Node = struct {
         /// main_token is the field name identifier.
         /// lastToken() does not include the possible trailing comma.
         container_field,
-        /// `anytype`. both lhs and rhs unused.
-        /// Used by `ContainerField`.
-        @"anytype",
         /// `comptime lhs`. rhs unused.
         @"comptime",
         /// `nosuspend lhs`. rhs unused.

@@ -786,19 +786,8 @@ const Parser = struct {
         var align_expr: Node.Index = 0;
         var type_expr: Node.Index = 0;
         if (p.eatToken(.colon)) |_| {
-            if (p.eatToken(.keyword_anytype)) |anytype_tok| {
-                type_expr = try p.addNode(.{
-                    .tag = .@"anytype",
-                    .main_token = anytype_tok,
-                    .data = .{
-                        .lhs = undefined,
-                        .rhs = undefined,
-                    },
-                });
-            } else {
-                type_expr = try p.expectTypeExpr();
-                align_expr = try p.parseByteAlign();
-            }
+            type_expr = try p.expectTypeExpr();
+            align_expr = try p.parseByteAlign();
         }
 
         const value_expr: Node.Index = if (p.eatToken(.equal) == null) 0 else try p.expectExpr();

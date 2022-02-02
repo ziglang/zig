@@ -468,7 +468,6 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .for_simple,
         .@"suspend",
         .@"continue",
-        .@"anytype",
         .fn_proto_simple,
         .fn_proto_multi,
         .fn_proto_one,
@@ -557,8 +556,6 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
 
         .asm_output => unreachable, // Handled in `asmExpr`.
         .asm_input => unreachable, // Handled in `asmExpr`.
-
-        .@"anytype" => unreachable, // Handled in `containerDecl`.
 
         .assign => {
             try assign(gz, scope, node);
@@ -3826,7 +3823,6 @@ fn structDeclInner(
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
     const tree = astgen.tree;
-    const node_tags = tree.nodes.items(.tag);
 
     var namespace: Scope.Namespace = .{
         .parent = scope,
@@ -3875,10 +3871,7 @@ fn structDeclInner(
             return astgen.failTok(member.ast.name_token, "struct field missing type", .{});
         }
 
-        const field_type: Zir.Inst.Ref = if (node_tags[member.ast.type_expr] == .@"anytype")
-            .none
-        else
-            try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
+        const field_type = try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
         wip_members.appendToField(@enumToInt(field_type));
 
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
@@ -3951,8 +3944,6 @@ fn unionDeclInner(
 
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
-    const tree = astgen.tree;
-    const node_tags = tree.nodes.items(.tag);
 
     var namespace: Scope.Namespace = .{
         .parent = scope,
@@ -4013,10 +4004,7 @@ fn unionDeclInner(
         wip_members.nextField(bits_per_field, .{ have_type, have_align, have_value, unused });
 
         if (have_type) {
-            const field_type: Zir.Inst.Ref = if (node_tags[member.ast.type_expr] == .@"anytype")
-                .none
-            else
-                try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
+            const field_type = try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
             wip_members.appendToField(@enumToInt(field_type));
         } else if (arg_inst == .none and !have_auto_enum) {
             return astgen.failNode(member_node, "union field missing type", .{});
@@ -7791,7 +7779,6 @@ fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index, have_
             .ptr_type,
             .ptr_type_bit_range,
             .@"suspend",
-            .@"anytype",
             .fn_proto_simple,
             .fn_proto_multi,
             .fn_proto_one,
@@ -8052,7 +8039,6 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .ptr_type,
             .ptr_type_bit_range,
             .@"suspend",
-            .@"anytype",
             .fn_proto_simple,
             .fn_proto_multi,
             .fn_proto_one,
@@ -8232,7 +8218,6 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .@"resume",
             .array_type,
             .@"suspend",
-            .@"anytype",
             .fn_decl,
             .anyframe_literal,
             .integer_literal,
@@ -8474,7 +8459,6 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .@"resume",
             .array_type,
             .@"suspend",
-            .@"anytype",
             .fn_decl,
             .anyframe_literal,
             .integer_literal,

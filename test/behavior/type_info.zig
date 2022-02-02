@@ -436,13 +436,6 @@ test "@typeInfo does not force declarations into existence" {
     comptime try expect(@typeInfo(S).Struct.fields.len == 1);
 }
 
-test "default value for a anytype field" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
-    const S = struct { x: anytype };
-    try expect(@typeInfo(S).Struct.fields[0].default_value == null);
-}
-
 fn add(a: i32, b: i32) i32 {
     return a + b;
 }

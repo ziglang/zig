@@ -618,21 +618,6 @@ test "anonymous struct literal assigned to variable" {
     try expect(vec.@"2" == 99);
 }
 
-test "struct with var field" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
-    const Point = struct {
-        x: anytype,
-        y: anytype,
-    };
-    const pt = Point{
-        .x = 1,
-        .y = 2,
-    };
-    try expect(pt.x == 1);
-    try expect(pt.y == 2);
-}
-
 test "comptime struct field" {
     if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
 

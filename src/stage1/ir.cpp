@@ -19048,6 +19048,10 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
                     return ira->codegen->invalid_inst_gen->value->type;
                 }
 
+                if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusAlignmentKnown))) {
+                    return ira->codegen->invalid_inst_gen->value->type;
+                }
+
                 ZigType *ptr_type = get_pointer_to_type_extra2(ira->codegen,
                     elem_type,
                     is_const,
