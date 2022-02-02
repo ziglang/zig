@@ -5567,11 +5567,6 @@ fn funcCommon(
     if (opt_lib_name) |lib_name| blk: {
         const lib_name_src: LazySrcLoc = .{ .node_offset_lib_name = src_node_offset };
         log.debug("extern fn symbol expected in lib '{s}'", .{lib_name});
-        mod.comp.stage1AddLinkLib(lib_name) catch |err| {
-            return sema.fail(block, lib_name_src, "unable to add link lib '{s}': {s}", .{
-                lib_name, @errorName(err),
-            });
-        };
         if (target_util.is_libc_lib_name(target, lib_name)) {
             if (!mod.comp.bin_file.options.link_libc) {
                 return sema.fail(
@@ -5581,6 +5576,7 @@ fn funcCommon(
                     .{},
                 );
             }
+            mod.comp.bin_file.options.link_libc = true;
             break :blk;
         }
         if (target_util.is_libcpp_lib_name(target, lib_name)) {
@@ -5592,6 +5588,11 @@ fn funcCommon(
                     .{},
                 );
             }
+            mod.comp.bin_file.options.link_libcpp = true;
+            break :blk;
+        }
+        if (mem.eql(u8, lib_name, "unwind")) {
+            mod.comp.bin_file.options.link_libunwind = true;
             break :blk;
         }
         if (!target.isWasm() and !mod.comp.bin_file.options.pic) {
@@ -5602,6 +5603,11 @@ fn funcCommon(
                 .{ lib_name, lib_name },
             );
         }
+        mod.comp.stage1AddLinkLib(lib_name) catch |err| {
+            return sema.fail(block, lib_name_src, "unable to add link lib '{s}': {s}", .{
+                lib_name, @errorName(err),
+            });
+        };
     }
 
     if (is_extern) {
