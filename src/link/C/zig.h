@@ -176,6 +176,16 @@
 #define float128_t __float128
 #endif
 
+#if defined(__clang__)
+#define float16_t __fp16
+#elif defined(__GNUC__) && (defined(__arm__) || defined(__aarch64__))
+#define float16_t __fp16
+#elif defined(__GNUC__) && defined(__i386__) && defined(__SSE2__)
+#define float16_t _Float16
+#else
+#define float16_t ZIG_UNSUPPORTED_SYMBOL_ON_TARGET_float16_t
+#endif
+
 ZIG_EXTERN_C void *memcpy (void *ZIG_RESTRICT, const void *ZIG_RESTRICT, size_t);
 ZIG_EXTERN_C void *memset (void *, int, size_t);
 

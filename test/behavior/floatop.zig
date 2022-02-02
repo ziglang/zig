@@ -697,6 +697,46 @@ test "f128 at compile time is lossy" {
     try expect(@as(f128, 10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
 }
 
+test "f16 special values" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    const f16_inf = @bitCast(f16, @as(u16, 0x7c00));
+    const f16_nan = @bitCast(f16, @as(u16, 0x7c01));
+
+    var buf: f16 = math.f16_true_min;
+    try expect(math.f16_true_min == buf);
+
+    buf = math.f16_min;
+    try expect(math.f16_min == buf);
+
+    buf = math.f16_max;
+    try expect(math.f16_max == buf);
+
+    buf = -math.f16_max;
+    try expect(-math.f16_max == buf);
+
+    buf = 0;
+    try expect(@as(f16, 0) == buf);
+
+    buf = -0;
+    try expect(@as(f16, -0) == buf);
+
+    buf = -1;
+    try expect(@as(f16, -1) == buf);
+
+    buf = f16_inf;
+    try expect(f16_inf == buf);
+
+    buf = -f16_inf;
+    try expect(-f16_inf == buf);
+
+    buf = f16_nan;
+    try expect(math.isNan(buf));
+}
+
 test "f128 special values" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO

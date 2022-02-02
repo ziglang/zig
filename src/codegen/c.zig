@@ -155,6 +155,7 @@ const reserved_idents = std.ComptimeStringMap(void, .{
     .{ "extern ", {} },
     .{ "float", {} },
     .{ "float128_t", {} },
+    .{ "float16_t", {} },
     .{ "for", {} },
     .{ "fortran", {} },
     .{ "goto", {} },
@@ -556,7 +557,6 @@ pub const DeclGen = struct {
     }
 
     fn renderSmallFloat(
-        dg: *DeclGen,
         comptime T: type,
         writer: anytype,
         val: Value,
@@ -564,10 +564,15 @@ pub const DeclGen = struct {
         const v = val.toFloat(T);
         if (std.math.isNan(v) or std.math.isInf(v)) {
             // just generate a bit cast (exactly like we do in airBitcast)
+            // Special case: C doesn't support f16 as a return type, so do a 32-bit bit cast,
+            // and let the C compiler do the conversion from f32 to f16.
             switch (T) {
-                f16 => return dg.fail("TODO: C backend: implement 16-bit float lowering", .{}),
-                f32 => return writer.print("zig_bitcast_f32_u32(0x{x})", .{v}),
-                f64 => return writer.print("zig_bitcast_f64_u64(0x{x})", .{v}),
+                f16 => return writer.print(
+                    "(float16_t)zig_bitcast_f32_u32(0x{x})",
+                    .{@bitCast(u32, val.toFloat(f32))},
+                ),
+                f32 => return writer.print("zig_bitcast_f32_u32(0x{x})", .{@bitCast(u32, v)}),
+                f64 => return writer.print("zig_bitcast_f64_u64(0x{x})", .{@bitCast(u64, v)}),
                 else => unreachable,
             }
         } else {
@@ -651,9 +656,9 @@ pub const DeclGen = struct {
             },
             .Float => {
                 switch (ty.tag()) {
-                    .f16 => return dg.renderSmallFloat(f16, writer, val),
-                    .f32 => return dg.renderSmallFloat(f32, writer, val),
-                    .f64 => return dg.renderSmallFloat(f64, writer, val),
+                    .f16 => return renderSmallFloat(f16, writer, val),
+                    .f32 => return renderSmallFloat(f32, writer, val),
+                    .f64 => return renderSmallFloat(f64, writer, val),
                     .f128 => return renderFloat128(writer, val.toFloat(f128)),
                     else => unreachable,
                 }
@@ -921,7 +926,12 @@ pub const DeclGen = struct {
         }
         const return_ty = dg.decl.ty.fnReturnType();
         if (return_ty.hasRuntimeBits()) {
-            try dg.renderType(w, return_ty);
+            // Special case: C does not support f16 as a return type
+            if (return_ty.tag() == .f16) {
+                try w.writeAll("float");
+            } else {
+                try dg.renderType(w, return_ty);
+            }
         } else if (return_ty.zigTypeTag() == .NoReturn) {
             try w.writeAll("zig_noreturn void");
         } else {
@@ -1334,7 +1344,7 @@ pub const DeclGen = struct {
             },
             .Float => {
                 switch (t.tag()) {
-                    .f16 => return dg.fail("TODO: C backend: implement float type f16", .{}),
+                    .f16 => try w.writeAll("float16_t"),
                     .f32 => try w.writeAll("float"),
                     .f64 => try w.writeAll("double"),
                     .f128 => try w.writeAll("float128_t"),
@@ -1500,7 +1510,13 @@ pub const DeclGen = struct {
 
         if (alignment != 0)
             try w.print("ZIG_ALIGN({}) ", .{alignment});
-        try dg.renderType(w, render_ty);
+
+        // Special case: C does not support f16 as a fn parameter type
+        if (render_ty.tag() == .f16 and name == .arg) {
+            try w.writeAll("float");
+        } else {
+            try dg.renderType(w, render_ty);
+        }
 
         const const_prefix = switch (mutability) {
             .Const => "const ",
