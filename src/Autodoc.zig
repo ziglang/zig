@@ -210,7 +210,7 @@ const DocData = struct {
         name: []const u8,
         kind: []const u8, // TODO: where do we find this info?
         src: usize, // index into astNodes
-        type: usize, // index into types
+        // typeRef: TypeRef,
         value: WalkResult,
     };
 
@@ -231,28 +231,65 @@ const DocData = struct {
         pubDecls: ?[]usize = null, // index into decls
         fields: ?[]WalkResult = null, // (use src->fields to find names)
     };
-
-    const WalkResult = union(enum) {
-        failure: bool,
+    const TypeRef = union(enum) {
+        unspecified,
+        declRef: usize, // index in `decls`
         type: usize, // index in `types`
-        decl_ref: usize, // index in `decls`
-        int: struct {
-            type: usize, // index in `types`
-            value: usize, // direct value
-            negated: bool = false,
-        },
         pub fn jsonStringify(
-            self: WalkResult,
+            self: TypeRef,
             _: std.json.StringifyOptions,
             w: anytype,
         ) !void {
             switch (self) {
-                .failure => |v| {
+                .unspecified => {
                     try w.print(
-                        \\{{ "failure":{} }}
-                    , .{v});
+                        \\{{ "unspecified":{{}} }}
+                    , .{});
                 },
-                .type, .decl_ref => |v| {
+                .declRef, .type => |v| {
+                    try w.print(
+                        \\{{ "{s}":{} }}
+                    , .{ @tagName(self), v });
+                },
+            }
+        }
+    };
+
+    const WalkResult = union(enum) {
+        void,
+        @"unreachable",
+        @"null": TypeRef,
+        @"undefined": TypeRef,
+        @"struct": struct {
+            typeRef: TypeRef,
+            fieldVals: []struct {
+                name: []const u8,
+                val: WalkResult,
+            },
+        },
+        bool: bool,
+        type: usize, // index in `types`
+        declRef: usize, // index in `decls`
+        int: struct {
+            typeRef: TypeRef,
+            value: usize, // direct value
+            negated: bool = false,
+        },
+
+        pub fn jsonStringify(
+            self: WalkResult,
+            options: std.json.StringifyOptions,
+            w: anytype,
+        ) !void {
+            switch (self) {
+                .void,
+                .@"unreachable",
+                => {
+                    try w.print(
+                        \\{{ "{s}":{{}} }}
+                    , .{@tagName(self)});
+                },
+                .type, .declRef => |v| {
                     try w.print(
                         \\{{ "{s}":{} }}
                     , .{ @tagName(self), v });
@@ -260,10 +297,21 @@ const DocData = struct {
                 .int => |v| {
                     const neg = if (v.negated) "-" else "";
                     try w.print(
-                        \\{{ "int": {{ "type": {}, "value": {s}{} }} }}
-                    , .{ v.type, neg, v.value });
+                        \\{{ "int": {{ "typeRef": 
+                    , .{});
+                    try v.typeRef.jsonStringify(options, w);
+                    try w.print(
+                        \\, "value": {s}{} }} }}
+                    , .{ neg, v.value });
                 },
-
+                .bool => |v| {
+                    try w.print(
+                        \\{{ "bool":{} }}
+                    , .{v});
+                },
+                .@"undefined" => |v| try std.json.stringify(v, options, w),
+                .@"null" => |v| try std.json.stringify(v, options, w),
+                .@"struct" => |v| try std.json.stringify(v, options, w),
                 // .decl_ref => |v| {
                 //     try w.print(
                 //         \\{{ "{s}":"{s}" }}
@@ -288,17 +336,16 @@ fn walkInstruction(
 
     switch (tags[inst_index]) {
         else => {
-            std.debug.print(
+            std.debug.panic(
                 "TODO: implement `walkInstruction` for {s}\n\n",
                 .{@tagName(tags[inst_index])},
             );
-            return DocData.WalkResult{ .failure = true };
         },
         .int => {
             const int = data[inst_index].int;
             return DocData.WalkResult{
                 .int = .{
-                    .type = @enumToInt(Ref.comptime_int_type),
+                    .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
                     .value = int,
                 },
             };
@@ -313,16 +360,34 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = zir.extraData(Zir.Inst.As, pl_node.payload_index);
             const dest_type_walk = try self.walkRef(zir, parent_scope, extra.data.dest_type);
-            const dest_type = dest_type_walk.type; // asserts that we got a type
+            const dest_type_ref = walkResultToTypeRef(dest_type_walk);
 
             var operand = try self.walkRef(zir, parent_scope, extra.data.operand);
-            operand.int.type = dest_type; // only support ints for now
+
+            switch (operand) {
+                else => std.debug.panic(
+                    "TODO: handle {s} in `walkInstruction.as_node`\n",
+                    .{@tagName(operand)},
+                ),
+                .declRef => {},
+                // we don't do anything because up until now,
+                // I've only seen this used as such:
+                //       @as(@as(type, Baz), .{})
+                // and we don't want to toss away the
+                // decl_val information (eg by replacing it with
+                // a WalkResult.type).
+
+                .int => operand.int.typeRef = dest_type_ref,
+                .@"struct" => operand.@"struct".typeRef = dest_type_ref,
+                .@"undefined" => operand.@"undefined" = dest_type_ref,
+            }
+
             return operand;
         },
         .decl_val => {
             const str_tok = data[inst_index].str_tok;
             const decls_slot_index = parent_scope.resolveDeclName(str_tok.start);
-            return DocData.WalkResult{ .decl_ref = decls_slot_index };
+            return DocData.WalkResult{ .declRef = decls_slot_index };
         },
         .int_type => {
             const int_type = data[inst_index].int_type;
@@ -348,23 +413,16 @@ fn walkInstruction(
             });
 
             const break_operand = data[break_index].@"break".operand;
-            return if (Zir.refToIndex(break_operand)) |bi|
-                self.walkInstruction(zir, parent_scope, bi)
-            else if (@enumToInt(break_operand) <= @enumToInt(Ref.anyerror_void_error_union_type))
-                // we append all the types in ref first, so we can just do this if we encounter a ref that is a type
-                return DocData.WalkResult{ .type = @enumToInt(break_operand) }
-            else
-                std.debug.todo("generate WalkResults for refs that are not types");
+            return self.walkRef(zir, parent_scope, break_operand);
         },
         .extended => {
             const extended = data[inst_index].extended;
             switch (extended.opcode) {
                 else => {
-                    std.debug.print(
+                    std.debug.panic(
                         "TODO: implement `walkInstruction` (inside .extended case) for {s}\n\n",
                         .{@tagName(extended.opcode)},
                     );
-                    return DocData.WalkResult{ .failure = true };
                 },
                 .struct_decl => {
                     var scope: Scope = .{ .parent = parent_scope };
@@ -457,6 +515,13 @@ fn walkInstruction(
     }
 }
 
+/// Called by `walkInstruction` when encountering a container type, 
+/// iterates over all decl definitions in its body.
+/// It also analyzes each decl's body recursively. 
+///
+/// Does not append to `self.decls` directly because `walkInstruction` 
+/// is expected to (look-ahead) scan all decls and reserve `body_len` 
+/// slots in `self.decls`, which are then filled out by `walkDecls`.
 fn walkDecls(
     self: *Autodoc,
     zir: Zir,
@@ -562,15 +627,25 @@ fn walkDecls(
             try priv_decl_indexes.append(self.arena, decls_slot_index);
         }
 
-        const decl_type = switch (walk_result) {
-            .int => |i| i.type,
-            else => @enumToInt(Ref.type_type),
-        };
+        // // decl.typeRef == decl.val...typeRef
+        // const decl_type_ref: DocData.TypeRef = switch (walk_result) {
+        //     .int => |i| i.typeRef,
+        //     .void => .{ .type = @enumToInt(Ref.void_type) },
+        //     .@"undefined", .@"null" => |v| v,
+        //     .@"unreachable" => .{ .type = @enumToInt(Ref.noreturn_type) },
+        //     .@"struct" => |s| s.typeRef,
+        //     .bool => .{ .type = @enumToInt(Ref.bool_type) },
+        //     .type => .{ .type = @enumToInt(Ref.type_type) },
+        //     // this last case is special becauese it's not pointing
+        //     // at the type of the value, but rather at the value itself
+        //     // the js better be aware ot this!
+        //     .declRef => |d| .{ .declRef = d },
+        // };
 
         self.decls.items[decls_slot_index] = .{
             .name = name,
             .src = ast_node_index,
-            .type = decl_type,
+            // .typeRef = decl_type_ref,
             .value = walk_result,
             .kind = "const", // find where this information can be found
         };
@@ -649,11 +724,101 @@ fn walkRef(
     ref: Ref,
 ) !DocData.WalkResult {
     const enum_value = @enumToInt(ref);
-    if (enum_value < Zir.Inst.Ref.typed_value_map.len) {
-        // TODO: well... Refs are not all types
+    if (enum_value <= @enumToInt(Ref.anyerror_void_error_union_type)) {
+        // We can just return a type that indexes into `types` with the
+        // enum value because in the beginning we pre-filled `types` with
+        // the types that are listed in `Ref`.
         return DocData.WalkResult{ .type = enum_value };
+    } else if (enum_value < Ref.typed_value_map.len) {
+        switch (ref) {
+            else => {
+                std.debug.panic("TODO: handle {s} in `walkRef`\n", .{
+                    @tagName(ref),
+                });
+            },
+            .undef => {
+                return DocData.WalkResult{ .@"undefined" = .unspecified };
+            },
+            .zero => {
+                return DocData.WalkResult{ .int = .{
+                    .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                    .value = 0,
+                } };
+            },
+            .one => {
+                return DocData.WalkResult{ .int = .{
+                    .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                    .value = 1,
+                } };
+            },
+
+            .void_value => {
+                return DocData.WalkResult{ .void = {} };
+            },
+            .unreachable_value => {
+                return DocData.WalkResult{ .@"unreachable" = {} };
+            },
+            .null_value => {
+                return DocData.WalkResult{ .@"null" = .unspecified };
+            },
+            .bool_true => {
+                return DocData.WalkResult{ .bool = true };
+            },
+            .bool_false => {
+                return DocData.WalkResult{ .bool = false };
+            },
+            .empty_struct => {
+                return DocData.WalkResult{ .@"struct" = .{
+                    .typeRef = .unspecified,
+                    .fieldVals = &.{},
+                } };
+            },
+            .zero_usize => {
+                return DocData.WalkResult{ .int = .{
+                    .typeRef = .{ .type = @enumToInt(Ref.usize_type) },
+                    .value = 0,
+                } };
+            },
+            .one_usize => {
+                return DocData.WalkResult{ .int = .{
+                    .typeRef = .{ .type = @enumToInt(Ref.usize_type) },
+                    .value = 1,
+                } };
+            },
+            // TODO: dunno what to do with those
+            // .calling_convention_c => {
+            //     return DocData.WalkResult{ .int = .{
+            //         .type = @enumToInt(Ref.comptime_int_type),
+            //         .value = 1,
+            //     } };
+            // },
+            // .calling_convention_inline => {
+            //     return DocData.WalkResult{ .int = .{
+            //         .type = @enumToInt(Ref.comptime_int_type),
+            //         .value = 1,
+            //     } };
+            // },
+            // .generic_poison => {
+            //     return DocData.WalkResult{ .int = .{
+            //         .type = @enumToInt(Ref.comptime_int_type),
+            //         .value = 1,
+            //     } };
+            // },
+        }
     } else {
         const zir_index = enum_value - Ref.typed_value_map.len;
         return self.walkInstruction(zir, parent_scope, zir_index);
     }
+}
+
+fn walkResultToTypeRef(wr: DocData.WalkResult) DocData.TypeRef {
+    return switch (wr) {
+        else => std.debug.panic(
+            "TODO: handle `{s}` in `walkInstruction.as_node.dest_type`\n",
+            .{@tagName(wr)},
+        ),
+
+        .declRef => |v| .{ .declRef = v },
+        .type => |v| .{ .type = v },
+    };
 }
