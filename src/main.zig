@@ -2023,6 +2023,10 @@ fn buildOutputType(
             i += 1;
         }
     }
+    // libc++ depends on libc
+    if (link_libcpp) {
+        link_libc = true;
+    }
 
     if (use_lld) |opt| {
         if (opt and cross_target.isDarwin()) {
