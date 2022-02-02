@@ -14,6 +14,7 @@ test {
     _ = @import("behavior/bugs/1277.zig");
     _ = @import("behavior/bugs/1310.zig");
     _ = @import("behavior/bugs/1381.zig");
+    _ = @import("behavior/bugs/1486.zig");
     _ = @import("behavior/bugs/1500.zig");
     _ = @import("behavior/bugs/1735.zig");
     _ = @import("behavior/bugs/2006.zig");
@@ -43,7 +44,6 @@ test {
         _ = @import("behavior/bugs/624.zig");
         _ = @import("behavior/bugs/704.zig");
         _ = @import("behavior/bugs/1076.zig");
-        _ = @import("behavior/bugs/1486.zig");
         _ = @import("behavior/bugs/2692.zig");
         _ = @import("behavior/bugs/2889.zig");
         _ = @import("behavior/bugs/3046.zig");
