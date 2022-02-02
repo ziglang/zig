@@ -34,6 +34,7 @@ test {
     _ = @import("behavior/slice_sentinel_comptime.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/truncate.zig");
+    _ = @import("behavior/struct.zig");
 
     if (builtin.zig_backend != .stage2_arm and builtin.zig_backend != .stage2_x86_64) {
         // Tests that pass for stage1, llvm backend, C backend, wasm backend.
@@ -69,7 +70,6 @@ test {
         _ = @import("behavior/ptrcast.zig");
         _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
         _ = @import("behavior/src.zig");
-        _ = @import("behavior/struct.zig");
         _ = @import("behavior/this.zig");
         _ = @import("behavior/try.zig");
         _ = @import("behavior/type_info.zig");

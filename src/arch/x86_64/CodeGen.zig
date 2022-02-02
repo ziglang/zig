@@ -680,6 +680,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
             // zig fmt: on
         }
+
+        assert(!self.register_manager.frozenRegsExist());
+
         if (std.debug.runtime_safety) {
             if (self.air_bookkeeping < old_air_bookkeeping + 1) {
                 std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[inst] });
@@ -809,7 +812,7 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
     const stack_mcv = try self.allocRegOrMem(inst, false);
     log.debug("spilling {d} to stack mcv {any}", .{ inst, stack_mcv });
     const reg_mcv = self.getResolvedInstValue(inst);
-    assert(reg == reg_mcv.register.to64());
+    assert(reg.to64() == reg_mcv.register.to64());
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     try branch.inst_table.put(self.gpa, inst, stack_mcv);
     try self.genSetStack(self.air.typeOfIndex(inst), stack_mcv.stack_offset, reg_mcv);
@@ -827,9 +830,9 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
 /// Allocates a new register and copies `mcv` into it.
 /// `reg_owner` is the instruction that gets associated with the register in the register table.
 /// This can have a side effect of spilling instructions to the stack to free up a register.
-fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, mcv: MCValue) !MCValue {
+fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, ty: Type, mcv: MCValue) !MCValue {
     const reg = try self.register_manager.allocReg(reg_owner, &.{});
-    try self.genSetReg(self.air.typeOfIndex(reg_owner), reg, mcv);
+    try self.genSetReg(ty, reg, mcv);
     return MCValue{ .register = reg };
 }
 
@@ -838,11 +841,12 @@ fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, mcv: MCValue) !MCVa
 fn copyToNewRegisterWithExceptions(
     self: *Self,
     reg_owner: Air.Inst.Index,
+    ty: Type,
     mcv: MCValue,
     exceptions: []const Register,
 ) !MCValue {
     const reg = try self.register_manager.allocReg(reg_owner, exceptions);
-    try self.genSetReg(self.air.typeOfIndex(reg_owner), reg, mcv);
+    try self.genSetReg(ty, reg, mcv);
     return MCValue{ .register = reg };
 }
 
@@ -892,13 +896,10 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
         if (operand_abi_size > 8 or dest_abi_size > 8) {
             return self.fail("TODO implement intCast for abi sizes larger than 8", .{});
         }
-        const reg = switch (operand) {
-            .register => |src_reg| try self.register_manager.allocReg(inst, &.{src_reg}),
-            else => try self.register_manager.allocReg(inst, &.{}),
-        };
-        try self.genSetReg(dest_ty, reg, .{ .immediate = 0 });
-        try self.genSetReg(dest_ty, reg, operand);
-        break :blk .{ .register = registerAlias(reg, @intCast(u32, dest_abi_size)) };
+
+        if (operand.isRegister()) self.register_manager.freezeRegs(&.{operand.register});
+        defer if (operand.isRegister()) self.register_manager.unfreezeRegs(&.{operand.register});
+        break :blk try self.copyToNewRegister(inst, dest_ty, operand);
     };
 
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
@@ -1208,7 +1209,7 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
         if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
             break :result operand;
         }
-        break :result try self.copyToNewRegister(inst, operand);
+        break :result try self.copyToNewRegister(inst, self.air.typeOfIndex(inst), operand);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -1479,16 +1480,11 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
         const index_ty = self.air.typeOf(extra.rhs);
         const index = try self.resolveInst(extra.rhs);
         const offset_reg = try self.elemOffset(index_ty, index, elem_abi_size);
-        const dst_mcv = blk: {
-            switch (ptr) {
-                .ptr_stack_offset => {
-                    const reg = try self.register_manager.allocReg(inst, &.{offset_reg});
-                    try self.genSetReg(ptr_ty, reg, ptr);
-                    break :blk .{ .register = reg };
-                },
-                else => return self.fail("TODO implement ptr_elem_ptr when ptr is {}", .{ptr}),
-            }
-        };
+
+        self.register_manager.freezeRegs(&.{offset_reg});
+        defer self.register_manager.unfreezeRegs(&.{offset_reg});
+
+        const dst_mcv = try self.copyToNewRegister(inst, ptr_ty, ptr);
         try self.genBinMathOpMir(.add, ptr_ty, dst_mcv, .{ .register = offset_reg });
         break :result dst_mcv;
     };
@@ -1795,22 +1791,62 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
 }
 
 fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
-    return if (self.liveness.isUnused(inst)) .dead else result: {
-        const mcv = try self.resolveInst(operand);
-        const struct_ty = self.air.typeOf(operand).childType();
-        const struct_size = @intCast(i32, struct_ty.abiSize(self.target.*));
-        const struct_field_offset = @intCast(i32, struct_ty.structFieldOffset(index, self.target.*));
-        const struct_field_ty = struct_ty.structFieldType(index);
-        const struct_field_size = @intCast(i32, struct_field_ty.abiSize(self.target.*));
+    if (self.liveness.isUnused(inst)) {
+        return MCValue.dead;
+    }
+    const mcv = try self.resolveInst(operand);
+    const ptr_ty = self.air.typeOf(operand);
+    const struct_ty = ptr_ty.childType();
+    const struct_size = @intCast(u32, struct_ty.abiSize(self.target.*));
+    const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+    const struct_field_ty = struct_ty.structFieldType(index);
+    const struct_field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
 
+    const dst_mcv: MCValue = result: {
         switch (mcv) {
+            .stack_offset => {
+                const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
+                    .immediate = struct_field_offset,
+                });
+                self.register_manager.freezeRegs(&.{offset_reg});
+                defer self.register_manager.unfreezeRegs(&.{offset_reg});
+
+                const dst_mcv = try self.copyToNewRegister(inst, ptr_ty, mcv);
+                try self.genBinMathOpMir(.add, ptr_ty, dst_mcv, .{ .register = offset_reg });
+                break :result dst_mcv;
+            },
             .ptr_stack_offset => |off| {
-                const ptr_stack_offset = off + struct_size - struct_field_offset - struct_field_size;
+                const offset_to_field = struct_size - struct_field_offset - struct_field_size;
+                const ptr_stack_offset = off + @intCast(i32, offset_to_field);
                 break :result MCValue{ .ptr_stack_offset = ptr_stack_offset };
+            },
+            .register => |reg| {
+                const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
+                    .immediate = struct_field_offset,
+                });
+                self.register_manager.freezeRegs(&.{offset_reg});
+                defer self.register_manager.unfreezeRegs(&.{offset_reg});
+
+                const can_reuse_operand = self.reuseOperand(inst, operand, 0, mcv);
+                const result_reg = blk: {
+                    if (can_reuse_operand) {
+                        break :blk reg;
+                    } else {
+                        self.register_manager.freezeRegs(&.{reg});
+                        const result_reg = try self.register_manager.allocReg(inst, &.{});
+                        try self.genSetReg(ptr_ty, result_reg, mcv);
+                        break :blk result_reg;
+                    }
+                };
+                defer if (!can_reuse_operand) self.register_manager.unfreezeRegs(&.{reg});
+
+                try self.genBinMathOpMir(.add, ptr_ty, .{ .register = result_reg }, .{ .register = offset_reg });
+                break :result MCValue{ .register = result_reg };
             },
             else => return self.fail("TODO implement codegen struct_field_ptr for {}", .{mcv}),
         }
     };
+    return dst_mcv;
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
@@ -1859,13 +1895,14 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     // Source operand can be an immediate, 8 bits or 32 bits.
     // So, if either one of the operands dies with this instruction, we can use it
     // as the result MCValue.
+    const dst_ty = self.air.typeOfIndex(inst);
     var dst_mcv: MCValue = undefined;
     var src_mcv: MCValue = undefined;
     if (self.reuseOperand(inst, op_lhs, 0, lhs)) {
         // LHS dies; use it as the destination.
         // Both operands cannot be memory.
         if (lhs.isMemory() and rhs.isMemory()) {
-            dst_mcv = try self.copyToNewRegister(inst, lhs);
+            dst_mcv = try self.copyToNewRegister(inst, dst_ty, lhs);
             src_mcv = rhs;
         } else {
             dst_mcv = lhs;
@@ -1875,7 +1912,7 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
         // RHS dies; use it as the destination.
         // Both operands cannot be memory.
         if (lhs.isMemory() and rhs.isMemory()) {
-            dst_mcv = try self.copyToNewRegister(inst, rhs);
+            dst_mcv = try self.copyToNewRegister(inst, dst_ty, rhs);
             src_mcv = lhs;
         } else {
             dst_mcv = rhs;
@@ -1887,18 +1924,18 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
                 // If the allocated register is the same as the rhs register, don't allocate that one
                 // and instead spill a subsequent one. Otherwise, this can result in a miscompilation
                 // in the presence of several binary operations performed in a single block.
-                try self.copyToNewRegisterWithExceptions(inst, lhs, &.{rhs.register})
+                try self.copyToNewRegisterWithExceptions(inst, dst_ty, lhs, &.{rhs.register})
             else
-                try self.copyToNewRegister(inst, lhs);
+                try self.copyToNewRegister(inst, dst_ty, lhs);
             src_mcv = rhs;
         } else {
             dst_mcv = if (lhs.isRegister())
                 // If the allocated register is the same as the rhs register, don't allocate that one
                 // and instead spill a subsequent one. Otherwise, this can result in a miscompilation
                 // in the presence of several binary operations performed in a single block.
-                try self.copyToNewRegisterWithExceptions(inst, rhs, &.{lhs.register})
+                try self.copyToNewRegisterWithExceptions(inst, dst_ty, rhs, &.{lhs.register})
             else
-                try self.copyToNewRegister(inst, rhs);
+                try self.copyToNewRegister(inst, dst_ty, rhs);
             src_mcv = lhs;
         }
     }
@@ -1917,7 +1954,6 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     }
 
     // Now for step 2, we assing an MIR instruction
-    const dst_ty = self.air.typeOfIndex(inst);
     const air_tags = self.air.instructions.items(.tag);
     switch (air_tags[inst]) {
         .add, .addwrap, .ptr_add => try self.genBinMathOpMir(.add, dst_ty, dst_mcv, src_mcv),
@@ -2417,7 +2453,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) !void {
             .register => |reg| {
                 if (Register.allocIndex(reg) == null) {
                     // Save function return value in a callee saved register
-                    break :result try self.copyToNewRegister(inst, info.return_value);
+                    break :result try self.copyToNewRegister(inst, self.air.typeOfIndex(inst), info.return_value);
                 }
             },
             else => {},
@@ -2494,7 +2530,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         // Either one, but not both, can be a memory operand.
         // Source operand can be an immediate, 8 bits or 32 bits.
         const dst_mcv = if (lhs.isImmediate() or (lhs.isMemory() and rhs.isMemory()))
-            try self.copyToNewRegister(inst, lhs)
+            try self.copyToNewRegister(inst, ty, lhs)
         else
             lhs;
         // This instruction supports only signed 32-bit immediates at most.

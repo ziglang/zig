@@ -373,11 +373,24 @@ pub fn generateSymbol(
         },
         .Struct => {
             // TODO debug info
-            // TODO padding of struct members
+            const struct_obj = typed_value.ty.castTag(.@"struct").?.data;
+            if (struct_obj.layout == .Packed) {
+                return Result{
+                    .fail = try ErrorMsg.create(
+                        bin_file.allocator,
+                        src_loc,
+                        "TODO implement generateSymbol for packed struct",
+                        .{},
+                    ),
+                };
+            }
+
+            const struct_begin = code.items.len;
             const field_vals = typed_value.val.castTag(.@"struct").?.data;
             for (field_vals) |field_val, index| {
                 const field_ty = typed_value.ty.structFieldType(index);
                 if (!field_ty.hasRuntimeBits()) continue;
+
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = field_ty,
                     .val = field_val,
@@ -387,6 +400,16 @@ pub fn generateSymbol(
                         code.appendSliceAssumeCapacity(external_slice);
                     },
                     .fail => |em| return Result{ .fail = em },
+                }
+                const unpadded_field_end = code.items.len - struct_begin;
+
+                // Pad struct members if required
+                const target = bin_file.options.target;
+                const padded_field_end = typed_value.ty.structFieldOffset(index + 1, target);
+                const padding = try math.cast(usize, padded_field_end - unpadded_field_end);
+
+                if (padding > 0) {
+                    try code.writer().writeByteNTimes(0, padding);
                 }
             }
 

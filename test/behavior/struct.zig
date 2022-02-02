@@ -9,11 +9,46 @@ const maxInt = std.math.maxInt;
 top_level_field: i32,
 
 test "top level fields" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     var instance = @This(){
         .top_level_field = 1234,
     };
     instance.top_level_field += 1;
     try expect(@as(i32, 1235) == instance.top_level_field);
+}
+
+const StructWithFields = struct {
+    a: u8,
+    b: u32,
+    c: u64,
+    d: u32,
+
+    fn first(self: *const StructWithFields) u8 {
+        return self.a;
+    }
+
+    fn second(self: *const StructWithFields) u32 {
+        return self.b;
+    }
+
+    fn third(self: *const StructWithFields) u64 {
+        return self.c;
+    }
+
+    fn fourth(self: *const StructWithFields) u32 {
+        return self.d;
+    }
+};
+
+test "non-packed struct has fields padded out to the required alignment" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const foo = StructWithFields{ .a = 5, .b = 1, .c = 10, .d = 2 };
+    try expect(foo.first() == 5);
+    try expect(foo.second() == 1);
+    try expect(foo.third() == 10);
+    try expect(foo.fourth() == 2);
 }
 
 const StructWithNoFields = struct {
@@ -29,6 +64,8 @@ const StructFoo = struct {
 };
 
 test "structs" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     var foo: StructFoo = undefined;
     @memset(@ptrCast([*]u8, &foo), 0, @sizeOf(StructFoo));
     foo.a += 1;
@@ -45,6 +82,8 @@ fn testMutation(foo: *StructFoo) void {
 }
 
 test "struct byval assign" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     var foo1: StructFoo = undefined;
     var foo2: StructFoo = undefined;
 
@@ -56,6 +95,8 @@ test "struct byval assign" {
 }
 
 test "call struct static method" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const result = StructWithNoFields.add(3, 4);
     try expect(result == 7);
 }
@@ -85,6 +126,8 @@ const Val = struct {
 };
 
 test "fn call of struct field" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const Foo = struct {
         ptr: fn () i32,
     };
@@ -114,12 +157,16 @@ const MemberFnTestFoo = struct {
 };
 
 test "call member function directly" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const instance = MemberFnTestFoo{ .x = 1234 };
     const result = MemberFnTestFoo.member(instance);
     try expect(result == 1234);
 }
 
 test "store member function in variable" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const instance = MemberFnTestFoo{ .x = 1234 };
     const memberFn = MemberFnTestFoo.member;
     const result = memberFn(instance);
@@ -127,6 +174,8 @@ test "store member function in variable" {
 }
 
 test "member functions" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const r = MemberFnRand{ .seed = 1234 };
     try expect(r.getSeed() == 1234);
 }
@@ -138,6 +187,8 @@ const MemberFnRand = struct {
 };
 
 test "return struct byval from function" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const bar = makeBar2(1234, 5678);
     try expect(bar.y == 5678);
 }
@@ -153,6 +204,8 @@ fn makeBar2(x: i32, y: i32) Bar {
 }
 
 test "call method with mutable reference to struct with no fields" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const S = struct {
         fn doC(s: *const @This()) bool {
             _ = s;
@@ -172,6 +225,8 @@ test "call method with mutable reference to struct with no fields" {
 }
 
 test "usingnamespace within struct scope" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const S = struct {
         usingnamespace struct {
             pub fn inner() i32 {
@@ -183,6 +238,8 @@ test "usingnamespace within struct scope" {
 }
 
 test "struct field init with catch" {
+    if (builtin.zig_backend == .stage2_x86_64 or builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var x: anyerror!isize = 1;

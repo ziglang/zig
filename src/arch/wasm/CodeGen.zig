@@ -619,7 +619,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!WValue {
             .code = &value_bytes,
             .symbol_index = try self.bin_file.createLocalSymbol(self.decl, ty),
         };
-        const result = decl_gen.genTypedValue(ty, val, value_bytes.writer()) catch |err| {
+        const result = decl_gen.genTypedValue(ty, val) catch |err| {
             // When a codegen error occured, take ownership of the error message
             if (err == error.CodegenFail) {
                 self.err_msg = decl_gen.err_msg;
@@ -907,14 +907,15 @@ pub const DeclGen = struct {
                 break :init_val payload.data.init;
             } else decl.val;
             if (init_val.tag() != .unreachable_value) {
-                return self.genTypedValue(decl.ty, init_val, self.code.writer());
+                return self.genTypedValue(decl.ty, init_val);
             }
             return Result{ .appended = {} };
         }
     }
 
     /// Generates the wasm bytecode for the declaration belonging to `Context`
-    fn genTypedValue(self: *DeclGen, ty: Type, val: Value, writer: anytype) InnerError!Result {
+    fn genTypedValue(self: *DeclGen, ty: Type, val: Value) InnerError!Result {
+        const writer = self.code.writer();
         if (val.isUndef()) {
             try writer.writeByteNTimes(0xaa, @intCast(usize, ty.abiSize(self.target())));
             return Result{ .appended = {} };
@@ -926,7 +927,7 @@ pub const DeclGen = struct {
                     .function => val.castTag(.function).?.data.owner_decl,
                     else => unreachable,
                 };
-                return try self.lowerDeclRef(ty, val, fn_decl, writer);
+                return try self.lowerDeclRef(ty, val, fn_decl);
             },
             .Optional => {
                 var opt_buf: Type.Payload.ElemType = undefined;
@@ -942,9 +943,9 @@ pub const DeclGen = struct {
 
                 if (ty.isPtrLikeOptional()) {
                     if (val.castTag(.opt_payload)) |payload| {
-                        return self.genTypedValue(payload_type, payload.data, writer);
+                        return self.genTypedValue(payload_type, payload.data);
                     } else if (!val.isNull()) {
-                        return self.genTypedValue(payload_type, val, writer);
+                        return self.genTypedValue(payload_type, val);
                     } else {
                         try writer.writeByteNTimes(0, abi_size);
                         return Result{ .appended = {} };
@@ -956,7 +957,6 @@ pub const DeclGen = struct {
                 switch (try self.genTypedValue(
                     payload_type,
                     if (val.castTag(.opt_payload)) |pl| pl.data else Value.initTag(.undef),
-                    writer,
                 )) {
                     .appended => {},
                     .externally_managed => |payload| try writer.writeAll(payload),
@@ -972,7 +972,7 @@ pub const DeclGen = struct {
                     const elem_vals = val.castTag(.array).?.data;
                     const elem_ty = ty.childType();
                     for (elem_vals) |elem_val| {
-                        switch (try self.genTypedValue(elem_ty, elem_val, writer)) {
+                        switch (try self.genTypedValue(elem_ty, elem_val)) {
                             .appended => {},
                             .externally_managed => |data| try writer.writeAll(data),
                         }
@@ -987,20 +987,20 @@ pub const DeclGen = struct {
 
                     var index: u32 = 0;
                     while (index < len) : (index += 1) {
-                        switch (try self.genTypedValue(elem_ty, array, writer)) {
+                        switch (try self.genTypedValue(elem_ty, array)) {
                             .externally_managed => |data| try writer.writeAll(data),
                             .appended => {},
                         }
                     }
                     if (sentinel) |sentinel_value| {
-                        return self.genTypedValue(elem_ty, sentinel_value, writer);
+                        return self.genTypedValue(elem_ty, sentinel_value);
                     }
                     return Result{ .appended = {} };
                 },
                 .empty_array_sentinel => {
                     const elem_ty = ty.childType();
                     const sent_val = ty.sentinel().?;
-                    return self.genTypedValue(elem_ty, sent_val, writer);
+                    return self.genTypedValue(elem_ty, sent_val);
                 },
                 else => unreachable,
             },
@@ -1037,24 +1037,36 @@ pub const DeclGen = struct {
                 const int_val = val.enumToInt(ty, &int_buffer);
                 var buf: Type.Payload.Bits = undefined;
                 const int_ty = ty.intTagType(&buf);
-                return self.genTypedValue(int_ty, int_val, writer);
+                return self.genTypedValue(int_ty, int_val);
             },
             .Bool => {
                 try writer.writeByte(@boolToInt(val.toBool()));
                 return Result{ .appended = {} };
             },
             .Struct => {
-                const struct_ty = ty.castTag(.@"struct").?.data;
-                if (struct_ty.layout == .Packed) {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                if (struct_obj.layout == .Packed) {
                     return self.fail("TODO: Packed structs for wasm", .{});
                 }
+
+                const struct_begin = self.code.items.len;
                 const field_vals = val.castTag(.@"struct").?.data;
                 for (field_vals) |field_val, index| {
                     const field_ty = ty.structFieldType(index);
                     if (!field_ty.hasRuntimeBits()) continue;
-                    switch (try self.genTypedValue(field_ty, field_val, writer)) {
+
+                    switch (try self.genTypedValue(field_ty, field_val)) {
                         .appended => {},
                         .externally_managed => |payload| try writer.writeAll(payload),
+                    }
+                    const unpadded_field_len = self.code.items.len - struct_begin;
+
+                    // Pad struct members if required
+                    const padded_field_end = ty.structFieldOffset(index + 1, self.target());
+                    const padding = try std.math.cast(usize, padded_field_end - unpadded_field_len);
+
+                    if (padding > 0) {
+                        try writer.writeByteNTimes(0, padding);
                     }
                 }
                 return Result{ .appended = {} };
@@ -1064,12 +1076,12 @@ pub const DeclGen = struct {
                 const layout = ty.unionGetLayout(self.target());
 
                 if (layout.payload_size == 0) {
-                    return self.genTypedValue(ty.unionTagType().?, union_val.tag, writer);
+                    return self.genTypedValue(ty.unionTagType().?, union_val.tag);
                 }
 
                 // Check if we should store the tag first, in which case, do so now:
                 if (layout.tag_align >= layout.payload_align) {
-                    switch (try self.genTypedValue(ty.unionTagType().?, union_val.tag, writer)) {
+                    switch (try self.genTypedValue(ty.unionTagType().?, union_val.tag)) {
                         .appended => {},
                         .externally_managed => |payload| try writer.writeAll(payload),
                     }
@@ -1082,7 +1094,7 @@ pub const DeclGen = struct {
                 if (!field_ty.hasRuntimeBits()) {
                     try writer.writeByteNTimes(0xaa, @intCast(usize, layout.payload_size));
                 } else {
-                    switch (try self.genTypedValue(field_ty, union_val.val, writer)) {
+                    switch (try self.genTypedValue(field_ty, union_val.val)) {
                         .appended => {},
                         .externally_managed => |payload| try writer.writeAll(payload),
                     }
@@ -1098,26 +1110,26 @@ pub const DeclGen = struct {
                 if (layout.tag_size == 0) {
                     return Result{ .appended = {} };
                 }
-                return self.genTypedValue(union_ty.tag_ty, union_val.tag, writer);
+                return self.genTypedValue(union_ty.tag_ty, union_val.tag);
             },
             .Pointer => switch (val.tag()) {
                 .variable => {
                     const decl = val.castTag(.variable).?.data.owner_decl;
-                    return self.lowerDeclRef(ty, val, decl, writer);
+                    return self.lowerDeclRef(ty, val, decl);
                 },
                 .decl_ref => {
                     const decl = val.castTag(.decl_ref).?.data;
-                    return self.lowerDeclRef(ty, val, decl, writer);
+                    return self.lowerDeclRef(ty, val, decl);
                 },
                 .slice => {
                     const slice = val.castTag(.slice).?.data;
                     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                     const ptr_ty = ty.slicePtrFieldType(&buf);
-                    switch (try self.genTypedValue(ptr_ty, slice.ptr, writer)) {
+                    switch (try self.genTypedValue(ptr_ty, slice.ptr)) {
                         .externally_managed => |data| try writer.writeAll(data),
                         .appended => {},
                     }
-                    switch (try self.genTypedValue(Type.usize, slice.len, writer)) {
+                    switch (try self.genTypedValue(Type.usize, slice.len)) {
                         .externally_managed => |data| try writer.writeAll(data),
                         .appended => {},
                     }
@@ -1135,14 +1147,14 @@ pub const DeclGen = struct {
                 const is_pl = val.errorUnionIsPayload();
 
                 const err_val = if (!is_pl) val else Value.initTag(.zero);
-                switch (try self.genTypedValue(error_ty, err_val, writer)) {
+                switch (try self.genTypedValue(error_ty, err_val)) {
                     .externally_managed => |data| try writer.writeAll(data),
                     .appended => {},
                 }
 
                 if (payload_ty.hasRuntimeBits()) {
                     const pl_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef);
-                    switch (try self.genTypedValue(payload_ty, pl_val, writer)) {
+                    switch (try self.genTypedValue(payload_ty, pl_val)) {
                         .externally_managed => |data| try writer.writeAll(data),
                         .appended => {},
                     }
@@ -1167,11 +1179,12 @@ pub const DeclGen = struct {
         }
     }
 
-    fn lowerDeclRef(self: *DeclGen, ty: Type, val: Value, decl: *Module.Decl, writer: anytype) InnerError!Result {
+    fn lowerDeclRef(self: *DeclGen, ty: Type, val: Value, decl: *Module.Decl) InnerError!Result {
+        const writer = self.code.writer();
         if (ty.isSlice()) {
             var buf: Type.SlicePtrFieldTypeBuffer = undefined;
             const slice_ty = ty.slicePtrFieldType(&buf);
-            switch (try self.genTypedValue(slice_ty, val, writer)) {
+            switch (try self.genTypedValue(slice_ty, val)) {
                 .appended => {},
                 .externally_managed => |payload| try writer.writeAll(payload),
             }
@@ -1179,7 +1192,7 @@ pub const DeclGen = struct {
                 .base = .{ .tag = .int_u64 },
                 .data = val.sliceLen(),
             };
-            return self.genTypedValue(Type.usize, Value.initPayload(&slice_len.base), writer);
+            return self.genTypedValue(Type.usize, Value.initPayload(&slice_len.base));
         }
 
         decl.markAlive();

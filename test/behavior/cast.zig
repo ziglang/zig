@@ -5,8 +5,6 @@ const maxInt = std.math.maxInt;
 const builtin = @import("builtin");
 
 test "int to ptr cast" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const x = @as(usize, 13);
     const y = @intToPtr(*u8, x);
     const z = @ptrToInt(y);
@@ -14,8 +12,6 @@ test "int to ptr cast" {
 }
 
 test "integer literal to pointer cast" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const vga_mem = @intToPtr(*u16, 0xB8000);
     try expect(@ptrToInt(vga_mem) == 0xB8000);
 }
