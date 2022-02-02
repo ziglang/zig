@@ -744,7 +744,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\        .address_space = .generic,
         \\        .child = u8,
         \\        .is_allowzero = false,
-        \\        .sentinel = 0,
+        \\        .sentinel = &@as(u8, 0),
         \\    }});
         \\}
     , &[_][]const u8{

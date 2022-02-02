@@ -9452,6 +9452,12 @@ static void define_builtin_types(CodeGen *g) {
     }
 
     {
+        ZigType *ptr_const_anyopaque = get_pointer_to_type(g,
+                g->builtin_types.entry_anyopaque, true);
+        g->builtin_types.entry_opt_ptr_const_anyopaque = get_optional_type(g, ptr_const_anyopaque);
+    }
+
+    {
         ZigType *entry = new_type_table_entry(ZigTypeIdErrorSet);
         buf_init_from_str(&entry->name, "anyerror");
         entry->data.error_set.err_count = UINT32_MAX;

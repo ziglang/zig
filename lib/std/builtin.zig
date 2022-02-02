@@ -226,11 +226,10 @@ pub const TypeInfo = union(enum) {
         child: type,
         is_allowzero: bool,
 
-        /// This field is an optional type.
         /// The type of the sentinel is the element type of the pointer, which is
         /// the value of the `child` field in this struct. However there is no way
-        /// to refer to that type here, so we use `anytype`.
-        sentinel: anytype,
+        /// to refer to that type here, so we use pointer to `anyopaque`.
+        sentinel: ?*const anyopaque,
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
@@ -248,11 +247,10 @@ pub const TypeInfo = union(enum) {
         len: comptime_int,
         child: type,
 
-        /// This field is an optional type.
         /// The type of the sentinel is the element type of the array, which is
         /// the value of the `child` field in this struct. However there is no way
-        /// to refer to that type here, so we use `anytype`.
-        sentinel: anytype,
+        /// to refer to that type here, so we use pointer to `anyopaque`.
+        sentinel: ?*const anyopaque,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -267,8 +265,9 @@ pub const TypeInfo = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const StructField = struct {
         name: []const u8,
+        /// TODO rename to `type`
         field_type: type,
-        default_value: anytype,
+        default_value: ?*const anyopaque,
         is_comptime: bool,
         alignment: comptime_int,
     };
@@ -369,7 +368,7 @@ pub const TypeInfo = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Frame = struct {
-        function: anytype,
+        function: *const anyopaque,
     };
 
     /// This data structure is used by the Zig language code generation and

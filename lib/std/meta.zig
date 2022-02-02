@@ -190,12 +190,21 @@ test "std.meta.Elem" {
 /// Types which cannot possibly have a sentinel will be a compile error.
 pub fn sentinel(comptime T: type) ?Elem(T) {
     switch (@typeInfo(T)) {
-        .Array => |info| return info.sentinel,
+        .Array => |info| {
+            const sentinel_ptr = info.sentinel orelse return null;
+            return @ptrCast(*const info.child, sentinel_ptr).*;
+        },
         .Pointer => |info| {
             switch (info.size) {
-                .Many, .Slice => return info.sentinel,
+                .Many, .Slice => {
+                    const sentinel_ptr = info.sentinel orelse return null;
+                    return @ptrCast(*const info.child, sentinel_ptr).*;
+                },
                 .One => switch (@typeInfo(info.child)) {
-                    .Array => |array_info| return array_info.sentinel,
+                    .Array => |array_info| {
+                        const sentinel_ptr = array_info.sentinel orelse return null;
+                        return @ptrCast(*const array_info.child, sentinel_ptr).*;
+                    },
                     else => {},
                 },
                 else => {},
@@ -239,7 +248,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                             .Array = .{
                                 .len = array_info.len,
                                 .child = array_info.child,
-                                .sentinel = sentinel_val,
+                                .sentinel = &sentinel_val,
                             },
                         }),
                         .is_allowzero = info.is_allowzero,
@@ -257,7 +266,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                     .address_space = info.address_space,
                     .child = info.child,
                     .is_allowzero = info.is_allowzero,
-                    .sentinel = sentinel_val,
+                    .sentinel = &sentinel_val,
                 },
             }),
             else => {},
@@ -275,7 +284,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                                 .address_space = ptr_info.address_space,
                                 .child = ptr_info.child,
                                 .is_allowzero = ptr_info.is_allowzero,
-                                .sentinel = sentinel_val,
+                                .sentinel = &sentinel_val,
                             },
                         }),
                     },
