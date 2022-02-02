@@ -121,8 +121,8 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Regular old hello world
         case.addCompareOutput(
-            \\extern fn write(usize, usize, usize) usize;
-            \\extern fn exit(usize) noreturn;
+            \\extern "c" fn write(usize, usize, usize) usize;
+            \\extern "c" fn exit(usize) noreturn;
             \\
             \\pub export fn main() noreturn {
             \\    print();
@@ -141,7 +141,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Now using start.zig without an explicit extern exit fn
         case.addCompareOutput(
-            \\extern fn write(usize, usize, usize) usize;
+            \\extern "c" fn write(usize, usize, usize) usize;
             \\
             \\pub fn main() void {
             \\    print();
@@ -158,7 +158,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Print it 4 times and force growth and realloc.
         case.addCompareOutput(
-            \\extern fn write(usize, usize, usize) usize;
+            \\extern "c" fn write(usize, usize, usize) usize;
             \\
             \\pub fn main() void {
             \\    print();
@@ -182,7 +182,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Print it once, and change the message.
         case.addCompareOutput(
-            \\extern fn write(usize, usize, usize) usize;
+            \\extern "c" fn write(usize, usize, usize) usize;
             \\
             \\pub fn main() void {
             \\    print();
@@ -199,7 +199,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Now we print it twice.
         case.addCompareOutput(
-            \\extern fn write(usize, usize, usize) usize;
+            \\extern "c" fn write(usize, usize, usize) usize;
             \\
             \\pub fn main() void {
             \\    print();
