@@ -740,7 +740,7 @@ pub fn main() void {
         <tr>
             <th scope="row">{#syntax#}f80{#endsyntax#}</th>
           <td><code class="c">double</code></td>
-          <td>64-bit floating point (64-bit mantissa) IEEE-754-2008 80-bit extended precision</td>
+          <td>80-bit floating point (64-bit mantissa) IEEE-754-2008 80-bit extended precision</td>
         </tr>
         <tr>
             <th scope="row">{#syntax#}f128{#endsyntax#}</th>
