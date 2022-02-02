@@ -419,8 +419,3 @@ test "union enum type gets a separate scope" {
 
     try S.doTheTest();
 }
-
-test "anytype union field: issue #9233" {
-    const Quux = union(enum) { bar: anytype };
-    _ = Quux;
-}

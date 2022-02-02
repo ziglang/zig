@@ -2108,6 +2108,7 @@ struct CodeGen {
         ZigType *entry_global_error_set;
         ZigType *entry_enum_literal;
         ZigType *entry_any_frame;
+        ZigType *entry_opt_ptr_const_anyopaque;
     } builtin_types;
 
     struct Intern {

@@ -119,7 +119,7 @@ fn testNullTerminatedPtr() !void {
     try expect(ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
     try expect(ptr_info.Pointer.is_const == false);
     try expect(ptr_info.Pointer.is_volatile == false);
-    try expect(ptr_info.Pointer.sentinel.? == 0);
+    try expect(@ptrCast(*const u8, ptr_info.Pointer.sentinel.?).* == 0);
 
     try expect(@typeInfo([:0]u8).Pointer.sentinel != null);
 }
@@ -161,7 +161,7 @@ fn testArray() !void {
         const info = @typeInfo([10:0]u8);
         try expect(info.Array.len == 10);
         try expect(info.Array.child == u8);
-        try expect(info.Array.sentinel.? == @as(u8, 0));
+        try expect(@ptrCast(*const u8, info.Array.sentinel.?).* == @as(u8, 0));
         try expect(@sizeOf([10:0]u8) == info.Array.len + 1);
     }
 }
@@ -271,8 +271,8 @@ fn testStruct() !void {
     const unpacked_struct_info = @typeInfo(TestUnpackedStruct);
     try expect(unpacked_struct_info.Struct.is_tuple == false);
     try expect(unpacked_struct_info.Struct.fields[0].alignment == @alignOf(u32));
-    try expect(unpacked_struct_info.Struct.fields[0].default_value.? == 4);
-    try expectEqualStrings("foobar", unpacked_struct_info.Struct.fields[1].default_value.?);
+    try expect(@ptrCast(*const u32, unpacked_struct_info.Struct.fields[0].default_value.?).* == 4);
+    try expectEqualStrings("foobar", @ptrCast(*const *const [6:0]u8, unpacked_struct_info.Struct.fields[1].default_value.?).*);
 
     const struct_info = @typeInfo(TestStruct);
     try expect(struct_info == .Struct);
@@ -282,7 +282,7 @@ fn testStruct() !void {
     try expect(struct_info.Struct.fields[0].alignment == 2 * @alignOf(usize));
     try expect(struct_info.Struct.fields[2].field_type == *TestStruct);
     try expect(struct_info.Struct.fields[2].default_value == null);
-    try expect(struct_info.Struct.fields[3].default_value.? == 4);
+    try expect(@ptrCast(*const u32, struct_info.Struct.fields[3].default_value.?).* == 4);
     try expect(struct_info.Struct.fields[3].alignment == 1);
     try expect(struct_info.Struct.decls.len == 2);
     try expect(struct_info.Struct.decls[0].is_pub);
@@ -436,13 +436,6 @@ test "@typeInfo does not force declarations into existence" {
     comptime try expect(@typeInfo(S).Struct.fields.len == 1);
 }
 
-test "default value for a anytype field" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
-    const S = struct { x: anytype };
-    try expect(@typeInfo(S).Struct.fields[0].default_value == null);
-}
-
 fn add(a: i32, b: i32) i32 {
     return a + b;
 }
@@ -452,7 +445,7 @@ test "type info for async frames" {
 
     switch (@typeInfo(@Frame(add))) {
         .Frame => |frame| {
-            try expect(frame.function == add);
+            try expect(@ptrCast(@TypeOf(add), frame.function) == add);
         },
         else => unreachable,
     }

@@ -297,8 +297,8 @@ pub fn benchmarkAes8(comptime Aes: anytype, comptime count: comptime_int) !u64 {
 }
 
 const CryptoPwhash = struct {
-    hashFn: anytype,
-    params: anytype,
+    hashFn: @compileError("anytype fields are removed from the language"),
+    params: @compileError("anytype fields are removed from the language"),
     name: []const u8,
 };
 const bcrypt_params = crypto.pwhash.bcrypt.Params{ .rounds_log = 12 };

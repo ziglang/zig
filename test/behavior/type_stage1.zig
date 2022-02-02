@@ -37,7 +37,7 @@ test "Type.Array" {
         .Array = TypeInfo.Array{
             .len = 2,
             .child = u32,
-            .sentinel = 0,
+            .sentinel = &@as(u32, 0),
         },
     }));
     try testTypes(&[_]type{ [1]u8, [30]usize, [7]bool });
@@ -141,12 +141,6 @@ fn add(a: i32, b: i32) i32 {
     return a + b;
 }
 
-test "Type.Frame" {
-    try testTypes(&[_]type{
-        @Frame(add),
-    });
-}
-
 test "Type.ErrorSet" {
     // error sets don't compare equal so just check if they compile
     _ = @Type(@typeInfo(error{}));
@@ -160,10 +154,10 @@ test "Type.Struct" {
     try testing.expectEqual(TypeInfo.ContainerLayout.Auto, infoA.layout);
     try testing.expectEqualSlices(u8, "x", infoA.fields[0].name);
     try testing.expectEqual(u8, infoA.fields[0].field_type);
-    try testing.expectEqual(@as(?u8, null), infoA.fields[0].default_value);
+    try testing.expectEqual(@as(?*const anyopaque, null), infoA.fields[0].default_value);
     try testing.expectEqualSlices(u8, "y", infoA.fields[1].name);
     try testing.expectEqual(u32, infoA.fields[1].field_type);
-    try testing.expectEqual(@as(?u32, null), infoA.fields[1].default_value);
+    try testing.expectEqual(@as(?*const anyopaque, null), infoA.fields[1].default_value);
     try testing.expectEqualSlices(TypeInfo.Declaration, &[_]TypeInfo.Declaration{}, infoA.decls);
     try testing.expectEqual(@as(bool, false), infoA.is_tuple);
 
@@ -178,10 +172,10 @@ test "Type.Struct" {
     try testing.expectEqual(TypeInfo.ContainerLayout.Extern, infoB.layout);
     try testing.expectEqualSlices(u8, "x", infoB.fields[0].name);
     try testing.expectEqual(u8, infoB.fields[0].field_type);
-    try testing.expectEqual(@as(?u8, null), infoB.fields[0].default_value);
+    try testing.expectEqual(@as(?*const anyopaque, null), infoB.fields[0].default_value);
     try testing.expectEqualSlices(u8, "y", infoB.fields[1].name);
     try testing.expectEqual(u32, infoB.fields[1].field_type);
-    try testing.expectEqual(@as(?u32, 5), infoB.fields[1].default_value);
+    try testing.expectEqual(@as(u32, 5), @ptrCast(*const u32, infoB.fields[1].default_value.?).*);
     try testing.expectEqual(@as(usize, 0), infoB.decls.len);
     try testing.expectEqual(@as(bool, false), infoB.is_tuple);
 
@@ -190,10 +184,10 @@ test "Type.Struct" {
     try testing.expectEqual(TypeInfo.ContainerLayout.Packed, infoC.layout);
     try testing.expectEqualSlices(u8, "x", infoC.fields[0].name);
     try testing.expectEqual(u8, infoC.fields[0].field_type);
-    try testing.expectEqual(@as(?u8, 3), infoC.fields[0].default_value);
+    try testing.expectEqual(@as(u8, 3), @ptrCast(*const u8, infoC.fields[0].default_value.?).*);
     try testing.expectEqualSlices(u8, "y", infoC.fields[1].name);
     try testing.expectEqual(u32, infoC.fields[1].field_type);
-    try testing.expectEqual(@as(?u32, 5), infoC.fields[1].default_value);
+    try testing.expectEqual(@as(u32, 5), @ptrCast(*const u32, infoC.fields[1].default_value.?).*);
     try testing.expectEqual(@as(usize, 0), infoC.decls.len);
     try testing.expectEqual(@as(bool, false), infoC.is_tuple);
 }

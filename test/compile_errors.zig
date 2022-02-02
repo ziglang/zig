@@ -744,7 +744,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\        .address_space = .generic,
         \\        .child = u8,
         \\        .is_allowzero = false,
-        \\        .sentinel = 0,
+        \\        .sentinel = &@as(u8, 0),
         \\    }});
         \\}
     , &[_][]const u8{
@@ -4205,16 +4205,6 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         "tmp.zig:5:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
-    });
-
-    ctx.objErrStage1("var makes structs required to be comptime known",
-        \\export fn entry() void {
-        \\   const S = struct{v: anytype};
-        \\   var s = S{.v=@as(i32, 10)};
-        \\   _ = s;
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:3:4: error: variable of type 'S' must be const or comptime",
     });
 
     ctx.objErrStage1("@ptrCast discards const qualifier",

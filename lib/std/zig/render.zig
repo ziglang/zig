@@ -229,8 +229,6 @@ fn renderExpression(gpa: Allocator, ais: *Ais, tree: Ast, node: Ast.Node.Index, 
             return renderToken(ais, tree, main_tokens[node] + 2, space);
         },
 
-        .@"anytype" => return renderToken(ais, tree, main_tokens[node], space),
-
         .block_two,
         .block_two_semicolon,
         => {
