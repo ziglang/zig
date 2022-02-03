@@ -819,7 +819,7 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
         const ptr_bits = self.target.cpu.arch.ptrBitWidth();
         const ptr_bytes: u64 = @divExact(ptr_bits, 8);
         if (abi_size <= ptr_bytes) {
-            if (self.register_manager.tryAllocReg(inst, &.{})) |reg| {
+            if (self.register_manager.tryAllocReg(inst)) |reg| {
                 return MCValue{ .register = registerAlias(reg, abi_size) };
             }
         }
@@ -842,7 +842,7 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
 /// allocated. A second call to `copyToTmpRegister` may return the same register.
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
-    const reg = try self.register_manager.allocReg(null, &.{});
+    const reg = try self.register_manager.allocReg(null);
     try self.genSetReg(ty, reg, mcv);
     return reg;
 }
@@ -851,7 +851,7 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
 /// `reg_owner` is the instruction that gets associated with the register in the register table.
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, ty: Type, mcv: MCValue) !MCValue {
-    const reg = try self.register_manager.allocReg(reg_owner, &.{});
+    const reg = try self.register_manager.allocReg(reg_owner);
     try self.genSetReg(ty, reg, mcv);
     return MCValue{ .register = reg };
 }
@@ -932,7 +932,7 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
         const reg = switch (operand) {
             .register => |reg| reg,
             else => inner: {
-                const reg = try self.register_manager.allocReg(inst, &.{});
+                const reg = try self.register_manager.allocReg(inst);
                 try self.genSetReg(src_ty, reg, operand);
                 break :inner reg;
             },
@@ -1401,7 +1401,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
         self.register_manager.freezeRegs(&.{offset_reg});
         defer self.register_manager.unfreezeRegs(&.{offset_reg});
 
-        const addr_reg = try self.register_manager.allocReg(null, &.{});
+        const addr_reg = try self.register_manager.allocReg(null);
         switch (slice_mcv) {
             .stack_offset => |off| {
                 // mov reg, [rbp - 8]
@@ -1459,7 +1459,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
         self.register_manager.freezeRegs(&.{offset_reg});
         defer self.register_manager.unfreezeRegs(&.{offset_reg});
 
-        const addr_reg = try self.register_manager.allocReg(null, &.{});
+        const addr_reg = try self.register_manager.allocReg(null);
         switch (array) {
             .stack_offset => |off| {
                 // lea reg, [rbp]
@@ -1640,7 +1640,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 },
                 .stack_offset => |off| {
                     if (abi_size <= 8) {
-                        const tmp_reg = try self.register_manager.allocReg(null, &.{});
+                        const tmp_reg = try self.register_manager.allocReg(null);
                         try self.load(.{ .register = tmp_reg }, ptr, ptr_ty);
                         return self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg });
                     }
@@ -1648,7 +1648,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                     self.register_manager.freezeRegs(&.{ .rax, .rcx });
                     defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx });
 
-                    const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{});
+                    const regs = try self.register_manager.allocRegs(3, .{ null, null, null });
                     const addr_reg = regs[0];
                     const count_reg = regs[1];
                     const tmp_reg = regs[2];
@@ -1957,7 +1957,7 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
                         break :blk reg;
                     } else {
                         self.register_manager.freezeRegs(&.{reg});
-                        const result_reg = try self.register_manager.allocReg(inst, &.{});
+                        const result_reg = try self.register_manager.allocReg(inst);
                         try self.genSetReg(ptr_ty, result_reg, mcv);
                         break :blk result_reg;
                     }
@@ -3386,7 +3386,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
             self.register_manager.freezeRegs(&.{ .rax, .rcx });
             defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx });
 
-            const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{});
+            const regs = try self.register_manager.allocRegs(3, .{ null, null, null });
             const addr_reg = regs[0];
             const count_reg = regs[1];
             const tmp_reg = regs[2];
@@ -3554,7 +3554,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerErro
             self.register_manager.freezeRegs(&.{ .rax, .rcx, .rbp });
             defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx, .rbp });
 
-            const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{});
+            const regs = try self.register_manager.allocRegs(3, .{ null, null, null });
             const addr_reg = regs[0];
             const count_reg = regs[1];
             const tmp_reg = regs[2];
