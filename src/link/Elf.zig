@@ -855,10 +855,11 @@ pub const abbrev_subprogram = 2;
 pub const abbrev_subprogram_retvoid = 3;
 pub const abbrev_base_type = 4;
 pub const abbrev_ptr_type = 5;
-pub const abbrev_anon_struct_type = 6;
-pub const abbrev_struct_member = 7;
-pub const abbrev_pad1 = 8;
-pub const abbrev_parameter = 9;
+pub const abbrev_struct_type = 6;
+pub const abbrev_anon_struct_type = 7;
+pub const abbrev_struct_member = 8;
+pub const abbrev_pad1 = 9;
+pub const abbrev_parameter = 10;
 
 pub fn flush(self: *Elf, comp: *Compilation) !void {
     if (self.base.options.emit == null) {
@@ -953,6 +954,15 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
             DW.CHILDREN.no, // header
             DW.AT.type,
             DW.FORM.ref4,
+            0,
+            0, // table sentinel
+            abbrev_struct_type,
+            DW.TAG.structure_type,
+            DW.CHILDREN.yes, // header
+            DW.AT.byte_size,
+            DW.FORM.sdata,
+            DW.AT.name,
+            DW.FORM.string,
             0,
             0, // table sentinel
             abbrev_anon_struct_type,
@@ -2967,6 +2977,46 @@ fn addDbgInfoType(
                 try dbg_info_buffer.resize(index + 4);
                 try relocs.append(.{ .ty = ty.childType(), .reloc = @intCast(u32, index) });
             }
+        },
+        .Struct => blk: {
+            // try dbg_info_buffer.ensureUnusedCapacity(23);
+            // DW.AT.structure_type
+            try dbg_info_buffer.append(abbrev_struct_type);
+            // DW.AT.byte_size, DW.FORM.sdata
+            const abi_size = ty.abiSize(self.base.options.target);
+            try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
+            // DW.AT.name, DW.FORM.string
+            const struct_name = try ty.nameAlloc(arena);
+            try dbg_info_buffer.ensureUnusedCapacity(struct_name.len + 1);
+            dbg_info_buffer.appendSliceAssumeCapacity(struct_name);
+            dbg_info_buffer.appendAssumeCapacity(0);
+
+            const struct_obj = ty.castTag(.@"struct").?.data;
+            if (struct_obj.layout == .Packed) {
+                log.debug("TODO implement .debug_info for packed structs", .{});
+                break :blk;
+            }
+
+            const fields = ty.structFields();
+            for (fields.keys()) |field_name, field_index| {
+                const field = fields.get(field_name).?;
+                // DW.AT.member
+                try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
+                dbg_info_buffer.appendAssumeCapacity(abbrev_struct_member);
+                // DW.AT.name, DW.FORM.string
+                dbg_info_buffer.appendSliceAssumeCapacity(field_name);
+                dbg_info_buffer.appendAssumeCapacity(0);
+                // DW.AT.type, DW.FORM.ref4
+                var index = dbg_info_buffer.items.len;
+                try dbg_info_buffer.resize(index + 4);
+                try relocs.append(.{ .ty = field.ty, .reloc = @intCast(u32, index) });
+                // DW.AT.data_member_location, DW.FORM.sdata
+                const field_off = ty.structFieldOffset(field_index, self.base.options.target);
+                try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+            }
+
+            // DW.AT.structure_type delimit children
+            try dbg_info_buffer.append(0);
         },
         else => {
             log.debug("TODO implement .debug_info for type '{}'", .{ty});
