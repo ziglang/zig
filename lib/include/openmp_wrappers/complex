@@ -17,9 +17,18 @@
 // We require std::math functions in the complex builtins below.
 #include <cmath>
 
+#ifdef __NVPTX__
 #define __OPENMP_NVPTX__
 #include <__clang_cuda_complex_builtins.h>
 #undef __OPENMP_NVPTX__
+#endif // __NVPTX__
+
+#ifdef __AMDGCN__
+#define __OPENMP_AMDGCN__
+#include <__clang_cuda_complex_builtins.h>
+#undef __OPENMP_AMDGCN__
+#endif // __AMDGCN__
+
 #endif
 
 // Grab the host header too.
@@ -36,11 +45,11 @@
 #ifndef _LIBCPP_STD_VER
 
 #pragma omp begin declare variant match(                                       \
-    device = {arch(nvptx, nvptx64)},                                           \
+    device = {arch(amdgcn, nvptx, nvptx64)},                                   \
     implementation = {extension(match_any, allow_templates)})
 
 #include <complex_cmath.h>
 
 #pragma omp end declare variant
 
-#endif
+#endif // _LIBCPP_STD_VER

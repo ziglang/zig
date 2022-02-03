@@ -483,4 +483,36 @@ inline __device__ unsigned __funnelshift_rc(unsigned low32, unsigned high32,
 
 #endif // !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 320
 
+#if CUDA_VERSION >= 11000
+extern "C" {
+__device__ inline size_t __nv_cvta_generic_to_global_impl(const void *__ptr) {
+  return (size_t)(void __attribute__((address_space(1))) *)__ptr;
+}
+__device__ inline size_t __nv_cvta_generic_to_shared_impl(const void *__ptr) {
+  return (size_t)(void __attribute__((address_space(3))) *)__ptr;
+}
+__device__ inline size_t __nv_cvta_generic_to_constant_impl(const void *__ptr) {
+  return (size_t)(void __attribute__((address_space(4))) *)__ptr;
+}
+__device__ inline size_t __nv_cvta_generic_to_local_impl(const void *__ptr) {
+  return (size_t)(void __attribute__((address_space(5))) *)__ptr;
+}
+__device__ inline void *__nv_cvta_global_to_generic_impl(size_t __ptr) {
+  return (void *)(void __attribute__((address_space(1))) *)__ptr;
+}
+__device__ inline void *__nv_cvta_shared_to_generic_impl(size_t __ptr) {
+  return (void *)(void __attribute__((address_space(3))) *)__ptr;
+}
+__device__ inline void *__nv_cvta_constant_to_generic_impl(size_t __ptr) {
+  return (void *)(void __attribute__((address_space(4))) *)__ptr;
+}
+__device__ inline void *__nv_cvta_local_to_generic_impl(size_t __ptr) {
+  return (void *)(void __attribute__((address_space(5))) *)__ptr;
+}
+__device__ inline uint32_t __nvvm_get_smem_pointer(void *__ptr) {
+  return __nv_cvta_generic_to_shared_impl(__ptr);
+}
+} // extern "C"
+#endif // CUDA_VERSION >= 11000
+
 #endif // defined(__CLANG_CUDA_INTRINSICS_H__)

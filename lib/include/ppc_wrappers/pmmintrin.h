@@ -38,7 +38,7 @@
 #ifndef PMMINTRIN_H_
 #define PMMINTRIN_H_
 
-#if defined(__linux__) && defined(__ppc64__)
+#if defined(__ppc64__) && (defined(__linux__) || defined(__FreeBSD__))
 
 /* We need definitions from the SSE2 and SSE header files*/
 #include <emmintrin.h>
@@ -145,6 +145,7 @@ _mm_lddqu_si128 (__m128i const *__P)
 
 #else
 #include_next <pmmintrin.h>
-#endif /* defined(__linux__) && defined(__ppc64__) */
+#endif /* defined(__ppc64__) && (defined(__linux__) || defined(__FreeBSD__))   \
+        */
 
 #endif /* PMMINTRIN_H_ */

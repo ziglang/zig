@@ -16,7 +16,7 @@
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__))
-#define __DEFAULT_FN_ATTRS_SSE42 __attribute__((__always_inline__, __nodebug__, __target__("sse4.2")))
+#define __DEFAULT_FN_ATTRS_CRC32 __attribute__((__always_inline__, __nodebug__, __target__("crc32")))
 
 #if defined(__cplusplus) && (__cplusplus >= 201103L)
 #define __DEFAULT_FN_ATTRS_CAST __attribute__((__always_inline__)) constexpr
@@ -282,7 +282,7 @@ _castu64_f64(unsigned long long __A) {
  *  \returns The result of adding operand \a __C to the CRC-32C checksum of
  *     operand \a __D.
  */
-static __inline__ unsigned int __DEFAULT_FN_ATTRS_SSE42
+static __inline__ unsigned int __DEFAULT_FN_ATTRS_CRC32
 __crc32b(unsigned int __C, unsigned char __D)
 {
   return __builtin_ia32_crc32qi(__C, __D);
@@ -303,7 +303,7 @@ __crc32b(unsigned int __C, unsigned char __D)
  *  \returns The result of adding operand \a __C to the CRC-32C checksum of
  *     operand \a __D.
  */
-static __inline__ unsigned int __DEFAULT_FN_ATTRS_SSE42
+static __inline__ unsigned int __DEFAULT_FN_ATTRS_CRC32
 __crc32w(unsigned int __C, unsigned short __D)
 {
   return __builtin_ia32_crc32hi(__C, __D);
@@ -324,7 +324,7 @@ __crc32w(unsigned int __C, unsigned short __D)
  *  \returns The result of adding operand \a __C to the CRC-32C checksum of
  *     operand \a __D.
  */
-static __inline__ unsigned int __DEFAULT_FN_ATTRS_SSE42
+static __inline__ unsigned int __DEFAULT_FN_ATTRS_CRC32
 __crc32d(unsigned int __C, unsigned int __D)
 {
   return __builtin_ia32_crc32si(__C, __D);
@@ -346,7 +346,7 @@ __crc32d(unsigned int __C, unsigned int __D)
  *  \returns The result of adding operand \a __C to the CRC-32C checksum of
  *     operand \a __D.
  */
-static __inline__ unsigned long long __DEFAULT_FN_ATTRS_SSE42
+static __inline__ unsigned long long __DEFAULT_FN_ATTRS_CRC32
 __crc32q(unsigned long long __C, unsigned long long __D)
 {
   return __builtin_ia32_crc32di(__C, __D);
@@ -435,7 +435,7 @@ __rorq(unsigned long long __X, int __C) {
 
 #undef __DEFAULT_FN_ATTRS
 #undef __DEFAULT_FN_ATTRS_CAST
-#undef __DEFAULT_FN_ATTRS_SSE42
+#undef __DEFAULT_FN_ATTRS_CRC32
 #undef __DEFAULT_FN_ATTRS_CONSTEXPR
 
 #endif /* __IA32INTRIN_H */

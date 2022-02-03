@@ -10,6 +10,10 @@
 #ifndef __IMMINTRIN_H
 #define __IMMINTRIN_H
 
+#if !defined(__i386__) && !defined(__x86_64__)
+#error "This header is only meant to be used on x86 and x64 architecture"
+#endif
+
 #include <x86gprintrin.h>
 
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
@@ -208,6 +212,20 @@
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
     defined(__AVX512PF__)
 #include <avx512pfintrin.h>
+#endif
+
+/*
+ * FIXME: _Float16 type is legal only when HW support float16 operation.
+ * We use __AVX512FP16__ to identify if float16 is supported or not, so
+ * when float16 is not supported, the related header is not included.
+ *
+ */
+#if defined(__AVX512FP16__)
+#include <avx512fp16intrin.h>
+#endif
+
+#if defined(__AVX512FP16__) && defined(__AVX512VL__)
+#include <avx512vlfp16intrin.h>
 #endif
 
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
@@ -525,13 +543,13 @@ extern "C" {
 #if defined(__i386__) || defined(__x86_64__)
 static __inline__ long __DEFAULT_FN_ATTRS
 _InterlockedExchange_HLEAcquire(long volatile *_Target, long _Value) {
-  __asm__ __volatile__(".byte 0xf2 ; lock ; xchg %0, %1"
+  __asm__ __volatile__(".byte 0xf2 ; lock ; xchg {%0, %1|%1, %0}"
                        : "+r" (_Value), "+m" (*_Target) :: "memory");
   return _Value;
 }
 static __inline__ long __DEFAULT_FN_ATTRS
 _InterlockedExchange_HLERelease(long volatile *_Target, long _Value) {
-  __asm__ __volatile__(".byte 0xf3 ; lock ; xchg %0, %1"
+  __asm__ __volatile__(".byte 0xf3 ; lock ; xchg {%0, %1|%1, %0}"
                        : "+r" (_Value), "+m" (*_Target) :: "memory");
   return _Value;
 }
@@ -539,13 +557,13 @@ _InterlockedExchange_HLERelease(long volatile *_Target, long _Value) {
 #if defined(__x86_64__)
 static __inline__ __int64 __DEFAULT_FN_ATTRS
 _InterlockedExchange64_HLEAcquire(__int64 volatile *_Target, __int64 _Value) {
-  __asm__ __volatile__(".byte 0xf2 ; lock ; xchg %0, %1"
+  __asm__ __volatile__(".byte 0xf2 ; lock ; xchg {%0, %1|%1, %0}"
                        : "+r" (_Value), "+m" (*_Target) :: "memory");
   return _Value;
 }
 static __inline__ __int64 __DEFAULT_FN_ATTRS
 _InterlockedExchange64_HLERelease(__int64 volatile *_Target, __int64 _Value) {
-  __asm__ __volatile__(".byte 0xf3 ; lock ; xchg %0, %1"
+  __asm__ __volatile__(".byte 0xf3 ; lock ; xchg {%0, %1|%1, %0}"
                        : "+r" (_Value), "+m" (*_Target) :: "memory");
   return _Value;
 }
@@ -557,7 +575,7 @@ _InterlockedExchange64_HLERelease(__int64 volatile *_Target, __int64 _Value) {
 static __inline__ long __DEFAULT_FN_ATTRS
 _InterlockedCompareExchange_HLEAcquire(long volatile *_Destination,
                               long _Exchange, long _Comparand) {
-  __asm__ __volatile__(".byte 0xf2 ; lock ; cmpxchg %2, %1"
+  __asm__ __volatile__(".byte 0xf2 ; lock ; cmpxchg {%2, %1|%1, %2}"
                        : "+a" (_Comparand), "+m" (*_Destination)
                        : "r" (_Exchange) : "memory");
   return _Comparand;
@@ -565,7 +583,7 @@ _InterlockedCompareExchange_HLEAcquire(long volatile *_Destination,
 static __inline__ long __DEFAULT_FN_ATTRS
 _InterlockedCompareExchange_HLERelease(long volatile *_Destination,
                               long _Exchange, long _Comparand) {
-  __asm__ __volatile__(".byte 0xf3 ; lock ; cmpxchg %2, %1"
+  __asm__ __volatile__(".byte 0xf3 ; lock ; cmpxchg {%2, %1|%1, %2}"
                        : "+a" (_Comparand), "+m" (*_Destination)
                        : "r" (_Exchange) : "memory");
   return _Comparand;
@@ -575,7 +593,7 @@ _InterlockedCompareExchange_HLERelease(long volatile *_Destination,
 static __inline__ __int64 __DEFAULT_FN_ATTRS
 _InterlockedCompareExchange64_HLEAcquire(__int64 volatile *_Destination,
                               __int64 _Exchange, __int64 _Comparand) {
-  __asm__ __volatile__(".byte 0xf2 ; lock ; cmpxchg %2, %1"
+  __asm__ __volatile__(".byte 0xf2 ; lock ; cmpxchg {%2, %1|%1, %2}"
                        : "+a" (_Comparand), "+m" (*_Destination)
                        : "r" (_Exchange) : "memory");
   return _Comparand;
@@ -583,7 +601,7 @@ _InterlockedCompareExchange64_HLEAcquire(__int64 volatile *_Destination,
 static __inline__ __int64 __DEFAULT_FN_ATTRS
 _InterlockedCompareExchange64_HLERelease(__int64 volatile *_Destination,
                               __int64 _Exchange, __int64 _Comparand) {
-  __asm__ __volatile__(".byte 0xf3 ; lock ; cmpxchg %2, %1"
+  __asm__ __volatile__(".byte 0xf3 ; lock ; cmpxchg {%2, %1|%1, %2}"
                        : "+a" (_Comparand), "+m" (*_Destination)
                        : "r" (_Exchange) : "memory");
   return _Comparand;

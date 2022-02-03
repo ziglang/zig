@@ -345,4 +345,4 @@ __DEVICE__ float ynf(int __a, float __b) { return __nv_ynf(__a, __b); }
 #pragma pop_macro("__DEVICE_VOID__")
 #pragma pop_macro("__FAST_OR_SLOW")
 
-#endif // __CLANG_CUDA_DEVICE_FUNCTIONS_H__
+#endif // __CLANG_CUDA_MATH_H__

@@ -20,4 +20,16 @@
 #include <uintrintrin.h>
 #endif
 
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__CRC32__)
+#include <crc32intrin.h>
+#endif
+
+#define __SSC_MARK(Tag)                                                        \
+  __asm__ __volatile__("mov {%%ebx, %%eax|eax, ebx}; "                      \
+                       "mov {%0, %%ebx|ebx, %0}; "                          \
+                       ".byte 0x64, 0x67, 0x90; "                              \
+                       "mov {%%eax, %%ebx|ebx, eax};" ::"i"(Tag)            \
+                       : "%eax");
+
 #endif /* __X86GPRINTRIN_H */
