@@ -1198,7 +1198,7 @@ pub const DeclGen = struct {
                     const elem_ptr = val.castTag(.elem_ptr).?.data;
                     const elem_size = ty.childType().abiSize(self.target());
                     const offset = elem_ptr.index * elem_size;
-                    return self.lowerParentPtr(elem_ptr.array_ptr, offset);
+                    return self.lowerParentPtr(elem_ptr.array_ptr, @intCast(usize, offset));
                 },
                 .int_u64 => return self.genTypedValue(Type.usize, val),
                 else => return self.fail("TODO: Implement zig decl gen for pointer type value: '{s}'", .{@tagName(val.tag())}),
