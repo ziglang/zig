@@ -730,6 +730,12 @@ pub const TestContext = struct {
             // * cannot handle updates
             // because of this we must spawn a child process rather than
             // using Compilation directly.
+
+            if (!std.process.can_spawn) {
+                print("Unable to spawn child processes on {s}, skipping test.\n", .{@tagName(builtin.os.tag)});
+                return; // Pass test.
+            }
+
             assert(case.updates.items.len == 1);
             const update = case.updates.items[0];
             try tmp.dir.writeFile(tmp_src_path, update.src);
@@ -1104,6 +1110,11 @@ pub const TestContext = struct {
                     }
                 },
                 .Execution => |expected_stdout| {
+                    if (!std.process.can_spawn) {
+                        print("Unable to spawn child processes on {s}, skipping test.\n", .{@tagName(builtin.os.tag)});
+                        return; // Pass test.
+                    }
+
                     update_node.setEstimatedTotalItems(4);
 
                     var argv = std.ArrayList([]const u8).init(allocator);

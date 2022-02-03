@@ -82,6 +82,9 @@ pub fn init(self: *ThreadPool, allocator: std.mem.Allocator) !void {
 }
 
 fn destroyWorkers(self: *ThreadPool, spawned: usize) void {
+    if (builtin.single_threaded)
+        return;
+
     for (self.workers[0..spawned]) |*worker| {
         worker.thread.join();
         worker.idle_node.data.deinit();

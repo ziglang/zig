@@ -14,6 +14,7 @@ const leb128 = std.leb;
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen.zig");
+const lldMain = @import("../main.zig").lldMain;
 const trace = @import("../tracy.zig").trace;
 const Package = @import("../Package.zig");
 const Value = @import("../value.zig").Value;
@@ -1950,60 +1951,71 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             Compilation.dump_argv(argv.items[1..]);
         }
 
-        // Sadly, we must run LLD as a child process because it does not behave
-        // properly as a library.
-        const child = try std.ChildProcess.init(argv.items, arena);
-        defer child.deinit();
+        if (std.process.can_spawn) {
+            // If possible, we run LLD as a child process because it does not always
+            // behave properly as a library, unfortunately.
+            // https://github.com/ziglang/zig/issues/3825
+            const child = try std.ChildProcess.init(argv.items, arena);
+            defer child.deinit();
 
-        if (comp.clang_passthrough_mode) {
-            child.stdin_behavior = .Inherit;
-            child.stdout_behavior = .Inherit;
-            child.stderr_behavior = .Inherit;
+            if (comp.clang_passthrough_mode) {
+                child.stdin_behavior = .Inherit;
+                child.stdout_behavior = .Inherit;
+                child.stderr_behavior = .Inherit;
 
-            const term = child.spawnAndWait() catch |err| {
-                log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-                return error.UnableToSpawnSelf;
-            };
-            switch (term) {
-                .Exited => |code| {
-                    if (code != 0) {
-                        // TODO https://github.com/ziglang/zig/issues/6342
-                        std.process.exit(1);
-                    }
-                },
-                else => std.process.abort(),
+                const term = child.spawnAndWait() catch |err| {
+                    log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+                    return error.UnableToSpawnSelf;
+                };
+                switch (term) {
+                    .Exited => |code| {
+                        if (code != 0) {
+                            std.process.exit(code);
+                        }
+                    },
+                    else => std.process.abort(),
+                }
+            } else {
+                child.stdin_behavior = .Ignore;
+                child.stdout_behavior = .Ignore;
+                child.stderr_behavior = .Pipe;
+
+                try child.spawn();
+
+                const stderr = try child.stderr.?.reader().readAllAlloc(arena, 10 * 1024 * 1024);
+
+                const term = child.wait() catch |err| {
+                    log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+                    return error.UnableToSpawnSelf;
+                };
+
+                switch (term) {
+                    .Exited => |code| {
+                        if (code != 0) {
+                            // TODO parse this output and surface with the Compilation API rather than
+                            // directly outputting to stderr here.
+                            std.debug.print("{s}", .{stderr});
+                            return error.LLDReportedFailure;
+                        }
+                    },
+                    else => {
+                        log.err("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
+                        return error.LLDCrashed;
+                    },
+                }
+
+                if (stderr.len != 0) {
+                    log.warn("unexpected LLD stderr:\n{s}", .{stderr});
+                }
             }
         } else {
-            child.stdin_behavior = .Ignore;
-            child.stdout_behavior = .Ignore;
-            child.stderr_behavior = .Pipe;
-
-            try child.spawn();
-
-            const stderr = try child.stderr.?.reader().readAllAlloc(arena, 10 * 1024 * 1024);
-
-            const term = child.wait() catch |err| {
-                log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-                return error.UnableToSpawnSelf;
-            };
-
-            switch (term) {
-                .Exited => |code| {
-                    if (code != 0) {
-                        // TODO parse this output and surface with the Compilation API rather than
-                        // directly outputting to stderr here.
-                        std.debug.print("{s}", .{stderr});
-                        return error.LLDReportedFailure;
-                    }
-                },
-                else => {
-                    log.err("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
-                    return error.LLDCrashed;
-                },
-            }
-
-            if (stderr.len != 0) {
-                log.warn("unexpected LLD stderr:\n{s}", .{stderr});
+            const exit_code = try lldMain(arena, argv.items);
+            if (exit_code != 0) {
+                if (comp.clang_passthrough_mode) {
+                    std.process.exit(exit_code);
+                } else {
+                    return error.LLDReportedFailure;
+                }
             }
         }
     }

@@ -88,7 +88,14 @@ pub const Builder = struct {
     /// Information about the native target. Computed before build() is invoked.
     host: NativeTargetInfo,
 
-    const PkgConfigError = error{
+    pub const ExecError = error{
+        ReadFailure,
+        ExitCodeFailure,
+        ProcessTerminated,
+        ExecNotSupported,
+    } || std.ChildProcess.SpawnError;
+
+    pub const PkgConfigError = error{
         PkgConfigCrashed,
         PkgConfigFailed,
         PkgConfigNotInstalled,
@@ -959,6 +966,9 @@ pub const Builder = struct {
             printCmd(cwd, argv);
         }
 
+        if (!std.process.can_spawn)
+            return error.ExecNotSupported;
+
         const child = std.ChildProcess.init(argv, self.allocator) catch unreachable;
         defer child.deinit();
 
@@ -1168,8 +1178,11 @@ pub const Builder = struct {
         argv: []const []const u8,
         out_code: *u8,
         stderr_behavior: std.ChildProcess.StdIo,
-    ) ![]u8 {
+    ) ExecError![]u8 {
         assert(argv.len != 0);
+
+        if (!std.process.can_spawn)
+            return error.ExecNotSupported;
 
         const max_output_size = 400 * 1024;
         const child = try std.ChildProcess.init(argv, self.allocator);
@@ -1182,7 +1195,9 @@ pub const Builder = struct {
 
         try child.spawn();
 
-        const stdout = try child.stdout.?.reader().readAllAlloc(self.allocator, max_output_size);
+        const stdout = child.stdout.?.reader().readAllAlloc(self.allocator, max_output_size) catch {
+            return error.ReadFailure;
+        };
         errdefer self.allocator.free(stdout);
 
         const term = try child.wait();
@@ -1208,8 +1223,21 @@ pub const Builder = struct {
             printCmd(null, argv);
         }
 
+        if (!std.process.can_spawn) {
+            if (src_step) |s| warn("{s}...", .{s.name});
+            warn("Unable to spawn the following command: cannot spawn child process\n", .{});
+            printCmd(null, argv);
+            std.os.abort();
+        }
+
         var code: u8 = undefined;
         return self.execAllowFail(argv, &code, .Inherit) catch |err| switch (err) {
+            error.ExecNotSupported => {
+                if (src_step) |s| warn("{s}...", .{s.name});
+                warn("Unable to spawn the following command: cannot spawn child process\n", .{});
+                printCmd(null, argv);
+                std.os.abort();
+            },
             error.FileNotFound => {
                 if (src_step) |s| warn("{s}...", .{s.name});
                 warn("Unable to spawn the following command: file not found\n", .{});
@@ -1260,7 +1288,7 @@ pub const Builder = struct {
         ) catch unreachable;
     }
 
-    fn execPkgConfigList(self: *Builder, out_code: *u8) ![]const PkgConfigPkg {
+    fn execPkgConfigList(self: *Builder, out_code: *u8) (PkgConfigError || ExecError)![]const PkgConfigPkg {
         const stdout = try self.execAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
         var list = ArrayList(PkgConfigPkg).init(self.allocator);
         errdefer list.deinit();
@@ -1287,6 +1315,7 @@ pub const Builder = struct {
         } else |err| {
             const result = switch (err) {
                 error.ProcessTerminated => error.PkgConfigCrashed,
+                error.ExecNotSupported => error.PkgConfigFailed,
                 error.ExitCodeFailure => error.PkgConfigFailed,
                 error.FileNotFound => error.PkgConfigNotInstalled,
                 error.InvalidName => error.PkgConfigNotInstalled,
@@ -1929,6 +1958,7 @@ pub const LibExeObjStep = struct {
             "--libs",
         }, &code, .Ignore)) |stdout| stdout else |err| switch (err) {
             error.ProcessTerminated => return error.PkgConfigCrashed,
+            error.ExecNotSupported => return error.PkgConfigFailed,
             error.ExitCodeFailure => return error.PkgConfigFailed,
             error.FileNotFound => return error.PkgConfigNotInstalled,
             else => return err,

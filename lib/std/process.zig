@@ -950,7 +950,13 @@ pub fn getSelfExeSharedLibPaths(allocator: Allocator) error{OutOfMemory}![][:0]u
 
 /// Tells whether calling the `execv` or `execve` functions will be a compile error.
 pub const can_execv = switch (builtin.os.tag) {
-    .windows, .haiku => false,
+    .windows, .haiku, .wasi => false,
+    else => true,
+};
+
+/// Tells whether spawning child processes is supported (e.g. via ChildProcess)
+pub const can_spawn = switch (builtin.os.tag) {
+    .wasi => false,
     else => true,
 };
 

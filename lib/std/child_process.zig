@@ -124,6 +124,10 @@ pub const ChildProcess = struct {
 
     /// On success must call `kill` or `wait`.
     pub fn spawn(self: *ChildProcess) SpawnError!void {
+        if (!std.process.can_spawn) {
+            @compileError("the target operating system cannot spawn processes");
+        }
+
         if (builtin.os.tag == .windows) {
             return self.spawnWindows();
         } else {
