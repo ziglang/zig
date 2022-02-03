@@ -10,6 +10,10 @@
 #ifndef __MMINTRIN_H
 #define __MMINTRIN_H
 
+#if !defined(__i386__) && !defined(__x86_64__)
+#error "This header is only meant to be used on x86 and x64 architecture"
+#endif
+
 typedef long long __m64 __attribute__((__vector_size__(8), __aligned__(8)));
 
 typedef long long __v1di __attribute__((__vector_size__(8)));

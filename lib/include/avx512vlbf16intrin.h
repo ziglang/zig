@@ -425,11 +425,39 @@ static __inline__ __bfloat16 __DEFAULT_FN_ATTRS128 _mm_cvtness_sbh(float __A) {
 /// \headerfile <x86intrin.h>
 ///
 /// \param __A
+///    A 128-bit vector of [4 x bfloat].
+/// \returns A 128-bit vector of [4 x float] come from conversion of __A
+static __inline__ __m128 __DEFAULT_FN_ATTRS128 _mm_cvtpbh_ps(__m128bh __A) {
+  return _mm_castsi128_ps(
+      (__m128i)_mm_slli_epi32((__m128i)_mm_cvtepi16_epi32((__m128i)__A), 16));
+}
+
+/// Convert Packed BF16 Data to Packed float Data.
+///
+/// \headerfile <x86intrin.h>
+///
+/// \param __A
 ///    A 128-bit vector of [8 x bfloat].
-/// \returns A 256-bit vector of [8 x float] come from convertion of __A
+/// \returns A 256-bit vector of [8 x float] come from conversion of __A
 static __inline__ __m256 __DEFAULT_FN_ATTRS256 _mm256_cvtpbh_ps(__m128bh __A) {
   return _mm256_castsi256_ps((__m256i)_mm256_slli_epi32(
       (__m256i)_mm256_cvtepi16_epi32((__m128i)__A), 16));
+}
+
+/// Convert Packed BF16 Data to Packed float Data using zeroing mask.
+///
+/// \headerfile <x86intrin.h>
+///
+/// \param __U
+///    A 4-bit mask. Elements are zeroed out when the corresponding mask
+///    bit is not set.
+/// \param __A
+///    A 128-bit vector of [4 x bfloat].
+/// \returns A 128-bit vector of [4 x float] come from conversion of __A
+static __inline__ __m128 __DEFAULT_FN_ATTRS128
+_mm_maskz_cvtpbh_ps(__mmask8 __U, __m128bh __A) {
+  return _mm_castsi128_ps((__m128i)_mm_slli_epi32(
+      (__m128i)_mm_maskz_cvtepi16_epi32((__mmask8)__U, (__m128i)__A), 16));
 }
 
 /// Convert Packed BF16 Data to Packed float Data using zeroing mask.
@@ -441,11 +469,31 @@ static __inline__ __m256 __DEFAULT_FN_ATTRS256 _mm256_cvtpbh_ps(__m128bh __A) {
 ///    bit is not set.
 /// \param __A
 ///    A 128-bit vector of [8 x bfloat].
-/// \returns A 256-bit vector of [8 x float] come from convertion of __A
+/// \returns A 256-bit vector of [8 x float] come from conversion of __A
 static __inline__ __m256 __DEFAULT_FN_ATTRS256
 _mm256_maskz_cvtpbh_ps(__mmask8 __U, __m128bh __A) {
   return _mm256_castsi256_ps((__m256i)_mm256_slli_epi32(
       (__m256i)_mm256_maskz_cvtepi16_epi32((__mmask8)__U, (__m128i)__A), 16));
+}
+
+/// Convert Packed BF16 Data to Packed float Data using merging mask.
+///
+/// \headerfile <x86intrin.h>
+///
+/// \param __S
+///    A 128-bit vector of [4 x float]. Elements are copied from __S when
+///     the corresponding mask bit is not set.
+/// \param __U
+///    A 4-bit mask. Elements are zeroed out when the corresponding mask
+///    bit is not set.
+/// \param __A
+///    A 128-bit vector of [4 x bfloat].
+/// \returns A 128-bit vector of [4 x float] come from conversion of __A
+static __inline__ __m128 __DEFAULT_FN_ATTRS128
+_mm_mask_cvtpbh_ps(__m128 __S, __mmask8 __U, __m128bh __A) {
+  return _mm_castsi128_ps((__m128i)_mm_mask_slli_epi32(
+      (__m128i)__S, (__mmask8)__U, (__m128i)_mm_cvtepi16_epi32((__m128i)__A),
+      16));
 }
 
 /// Convert Packed BF16 Data to Packed float Data using merging mask.
@@ -460,7 +508,7 @@ _mm256_maskz_cvtpbh_ps(__mmask8 __U, __m128bh __A) {
 ///    bit is not set.
 /// \param __A
 ///    A 128-bit vector of [8 x bfloat].
-/// \returns A 256-bit vector of [8 x float] come from convertion of __A
+/// \returns A 256-bit vector of [8 x float] come from conversion of __A
 static __inline__ __m256 __DEFAULT_FN_ATTRS256
 _mm256_mask_cvtpbh_ps(__m256 __S, __mmask8 __U, __m128bh __A) {
   return _mm256_castsi256_ps((__m256i)_mm256_mask_slli_epi32(
