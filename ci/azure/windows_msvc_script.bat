@@ -15,6 +15,9 @@ SET "ZIGPREFIXPATH=%SRCROOT%\llvm+clang+lld-13.0.0-x86_64-windows-msvc-release-m
 
 call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
 
+REM vcvarsall.bat turns echo off, turn it back on so we can see commands in ci logs
+echo on
+
 REM Make the `zig version` number consistent.
 REM This will affect the cmake command below.
 git.exe config core.abbrev 9
