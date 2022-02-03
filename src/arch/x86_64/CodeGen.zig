@@ -21,7 +21,7 @@ const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
 const Mir = @import("Mir.zig");
 const Module = @import("../../Module.zig");
-const RegisterManager = @import("../../register_manager.zig").RegisterManager;
+const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Target = std.Target;
 const Type = @import("../../type.zig").Type;
 const TypedValue = @import("../../TypedValue.zig");
@@ -32,6 +32,8 @@ const InnerError = error{
     OutOfMemory,
     CodegenFail,
 };
+
+const RegisterManager = RegisterManagerFn(Self, Register, &callee_preserved_regs);
 
 gpa: Allocator,
 air: Air,
@@ -73,7 +75,7 @@ branch_stack: *std.ArrayList(Branch),
 // Key is the block instruction
 blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
 
-register_manager: RegisterManager(Self, Register, &callee_preserved_regs) = .{},
+register_manager: RegisterManager = .{},
 /// Maps offset to what is stored there.
 stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
 
@@ -168,6 +170,24 @@ pub const MCValue = union(enum) {
             .register => true,
             else => false,
         };
+    }
+
+    fn freezeIfRegister(mcv: MCValue, mgr: *RegisterManager) void {
+        switch (mcv) {
+            .register => |reg| {
+                mgr.freezeRegs(&.{reg});
+            },
+            else => {},
+        }
+    }
+
+    fn unfreezeIfRegister(mcv: MCValue, mgr: *RegisterManager) void {
+        switch (mcv) {
+            .register => |reg| {
+                mgr.unfreezeRegs(&.{reg});
+            },
+            else => {},
+        }
     }
 };
 
@@ -836,20 +856,6 @@ fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, ty: Type, mcv: MCVa
     return MCValue{ .register = reg };
 }
 
-/// Like `copyToNewRegister` but allows to specify a list of excluded registers which
-/// will not be selected for allocation. This can be done via `exceptions` slice.
-fn copyToNewRegisterWithExceptions(
-    self: *Self,
-    reg_owner: Air.Inst.Index,
-    ty: Type,
-    mcv: MCValue,
-    exceptions: []const Register,
-) !MCValue {
-    const reg = try self.register_manager.allocReg(reg_owner, exceptions);
-    try self.genSetReg(ty, reg, mcv);
-    return MCValue{ .register = reg };
-}
-
 fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
     const stack_offset = try self.allocMemPtr(inst);
     return self.finishAir(inst, .{ .ptr_stack_offset = @intCast(i32, stack_offset) }, .{ .none, .none, .none });
@@ -897,8 +903,9 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
             return self.fail("TODO implement intCast for abi sizes larger than 8", .{});
         }
 
-        if (operand.isRegister()) self.register_manager.freezeRegs(&.{operand.register});
-        defer if (operand.isRegister()) self.register_manager.unfreezeRegs(&.{operand.register});
+        operand.freezeIfRegister(&self.register_manager);
+        defer operand.unfreezeIfRegister(&self.register_manager);
+
         break :blk try self.copyToNewRegister(inst, dest_ty, operand);
     };
 
@@ -1366,8 +1373,7 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn elemOffset(self: *Self, index_ty: Type, index: MCValue, elem_size: u64) !Register {
-    const reg = try self.register_manager.allocReg(null, &.{});
-    try self.genSetReg(index_ty, reg, index);
+    const reg = try self.copyToTmpRegister(index_ty, index);
     try self.genIMulOpMir(index_ty, .{ .register = reg }, .{ .immediate = elem_size });
     return reg;
 }
@@ -1376,16 +1382,26 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const is_volatile = false; // TODO
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else result: {
-        const slice_mcv = try self.resolveInst(bin_op.lhs);
         const slice_ty = self.air.typeOf(bin_op.lhs);
+        const slice_mcv = try self.resolveInst(bin_op.lhs);
+        slice_mcv.freezeIfRegister(&self.register_manager);
+        defer slice_mcv.unfreezeIfRegister(&self.register_manager);
+
         const elem_ty = slice_ty.childType();
         const elem_size = elem_ty.abiSize(self.target.*);
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf);
+
         const index_ty = self.air.typeOf(bin_op.rhs);
         const index_mcv = try self.resolveInst(bin_op.rhs);
+        index_mcv.freezeIfRegister(&self.register_manager);
+        defer index_mcv.unfreezeIfRegister(&self.register_manager);
+
         const offset_reg = try self.elemOffset(index_ty, index_mcv, elem_size);
-        const addr_reg = try self.register_manager.allocReg(null, &.{offset_reg});
+        self.register_manager.freezeRegs(&.{offset_reg});
+        defer self.register_manager.unfreezeRegs(&.{offset_reg});
+
+        const addr_reg = try self.register_manager.allocReg(null, &.{});
         switch (slice_mcv) {
             .stack_offset => |off| {
                 // mov reg, [rbp - 8]
@@ -1401,7 +1417,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
             },
             else => return self.fail("TODO implement slice_elem_val when slice is {}", .{slice_mcv}),
         }
-        // TODO we could allocate register here, but need to except addr register and potentially
+        // TODO we could allocate register here, but need to expect addr register and potentially
         // offset register.
         const dst_mcv = try self.allocRegOrMem(inst, false);
         try self.genBinMathOpMir(.add, slice_ptr_field_type, .{ .register = addr_reg.to64() }, .{
@@ -1427,14 +1443,23 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const array_ty = self.air.typeOf(bin_op.lhs);
-        const array = try self.resolveInst(bin_op.lhs);
         const array_abi_size = array_ty.abiSize(self.target.*);
+        const array = try self.resolveInst(bin_op.lhs);
+        array.freezeIfRegister(&self.register_manager);
+        defer array.unfreezeIfRegister(&self.register_manager);
+
         const elem_ty = array_ty.childType();
         const elem_abi_size = elem_ty.abiSize(self.target.*);
         const index_ty = self.air.typeOf(bin_op.rhs);
         const index = try self.resolveInst(bin_op.rhs);
+        index.freezeIfRegister(&self.register_manager);
+        defer index.unfreezeIfRegister(&self.register_manager);
+
         const offset_reg = try self.elemOffset(index_ty, index, elem_abi_size);
-        const addr_reg = try self.register_manager.allocReg(null, &.{offset_reg});
+        self.register_manager.freezeRegs(&.{offset_reg});
+        defer self.register_manager.unfreezeRegs(&.{offset_reg});
+
+        const addr_reg = try self.register_manager.allocReg(null, &.{});
         switch (array) {
             .stack_offset => |off| {
                 // lea reg, [rbp]
@@ -1449,7 +1474,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
             },
             else => return self.fail("TODO implement array_elem_val when array is {}", .{array}),
         }
-        // TODO we could allocate register here, but need to except addr register and potentially
+        // TODO we could allocate register here, but need to expect addr register and potentially
         // offset register.
         const dst_mcv = try self.allocRegOrMem(inst, false);
         try self.genBinMathOpMir(.add, array_ty, .{ .register = addr_reg.to64() }, .{ .register = offset_reg.to64() });
@@ -1475,12 +1500,17 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const ptr_ty = self.air.typeOf(extra.lhs);
         const ptr = try self.resolveInst(extra.lhs);
+        ptr.freezeIfRegister(&self.register_manager);
+        defer ptr.unfreezeIfRegister(&self.register_manager);
+
         const elem_ty = ptr_ty.elemType2();
         const elem_abi_size = elem_ty.abiSize(self.target.*);
         const index_ty = self.air.typeOf(extra.rhs);
         const index = try self.resolveInst(extra.rhs);
-        const offset_reg = try self.elemOffset(index_ty, index, elem_abi_size);
+        index.freezeIfRegister(&self.register_manager);
+        defer index.unfreezeIfRegister(&self.register_manager);
 
+        const offset_reg = try self.elemOffset(index_ty, index, elem_abi_size);
         self.register_manager.freezeRegs(&.{offset_reg});
         defer self.register_manager.unfreezeRegs(&.{offset_reg});
 
@@ -1587,6 +1617,9 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
             return self.fail("TODO implement loading from MCValue.embedded_in_code", .{});
         },
         .register => |reg| {
+            self.register_manager.freezeRegs(&.{reg});
+            defer self.register_manager.unfreezeRegs(&.{reg});
+
             switch (dst_mcv) {
                 .dead => unreachable,
                 .undef => unreachable,
@@ -1607,16 +1640,15 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 },
                 .stack_offset => |off| {
                     if (abi_size <= 8) {
-                        const tmp_reg = try self.register_manager.allocReg(null, &.{reg});
+                        const tmp_reg = try self.register_manager.allocReg(null, &.{});
                         try self.load(.{ .register = tmp_reg }, ptr, ptr_ty);
                         return self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg });
                     }
 
-                    const regs = try self.register_manager.allocRegs(
-                        3,
-                        .{ null, null, null },
-                        &.{ reg, .rax, .rcx },
-                    );
+                    self.register_manager.freezeRegs(&.{ .rax, .rcx });
+                    defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx });
+
+                    const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{});
                     const addr_reg = regs[0];
                     const count_reg = regs[1];
                     const tmp_reg = regs[2];
@@ -1634,7 +1666,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                     try self.register_manager.getReg(.rcx, null);
 
                     // TODO allow for abi size to be u64
-                    try self.genSetReg(Type.initTag(.u32), count_reg, .{ .immediate = @intCast(u32, abi_size) });
+                    try self.genSetReg(Type.u32, count_reg, .{ .immediate = @intCast(u32, abi_size) });
 
                     return self.genInlineMemcpy(
                         -(off + @intCast(i32, abi_size)),
@@ -1786,8 +1818,8 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             // TODO: in case the address fits in an imm32 we can use [ds:imm32]
             // instead of wasting an instruction copying the address to a register
 
-            if (value.isRegister()) self.register_manager.freezeRegs(&.{value.register});
-            defer if (value.isRegister()) self.register_manager.unfreezeRegs(&.{value.register});
+            value.freezeIfRegister(&self.register_manager);
+            defer value.unfreezeIfRegister(&self.register_manager);
 
             const addr_reg = try self.copyToTmpRegister(ptr_ty, .{ .immediate = addr });
             // to get the actual address of the value we want to modify we have to go through the GOT
@@ -2012,22 +2044,16 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
         }
     } else {
         if (lhs.isMemory()) {
-            dst_mcv = if (rhs.isRegister())
-                // If the allocated register is the same as the rhs register, don't allocate that one
-                // and instead spill a subsequent one. Otherwise, this can result in a miscompilation
-                // in the presence of several binary operations performed in a single block.
-                try self.copyToNewRegisterWithExceptions(inst, dst_ty, lhs, &.{rhs.register})
-            else
-                try self.copyToNewRegister(inst, dst_ty, lhs);
+            rhs.freezeIfRegister(&self.register_manager);
+            defer rhs.unfreezeIfRegister(&self.register_manager);
+
+            dst_mcv = try self.copyToNewRegister(inst, dst_ty, lhs);
             src_mcv = rhs;
         } else {
-            dst_mcv = if (lhs.isRegister())
-                // If the allocated register is the same as the rhs register, don't allocate that one
-                // and instead spill a subsequent one. Otherwise, this can result in a miscompilation
-                // in the presence of several binary operations performed in a single block.
-                try self.copyToNewRegisterWithExceptions(inst, dst_ty, rhs, &.{lhs.register})
-            else
-                try self.copyToNewRegister(inst, dst_ty, rhs);
+            lhs.freezeIfRegister(&self.register_manager);
+            defer lhs.unfreezeIfRegister(&self.register_manager);
+
+            dst_mcv = try self.copyToNewRegister(inst, dst_ty, rhs);
             src_mcv = lhs;
         }
     }
@@ -2039,7 +2065,11 @@ fn genBinMathOp(self: *Self, inst: Air.Inst.Index, op_lhs: Air.Inst.Ref, op_rhs:
     switch (src_mcv) {
         .immediate => |imm| {
             if (imm > math.maxInt(u31)) {
-                src_mcv = MCValue{ .register = try self.copyToTmpRegister(Type.initTag(.u64), src_mcv) };
+                dst_mcv.freezeIfRegister(&self.register_manager);
+                defer dst_mcv.unfreezeIfRegister(&self.register_manager);
+
+                const tmp_reg = try self.copyToTmpRegister(Type.u64, src_mcv);
+                src_mcv = MCValue{ .register = tmp_reg };
             }
         },
         else => {},
@@ -2901,6 +2931,8 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
+        operand_ptr.freezeIfRegister(&self.register_manager);
+        defer operand_ptr.unfreezeIfRegister(&self.register_manager);
         const operand: MCValue = blk: {
             if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
@@ -2930,6 +2962,8 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
+        operand_ptr.freezeIfRegister(&self.register_manager);
+        defer operand_ptr.unfreezeIfRegister(&self.register_manager);
         const operand: MCValue = blk: {
             if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
@@ -2959,6 +2993,8 @@ fn airIsErrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
+        operand_ptr.freezeIfRegister(&self.register_manager);
+        defer operand_ptr.unfreezeIfRegister(&self.register_manager);
         const operand: MCValue = blk: {
             if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
@@ -2988,6 +3024,8 @@ fn airIsNonErrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
+        operand_ptr.freezeIfRegister(&self.register_manager);
+        defer operand_ptr.unfreezeIfRegister(&self.register_manager);
         const operand: MCValue = blk: {
             if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
@@ -3345,7 +3383,10 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
             }
 
-            const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{ .rax, .rcx });
+            self.register_manager.freezeRegs(&.{ .rax, .rcx });
+            defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx });
+
+            const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{});
             const addr_reg = regs[0];
             const count_reg = regs[1];
             const tmp_reg = regs[2];
@@ -3363,7 +3404,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
             });
 
             // TODO allow for abi_size to be u64
-            try self.genSetReg(Type.initTag(.u32), count_reg, .{ .immediate = @intCast(u32, abi_size) });
+            try self.genSetReg(Type.u32, count_reg, .{ .immediate = @intCast(u32, abi_size) });
             try self.genInlineMemcpy(
                 -(stack_offset + @intCast(i32, abi_size)),
                 .rsp,
@@ -3510,7 +3551,10 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerErro
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
             }
 
-            const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{ .rax, .rcx, .rbp });
+            self.register_manager.freezeRegs(&.{ .rax, .rcx, .rbp });
+            defer self.register_manager.unfreezeRegs(&.{ .rax, .rcx, .rbp });
+
+            const regs = try self.register_manager.allocRegs(3, .{ null, null, null }, &.{});
             const addr_reg = regs[0];
             const count_reg = regs[1];
             const tmp_reg = regs[2];
@@ -3528,7 +3572,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerErro
             });
 
             // TODO allow for abi_size to be u64
-            try self.genSetReg(Type.initTag(.u32), count_reg, .{ .immediate = @intCast(u32, abi_size) });
+            try self.genSetReg(Type.u32, count_reg, .{ .immediate = @intCast(u32, abi_size) });
 
             return self.genInlineMemcpy(
                 -(stack_offset + @intCast(i32, abi_size)),
