@@ -1736,6 +1736,24 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 .data = .{ .payload = payload },
                             });
                         },
+                        8 => {
+                            // TODO: optimization: if the imm is only using the lower
+                            // 4 bytes and can be sign extended we can use a normal mov
+                            // with indirect addressing (mov [reg64], imm32).
+
+                            // movabs does not support indirect register addressing
+                            // so we need an extra register and an extra mov.
+                            const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                            _ = try self.addInst(.{
+                                .tag = .mov,
+                                .ops = (Mir.Ops{
+                                    .reg1 = reg.to64(),
+                                    .reg2 = tmp_reg.to64(),
+                                    .flags = 0b10,
+                                }).encode(),
+                                .data = .{ .imm = 0 },
+                            });
+                        },
                         else => {
                             return self.fail("TODO implement set pointee with immediate of ABI size {d}", .{abi_size});
                         },
@@ -1758,8 +1776,71 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 },
             }
         },
-        .memory => {
-            return self.fail("TODO implement storing to MCValue.memory", .{});
+        .memory => |addr| {
+            // TODO: in case the address fits in an imm32 we can use [ds:imm32]
+            // instead of wasting an instruction copying the address to a register
+
+            const addr_reg = try self.copyToTmpRegister(ptr_ty, .{ .immediate = addr });
+            // to get the actual address of the value we want to modify we have to go through the GOT
+            // mov reg, [reg]
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = (Mir.Ops{
+                    .reg1 = addr_reg.to64(),
+                    .reg2 = addr_reg.to64(),
+                    .flags = 0b01,
+                }).encode(),
+                .data = .{ .imm = 0 },
+            });
+
+            const abi_size = value_ty.abiSize(self.target.*);
+            switch (value) {
+                .immediate => |imm| {
+                    const payload = try self.addExtra(Mir.ImmPair{
+                        .dest_off = 0,
+                        .operand = @intCast(u32, imm),
+                    });
+                    _ = try self.addInst(.{
+                        .tag = .mov_mem_imm,
+                        .ops = (Mir.Ops{
+                            .reg1 = addr_reg.to64(),
+                            .flags = switch (abi_size) {
+                                1 => 0b00,
+                                2 => 0b01,
+                                4 => 0b10,
+                                8 => flag: {
+                                    const top_bits: u32 = @intCast(u32, imm >> 32);
+                                    const can_extend = if (value_ty.isUnsignedInt())
+                                        (top_bits == 0) and (imm & 0x8000_0000) == 0
+                                    else
+                                        top_bits == 0xffff_ffff;
+
+                                    if (!can_extend) {
+                                        return self.fail("TODO imm64 would get incorrectly sign extended", .{});
+                                    }
+                                    break :flag 0b11;
+                                },
+                                else => {
+                                    return self.fail("TODO saving imm to memory for abi_size {}", .{abi_size});
+                                },
+                            },
+                        }).encode(),
+                        .data = .{ .payload = payload },
+                    });
+                },
+                .register => |reg| {
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .ops = (Mir.Ops{
+                            .reg1 = addr_reg.to64(),
+                            .reg2 = reg,
+                            .flags = 0b10,
+                        }).encode(),
+                        .data = .{ .imm = 0 },
+                    });
+                },
+                else => return self.fail("TODO implement storing {} to MCValue.memory", .{value}),
+            }
         },
         .stack_offset => {
             return self.fail("TODO implement storing to MCValue.stack_offset", .{});
