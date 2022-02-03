@@ -120,7 +120,7 @@ static void ApplyOneQAOverride(raw_ostream &OS,
     OS << "### Adding argument " << Str << " at end\n";
     Args.push_back(Str);
   } else if (Edit[0] == 's' && Edit[1] == '/' && Edit.endswith("/") &&
-             Edit.slice(2, Edit.size()-1).find('/') != StringRef::npos) {
+             Edit.slice(2, Edit.size() - 1).contains('/')) {
     StringRef MatchPattern = Edit.substr(2).split('/').first;
     StringRef ReplPattern = Edit.substr(2).split('/').second;
     ReplPattern = ReplPattern.slice(0, ReplPattern.size()-1);
@@ -207,6 +207,8 @@ extern int cc1_main(ArrayRef<const char *> Argv, const char *Argv0,
                     void *MainAddr);
 extern int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0,
                       void *MainAddr);
+extern int cc1gen_reproducer_main(ArrayRef<const char *> Argv,
+                                  const char *Argv0, void *MainAddr);
 
 static void insertTargetAndModeArgs(const ParsedClangName &NameParts,
                                     SmallVectorImpl<const char *> &ArgVector,
@@ -276,27 +278,6 @@ static void FixupDiagPrefixExeName(TextDiagnosticPrinter *DiagClient,
   DiagClient->setPrefix(std::string(ExeBasename));
 }
 
-// This lets us create the DiagnosticsEngine with a properly-filled-out
-// DiagnosticOptions instance.
-static DiagnosticOptions *
-CreateAndPopulateDiagOpts(ArrayRef<const char *> argv, bool &UseNewCC1Process) {
-  auto *DiagOpts = new DiagnosticOptions;
-  unsigned MissingArgIndex, MissingArgCount;
-  InputArgList Args = getDriverOptTable().ParseArgs(
-      argv.slice(1), MissingArgIndex, MissingArgCount);
-  // We ignore MissingArgCount and the return value of ParseDiagnosticArgs.
-  // Any errors that would be diagnosed here will also be diagnosed later,
-  // when the DiagnosticsEngine actually exists.
-  (void)ParseDiagnosticArgs(*DiagOpts, Args);
-
-  UseNewCC1Process =
-      Args.hasFlag(clang::driver::options::OPT_fno_integrated_cc1,
-                   clang::driver::options::OPT_fintegrated_cc1,
-                   /*Default=*/CLANG_SPAWN_CC1);
-
-  return DiagOpts;
-}
-
 static void SetInstallDir(SmallVectorImpl<const char *> &argv,
                           Driver &TheDriver, bool CanonicalPrefixes) {
   // Attempt to find the original path used to invoke the driver, to determine
@@ -337,28 +318,22 @@ static int ExecuteCC1Tool(SmallVectorImpl<const char *> &ArgV) {
   if (Tool == "-cc1as")
     return cc1as_main(makeArrayRef(ArgV).slice(2), ArgV[0],
                       GetExecutablePathVP);
+  if (Tool == "-cc1gen-reproducer")
+    return cc1gen_reproducer_main(makeArrayRef(ArgV).slice(2), ArgV[0],
+                                  GetExecutablePathVP);
   // Reject unknown tools.
   llvm::errs() << "error: unknown integrated tool '" << Tool << "'. "
                << "Valid tools include '-cc1' and '-cc1as'.\n";
   return 1;
 }
 
-extern "C" int ZigClang_main(int Argc, const char **Argv);
-int ZigClang_main(int Argc, const char **Argv) {
+int main(int Argc, const char **Argv) {
   noteBottomOfStack();
-  // ZIG PATCH: On Windows, InitLLVM calls GetCommandLineW(),
-  // and overwrites the args.  We don't want it to do that,
-  // and we also don't need the signal handlers it installs
-  // (we have our own already), so we just use llvm_shutdown_obj
-  // instead.
-  // llvm::InitLLVM X(Argc, Argv);
-  llvm::llvm_shutdown_obj X;
-
+  llvm::InitLLVM X(Argc, Argv);
   llvm::setBugReportMsg("PLEASE submit a bug report to " BUG_REPORT_URL
                         " and include the crash backtrace, preprocessed "
                         "source, and associated run script.\n");
-  size_t argv_offset = (strcmp(Argv[1], "-cc1") == 0 || strcmp(Argv[1], "-cc1as") == 0) ? 0 : 1;
-  SmallVector<const char *, 256> Args(Argv + argv_offset, Argv + Argc);
+  SmallVector<const char *, 256> Args(Argv, Argv + Argc);
 
   if (llvm::sys::Process::FixupStandardFileDescriptors())
     return 1;
@@ -402,8 +377,8 @@ int ZigClang_main(int Argc, const char **Argv) {
 
   // Handle -cc1 integrated tools, even if -cc1 was expanded from a response
   // file.
-  auto FirstArg = std::find_if(Args.begin() + 1, Args.end(),
-                               [](const char *A) { return A != nullptr; });
+  auto FirstArg = llvm::find_if(llvm::drop_begin(Args),
+                                [](const char *A) { return A != nullptr; });
   if (FirstArg != Args.end() && StringRef(*FirstArg).startswith("-cc1")) {
     // If -cc1 came from a response file, remove the EOL sentinels.
     if (MarkEOLs) {
@@ -420,10 +395,10 @@ int ZigClang_main(int Argc, const char **Argv) {
     // Skip end-of-line response file markers
     if (Args[i] == nullptr)
       continue;
-    if (StringRef(Args[i]) == "-no-canonical-prefixes") {
+    if (StringRef(Args[i]) == "-canonical-prefixes")
+      CanonicalPrefixes = true;
+    else if (StringRef(Args[i]) == "-no-canonical-prefixes")
       CanonicalPrefixes = false;
-      break;
-    }
   }
 
   // Handle CL and _CL_ which permits additional command line options to be
@@ -457,18 +432,21 @@ int ZigClang_main(int Argc, const char **Argv) {
     ApplyQAOverride(Args, OverrideStr, SavedStrings);
   }
 
-  // Pass local param `Argv[0]` as fallback.
-  // See https://github.com/ziglang/zig/pull/3292 .
-  std::string Path = GetExecutablePath(Argv[0], CanonicalPrefixes);
+  std::string Path = GetExecutablePath(Args[0], CanonicalPrefixes);
 
   // Whether the cc1 tool should be called inside the current process, or if we
   // should spawn a new clang subprocess (old behavior).
   // Not having an additional process saves some execution time of Windows,
   // and makes debugging and profiling easier.
-  bool UseNewCC1Process;
+  bool UseNewCC1Process = CLANG_SPAWN_CC1;
+  for (const char *Arg : Args)
+    UseNewCC1Process = llvm::StringSwitch<bool>(Arg)
+                           .Case("-fno-integrated-cc1", true)
+                           .Case("-fintegrated-cc1", false)
+                           .Default(UseNewCC1Process);
 
   IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts =
-      CreateAndPopulateDiagOpts(Args, UseNewCC1Process);
+      CreateAndPopulateDiagOpts(Args);
 
   TextDiagnosticPrinter *DiagClient
     = new TextDiagnosticPrinter(llvm::errs(), &*DiagOpts);
