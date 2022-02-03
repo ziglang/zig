@@ -118,17 +118,12 @@ pub fn RegisterManager(
         /// Allocates a specified number of registers, optionally
         /// tracking them. Returns `null` if not enough registers are
         /// free.
-        ///
-        /// Exceptions are deprecated, use freezeRegs and unfreezeRegs
-        /// instead.
         pub fn tryAllocRegs(
             self: *Self,
             comptime count: comptime_int,
             insts: [count]?Air.Inst.Index,
-            exceptions: []const Register,
         ) ?[count]Register {
             comptime assert(count > 0 and count <= callee_preserved_regs.len);
-            assert(count + exceptions.len <= callee_preserved_regs.len);
 
             const free_registers = @popCount(FreeRegInt, self.free_registers);
             if (free_registers < count) return null;
@@ -137,7 +132,6 @@ pub fn RegisterManager(
             var i: usize = 0;
             for (callee_preserved_regs) |reg| {
                 if (i >= count) break;
-                if (mem.indexOfScalar(Register, exceptions, reg) != null) continue;
                 if (self.isRegFrozen(reg)) continue;
                 if (self.isRegFree(reg)) {
                     regs[i] = reg;
@@ -163,29 +157,21 @@ pub fn RegisterManager(
         /// Allocates a register and optionally tracks it with a
         /// corresponding instruction. Returns `null` if all registers
         /// are allocated.
-        ///
-        /// Exceptions are deprecated, use freezeRegs and unfreezeRegs
-        /// instead.
-        pub fn tryAllocReg(self: *Self, inst: ?Air.Inst.Index, exceptions: []const Register) ?Register {
-            return if (tryAllocRegs(self, 1, .{inst}, exceptions)) |regs| regs[0] else null;
+        pub fn tryAllocReg(self: *Self, inst: ?Air.Inst.Index) ?Register {
+            return if (tryAllocRegs(self, 1, .{inst})) |regs| regs[0] else null;
         }
 
         /// Allocates a specified number of registers, optionally
-        /// tracking them. Asserts that count + exceptions.len is not
+        /// tracking them. Asserts that count is not
         /// larger than the total number of registers available.
-        ///
-        /// Exceptions are deprecated, use freezeRegs and unfreezeRegs
-        /// instead.
         pub fn allocRegs(
             self: *Self,
             comptime count: comptime_int,
             insts: [count]?Air.Inst.Index,
-            exceptions: []const Register,
         ) ![count]Register {
             comptime assert(count > 0 and count <= callee_preserved_regs.len);
-            assert(count + exceptions.len <= callee_preserved_regs.len);
 
-            const result = self.tryAllocRegs(count, insts, exceptions) orelse blk: {
+            const result = self.tryAllocRegs(count, insts) orelse blk: {
                 // We'll take over the first count registers. Spill
                 // the instructions that were previously there to a
                 // stack allocations.
@@ -193,7 +179,6 @@ pub fn RegisterManager(
                 var i: usize = 0;
                 for (callee_preserved_regs) |reg| {
                     if (i >= count) break;
-                    if (mem.indexOfScalar(Register, exceptions, reg) != null) continue;
                     if (self.isRegFrozen(reg)) continue;
 
                     regs[i] = reg;
@@ -229,11 +214,8 @@ pub fn RegisterManager(
 
         /// Allocates a register and optionally tracks it with a
         /// corresponding instruction.
-        ///
-        /// Exceptions are deprecated, use freezeRegs and unfreezeRegs
-        /// instead.
-        pub fn allocReg(self: *Self, inst: ?Air.Inst.Index, exceptions: []const Register) !Register {
-            return (try self.allocRegs(1, .{inst}, exceptions))[0];
+        pub fn allocReg(self: *Self, inst: ?Air.Inst.Index) !Register {
+            return (try self.allocRegs(1, .{inst}))[0];
         }
 
         /// Spills the register if it is currently allocated. If a
@@ -365,9 +347,9 @@ test "tryAllocReg: no spilling" {
 
     const mock_instruction: Air.Inst.Index = 1;
 
-    try expectEqual(@as(?MockRegister1, .r2), function.register_manager.tryAllocReg(mock_instruction, &.{}));
-    try expectEqual(@as(?MockRegister1, .r3), function.register_manager.tryAllocReg(mock_instruction, &.{}));
-    try expectEqual(@as(?MockRegister1, null), function.register_manager.tryAllocReg(mock_instruction, &.{}));
+    try expectEqual(@as(?MockRegister1, .r2), function.register_manager.tryAllocReg(mock_instruction));
+    try expectEqual(@as(?MockRegister1, .r3), function.register_manager.tryAllocReg(mock_instruction));
+    try expectEqual(@as(?MockRegister1, null), function.register_manager.tryAllocReg(mock_instruction));
 
     try expect(function.register_manager.isRegAllocated(.r2));
     try expect(function.register_manager.isRegAllocated(.r3));
@@ -393,25 +375,17 @@ test "allocReg: spilling" {
 
     const mock_instruction: Air.Inst.Index = 1;
 
-    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction, &.{}));
-    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction, &.{}));
+    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction));
+    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
 
     // Spill a register
-    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction, &.{}));
+    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction));
     try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r2}, function.spilled.items);
 
     // No spilling necessary
     function.register_manager.freeReg(.r3);
-    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction, &.{}));
+    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
     try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r2}, function.spilled.items);
-
-    // Exceptions
-    //
-    // TODO deprecated, remove test once no backend uses exceptions
-    // anymore
-    function.register_manager.freeReg(.r2);
-    function.register_manager.freeReg(.r3);
-    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction, &.{.r2}));
 
     // Frozen registers
     function.register_manager.freeReg(.r3);
@@ -419,7 +393,7 @@ test "allocReg: spilling" {
         function.register_manager.freezeRegs(&.{.r2});
         defer function.register_manager.unfreezeRegs(&.{.r2});
 
-        try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction, &.{}));
+        try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
     }
     try expect(!function.register_manager.frozenRegsExist());
 }
@@ -432,21 +406,12 @@ test "tryAllocRegs" {
     };
     defer function.deinit();
 
-    try expectEqual([_]MockRegister2{ .r0, .r1, .r2 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }, &.{}).?);
+    try expectEqual([_]MockRegister2{ .r0, .r1, .r2 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }).?);
 
     try expect(function.register_manager.isRegAllocated(.r0));
     try expect(function.register_manager.isRegAllocated(.r1));
     try expect(function.register_manager.isRegAllocated(.r2));
     try expect(!function.register_manager.isRegAllocated(.r3));
-
-    // Exceptions
-    //
-    // TODO deprecated, remove test once no backend uses exceptions
-    // anymore
-    function.register_manager.freeReg(.r0);
-    function.register_manager.freeReg(.r1);
-    function.register_manager.freeReg(.r2);
-    try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }, &.{.r1}).?);
 
     // Frozen registers
     function.register_manager.freeReg(.r0);
@@ -456,7 +421,7 @@ test "tryAllocRegs" {
         function.register_manager.freezeRegs(&.{.r1});
         defer function.register_manager.unfreezeRegs(&.{.r1});
 
-        try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }, &.{}).?);
+        try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }).?);
     }
     try expect(!function.register_manager.frozenRegsExist());
 
@@ -480,19 +445,12 @@ test "allocRegs" {
         mock_instruction,
         mock_instruction,
         mock_instruction,
-    }, &.{}));
+    }));
 
     try expect(function.register_manager.isRegAllocated(.r0));
     try expect(function.register_manager.isRegAllocated(.r1));
     try expect(function.register_manager.isRegAllocated(.r2));
     try expect(!function.register_manager.isRegAllocated(.r3));
-
-    // Exceptions
-    //
-    // TODO deprecated, remove test once no backend uses exceptions
-    // anymore
-    try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, try function.register_manager.allocRegs(3, .{ null, null, null }, &.{.r1}));
-    try expectEqualSlices(MockRegister2, &[_]MockRegister2{ .r0, .r2 }, function.spilled.items);
 
     // Frozen registers
     function.register_manager.freeReg(.r0);
@@ -502,7 +460,7 @@ test "allocRegs" {
         function.register_manager.freezeRegs(&.{.r1});
         defer function.register_manager.unfreezeRegs(&.{.r1});
 
-        try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, try function.register_manager.allocRegs(3, .{ null, null, null }, &.{}));
+        try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, try function.register_manager.allocRegs(3, .{ null, null, null }));
     }
     try expect(!function.register_manager.frozenRegsExist());
 
