@@ -560,6 +560,9 @@ mir_extra: std.ArrayListUnmanaged(u32) = .{},
 /// When a function is executing, we store the the current stack pointer's value within this local.
 /// This value is then used to restore the stack pointer to the original value at the return of the function.
 initial_stack_value: WValue = .none,
+/// The current stack pointer substracted with the stack size. From this value, we will calculate
+/// all offsets of the stack values.
+bottom_stack_value: WValue = .none,
 /// Arguments of this function declaration
 /// This will be set after `resolveCallingConventionValues`
 args: []WValue = &.{},
@@ -567,6 +570,14 @@ args: []WValue = &.{},
 /// When it returns a pointer to the stack, the `.local` tag will be active and must be populated
 /// before this function returns its execution to the caller.
 return_value: WValue = .none,
+/// The size of the stack this function occupies. In the function prologue
+/// we will move the stack pointer by this number, forward aligned with the `stack_alignment`.
+stack_size: u32 = 0,
+/// The stack alignment, which is 16 bytes by default. This is specified by the
+/// tool-conventions: https://github.com/WebAssembly/tool-conventions/blob/main/BasicCABI.md
+/// and also what the llvm backend will emit.
+/// However, local variables or the usage of `@setAlignStack` can overwrite this default.
+stack_alignment: u32 = 16,
 
 const InnerError = error{
     OutOfMemory,
@@ -652,13 +663,6 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!WValue {
 /// Appends a MIR instruction and returns its index within the list of instructions
 fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!void {
     try self.mir_instructions.append(self.gpa, inst);
-}
-
-/// Inserts a Mir instruction at the given `offset`.
-/// Asserts offset is within bound.
-fn addInstAt(self: *Self, offset: usize, inst: Mir.Inst) error{OutOfMemory}!void {
-    try self.mir_instructions.ensureUnusedCapacity(self.gpa, 1);
-    self.mir_instructions.insertAssumeCapacity(offset, inst);
 }
 
 fn addTag(self: *Self, tag: Mir.Inst.Tag) error{OutOfMemory}!void {
@@ -845,9 +849,42 @@ pub fn genFunc(self: *Self) InnerError!void {
             try self.addTag(.@"unreachable");
         }
     }
-
     // End of function body
     try self.addTag(.end);
+
+    // check if we have to initialize and allocate anything into the stack frame.
+    // If so, create enough stack space and insert the instructions at the front of the list.
+    if (self.stack_size > 0) {
+        var prologue = std.ArrayList(Mir.Inst).init(self.gpa);
+        defer prologue.deinit();
+
+        // load stack pointer
+        try prologue.append(.{ .tag = .global_get, .data = .{ .label = 0 } });
+        // store stack pointer so we can restore it when we return from the function
+        try prologue.append(.{ .tag = .local_tee, .data = .{ .label = self.initial_stack_value.local } });
+        // get the total stack size
+        const aligned_stack = std.mem.alignForwardGeneric(u32, self.stack_size, self.stack_alignment);
+        try prologue.append(.{ .tag = .i32_const, .data = .{ .imm32 = @intCast(i32, aligned_stack) } });
+        // substract it from the current stack pointer
+        try prologue.append(.{ .tag = .i32_sub, .data = .{ .tag = {} } });
+        // Get negative stack aligment
+        try prologue.append(.{ .tag = .i32_const, .data = .{ .imm32 = @intCast(i32, self.stack_alignment) * -1 } });
+        // Bit and the value to get the new stack pointer to ensure the pointers are aligned with the abi alignment
+        try prologue.append(.{ .tag = .i32_and, .data = .{ .tag = {} } });
+        // store the current stack pointer as the bottom, which will be used to calculate all stack pointer offsets
+        try prologue.append(.{ .tag = .local_tee, .data = .{ .label = self.bottom_stack_value.local } });
+        // Store the current stack pointer value into the global stack pointer so other function calls will
+        // start from this value instead and not overwrite the current stack.
+        try prologue.append(.{ .tag = .global_set, .data = .{ .label = 0 } });
+
+        // reserve space and insert all prologue instructions at the front of the instruction list
+        // We insert them in reserve order as there is no insertSlice in multiArrayList.
+        try self.mir_instructions.ensureUnusedCapacity(self.gpa, prologue.items.len);
+        for (prologue.items) |_, index| {
+            const inst = prologue.items[prologue.items.len - 1 - index];
+            self.mir_instructions.insertAssumeCapacity(0, inst);
+        }
+    }
 
     var mir: Mir = .{
         .instructions = self.mir_instructions.toOwnedSlice(),
@@ -1137,7 +1174,7 @@ pub const DeclGen = struct {
                 },
                 .decl_ref => {
                     const decl = val.castTag(.decl_ref).?.data;
-                    return self.lowerDeclRefValue(ty, val, decl, writer, 0);
+                    return self.lowerDeclRefValue(ty, val, decl, 0);
                 },
                 .slice => {
                     const slice = val.castTag(.slice).?.data;
@@ -1161,9 +1198,9 @@ pub const DeclGen = struct {
                     const elem_ptr = val.castTag(.elem_ptr).?.data;
                     const elem_size = ty.childType().abiSize(self.target());
                     const offset = elem_ptr.index * elem_size;
-                    return self.lowerParentPtr(elem_ptr.array_ptr, writer, offset);
+                    return self.lowerParentPtr(elem_ptr.array_ptr, offset);
                 },
-                .int_u64 => return self.genTypedValue(Type.usize, val, writer),
+                .int_u64 => return self.genTypedValue(Type.usize, val),
                 else => return self.fail("TODO: Implement zig decl gen for pointer type value: '{s}'", .{@tagName(val.tag())}),
             },
             .ErrorUnion => {
@@ -1309,22 +1346,16 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
     return result;
 }
 
-/// Retrieves the stack pointer's value from the global variable and stores
-/// it in a local
+/// Creates a local for the initial stack value
 /// Asserts `initial_stack_value` is `.none`
 fn initializeStack(self: *Self) !void {
     assert(self.initial_stack_value == .none);
-    // reserve space for immediate value
-    // get stack pointer global
-    try self.addLabel(.global_get, 0);
-
     // Reserve a local to store the current stack pointer
     // We can later use this local to set the stack pointer back to the value
     // we have stored here.
-    self.initial_stack_value = try self.allocLocal(Type.initTag(.i32));
-
-    // save the value to the local
-    try self.addLabel(.local_set, self.initial_stack_value.local);
+    self.initial_stack_value = try self.allocLocal(Type.usize);
+    // Also reserve a local to store the bottom stack value
+    self.bottom_stack_value = try self.allocLocal(Type.usize);
 }
 
 /// Reads the stack pointer from `Context.initial_stack_value` and writes it
@@ -1339,36 +1370,75 @@ fn restoreStackPointer(self: *Self) !void {
     try self.addLabel(.global_set, 0);
 }
 
-/// Moves the stack pointer by given `offset`
-/// It does this by retrieving the stack pointer, subtracting `offset` and storing
-/// the result back into the stack pointer.
-fn moveStack(self: *Self, offset: u32, local: u32) !void {
-    if (offset == 0) return;
-    try self.addLabel(.global_get, 0);
-    try self.addImm32(@bitCast(i32, offset));
-    try self.addTag(.i32_sub);
-    try self.addLabel(.local_tee, local);
-    try self.addLabel(.global_set, 0);
+/// Saves the current stack size's stack pointer position into a given local
+/// It does this by retrieving the bottom stack pointer, adding `self.stack_size` and storing
+/// the result back into the local.
+fn saveStack(self: *Self) !WValue {
+    const local = try self.allocLocal(Type.usize);
+    try self.addLabel(.local_get, self.bottom_stack_value.local);
+    try self.addImm32(@intCast(i32, self.stack_size));
+    try self.addTag(.i32_add);
+    try self.addLabel(.local_set, local.local);
+    return local;
 }
 
 /// From a given type, will create space on the virtual stack to store the value of such type.
 /// This returns a `WValue` with its active tag set to `local`, containing the index to the local
 /// that points to the position on the virtual stack. This function should be used instead of
-/// moveStack unless a local was already created to store the point.
+/// moveStack unless a local was already created to store the pointer.
 ///
 /// Asserts Type has codegenbits
 fn allocStack(self: *Self, ty: Type) !WValue {
     assert(ty.hasRuntimeBits());
+    if (self.initial_stack_value == .none) {
+        try self.initializeStack();
+    }
 
-    // calculate needed stack space
     const abi_size = std.math.cast(u32, ty.abiSize(self.target)) catch {
-        return self.fail("Given type '{}' too big to fit into stack frame", .{ty});
+        return self.fail("Type {} with ABI size of {d} exceeds stack frame size", .{ ty, ty.abiSize(self.target) });
     };
+    const abi_align = ty.abiAlignment(self.target);
 
-    // allocate a local using wasm's pointer size
-    const local = try self.allocLocal(Type.@"usize");
-    try self.moveStack(abi_size, local.local);
-    return local;
+    if (abi_align > self.stack_alignment) {
+        self.stack_alignment = abi_align;
+    }
+
+    const offset = std.mem.alignForwardGeneric(u32, self.stack_size, abi_align);
+    defer self.stack_size = offset + abi_size;
+
+    // store the stack pointer and return a local to it
+    return self.saveStack();
+}
+
+/// From a given AIR instruction generates a pointer to the stack where
+/// the value of its type will live.
+/// This is different from allocStack where this will use the pointer's alignment
+/// if it is set, to ensure the stack alignment will be set correctly.
+fn allocStackPtr(self: *Self, inst: Air.Inst.Index) !WValue {
+    const ptr_ty = self.air.typeOfIndex(inst);
+    const pointee_ty = ptr_ty.childType();
+
+    if (self.initial_stack_value == .none) {
+        try self.initializeStack();
+    }
+
+    if (!pointee_ty.hasRuntimeBits()) {
+        return self.allocStack(Type.usize); // create a value containing just the stack pointer.
+    }
+
+    const abi_alignment = ptr_ty.ptrAlignment(self.target);
+    const abi_size = std.math.cast(u32, pointee_ty.abiSize(self.target)) catch {
+        return self.fail("Type {} with ABI size of {d} exceeds stack frame size", .{ pointee_ty, pointee_ty.abiSize(self.target) });
+    };
+    if (abi_alignment > self.stack_alignment) {
+        self.stack_alignment = abi_alignment;
+    }
+
+    const offset = std.mem.alignForwardGeneric(u32, self.stack_size, abi_alignment);
+    defer self.stack_size = offset + abi_size;
+
+    // store the stack pointer and return a local to it
+    return self.saveStack();
 }
 
 /// From given zig bitsize, returns the wasm bitsize
@@ -1667,12 +1737,7 @@ fn airRetPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (isByRef(child_type, self.target)) {
         return self.return_value;
     }
-
-    // Initialize the stack
-    if (self.initial_stack_value == .none) {
-        try self.initializeStack();
-    }
-    return self.allocStack(child_type);
+    return self.allocStackPtr(inst);
 }
 
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -1764,20 +1829,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 }
 
 fn airAlloc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
-    const pointee_type = self.air.typeOfIndex(inst).childType();
-
-    // Initialize the stack
-    if (self.initial_stack_value == .none) {
-        try self.initializeStack();
-    }
-
-    if (!pointee_type.hasRuntimeBits()) {
-        // when the pointee is zero-sized, we still want to create a pointer.
-        // but instead use a default pointer type as storage.
-        const zero_ptr = try self.allocStack(Type.usize);
-        return zero_ptr;
-    }
-    return self.allocStack(pointee_type);
+    return self.allocStackPtr(inst);
 }
 
 fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
