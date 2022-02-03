@@ -1811,17 +1811,29 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             }
         },
         .memory => |addr| {
-            if (self.bin_file.options.pie) {
-                return self.fail("TODO implement storing to memory when targeting PIE", .{});
-            }
-
-            // TODO: in case the address fits in an imm32 we can use [ds:imm32]
-            // instead of wasting an instruction copying the address to a register
-
             value.freezeIfRegister(&self.register_manager);
             defer value.unfreezeIfRegister(&self.register_manager);
 
-            const addr_reg = try self.copyToTmpRegister(ptr_ty, .{ .immediate = addr });
+            const addr_reg: Register = blk: {
+                if (self.bin_file.options.pie) {
+                    const addr_reg = try self.register_manager.allocReg(null);
+                    _ = try self.addInst(.{
+                        .tag = .lea,
+                        .ops = (Mir.Ops{
+                            .reg1 = addr_reg.to64(),
+                            .flags = 0b10,
+                        }).encode(),
+                        .data = .{ .got_entry = @truncate(u32, addr) },
+                    });
+                    break :blk addr_reg;
+                } else {
+                    // TODO: in case the address fits in an imm32 we can use [ds:imm32]
+                    // instead of wasting an instruction copying the address to a register
+                    const addr_reg = try self.copyToTmpRegister(ptr_ty, .{ .immediate = addr });
+                    break :blk addr_reg;
+                }
+            };
+
             // to get the actual address of the value we want to modify we have to go through the GOT
             // mov reg, [reg]
             _ = try self.addInst(.{
