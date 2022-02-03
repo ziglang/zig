@@ -358,10 +358,11 @@ pub const Module = opaque {
     pub const getLastGlobalAlias = LLVMGetLastGlobalAlias;
     extern fn LLVMGetLastGlobalAlias(M: *const Module) *const Value;
 
-    pub const addAlias = LLVMAddAlias;
-    extern fn LLVMAddAlias(
+    pub const addAlias = LLVMAddAlias2;
+    extern fn LLVMAddAlias2(
         M: *const Module,
         Ty: *const Type,
+        AddrSpace: c_uint,
         Aliasee: *const Value,
         Name: [*:0]const u8,
     ) *const Value;
@@ -519,8 +520,8 @@ pub const Builder = opaque {
     pub const buildStore = LLVMBuildStore;
     extern fn LLVMBuildStore(*const Builder, Val: *const Value, Ptr: *const Value) *const Value;
 
-    pub const buildLoad = LLVMBuildLoad;
-    extern fn LLVMBuildLoad(*const Builder, PointerVal: *const Value, Name: [*:0]const u8) *const Value;
+    pub const buildLoad = LLVMBuildLoad2;
+    extern fn LLVMBuildLoad2(*const Builder, Ty: *const Type, PointerVal: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildNeg = LLVMBuildNeg;
     extern fn LLVMBuildNeg(*const Builder, V: *const Value, Name: [*:0]const u8) *const Value;
@@ -1185,9 +1186,9 @@ pub extern fn LLVMInitializeM68kAsmParser() void;
 pub extern fn LLVMInitializeCSKYAsmParser() void;
 pub extern fn LLVMInitializeVEAsmParser() void;
 
-extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
-extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
-extern fn ZigLLDLinkWasm(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
+extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) c_int;
+extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) c_int;
+extern fn ZigLLDLinkWasm(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) c_int;
 
 pub const LinkCOFF = ZigLLDLinkCOFF;
 pub const LinkELF = ZigLLDLinkELF;

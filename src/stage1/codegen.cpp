@@ -501,7 +501,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
 
         for (size_t i = 1; i < fn->export_list.length; i += 1) {
             GlobalExport *fn_export = &fn->export_list.items[i];
-            LLVMAddAlias(g->module, LLVMTypeOf(llvm_fn), llvm_fn, buf_ptr(&fn_export->name));
+            LLVMAddAlias2(g->module, LLVMTypeOf(llvm_fn), 0, llvm_fn, buf_ptr(&fn_export->name));
         }
     }
 
@@ -912,10 +912,10 @@ static LLVMValueRef gen_store(CodeGen *g, LLVMValueRef value, LLVMValueRef ptr, 
     return gen_store_untyped(g, value, ptr, alignment, ptr_type->data.pointer.is_volatile);
 }
 
-static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMValueRef ptr, uint32_t alignment, bool is_volatile,
-        const char *name)
+static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMTypeRef elem_type, LLVMValueRef ptr,
+        uint32_t alignment, bool is_volatile, const char *name)
 {
-    LLVMValueRef result = LLVMBuildLoad(g->builder, ptr, name);
+    LLVMValueRef result = LLVMBuildLoad2(g->builder, elem_type, ptr, name);
     if (is_volatile) LLVMSetVolatile(result, true);
     if (alignment == 0) {
         LLVMSetAlignment(result, LLVMABIAlignmentOfType(g->target_data_ref, LLVMGetElementType(LLVMTypeOf(ptr))));
@@ -927,8 +927,10 @@ static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMValueRef ptr, uint32_t alig
 
 static LLVMValueRef gen_load(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type, const char *name) {
     assert(ptr_type->id == ZigTypeIdPointer);
+    ZigType *elem_type = ptr_type->data.pointer.child_type;
     uint32_t alignment = get_ptr_align(g, ptr_type);
-    return gen_load_untyped(g, ptr, alignment, ptr_type->data.pointer.is_volatile, name);
+    return gen_load_untyped(g, get_llvm_type(g, elem_type), ptr, alignment,
+            ptr_type->data.pointer.is_volatile, name);
 }
 
 static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, ZigType *type, ZigType *ptr_type) {
@@ -1276,15 +1278,16 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     size_t len_field_index = slice_type->data.structure.fields[slice_len_index]->gen_index;
     LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)len_field_index, "");
 
-    LLVMValueRef len_value = gen_load_untyped(g, len_field_ptr, 0, false, "");
-    LLVMValueRef index_val = gen_load_untyped(g, index_field_ptr, 0, false, "");
+    LLVMValueRef len_value = gen_load_untyped(g, usize_type_ref, len_field_ptr, 0, false, "");
+    LLVMValueRef index_val = gen_load_untyped(g, usize_type_ref, index_field_ptr, 0, false, "");
     LLVMValueRef len_val_minus_one = LLVMBuildSub(g->builder, len_value, LLVMConstInt(usize_type_ref, 1, false), "");
     LLVMValueRef masked_val = LLVMBuildAnd(g->builder, index_val, len_val_minus_one, "");
     LLVMValueRef address_indices[] = {
         masked_val,
     };
 
-    LLVMValueRef ptr_value = gen_load_untyped(g, ptr_field_ptr, 0, false, "");
+    LLVMTypeRef ptr_to_usize = LLVMPointerType(usize_type_ref, 0);
+    LLVMValueRef ptr_value = gen_load_untyped(g, ptr_to_usize, ptr_field_ptr, 0, false, "");
     LLVMValueRef address_slot = LLVMBuildInBoundsGEP(g->builder, ptr_value, address_indices, 1, "");
 
     gen_store_untyped(g, address_value, address_slot, 0, false);
@@ -9015,7 +9018,7 @@ static void do_code_gen(CodeGen *g) {
 
         for (size_t export_i = 1; export_i < var->export_list.length; export_i += 1) {
             GlobalExport *global_export = &var->export_list.items[export_i];
-            LLVMAddAlias(g->module, LLVMTypeOf(var->value_ref), var->value_ref, buf_ptr(&global_export->name));
+            LLVMAddAlias2(g->module, LLVMTypeOf(var->value_ref), 0, var->value_ref, buf_ptr(&global_export->name));
         }
     }
 

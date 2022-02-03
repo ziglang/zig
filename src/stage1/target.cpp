@@ -60,6 +60,8 @@ static const ZigLLVM_ArchType arch_list[] = {
     ZigLLVM_hsail64,        // AMD HSAIL with 64-bit pointers
     ZigLLVM_spir,           // SPIR: standard portable IR for OpenCL 32-bit version
     ZigLLVM_spir64,         // SPIR: standard portable IR for OpenCL 64-bit version
+    ZigLLVM_spirv32,        // SPIR-V with 32-bit pointers
+    ZigLLVM_spirv64,        // SPIR-V with 64-bit pointers
     ZigLLVM_kalimba,        // Kalimba: generic kalimba
     ZigLLVM_shave,          // SHAVE: Movidius vector VLIW processors
     ZigLLVM_lanai,          // Lanai: Lanai 32-bit
