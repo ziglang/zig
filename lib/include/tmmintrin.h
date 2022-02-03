@@ -10,6 +10,10 @@
 #ifndef __TMMINTRIN_H
 #define __TMMINTRIN_H
 
+#if !defined(__i386__) && !defined(__x86_64__)
+#error "This header is only meant to be used on x86 and x64 architecture"
+#endif
+
 #include <pmmintrin.h>
 
 /* Define the default attributes for the functions in this file. */
@@ -49,7 +53,7 @@ _mm_abs_pi8(__m64 __a)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_abs_epi8(__m128i __a)
 {
-    return (__m128i)__builtin_ia32_pabsb128((__v16qi)__a);
+    return (__m128i)__builtin_elementwise_abs((__v16qs)__a);
 }
 
 /// Computes the absolute value of each of the packed 16-bit signed
@@ -85,7 +89,7 @@ _mm_abs_pi16(__m64 __a)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_abs_epi16(__m128i __a)
 {
-    return (__m128i)__builtin_ia32_pabsw128((__v8hi)__a);
+    return (__m128i)__builtin_elementwise_abs((__v8hi)__a);
 }
 
 /// Computes the absolute value of each of the packed 32-bit signed
@@ -121,7 +125,7 @@ _mm_abs_pi32(__m64 __a)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_abs_epi32(__m128i __a)
 {
-    return (__m128i)__builtin_ia32_pabsd128((__v4si)__a);
+    return (__m128i)__builtin_elementwise_abs((__v4si)__a);
 }
 
 /// Concatenates the two 128-bit integer vector operands, and
@@ -145,8 +149,8 @@ _mm_abs_epi32(__m128i __a)
 /// \returns A 128-bit integer vector containing the concatenated right-shifted
 ///    value.
 #define _mm_alignr_epi8(a, b, n) \
-  (__m128i)__builtin_ia32_palignr128((__v16qi)(__m128i)(a), \
-                                     (__v16qi)(__m128i)(b), (n))
+  ((__m128i)__builtin_ia32_palignr128((__v16qi)(__m128i)(a), \
+                                      (__v16qi)(__m128i)(b), (n)))
 
 /// Concatenates the two 64-bit integer vector operands, and right-shifts
 ///    the result by the number of bytes specified in the immediate operand.
@@ -168,7 +172,7 @@ _mm_abs_epi32(__m128i __a)
 /// \returns A 64-bit integer vector containing the concatenated right-shifted
 ///    value.
 #define _mm_alignr_pi8(a, b, n) \
-  (__m64)__builtin_ia32_palignr((__v8qi)(__m64)(a), (__v8qi)(__m64)(b), (n))
+  ((__m64)__builtin_ia32_palignr((__v8qi)(__m64)(a), (__v8qi)(__m64)(b), (n)))
 
 /// Horizontally adds the adjacent pairs of values contained in 2 packed
 ///    128-bit vectors of [8 x i16].

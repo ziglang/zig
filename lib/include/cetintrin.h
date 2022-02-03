@@ -42,9 +42,19 @@ static __inline__ unsigned int __DEFAULT_FN_ATTRS _rdsspd(unsigned int __a) {
   return __builtin_ia32_rdsspd(__a);
 }
 
+static __inline__ unsigned int __DEFAULT_FN_ATTRS _rdsspd_i32() {
+  unsigned int t;
+  return __builtin_ia32_rdsspd(t);
+}
+
 #ifdef __x86_64__
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS _rdsspq(unsigned long long __a) {
   return __builtin_ia32_rdsspq(__a);
+}
+
+static __inline__ unsigned long long __DEFAULT_FN_ATTRS _rdsspq_i64() {
+  unsigned long long t;
+  return __builtin_ia32_rdsspq(t);
 }
 #endif /* __x86_64__ */
 

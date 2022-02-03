@@ -41,6 +41,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <stdlib.h>
+#include <string.h>
 #undef __CUDACC__
 
 // Preserve common macros that will be changed below by us or by CUDA
@@ -64,9 +65,9 @@
 #endif
 
 // Make largest subset of device functions available during host
-// compilation -- SM_35 for the time being.
+// compilation.
 #ifndef __CUDA_ARCH__
-#define __CUDA_ARCH__ 350
+#define __CUDA_ARCH__ 9999
 #endif
 
 #include "__clang_cuda_builtin_vars.h"
@@ -205,11 +206,6 @@ inline __host__ double __signbitd(double x) {
 #endif
 
 #if CUDA_VERSION >= 9000
-// CUDA-9.2 needs host-side memcpy for some host functions in
-// device_functions.hpp
-#if CUDA_VERSION >= 9020
-#include <string.h>
-#endif
 #include "crt/math_functions.hpp"
 #else
 #include "math_functions.hpp"
@@ -275,7 +271,38 @@ static inline __device__ void __brkpt(int __c) { __brkpt(); }
 #undef __CUDABE__
 #endif
 #include "sm_20_atomic_functions.hpp"
+// Predicate functions used in `__builtin_assume` need to have no side effect.
+// However, sm_20_intrinsics.hpp doesn't define them with neither pure nor
+// const attribute. Rename definitions from sm_20_intrinsics.hpp and re-define
+// them as pure ones.
+#pragma push_macro("__isGlobal")
+#pragma push_macro("__isShared")
+#pragma push_macro("__isConstant")
+#pragma push_macro("__isLocal")
+#define __isGlobal __ignored_cuda___isGlobal
+#define __isShared __ignored_cuda___isShared
+#define __isConstant __ignored_cuda___isConstant
+#define __isLocal __ignored_cuda___isLocal
 #include "sm_20_intrinsics.hpp"
+#pragma pop_macro("__isGlobal")
+#pragma pop_macro("__isShared")
+#pragma pop_macro("__isConstant")
+#pragma pop_macro("__isLocal")
+#pragma push_macro("__DEVICE__")
+#define __DEVICE__ static __device__ __forceinline__ __attribute__((const))
+__DEVICE__ unsigned int __isGlobal(const void *p) {
+  return __nvvm_isspacep_global(p);
+}
+__DEVICE__ unsigned int __isShared(const void *p) {
+  return __nvvm_isspacep_shared(p);
+}
+__DEVICE__ unsigned int __isConstant(const void *p) {
+  return __nvvm_isspacep_const(p);
+}
+__DEVICE__ unsigned int __isLocal(const void *p) {
+  return __nvvm_isspacep_local(p);
+}
+#pragma pop_macro("__DEVICE__")
 #include "sm_32_atomic_functions.hpp"
 
 // Don't include sm_30_intrinsics.h and sm_32_intrinsics.h.  These define the
@@ -330,6 +357,34 @@ static inline __device__ void __brkpt(int __c) { __brkpt(); }
 
 #pragma pop_macro("__host__")
 
+// __clang_cuda_texture_intrinsics.h must be included first in order to provide
+// implementation for __nv_tex_surf_handler that CUDA's headers depend on.
+// The implementation requires c++11 and only works with CUDA-9 or newer.
+#if __cplusplus >= 201103L && CUDA_VERSION >= 9000
+// clang-format off
+#include <__clang_cuda_texture_intrinsics.h>
+// clang-format on
+#else
+#if CUDA_VERSION >= 9000
+// Provide a hint that texture support needs C++11.
+template <typename T> struct __nv_tex_needs_cxx11 {
+  const static bool value = false;
+};
+template <class T>
+__host__ __device__ void __nv_tex_surf_handler(const char *name, T *ptr,
+                                               cudaTextureObject_t obj,
+                                               float x) {
+  _Static_assert(__nv_tex_needs_cxx11<T>::value,
+                 "Texture support requires C++11");
+}
+#else
+// Textures in CUDA-8 and older are not supported by clang.There's no
+// convenient way to intercept texture use in these versions, so we can't
+// produce a meaningful error. The source code that attempts to use textures
+// will continue to fail as it does now.
+#endif // CUDA_VERSION
+#endif // __cplusplus >= 201103L && CUDA_VERSION >= 9000
+#include "texture_fetch_functions.h"
 #include "texture_indirect_functions.h"
 
 // Restore state of __CUDA_ARCH__ and __THROW we had on entry.

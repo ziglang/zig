@@ -50,6 +50,9 @@ extern "C" {
 #include <cmath>
 #include <cstdlib>
 #include <stdlib.h>
+#if __has_include("hip/hip_version.h")
+#include "hip/hip_version.h"
+#endif // __has_include("hip/hip_version.h")
 #else
 typedef __SIZE_TYPE__ size_t;
 // Define macros which are needed to declare HIP device API's without standard
@@ -74,25 +77,35 @@ typedef __SIZE_TYPE__ __hip_size_t;
 extern "C" {
 #endif //__cplusplus
 
+#if HIP_VERSION_MAJOR * 100 + HIP_VERSION_MINOR >= 405
+extern "C" __device__ unsigned long long __ockl_dm_alloc(unsigned long long __size);
+extern "C" __device__ void __ockl_dm_dealloc(unsigned long long __addr);
+__attribute__((weak)) inline __device__ void *malloc(__hip_size_t __size) {
+  return (void *) __ockl_dm_alloc(__size);
+}
+__attribute__((weak)) inline __device__ void free(void *__ptr) {
+  __ockl_dm_dealloc((unsigned long long)__ptr);
+}
+#else  // HIP version check
 #if __HIP_ENABLE_DEVICE_MALLOC__
 __device__ void *__hip_malloc(__hip_size_t __size);
 __device__ void *__hip_free(void *__ptr);
 __attribute__((weak)) inline __device__ void *malloc(__hip_size_t __size) {
   return __hip_malloc(__size);
 }
-__attribute__((weak)) inline __device__ void *free(void *__ptr) {
-  return __hip_free(__ptr);
+__attribute__((weak)) inline __device__ void free(void *__ptr) {
+  __hip_free(__ptr);
 }
 #else
 __attribute__((weak)) inline __device__ void *malloc(__hip_size_t __size) {
   __builtin_trap();
   return (void *)0;
 }
-__attribute__((weak)) inline __device__ void *free(void *__ptr) {
+__attribute__((weak)) inline __device__ void free(void *__ptr) {
   __builtin_trap();
-  return (void *)0;
 }
 #endif
+#endif // HIP version check
 
 #ifdef __cplusplus
 } // extern "C"

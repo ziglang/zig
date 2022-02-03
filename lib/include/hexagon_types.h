@@ -1177,37 +1177,6 @@ private:
 
 #endif /* __cplusplus */
 
-// V65 Silver types
-#if __Q6S_ARCH__ >= 65
-  // Silver vector types are 128 bytes, and pairs are 256. The vector predicate
-  // types are 16 bytes and 32 bytes for pairs.
-  typedef long HEXAGON_VecPred128 __attribute__((__vector_size__(16)))
-    __attribute__((aligned(128)));
-
-  typedef long HEXAGON_VecPred256 __attribute__((__vector_size__(32)))
-    __attribute__((aligned(128)));
-
-  typedef long HEXAGON_Vect1024 __attribute__((__vector_size__(128)))
-    __attribute__((aligned(128)));
-
-  typedef long HEXAGON_Vect2048 __attribute__((__vector_size__(256)))
-    __attribute__((aligned(256)));
-
-  typedef long HEXAGON_UVect1024 __attribute__((__vector_size__(128)))
-    __attribute__((aligned(4)));
-
-  typedef long HEXAGON_UVect2048 __attribute__((__vector_size__(256)))
-    __attribute__((aligned(4)));
-
-  #define Q6S_VectorPredPair HEXAGON_VecPred256
-  #define Q6S_VectorPred     HEXAGON_VecPred128
-  #define Q6S_Vector         HEXAGON_Vect1024
-  #define Q6S_VectorPair     HEXAGON_Vect2048
-  #define Q6S_UVector        HEXAGON_UVect1024
-  #define Q6S_UVectorPair    HEXAGON_UVect2048
-
-#else /* __Q6S_ARCH__ >= 65 */
-
 // V65 Vector types
 #if __HVX_ARCH__ >= 65
 #if defined __HVX__ && (__HVX_LENGTH__ == 128)
@@ -1256,7 +1225,6 @@ private:
 #endif /* defined __HVX__ &&  (__HVX_LENGTH__ == 64) */
 #endif /* defined __HVX__ && (__HVX_LENGTH__ == 128) */
 #endif /* __HVX_ARCH__ >= 65 */
-#endif /* __Q6S_ARCH__ >= 65 */
 
 /* Predicates */
 
