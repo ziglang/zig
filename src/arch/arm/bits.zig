@@ -343,11 +343,11 @@ pub const Instruction = union(enum) {
     /// which can either be content from a register or an immediate
     /// value
     pub const Operand = union(enum) {
-        Register: packed struct {
+        register: packed struct {
             rm: u4,
             shift: u8,
         },
-        Immediate: packed struct {
+        immediate: packed struct {
             imm: u8,
             rotate: u4,
         },
@@ -356,12 +356,12 @@ pub const Instruction = union(enum) {
         /// register can be shifted by a specific immediate value or
         /// by the contents of another register
         pub const Shift = union(enum) {
-            Immediate: packed struct {
+            immediate: packed struct {
                 fixed: u1 = 0b0,
                 typ: u2,
                 amount: u5,
             },
-            Register: packed struct {
+            register: packed struct {
                 fixed_1: u1 = 0b1,
                 typ: u2,
                 fixed_2: u1 = 0b0,
@@ -376,7 +376,7 @@ pub const Instruction = union(enum) {
             };
 
             pub const none = Shift{
-                .Immediate = .{
+                .immediate = .{
                     .amount = 0,
                     .typ = 0,
                 },
@@ -384,14 +384,14 @@ pub const Instruction = union(enum) {
 
             pub fn toU8(self: Shift) u8 {
                 return switch (self) {
-                    .Register => |v| @bitCast(u8, v),
-                    .Immediate => |v| @bitCast(u8, v),
+                    .register => |v| @bitCast(u8, v),
+                    .immediate => |v| @bitCast(u8, v),
                 };
             }
 
             pub fn reg(rs: Register, typ: Type) Shift {
                 return Shift{
-                    .Register = .{
+                    .register = .{
                         .rs = rs.id(),
                         .typ = @enumToInt(typ),
                     },
@@ -400,7 +400,7 @@ pub const Instruction = union(enum) {
 
             pub fn imm(amount: u5, typ: Type) Shift {
                 return Shift{
-                    .Immediate = .{
+                    .immediate = .{
                         .amount = amount,
                         .typ = @enumToInt(typ),
                     },
@@ -410,14 +410,14 @@ pub const Instruction = union(enum) {
 
         pub fn toU12(self: Operand) u12 {
             return switch (self) {
-                .Register => |v| @bitCast(u12, v),
-                .Immediate => |v| @bitCast(u12, v),
+                .register => |v| @bitCast(u12, v),
+                .immediate => |v| @bitCast(u12, v),
             };
         }
 
         pub fn reg(rm: Register, shift: Shift) Operand {
             return Operand{
-                .Register = .{
+                .register = .{
                     .rm = rm.id(),
                     .shift = shift.toU8(),
                 },
@@ -426,7 +426,7 @@ pub const Instruction = union(enum) {
 
         pub fn imm(immediate: u8, rotate: u4) Operand {
             return Operand{
-                .Immediate = .{
+                .immediate = .{
                     .imm = immediate,
                     .rotate = rotate,
                 },
@@ -447,7 +447,7 @@ pub const Instruction = union(enum) {
             return for (masks) |mask, i| {
                 if (x & mask == x) {
                     break Operand{
-                        .Immediate = .{
+                        .immediate = .{
                             .imm = @intCast(u8, std.math.rotl(u32, x, 2 * i)),
                             .rotate = @intCast(u4, i),
                         },
@@ -461,35 +461,67 @@ pub const Instruction = union(enum) {
     /// instruction. Data can be loaded from memory with either an
     /// immediate offset or an offset that is stored in some register.
     pub const Offset = union(enum) {
-        Immediate: u12,
-        Register: packed struct {
+        immediate: u12,
+        register: packed struct {
             rm: u4,
-            shift: u8,
+            fixed: u1 = 0b0,
+            stype: u2,
+            imm5: u5,
         },
 
+        pub const Shift = union(enum) {
+            /// No shift
+            none,
+            /// Logical shift left
+            lsl: u5,
+            /// Logical shift right
+            lsr: u5,
+            /// Arithmetic shift right
+            asr: u5,
+            /// Rotate right
+            ror: u5,
+            /// Rotate right one bit, with extend
+            rrx,
+        };
+
         pub const none = Offset{
-            .Immediate = 0,
+            .immediate = 0,
         };
 
         pub fn toU12(self: Offset) u12 {
             return switch (self) {
-                .Register => |v| @bitCast(u12, v),
-                .Immediate => |v| v,
+                .register => |v| @bitCast(u12, v),
+                .immediate => |v| v,
             };
         }
 
-        pub fn reg(rm: Register, shift: u8) Offset {
+        pub fn reg(rm: Register, shift: Shift) Offset {
             return Offset{
-                .Register = .{
+                .register = .{
                     .rm = rm.id(),
-                    .shift = shift,
+                    .stype = switch (shift) {
+                        .none => 0b00,
+                        .lsl => 0b00,
+                        .lsr => 0b01,
+                        .asr => 0b10,
+                        .ror => 0b11,
+                        .rrx => 0b11,
+                    },
+                    .imm5 = switch (shift) {
+                        .none => 0,
+                        .lsl => |n| n,
+                        .lsr => |n| n,
+                        .asr => |n| n,
+                        .ror => |n| n,
+                        .rrx => 0,
+                    },
                 },
             };
         }
 
         pub fn imm(immediate: u12) Offset {
             return Offset{
-                .Immediate = immediate,
+                .immediate = immediate,
             };
         }
     };
@@ -567,7 +599,7 @@ pub const Instruction = union(enum) {
         return Instruction{
             .data_processing = .{
                 .cond = @enumToInt(cond),
-                .i = @boolToInt(op2 == .Immediate),
+                .i = @boolToInt(op2 == .immediate),
                 .opcode = @enumToInt(opcode),
                 .s = s,
                 .rn = rn.id(),
@@ -681,7 +713,7 @@ pub const Instruction = union(enum) {
                 .byte_word = byte_word,
                 .up_down = @boolToInt(positive),
                 .pre_post = @boolToInt(pre_index),
-                .imm = @boolToInt(offset != .Immediate),
+                .imm = @boolToInt(offset != .immediate),
             },
         };
     }
