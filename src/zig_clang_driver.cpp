@@ -207,8 +207,6 @@ extern int cc1_main(ArrayRef<const char *> Argv, const char *Argv0,
                     void *MainAddr);
 extern int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0,
                       void *MainAddr);
-extern int cc1gen_reproducer_main(ArrayRef<const char *> Argv,
-                                  const char *Argv0, void *MainAddr);
 
 static void insertTargetAndModeArgs(const ParsedClangName &NameParts,
                                     SmallVectorImpl<const char *> &ArgVector,
@@ -318,22 +316,28 @@ static int ExecuteCC1Tool(SmallVectorImpl<const char *> &ArgV) {
   if (Tool == "-cc1as")
     return cc1as_main(makeArrayRef(ArgV).slice(2), ArgV[0],
                       GetExecutablePathVP);
-  if (Tool == "-cc1gen-reproducer")
-    return cc1gen_reproducer_main(makeArrayRef(ArgV).slice(2), ArgV[0],
-                                  GetExecutablePathVP);
   // Reject unknown tools.
   llvm::errs() << "error: unknown integrated tool '" << Tool << "'. "
                << "Valid tools include '-cc1' and '-cc1as'.\n";
   return 1;
 }
 
-int main(int Argc, const char **Argv) {
+extern "C" int ZigClang_main(int Argc, const char **Argv);
+int ZigClang_main(int Argc, const char **Argv) {
   noteBottomOfStack();
-  llvm::InitLLVM X(Argc, Argv);
+  // ZIG PATCH: On Windows, InitLLVM calls GetCommandLineW(),
+  // and overwrites the args.  We don't want it to do that,
+  // and we also don't need the signal handlers it installs
+  // (we have our own already), so we just use llvm_shutdown_obj
+  // instead.
+  // llvm::InitLLVM X(Argc, Argv);
+  llvm::llvm_shutdown_obj X;
+
   llvm::setBugReportMsg("PLEASE submit a bug report to " BUG_REPORT_URL
                         " and include the crash backtrace, preprocessed "
                         "source, and associated run script.\n");
-  SmallVector<const char *, 256> Args(Argv, Argv + Argc);
+  size_t argv_offset = (strcmp(Argv[1], "-cc1") == 0 || strcmp(Argv[1], "-cc1as") == 0) ? 0 : 1;
+  SmallVector<const char *, 256> Args(Argv + argv_offset, Argv + Argc);
 
   if (llvm::sys::Process::FixupStandardFileDescriptors())
     return 1;
@@ -432,7 +436,9 @@ int main(int Argc, const char **Argv) {
     ApplyQAOverride(Args, OverrideStr, SavedStrings);
   }
 
-  std::string Path = GetExecutablePath(Args[0], CanonicalPrefixes);
+  // Pass local param `Argv[0]` as fallback.
+  // See https://github.com/ziglang/zig/pull/3292 .
+  std::string Path = GetExecutablePath(Argv[0], CanonicalPrefixes);
 
   // Whether the cc1 tool should be called inside the current process, or if we
   // should spawn a new clang subprocess (old behavior).
