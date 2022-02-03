@@ -382,7 +382,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     // ABI such as aarch64-ios-simulator, etc.
     const requires_adhoc_codesig = cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator);
     const use_stage1 = build_options.is_stage1 and options.use_stage1;
-    const needs_prealloc = !(use_stage1 or options.cache_mode == .whole);
+    const needs_prealloc = !use_stage1;
 
     self.* = .{
         .base = .{
