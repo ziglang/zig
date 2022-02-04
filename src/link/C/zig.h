@@ -402,7 +402,7 @@ static inline float zig_bitcast_f32_u32(uint32_t arg) {
     return dest;
 }
 
-static inline float zig_bitcast_f64_u64(uint64_t arg) {
+static inline double zig_bitcast_f64_u64(uint64_t arg) {
     double dest;
     memcpy(&dest, &arg, sizeof dest);
     return dest;
