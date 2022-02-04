@@ -1290,13 +1290,39 @@ test "expectError demo" {
       A variable is a unit of {#link|Memory#} storage.
       </p>
       <p>
-      Variables are never allowed to shadow identifiers from an outer scope.
-      </p>
-      <p>
       It is generally preferable to use {#syntax#}const{#endsyntax#} rather than
       {#syntax#}var{#endsyntax#} when declaring a variable. This causes less work for both
       humans and computers to do when reading code, and creates more optimization opportunities.
       </p>
+
+      {#header_open|Identifiers#}
+      <p>
+      Variable identifiers are never allowed to shadow identifiers from an outer scope.
+      </p>
+      <p>
+      Identifiers must start with an alphabetic character or underscore and may be followed
+      by any number of alphanumeric characters or underscores.
+      They must not overlap with any keywords. See {#link|Keyword Reference#}.
+      </p>
+      <p>
+      If a name that does not fit these requirements is needed, such as for linking with external libraries, the {#syntax#}@""{#endsyntax#} syntax may be used.
+      </p>
+      {#code_begin|syntax#}
+const @"identifier with spaces in it" = 0xff;
+const @"1SmallStep4Man" = 112358;
+
+const c = @import("std").c;
+pub extern "c" fn @"error"() anyopaque;
+pub extern "c" fn @"fstat$INODE64"(fd: c.fd_t, buf: *c.Stat) c_int;
+
+const Color = enum {
+  red,
+  @"really red",
+};
+const color: Color = .@"really red";
+      {#code_end#}
+      {#header_close#}
+
       {#header_open|Container Level Variables#}
       <p>
       Container level variables have static lifetime and are order-independent and lazily analyzed.
@@ -1481,7 +1507,7 @@ fn divide(a: i32, b: i32) i32 {
       </p>
       <p>
       Operators such as {#syntax#}+{#endsyntax#} and {#syntax#}-{#endsyntax#} cause undefined behavior on
-      integer overflow. Alternative operators are provided for wrapping and saturating arithmetic on all targets.  
+      integer overflow. Alternative operators are provided for wrapping and saturating arithmetic on all targets.
       {#syntax#}+%{#endsyntax#} and {#syntax#}-%{#endsyntax#} perform wrapping arithmetic
       while {#syntax#}+|{#endsyntax#} and {#syntax#}-|{#endsyntax#} perform saturating arithmetic.
       </p>
@@ -2488,32 +2514,32 @@ test "null terminated array" {
       or using the shorthand function {#syntax#}std.meta.Vector{#endsyntax#}.
       </p>
       <p>
-      Vectors support the same builtin operators as their underlying base types. These operations are performed 
+      Vectors support the same builtin operators as their underlying base types. These operations are performed
       element-wise, and return a vector of the same length as the input vectors. This includes:
       </p>
       <ul>
-          <li>Arithmetic ({#syntax#}+{#endsyntax#}, {#syntax#}-{#endsyntax#}, {#syntax#}/{#endsyntax#}, {#syntax#}*{#endsyntax#}, 
-                         {#syntax#}@divFloor{#endsyntax#}, {#syntax#}@sqrt{#endsyntax#}, {#syntax#}@ceil{#endsyntax#}, 
+          <li>Arithmetic ({#syntax#}+{#endsyntax#}, {#syntax#}-{#endsyntax#}, {#syntax#}/{#endsyntax#}, {#syntax#}*{#endsyntax#},
+                         {#syntax#}@divFloor{#endsyntax#}, {#syntax#}@sqrt{#endsyntax#}, {#syntax#}@ceil{#endsyntax#},
                          {#syntax#}@log{#endsyntax#}, etc.)</li>
-          <li>Bitwise operators ({#syntax#}>>{#endsyntax#}, {#syntax#}<<{#endsyntax#}, {#syntax#}&{#endsyntax#}, 
+          <li>Bitwise operators ({#syntax#}>>{#endsyntax#}, {#syntax#}<<{#endsyntax#}, {#syntax#}&{#endsyntax#},
                                  {#syntax#}|{#endsyntax#}, {#syntax#}~{#endsyntax#}, etc.)</li>
           <li>Comparison operators ({#syntax#}<{#endsyntax#}, {#syntax#}>{#endsyntax#}, {#syntax#}=={#endsyntax#}, etc.)</li>
       </ul>
       <p>
-      It is prohibited to use a math operator on a mixture of scalars (individual numbers) and vectors. 
-      Zig provides the {#link|@splat#} builtin to easily convert from scalars to vectors, and it supports {#link|@reduce#} 
-      and array indexing syntax to convert from vectors to scalars. Vectors also support assignment to and from 
+      It is prohibited to use a math operator on a mixture of scalars (individual numbers) and vectors.
+      Zig provides the {#link|@splat#} builtin to easily convert from scalars to vectors, and it supports {#link|@reduce#}
+      and array indexing syntax to convert from vectors to scalars. Vectors also support assignment to and from
       fixed-length arrays with comptime known length.
       </p>
       <p>
       For rearranging elements within and between vectors, Zig provides the {#link|@shuffle#} and {#link|@select#} functions.
       </p>
       <p>
-      Operations on vectors shorter than the target machine's native SIMD size will typically compile to single SIMD 
-      instructions, while vectors longer than the target machine's native SIMD size will compile to multiple SIMD 
-      instructions. If a given operation doesn't have SIMD support on the target architecture, the compiler will default 
-      to operating on each vector element one at a time. Zig supports any comptime-known vector length up to 2^32-1, 
-      although small powers of two (2-64) are most typical. Note that excessively long vector lengths (e.g. 2^20) may 
+      Operations on vectors shorter than the target machine's native SIMD size will typically compile to single SIMD
+      instructions, while vectors longer than the target machine's native SIMD size will compile to multiple SIMD
+      instructions. If a given operation doesn't have SIMD support on the target architecture, the compiler will default
+      to operating on each vector element one at a time. Zig supports any comptime-known vector length up to 2^32-1,
+      although small powers of two (2-64) are most typical. Note that excessively long vector lengths (e.g. 2^20) may
       result in compiler crashes on current versions of Zig.
       </p>
       {#code_begin|test|vector_example#}
@@ -2563,7 +2589,7 @@ test "Conversion between vectors, arrays, and slices" {
       TODO consider suggesting std.MultiArrayList
       </p>
       {#see_also|@splat|@shuffle|@select|@reduce#}
-      
+
       {#header_close#}
 
       {#header_open|Pointers#}
@@ -2981,8 +3007,8 @@ test "null terminated slice" {
 }
       {#code_end#}
       <p>
-      Sentinel-terminated slices can also be created using a variation of the slice syntax 
-      {#syntax#}data[start..end :x]{#endsyntax#}, where {#syntax#}data{#endsyntax#} is a many-item pointer, 
+      Sentinel-terminated slices can also be created using a variation of the slice syntax
+      {#syntax#}data[start..end :x]{#endsyntax#}, where {#syntax#}data{#endsyntax#} is a many-item pointer,
       array or slice and {#syntax#}x{#endsyntax#} is the sentinel value.
       </p>
       {#code_begin|test|null_terminated_slicing#}
@@ -2999,7 +3025,7 @@ test "null terminated slicing" {
 }
       {#code_end#}
       <p>
-      Sentinel-terminated slicing asserts that the element in the sentinel position of the backing data is 
+      Sentinel-terminated slicing asserts that the element in the sentinel position of the backing data is
       actually the sentinel value. If this is not the case, safety-protected {#link|Undefined Behavior#} results.
       </p>
       {#code_begin|test_safety|sentinel mismatch#}
@@ -3008,10 +3034,10 @@ const expect = std.testing.expect;
 
 test "sentinel mismatch" {
     var array = [_]u8{ 3, 2, 1, 0 };
-    
-    // Creating a sentinel-terminated slice from the array with a length of 2 
-    // will result in the value `1` occupying the sentinel element position. 
-    // This does not match the indicated sentinel value of `0` and will lead 
+
+    // Creating a sentinel-terminated slice from the array with a length of 2
+    // will result in the value `1` occupying the sentinel element position.
+    // This does not match the indicated sentinel value of `0` and will lead
     // to a runtime panic.
     var runtime_length: usize = 2;
     const slice = array[0..runtime_length :0];
@@ -3159,7 +3185,7 @@ test "linked list" {
         .last = &node,
         .len = 1,
     };
-    
+
     // When using a pointer to a struct, fields can be accessed directly,
     // without explicitly dereferencing the pointer.
     // So you can do
@@ -3491,7 +3517,7 @@ fn dump(args: anytype) !void {
       </p>
       <p>
       The fields are implicitly named using numbers starting from 0. Because their names are integers,
-      the {#syntax#}@"0"{#endsyntax#} syntax must be used to access them. Names inside {#syntax#}@""{#endsyntax#} are always recognised as identifiers.
+      the {#syntax#}@"0"{#endsyntax#} syntax must be used to access them. Names inside {#syntax#}@""{#endsyntax#} are always recognised as {#link|identifiers|Identifiers#}.
       </p>
       <p>
       Like arrays, tuples have a .len field, can be indexed and  work with the ++ and ** operators. They can also be iterated over with {#link|inline for#}.
@@ -3980,7 +4006,7 @@ test "labeled break from labeled block expression" {
       {#see_also|Labeled while|Labeled for#}
 
       {#header_open|Shadowing#}
-      <p>Identifiers are never allowed to "hide" other identifiers by using the same name:</p>
+      <p>{#link|Identifiers#} are never allowed to "hide" other identifiers by using the same name:</p>
       {#code_begin|test_err|local shadows declaration#}
 const pi = 3.14;
 
@@ -3992,8 +4018,8 @@ test "inside test block" {
 }
       {#code_end#}
       <p>
-      Because of this, when you read Zig code you can always rely on an identifier to consistently mean 
-      the same thing within the scope it is defined. Note that you can, however, use the same name if 
+      Because of this, when you read Zig code you can always rely on an identifier to consistently mean
+      the same thing within the scope it is defined. Note that you can, however, use the same name if
       the scopes are separate:
       </p>
       {#code_begin|test|test_scopes#}
@@ -4031,7 +4057,7 @@ test "switch simple" {
         1, 2, 3 => 0,
 
         // Ranges can be specified using the ... syntax. These are inclusive
-        // both ends.
+        // of both ends.
         5...100 => 1,
 
         // Branches can be arbitrarily complex.
@@ -4803,7 +4829,7 @@ test "errdefer unwinding" {
       </p>
       {#header_open|Basics#}
       {#code_begin|test|test_unreachable#}
-// unreachable is used to assert that control flow will never happen upon a
+// unreachable is used to assert that control flow will never reach a
 // particular location:
 test "basic math" {
     const x = 1;
@@ -6771,8 +6797,7 @@ test "variable values" {
       generic data structure.
       </p>
       <p>
-      Here is an example of a generic {#syntax#}List{#endsyntax#} data structure, that we will instantiate with
-          the type {#syntax#}i32{#endsyntax#}. In Zig we refer to the type as {#syntax#}List(i32){#endsyntax#}.
+			Here is an example of a generic {#syntax#}List{#endsyntax#} data structure.
       </p>
       {#code_begin|syntax#}
 fn List(comptime T: type) type {
@@ -6781,27 +6806,46 @@ fn List(comptime T: type) type {
         len: usize,
     };
 }
-      {#code_end#}
-      <p>
-      That's it. It's a function that returns an anonymous {#syntax#}struct{#endsyntax#}. For the purposes of error messages
-          and debugging, Zig infers the name {#syntax#}"List(i32)"{#endsyntax#} from the function name and parameters invoked when creating
-      the anonymous struct.
-      </p>
-      <p>
-      To keep the language small and uniform, all aggregate types in Zig are anonymous. To give a type
-      a name, we assign it to a constant:
-      </p>
-      {#code_begin|syntax#}
-const Node = struct {
-    next: *Node,
-    name: []u8,
+
+// The generic List data structure can be instantiated by passing in a type:
+var buffer: [10]i32 = undefined;
+var list = List(i32){
+    .items = &buffer,
+    .len = 0,
 };
       {#code_end#}
       <p>
-      This works because all top level declarations are order-independent, and as long as there isn't
-      an actual infinite regression, values can refer to themselves, directly or indirectly. In this case,
-      {#syntax#}Node{#endsyntax#} refers to itself as a pointer, which is not actually an infinite regression, so
-      it works fine.
+      That's it. It's a function that returns an anonymous {#syntax#}struct{#endsyntax#}.
+      To keep the language small and uniform, all aggregate types in Zig are anonymous.
+      For the purposes of error messages and debugging, Zig infers the name
+      {#syntax#}"List(i32)"{#endsyntax#} from the function name and parameters invoked when creating
+      the anonymous struct.
+      </p>
+      <p>
+      To explicitly give a type a name, we assign it to a constant.
+      </p>
+      {#code_begin|syntax#}
+const Node = struct {
+    next: ?*Node,
+    name: []const u8,
+};
+
+var node_a = Node{
+    .next = null,
+    .name = &"Node A",
+};
+
+var node_b = Node{
+    .next = &node_a,
+    .name = &"Node B",
+};
+      {#code_end#}
+      <p>
+      In this example, the {#syntax#}Node{#endsyntax#} struct refers to itself.
+      This works because all top level declarations are order-independent.
+      As long as the compiler can determine the size of the struct, it is free to refer to itself.
+      In this case, {#syntax#}Node{#endsyntax#} refers to itself as a pointer, which has a
+      well-defined size at compile time, so it works fine.
       </p>
       {#header_close#}
       {#header_open|Case Study: print in Zig#}
@@ -7214,10 +7258,10 @@ test "global assembly" {
       provided explicitly by the caller, and it can be suspended and resumed any number of times.
       </p>
       <p>
-      The code following the {#syntax#}async{#endsyntax#} callsite runs immediately after the async 
-      function first suspends. When the return value of the async function is needed, 
-      the calling code can {#syntax#}await{#endsyntax#} on the async function frame. 
-      This will suspend the calling code until the async function completes, at which point 
+      The code following the {#syntax#}async{#endsyntax#} callsite runs immediately after the async
+      function first suspends. When the return value of the async function is needed,
+      the calling code can {#syntax#}await{#endsyntax#} on the async function frame.
+      This will suspend the calling code until the async function completes, at which point
       execution resumes just after the {#syntax#}await{#endsyntax#} callsite.
       </p>
       <p>
@@ -7327,8 +7371,8 @@ fn testResumeFromSuspend(my_result: *i32) void {
       in standard code.
       </p>
       <p>
-      However, it is possible to have an {#syntax#}async{#endsyntax#} call 
-      without a matching {#syntax#}await{#endsyntax#}. Upon completion of the async function, 
+      However, it is possible to have an {#syntax#}async{#endsyntax#} call
+      without a matching {#syntax#}await{#endsyntax#}. Upon completion of the async function,
       execution would continue at the most recent {#syntax#}async{#endsyntax#} callsite or {#syntax#}resume{#endsyntax#} callsite,
       and the return value of the async function would be lost.
       </p>
@@ -7365,8 +7409,8 @@ fn func() void {
       </p>
       <p>
       {#syntax#}await{#endsyntax#} is a suspend point, and takes as an operand anything that
-      coerces to {#syntax#}anyframe->T{#endsyntax#}. Calling {#syntax#}await{#endsyntax#} on 
-      the frame of an async function will cause execution to continue at the 
+      coerces to {#syntax#}anyframe->T{#endsyntax#}. Calling {#syntax#}await{#endsyntax#} on
+      the frame of an async function will cause execution to continue at the
       {#syntax#}await{#endsyntax#} callsite once the target function completes.
       </p>
       <p>
@@ -8291,8 +8335,8 @@ fn internalName() callconv(.C) void {}
       {#code_begin|obj#}
 export fn foo() void {}
       {#code_end#}
-      <p>Note that even when using {#syntax#}export{#endsyntax#}, {#syntax#}@"foo"{#endsyntax#} syntax can
-      be used to choose any string for the symbol name:</p>
+      <p>Note that even when using {#syntax#}export{#endsyntax#}, the {#syntax#}@"foo"{#endsyntax#} syntax for
+      {#link|identifiers|Identifiers#} can be used to choose any string for the symbol name:</p>
       {#code_begin|obj#}
 export fn @"A function name that is a complete sentence."() void {}
       {#code_end#}
@@ -8591,7 +8635,9 @@ test "integer cast panic" {
       {#header_open|@intToPtr#}
       <pre>{#syntax#}@intToPtr(comptime DestType: type, address: usize) DestType{#endsyntax#}</pre>
       <p>
-      Converts an integer to a {#link|pointer|Pointers#}. To convert the other way, use {#link|@ptrToInt#}.
+      Converts an integer to a {#link|pointer|Pointers#}. To convert the other way, use {#link|@ptrToInt#}. Casting an address of 0 to a destination type
+      which in not {#link|optional|Optional Pointers#} and does not have the {#syntax#}allowzero{#endsyntax#} attribute will result in a
+      {#link|Pointer Cast Invalid Null#} panic when runtime safety checks are enabled.
       </p>
       <p>
       If the destination pointer type does not allow address zero and {#syntax#}address{#endsyntax#}
@@ -8705,7 +8751,8 @@ test "@wasmMemoryGrow" {
       <pre>{#syntax#}@mod(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Modulus division. For unsigned integers this is the same as
-      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}.
+      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}, otherwise the
+      operation will result in a {#link|Remainder Division by Zero#} when runtime safety checks are enabled.
       </p>
       <ul>
           <li>{#syntax#}@mod(-5, 3) == 1{#endsyntax#}</li>
@@ -8723,7 +8770,7 @@ test "@wasmMemoryGrow" {
                   If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       {#header_close#}
-      
+
       {#header_open|@panic#}
       <pre>{#syntax#}@panic(message: []const u8) noreturn{#endsyntax#}</pre>
       <p>
@@ -8830,7 +8877,8 @@ pub const PrefetchOptions = struct {
       <pre>{#syntax#}@rem(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Remainder division. For unsigned integers this is the same as
-      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}.
+      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}, otherwise the
+      operation will result in a {#link|Remainder Division by Zero#} when runtime safety checks are enabled.
       </p>
       <ul>
           <li>{#syntax#}@rem(-5, 3) == -2{#endsyntax#}</li>
@@ -8872,14 +8920,14 @@ pub const PrefetchOptions = struct {
       {#header_close#}
 
       {#header_open|@setCold#}
-      <pre>{#syntax#}@setCold(is_cold: bool){#endsyntax#}</pre>
+      <pre>{#syntax#}@setCold(comptime is_cold: bool){#endsyntax#}</pre>
       <p>
       Tells the optimizer that a function is rarely called.
       </p>
       {#header_close#}
 
       {#header_open|@setEvalBranchQuota#}
-      <pre>{#syntax#}@setEvalBranchQuota(new_quota: u32){#endsyntax#}</pre>
+      <pre>{#syntax#}@setEvalBranchQuota(comptime new_quota: u32){#endsyntax#}</pre>
       <p>
       Changes the maximum number of backwards branches that compile-time code
       execution can use before giving up and making a compile error.
@@ -8914,7 +8962,7 @@ test "foo" {
       {#header_close#}
 
       {#header_open|@setFloatMode#}
-      <pre>{#syntax#}@setFloatMode(mode: @import("std").builtin.FloatMode){#endsyntax#}</pre>
+      <pre>{#syntax#}@setFloatMode(comptime mode: @import("std").builtin.FloatMode){#endsyntax#}</pre>
       <p>
       Sets the floating point mode of the current scope. Possible values are:
       </p>
@@ -8949,7 +8997,7 @@ pub const FloatMode = enum {
       {#header_close#}
 
       {#header_open|@setRuntimeSafety#}
-      <pre>{#syntax#}@setRuntimeSafety(safety_on: bool) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@setRuntimeSafety(comptime safety_on: bool) void{#endsyntax#}</pre>
       <p>
       Sets whether runtime safety checks are enabled for the scope that contains the function call.
       </p>
@@ -9010,7 +9058,7 @@ test "@setRuntimeSafety" {
       </p>
       {#see_also|@shlExact|@shrExact#}
       {#header_close#}
-      
+
       {#header_open|@shrExact#}
       <pre>{#syntax#}@shrExact(value: T, shift_amt: Log2T) T{#endsyntax#}</pre>
       <p>
@@ -9341,7 +9389,7 @@ fn doTheTest() !void {
                   If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       {#header_close#}
-      
+
       {#header_open|@tagName#}
       <pre>{#syntax#}@tagName(value: anytype) [:0]const u8{#endsyntax#}</pre>
       <p>
