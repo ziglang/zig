@@ -3,7 +3,12 @@
 set -x
 set -e
 
+pip install s3cmd
+s3cmd --version
+
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
+  pip install s3cmd
+  
   cd "$ZIGBUILDDIR"
 
   mv ../LICENSE dist/
