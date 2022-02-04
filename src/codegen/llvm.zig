@@ -2050,7 +2050,19 @@ pub const FuncGen = struct {
                 .shr                => try self.airShr(inst, false),
                 .shr_exact          => try self.airShr(inst, true),
 
-                .sqrt => try self.airSqrt(inst),
+                .sqrt         => try self.airUnaryOp(inst, "llvm.sqrt"),
+                .sin          => try self.airUnaryOp(inst, "llvm.sin"),
+                .cos          => try self.airUnaryOp(inst, "llvm.cos"),
+                .exp          => try self.airUnaryOp(inst, "llvm.exp"),
+                .exp2         => try self.airUnaryOp(inst, "llvm.exp2"),
+                .log          => try self.airUnaryOp(inst, "llvm.log"),
+                .log2         => try self.airUnaryOp(inst, "llvm.log2"),
+                .log10        => try self.airUnaryOp(inst, "llvm.log10"),
+                .fabs         => try self.airUnaryOp(inst, "llvm.fabs"),
+                .floor        => try self.airUnaryOp(inst, "llvm.floor"),
+                .ceil         => try self.airUnaryOp(inst, "llvm.ceil"),
+                .round        => try self.airUnaryOp(inst, "llvm.round"),
+                .trunc_float  => try self.airUnaryOp(inst, "llvm.trunc"),
 
                 .cmp_eq  => try self.airCmp(inst, .eq),
                 .cmp_gt  => try self.airCmp(inst, .gt),
@@ -4213,7 +4225,7 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airSqrt(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+    fn airUnaryOp(self: *FuncGen, inst: Air.Inst.Index, llvm_fn_name: []const u8) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
         const un_op = self.air.instructions.items(.data)[inst].un_op;
@@ -4221,7 +4233,7 @@ pub const FuncGen = struct {
         const operand_ty = self.air.typeOf(un_op);
 
         const operand_llvm_ty = try self.dg.llvmType(operand_ty);
-        const fn_val = self.getIntrinsic("llvm.sqrt", &.{operand_llvm_ty});
+        const fn_val = self.getIntrinsic(llvm_fn_name, &.{operand_llvm_ty});
         const params = [_]*const llvm.Value{operand};
 
         return self.builder.buildCall(fn_val, &params, params.len, .C, .Auto, "");

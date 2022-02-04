@@ -3308,6 +3308,390 @@ pub const Value = extern union {
         }
     }
 
+    pub fn sin(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @sin(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @sin(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @sin(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt sin for f80");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @sin(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt sin for f128");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @sin(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn cos(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @cos(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @cos(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @cos(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt cos for f80");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @cos(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt cos for f128");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @cos(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn exp(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @exp(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @exp(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @exp(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt exp for f80");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @exp(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt exp for f128");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @exp(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn exp2(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @exp2(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @exp2(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @exp2(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt exp2 for f80");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @exp2(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt exp2 for f128");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @exp2(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn log(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @log(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @log(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @log(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt log for f80");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @log(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt log for f128");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @log(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn log2(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @log2(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @log2(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @log2(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt log2 for f80");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @log2(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt log2 for f128");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @log2(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn log10(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @log10(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @log10(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @log10(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt log10 for f80");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @log10(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt log10 for f128");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @log10(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn fabs(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @fabs(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @fabs(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @fabs(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt fabs for f80");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @fabs(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt fabs for f128");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @fabs(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn floor(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @floor(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @floor(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @floor(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt floor for f80");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @floor(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt floor for f128");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @floor(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn ceil(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @ceil(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @ceil(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @ceil(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt ceil for f80");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @ceil(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt ceil for f128");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @ceil(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn round(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @round(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @round(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @round(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt round for f80");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @round(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt round for f128");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @round(f));
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn trunc(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+        switch (float_type.floatBits(target)) {
+            16 => {
+                const f = val.toFloat(f16);
+                return Value.Tag.float_16.create(arena, @trunc(f));
+            },
+            32 => {
+                const f = val.toFloat(f32);
+                return Value.Tag.float_32.create(arena, @trunc(f));
+            },
+            64 => {
+                const f = val.toFloat(f64);
+                return Value.Tag.float_64.create(arena, @trunc(f));
+            },
+            80 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt trunc for f80");
+                }
+                const f = val.toFloat(f80);
+                return Value.Tag.float_80.create(arena, @trunc(f));
+            },
+            128 => {
+                if (true) {
+                    @panic("TODO implement compiler_rt trunc for f128");
+                }
+                const f = val.toFloat(f128);
+                return Value.Tag.float_128.create(arena, @trunc(f));
+            },
+            else => unreachable,
+        }
+    }
+
     /// This type is not copyable since it may contain pointers to its inner data.
     pub const Payload = struct {
         tag: Tag,

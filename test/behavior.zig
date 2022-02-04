@@ -150,7 +150,6 @@ test {
                     _ = @import("behavior/const_slice_child.zig");
                     _ = @import("behavior/export_self_referential_type_info.zig");
                     _ = @import("behavior/field_parent_ptr.zig");
-                    _ = @import("behavior/floatop_stage1.zig");
                     _ = @import("behavior/fn_delegation.zig");
                     _ = @import("behavior/ir_block_deps.zig");
                     _ = @import("behavior/misc.zig");

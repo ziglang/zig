@@ -1446,7 +1446,20 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .mul_sat => try airSatOp(f, inst, "muls_"),
             .shl_sat => try airSatOp(f, inst, "shls_"),
 
-            .sqrt => try airSqrt(f, inst),
+            .sqrt,
+            .sin,
+            .cos,
+            .exp,
+            .exp2,
+            .log,
+            .log2,
+            .log10,
+            .fabs,
+            .floor,
+            .ceil,
+            .round,
+            .trunc_float,
+            => |tag| return f.fail("TODO: C backend: implement unary op for tag '{s}'", .{@tagName(tag)}),
 
             .add_with_overflow => try airAddWithOverflow(f, inst),
             .sub_with_overflow => try airSubWithOverflow(f, inst),
@@ -3393,12 +3406,6 @@ fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
         @enumToInt(prefetch.rw), prefetch.locality,
     });
     return CValue.none;
-}
-
-fn airSqrt(f: *Function, inst: Air.Inst.Index) !CValue {
-    _ = f;
-    _ = inst;
-    return f.fail("TODO: C backend: implement sqrt", .{});
 }
 
 fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {

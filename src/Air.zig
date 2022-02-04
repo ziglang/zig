@@ -237,9 +237,45 @@ pub const Inst = struct {
         /// Uses the `ty_op` field.
         popcount,
 
-        /// Computes the square root of a floating point number.
+        /// Square root of a floating point number.
         /// Uses the `un_op` field.
         sqrt,
+        /// Sine a floating point number.
+        /// Uses the `un_op` field.
+        sin,
+        /// Cosine a floating point number.
+        /// Uses the `un_op` field.
+        cos,
+        /// Base e exponential of a floating point number.
+        /// Uses the `un_op` field.
+        exp,
+        /// Base 2 exponential of a floating point number.
+        /// Uses the `un_op` field.
+        exp2,
+        /// Natural (base e) logarithm of a floating point number.
+        /// Uses the `un_op` field.
+        log,
+        /// Base 2 logarithm of a floating point number.
+        /// Uses the `un_op` field.
+        log2,
+        /// Base 10 logarithm of a floating point number.
+        /// Uses the `un_op` field.
+        log10,
+        /// Aboslute value of a floating point number.
+        /// Uses the `un_op` field.
+        fabs,
+        /// Floor: rounds a floating pointer number down to the nearest integer.
+        /// Uses the `un_op` field.
+        floor,
+        /// Ceiling: rounds a floating pointer number up to the nearest integer.
+        /// Uses the `un_op` field.
+        ceil,
+        /// Rounds a floating pointer number to the nearest integer.
+        /// Uses the `un_op` field.
+        round,
+        /// Rounds a floating pointer number to the nearest integer towards zero.
+        /// Uses the `un_op` field.
+        trunc_float,
 
         /// `<`. Result type is always bool.
         /// Uses the `bin_op` field.
@@ -754,7 +790,20 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .max,
         => return air.typeOf(datas[inst].bin_op.lhs),
 
-        .sqrt => return air.typeOf(datas[inst].un_op),
+        .sqrt,
+        .sin,
+        .cos,
+        .exp,
+        .exp2,
+        .log,
+        .log2,
+        .log10,
+        .fabs,
+        .floor,
+        .ceil,
+        .round,
+        .trunc_float,
+        => return air.typeOf(datas[inst].un_op),
 
         .cmp_lt,
         .cmp_lte,
