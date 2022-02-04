@@ -176,7 +176,7 @@ fn make(step: *Step) !void {
 
     const argv = argv_list.items;
 
-    if (!os.can_spawn()) {
+    if (!os.can_spawn) {
         std.debug.print("Unable to spawn {s}: the current OS doesn't support it\n", .{argv[0]});
         return;
     }

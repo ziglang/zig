@@ -6510,7 +6510,7 @@ pub fn perf_event_open(
 
 /// Return if the current OS can spawn or not.
 /// This is useful to enable compiling Zig to WASI, where spawn is not available.
-const can_spawn = switch (builtin.os.tag) {
+pub const can_spawn = switch (builtin.os.tag) {
     .wasi => false,
     else => true,
 };
